@@ -29,6 +29,10 @@ Worktrees are named as: PROJECT-NAME-BRANCH-NAME"
   :type 'directory
   :group 'activities-extensions)
 
+(defvar activities-ext--current-activity-name nil
+  "Temporary storage for activity name during creation flow.
+Set by `activities-ext-create' and used by transient actions.")
+
 (defcustom activities-ext-prompt-for-org-roam t
   "Prompt to create org-roam document when creating activities."
   :type 'boolean
@@ -120,39 +124,39 @@ Returns list of project paths (absolute directory paths)."
        t    ; require-match
        ))))
 
-(defun activities-ext--prompt-git-action (project-path)
-  "Prompt user for git action on PROJECT-PATH.
+(defun activities-ext--prompt-git-action (project-path branch-name)
+  "Prompt user for git action on PROJECT-PATH using BRANCH-NAME.
 Returns plist with :action, :branch, :worktree, :created keys.
-:action can be 'branch, 'worktree, or nil."
+:action can be 'branch, 'worktree, or nil.
+BRANCH-NAME is the sanitized activity name to use for branch/worktree."
   (let* ((project-name (file-name-nondirectory
                        (directory-file-name project-path)))
          (action (intern
                   (completing-read
-                   (format "Git action for %s: " project-name)
+                   (format "Git action for %s (will use: %s): " project-name branch-name)
                    '("nothing" "branch" "worktree")
                    nil t nil nil "nothing")))
          (action (if (eq action 'nothing) nil action))
          (result (list :action action :branch nil :worktree nil :created nil)))
 
-    (message "DEBUG: action=%S for project=%s" action project-name)
+    (message "DEBUG: action=%S for project=%s with branch=%s" action project-name branch-name)
 
     (when action
-      (let ((branch-name (read-string
-                         (format "Branch name for %s: " project-name))))
-        (plist-put result :branch branch-name)
+      ;; Use the provided branch-name instead of prompting
+      (plist-put result :branch branch-name)
 
-        (cond
-         ((eq action 'branch)
-          (message "DEBUG: Creating branch %s in %s" branch-name project-path)
-          (let ((created (activities-ext--create-branch project-path branch-name)))
-            (plist-put result :created created)))
+      (cond
+       ((eq action 'branch)
+        (message "DEBUG: Creating branch %s in %s" branch-name project-path)
+        (let ((created (activities-ext--create-branch project-path branch-name)))
+          (plist-put result :created created)))
 
-         ((eq action 'worktree)
-          (message "DEBUG: Creating worktree for branch %s in %s" branch-name project-path)
-          (let ((worktree-path (activities-ext--create-worktree project-path branch-name)))
-            (when worktree-path
-              (plist-put result :worktree worktree-path)
-              (plist-put result :created t)))))))
+       ((eq action 'worktree)
+        (message "DEBUG: Creating worktree for branch %s in %s" branch-name project-path)
+        (let ((worktree-path (activities-ext--create-worktree project-path branch-name)))
+          (when worktree-path
+            (plist-put result :worktree worktree-path)
+            (plist-put result :created t))))))
 
     (message "DEBUG: git result=%S" result)
     result))
@@ -303,8 +307,8 @@ Each project is stored as an org heading with properties for programmatic access
         "")
      "No projects associated.\n\n")
    "* Tasks\n\n"
-   "- [ ] Task 1\n"
-   "- [ ] Task 2\n\n"
+   "** TODO Task 1\n"
+   "** TODO Task 2\n\n"
    "* Notes\n\n"
    "* Session Log\n\n"
    (format "** Session: %s\n\n"
@@ -395,10 +399,20 @@ Plist with keys: :name, :projects, :create-org-roam.")
                    'face 'transient-value)
       (propertize "none" 'face 'transient-inactive-value))))
 
+(defun activities-ext-create ()
+  "Create an extended activity with projects and documentation.
+Prompts for activity name first, then opens transient for project selection."
+  (interactive)
+  (let ((name (read-string "Activity name: ")))
+    (when (string-empty-p (string-trim name))
+      (user-error "Activity name cannot be empty"))
+    (setq activities-ext--current-activity-name name)
+    (activities-ext-create-transient)))
+
 (transient-define-prefix activities-ext-create-transient ()
-  "Create extended activity with projects and documentation."
+  "Select projects and options for new activity.
+Activity name has already been captured."
   ["Configuration"
-   ("-n" "Activity name" "name=" :class transient-option)
    ("-p" "Select projects" activities-ext--select-projects-infix)]
   ["Documentation"
    ("-d" "Create org-roam document" "--org-roam")]
@@ -415,13 +429,13 @@ Plist with keys: :name, :projects, :create-org-roam.")
 
 (defun activities-ext--create-action (&optional args)
   "Create activity with transient ARGS.
-Main action function called from transient menu."
+Main action function called from transient menu.
+Uses the activity name stored in `activities-ext--current-activity-name'."
   (interactive (list (transient-args 'activities-ext-create-transient)))
 
-  ;; Parse arguments - projects come as a list in args, not as key=value
-  (let* ((name-arg (transient-arg-value "name=" args))
-         (activity-name (or name-arg
-                           (read-string "Activity name: ")))
+  ;; Get activity name from stored variable
+  (let* ((activity-name activities-ext--current-activity-name)
+         (sanitized-name (activities-ext--slugify activity-name))
          ;; Find the list element in args (that's the projects)
          (project-paths (cl-find-if #'listp args))
          (create-org-roam (member "--org-roam" args))
@@ -430,10 +444,11 @@ Main action function called from transient menu."
 
     ;; Debug output
     (message "DEBUG: args=%S" args)
+    (message "DEBUG: activity-name=%s sanitized=%s" activity-name sanitized-name)
     (message "DEBUG: project-paths=%S" project-paths)
 
-    (when (string-empty-p activity-name)
-      (user-error "Activity name cannot be empty"))
+    (unless activity-name
+      (user-error "No activity name provided"))
 
     ;; Process projects if selected
     (when project-paths
@@ -441,7 +456,8 @@ Main action function called from transient menu."
         (let* ((project-path (string-trim project-path))
                (project-name (file-name-nondirectory
                             (directory-file-name project-path)))
-               (git-result (activities-ext--prompt-git-action project-path))
+               ;; Pass sanitized name to git action prompt
+               (git-result (activities-ext--prompt-git-action project-path sanitized-name))
                (proj-plist (list :path project-path
                                 :name project-name
                                 :branch (plist-get git-result :branch)
@@ -540,15 +556,19 @@ Reports status in minibuffer and creates detailed report buffer."
     (message "No projects in current activity")))
 
 (defun activities-ext-add-project ()
-  "Add a project to the current activity."
+  "Add a project to the current activity.
+Uses the sanitized activity name for branch/worktree creation."
   (interactive)
   (if-let ((activity (activities-ext--current-activity)))
-      (let* ((project-path (completing-read "Select project to add: "
+      (let* ((activity-name (activities-activity-name activity))
+             (sanitized-name (activities-ext--slugify activity-name))
+             (project-path (completing-read "Select project to add: "
                                            (projectile-known-projects)
                                            nil t))
              (project-name (file-name-nondirectory
                            (directory-file-name project-path)))
-             (git-result (activities-ext--prompt-git-action project-path))
+             ;; Pass sanitized activity name for branch/worktree
+             (git-result (activities-ext--prompt-git-action project-path sanitized-name))
              (proj-plist (list :path project-path
                              :name project-name
                              :branch (plist-get git-result :branch)
@@ -563,11 +583,11 @@ Reports status in minibuffer and creates detailed report buffer."
         (plist-put ext-data :projects projects)
         (activities-ext--set-metadata activity ext-data)
 
-        (message "Added project %s to activity" project-name))
+        (message "Added project %s to activity with branch %s" project-name sanitized-name))
     (message "No active activity")))
 
 ;; Use global keybindings since activities uses :bind in use-package
-(global-set-key (kbd "C-x C-a C-e") 'activities-ext-create-transient)
+(global-set-key (kbd "C-x C-a C-e") 'activities-ext-create)
 (global-set-key (kbd "C-x C-a p") 'activities-ext-show-projects)
 (global-set-key (kbd "C-x C-a d") 'activities-ext-open-document)
 (global-set-key (kbd "C-x C-a v") 'activities-ext-validate)
