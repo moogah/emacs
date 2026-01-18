@@ -28,6 +28,63 @@ A modular, literate Emacs configuration that runs completely isolated from syste
 
 On first launch, packages will be installed to `runtime/packages/` via straight.el.
 
+## Using Worktrees for Testing
+
+One of the key benefits of this isolated configuration is the ability to use **git worktrees** for testing configuration changes without affecting your main setup. Each worktree gets its own `runtime/` directory with independent packages, cache, and state.
+
+### Creating a Test Worktree
+
+```bash
+# From the main emacs directory
+cd ~/emacs
+git worktree add ~/emacs-testing -b testing-new-features
+```
+
+Or as a subdirectory:
+```bash
+git worktree add emacs-testing -b testing-new-features
+```
+
+### Using the Worktree
+
+Each worktree runs completely independently:
+
+```bash
+cd ~/emacs-testing  # or ~/emacs/emacs-testing
+./bin/emacs-isolated.sh
+```
+
+**What happens:**
+- The worktree uses its own `~/emacs-testing/runtime/` directory
+- Packages are installed fresh (or use straight.el's cache)
+- No conflicts with your main configuration
+- Changes to the testing branch don't affect main
+- You can run both instances simultaneously
+
+### Testing New Features
+
+1. **Create worktree** for your experiment
+2. **Make changes** to config files in the worktree
+3. **Test thoroughly** in the isolated environment
+4. **Merge back** to main when stable:
+   ```bash
+   git checkout main
+   git merge testing-new-features
+   ```
+5. **Clean up** worktree when done:
+   ```bash
+   git worktree remove emacs-testing
+   git branch -d testing-new-features
+   ```
+
+### Worktree Tips
+
+- Each worktree's `runtime/` is gitignored (never committed)
+- The `jf/emacs-dir` variable dynamically resolves to the worktree's root
+- Config files (`.org` and `.el`) are version controlled
+- Worktrees share the same `.git` repository (efficient storage)
+- You can have multiple worktrees active simultaneously
+
 ## Directory Structure
 
 ```
