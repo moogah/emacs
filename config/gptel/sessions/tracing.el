@@ -1,0 +1,162 @@
+;; -*- lexical-binding: t; -*-
+(require 'cl-lib)
+
+(defun jf/gptel--create-trace (session-id agent-type description prompt &optional parent-trace-id)
+  "Create new agent trace entry in session.
+Looks up session from registry, updates metadata, returns trace-id."
+  (when-let* ((session-data (jf/gptel--get-session-data session-id))
+              (metadata (plist-get session-data :metadata)))
+    (let* ((trace-counter (plist-get session-data :trace-counter))
+           (trace-id (format "trace-%d" (cl-incf trace-counter)))
+           (trace-stack (plist-get session-data :trace-stack))
+           (depth (length trace-stack))
+           (trace (list :trace_id trace-id
+                       :agent_type agent-type
+                       :description description
+                       :prompt_preview (substring prompt 0 (min 200 (length prompt)))
+                       :timestamp_start (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+                       :timestamp_end nil
+                       :status "running"
+                       :parent_trace_id parent-trace-id
+                       :depth depth
+                       :tool_calls []
+                       :associated_nodes nil)))
+      ;; Update registry: increment counter, push to stack
+      (jf/gptel--update-session-data session-id :trace-counter trace-counter)
+      (jf/gptel--update-session-data session-id :trace-stack (cons trace-id trace-stack))
+
+      ;; Add to metadata's agent_traces array
+      (let ((traces (plist-get metadata :agent_traces)))
+        (plist-put metadata :agent_traces
+                   (vconcat traces (vector trace))))
+
+      ;; Write metadata to disk (incremental)
+      (let ((session-dir (plist-get session-data :directory)))
+        (jf/gptel--write-metadata session-dir metadata))
+
+      trace-id)))
+
+(defun jf/gptel--complete-trace (session-id trace-id status)
+  "Mark trace as completed, pop from stack."
+  (when-let* ((session-data (jf/gptel--get-session-data session-id))
+              (metadata (plist-get session-data :metadata))
+              (traces (plist-get metadata :agent_traces)))
+    ;; Find and update the trace
+    (let ((trace (cl-find-if (lambda (tr)
+                              (equal (plist-get tr :trace_id) trace-id))
+                            (append traces nil))))
+      (when trace
+        (plist-put trace :timestamp_end (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (plist-put trace :status status)
+
+        ;; Pop from trace stack in registry
+        (let ((trace-stack (plist-get session-data :trace-stack)))
+          (jf/gptel--update-session-data session-id :trace-stack
+                                        (remove trace-id trace-stack)))
+
+        ;; Write metadata to disk
+        (let ((session-dir (plist-get session-data :directory)))
+          (jf/gptel--write-metadata session-dir metadata))))))
+
+(defun jf/gptel--current-trace-id (session-id)
+  "Get current trace ID (top of stack) from session."
+  (when-let ((session-data (jf/gptel--get-session-data session-id)))
+    (car (plist-get session-data :trace-stack))))
+
+(defun jf/gptel--record-tool-call (session-id trace-id tool-name args result)
+  "Record tool call incrementally to metadata.json."
+  (when-let* ((session-data (jf/gptel--get-session-data session-id))
+              (metadata (plist-get session-data :metadata))
+              (traces (plist-get metadata :agent_traces)))
+    ;; Find the trace
+    (let ((trace (cl-find-if (lambda (tr)
+                              (equal (plist-get tr :trace_id) trace-id))
+                            (append traces nil))))
+      (when trace
+        ;; Create tool call entry
+        (let ((tool-call (list :tool_name tool-name
+                              :args args
+                              :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+                              :result_preview (jf/gptel--preview-string result 200))))
+          ;; Append to trace's tool_calls
+          (let ((calls (plist-get trace :tool_calls)))
+            (plist-put trace :tool_calls (vconcat calls (vector tool-call)))))
+
+        ;; Write metadata immediately (incremental recording)
+        (let ((session-dir (plist-get session-data :directory)))
+          (jf/gptel--write-metadata session-dir metadata))))))
+
+(defun jf/gptel--preview-string (obj &optional max-len)
+  "Create preview string from OBJ (string, list, etc)."
+  (let* ((max-len (or max-len 200))
+         (str (cond
+               ((stringp obj) obj)
+               ((listp obj) (format "%S" obj))
+               (t (format "%s" obj)))))
+    (if (> (length str) max-len)
+        (concat (substring str 0 max-len) "...")
+      str)))
+
+(defun jf/gptel--save-trace-message (session-id trace-id message-type content &optional metadata)
+  "Save a message to trace directory.
+MESSAGE-TYPE is 'prompt', 'message', 'response', or 'result'.
+CONTENT is the message text.
+METADATA is optional plist with :timestamp, :tokens, :tool_calls, etc."
+  (when-let* ((session-data (jf/gptel--get-session-data session-id))
+              (session-dir (plist-get session-data :directory)))
+    (let* ((trace-dir (expand-file-name (format "traces/%s" trace-id) session-dir))
+           (metadata-file (expand-file-name "metadata.json" trace-dir))
+           ;; Count existing message files to get next ID
+           (message-files (when (file-directory-p trace-dir)
+                           (directory-files trace-dir nil "^\\(message\\|response\\)-[0-9]+\\.txt$")))
+           (next-id (if message-files (length message-files) 0))
+           (file-name (pcase message-type
+                       ('prompt "prompt.txt")
+                       ('result "result.txt")
+                       ('message (format "message-%d.txt" next-id))
+                       ('response (format "response-%d.txt" next-id))))
+           (file-path (expand-file-name file-name trace-dir)))
+
+      ;; Create trace directory if needed
+      (make-directory trace-dir t)
+
+      ;; Save message content
+      (with-temp-file file-path
+        (insert content))
+
+      ;; Update trace metadata
+      (let* ((trace-metadata (if (file-exists-p metadata-file)
+                                (with-temp-buffer
+                                  (insert-file-contents metadata-file)
+                                  (let ((json-object-type 'plist)
+                                        (json-array-type 'vector)
+                                        (json-key-type 'keyword))
+                                    (json-read)))
+                              ;; Initialize if doesn't exist
+                              (list :trace_id trace-id
+                                    :messages []
+                                    :tool_calls []
+                                    :total_tokens 0)))
+             (messages (plist-get trace-metadata :messages))
+             (new-message (list :id file-name
+                               :file file-name
+                               :timestamp (or (plist-get metadata :timestamp)
+                                            (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+                               :tokens (or (plist-get metadata :tokens) 0))))
+        ;; Add optional fields
+        (when (plist-get metadata :tool_calls)
+          (plist-put new-message :tool_calls (plist-get metadata :tool_calls)))
+
+        ;; Append to messages array
+        (plist-put trace-metadata :messages
+                   (vconcat messages (vector new-message)))
+
+        ;; Update total tokens
+        (plist-put trace-metadata :total_tokens
+                   (+ (or (plist-get trace-metadata :total_tokens) 0)
+                      (or (plist-get metadata :tokens) 0)))
+
+        ;; Write updated metadata
+        (with-temp-file metadata-file
+          (let ((json-encoding-pretty-print t))
+            (insert (json-encode trace-metadata))))))))

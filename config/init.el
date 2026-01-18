@@ -121,7 +121,9 @@ Handles both 'dir/name' format and 'name' format."
     ("major-modes/org"    "Org-mode configuration")
     ("major-modes/org-roam" "Org-roam knowledge management")
     ("major-modes/dirvish" "Enhanced directory viewer")
-    ("major-modes/gpt"    "LLM/AI integration")
+
+    ;; GPTEL - LLM/AI integration (moved from major-modes)
+    ("gptel/gptel"        "GPTEL LLM/AI integration")
     )
   "List of enabled modules with their paths and descriptions.")
 

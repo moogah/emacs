@@ -1,0 +1,235 @@
+#+title: GPTEL Session Metadata
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle metadata.el
+#+auto_tangle: y
+
+* Introduction
+
+Session metadata provides persistent storage of conversation structure and state.
+The metadata is stored as JSON on disk and includes:
+- Session identification (session_id, model, backend, timestamps)
+- Conversation tree structure (supporting branching conversations)
+- Current conversation path
+- Agent execution traces
+
+This module provides:
+- Metadata creation, reading, and writing (CRUD operations)
+- Tree structure manipulation (add nodes, find leaves, navigate paths)
+- Metadata validation
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+(require 'cl-lib)
+(require 'json)
+#+end_src
+
+* Metadata Creation
+
+#+begin_src emacs-lisp
+(defun jf/gptel--create-metadata (session-dir session-id model backend)
+  "Create initial metadata structure for a new session.
+SESSION-DIR is the directory path, SESSION-ID is the session identifier,
+MODEL is the model symbol, BACKEND is the backend name."
+  (list :session_id session-id
+        :model (symbol-name model)
+        :backend backend
+        :created (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+        :tree (list :id "root"
+                    :children [])
+        :current_path ["root"]
+        :agent_traces []))
+#+end_src
+
+* Metadata Reading
+
+#+begin_src emacs-lisp
+(defun jf/gptel--read-metadata (session-dir)
+  "Read metadata.json from SESSION-DIR.
+Returns metadata plist or nil if file doesn't exist."
+  (let ((metadata-file (expand-file-name "metadata.json" session-dir)))
+    (when (file-exists-p metadata-file)
+      (condition-case nil
+          (let ((json-object-type 'plist)
+                (json-array-type 'vector)
+                (json-key-type 'keyword))
+            (json-read-file metadata-file))
+        (error nil)))))
+#+end_src
+
+* Metadata Writing
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-metadata (session-dir metadata)
+  "Write METADATA plist to metadata.json in SESSION-DIR."
+  (let ((metadata-file (expand-file-name "metadata.json" session-dir))
+        (json-encoding-pretty-print t))
+    (with-temp-file metadata-file
+      (insert (json-encode metadata)))))
+#+end_src
+
+* Metadata Validation
+
+#+begin_src emacs-lisp
+(defun jf/gptel--validate-metadata (metadata)
+  "Validate metadata structure. Returns t if valid, nil otherwise."
+  (and (plist-get metadata :session_id)
+       (plist-get metadata :model)
+       (plist-get metadata :backend)
+       (plist-get metadata :tree)
+       (vectorp (plist-get metadata :current_path))))
+#+end_src
+
+* Tree Operations
+
+** Add Tree Node
+
+#+begin_src emacs-lisp
+(defun jf/gptel--add-tree-node (tree parent-path node-id node-type filename preview)
+  "Add a new node to TREE at PARENT-PATH.
+NODE-ID is the node identifier, NODE-TYPE is 'message' or 'response',
+FILENAME is the file containing this node's content,
+PREVIEW is a short preview of the content.
+Returns the updated tree."
+  (let ((new-node (list :id node-id
+                        :type (symbol-name node-type)
+                        :file filename
+                        :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+                        :preview preview
+                        :children [])))
+    (if (equal parent-path ["root"])
+        ;; Add to root's children
+        (let ((children (plist-get tree :children)))
+          (plist-put tree :children
+                     (vconcat children (vector new-node)))
+          tree)
+      ;; Navigate to parent and add
+      (jf/gptel--add-node-at-path tree (cl-coerce parent-path 'list) new-node 1)
+      tree)))
+#+end_src
+
+** Add Node at Path
+
+#+begin_src emacs-lisp
+(defun jf/gptel--add-node-at-path (node path new-child depth)
+  "Navigate to parent node in TREE following PATH and add NEW-CHILD.
+DEPTH tracks current position in path (skipping 'root').
+Mutates tree in place."
+  (if (>= depth (length path))
+      ;; At parent, add child
+      (let ((children (plist-get node :children)))
+        (plist-put node :children
+                   (vconcat children (vector new-child))))
+    ;; Navigate deeper
+    (let* ((target-id (nth depth path))
+           (children (plist-get node :children))
+           (found nil))
+      (cl-dotimes (i (length children))
+        (unless found
+          (let ((child (aref children i)))
+            (when (equal (plist-get child :id) target-id)
+              (jf/gptel--add-node-at-path child path new-child (1+ depth))
+              (setq found t))))))))
+#+end_src
+
+** Find Leaf Nodes
+
+#+begin_src emacs-lisp
+(defun jf/gptel--find-leaf-nodes (tree &optional path)
+  "Find all leaf nodes in TREE.
+Returns list of (path . node) pairs where path is vector of node IDs."
+  (let* ((current-path (or path ["root"]))
+         (children (plist-get tree :children)))
+    (if (or (null children)
+            (and (vectorp children) (zerop (length children))))
+        ;; This is a leaf - only return if not the root with no children
+        (if (equal current-path ["root"])
+            nil  ; Empty tree, return empty list
+          (list (cons current-path tree)))
+      ;; Recurse into children
+      (apply #'append
+             (mapcar
+              (lambda (child)
+                (jf/gptel--find-leaf-nodes
+                 child
+                 (vconcat current-path (vector (plist-get child :id)))))
+              (append children nil))))))
+#+end_src
+
+** Get Conversation Path
+
+#+begin_src emacs-lisp
+(defun jf/gptel--get-conversation-path (metadata)
+  "Get the current conversation path from METADATA.
+Returns vector of node IDs representing the current branch."
+  (plist-get metadata :current_path))
+#+end_src
+
+** Get Next Message ID
+
+#+begin_src emacs-lisp
+(defun jf/gptel--get-next-message-id (metadata)
+  "Get the next message ID from METADATA.
+Returns format 'message-N' or 'message-N-altM' for forks."
+  (let* ((current-path (plist-get metadata :current_path))
+         (last-node-id (when (> (length current-path) 1)
+                         (aref current-path (1- (length current-path)))))
+         ;; Extract number from last node (e.g., "response-2" -> 2)
+         (last-num (when last-node-id
+                     (if (string-match "\\([0-9]+\\)" (format "%s" last-node-id))
+                         (string-to-number (match-string 1 (format "%s" last-node-id)))
+                       0)))
+         (next-num (if last-num (1+ last-num) 1)))
+    (format "message-%d" next-num)))
+#+end_src
+
+** Find Node by Path
+
+#+begin_src emacs-lisp
+(defun jf/gptel--find-node-by-path (tree path)
+  "Find node in TREE by following PATH (vector of node IDs)."
+  (if (or (null path) (equal path ["root"]))
+      tree
+    (jf/gptel--find-node-recursive tree (cl-coerce path 'list) 1)))
+#+end_src
+
+** Find Node Recursive Helper
+
+#+begin_src emacs-lisp
+(defun jf/gptel--find-node-recursive (tree path depth)
+  "Recursively find node in TREE following PATH at DEPTH."
+  (if (>= depth (length path))
+      tree
+    (let* ((target-id (nth depth path))
+           (children (plist-get tree :children))
+           (found nil))
+      (seq-doseq (child children)
+        (when (equal (plist-get child :id) (format "%s" target-id))
+          (setq found (jf/gptel--find-node-recursive child path (1+ depth)))))
+      found)))
+#+end_src
+
+* Update Metadata Tree
+
+#+begin_src emacs-lisp
+(defun jf/gptel--update-metadata-tree (msg-id msg-file msg-preview resp-id resp-file resp-preview)
+  "Update metadata tree with new message and response nodes."
+  (let* ((tree (plist-get jf/gptel--session-metadata :tree))
+         (current-path (plist-get jf/gptel--session-metadata :current_path)))
+
+    (message "DEBUG update-tree: msg-id=%s, current-path=%S" msg-id current-path)
+
+    ;; Add message node
+    (jf/gptel--add-tree-node tree current-path msg-id 'message msg-file msg-preview)
+    ;; Add response node (child of message)
+    (let* ((new-msg-path (vconcat current-path (vector msg-id))))
+      (jf/gptel--add-tree-node tree new-msg-path resp-id 'response resp-file resp-preview)
+      ;; Update current path
+      (let ((new-path (vconcat new-msg-path (vector resp-id))))
+        (plist-put jf/gptel--session-metadata :current_path new-path)
+        (message "DEBUG update-tree: new current-path=%S" new-path)))
+
+    ;; Write to disk
+    (jf/gptel--write-metadata jf/gptel--session-dir jf/gptel--session-metadata)))
+#+end_src

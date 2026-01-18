@@ -1,6 +1,6 @@
 #+title: GPTel Skills Roam System (Org-Roam Integration)
 #+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle gptel-skills-roam.el
+#+property: header-args:emacs-lisp :tangle skills-roam.el
 #+auto_tangle: y
 
 * Introduction

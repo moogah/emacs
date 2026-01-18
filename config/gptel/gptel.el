@@ -1,0 +1,209 @@
+;; -*- lexical-binding: t; -*-
+(require 'cl-lib)
+
+;;  (use-package shell-maker
+;;    :straight (shell-maker :type git :host github :repo "xenodium/shell-maker" :files ("shell-maker.el")))
+;;
+;;  ; add :build (:not compile) if byte code has problems
+;;  (use-package chatgpt-shell
+;;    :requires shell-maker
+;;    :straight (:host github :repo "xenodium/chatgpt-shell" :files ("*.el") :build (:not compile)))
+;;
+;;  (setq chatgpt-shell-openai-key
+;;        (lambda ()
+;;          (auth-source-pick-first-password :host "api.openai.com")))
+;;
+;;  ;;(setq chatgpt-shell-model-version "gpt-4o")
+
+(use-package gptel
+  :straight t
+  :custom
+  (gptel-model 'gpt-4o) ;; model is now a symbol, not a string
+  (gptel-log-level 'debug) ;; Enable debug logging for testing
+  :config
+  ;; Enable prompt caching for Anthropic models
+  (setq gptel-cache t)
+  ;; Enable expert commands to show advanced options in transient menu
+  (setq gptel-expert-commands t)
+  ;; Configure Perplexity backend
+  (gptel-make-perplexity "Perplexity"
+    :key (lambda () (auth-source-pick-first-password :host "api.perplexity.ai"))
+    :stream t)
+
+  ;; Configure Anthropic backend with curated Claude 4.5 models
+  ;; Includes lightweight (Haiku), balanced (Sonnet), and heavyweight (Opus) options
+  (gptel-make-anthropic "Claude"
+    :stream t
+    :key (lambda () (auth-source-pick-first-password :host "api.anthropic.com"))
+    :models '(claude-haiku-4-5-20251001      ; Fast & economical for simple tasks
+              claude-sonnet-4-5-20250929     ; Balanced for most use cases
+              claude-opus-4-5-20251101))     ; Most capable for complex reasoning
+
+  ;; Configure Claude Sonnet 4.5 with extended thinking mode for complex problems
+  ;; Thinking mode provides detailed reasoning before answering
+  (gptel-make-anthropic "Claude-thinking"
+    :key (lambda () (auth-source-pick-first-password :host "api.anthropic.com"))
+    :stream t
+    :models '(claude-sonnet-4-5-20250929)
+    :header (lambda ()
+              (let ((key (gptel--get-api-key
+                          (lambda () (auth-source-pick-first-password :host "api.anthropic.com")))))
+                `(("x-api-key" . ,key)
+                  ("anthropic-version" . "2023-06-01")
+                  ("anthropic-beta" . "pdfs-2024-09-25")
+                  ("anthropic-beta" . "output-128k-2025-02-19")
+                  ("anthropic-beta" . "prompt-caching-2024-07-31"))))
+    :request-params '(:thinking (:type "enabled" :budget_tokens 2048)
+                      :max_tokens 4096))
+
+  ;; Configure ChatGPT/OpenAI backend
+  (gptel-make-openai "ChatGPT"
+    :key (lambda () (auth-source-pick-first-password :host "api.openai.com"))
+    :stream t
+    :models '(gpt-4o gpt-4o-mini gpt-4-turbo gpt-3.5-turbo)))
+
+;; Load skills system (core, org-roam integration, transient UI)
+(jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/skills/skills-roam.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/skills/skills-transient.el" jf/emacs-dir))
+
+(use-package gptel-agent
+  :straight t
+  :after gptel
+  :demand t
+  :config
+  ;; Add our custom agent directory to the scan path
+  (add-to-list 'gptel-agent-dirs
+               (expand-file-name "config/gptel/agents/" jf/emacs-dir))
+
+  ;; Load custom tools BEFORE agent update so agents can reference them
+  (jf/load-module (expand-file-name "config/gptel/tools/filesystem-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/projectile-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/ggtags-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/treesitter-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/org-roam-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
+
+  ;; Scan and register agents from all configured directories
+  (gptel-agent-update)
+
+  ;; Enable Agent tool by default for all gptel sessions
+  ;; This allows the main LLM to delegate tasks to specialized agents
+  (setq-default gptel-tools (list (gptel-get-tool "Agent"))))
+
+(defun jf/gptel-agent--expand-skills (system-text)
+  "Expand @skill mentions in SYSTEM-TEXT using gptel-skills.
+Returns updated system text with skill content injected.
+If skills system not loaded or no mentions found, returns text unchanged."
+  (if (and (fboundp 'jf/gptel-skills--detect-mentions)
+           (boundp 'jf/gptel-skills--registry)
+           (string-match-p "@" system-text))
+      (with-temp-buffer
+        (insert system-text)
+        (let* ((mentions-data (jf/gptel-skills--detect-mentions (current-buffer)))
+               (skill-names (mapcar #'car mentions-data)))
+          (when skill-names
+            ;; For each unique skill, replace @mention with content
+            (dolist (skill-name (delete-dups skill-names))
+              (let* ((metadata (gethash skill-name jf/gptel-skills--registry))
+                     (skill-path (plist-get metadata :path))
+                     (skill-content (when skill-path
+                                     (jf/gptel-skills--parse-content skill-path))))
+                (when skill-content
+                  (goto-char (point-min))
+                  (while (re-search-forward
+                          (concat "@" (regexp-quote skill-name) "\\>")
+                          nil t)
+                    (replace-match skill-content t t))))))
+          (buffer-string)))
+    ;; No skills system or no mentions - return unchanged
+    system-text))
+
+(defun jf/gptel-agent--expand-all-agent-skills ()
+  "Expand @skill mentions in all registered agent system prompts.
+Run this after gptel-agent-update to inject skill content into agents."
+  (when (and (boundp 'gptel-agent--agents)
+             (fboundp 'jf/gptel-skills--discover))
+    ;; Ensure skills are discovered first
+    (jf/gptel-skills--discover)
+
+    ;; Process each agent
+    (dolist (agent-entry gptel-agent--agents)
+      (let* ((agent-name (car agent-entry))
+             (plist (cdr agent-entry))
+             (system (plist-get plist :system)))
+        (when (and system (stringp system))
+          (let ((expanded (jf/gptel-agent--expand-skills system)))
+            (unless (string= expanded system)
+              (plist-put plist :system expanded)
+              (when jf/gptel-skills-verbose
+                (message "Expanded skills in agent: %s" agent-name)))))))))
+
+;; Hook into gptel-agent-update to auto-expand skills
+(with-eval-after-load 'gptel-agent
+  (advice-add 'gptel-agent-update :after #'jf/gptel-agent--expand-all-agent-skills))
+
+;; Disable confirmation for Agent tool (subagent invocations)
+;; The Agent tool by default has :confirm t, but we trust our subagents
+(with-eval-after-load 'gptel-agent-tools
+  (when-let ((agent-tool (gptel-get-tool "Agent")))
+    (setf (gptel-tool-confirm agent-tool) nil)
+    (message "Disabled confirmation for Agent tool")))
+
+;; Load session modules in dependency order
+(jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/tracing.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/hooks.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
+
+(defun jf/gptel-launcher ()
+  "Launch gptel session with a selected backend and model.
+Prompts for display method, then backend:model selection using
+completing-read with all available options from gptel's configuration."
+  (interactive)
+  ;; First, ask where to display the buffer
+  (let* ((display-options '(("Current window" . current)
+                            ("New tab" . tab)
+                            ("Split window" . split)))
+         (display-choice (completing-read "Where to open? "
+                                          (mapcar #'car display-options)
+                                          nil t nil nil "Current window"))
+         (display-method (cdr (assoc display-choice display-options)))
+         ;; Build models-alist similar to gptel--infix-provider
+         (models-alist
+          (cl-loop
+           for (name . backend) in gptel--known-backends
+           nconc (cl-loop for model in (gptel-backend-models backend)
+                          collect (list (concat name ":" (gptel--model-name model))
+                                        backend model))))
+         (selected (completing-read "Select model: "
+                                     (mapcar #'car models-alist)
+                                     nil t))
+         (choice (assoc selected models-alist))
+         (backend (nth 1 choice))
+         (model (nth 2 choice))
+         (buffer-name (format "*gptel-%s*" (replace-regexp-in-string ":" "-" selected)))
+         ;; Create buffer without displaying it (pass nil for interactivep)
+         ;; Note: When interactivep is t, gptel calls (display-buffer) with
+         ;; gptel-display-buffer-action, which would display the buffer before
+         ;; we can control where it goes. By passing nil, we handle all display
+         ;; logic ourselves based on the user's selection.
+         (buffer (gptel buffer-name nil nil nil)))
+    ;; Display buffer based on user's choice
+    (pcase display-method
+      ('split (pop-to-buffer buffer))
+      ('tab (tab-bar-new-tab)
+            (switch-to-buffer buffer))
+      ('current (switch-to-buffer buffer)))
+    ;; Set backend and model as buffer-local
+    (with-current-buffer buffer
+      (setq-local gptel-backend backend)
+      (setq-local gptel-model model))))
+
+;; Keybinding for gptel launcher
+;; Direct access with <SPC> l
+(with-eval-after-load 'gptel
+  (evil-define-key 'normal 'global (kbd "<SPC> l") 'jf/gptel-launcher))

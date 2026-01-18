@@ -1,6 +1,6 @@
 #+title: GPtel Skills Transient Menu
 #+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle gptel-skills-transient.el
+#+property: header-args:emacs-lisp :tangle skills-transient.el
 #+auto_tangle: y
 
 * Introduction
