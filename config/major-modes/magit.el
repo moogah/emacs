@@ -11,8 +11,15 @@
   (setq magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)
   ;; Restore window configuration when quitting magit
   (setq magit-bury-buffer-function 'magit-restore-window-configuration)
+  ;; Sort branches by most recent commit (works for commits and tags)
+  (setq magit-list-refs-sortby "-creatordate")
   ;; Show worktree summary in status buffer
-  (add-hook 'magit-status-sections-hook 'magit-insert-worktrees))
+  (add-hook 'magit-status-sections-hook 'magit-insert-worktrees)
+  ;; Show local branches in status buffer
+  (magit-add-section-hook 'magit-status-sections-hook
+                          'magit-insert-local-branches
+                          'magit-insert-stashes
+                          'append))
 
 (use-package magit-pre-commit
   :straight (:host github :repo "DamianB-BitFlipper/magit-pre-commit.el")
