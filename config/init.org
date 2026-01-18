@@ -146,11 +146,11 @@ Define which modules to load and in what order.
     ;; Feature modules
     ("look-and-feel/look-and-feel" "UI appearance and behavior")
 
-    ;; Language mode modules
-    ("language-modes/language-modes" "Programming language modes")
-
-    ;; Transient - must load before magit (overrides built-in version)
+    ;; Transient - must load before magit and docker (overrides built-in version)
     ("transient" "Transient menu system (newer than built-in)")
+
+    ;; Language mode modules (docker.el requires transient, so load transient first)
+    ("language-modes/language-modes" "Programming language modes")
 
     ;; Major mode modules
     ("major-modes/magit"  "Git interface")
