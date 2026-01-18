@@ -124,8 +124,7 @@ Wraps callback to intercept and save responses during subagent execution."
                           ((consp response) (format "cons:%s" (car response)))
                           (t (format "other:%s" (type-of response))))
                          trace-id session-id)
-                 ;; Capture streaming text responses only
-                 ;; Tool calls are now captured via jf/gptel--capture-tool-calls advice
+                 ;; Capture streaming text and tool completions
                  (cond
                   ;; String response (final or chunk)
                   ((and (stringp response) trace-id)
@@ -136,6 +135,22 @@ Wraps callback to intercept and save responses during subagent execution."
                       (list :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
                             ;; TODO: Extract token count from response metadata if available
                             :tokens 0))))
+
+                  ;; Tool results - capture completed tool calls from FSM info
+                  ((and (consp response) (eq (car response) 'tool-result))
+                   (when-let* ((tool-use (plist-get info :tool-use)))
+                     (if trace-id
+                         (message "DEBUG capture: Capturing %d completed tools for trace %s"
+                                  (length tool-use) trace-id)
+                       (message "DEBUG capture: Capturing %d completed tools for session %s"
+                                (length tool-use) session-id))
+                     (dolist (tool-call tool-use)
+                       (when (plist-get tool-call :result)
+                         (message "DEBUG capture: Recording tool %s (id=%s)%s"
+                                  (plist-get tool-call :name)
+                                  (plist-get tool-call :id)
+                                  (if trace-id (format " in trace %s" trace-id) " in main conversation"))
+                         (jf/gptel--record-complete-tool-call session-id trace-id tool-call)))))
 
                   ;; Stream end marker
                   ((and (eq response t) trace-id)
@@ -283,36 +298,6 @@ Returns list of plists in chronological order."
             (setq scan-pt pt)))))
     (nreverse context)))
 
-(defun jf/gptel--capture-tool-calls (orig-fn fsm)
-  "Advice to capture tool calls after execution in gptel--handle-tool-use.
-Runs AFTER tools execute, when tool-call plists have :result populated."
-  ;; Call original function first to execute tools
-  (funcall orig-fn fsm)
-
-  ;; Now capture the completed tool calls
-  (when-let* ((info (gptel-fsm-info fsm))
-              (tool-use (plist-get info :tool-use))
-              (context (plist-get info :context))
-              ;; Extract session-id from context
-              (session-id (cond
-                           ((null context) nil)
-                           ((overlayp context) (overlay-get context 'jf/session-id))
-                           ((and (listp context) (keywordp (car context)))
-                            (plist-get context :session-id))
-                           (t nil))))
-    ;; Get trace-id if we're in a trace
-    (let ((trace-id (jf/gptel--current-trace-id session-id)))
-      (message "DEBUG capture-tool-calls: session-id=%s, trace-id=%s, tool-use count=%d"
-               session-id trace-id (length tool-use))
-
-      ;; Iterate through all tool calls that have results
-      (dolist (tool-call tool-use)
-        (when (plist-get tool-call :result)
-          (message "DEBUG capture-tool-calls: Recording tool %s (id=%s)"
-                   (plist-get tool-call :name)
-                   (plist-get tool-call :id))
-          (jf/gptel--record-complete-tool-call session-id trace-id tool-call))))))
-
 ;; Install advice after packages load
 (with-eval-after-load 'gptel-agent
   (advice-add 'gptel-agent--task :around #'jf/gptel--trace-agent-task))
@@ -322,11 +307,7 @@ Runs AFTER tools execute, when tool-call plists have :result populated."
   ;; capture-subagent-messages must run AFTER inject-session-context has added session-id
   ;; So we add inject-session-context LAST (it will run first in the chain)
   (advice-add 'gptel-request :around #'jf/gptel--capture-subagent-messages)
-  (advice-add 'gptel-request :around #'jf/gptel--inject-session-context)
-
-  ;; Capture tool calls after execution (gptel--handle-tool-use)
-  ;; This runs after tools execute and have :result populated
-  (advice-add 'gptel--handle-tool-use :around #'jf/gptel--capture-tool-calls))
+  (advice-add 'gptel-request :around #'jf/gptel--inject-session-context))
 
 ;; Install auto-save hook
 (with-eval-after-load 'gptel

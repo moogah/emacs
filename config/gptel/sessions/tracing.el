@@ -131,9 +131,44 @@ If TRACE-ID is nil, records to session-level. Otherwise records to trace."
         (let ((calls (or (plist-get metadata :session_tool_calls) [])))
           (plist-put metadata :session_tool_calls (vconcat calls (vector tool-call)))))
 
-      ;; Write metadata immediately
+      ;; Write session metadata immediately
       (let ((session-dir (plist-get session-data :directory)))
-        (jf/gptel--write-metadata session-dir metadata)))))
+        (jf/gptel--write-metadata session-dir metadata))
+
+      ;; Also update trace directory metadata if this is a trace
+      (when trace-id
+        (when-let* ((session-dir (plist-get session-data :directory))
+                    (trace-dir (expand-file-name (format "traces/%s" trace-id) session-dir))
+                    (metadata-file (expand-file-name "metadata.json" trace-dir)))
+          (let* ((trace-metadata (if (file-exists-p metadata-file)
+                                    (with-temp-buffer
+                                      (insert-file-contents metadata-file)
+                                      (goto-char (point-min))
+                                      (json-read))
+                                  ;; Initial structure as alist (compatible with json-read output)
+                                  (list (cons 'trace_id trace-id)
+                                        (cons 'messages [])
+                                        (cons 'tool_calls [])
+                                        (cons 'total_tokens 0))))
+                 ;; Use alist-get since json-read returns alist
+                 (tool-calls (alist-get 'tool_calls trace-metadata))
+                 ;; Convert tool-call plist to alist for JSON encoding
+                 (tool-call-alist
+                  (list (cons 'tool_use_id (plist-get tool-call :tool_use_id))
+                        (cons 'tool_name (plist-get tool-call :tool_name))
+                        (cons 'timestamp (plist-get tool-call :timestamp))
+                        (cons 'args_str (plist-get tool-call :args_str))
+                        (cons 'result_preview (plist-get tool-call :result_preview))
+                        (cons 'result_file (plist-get tool-call :result_file))
+                        (cons 'error (plist-get tool-call :error)))))
+            ;; Update tool_calls in alist using setf
+            (setf (alist-get 'tool_calls trace-metadata)
+                  (vconcat tool-calls (vector tool-call-alist)))
+            ;; Write updated trace metadata
+            (make-directory trace-dir t)
+            (with-temp-file metadata-file
+              (let ((json-encoding-pretty-print t))
+                (insert (json-encode trace-metadata))))))))))
 
 (defun jf/gptel--preview-string (obj &optional max-len)
   "Create preview string from OBJ (string, list, etc)."
