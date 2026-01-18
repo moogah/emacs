@@ -5,8 +5,8 @@
 ;; ===============================================================================
 
 (use-package marginalia
-  :straight (marginalia :host github :repo "minad/marginalia") 
-  bind (
+  :straight (marginalia :host github :repo "minad/marginalia")
+  :bind (
    :map minibuffer-local-map
         ("M-A" . marginalia-cycle))
   :init
