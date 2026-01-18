@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(./bin/tangle-org.sh:*)",
+      "Bash(/Applications/Emacs.app/Contents/MacOS/Emacs:*)"
+    ]
+  }
+}

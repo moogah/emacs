@@ -23,6 +23,3 @@ runtime/packages/*
 
 # OS
 .DS_Store
-
-# Claude Code settings
-.claude/
