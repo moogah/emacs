@@ -99,6 +99,114 @@ cd ~/emacs-testing
 - Worktrees share the same `.git` repository (efficient storage)
 - You can have multiple worktrees active simultaneously
 
+## Release Management for Production Use
+
+This configuration uses a **three-tier architecture** similar to how operating systems manage stable vs development versions:
+
+### Architecture
+
+```
+~/emacs/          - Development (main branch)
+                    Active development, potentially unstable
+
+~/emacs-testing/  - Testing (feature branches)
+                    Experiments and new features
+
+~/emacs-stable/   - Production (release tags)
+                    Vetted releases for daily use
+                    Host OS points here for primary Emacs
+```
+
+### Current Release Structure
+
+**Release Candidates** - Tested features, needs production validation
+- `v0.2.0-rc1` - GPTEL reorganization, worktree support (current)
+
+**Stable Releases** - Thoroughly tested, production-ready
+- `v0.1.0-beta` - Initial working configuration
+
+**Development** - Active work on main branch
+
+### Setting Up Production Worktree
+
+The `emacs-stable` worktree is already configured at `v0.2.0-rc1`:
+
+```bash
+# Already created:
+# git worktree add ~/emacs-stable -b stable/v0.2.0-rc1 v0.2.0-rc1
+
+# Verify:
+cd ~/emacs-stable
+git log --oneline --decorate -1
+```
+
+Configure your host OS to use this worktree:
+- macOS: Point app to `~/emacs-stable/bin/emacs-isolated.sh`
+- Terminal alias: `alias emacs='~/emacs-stable/bin/emacs-isolated.sh'`
+
+### Updating Production to New Release
+
+When a new stable release is ready:
+
+```bash
+cd ~/emacs-stable
+
+# Switch to new release tag
+git fetch origin
+git checkout v0.3.0  # or v0.2.0 when RC is promoted
+
+# Or update to newer RC
+git checkout v0.3.0-rc1
+```
+
+### Creating New Releases
+
+**From main branch:**
+
+1. **Tag Release Candidate** after testing new features:
+   ```bash
+   cd ~/emacs
+   git tag -a v0.3.0-rc1 -m "Release candidate description"
+   ```
+
+2. **Test in Production** - Switch stable worktree to RC:
+   ```bash
+   cd ~/emacs-stable
+   git checkout v0.3.0-rc1
+   ```
+
+3. **Promote to Stable** after thorough testing:
+   ```bash
+   cd ~/emacs
+   git tag -a v0.3.0 -m "Stable release description"
+   ```
+
+4. **Update Production** to stable:
+   ```bash
+   cd ~/emacs-stable
+   git checkout v0.3.0
+   ```
+
+### Release Workflow
+
+```
+Development Cycle:
+main → rc1 → test → rc2 → test → stable → production
+
+Example:
+v0.3.0-rc1  Test in emacs-stable for 1 week
+v0.3.0-rc2  Fix issues, test another week
+v0.3.0      Promote to stable, update production
+```
+
+### Benefits
+
+✅ **Isolation** - Development never breaks production
+✅ **Testing** - RC releases validated before stable
+✅ **Rollback** - Easy to revert to previous release
+✅ **Confidence** - Production uses only vetted code
+✅ **Flexibility** - Experiment freely in dev/testing
+
 ## Directory Structure
 
 ```
