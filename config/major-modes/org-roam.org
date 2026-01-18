@@ -117,10 +117,12 @@ Follow the [[https://www.orgroam.com/manual.html#org_002droam_002dprotocol][org-
 
 #+begin_src emacs-lisp
 ;; Enable org-roam-protocol
-(require 'org-roam-protocol) 
+(require 'org-roam-protocol)
 
-;; Ensure Emacs server is running (required for protocol)
-(server-start)
+;; Start Emacs server if not already running (required for protocol)
+;; Safe for isolated instances - won't conflict with existing servers
+(unless (server-running-p)
+  (server-start))
 #+end_src
 
 * Note Capture Templates

@@ -45,10 +45,12 @@
          :unnarrowed t)))
 
 ;; Enable org-roam-protocol
-(require 'org-roam-protocol) 
+(require 'org-roam-protocol)
 
-;; Ensure Emacs server is running (required for protocol)
-(server-start)
+;; Start Emacs server if not already running (required for protocol)
+;; Safe for isolated instances - won't conflict with existing servers
+(unless (server-running-p)
+  (server-start))
 
 ;; Configure standard capture templates
 (setq org-roam-capture-templates
