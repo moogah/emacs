@@ -1,4 +1,4 @@
-﻿;; -*- lexical-binding: t; -*-
+;; -*- lexical-binding: t; -*-
 
 ;; ===============================================================================
 ;; Core Magit Setup
@@ -10,7 +10,9 @@
   ;; Use full-frame status display
   (setq magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)
   ;; Restore window configuration when quitting magit
-  (setq magit-bury-buffer-function 'magit-restore-window-configuration))
+  (setq magit-bury-buffer-function 'magit-restore-window-configuration)
+  ;; Show worktree summary in status buffer
+  (add-hook 'magit-status-sections-hook 'magit-insert-worktrees))
 
 (use-package magit-pre-commit
   :straight (:host github :repo "DamianB-BitFlipper/magit-pre-commit.el")
