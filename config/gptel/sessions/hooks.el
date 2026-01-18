@@ -111,8 +111,15 @@ Wraps callback to intercept and save responses during subagent execution."
         (apply orig-fn prompt args)
       ;; In a session, get current trace (if any)
       (let ((trace-id (jf/gptel--current-trace-id session-id)))
-        ;; Wrap callback to capture tool calls (works for both trace and main conversation)
-        (let ((wrapped-callback
+        ;; Only wrap callback if we're in a trace OR there's an existing callback
+        ;; Main conversation has no :callback (uses stream processor directly)
+        (if (and (not trace-id) (not existing-callback))
+            ;; Main conversation with no callback - pass through without wrapping
+            (progn
+              (message "DEBUG capture: Skipping callback wrap for main conversation (no existing callback)")
+              (apply orig-fn prompt args))
+          ;; Subagent or main conversation with callback - wrap it
+          (let ((wrapped-callback
                (lambda (response info)
                  ;; Log all response types for debugging
                  (message "DEBUG capture: response type=%s, trace-id=%s, session-id=%s"
@@ -150,21 +157,30 @@ Wraps callback to intercept and save responses during subagent execution."
                                   (plist-get tool-call :name)
                                   (plist-get tool-call :id)
                                   (if trace-id (format " in trace %s" trace-id) " in main conversation"))
-                         (jf/gptel--record-complete-tool-call session-id trace-id tool-call)))))
+                         ;; Wrap in condition-case to prevent errors from breaking callback chain
+                         (condition-case err
+                             (jf/gptel--record-complete-tool-call session-id trace-id tool-call)
+                           (error
+                            (message "ERROR capturing tool call: %s" (error-message-string err))))))))
 
                   ;; Stream end marker
                   ((and (eq response t) trace-id)
                    (message "DEBUG capture: Stream completed for trace %s" trace-id)))
 
                  ;; Call original callback
-                 (when existing-callback
-                   (funcall existing-callback response info)))))
+                 (if existing-callback
+                     (funcall existing-callback response info)
+                   ;; No existing callback - this is unexpected for main conversation
+                   (when (and (stringp response) (not trace-id))
+                     (message "DEBUG capture: WARNING - No existing-callback for main conversation string response!"))))))
           ;; Replace callback with wrapped version
           (setq args (plist-put args :callback wrapped-callback))
           (if trace-id
-              (message "DEBUG capture: Installed capture for trace %s" trace-id)
-            (message "DEBUG capture: Installed capture for session %s (main conversation)" session-id))
-          (apply orig-fn prompt args))))))
+              (message "DEBUG capture: Installed capture for trace %s (existing-callback: %s)"
+                       trace-id (if existing-callback "present" "nil"))
+            (message "DEBUG capture: Installed capture for session %s (main conversation, existing-callback: %s)"
+                     session-id (if existing-callback "present" "nil")))
+          (apply orig-fn prompt args)))))))
 
 (defun jf/gptel--autosave-session (response-start response-end)
   "Automatically save gptel session after LLM response.
