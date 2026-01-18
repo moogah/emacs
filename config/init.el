@@ -44,11 +44,16 @@ Resolves to parent of config/ directory, supporting git worktrees.")
 
 ;; Function to resolve a module path to a file path
 (defun jf/resolve-module-path (module-path)
-  "Convert a MODULE-PATH like 'core/defaults' to a file path."
-  (let* ((parts (split-string module-path "/"))
-         (dir (car parts))
-         (name (cadr parts)))
-    (expand-file-name (concat "config/" dir "/" name ".el") jf/emacs-dir)))
+  "Convert a MODULE-PATH like 'core/defaults' or 'transient' to a file path.
+Handles both 'dir/name' format and 'name' format."
+  (if (string-match-p "/" module-path)
+      ;; Has subdirectory: "core/defaults" -> "config/core/defaults.el"
+      (let* ((parts (split-string module-path "/"))
+             (dir (car parts))
+             (name (cadr parts)))
+        (expand-file-name (concat "config/" dir "/" name ".el") jf/emacs-dir))
+    ;; No subdirectory: "transient" -> "config/transient.el"
+    (expand-file-name (concat "config/" module-path ".el") jf/emacs-dir)))
 
 ;; Function to reload a specific module (useful for debugging)
 (defun jf/reload-module (module-path)
