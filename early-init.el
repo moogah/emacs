@@ -5,13 +5,23 @@
 ;; Author: Jeff Farr <jefffarr@molokai>
 ;; Keywords:
 
-;;; Worktree Support
-;; Allow user-emacs-directory to be set via environment or --eval
-;; This enables worktrees to specify their own runtime directories
+;;; Isolation Support
+;; Ensure user-emacs-directory points to local runtime/ for complete isolation
+;; This works for both launch methods:
+;; 1. bin/emacs-isolated.sh sets EMACS_USER_DIRECTORY explicitly
+;; 2. Launching from Applications uses ./runtime/ if it exists
 (unless (bound-and-true-p user-emacs-directory-override-done)
-  ;; Check if already set by launch script
-  (when (getenv "EMACS_USER_DIRECTORY")
+  (cond
+   ;; Priority 1: Explicit override from launch script
+   ((getenv "EMACS_USER_DIRECTORY")
     (setq user-emacs-directory (file-name-as-directory (getenv "EMACS_USER_DIRECTORY"))))
+
+   ;; Priority 2: Use local runtime/ if it exists (for normal Emacs launch)
+   ((file-directory-p (expand-file-name "runtime" user-emacs-directory))
+    (setq user-emacs-directory
+          (file-name-as-directory
+           (expand-file-name "runtime" user-emacs-directory)))))
+
   (setq user-emacs-directory-override-done t))
 
 ;;; Variables

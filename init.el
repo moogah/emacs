@@ -1,22 +1,3 @@
-#+title: Modular Emacs Configuration
-#+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle init.el
-#+auto_tangle: y
-
-* Introduction
-This is a modular Emacs configuration that loads components in a structured way with error handling.
-This approach makes it easier to maintain, debug, and customize your Emacs setup.
-
-The configuration is organized into several directories:
-- core/ - Core modules that everything depends on
-- modules/ - Feature modules that can be toggled on/off
-- language-modes/ - Language-specific configurations
-- major-modes/ - Major mode configurations
-- local/ - Machine-specific configurations
-
-** Basics
-
-#+begin_src emacs-lisp
 ;; -*- lexical-binding: t; -*-
 
 ;; Startup profiling - uncomment to debug startup time
@@ -27,24 +8,15 @@ The configuration is organized into several directories:
 
 ;; Register shortcut to quickly open this file (updated dynamically below)
 ;; (set-register ?i (cons 'file "~/emacs/config/init.org"))
-#+end_src
 
-* Module System
-Configure the module system for loading configuration components.
-
-** Define Paths and Module Loading
-
-#+begin_src emacs-lisp
 ;; Define root directory (dynamically resolves for worktree support)
 (defvar jf/emacs-dir
-  (file-name-directory
-    (directory-file-name
-      (file-name-directory (or load-file-name buffer-file-name))))
+  (file-name-directory (or load-file-name buffer-file-name))
   "The root directory of the Emacs configuration.
-Resolves to parent of config/ directory, supporting git worktrees.")
+Resolves to the directory containing init.el, supporting git worktrees.")
 
 ;; Update register to point to this init file dynamically
-(set-register ?i (cons 'file (expand-file-name "config/init.org" jf/emacs-dir)))
+(set-register ?i (cons 'file (expand-file-name "init.org" jf/emacs-dir)))
 
 ;; Debug mode for troubleshooting
 (defvar jf/module-debug nil
@@ -90,12 +62,7 @@ Handles both 'dir/name' format and 'name' format."
   
   (let ((jf/module-debug t))
     (jf/load-module (jf/resolve-module-path module-path))))
-#+end_src
 
-* Package Management
-Set up straight.el and use-package for managing packages.
-
-#+begin_src emacs-lisp
 ;; Bootstrap straight.el
 (defvar bootstrap-version)
 (let ((bootstrap-file
@@ -121,12 +88,7 @@ Set up straight.el and use-package for managing packages.
 ;; This is important as org-roam depends on specific org versions
 ;; Force straight to use org
 (straight-use-package 'org)
-#+end_src
 
-* Module Configuration
-Define which modules to load and in what order.
-
-#+begin_src emacs-lisp
 ;; Define enabled modules with descriptions
 (defvar jf/enabled-modules
   '(
@@ -196,12 +158,7 @@ This ensures stable machine role identification even when hostname changes."
 
 (defvar jf/machine-role (jf/get-machine-role)
   "The machine's stable role identifier from ~/.machine-role, used to load machine-specific configurations.")
-#+end_src
 
-* Load Modules
-Load the example module to demonstrate the system.
-
-#+begin_src emacs-lisp
 ;; Load all enabled modules
 (dolist (module-spec jf/enabled-modules)
   (let ((module-path (car module-spec)))
@@ -216,12 +173,7 @@ Load the example module to demonstrate the system.
 (let ((machine-config (expand-file-name (concat "local/" jf/machine-role ".el") jf/emacs-dir)))
   (when (file-exists-p machine-config)
     (jf/load-module machine-config)))
-#+end_src
 
-* Finalization
-Clean up and report startup time.
-
-#+begin_src emacs-lisp
 ;; Reset garbage collection threshold after startup
 (setq gc-cons-threshold 2000000) ;; 2MB
 
@@ -235,14 +187,8 @@ Clean up and report startup time.
           (lambda ()
             (setq debug-on-error nil)
             (message "Emacs ready!")))
-#+end_src
 
-* Custom Variables
-Store custom-set-variables in a separate file.
-
-#+begin_src emacs-lisp
 ;; Store customizations in a separate file
 (setq custom-file (expand-file-name "custom.el" user-emacs-directory))
 (when (file-exists-p custom-file)
   (load custom-file))
-#+end_src
