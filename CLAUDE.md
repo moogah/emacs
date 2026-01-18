@@ -192,6 +192,82 @@ git worktree unlock ~/.emacs.d
 
 **Magit limitation:** Magit doesn't currently support lock/unlock commands. Use git command line for locking operations.
 
+#### Runtime Sharing for Worktrees
+
+**Problem:** By default, each new worktree requires straight.el to clone 142 package repos (746MB) and build 140 packages (175MB) from scratch on first launch. This takes significant time and bandwidth.
+
+**Solution:** Copy the `runtime/straight/` directory from an existing worktree (usually `~/emacs`) to new worktrees, reusing cloned repos and built packages.
+
+**Quick Start:**
+```bash
+# Create new worktree
+git worktree add ~/emacs-feature-name -b feature-name
+
+# Copy runtime from main worktree (fast local copy vs slow download)
+./bin/init-worktree-runtime.sh ~/emacs-feature-name
+
+# Initialize submodules
+cd ~/emacs-feature-name
+git submodule update --init
+
+# Launch Emacs (packages already installed!)
+./bin/emacs-isolated.sh
+```
+
+**Alternative - Automatic initialization:**
+```bash
+# First launch automatically copies runtime if needed
+cd ~/emacs-feature-name
+./bin/emacs-isolated.sh --init-runtime
+```
+
+**What gets copied:**
+- `runtime/straight/repos/` (746MB) - Git clones of all packages
+- `runtime/straight/build/` (175MB) - Built/compiled packages
+- `runtime/straight/build-cache.el` (529KB) - Build cache metadata
+
+**What does NOT get copied (worktree-specific state):**
+- `custom.el` - User customizations
+- `org-roam.db` - Org-roam database
+- `history`, `bookmarks`, `recentf`, `projectile-bookmarks.eld` - Session files
+- `cache/`, `state/`, `data/`, `persist/`, `backups/` - Runtime state
+- `snippets/`, `templates/` - Git submodules (use `git submodule update --init`)
+
+**Invalidating Runtime (Force Rebuild):**
+```bash
+# Remove all packages from current worktree (forces full rebuild)
+./bin/invalidate-runtime.sh
+
+# Remove specific package (forces rebuild of just that package)
+./bin/invalidate-runtime.sh magit
+
+# Remove packages from specific worktree
+./bin/invalidate-runtime.sh --worktree ~/emacs-feature-name
+
+# Skip confirmation prompt
+./bin/invalidate-runtime.sh --force
+```
+
+**Copy from alternate source:**
+```bash
+# Copy from production instead of main worktree
+./bin/init-worktree-runtime.sh ~/emacs-feature-name --source ~/.emacs.d
+```
+
+**When to invalidate runtime:**
+- Testing fresh package installation
+- Package versions need updating (shared packages may mask version differences)
+- Build artifacts appear corrupted
+- Switching between branches with different package requirements
+
+**Trade-offs:**
+- **Pro:** Dramatically faster worktree creation (local copy vs internet download)
+- **Pro:** Reduces bandwidth usage
+- **Pro:** Identical package versions across worktrees (unless explicitly invalidated)
+- **Con:** Requires manual step after `git worktree add` (or use `--init-runtime`)
+- **Con:** Shared packages may mask version differences between branches
+- **Con:** Each worktree still uses disk space (but that's already true)
+
 ### Release Management
 
 ```bash
