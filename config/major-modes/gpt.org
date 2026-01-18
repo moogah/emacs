@@ -159,18 +159,18 @@ gptel-agent provides:
   :config
   ;; Add our custom agent directory to the scan path
   (add-to-list 'gptel-agent-dirs
-               (expand-file-name "major-modes/gpt-tools/agents/" jf/emacs-dir))
+               (expand-file-name "config/major-modes/gpt-tools/agents/" jf/emacs-dir))
 
   ;; Load custom tools BEFORE agent update so agents can reference them
-  (jf/load-module (expand-file-name "major-modes/gpt-tools/filesystem-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "major-modes/gpt-tools/projectile-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "major-modes/gpt-tools/ggtags-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "major-modes/gpt-tools/treesitter-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "major-modes/gpt-tools/org-roam-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "major-modes/gpt-tools/meta-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/major-modes/gpt-tools/filesystem-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/major-modes/gpt-tools/projectile-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/major-modes/gpt-tools/ggtags-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/major-modes/gpt-tools/treesitter-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/major-modes/gpt-tools/org-roam-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/major-modes/gpt-tools/meta-tools.el" jf/emacs-dir))
 
   ;; Load community tools (other than gptel-agent which is loaded above)
-  (jf/load-module (expand-file-name "major-modes/gpt-tools/community-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/major-modes/gpt-tools/community-tools.el" jf/emacs-dir))
 
   ;; Scan and register agents from all configured directories
   (gptel-agent-update)
@@ -301,12 +301,12 @@ See the GPTEL Agent section above for the new architecture.
 #+begin_src emacs-lisp
 ;; DEPRECATED: Legacy subagent implementation
 ;; Kept for reference only - functionality replaced by gptel-agent
-;; (jf/load-module (expand-file-name "major-modes/gpt-tools/subagent-tools.el" jf/emacs-dir))
+;; (jf/load-module (expand-file-name "config/major-modes/gpt-tools/subagent-tools.el" jf/emacs-dir))
 
 ;; Load skills system
-(jf/load-module (expand-file-name "major-modes/gptel-skills.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "major-modes/gptel-skills-roam.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "major-modes/gptel-skills-transient.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/major-modes/gptel-skills.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/major-modes/gptel-skills-roam.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/major-modes/gptel-skills-transient.el" jf/emacs-dir))
 #+end_src
 
 * GPTEL Session Launchers

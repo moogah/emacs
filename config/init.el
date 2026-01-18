@@ -48,7 +48,7 @@ Resolves to parent of config/ directory, supporting git worktrees.")
   (let* ((parts (split-string module-path "/"))
          (dir (car parts))
          (name (cadr parts)))
-    (expand-file-name (concat dir "/" name ".el") jf/emacs-dir)))
+    (expand-file-name (concat "config/" dir "/" name ".el") jf/emacs-dir)))
 
 ;; Function to reload a specific module (useful for debugging)
 (defun jf/reload-module (module-path)
