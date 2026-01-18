@@ -104,12 +104,15 @@ Handles both 'dir/name' format and 'name' format."
     ("core/completion"    "Modern completion framework")
     ("core/window-management"    "Save and restore window configs")
     ("core/yasnippet"     "Snippet system for templates")
-    
+
     ;; Feature modules
     ("look-and-feel/look-and-feel" "UI appearance and behavior")
 
     ;; Transient - must load before magit and docker (overrides built-in version)
     ("transient" "Transient menu system (newer than built-in)")
+
+    ;; Activities extensions - requires new transient, so loads after it
+    ("core/activities-extensions" "Extended activity management with projects and docs")
 
     ;; Language mode modules (docker.el requires transient, so load transient first)
     ("language-modes/language-modes" "Programming language modes")
