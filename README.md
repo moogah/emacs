@@ -34,14 +34,22 @@ One of the key benefits of this isolated configuration is the ability to use **g
 
 ### Creating a Test Worktree
 
+**Best Practice:** Create worktrees as sibling directories (not subdirectories) to avoid confusion:
+
 ```bash
-# From the main emacs directory
 cd ~/emacs
 git worktree add ~/emacs-testing -b testing-new-features
 ```
 
-Or as a subdirectory:
+This creates:
+```
+~/emacs/          # Main configuration (main branch)
+~/emacs-testing/  # Test worktree (testing-new-features branch)
+```
+
+**Avoid:** Using relative paths, which create subdirectories:
 ```bash
+# DON'T DO THIS - creates ~/emacs/emacs-testing/
 git worktree add emacs-testing -b testing-new-features
 ```
 
@@ -50,7 +58,7 @@ git worktree add emacs-testing -b testing-new-features
 Each worktree runs completely independently:
 
 ```bash
-cd ~/emacs-testing  # or ~/emacs/emacs-testing
+cd ~/emacs-testing
 ./bin/emacs-isolated.sh
 ```
 
@@ -73,8 +81,14 @@ cd ~/emacs-testing  # or ~/emacs/emacs-testing
    ```
 5. **Clean up** worktree when done:
    ```bash
-   git worktree remove emacs-testing
+   cd ~/emacs
+   git worktree remove ~/emacs-testing
    git branch -d testing-new-features
+   ```
+
+   Or with path:
+   ```bash
+   git worktree remove /Users/jefffarr/emacs-testing
    ```
 
 ### Worktree Tips
