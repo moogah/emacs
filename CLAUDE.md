@@ -297,6 +297,184 @@ for f in config/core/*.el; do
 done
 ```
 
+## Development Workflow with Git
+
+This section describes the iterative development workflow for making changes to the Emacs configuration. The workflow emphasizes **granular milestone commits** and a clear separation of responsibilities between Claude Code and the user.
+
+### Starting from Clean State
+
+**Always begin from a clean git state:**
+
+```bash
+# Check current status
+git status
+
+# Start from clean main branch
+git checkout main
+git pull
+
+# Create feature branch
+git checkout -b feature-name
+
+# OR create dedicated worktree (recommended for larger features)
+git worktree add ~/emacs-feature-name -b feature-name
+cd ~/emacs-feature-name
+./bin/init-worktree-runtime.sh ~/emacs-feature-name
+git submodule update --init
+```
+
+**Why start clean:** Ensures changes are isolated and easily trackable. See [Worktree Management](#worktree-management) for details on worktree setup.
+
+### Implementation and Validation Cycle
+
+**Claude Code's responsibilities:**
+1. Edit `.org` source files (never `.el` directly)
+2. Tangle modified files: `./bin/tangle-org.sh path/to/file.org`
+3. Run syntax validation: `emacs --batch --eval "(progn (find-file \"path/to/file.el\") (check-parens))"`
+4. Stage files if validation passes (see next section)
+
+**Important:** This cycle repeats for each iteration based on user feedback.
+
+### Staging Changes
+
+**CRITICAL: Claude stages changes but DOES NOT commit.**
+
+After validation passes:
+```bash
+# Stage both .org and .el files
+git add config/path/to/file.org config/path/to/file.el
+
+# Stage multiple related files
+git add init.org init.el config/gptel/gptel.org config/gptel/gptel.el
+```
+
+**Why stage without committing:**
+- User needs to test changes in a running Emacs instance
+- Allows for iterative refinement before milestone
+- User controls when a development milestone is reached
+
+### User Testing and Iteration
+
+**User's responsibilities:**
+1. Launch Emacs with staged changes: `./bin/emacs-isolated.sh`
+2. Test functionality works as expected
+3. Check `*Messages*` buffer for errors or warnings
+4. Provide feedback to Claude Code for refinements
+
+**Iteration cycle:**
+- If issues found: User describes problem → Claude adjusts → repeat from Implementation Cycle
+- If working: Continue testing until confident milestone is reached
+
+### Committing Development Milestones
+
+**When user determines a milestone is reached:**
+
+```bash
+# User creates commit (not Claude!)
+git commit -m "Brief description of milestone
+
+More detailed explanation of what was implemented.
+What was tested and verified.
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+```
+
+**Milestone commit guidelines:**
+- Commit when a module/component works in isolation
+- Include clear description of what was tested
+- Note any limitations or next steps in commit body
+- Always co-author with Claude Code
+
+**Important:** User creates commits, not Claude. Claude only stages files.
+
+### Milestone Granularity
+
+**Development milestones should be relatively granular** - not necessarily a complete feature, but a module or component tested to perform as expected in isolation.
+
+**Good milestone examples:**
+```
+✓ "Add metadata tracking to gptel sessions"
+  - Core data structure implemented and working
+  - Tested: metadata correctly stored and retrieved
+
+✓ "Implement session registry lookup functions"
+  - Registry functions working with sample data
+  - Tested: lookup by ID, list all sessions
+
+✓ "Wire up session UI to display metadata"
+  - UI renders metadata correctly
+  - Tested: UI updates when session changes
+```
+
+**Too coarse (complete feature):**
+```
+✗ "Complete gptel session management feature"
+✗ "Finish entire refactoring of module system"
+✗ "Implement full authentication system"
+```
+
+**Too fine (not worth separate commit):**
+```
+✗ "Fix typo in comment"
+✗ "Rename single variable"
+✗ "Adjust indentation"
+```
+
+### Example Development Cycle
+
+**Complete workflow from start to first milestone:**
+
+```bash
+# 1. Start clean
+cd ~/emacs
+git status  # Should be clean
+git checkout -b add-session-metadata
+
+# 2. User requests: "Add metadata tracking to gptel sessions"
+
+# 3. Claude implements changes to .org files
+# 4. Claude tangles:
+./bin/tangle-org.sh config/gptel/sessions/metadata.org
+
+# 5. Claude validates:
+emacs --batch --eval "(progn (find-file \"config/gptel/sessions/metadata.el\") (check-parens))"
+
+# 6. Validation passes - Claude stages files:
+git add config/gptel/sessions/metadata.org config/gptel/sessions/metadata.el
+
+# 7. User tests:
+./bin/emacs-isolated.sh
+# User opens gptel session, creates metadata, verifies storage
+# User checks *Messages* buffer for errors
+
+# 8. Issue found: "Metadata not persisting across sessions"
+
+# 9. User provides feedback, Claude adjusts, repeats steps 3-7
+
+# 10. Testing passes - milestone reached!
+
+# 11. User commits:
+git commit -m "Add metadata tracking to gptel sessions
+
+Implements core data structure for session metadata.
+Functions: jf/gptel-session-set-metadata, jf/gptel-session-get-metadata
+Tested: metadata correctly stored, retrieved, and persists across sessions
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+
+# 12. Continue to next milestone (e.g., "Display metadata in session browser")
+```
+
+### Integration with Existing Workflows
+
+**This workflow integrates with:**
+- [Literate Programming Workflow](#literate-programming-workflow) - Always edit `.org` then tangle
+- [Worktree Management](#worktree-management) - Use worktrees for feature isolation
+- [Validation After Changes](#validation-after-changes) - Run appropriate validation commands
+- [Release Management](#release-management) - Milestones accumulate into releases
+
+**Key workflow principle:** Small, tested, working increments accumulate into complete features.
+
 ## Critical File Locations
 
 ### Repository Root
