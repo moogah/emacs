@@ -1,0 +1,134 @@
+#+title: Base UI Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle base-ui.el
+#+auto_tangle: y
+
+* Introduction
+This file configures the basic UI elements and behavior of Emacs, providing a clean and functional interface.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* UI Elements
+** Window Elements
+Remove unnecessary UI elements for a cleaner interface.
+
+#+begin_src emacs-lisp
+(unless (memq window-system '(mac ns))
+  (menu-bar-mode -1))
+(when (fboundp 'tool-bar-mode)
+  (tool-bar-mode -1))
+(when (fboundp 'scroll-bar-mode)
+  (scroll-bar-mode -1))
+(when (fboundp 'horizontal-scroll-bar-mode)
+  (horizontal-scroll-bar-mode -1))
+#+end_src
+
+** Selection Behavior
+Configure text selection behavior.
+
+#+begin_src emacs-lisp
+;; Typed text replaces the selection if the selection is active,
+;; pressing delete or backspace deletes the selection.
+(delete-selection-mode)
+#+end_src
+
+** Indentation
+Use spaces instead of tabs for indentation.
+
+#+begin_src emacs-lisp
+;; Use spaces instead of tabs
+(setq-default indent-tabs-mode nil)
+#+end_src
+
+* Behavior Settings
+** Input Behavior
+Configure input behavior for a smoother experience.
+
+#+begin_src emacs-lisp
+;; use short answers ie y, n instead of yes, no
+(if (boundp 'use-short-answers)
+    (setq use-short-answers t))
+#+end_src
+
+** File Behavior
+Configure file-related behavior.
+
+#+begin_src emacs-lisp
+;; automatically update buffers when their state-on-disk changes
+(global-auto-revert-mode 1)
+;; Revert Dired and other buffers
+(customize-set-variable 'global-auto-revert-non-file-buffers t)
+
+;; Make shebang (#!) file executable when saved
+(add-hook 'after-save-hook #'executable-make-buffer-file-executable-if-script-p)
+#+end_src
+
+** Editing Behavior
+Configure editing behavior.
+
+#+begin_src emacs-lisp
+;; Do not saves duplicates in kill-ring
+(customize-set-variable 'kill-do-not-save-duplicates t)
+#+end_src
+
+* Scrolling Behavior
+Configure smooth scrolling and line wrapping.
+
+#+begin_src emacs-lisp
+;; Make scrolling less stuttered
+(setq auto-window-vscroll nil)
+(customize-set-variable 'fast-but-imprecise-scrolling t)
+(customize-set-variable 'scroll-conservatively 101)
+(customize-set-variable 'scroll-margin 0)
+(customize-set-variable 'scroll-preserve-screen-position t)
+
+;; enable mouse horizontal scrolling
+;; use toggle-truncate-lines or visual-line-mode as alternatives
+(setq mouse-wheel-tilt-scroll t)
+(setq mouse-wheel-flip-direction t)
+(set-default 'truncate-lines t) ;; don't wrap lines
+#+end_src
+
+* Line Wrapping
+Configure visual line wrapping with proper indentation.
+
+#+begin_src emacs-lisp
+;; install adaptive-wrap so that visual-line-mode will respect local indentation levels
+(use-package adaptive-wrap
+  :straight t
+  :config
+  (setq adaptive-wrap-extra-indent 2)) ;; set evil respect visual line mode
+  (add-hook 'visual-line-mode-hook #'adaptive-wrap-prefix-mode)
+(global-visual-line-mode 1)
+#+end_src
+
+* Performance Settings
+Configure performance-related settings for better handling of large files.
+
+#+begin_src emacs-lisp
+;; Better support for files with long lines
+(setq-default bidi-paragraph-direction 'left-to-right)
+(setq-default bidi-inhibit-bpa t)
+(global-so-long-mode 1)
+#+end_src
+
+* Usage Notes
+The base UI configuration provides a clean, minimal interface with:
+
+- No menu bar (except on macOS), tool bar, or scroll bars
+- Space-based indentation
+- Smart selection behavior 
+- Automatic file updates
+- Smooth scrolling
+- Smart line wrapping with adaptive indentation
+- Performance optimizations for large files
+
+* TODO Improvements
+- Consider additional customization for cursor appearance
+- Evaluate further performance optimizations for large files
+- Add configuration for window margins and padding

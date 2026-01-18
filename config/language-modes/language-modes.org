@@ -1,0 +1,84 @@
+#+title: Language Modes Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle language-modes.el
+#+auto_tangle: y
+
+* Introduction
+This file provides a centralized configuration for programming language modes in Emacs. It loads individual language-specific files and common programming tools to create a comprehensive development environment.
+
+Each language and feature is configured in its own file for better maintainability and follows the modular loading approach used in the core modules.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Language Modes Configuration
+Load individual language modes and programming tools using the modular loading system.
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Language Modes Configuration with Modular Loading
+;; ===============================================================================
+
+;; Code navigation and indexing
+(jf/load-module (expand-file-name "language-modes/gtags.el" jf/emacs-dir))
+
+;; Syntax highlighting and parsing
+(jf/load-module (expand-file-name "language-modes/tree-sitter.el" jf/emacs-dir))
+
+;; Project management
+(jf/load-module (expand-file-name "language-modes/projectile.el" jf/emacs-dir))
+
+
+;; AI-assisted coding
+(jf/load-module (expand-file-name "language-modes/copilot.el" jf/emacs-dir))
+
+;; Data and configuration formats
+(jf/load-module (expand-file-name "language-modes/yaml.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/json.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/markdown-mode.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/terraform.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/puppet-mode.el" jf/emacs-dir))
+
+;; Programming languages
+(jf/load-module (expand-file-name "language-modes/python.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/typescript.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/javascript.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/golang.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/postgres.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "language-modes/docker.el" jf/emacs-dir))
+#+end_src
+
+* Additional Packages
+** Writable Grep
+Allows editing text directly in grep results buffers.
+
+[[https://github.com/mhayashi1120/Emacs-wgrep][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package wgrep
+  :straight t)
+#+end_src
+
+* Usage Notes
+** Available IDE Features
+This configuration provides several IDE-like features for Emacs:
+
+- Project management with Projectile
+- Code navigation with GTags
+- Syntax highlighting with Tree-sitter
+- AI-assisted coding with Copilot
+- Language-specific modes and tools
+
+** Enabling/Disabling Languages
+To enable or disable specific language support, simply comment out or uncomment the corresponding `jf/load-module` line in this file.
+
+* TODO Improvements
+- Consider integrating LSP mode for more languages
+- Add support for additional languages
+- Improve integration between different completion systems
+- Add debugging support for various languages
+- Consider creating an interactive module toggle interface

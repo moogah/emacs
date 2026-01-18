@@ -1,0 +1,472 @@
+#+title: Gmail Integration with Lieer, Notmuch and msmtp
+#+auto_tangle: y
+
+* Gmail Integration with Lieer and Notmuch for Emacs
+
+This document provides a complete guide to setting up Gmail integration with Emacs using:
+- Lieer (to download and sync emails with OAuth2 authentication)
+- Notmuch (to index and view emails within Emacs)
+- msmtp (for sending emails)
+
+The setup will allow you to:
+- Keep a local copy of your Gmail messages for offline access
+- Read and manage email inside Emacs with Notmuch
+- Sync changes bidirectionally (local → Gmail, Gmail → local)
+- Send emails via Gmail using msmtp
+
+** Prerequisites
+
+Before we begin, make sure you have the following installed:
+
+#+begin_src shell :tangle no
+# For macOS
+brew install notmuch msmtp python3
+
+# For Ubuntu/Debian
+# sudo apt install notmuch msmtp python3 python3-pip
+
+# Install Lieer using pip
+pip3 install lieer
+#+end_src
+
+#+RESULTS:
+
+*** Install Lieer from source
+
+#+begin_src sh 
+  ❯ python3 -m venv ~/lieer_env
+
+  ❯ source ~/lieer_env/bin/activate
+
+  ❯ cd src/lieer && pip3 install .
+
+  ❯ ls /opt/homebrew/include/notmuch.h
+
+  /opt/homebrew/include/notmuch.h
+  # Need to make notmuch installation available to lieer for install:
+  ❯ export CFLAGS="-I/opt/homebrew/include"
+  export LDFLAGS="-L/opt/homebrew/lib"
+
+  # need to run notmuch setup:
+  notmuch setup
+  notmuch new
+#+end_src
+
+** Setting up Lieer for Gmail Synchronization
+
+Lieer (previously gmailieer) is a simple tool that syncs your Gmail inbox with a local Maildir folder and adds notmuch tags based on Gmail labels. It uses OAuth2 for authentication, so you don't need to use less secure app passwords.
+
+*** Create Mail Directory
+
+First, create the directory for storing your emails:
+
+#+begin_src shell :tangle no
+mkdir -p ~/mail
+#+end_src
+
+*** Initialize Lieer
+
+Navigate to the directory and initialize Lieer:
+
+#+begin_src shell :tangle no
+cd ~/mail
+gmi init your.email@gmail.com
+#+end_src
+
+This will start an OAuth2 authentication flow:
+1. Your default browser will open
+2. Google will ask you to allow access to your Gmail account
+3. After approval, you'll receive an authentication code
+4. Paste this code back in your terminal
+
+*** Configure Lieer Settings
+
+Customize Lieer's behavior:
+
+#+begin_src shell :tangle no
+cd ~/Mail/gmail
+gmi set --replace-slash-with-dot \
+        --ignore-tags-local "notmuch::draft" \
+        --ignore-tags-remote "personal muted" \
+        --drop-non-existing-labels
+#+end_src
+
+Key settings:
+- `--replace-slash-with-dot`: Replace slashes in Gmail labels with dots for compatibility
+- `--ignore-tags-local`: Local tags not to sync to Gmail
+- `--ignore-tags-remote`: Gmail labels not to sync locally
+- `--drop-non-existing-labels`: Remove local tags when they're removed from Gmail
+
+*** Perform Initial Sync
+
+Start the initial email synchronization:
+
+#+begin_src shell :tangle no
+cd ~/mail/
+gmi sync
+#+end_src
+
+Initial sync might take a while depending on the size of your Gmail account.
+
+** Setting up Notmuch for Email Indexing
+
+Notmuch is a fast email indexer and provides a powerful search interface.
+
+*** Create Notmuch Configuration
+
+Create a ~/.notmuch-config file:
+
+#+begin_src conf :tangle no
+[database]
+path=/Users/jefffarr/Mail
+
+[user]
+name=Your Full Name
+primary_email=your.email@gmail.com
+
+[new]
+tags=new
+ignore=
+
+[search]
+exclude_tags=deleted;spam;trash;
+
+[maildir]
+synchronize_flags=true
+#+end_src
+
+Make sure to update:
+- The database path to match your directory structure
+- Your name and email address
+
+*** Initialize Notmuch Database
+
+Run the initial indexing:
+
+#+begin_src shell :tangle no
+notmuch new
+#+end_src
+
+This creates a search index of your emails.
+
+** Setting up msmtp for Sending Emails
+
+*** Create msmtp Configuration
+
+Create the file ~/.msmtprc:
+
+#+begin_src conf :tangle no
+# Set default values for all accounts
+defaults
+auth           on
+tls            on
+tls_trust_file /opt/homebrew/etc/openssl@1.1/cert.pem
+logfile        ~/.msmtp.log
+
+# Gmail account
+account        gmail
+host           smtp.gmail.com
+port           587
+from           your.email@gmail.com
+user           your.email@gmail.com
+
+# Use OAuth2 for authentication (recommended)
+# auth           xoauth2
+# passwordeval   "oauth2token get-token your.email@gmail.com"
+
+# Alternative: App Password (if you prefer)
+passwordeval   "security find-generic-password -s gmail-msmtp -w"
+
+# Set a default account
+account default : gmail
+#+end_src
+
+This configuration supports both OAuth2 and app password options. For the OAuth2 approach, you'll need to install an OAuth2 token manager, which we'll set up in a later section. For now, let's set up the app password approach.
+
+*** Set Proper Permissions
+
+msmtp requires secure permissions on its configuration file:
+
+#+begin_src shell :tangle no
+chmod 600 ~/.msmtprc
+#+end_src
+
+*** Store Gmail App Password in Keychain (for App Password approach)
+
+If you're using the app password approach:
+
+1. First, set up an App Password in your Google Account:
+   - Go to https://myaccount.google.com/apppasswords
+   - Create a new app password for "Mail" and your device
+
+2. Store the password in macOS Keychain:
+
+#+begin_src shell :tangle no
+security add-generic-password -s gmail-msmtp -a your.email@gmail.com -w
+# You'll be prompted to enter your app password
+#+end_src
+
+** Configuring Emacs with Notmuch and msmtp
+
+Now let's set up Emacs to use notmuch for reading and msmtp for sending.
+
+*** Install Required Emacs Packages
+
+#+begin_src emacs-lisp :tangle yes
+;; Install notmuch package for Emacs
+(use-package notmuch
+  :ensure t
+  :config
+  ;; Configure notmuch user information
+  (setq user-full-name "Your Full Name"
+        user-mail-address "your.email@gmail.com"))
+
+;; For extra functionality with mail composition
+(use-package message
+  :ensure nil  ;; built into Emacs
+  :config
+  ;; Configure mail sending
+  (setq message-send-mail-function 'message-send-mail-with-sendmail
+        sendmail-program "/opt/homebrew/bin/msmtp"
+        mail-specify-envelope-from t
+        message-sendmail-envelope-from 'header
+        mail-envelope-from 'header))
+#+end_src
+
+*** Configure Notmuch in Emacs
+
+#+begin_src emacs-lisp :tangle yes
+;; Basic notmuch setup
+(use-package notmuch
+  :ensure t
+  :bind (("C-c m" . notmuch)
+         ("C-c M" . notmuch-mua-new-mail))
+  :config
+  ;; User information
+  (setq user-full-name "Your Full Name"
+        user-mail-address "your.email@gmail.com"
+        send-mail-function 'sendmail-send-it)
+
+  ;; Notmuch customizations
+  (setq notmuch-search-oldest-first nil  ;; Newest emails first
+        notmuch-show-logo nil            ;; Remove logo
+        notmuch-hello-thousands-separator ","
+        notmuch-hello-sections '(notmuch-hello-insert-saved-searches
+                                notmuch-hello-insert-recent-searches
+                                notmuch-hello-insert-alltags))
+
+  ;; Setup saved searches
+  (setq notmuch-saved-searches
+        '((:name "inbox" :query "tag:inbox" :key "i")
+          (:name "unread" :query "tag:unread" :key "u")
+          (:name "flagged" :query "tag:flagged" :key "f")
+          (:name "sent" :query "tag:sent" :key "s")
+          (:name "drafts" :query "tag:draft" :key "d")
+          (:name "all mail" :query "*" :key "a")
+          (:name "last 7 days" :query "date:7d..today" :key "7")))
+
+  ;; Configure sending mail from notmuch
+  (setq message-send-mail-function 'message-send-mail-with-sendmail
+        sendmail-program "/opt/homebrew/bin/msmtp"
+        mail-specify-envelope-from t
+        message-sendmail-envelope-from 'header
+        mail-envelope-from 'header)
+
+  ;; For some UI improvements
+  (setq notmuch-search-result-format
+        '(("date" . "%12s ")
+          ("count" . "%-7s ")
+          ("authors" . "%-20s ")
+          ("subject" . "%-80s ")
+          ("tags" . "(%s)")))
+
+  ;; Save attachments to Downloads folder
+  (setq mm-default-directory "~/Downloads")
+
+  ;; Enable Evil bindings for notmuch if using Evil Mode
+  (with-eval-after-load 'evil-collection
+    (evil-collection-init '(notmuch))))
+
+;; Create a function to sync mail
+(defun my/sync-mail ()
+  "Sync mail using Lieer and update notmuch database."
+  (interactive)
+  (message "Syncing mail...")
+  (let ((default-directory (expand-file-name "~/Mail/gmail/")))
+    (call-process "gmi" nil nil nil "sync"))
+  (call-process "notmuch" nil nil nil "new")
+  (message "Mail sync completed"))
+
+;; Bind a key for syncing mail
+(global-set-key (kbd "C-c m s") 'my/sync-mail)
+#+end_src
+
+*** Configure Auto-completion for Email Addresses
+
+#+begin_src emacs-lisp :tangle yes
+;; Add email address completion via notmuch
+(use-package notmuch-address
+  :ensure nil  ;; comes with notmuch
+  :config
+  (setq notmuch-address-command "notmuch-addresses"
+        notmuch-address-save-filename (expand-file-name "notmuch-addresses" user-emacs-directory))
+  (notmuch-address-message-insinuate))
+#+end_src
+
+*** Enable HTML Email Rendering
+
+#+begin_src emacs-lisp :tangle yes
+;; Render HTML emails
+(use-package shr
+  :ensure nil  ;; built-in
+  :config
+  (setq shr-color-visible-luminance-min 80
+        shr-use-colors nil
+        shr-use-fonts nil))
+
+;; Configure notmuch to handle HTML emails
+(use-package notmuch
+  :ensure t
+  :config
+  (setq notmuch-multipart/alternative-discouraged '("text/plain" "text/html"))
+  (setq mm-text-html-renderer 'shr))
+#+end_src
+
+** Automating Email Synchronization
+
+Let's set up automatic syncing with a LaunchAgent on macOS:
+
+*** Create a LaunchAgent for Periodic Syncing
+
+Create the file ~/Library/LaunchAgents/com.user.gmailsync.plist:
+
+#+begin_src xml :tangle no
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.gmailsync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd ~/Mail/gmail && /usr/local/bin/gmi sync && /usr/local/bin/notmuch new</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gmailsync.err</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/gmailsync.log</string>
+</dict>
+</plist>
+#+end_src
+
+Adjust the paths according to your installation. Then load the LaunchAgent:
+
+#+begin_src shell :tangle no
+launchctl load ~/Library/LaunchAgents/com.user.gmailsync.plist
+#+end_src
+
+** Usage Guide
+
+Here's how to use your new email setup:
+
+*** Reading Email
+
+1. Open Emacs
+2. Press `C-c m` to launch notmuch
+3. Navigate with:
+   - `i` - Go to inbox
+   - `u` - View unread messages
+   - `s` - View sent messages
+   - `7` - View messages from the last 7 days
+
+4. In the search view:
+   - `RET` - Open a thread
+   - `a` - Archive message (removes inbox tag)
+   - `+` - Add a tag 
+   - `-` - Remove a tag
+   - `*` - Toggle flagged status
+
+5. In thread view:
+   - `n/p` - Next/previous message
+   - `r` - Reply
+   - `R` - Reply-all
+   - `f` - Forward message
+
+*** Sending Email
+
+1. From notmuch, press `m` to compose a new message
+2. Fill out the headers (To, Subject, etc.)
+3. Write your message
+4. Press `C-c C-c` to send
+
+*** Manual Sync
+
+Press `C-c m s` to manually synchronize your email.
+
+** Troubleshooting
+
+*** Lieer Issues
+
+If you encounter issues with Lieer:
+
+1. Check that OAuth2 is properly configured:
+   ```
+   cd ~/Mail/gmail
+   gmi credentials
+   ```
+
+2. If authentication fails, try re-authenticating:
+   ```
+   cd ~/Mail/gmail
+   gmi auth
+   ```
+
+3. For detailed debugging:
+   ```
+   cd ~/Mail/gmail
+   gmi --debug sync
+   ```
+
+*** Notmuch Issues
+
+1. If messages don't appear in notmuch:
+   ```
+   notmuch new --verbose
+   ```
+
+2. Rebuild the database if needed:
+   ```
+   notmuch new --rebuild
+   ```
+
+3. Check search syntax is correct:
+   ```
+   notmuch search --output=summary "tag:inbox"
+   ```
+
+*** msmtp Issues
+
+1. Test msmtp directly:
+   ```
+   echo "Subject: Test Email" | msmtp -a gmail your.email@gmail.com
+   ```
+
+2. Enable verbose logging for troubleshooting:
+   ```
+   echo "Subject: Test Email" | msmtp -a gmail --debug your.email@gmail.com
+   ```
+
+3. Check the log file at ~/.msmtp.log for errors
+
+** References and Further Reading
+
+- [Lieer GitHub Repository](https://github.com/gauteh/lieer)
+- [Notmuch Documentation](https://notmuchmail.org/doc/)
+- [Notmuch Emacs Manual](https://notmuchmail.org/notmuch-emacs/)
+- [msmtp Documentation](https://marlam.de/msmtp/)

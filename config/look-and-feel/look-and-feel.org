@@ -1,0 +1,66 @@
+#+title: Look and Feel Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle look-and-feel.el
+#+auto_tangle: y
+
+* Introduction
+This file manages the visual appearance and user interface elements of Emacs, creating a cohesive and pleasant editing experience.
+It loads individual configuration files for different aspects of the UI.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* UI Components
+Load all the individual UI component configurations.
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Look and Feel Component Loading
+;; ===============================================================================
+
+;; Load basic UI settings
+(jf/load-module (expand-file-name "look-and-feel/base-ui.el" jf/emacs-dir))
+
+;; Load frame and line number settings
+(jf/load-module (expand-file-name "look-and-feel/frame-and-lines.el" jf/emacs-dir))
+
+;; Load modeline configuration
+(jf/load-module (expand-file-name "look-and-feel/modeline.el" jf/emacs-dir))
+
+;; Load theme configuration
+(jf/load-module (expand-file-name "look-and-feel/themes.el" jf/emacs-dir))
+
+;; Load org-mode faces configuration
+(jf/load-module (expand-file-name "look-and-feel/org-faces.el" jf/emacs-dir))
+
+;; Load terminal emulation configuration
+(jf/load-module (expand-file-name "look-and-feel/terminal.el" jf/emacs-dir))
+
+;; Load tab bar styling
+(jf/load-module (expand-file-name "look-and-feel/vim-tab.el" jf/emacs-dir))
+
+;; Load imenu list configuration
+(jf/load-module (expand-file-name "look-and-feel/imenu.el" jf/emacs-dir))
+#+end_src
+
+* Usage Notes
+** Appearance Customization
+To customize the appearance:
+
+1. Edit the relevant component file based on what you want to change:
+   - For theme changes: edit themes.org
+   - For modeline changes: edit modeline.org
+   - For general UI elements: edit base-ui.org
+
+2. After making changes, use `M-x org-babel-tangle` to generate the .el file.
+
+** Adding New UI Components
+To add new UI components:
+
+1. Create a new .org file in the look-and-feel directory
+2. Add appropriate structure following the pattern of existing files
+3. Add a jf/load-module line in this file to load your new component

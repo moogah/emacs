@@ -1,0 +1,40 @@
+#+title: Frame and Line Numbers Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle frame-and-lines.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Emacs frame size and line number display settings for a consistent editing experience.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Line and Column Display
+Configure the display of line and column numbers.
+
+#+begin_src emacs-lisp
+;; Show line and column number in the mode line.
+(line-number-mode 1)
+(column-number-mode 1)
+
+;; Display line numbers in the left margin
+(global-display-line-numbers-mode)
+;; set to 'relative to display the count distance from the current line
+(setq display-line-numbers-type 't)
+#+end_src
+
+* Usage Notes
+These settings provide:
+
+- Line and column numbers displayed in the mode line
+- Line numbers shown in the left margin
+- Absolute line numbers (change to 'relative for vim-style relative numbering)
+
+* TODO Improvements
+- Consider adding per-mode line number customization
+- Add high-DPI display detection and scaling
+- Add frame positioning settings

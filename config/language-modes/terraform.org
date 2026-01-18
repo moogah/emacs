@@ -1,0 +1,63 @@
+#+title: Terraform Mode Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle terraform.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Terraform development environment in Emacs, providing syntax highlighting, formatting, and validation for Terraform (HCL) files.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Terraform Mode
+** Core Terraform Mode
+The terraform-mode package provides syntax highlighting and basic editing features for Terraform files.
+
+[[https://github.com/hcl-emacs/terraform-mode][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package terraform-mode
+  :straight t
+  :config
+  (add-hook 'terraform-mode-hook #'terraform-format-on-save-mode))
+#+end_src
+
+* Usage Notes
+** Terraform Format on Save
+The configuration enables automatic formatting of Terraform files on save using `terraform fmt`.
+
+** File Extensions
+Terraform mode automatically activates for files with the following extensions:
+- `.tf` - Standard Terraform configuration files
+- `.tfvars` - Terraform variable definition files
+- `.tfstate` - Terraform state files
+
+** Basic Commands
+When working with Terraform files, you can use:
+- `C-c C-f`: Format the buffer using terraform fmt
+- `M-x terraform-validate`: Validate the current terraform configuration
+
+* External Dependencies
+For full functionality, ensure that Terraform CLI is installed:
+
+#+begin_src sh :tangle no
+# macOS with Homebrew
+brew install terraform
+
+# Ubuntu/Debian
+sudo apt-get install terraform
+
+# Verify installation
+terraform --version
+#+end_src
+
+* TODO Improvements
+- Add company-terraform for better completion
+- Configure flycheck for terraform validation
+- Add terraform-doc integration
+- Consider HCL mode for non-Terraform HCL files
+- Add snippets for common Terraform patterns

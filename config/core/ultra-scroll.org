@@ -1,0 +1,41 @@
+#+title: Ultra Scroll
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle ultra-scroll.el
+#+auto_tangle: y
+
+* Introduction
+Ultra Scroll is a package that provides smooth pixel-based scrolling in Emacs,
+making the scrolling experience more fluid and visually appealing.
+
+[[https://github.com/jdtsmith/ultra-scroll][Ultra Scroll]] enhances Emacs' default scrolling behavior with pixel-by-pixel scrolling
+to avoid jarring jumps when navigating through a document.
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Configuration
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Configure smooth scrolling
+;; ===============================================================================
+
+(use-package ultra-scroll
+  :straight (:host github :repo "jdtsmith/ultra-scroll")
+  :init
+  (setq scroll-conservatively 101 ; important!
+        scroll-margin 0) 
+  :config
+  (ultra-scroll-mode 1))
+#+end_src
+
+* Usage
+Ultra Scroll works automatically once enabled. The configuration includes these parameters:
+
+- `scroll-conservatively 101`: Prevents recenter operations during small scrolls
+- `scroll-margin 0`: Disables keeping a margin at the top and bottom of the window
+
+These settings ensure smooth scrolling behavior while navigating documents.

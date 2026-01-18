@@ -1,0 +1,133 @@
+#+title: GPTEL Community Tools
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle community-tools.el
+#+auto_tangle: y
+
+* Introduction
+
+This file installs and configures community-maintained gptel tool collections.
+These tools extend the LLM's capabilities with filesystem operations, web access,
+org-mode integration, and Emacs introspection.
+
+All tools are configured with confirmation enabled by default for security.
+
+* Basic Configuration
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+;; Set confirmation mode to 'auto - let tools and agents decide
+;; - 'auto: Respect per-tool :confirm and per-agent confirm-tool-calls settings
+;; - t: Always confirm all tools
+;; - nil: Never confirm any tools
+(setq gptel-confirm-tool-calls 'auto)
+(setq gptel-use-tools t)
+#+end_src
+
+* GPTEL Agent
+
+NOTE: gptel-agent configuration has been moved to =major-modes/gpt.org= to properly
+configure the agent directory and tool loading order. See the "GPTEL Agent" section
+in gpt.org for the current configuration.
+
+From: https://github.com/karthink/gptel-agent
+
+* GPTEL Org Tools
+
+Provides org-mode specific tools for:
+- Tag extraction and searching across org files
+- Heading extraction and filtering
+- Date-based query searching
+- Full-text search using org-ql
+- Agenda viewing for task management
+
+Perfect for integration with org-roam knowledge management.
+
+From: https://codeberg.org/bajsicki/gptel-got
+
+#+begin_src emacs-lisp
+(use-package gptel-got
+  :straight '(gptel-got :type git
+                         :host nil
+                         :repo "https://codeberg.org/bajsicki/gptel-got")
+  :after (gptel org-ql)
+  :demand t
+  :config
+  ;; Integrate with org-roam and daily journal workflows
+  ;; Tools will respect gptel-confirm-tool-calls for safety
+  )
+#+end_src
+
+* LLM Tool Collection
+
+Comprehensive collection of tools for:
+- Filesystem operations (read, create, edit files)
+- Buffer manipulation and searching
+- Directory operations and file globbing
+- Recursive grep functionality
+- System command execution
+
+From: https://github.com/skissue/llm-tool-collection
+
+#+begin_src emacs-lisp
+(use-package llm-tool-collection
+  :straight '(llm-tool-collection :type git
+                                   :host github
+                                   :repo "skissue/llm-tool-collection")
+  :after gptel
+  :demand t
+  :config
+  ;; Confirmation enabled for destructive operations
+  ;; Note: Some overlap with gptel-agent filesystem tools
+  )
+#+end_src
+
+* Ragmacs
+
+Tools for Emacs introspection and documentation:
+- Source code exploration of Elisp packages
+- Documentation synthesis and summarization
+- Docstring translation and analysis
+- Recursive tool calling for deep code analysis
+
+Excellent for understanding unfamiliar Emacs packages.
+
+From: https://github.com/positron-solutions/ragmacs
+
+#+begin_src emacs-lisp
+(use-package ragmacs
+  :straight '(ragmacs :type git
+                       :host github
+                       :repo "positron-solutions/ragmacs")
+  :after gptel
+  :demand t
+  :config
+  ;; Enable recursive tool calling for deep introspection
+  ;; Tools will respect global confirmation settings
+  )
+#+end_src
+
+* Notes
+
+** Tool Overlap
+Some functionality overlaps between collections:
+- gptel-agent and llm-tool-collection both provide filesystem tools
+- Multiple packages provide buffer manipulation
+
+The LLM will choose the most appropriate tool based on context.
+
+** Confirmation Settings
+All tools respect the global =gptel-confirm-tool-calls= setting.
+
+To disable confirmations for specific operations (not recommended):
+#+begin_example
+(setq gptel-confirm-tool-calls nil)
+#+end_example
+
+To configure per-tool, see each package's documentation.
+
+** Tool Selection
+Tools can be selected from gptel's transient menu (=M-x gptel-menu=):
+1. Navigate to the tools section
+2. Select which tools to enable (globally or buffer-locally)
+3. Configure confirmation and result inclusion settings

@@ -1,0 +1,69 @@
+#+title: TypeScript Mode Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle typescript.el
+#+auto_tangle: y
+
+* Introduction
+This file configures TypeScript development environment in Emacs, setting up syntax highlighting, indentation, and support for both .ts and .tsx files.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* TypeScript Mode
+** Core TypeScript Mode
+The typescript-mode package provides syntax highlighting and basic editing features for TypeScript files.
+
+[[https://github.com/emacs-typescript/typescript.el][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package typescript-mode
+  :straight t
+  :after tree-sitter
+  :config
+  ;; we choose this instead of tsx-mode so that eglot can automatically figure out language for server
+  ;; see https://github.com/joaotavora/eglot/issues/624 and https://github.com/joaotavora/eglot#handling-quirky-servers
+  (define-derived-mode typescriptreact-mode typescript-mode
+    "TypeScript TSX")
+
+  ;; use our derived mode for tsx files
+  (add-to-list 'auto-mode-alist '("\\.tsx?\\'" . typescriptreact-mode))
+  ;; by default, typescript-mode is mapped to the treesitter typescript parser
+  ;; use our derived mode to map both .tsx AND .ts -> typescriptreact-mode -> treesitter tsx
+  (add-to-list 'tree-sitter-major-mode-language-alist '(typescriptreact-mode . tsx)))
+#+end_src
+
+** Tree-sitter Indentation
+TSI provides improved tree-sitter-based indentation for TypeScript/TSX, CSS, and JSON files.
+
+[[https://github.com/orzechowskid/tsi.el/][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package tsi
+  :after tree-sitter
+  :straight (tsi :type git :host github :repo "orzechowskid/tsi.el")
+  ;; define autoload definitions which when actually invoked will cause package to be loaded
+  :commands (tsi-typescript-mode tsi-json-mode tsi-css-mode)
+  :init
+  (add-hook 'typescript-mode-hook (lambda () (tsi-typescript-mode 1)))
+  (add-hook 'json-mode-hook (lambda () (tsi-json-mode 1)))
+  (add-hook 'css-mode-hook (lambda () (tsi-css-mode 1)))
+  (add-hook 'scss-mode-hook (lambda () (tsi-scss-mode 1))))
+#+end_src
+
+* Usage Notes
+** Working with React TSX Files
+TypeScript React (TSX) files are configured to use the custom `typescriptreact-mode` which is derived from `typescript-mode`. Both .ts and .tsx files will use this mode, which helps with consistent syntax highlighting and server recognition with language servers like Eglot.
+
+** Indentation with TSI
+TSI provides better indentation for TypeScript code than the default. It's especially helpful for JSX/TSX syntax where proper indentation can be challenging with traditional indentation engines.
+
+* TODO Improvements
+- Add TypeScript LSP configuration (either through lsp-mode or eglot)
+- Configure formatters like prettier for TypeScript
+- Add TypeScript testing framework integration
+- Consider adding TypeScript-specific snippets for common patterns
+

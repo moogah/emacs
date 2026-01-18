@@ -1,0 +1,268 @@
+#+title: Authentication and Encryption
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle auth.el
+#+auto_tangle: y
+
+* Introduction
+This file configures EasyPG for GPG encryption, which handles encrypted authentication files
+and other sensitive data in Emacs.
+
+[[https://www.gnu.org/software/emacs/manual/html_mono/epa.html][EasyPG Assistant (EPA)]] is an Emacs interface to the GNU Privacy Guard (GnuPG) encryption tool,
+allowing you to encrypt, decrypt, sign, and verify files directly from Emacs.
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Configuration
+Set up EasyPG and auth-source to handle encrypted credentials.
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Configure EasyPG
+;; ===============================================================================
+
+;; Set authentication source (use encrypted GPG file)
+(setq auth-sources '("~/.authinfo.gpg"))
+
+;; Don't ask which key to use when encrypting
+(setq epa-file-select-keys nil)
+
+;; Encrypt to this key by default
+(setq epa-file-encrypt-to '("moogah@gmail.com"))
+
+;; Fix EasyPG error in Emacs 25+
+;; From https://colinxy.github.io/software-installation/2016/09/24/emacs25-easypg-issue.html
+;; and https://www.bytedude.com/gpg-in-emacs/
+(defvar epa-pinentry-mode)
+(setq epa-pinentry-mode 'loopback)
+#+end_src
+
+* Install and configure gpg
+
+** Install Packages
+
+#+begin_src shell :tangle no
+  brew install gpg
+#+end_src
+
+Install pinentry to allow using keychain to enter the password for gpg
+#+begin_src shell :tangle no
+  brew install pinentry-mac
+#+end_src
+
+Then configure gpg to use pinentry via the config file
+
+~/.gnupg/gpg-agent.conf
+
+with the line: pinentry-program /opt/homebrew/bin/pinentry-mac
+
+#+begin_src shell :tangle no
+  cat ~/.gnupg/gpg-agent.conf
+#+end_src
+
+#+RESULTS:
+: pinentry-program /opt/homebrew/bin/pinentry-mac
+
+** Create gpg key
+
+#+begin_src shell :tangle no
+  gpg --full-generate-key
+#+end_src
+
+** Save passphrase in keychain
+
+To avoid having to enter the passphrase (which will sometimes be a problem with some clients trying to decrypt) we can use this command:
+
+#+begin_src shell :tangle no
+  echo test | gpg -e -r <PUT THE KEY ID HERE> | gpg -d
+#+end_src 
+
+This sends 'test' to the encryption command, and pipes that encrypted result to the decrypt command.  When run on the CLI this will pop-up the pinentry window to enter the passphrase, and there will be a checkbox to save to keychain.
+
+After doing this once, we can run the command again and it will read the passphrase from the keychain instead of prompting for user input
+
+* Usage
+To use GPG encryption in Emacs:
+
+- Save a file with `.gpg` extension to automatically encrypt it
+- Open a `.gpg` file to automatically decrypt it (you may be prompted for your passphrase)
+- `auth-source` will automatically use encrypted credentials for packages like SMTP email, mu4e, etc.
+
+The `~/.authinfo.gpg` file format looks like:
+#+begin_example
+machine smtp.gmail.com login your-email@gmail.com password your-password port 587
+machine imap.gmail.com login your-email@gmail.com password your-password port 993
+#+end_example
+
+* Troubleshooting
+This section contains troubleshooting commands and guidance that won't be tangled into the config.
+
+** GPG Key Management
+To check which GPG keys are available on your system:
+
+#+begin_src shell :tangle no
+# List all GPG keys
+gpg --list-keys
+
+# List secret keys (your private keys)
+gpg --list-secret-keys
+
+# Check for a specific key
+gpg --list-keys your@email.com
+#+end_src
+
+** Common GPG Errors
+*** "GPG error: no usable configuration"
+This typically happens when:
+1. The email specified in ~epa-file-encrypt-to~ doesn't match any key in your keyring
+2. GPG can't access your keys or the pinentry program isn't working
+3. Your file is encrypted with a passphrase but Emacs is configured for public key encryption
+4. There's a mismatch between the GPG version Emacs is using and your system GPG
+
+Steps to fix:
+1. Confirm your GPG setup works at all:
+   #+begin_src shell :tangle no
+   echo "test" | gpg --encrypt --recipient your@email.com | gpg --decrypt
+   #+end_src
+   
+2. Check your GPG version and configuration:
+   #+begin_src shell :tangle no
+   gpg --version
+   cat ~/.gnupg/gpg-agent.conf
+   #+end_src
+
+3. If using a machine-specific key, create a local config file:
+   #+begin_src shell :tangle no
+   # Get your hostname
+   hostname
+   
+   # Create a machine-specific config
+   mkdir -p ~/src/dotfiles/emacs/local
+   #+end_src
+   
+   Then create a file in ~/src/dotfiles/emacs/local/[HOSTNAME].el with:
+   
+   For public key encryption:
+   #+begin_src emacs-lisp :tangle no
+   ;; Machine-specific configuration for public key encryption
+   (setq epa-file-encrypt-to '("your@actual.email"))
+   (setq epa-pinentry-mode 'loopback)
+   #+end_src
+   
+   For passphrase encryption:
+   #+begin_src emacs-lisp :tangle no
+   ;; Machine-specific configuration for passphrase encryption
+   (setq epa-file-encrypt-to nil)
+   (setq epa-file-select-keys nil)
+   (setq epa-pinentry-mode 'loopback)
+   (setq epg-gpg-program "/path/to/your/gpg") ;; Use `which gpg` to find this
+   #+end_src
+
+** Manually Working with Encrypted Files
+If you need to manually decrypt or re-encrypt .authinfo.gpg:
+
+#+begin_src shell :tangle no
+# Make a backup (decrypt)
+gpg --decrypt ~/.authinfo.gpg > ~/.authinfo.backup
+
+# Remove encrypted file
+rm ~/.authinfo.gpg
+
+# Re-encrypt with correct key
+gpg --encrypt --recipient your@actual.email ~/.authinfo.backup
+mv ~/.authinfo.backup.gpg ~/.authinfo.gpg
+#+end_src
+
+** Testing GPG in Emacs
+Run these commands in *scratch* buffer to debug GPG issues:
+
+#+begin_src emacs-lisp :tangle no
+;; Check encryption settings
+(message "Encrypt to: %s" epa-file-encrypt-to)
+(message "Pinentry mode: %s" epa-pinentry-mode)
+
+;; Test auth-source
+(require 'auth-source)
+(message "Auth sources: %s" auth-sources)
+
+;; Check which executable Emacs is using for GPG
+(message "EPG program: %s" epg-gpg-program)
+#+end_src
+
+** GPG Agent Issues
+Sometimes you may encounter issues with the GPG agent version or configuration.
+
+#+begin_src shell :tangle no
+# Check GPG and GPG-agent versions
+gpg --version
+gpg-agent --version
+
+# If you see warnings about outdated agents, restart them
+gpgconf --kill all
+
+# Test GPG passphrase decryption
+echo "test" | gpg --symmetric | gpg --decrypt
+
+# Check GPG agent configuration
+cat ~/.gnupg/gpg-agent.conf
+
+# Check for multiple GPG installations (common on macOS)
+which gpg
+ls -la /usr/local/MacGPG2/bin/gpg* 2>/dev/null
+ls -la /opt/homebrew/bin/gpg* 2>/dev/null
+ls -la /usr/local/bin/gpg* 2>/dev/null
+
+# Check GPG-related environment variables
+env | grep -i gpg
+#+end_src
+
+*** Multiple GPG installations on macOS
+A common issue on macOS is having multiple GPG installations:
+
+1. GPG Suite (MacGPG2) typically installed in `/usr/local/MacGPG2/bin/`
+2. Homebrew-installed GPG typically in `/opt/homebrew/bin/` or `/usr/local/bin/`
+
+If your .authinfo.gpg file was encrypted with one version but Emacs is using another, 
+you may encounter compatibility issues. In that case:
+
+#+begin_src emacs-lisp :tangle no
+;; Use the specific GPG version that matches the one used to encrypt your files
+(setq epg-gpg-program "/usr/local/MacGPG2/bin/gpg") ;; or whichever is appropriate
+
+;; Clear the GPG agent info to avoid version mismatches
+(setenv "GPG_AGENT_INFO" nil)
+
+;; Enable passphrase caching for symmetric encryption
+(setq epa-file-cache-passphrase-for-symmetric-encryption t)
+#+end_src
+
+*** macOS Applications Folder Emacs
+When running Emacs from the Applications folder on macOS (Emacs.app), you might need
+additional configuration to ensure it can find your GPG installation:
+
+#+begin_src emacs-lisp :tangle no
+;; For macOS Applications folder Emacs, make sure paths are properly set
+(when (file-exists-p "/Applications/Emacs.app")
+  ;; Ensure the exec path includes the GPG binary locations
+  (add-to-list 'exec-path "/usr/local/MacGPG2/bin")
+  (add-to-list 'exec-path "/opt/homebrew/bin"))
+
+;; Force GPG to use the loopback pinentry for passphrase input
+(setq epg-gpg-args '("--pinentry-mode" "loopback"))
+
+;; Set GPG home directory explicitly
+(setq epg-gpg-home-directory "~/.gnupg")
+#+end_src
+
+The GUI Emacs.app often has a different environment than terminal-launched Emacs, which can
+cause issues with finding the correct GPG binaries. These settings help ensure that
+Applications folder Emacs can find and use your GPG installation properly.
+
+For issues with passphrase-encrypted files, ensure:
+1. You've set ~epa-file-encrypt-to~ to ~nil~ to use symmetric encryption
+2. The ~epa-pinentry-mode~ is set to ~'loopback~ to allow Emacs to prompt for the passphrase
+3. You're using the correct GPG program with ~epg-gpg-program~

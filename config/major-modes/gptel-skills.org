@@ -1,0 +1,1139 @@
+#+title: GPTel Skills System
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle gptel-skills.el
+#+auto_tangle: y
+
+* Commentary
+
+Skills system for gptel with @mention activation.
+
+** Multi-Part System Messages & Caching
+
+Skills are injected as a multi-part system message, where each skill
+is a separate element in the ~gptel--system-message~ list.
+
+*** Format
+
+For Anthropic, multi-part system messages use a double-nested list format:
+
+#+begin_src elisp
+;; Directive format (double-nested):
+'(("Base system message"
+   "## Skill: skill1\n\ncontent1"
+   "## Skill: skill2\n\ncontent2"))
+
+;; After gptel--parse-directive extracts (car directive), becomes:
+'("Base system message"
+  "## Skill: skill1\n\ncontent1"
+  "## Skill: skill2\n\ncontent2")
+#+end_src
+
+The double-nesting is required because gptel interprets a single-level list
+as a directive with template: ~("system" "user1" "llm1" ...)~
+
+*** Caching Benefits
+
+When using Anthropic's API with prompt caching enabled (see ~gptel-cache~),
+each element in this list gets its own cache control block. This provides:
+
+- Independent caching: Unchanged skills hit cache between requests
+- Granular control: Modify one skill without invalidating others
+- Cost savings: Only new/changed content needs processing (~90% reduction for cached tokens)
+
+** Skill Ordering
+
+Skills are ordered as follows:
+1. Skills from ~gptel-skills~ buffer-local variable (transient menu)
+   appear first, in the order specified in that list
+2. Additional @mention skills appear after, sorted alphabetically
+
+Order matters for caching because Anthropic's prompt caching is
+position-sensitive: changing order invalidates the cache.
+
+** Enabling Caching
+
+To enable prompt caching for skills:
+
+#+begin_src elisp
+(setq gptel-cache '(system message))  ; Cache both system and conversation
+;; or
+(setq gptel-cache t)  ; Cache everything
+#+end_src
+
+* Introduction
+
+This module implements a dynamic skills system for gptel that allows explicit skill
+activation via two interfaces:
+1. **Transient menu** (=C-c @ s=): Session-based activation for buffer lifetime
+2. **@Mention syntax**: Per-request activation via =@skill-name= mentions
+
+Skills are Claude Code skills from =~/.claude/skills/= (markdown) and
+=~/.org-roam/skills/= (org-roam) that provide context, guidelines, and reference material.
+
+** Architecture Overview
+
+The skills system operates in four phases, each serving a specific purpose in the
+@mention-to-injection pipeline:
+
+1. **Discovery** (initialization): Scan skills directory (=~/.claude/skills/= for markdown,
+   =~/.org-roam/skills/= for org-roam), parse metadata (name, description)
+   with lazy loading. Both skill types are unified in a single registry.
+
+2. **Mention Detection** (typing): As you type in gptel buffers, the system detects
+   =@skill-name= patterns, validates against the registry, and creates visual overlays
+   with help-echo descriptions. Updates buffer-local active skills list.
+
+3. **Dynamic Injection** (sending): When you press =C-c RET= to send, hooks into
+   =gptel-prompt-transform-functions= to:
+   - Load skill content (if not cached)
+   - Inject content into system message
+   - Strip @mentions from visible prompt
+
+4. **Progressive Disclosure** (optional): Load additional resources referenced within
+   skills (currently basic support via =jf/gptel-skills--load-resource=)
+
+** Key Features
+
+- **Two activation methods**:
+  - Transient menu (=C-c @ s=) for session-based activation
+  - @mention syntax (=@skill-name=) for per-request activation
+- **Visual feedback**: Overlays show active @mention skills
+- **System message injection**: Content appended to system message as behavioral guidelines
+- **Lazy loading**: Skills load on first use, then cached
+- **Completion support**: TAB completion for skill names in @mentions
+- **Buffer isolation**: Each gptel buffer has independent skill selection
+- **Deduplication**: Skills from both sources are automatically deduplicated
+
+** Usage Example
+
+There are two ways to activate skills:
+
+*** Method 1: Transient Menu (Session-based)
+
+#+begin_example
+User in gptel buffer presses: C-c @ s
+→ Opens gptel-skills transient menu
+→ User selects skills by pressing their keys (toggles on/off)
+→ User presses RET to confirm selection
+→ Skills stored in buffer-local gptel-skills variable
+
+User sends any prompt (C-c RET):
+→ Transform hook reads from gptel-skills variable
+→ Loads skill content (lazy, cached after first load)
+→ Appends to gptel--system-message for each skill
+→ Request sent to LLM with enhanced system message
+
+Result: All selected skills active for the buffer session lifetime
+#+end_example
+
+*** Method 2: @Mention Syntax (Per-request)
+
+#+begin_example
+User types in gptel buffer:
+"Help me write elisp @writing-elisp"
+                       ^^^^^^^^^^^^^^ <- overlay appears (green underline + description on hover)
+
+User sends (C-c RET):
+→ Transform hook detects @writing-elisp
+→ Loads skill content (lazy, cached after first load)
+→ Appends to gptel--system-message:
+  "\n\n## Skill: writing-elisp\n\n[skill content with elisp best practices]"
+→ Strips @mention from prompt (makes invisible)
+→ Request sent to LLM with enhanced system message
+
+Result: LLM receives behavioral guidance about elisp without @mention clutter
+#+end_example
+
+*** Combining Methods
+
+Both methods work together and skills are deduplicated:
+
+#+begin_example
+Buffer has: gptel-skills = ("writing-elisp")  (from transient menu)
+User types: "Help me debug @emacs-elisp-debugging"
+
+Result: Both "writing-elisp" and "emacs-elisp-debugging" injected (deduplicated)
+#+end_example
+
+** System Architecture Diagram
+
+#+begin_example
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                         GPTEL SKILLS SYSTEM                                            │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+INITIALIZATION (Phase 1: Discovery)
+┌─────────────────────────────────────┐     ┌─────────────────────────────────────┐
+│ ~/.claude/skills/*/SKILL.md         │     │ ~/.org-roam/skills/*.org            │
+│ (Markdown skills)                   │     │ (Org-roam skills)                   │
+└────────────┬────────────────────────┘     └────────────┬────────────────────────┘
+             │                                            │
+             │ jf/gptel-skills--discover()               │ jf/gptel-skills-roam--discover-files()
+             │ jf/gptel-skills--parse-metadata()         │ jf/gptel-skills-roam--parse-file-metadata()
+             │                                            │
+             └────────────────┬───────────────────────────┘
+                              ↓
+                 ┌────────────────────────────────────────────┐
+                 │  jf/gptel-skills--registry (hash table)    │
+                 │  Keys: skill-name (string)                 │
+                 │  Values: metadata plist                    │
+                 │    :name :description                      │
+                 │    :path/:file :source :loaded :content    │
+                 └────────────────────────────────────────────┘
+
+USER INTERACTION (Phase 2: Mention Detection & Visual Feedback)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  GPTEL BUFFER (with gptel-mode enabled)                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────────────┐ │
+│  │ User prompt: "Help me write elisp @writing-elisp"                                             │ │
+│  │                                     ^^^^^^^^^^^^^^^^                                           │ │
+│  │                                     │ Overlay with face + help-echo                           │ │
+│  └───────────────────────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                            ↑
+                                            │
+                        ┌───────────────────┴────────────────────┐
+                        │ after-change-functions hook            │
+                        │ jf/gptel-skills--update-overlays()     │
+                        │   ├─ detect mentions                   │
+                        │   ├─ create overlays                   │
+                        │   └─ update jf/gptel-skills--active    │
+                        └────────────────────────────────────────┘
+
+SENDING REQUEST (Phase 3: Dynamic Injection)
+User presses C-c RET (gptel-send)
+             ↓
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ gptel-prompt-transform-functions hook                                                  │
+│ jf/gptel-skills--transform-inject(fsm)                                                 │
+│   ├─ Detect mentions                                                                   │
+│   ├─ Load content (lazy, with caching)                                                 │
+│   ├─ Inject content to gptel--system-message                                           │
+│   └─ Strip @mentions (make invisible)                                                  │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+             ↓
+        Request sent to LLM with skill content injected
+#+end_example
+
+* Configuration
+
+Setup lexical binding and dependencies.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+(require 'cl-lib)
+(require 'gptel nil t)
+#+end_src
+
+** Customization Variables
+
+#+begin_src emacs-lisp
+(defgroup gptel-skills nil
+  "Skills system for gptel with @mention activation."
+  :group 'gptel
+  :prefix "jf/gptel-skills-")
+
+(defcustom jf/gptel-skills-directory "~/.claude/skills"
+  "Directory containing Claude Code skills.
+Skills should be organized as SKILL-NAME/SKILL.md."
+  :type 'directory
+  :group 'gptel-skills)
+
+(defcustom jf/gptel-skills-mention-prefix "@"
+  "Prefix character for skill mentions in buffer."
+  :type 'string
+  :group 'gptel-skills)
+
+(defcustom jf/gptel-skills-strip-mentions t
+  "Whether to strip @mentions from prompt before sending.
+If nil, mentions are kept in the prompt (visible to LLM)."
+  :type 'boolean
+  :group 'gptel-skills)
+
+(defcustom jf/gptel-skills-auto-expand nil
+  "Automatically load referenced resources without prompting."
+  :type 'boolean
+  :group 'gptel-skills)
+
+(defcustom jf/gptel-skills-verbose nil
+  "When non-nil, print verbose messages during skill operations."
+  :type 'boolean
+  :group 'gptel-skills)
+#+end_src
+
+** Face Definitions
+
+#+begin_src emacs-lisp
+(defface jf/gptel-skills-mention-face
+  '((t :inherit font-lock-keyword-face :underline t))
+  "Face for @skill mentions in gptel buffers.")
+#+end_src
+
+* Data Structures
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-skills--registry (make-hash-table :test 'equal)
+  "Hash table mapping skill names to metadata plists.
+
+This registry contains both markdown (.md) and org-roam skills.
+
+Each entry is a plist with keys:
+  :name          - Skill name (string)
+  :description   - Description for completion/help (string)
+  :path          - Full path to SKILL.md file (string) [markdown only]
+  :dir           - Skill directory path (string) [markdown only]
+  :file          - Full path to .org skill file (string) [org-roam only]
+  :source        - Source type: 'markdown or 'org-roam (symbol)
+  :loaded        - Whether content has been loaded (boolean)
+  :content       - Cached skill content (string or nil)")
+
+(defvar-local jf/gptel-skills--active nil
+  "List of skill names active in current buffer via @mentions.")
+
+(defvar-local jf/gptel-skills--overlays nil
+  "List of skill mention overlays in current buffer.")
+#+end_src
+
+** Component Relationships Diagram
+
+#+begin_example
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                   COMPONENT RELATIONSHIP DIAGRAM                                     │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+CORE DATA STRUCTURES
+┌───────────────────────────────────────────────┐
+│ jf/gptel-skills--registry (hash table)        │
+│   Populated by:                               │
+│   • jf/gptel-skills--discover()               │
+│   • jf/gptel-skills--parse-metadata()         │
+│   • jf/gptel-skills-roam--discover-files()    │
+│   • jf/gptel-skills-roam--parse-file-metadata()│
+│                                                │
+│   Queried by:                                  │
+│   • jf/gptel-skills--detect-mentions()        │
+│   • jf/gptel-skills--completion-at-point()    │
+│   • jf/gptel-skills--transform-inject()       │
+│                                                │
+│   Modified by:                                 │
+│   • jf/gptel-skills--transform-inject()       │
+│     (loads content, updates :loaded/:content) │
+└───────────────────────────────────────────────┘
+                    ↓
+┌──────────────────────────────────────────────────────────────┐
+│ SKILL ACTIVATION (Two Methods)                               │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│ Method 1: Transient Menu (Session-based)                     │
+│ ┌─────────────────────────────────────────────────┐         │
+│ │ gptel-skills (buffer-local list)                 │         │
+│ │   Set by:                                        │         │
+│ │   • gptel-skills transient menu (C-c @ s)       │         │
+│ │                                                  │         │
+│ │   Read by:                                       │         │
+│ │   • jf/gptel-skills--transform-inject()         │         │
+│ │     (via buffer-local-value from FSM)           │         │
+│ └─────────────────────────────────────────────────┘         │
+│                                                               │
+│ Method 2: @Mentions (Per-request)                            │
+│ ┌─────────────────────────────────────────────────┐         │
+│ │ jf/gptel-skills--active (buffer-local list)     │         │
+│ │   Updated by:                                    │         │
+│ │   • jf/gptel-skills--update-overlays()          │         │
+│ │                                                  │         │
+│ │   Used by:                                       │         │
+│ │   • jf/gptel-skills-list-active()               │         │
+│ │   • jf/gptel-skills--detect-mentions()          │         │
+│ └─────────────────────────────────────────────────┘         │
+│                                                               │
+│ Both methods feed into jf/gptel-skills--transform-inject()   │
+│ which deduplicates and injects all active skills             │
+└──────────────────────────────────────────────────────────────┘
+                    ↓
+┌───────────────────────────────────────────────┐
+│ jf/gptel-skills--overlays (buffer-local list) │
+│   Updated by:                                  │
+│   • jf/gptel-skills--add-overlay()            │
+│   • jf/gptel-skills--update-overlays()        │
+│                                                │
+│   Cleared by:                                  │
+│   • jf/gptel-skills-clear-mentions()          │
+│   • jf/gptel-skills-reload()                  │
+└───────────────────────────────────────────────┘
+
+HOOK INTEGRATION
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ gptel-mode enabled                                                                     │
+│   ├─ gptel-mode-hook                                                                   │
+│   │   ├─ after-change-functions ← jf/gptel-skills--update-overlays()                  │
+│   │   └─ completion-at-point-functions ← jf/gptel-skills--completion-at-point()       │
+│   │                                                                                     │
+│   └─ gptel-prompt-transform-functions ← jf/gptel-skills--transform-inject(fsm)        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+#+end_example
+
+* Discovery and Parsing (Phase 1)
+
+** Discover Skills
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--discover ()
+  "Scan skills directory and return list of SKILL.md file paths.
+Returns list of absolute paths to SKILL.md files."
+  (let ((skills-dir (expand-file-name jf/gptel-skills-directory)))
+    (when (file-directory-p skills-dir)
+      (let ((skill-files '()))
+        (dolist (entry (directory-files skills-dir t "^[^.]" t))
+          (when (file-directory-p entry)
+            (let ((skill-file (expand-file-name "SKILL.md" entry)))
+              (when (file-exists-p skill-file)
+                (push skill-file skill-files)))))
+        (nreverse skill-files)))))
+#+end_src
+
+** Parse Metadata
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--parse-metadata (skill-path)
+  "Parse YAML frontmatter from SKILL.md at SKILL-PATH.
+Returns plist with :name, :description, :path, :dir.
+Returns nil if parsing fails."
+  (condition-case err
+      (with-temp-buffer
+        (insert-file-contents skill-path)
+        (goto-char (point-min))
+
+        ;; Check for YAML frontmatter delimiter
+        (if (not (looking-at "^---[ \t]*$"))
+            (progn
+              (when jf/gptel-skills-verbose
+                (message "Warning: No YAML frontmatter in %s" skill-path))
+              nil)
+
+          ;; Parse YAML frontmatter
+          (forward-line 1)
+          (let ((yaml-start (point))
+                (yaml-end nil)
+                (metadata '()))
+
+            ;; Find end of frontmatter
+            (when (re-search-forward "^---[ \t]*$" nil t)
+              (setq yaml-end (match-beginning 0))
+
+              ;; Parse name
+              (goto-char yaml-start)
+              (when (re-search-forward "^name:[ \t]+\\(.+\\)$" yaml-end t)
+                (setq metadata (plist-put metadata :name (string-trim (match-string 1)))))
+
+              ;; Parse description
+              (goto-char yaml-start)
+              (when (re-search-forward "^description:[ \t]+\\(.+\\)$" yaml-end t)
+                (setq metadata (plist-put metadata :description (string-trim (match-string 1)))))
+
+              ;; Add path, directory, and source
+              (setq metadata (plist-put metadata :path skill-path))
+              (setq metadata (plist-put metadata :dir (file-name-directory skill-path)))
+              (setq metadata (plist-put metadata :source 'markdown))
+
+              ;; Set defaults
+              (unless (plist-get metadata :name)
+                (setq metadata (plist-put metadata :name
+                                          (file-name-base (directory-file-name
+                                                          (file-name-directory skill-path))))))
+              (unless (plist-get metadata :description)
+                (setq metadata (plist-put metadata :description
+                                          (plist-get metadata :name))))
+
+              ;; Initialize loading state
+              (setq metadata (plist-put metadata :loaded nil))
+              (setq metadata (plist-put metadata :content nil))
+
+              metadata))))
+    (error
+     (message "Error parsing skill metadata from %s: %s" skill-path (error-message-string err))
+     nil)))
+#+end_src
+
+** Parse Content
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--parse-content (skill-path)
+  "Read full SKILL.md content from SKILL-PATH, excluding YAML frontmatter.
+Returns content as string, or nil on error."
+  (condition-case err
+      (with-temp-buffer
+        (insert-file-contents skill-path)
+        (goto-char (point-min))
+
+        ;; Skip YAML frontmatter if present
+        (when (looking-at "^---[ \t]*$")
+          (forward-line 1)
+          (when (re-search-forward "^---[ \t]*$" nil t)
+            (forward-line 1)))
+
+        ;; Return rest of buffer
+        (buffer-substring-no-properties (point) (point-max)))
+    (error
+     (message "Error reading skill content from %s: %s" skill-path (error-message-string err))
+     nil)))
+#+end_src
+
+** Load Resource
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--load-resource (skill-dir resource-file)
+  "Load additional resource file from SKILL-DIR.
+RESOURCE-FILE is relative filename (e.g., 'REFERENCE.md').
+Returns content as string, or nil if file doesn't exist."
+  (let ((resource-path (expand-file-name resource-file skill-dir)))
+    (when (file-exists-p resource-path)
+      (condition-case err
+          (with-temp-buffer
+            (insert-file-contents resource-path)
+            (buffer-string))
+        (error
+         (message "Error loading resource %s: %s" resource-path (error-message-string err))
+         nil)))))
+#+end_src
+
+* Mention Detection and Visual Feedback (Phase 2)
+
+** Detect Mentions
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--detect-mentions (&optional buffer)
+  "Scan BUFFER for @skill-name patterns.
+Returns list of (skill-name . position) tuples for valid skills.
+If BUFFER is nil, uses current buffer."
+  (with-current-buffer (or buffer (current-buffer))
+    (let ((mentions '())
+          (prefix (regexp-quote jf/gptel-skills-mention-prefix))
+          (skill-names (hash-table-keys jf/gptel-skills--registry)))
+      (save-excursion
+        (goto-char (point-min))
+        (while (re-search-forward (concat prefix "\\([a-zA-Z0-9_-]+\\)") nil t)
+          (let ((skill-name (match-string 1))
+                (pos (match-beginning 0)))
+            ;; Only include if skill exists in registry
+            (when (member skill-name skill-names)
+              (push (cons skill-name pos) mentions)))))
+      (nreverse mentions))))
+#+end_src
+
+** Add Overlay
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--add-overlay (beg end skill-name)
+  "Create overlay marking @mention from BEG to END for SKILL-NAME."
+  (let* ((metadata (gethash skill-name jf/gptel-skills--registry))
+         (description (plist-get metadata :description))
+         (ov (make-overlay beg end nil t nil)))
+    (overlay-put ov 'face 'jf/gptel-skills-mention-face)
+    (overlay-put ov 'gptel-skill skill-name)
+    (overlay-put ov 'help-echo description)
+    (overlay-put ov 'evaporate t)
+    (overlay-put ov 'priority 100)
+    (push ov jf/gptel-skills--overlays)
+    ov))
+#+end_src
+
+** Update Overlays
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--update-overlays (&optional _beg _end _len)
+  "Update overlays and active skills list based on current @mentions.
+Designed to be called from after-change-functions."
+  (when (and (bound-and-true-p gptel-mode)  ; gptel-mode is a minor mode
+             (hash-table-p jf/gptel-skills--registry)
+             (> (hash-table-count jf/gptel-skills--registry) 0))
+    ;; Remove all existing overlays
+    (mapc #'delete-overlay jf/gptel-skills--overlays)
+    (setq jf/gptel-skills--overlays nil)
+
+    ;; Detect current mentions
+    (let* ((mentions (jf/gptel-skills--detect-mentions))
+           (skill-names (mapcar #'car mentions)))
+
+      ;; Create overlays for each mention
+      (dolist (mention mentions)
+        (let* ((skill-name (car mention))
+               (pos (cdr mention))
+               (end-pos (+ pos (length jf/gptel-skills-mention-prefix)
+                          (length skill-name))))
+          (jf/gptel-skills--add-overlay pos end-pos skill-name)))
+
+      ;; Update active skills list
+      (setq jf/gptel-skills--active (delete-dups skill-names)))))
+#+end_src
+
+** Completion at Point
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--completion-at-point ()
+  "Provide completion for @skill mentions.
+Integrates with completion-at-point-functions."
+  (when (and (bound-and-true-p gptel-mode)  ; gptel-mode is a minor mode
+             (> (hash-table-count jf/gptel-skills--registry) 0))
+    (let* ((prefix (regexp-quote jf/gptel-skills-mention-prefix))
+           (bounds (bounds-of-thing-at-point 'symbol))
+           (start (and bounds (car bounds)))
+           (end (and bounds (cdr bounds))))
+      ;; Check if we're after @ prefix
+      (when (and start
+                 (> start (point-min))
+                 (string= (buffer-substring-no-properties (1- start) start)
+                          jf/gptel-skills-mention-prefix))
+        (list (1- start)  ; include the @
+              end
+              (mapcar (lambda (name)
+                       (concat jf/gptel-skills-mention-prefix name))
+                     (hash-table-keys jf/gptel-skills--registry))
+              :exclusive 'no
+              :annotation-function
+              (lambda (candidate)
+                (let* ((skill-name (substring candidate (length jf/gptel-skills-mention-prefix)))
+                       (metadata (gethash skill-name jf/gptel-skills--registry))
+                       (source (plist-get metadata :source)))
+                  (cond
+                   ((eq source 'org-roam) " (org-roam)")
+                   ((eq source 'markdown) " (md)")
+                   (t "")))))))))
+#+end_src
+
+* Dynamic Injection (Phase 3)
+
+** Understanding the Transform Hook and FSM
+
+The gptel-skills system integrates with gptel through the =gptel-prompt-transform-functions=
+hook, which provides a powerful extension point for modifying requests before they're sent
+to the LLM.
+
+*** What is the FSM?
+
+FSM is a finite state machine object (gptel-fsm) created by =gptel-request.el= that tracks
+the complete lifecycle of an LLM request. It's passed to all transform functions to provide:
+
+- Access to request metadata via =(gptel-fsm-info fsm)=
+- Context about where the request originated
+- Information about the target backend and model
+- The temporary buffer containing the prompt text
+
+*** Hook Execution Context
+
+When =gptel-prompt-transform-functions= runs:
+
+1. A temporary buffer is created containing the prompt text
+2. The hook runs IN THIS TEMP BUFFER with point at the end of the prompt
+3. Buffer-local variables from the originating buffer are accessible
+4. Transform functions can modify the temp buffer content
+5. Transform functions can modify buffer-local variables like:
+   - =gptel--system-message= (prepend to system instructions)
+   - =gptel-context= (add additional context buffers/files)
+
+*** FSM Info Structure
+
+The FSM contains a plist accessible via =(gptel-fsm-info fsm)=:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| =:buffer= | buffer | Original gptel buffer where request was initiated |
+| =:backend= | gptel-backend | Active LLM backend (Anthropic, OpenAI, etc) |
+| =:data= | buffer | Temporary buffer containing prompt text to send |
+| =:position= | integer | Position in original buffer |
+| =:stream= | boolean | Whether streaming is enabled |
+| =:system= | string | System message for this request |
+
+*Important*: To access buffer-local variables from the original buffer within a transform
+function, use:
+
+#+begin_src emacs-lisp :tangle no
+(let ((original-buffer (plist-get (gptel-fsm-info fsm) :buffer)))
+  (buffer-local-value 'my-variable original-buffer))
+#+end_src
+
+This is necessary because the transform runs in =:data= (temp buffer), not =:buffer= (original).
+
+*** Transform Function Contract
+
+Transform functions in =gptel-prompt-transform-functions= can be:
+
+*Synchronous* (1 argument):
+#+begin_src emacs-lisp :tangle no
+(defun my-transform (fsm)
+  "Transform function that runs and completes immediately."
+  ;; Modify temp buffer or variables
+  ;; No return value needed
+  )
+#+end_src
+
+*Asynchronous* (2 arguments):
+#+begin_src emacs-lisp :tangle no
+(defun my-async-transform (callback fsm)
+  "Transform function that may need to wait for external operations."
+  ;; Do async work
+  ;; Call (funcall callback) when done
+  )
+#+end_src
+
+*** What jf/gptel-skills--transform-inject Does
+
+1. Detects @mentions in the temp buffer
+2. Reads buffer-local =gptel-skills= variable from the ORIGINAL buffer (via FSM)
+3. Combines and deduplicates skills from both sources
+4. Loads skill content (lazy loading with caching)
+5. Injects content into =gptel--system-message=
+6. Strips @mentions from the temp buffer (makes them invisible)
+
+The transform function does NOT return anything - it modifies state in place.
+
+*Critical Implementation Detail*: Transform functions run in a temporary buffer that
+contains a copy of the prompt, NOT the original gptel buffer. This means:
+- @mentions work because the prompt text is IN the temp buffer
+- Buffer-local variables must be read from the ORIGINAL buffer using the FSM
+- We use =(buffer-local-value 'gptel-skills (plist-get (gptel-fsm-info fsm) :buffer))=
+  to access the original buffer's =gptel-skills= variable
+
+** Transform Inject
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--transform-inject (fsm)
+  "Main prompt transform function for injecting skills.
+
+Skills are injected as a multi-part system message, where each skill
+is a separate element in the gptel--system-message list. This enables
+independent caching per skill when using Anthropic's API with prompt caching.
+
+SKILL ORDERING:
+Skills are ordered as follows:
+1. Skills from buffer-local `gptel-skills' variable (transient menu)
+   appear first, in the order they appear in that list
+2. Additional skills from @mentions appear after, sorted alphabetically
+
+The order matters for caching: changing skill order invalidates the cache,
+as Anthropic's prompt caching is position-sensitive.
+
+DETECTION SOURCES:
+Detects skills from two sources:
+1. Buffer-local gptel-skills variable (set via transient menu)
+2. @mentions in the prompt (backward compatibility)
+
+Loads content and injects to system message. Deduplicates skills.
+Added to gptel-prompt-transform-functions. FSM is the state machine."
+  (when (> (hash-table-count jf/gptel-skills--registry) 0)
+    ;; Collect skill names from both sources
+    (let* ((mention-data (jf/gptel-skills--detect-mentions))
+           ;; Extract skill names from mentions
+           (mention-names (mapcar #'car mention-data))
+           ;; Get skills from buffer-local variable in the ORIGINAL buffer
+           ;; (transform runs in temp buffer, need to access original)
+           (original-buffer (plist-get (gptel-fsm-info fsm) :buffer))
+           (buffer-local-skills (when original-buffer
+                                  (buffer-local-value 'gptel-skills original-buffer)))
+           ;; Combine and deduplicate
+           (all-skill-names (delete-dups (append buffer-local-skills mention-names))))
+
+      (when all-skill-names
+        ;; Sort skills: buffer-local gptel-skills order first, then alphabetically
+        ;; Order matters for caching: changing skill order invalidates cache
+        (let* ((ordered-skills
+                (append
+                 ;; First, skills from buffer-local variable in their specified order
+                 (cl-remove-if-not (lambda (name) (member name all-skill-names))
+                                   buffer-local-skills)
+                 ;; Then, any remaining skills (from @mentions) alphabetically
+                 (sort (cl-remove-if (lambda (name) (member name buffer-local-skills))
+                                     all-skill-names)
+                       #'string<))))
+
+          (dolist (skill-name ordered-skills)
+            (let ((metadata (gethash skill-name jf/gptel-skills--registry)))
+              (when metadata
+                ;; Load content if not already loaded
+                (unless (plist-get metadata :loaded)
+                  (let* ((source (plist-get metadata :source))
+                         (content (cond
+                                   ;; Markdown skills - use existing parser
+                                   ((eq source 'markdown)
+                                    (jf/gptel-skills--parse-content (plist-get metadata :path)))
+                                   ;; Org-roam skills - read file directly
+                                   ((eq source 'org-roam)
+                                    (let ((file (plist-get metadata :file)))
+                                      (when (and file (file-exists-p file))
+                                        (with-temp-buffer
+                                          (insert-file-contents file)
+                                          (buffer-string)))))
+                                   (t nil))))
+                    (when content
+                      (plist-put metadata :loaded t)
+                      (plist-put metadata :content content)
+                      (puthash skill-name metadata jf/gptel-skills--registry))))
+
+                ;; Get content and inject to system message
+                (let ((content (plist-get metadata :content)))
+                  (when content
+                    (when jf/gptel-skills-verbose
+                      (message "Injecting skill: %s" skill-name))
+                    ;; Inject to system message
+                    (jf/gptel-skills--inject-content content skill-name))))))))
+
+        ;; Strip @mentions if configured (only strip actual mentions, not buffer-local skills)
+        (when (and jf/gptel-skills-strip-mentions mention-data)
+          (jf/gptel-skills--strip-mentions)))))
+#+end_src
+
+** Inject Content
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--inject-content (content skill-name)
+  "Inject CONTENT for SKILL-NAME into system message as a separate part.
+
+Each skill becomes a distinct element in the gptel--system-message list,
+enabling independent caching per skill when using Anthropic's API with
+prompt caching (see `gptel-cache').
+
+When gptel--system-message is a list, gptel-anthropic.el (lines 220-226)
+automatically adds cache_control blocks to each element.
+
+NOTE: For multi-part system messages with Anthropic, the format must be
+double-nested: (( \"part1\" \"part2\" ...)) because gptel interprets a
+single-level list as (system-message user1 llm1 ...) directive format."
+  ;; Ensure gptel--system-message is in the correct format for building
+  ;; We want to work with a single-level list and wrap it at the end
+  (cond
+   ;; If it's nil, initialize with empty string
+   ((null gptel--system-message)
+    (setq gptel--system-message (list "")))
+   ;; If it's a string, convert to single-level list
+   ((stringp gptel--system-message)
+    (setq gptel--system-message
+          (list (if (string-empty-p gptel--system-message)
+                    ""
+                  gptel--system-message))))
+   ;; If it's already a double-nested list (("part1" ...)), extract inner list
+   ((and (consp gptel--system-message)
+         (consp (car gptel--system-message))
+         (stringp (car (car gptel--system-message))))
+    (setq gptel--system-message (car gptel--system-message)))
+   ;; If it's a single-level list of strings, use as-is
+   ((and (consp gptel--system-message)
+         (stringp (car gptel--system-message)))
+    t)
+   ;; Fallback: create new list with empty base message
+   (t (setq gptel--system-message (list ""))))
+
+  ;; Append skill as new list element with header
+  (setq gptel--system-message
+        (append gptel--system-message
+                (list (format "## Skill: %s\n\n%s" skill-name content))))
+
+  ;; Wrap in outer list for directive format (("part1" "part2" ...))
+  (setq gptel--system-message (list gptel--system-message)))
+#+end_src
+
+*** Injection Example
+
+This section shows a concrete example of how skill content is injected.
+
+**Scenario**: Skill contains behavioral guidelines
+
+Before injection:
+#+begin_example
+gptel--system-message = "You are a helpful assistant"
+#+end_example
+
+After =jf/gptel-skills--inject-content=:
+#+begin_example
+gptel--system-message = "You are a helpful assistant
+
+## Skill: writing-elisp
+
+Always use lexical binding. Prefer higher-order functions.
+Use cl-lib instead of deprecated cl package. Include docstrings
+for all public functions."
+#+end_example
+
+**Result**: Behavioral guidance is appended to system message, influencing all
+responses in the conversation.
+
+** Strip Mentions
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--strip-mentions ()
+  "Remove or hide @mentions from prompt buffer.
+Uses invisible text property to hide mentions."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((prefix (regexp-quote jf/gptel-skills-mention-prefix)))
+      (while (re-search-forward (concat prefix "\\([a-zA-Z0-9_-]+\\)") nil t)
+        (let ((skill-name (match-string 1)))
+          ;; Only strip if skill is in registry
+          (when (gethash skill-name jf/gptel-skills--registry)
+            ;; Make invisible
+            (put-text-property (match-beginning 0) (match-end 0)
+                              'invisible 'gptel-skill)))))))
+#+end_src
+
+* Interactive Commands (Phase 5)
+
+** Insert Mention
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-insert-mention (skill-name)
+  "Insert @mention for SKILL-NAME at point.
+Prompts for skill using completing-read."
+  (interactive
+   (list (completing-read "Insert skill: "
+                         (hash-table-keys jf/gptel-skills--registry)
+                         nil t)))
+  (insert jf/gptel-skills-mention-prefix skill-name)
+  ;; Trigger overlay update
+  (jf/gptel-skills--update-overlays))
+#+end_src
+
+** List Active Skills
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-list-active ()
+  "Display currently active skills in minibuffer or buffer."
+  (interactive)
+  (if (null jf/gptel-skills--active)
+      (message "No active skills in current buffer")
+    (message "Active skills: %s" (string-join jf/gptel-skills--active ", "))))
+#+end_src
+
+** Clear Mentions
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-clear-mentions ()
+  "Remove all @mentions from buffer."
+  (interactive)
+  (when (yes-or-no-p "Remove all @skill mentions from buffer? ")
+    (save-excursion
+      (goto-char (point-min))
+      (let ((prefix (regexp-quote jf/gptel-skills-mention-prefix)))
+        (while (re-search-forward (concat prefix "\\([a-zA-Z0-9_-]+\\)") nil t)
+          (let ((skill-name (match-string 1)))
+            (when (gethash skill-name jf/gptel-skills--registry)
+              (delete-region (match-beginning 0) (match-end 0))
+              ;; Clean up extra spaces
+              (when (looking-at " +")
+                (delete-region (point) (match-end 0))))))))
+    (jf/gptel-skills--update-overlays)
+    (message "Cleared all skill mentions")))
+#+end_src
+
+** Reload Skills
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-reload ()
+  "Reload all skills from directory and org-roam.
+Clears cache, re-scans directory, and updates registry with both
+markdown and org-roam skills."
+  (interactive)
+
+  ;; Clear registry
+  (clrhash jf/gptel-skills--registry)
+
+  ;; Discover markdown skills
+  (let ((skill-files (jf/gptel-skills--discover))
+        (md-count 0))
+    (if (null skill-files)
+        (message "No markdown skills found in %s" jf/gptel-skills-directory)
+
+      ;; Parse and register each markdown skill
+      (dolist (skill-file skill-files)
+        (let ((metadata (jf/gptel-skills--parse-metadata skill-file)))
+          (when metadata
+            (let ((name (plist-get metadata :name)))
+              (puthash name metadata jf/gptel-skills--registry)
+              (setq md-count (1+ md-count)))))))
+
+    ;; Try to load org-roam skills module if not already loaded
+    (unless (featurep 'gptel-skills-roam)
+      (let ((roam-skills-file (expand-file-name "gptel-skills-roam.el"
+                                                 (file-name-directory (or load-file-name
+                                                                         buffer-file-name)))))
+        (when (file-exists-p roam-skills-file)
+          (message "Loading org-roam skills from: %s" roam-skills-file)
+          (load roam-skills-file nil t))))
+
+    ;; Discover and register org-roam skills
+    (message "Checking org-roam skills: featurep=%s enabled=%s"
+             (featurep 'gptel-skills-roam)
+             (if (boundp 'jf/gptel-skills-roam-enabled)
+                 jf/gptel-skills-roam-enabled
+               "unbound"))
+    (when (and (featurep 'gptel-skills-roam)
+               (boundp 'jf/gptel-skills-roam-enabled)
+               jf/gptel-skills-roam-enabled)
+      (let ((skill-files (jf/gptel-skills-roam--discover-files))
+            (roam-count 0))
+        (message "Skill files discovered: %s" skill-files)
+        (dolist (file skill-files)
+          (let ((metadata (jf/gptel-skills-roam--parse-file-metadata file)))
+            (when metadata
+              (let ((skill-name (plist-get metadata :name)))
+                (message "Loaded org-roam skill: %s from %s" skill-name file)
+                ;; Use skill name as key in unified registry
+                (puthash skill-name metadata jf/gptel-skills--registry)
+                (setq roam-count (1+ roam-count))))))
+        (message "Loaded %d org-roam skill(s)" roam-count)))
+
+    (message "Loaded %d skill(s) total (%d markdown, %d org-roam)"
+             (hash-table-count jf/gptel-skills--registry)
+             md-count
+             (if (and (featurep 'gptel-skills-roam) jf/gptel-skills-roam-enabled)
+                 (- (hash-table-count jf/gptel-skills--registry) md-count)
+               0)))
+
+  ;; Update overlays in all gptel buffers
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (bound-and-true-p gptel-mode)  ; gptel-mode is a minor mode
+        (jf/gptel-skills--update-overlays)))))
+#+end_src
+
+** Describe Skill
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-describe (skill-name)
+  "Show description and metadata for SKILL-NAME."
+  (interactive
+   (list (completing-read "Describe skill: "
+                         (hash-table-keys jf/gptel-skills--registry)
+                         nil t)))
+  (let ((metadata (gethash skill-name jf/gptel-skills--registry)))
+    (if (not metadata)
+        (message "Skill not found: %s" skill-name)
+      (with-output-to-temp-buffer (format "*Skill: %s*" skill-name)
+        (princ (format "Skill: %s\n\n" skill-name))
+        (princ (format "Description: %s\n" (plist-get metadata :description)))
+        (princ (format "Path: %s\n" (plist-get metadata :path)))
+        (princ (format "Loaded: %s\n" (if (plist-get metadata :loaded) "yes" "no")))
+        (when (plist-get metadata :loaded)
+          (princ (format "\nContent length: %d characters\n"
+                        (length (plist-get metadata :content)))))))))
+#+end_src
+
+* Initialization
+
+** Setup
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-setup ()
+  "Initialize the skills system.
+Called automatically when this module is loaded."
+  (when (file-directory-p (expand-file-name jf/gptel-skills-directory))
+    (jf/gptel-skills-reload)
+
+    ;; Setup hooks for existing gptel buffers
+    (dolist (buf (buffer-list))
+      (with-current-buffer buf
+        (when (bound-and-true-p gptel-mode)  ; gptel-mode is a minor mode
+          ;; Install buffer-local hooks
+          (add-hook 'after-change-functions
+                    #'jf/gptel-skills--update-overlays nil t)
+          (add-hook 'completion-at-point-functions
+                    #'jf/gptel-skills--completion-at-point nil t)
+          ;; Initial overlay update
+          (jf/gptel-skills--update-overlays))))))
+#+end_src
+
+** Hook Installation
+
+#+begin_src emacs-lisp
+;; Initialize skills and setup hooks when gptel is loaded
+(with-eval-after-load 'gptel
+  ;; Load skills
+  (jf/gptel-skills-setup)
+
+  ;; Add transform function to gptel
+  (add-hook 'gptel-prompt-transform-functions
+            #'jf/gptel-skills--transform-inject)
+
+  ;; Add buffer-local hooks for gptel buffers
+  (add-hook 'gptel-mode-hook
+            (lambda ()
+              ;; Update overlays on buffer changes
+              (add-hook 'after-change-functions
+                        #'jf/gptel-skills--update-overlays nil t)
+              ;; Enable completion
+              (add-hook 'completion-at-point-functions
+                        #'jf/gptel-skills--completion-at-point nil t))))
+
+;; If gptel is already loaded, initialize now
+(when (featurep 'gptel)
+  (jf/gptel-skills-setup))
+#+end_src
+
+* Keybindings
+
+Available keybindings in gptel buffers:
+
+| Keybinding | Command | Description |
+|------------|---------|-------------|
+| =C-c @ s= | =gptel-skills= | Open transient menu to select skills for this buffer session |
+| =C-c @ i= | =jf/gptel-skills-insert-mention= | Insert @mention for a skill at point |
+| =C-c @ l= | =jf/gptel-skills-list-active= | List currently active skills (both menu and @mentions) |
+| =C-c @ c= | =jf/gptel-skills-clear-mentions= | Clear all @mentions from buffer |
+| =C-c @ d= | =jf/gptel-skills-describe= | Describe a skill (show its content) |
+| =C-c @ r= | =jf/gptel-skills-reload= | Reload all skills from disk (clears caches) |
+
+Note: The transient menu keybinding (=C-c @ s=) is defined in =gptel-skills-transient.el=.
+
+#+begin_src emacs-lisp
+;; Define keybindings in gptel-mode
+(with-eval-after-load 'gptel
+  (when (boundp 'gptel-mode-map)
+    (define-key gptel-mode-map (kbd "C-c @ i") 'jf/gptel-skills-insert-mention)
+    (define-key gptel-mode-map (kbd "C-c @ l") 'jf/gptel-skills-list-active)
+    (define-key gptel-mode-map (kbd "C-c @ c") 'jf/gptel-skills-clear-mentions)
+    (define-key gptel-mode-map (kbd "C-c @ d") 'jf/gptel-skills-describe)
+    (define-key gptel-mode-map (kbd "C-c @ r") 'jf/gptel-skills-reload)))
+#+end_src
+
+* Troubleshooting
+
+** Skills selected via transient menu not injecting
+
+*Symptom*: Skills show as selected in =gptel-skills= variable but don't appear in the
+request or system message.
+
+*Diagnosis*:
+1. Check if verbose mode shows injection: =(setq jf/gptel-skills-verbose t)=
+2. If you see "Injecting skill: X" but it's not in the log, skills ARE being injected
+3. Check the gptel request log to verify system message includes skill content
+
+*Common causes*:
+- Registry empty: Run =(jf/gptel-skills-reload)=
+- Wrong skill name: Skill names are based on filename, not title
+  - Org file =pig_latin.org= → skill name is ="pig_latin"= (not ="pig-latin"=)
+- Buffer-local variable not accessible: Fixed by using =buffer-local-value= with FSM
+
+*How it works*: Transform functions run in a TEMP buffer, not your gptel buffer.
+The fix uses =(buffer-local-value 'gptel-skills (plist-get (gptel-fsm-info fsm) :buffer))=
+to read from the original buffer.
+
+** @Mentions work but transient menu doesn't
+
+This was the key troubleshooting insight that led to the fix:
+- @mentions work because the text "@skill-name" is IN the temp buffer
+- Buffer-local variables need special handling via FSM to access the original buffer
+- Both methods now work by accessing the correct buffer context
+
+** Category shows as "???"
+
+*Cause*: Org-mode returns ="???"= as default when CATEGORY property is not set in a temp
+buffer without a filename.
+
+*Fix*: Filter out ="???"= in parsing: =(when (and category (not (equal category "???")))=
+
+Skills without explicit CATEGORY property are automatically categorized as "Uncategorized"
+or "Claude Skills" (for markdown) by the build-structure function.
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'gptel-skills)
+;;; gptel-skills.el ends here
+#+end_src

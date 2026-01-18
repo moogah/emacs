@@ -1,0 +1,568 @@
+#+title: GPTEL Ggtags Tools
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle ggtags-tools.el
+#+auto_tangle: y
+
+* Introduction
+Tools for semantic code navigation using ggtags (GNU Global frontend).
+
+These tools enable LLM agents to navigate code semantically - finding definitions,
+references, and understanding code structure - much faster and more accurately than
+text-based search (grep).
+
+Ggtags provides:
+- Go-to-definition navigation
+- Find all references/usages
+- Symbol search across entire codebase
+- Tag database management
+
+These tools complement projectile tools by providing semantic code understanding
+rather than file-based operations.
+
+* Basic Configuration
+#+begin_src emacs-lisp
+;;; ggtags-tools.el --- GPTEL tools for semantic code navigation with ggtags -*- lexical-binding: t; -*-
+(require 'ggtags)
+#+end_src
+
+* Helper Functions
+#+begin_src emacs-lisp
+(defvar gptel-ggtags-result-limit 40000
+  "Maximum character count for tool results to prevent context overflow.")
+
+(defun gptel-ggtags--result-limit (result)
+  "Limit RESULT to gptel-ggtags-result-limit characters.
+If exceeded, return a warning message instead."
+  (if (>= (length (format "%s" result)) gptel-ggtags-result-limit)
+      (format "Results over %s characters. Use limit parameter to narrow results or increase limit."
+              gptel-ggtags-result-limit)
+    result))
+#+end_src
+
+* Project Status Tools
+
+** check_ggtags_project
+Check if ggtags project exists and report status.
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "check_ggtags_project"
+ :function (lambda (directory)
+             (let* ((gtags-file (expand-file-name "GTAGS" directory))
+                    (exists (file-exists-p gtags-file))
+                    (mtime (when exists (file-attribute-modification-time
+                                         (file-attributes gtags-file))))
+                    (age-days (when mtime
+                                (/ (float-time (time-subtract (current-time) mtime))
+                                   86400.0))))
+               (if (not exists)
+                   (format "No GTAGS database found at %s\n\nTo enable semantic navigation:\n1. Use create_ggtags_project(%s) to create tags\n2. Then use find_definition, find_references, etc."
+                           directory directory)
+                 (format "GTAGS Status:\n\nProject Root: %s\nTags Exist: Yes\nLast Updated: %.1f days ago\nApproximate Status: %s\n\nNext Steps:\n- Use find_definition(directory, symbol) to navigate code\n- Use find_references(directory, symbol) to see usage\n- If tags seem stale, use update_ggtags_project(directory)"
+                         directory age-days
+                         (if (< age-days 1) "Current"
+                           (if (< age-days 7) "Likely current" "Possibly stale"))))))
+ :description "Check if a ggtags project exists and report status.
+
+CRITICAL: Use this tool FIRST before any ggtags navigation operations.
+
+Returns:
+- Whether GTAGS database exists
+- Project root location
+- Last update time (age in days)
+- Status assessment (current/stale)
+- Recommended next actions
+
+If no tags exist, guides you to create_ggtags_project.
+If tags are old, suggests update_ggtags_project.
+
+Typical workflow:
+1. check_ggtags_project(directory) - Verify tags available
+2. If no tags: create_ggtags_project(directory)
+3. If tags exist: find_definition, find_references, etc.
+4. If stale: update_ggtags_project(directory)
+
+Arguments:
+- directory: Project root directory path
+
+This tool helps avoid 'symbol not found' errors by verifying tag database status first."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory path"))
+ :category "ggtags")
+#+end_src
+
+* Code Navigation Tools
+
+** find_definition
+Find where a symbol is defined (primary navigation tool).
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "find_definition"
+ :function (lambda (directory symbol &optional limit)
+             (let ((default-directory directory)
+                   (file-limit (min (or limit 50) 100)))
+               (condition-case err
+                   (let* ((cmd (ggtags-global-build-command 'definition symbol))
+                          (output (shell-command-to-string cmd))
+                          (lines (split-string output "\n" t))
+                          (results (seq-take lines file-limit))
+                          (total (length lines)))
+                     (if (zerop total)
+                         (format "Symbol '%s' not found.\n\nPossible reasons:\n1. Symbol not defined in project\n2. Tags are stale - use update_ggtags_project(%s)\n3. Symbol in ignored files - use explain_ggtags_indexing(%s)"
+                                 symbol directory directory)
+                       (let ((result (format "Found %d definition%s for '%s':\n\n%s%s"
+                                             total
+                                             (if (= total 1) "" "s")
+                                             symbol
+                                             (mapconcat #'identity results "\n")
+                                             (if (> total file-limit)
+                                                 (format "\n\n[Truncated: showing %d of %d. Use limit parameter to adjust]"
+                                                         file-limit total)
+                                               ""))))
+                         (gptel-ggtags--result-limit result))))
+                 (error (format "Error finding definition: %s\n\nCheck that:\n1. GTAGS exists (use check_ggtags_project)\n2. Global is installed\n3. Directory path is correct"
+                                (error-message-string err))))))
+ :description "Find where a symbol is defined.
+
+This is the PRIMARY tool for code navigation. Use this to:
+- Locate function/method definitions
+- Find class declarations
+- Find variable/constant definitions
+- Understand where code is implemented
+
+MUCH faster and more accurate than grep because it understands code structure.
+
+Returns locations in format:
+  file:line: code_context
+
+For example:
+  src/utils.py:42: def process_data(input):
+  src/models.py:15: class DataProcessor:
+
+If multiple definitions exist (overloaded functions, multiple classes with same name),
+all definitions are shown.
+
+Typical workflow:
+1. check_ggtags_project(directory) - Ensure tags exist
+2. find_definition(directory, 'function_name') - Locate implementation
+3. Use Read tool on the file to see full context
+4. find_references(directory, 'function_name') - See where it's used
+
+Arguments:
+- directory: Project root directory (required)
+- symbol: Symbol name to find (function, class, variable, etc.)
+- limit: Max results to return (default 50, max 100)
+
+Use this instead of grep when looking for where code is defined."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "symbol"
+               :type string
+               :description "Symbol name (function, class, variable)")
+             '(:name "limit"
+               :type integer
+               :optional t
+               :description "Max results (default 50, max 100)"))
+ :category "ggtags")
+#+end_src
+
+** find_references
+Find all places where a symbol is used/called.
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "find_references"
+ :function (lambda (directory symbol &optional limit)
+             (let ((default-directory directory)
+                   (file-limit (min (or limit 50) 200)))
+               (condition-case err
+                   (let* ((cmd (ggtags-global-build-command 'reference symbol))
+                          (output (shell-command-to-string cmd))
+                          (lines (split-string output "\n" t))
+                          (results (seq-take lines file-limit))
+                          (total (length lines)))
+                     (if (zerop total)
+                         (format "No references found for '%s'.\n\nThis could mean:\n1. Symbol is defined but never used\n2. Tags are stale - use update_ggtags_project(%s)\n3. Only used in ignored files"
+                                 symbol directory)
+                       (let ((result (format "Found %d reference%s to '%s':\n\n%s%s"
+                                             total
+                                             (if (= total 1) "" "s")
+                                             symbol
+                                             (mapconcat #'identity results "\n")
+                                             (if (> total file-limit)
+                                                 (format "\n\n[Truncated: showing %d of %d. Increase limit or refine search]"
+                                                         file-limit total)
+                                               ""))))
+                         (gptel-ggtags--result-limit result))))
+                 (error (format "Error finding references: %s" (error-message-string err))))))
+ :description "Find all references to a symbol (where it's used/called).
+
+Use this to:
+- Find all call sites of a function
+- Locate all uses of a variable/constant
+- Understand impact radius of changing code
+- Trace code flow and dependencies
+- See usage examples
+
+Shows every place the symbol is referenced (excluding its definition).
+
+Returns locations in format:
+  file:line: code_context
+
+IMPORTANT: Can return many results for commonly-used symbols (e.g., utility functions).
+Use the limit parameter to control output size.
+
+Typical workflow:
+1. find_definition(directory, symbol) - See how it's implemented
+2. find_references(directory, symbol) - See where it's used
+3. Analyze usage patterns and dependencies
+4. Use Read tool on specific files for detailed context
+
+Arguments:
+- directory: Project root directory (required)
+- symbol: Symbol name to find references for
+- limit: Max results (default 50, max 200 for heavily-used symbols)
+
+Complements find_definition by showing usage rather than implementation."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "symbol"
+               :type string
+               :description "Symbol to find references for")
+             '(:name "limit"
+               :type integer
+               :optional t
+               :description "Max results (default 50, max 200)"))
+ :category "ggtags")
+#+end_src
+
+** find_symbol
+Find all occurrences of symbol (definitions + references combined).
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "find_symbol"
+ :function (lambda (directory symbol &optional limit)
+             (let ((default-directory directory)
+                   (file-limit (min (or limit 50) 200)))
+               (condition-case err
+                   (let* ((cmd (ggtags-global-build-command 'symbol symbol))
+                          (output (shell-command-to-string cmd))
+                          (lines (split-string output "\n" t))
+                          (results (seq-take lines file-limit))
+                          (total (length lines)))
+                     (if (zerop total)
+                         (format "Symbol '%s' not found anywhere in project.\n\nPossible reasons:\n1. Typo in symbol name\n2. Symbol doesn't exist\n3. Tags are stale - use update_ggtags_project(%s)"
+                                 symbol directory)
+                       (let ((result (format "Found %d occurrence%s of '%s' (definitions + references):\n\n%s%s\n\nTip: Use find_definition for just definitions, or find_references for just usage."
+                                             total
+                                             (if (= total 1) "" "s")
+                                             symbol
+                                             (mapconcat #'identity results "\n")
+                                             (if (> total file-limit)
+                                                 (format "\n\n[Truncated: showing %d of %d]" file-limit total)
+                                               ""))))
+                         (gptel-ggtags--result-limit result))))
+                 (error (format "Error finding symbol: %s" (error-message-string err))))))
+ :description "Find all occurrences of a symbol (definitions + references).
+
+Combines find_definition and find_references into one comprehensive search.
+Shows everywhere a symbol appears in the codebase.
+
+Use this when:
+- You want a complete picture of a symbol
+- You're not sure if something is defined or just used
+- You need to see all occurrences at once
+- You're exploring unfamiliar code
+
+Returns locations in format:
+  file:line: code_context
+
+For commonly-used symbols this can return many results.
+
+When to use each tool:
+- find_definition: Just show where defined (fastest, most focused)
+- find_references: Just show where used (understand impact)
+- find_symbol: Show everything (complete overview)
+
+Arguments:
+- directory: Project root directory (required)
+- symbol: Symbol name to search for
+- limit: Max results (default 50, max 200)
+
+Note: For large results, consider using find_definition first to understand
+the symbol, then find_references to see specific usage."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "symbol"
+               :type string
+               :description "Symbol name to find")
+             '(:name "limit"
+               :type integer
+               :optional t
+               :description "Max results (default 50, max 200)"))
+ :category "ggtags")
+#+end_src
+
+* Tag Database Management Tools
+
+** create_ggtags_project
+Create a new GTAGS database for semantic navigation.
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "create_ggtags_project"
+ :function (lambda (directory)
+             (let ((default-directory directory))
+               (condition-case err
+                   (progn
+                     (ggtags-create-tags directory)
+                     (format "Successfully created GTAGS database at %s\n\nCreated files:\n- GTAGS (definition database)\n- GRTAGS (reference database)\n- GPATH (path database)\n\nYou can now use:\n- find_definition(directory, symbol)\n- find_references(directory, symbol)\n- find_symbol(directory, symbol)\n\nIndexing respects .gitignore and uses pygments parser (300+ languages)."
+                             directory))
+                 (error (format "Error creating GTAGS: %s\n\nCheck that:\n1. GNU Global is installed (gtags command available)\n2. Directory is writable\n3. Directory contains source files"
+                                (error-message-string err))))))
+ :description "Create a new ggtags tag database (GTAGS) in directory.
+
+IMPORTANT: This operation can take time for large codebases (minutes for 100k+ files).
+Small projects (< 1000 files) complete in seconds.
+
+Creates these files in the project root:
+- GTAGS: Definition database (where symbols are defined)
+- GRTAGS: Reference database (where symbols are used)
+- GPATH: Path name database (file locations)
+
+The indexer:
+- Respects .gitignore and VCS ignore rules
+- Uses pygments parser (configured in this Emacs setup)
+- Supports 300+ languages automatically
+- Indexes function/class/variable definitions and references
+
+Use this when:
+- Starting work on a new codebase
+- check_ggtags_project reports no GTAGS exists
+- You need semantic navigation (go-to-definition, find-references)
+
+After creation:
+- Use find_definition to locate implementations
+- Use find_references to see usage
+- Use explain_ggtags_indexing to verify language support
+
+Arguments:
+- directory: Project root directory where GTAGS will be created
+
+Returns: Success message with next steps, or error with troubleshooting guidance.
+
+Note: Tags stay current automatically via git post-commit hooks (configured in gtags.org).
+Manual updates: update_ggtags_project(directory)"
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory"))
+ :category "ggtags"
+ :confirm t)
+#+end_src
+
+** update_ggtags_project
+Update existing GTAGS database with recent changes.
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "update_ggtags_project"
+ :function (lambda (directory &optional force)
+             (let ((default-directory directory))
+               (condition-case err
+                   (progn
+                     (if (not (file-exists-p (expand-file-name "GTAGS" directory)))
+                         (format "No GTAGS database found at %s\n\nUse create_ggtags_project(%s) to create one first."
+                                 directory directory)
+                       (progn
+                         (ggtags-update-tags force)
+                         (format "Successfully updated GTAGS at %s\n\nUpdate type: %s\n\nTag database is now current with recent code changes.\n\nYou can now use find_definition, find_references with updated results."
+                                 directory
+                                 (if force "Full rebuild" "Incremental (changed files only)")))))
+                 (error (format "Error updating GTAGS: %s\n\nTry:\n1. Force full rebuild: update_ggtags_project(%s, true)\n2. Or recreate: create_ggtags_project(%s)"
+                                (error-message-string err) directory directory)))))
+ :description "Update the ggtags tag database with recent code changes.
+
+Updates GTAGS to reflect changes in source files since last update.
+Typically fast (seconds) because it's incremental by default.
+
+Use this when:
+- check_ggtags_project reports stale tags
+- You've made code changes and searches return outdated results
+- find_definition/find_references miss recently added symbols
+- After pulling code changes from VCS
+
+Update types:
+- Incremental (default): Only reindex changed files (fast)
+- Force rebuild (force=true): Reindex entire project (slower but thorough)
+
+Arguments:
+- directory: Project root directory (required)
+- force: Force full rebuild instead of incremental (optional, default false)
+
+Incremental updates use file modification times to detect changes.
+Force rebuild useful if:
+- Incremental updates seem broken
+- Tag database is corrupted
+- Major refactoring occurred
+
+Note: Git post-commit hooks (configured in gtags.org) auto-update tags after commits.
+This tool is for manual updates when hooks don't run or for uncommitted changes.
+
+Returns: Success message indicating update type, or error with recovery suggestions."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "force"
+               :type boolean
+               :optional t
+               :description "Force full rebuild (default: incremental)"))
+ :category "ggtags"
+ :confirm t)
+#+end_src
+
+** explain_ggtags_indexing
+Show how files are indexed (which parser for each file type).
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "explain_ggtags_indexing"
+ :function (lambda (directory)
+             (let ((default-directory directory))
+               (condition-case err
+                   (if (not (file-exists-p (expand-file-name "GTAGS" directory)))
+                       (format "No GTAGS database at %s\n\nUse create_ggtags_project(%s) first."
+                               directory directory)
+                     (let* ((output (shell-command-to-string "global -h"))
+                            (result (format "Indexing Configuration for %s:\n\n%s\n\nParser types:\n- pygments: Universal parser (300+ languages) - PRIMARY\n- built-in: Native parsers (C, C++, Java, PHP, Yacc) - FAST\n- skip: Not indexed\n\nYour setup uses: pygments (configured in gtags.org)\n\nIf certain files aren't searchable:\n1. Check file extension in output above\n2. Verify .gitignore isn't excluding them\n3. Update tags: update_ggtags_project(%s)"
+                                            directory output directory)))
+                       (gptel-ggtags--result-limit result)))
+                 (error (format "Error explaining indexing: %s" (error-message-string err))))))
+ :description "Explain how each file type is indexed in the project.
+
+Shows which parser/indexer handles each file extension:
+- pygments: Universal parser supporting 300+ languages (Python, JS, Ruby, Go, Rust, etc.)
+- built-in: GNU Global native parsers (C, C++, Java, PHP, Yacc) - faster but fewer languages
+- skip: Files not indexed (binaries, images, etc.)
+
+Use this to:
+- Understand what code can be navigated with find_definition/find_references
+- Debug why certain files don't show up in searches
+- Verify language support for your project
+- See what file extensions are recognized
+
+Your configuration (from gtags.org):
+- Uses 'pygments' label for broad language support
+- Respects .gitignore rules
+- Enabled for Python and JavaScript modes
+
+Arguments:
+- directory: Project root directory (required)
+
+Returns: Table/list of file extensions and their indexing method.
+
+If a language you need shows 'skip':
+1. Check if pygments supports it (likely yes for common languages)
+2. Verify global/pygments installation
+3. Check .gitignore isn't excluding those files
+
+File types definitely supported:
+Python, JavaScript, TypeScript, Ruby, Go, Rust, Java, C, C++, PHP,
+Shell scripts, Perl, Lua, Haskell, Scala, and 280+ more via pygments."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory"))
+ :category "ggtags")
+#+end_src
+
+* Search Tools
+
+** grep_project
+Text/pattern search (for non-symbol content).
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "grep_project"
+ :function (lambda (directory pattern &optional file-pattern limit)
+             (let ((default-directory directory)
+                   (file-limit (min (or limit 50) 200)))
+               (condition-case err
+                   (let* ((cmd (concat "global -g "
+                                      (shell-quote-argument pattern)
+                                      (when file-pattern
+                                        (concat " --path " (shell-quote-argument file-pattern)))))
+                          (output (shell-command-to-string cmd))
+                          (lines (split-string output "\n" t))
+                          (results (seq-take lines file-limit))
+                          (total (length lines)))
+                     (if (zerop total)
+                         (format "No matches found for pattern '%s'%s\n\nTry:\n1. Broader pattern\n2. Check spelling\n3. Use find_definition for symbol search"
+                                 pattern
+                                 (if file-pattern (format " in files matching '%s'" file-pattern) ""))
+                       (let ((result (format "Found %d match%s for '%s':\n\n%s%s"
+                                             total
+                                             (if (= total 1) "" "es")
+                                             pattern
+                                             (mapconcat #'identity results "\n")
+                                             (if (> total file-limit)
+                                                 (format "\n\n[Showing %d of %d]" file-limit total)
+                                               ""))))
+                         (gptel-ggtags--result-limit result))))
+                 (error (format "Error searching: %s" (error-message-string err))))))
+ :description "Search project files for text pattern (grep-style search).
+
+IMPORTANT: This searches raw text, not code symbols.
+
+When to use grep vs. find_* tools:
+- Use grep_project for: strings, comments, documentation, TODO/FIXME, error messages
+- Use find_definition for: function/class/variable definitions
+- Use find_references for: where functions/classes are called/used
+
+grep_project searches literal text content, including comments and strings.
+find_* tools understand code structure and are faster for symbol searches.
+
+Arguments:
+- directory: Project root directory (required)
+- pattern: Text pattern to search (can include wildcards)
+- file_pattern: Optional file glob to limit search (e.g., '*.py', '*.{js,ts}')
+- limit: Max results (default 50, max 200)
+
+Returns: List of matches in format:
+  file:line: matching_line
+
+Examples:
+- grep_project(dir, 'TODO', '*.py') - Find Python TODOs
+- grep_project(dir, 'AuthError') - Find string literal in any file
+- grep_project(dir, 'copyright') - Search comments/headers
+
+Respects .gitignore and VCS ignore rules.
+
+For symbol navigation, prefer find_definition and find_references - they're
+faster and more accurate because they understand code structure."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "pattern"
+               :type string
+               :description "Text pattern to search")
+             '(:name "file_pattern"
+               :type string
+               :optional t
+               :description "File glob pattern (e.g., '*.py', '*.{js,ts}')")
+             '(:name "limit"
+               :type integer
+               :optional t
+               :description "Max results (default 50, max 200)"))
+ :category "ggtags")
+#+end_src
+
+* Provide Feature
+#+begin_src emacs-lisp
+(provide 'ggtags-tools)
+;;; ggtags-tools.el ends here
+#+end_src

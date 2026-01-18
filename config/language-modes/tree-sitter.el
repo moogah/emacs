@@ -1,0 +1,47 @@
+;; -*- lexical-binding: t; -*-
+
+(use-package tree-sitter
+  :straight t
+  :hook ((python-mode . tree-sitter-mode)
+         (python-mode . tree-sitter-hl-mode)
+         (js-mode . tree-sitter-mode)
+         (js-mode . tree-sitter-hl-mode)
+         (javascript-mode . tree-sitter-mode)
+         (javascript-mode . tree-sitter-hl-mode)
+         (sh-mode . tree-sitter-mode)
+         (sh-mode . tree-sitter-hl-mode)
+         (php-mode . tree-sitter-mode)
+         (php-mode . tree-sitter-hl-mode)
+         (hcl-mode . tree-sitter-mode)
+         (hcl-mode . tree-sitter-hl-mode)
+         (terraform-mode . tree-sitter-mode)
+         (terraform-mode . tree-sitter-hl-mode)))
+
+(use-package tree-sitter-langs
+  :straight t)
+
+(setq treesit-language-source-alist
+   '((bash "https://github.com/tree-sitter/tree-sitter-bash")
+     (cmake "https://github.com/uyha/tree-sitter-cmake")
+     (css "https://github.com/tree-sitter/tree-sitter-css")
+     (elisp "https://github.com/Wilfred/tree-sitter-elisp")
+     (go "https://github.com/tree-sitter/tree-sitter-go")
+     (html "https://github.com/tree-sitter/tree-sitter-html")
+     (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
+     (json "https://github.com/tree-sitter/tree-sitter-json")
+     (make "https://github.com/alemuller/tree-sitter-make")
+     (markdown "https://github.com/ikatyang/tree-sitter-markdown")
+     (python "https://github.com/tree-sitter/tree-sitter-python")
+     (toml "https://github.com/tree-sitter/tree-sitter-toml")
+     (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
+     (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
+     (yaml "https://github.com/ikatyang/tree-sitter-yaml")))
+
+(use-package evil-textobj-tree-sitter
+  :straight t)
+
+(use-package combobulate
+  :straight (combobulate :type git :host github :repo "mickeynp/combobulate")
+  :hook ((python-mode . combobulate-mode)
+         (js-mode . combobulate-mode)
+         (typescript-mode . combobulate-mode)))

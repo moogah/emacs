@@ -1,0 +1,40 @@
+#+title: Avy
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle avy.el
+#+auto_tangle: y
+
+* Introduction
+Avy is a package that provides quick navigation within visible text by jumping to characters, words, or lines.
+
+[[https://github.com/abo-abo/avy][Avy]] allows you to jump to visible text based on a character-based decision tree.
+It's particularly useful for moving the cursor without using the mouse or multiple arrow key presses.
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Configuration
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Configure avy for quick navigation
+;; ===============================================================================
+
+(use-package avy
+  :straight t)
+#+end_src
+
+* Usage
+Some common avy commands:
+
+- `avy-goto-char`: Jump to a character
+- `avy-goto-char-2`: Jump to a sequence of two characters
+- `avy-goto-line`: Jump to a line
+- `avy-goto-word-1`: Jump to a word starting with a character
+
+In Evil mode, there's already a keybinding set up for avy-goto-line:
+#+begin_example
+(evil-define-key 'normal 'global (kbd "<SPC> j") 'avy-goto-line)
+#+end_example

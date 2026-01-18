@@ -1,0 +1,41 @@
+#+title: Ripgrep
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle ripgrep.el
+#+auto_tangle: y
+
+* Introduction
+Ripgrep is a fast code searching tool similar to grep, ack, or ag, but significantly faster.
+It's used by several Emacs packages like projectile-ripgrep for code searching functionality.
+
+[[https://github.com/BurntSushi/ripgrep][Ripgrep]] provides extremely fast text searching in repositories and is a foundation for 
+efficient code navigation in Emacs.
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Configuration
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Ripgrep - Required for projectile-ripgrep
+;; ===============================================================================
+
+(use-package ripgrep
+  :straight t)
+#+end_src
+
+* Usage
+Ripgrep is primarily used as a backend for other packages, so there's no direct user interaction.
+It's used by:
+
+- `projectile-ripgrep`: Fast project-wide code searching
+- `counsel-rg`: Ivy-enhanced ripgrep interface
+- `consult-ripgrep`: Consult-enhanced ripgrep interface
+
+For these to work, the `rg` command must be installed on your system:
+- On macOS: `brew install ripgrep`
+- On Linux: Use your package manager (e.g., `apt install ripgrep`)
+- On Windows: Available via scoop, chocolatey, or direct download

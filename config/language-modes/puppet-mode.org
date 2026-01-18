@@ -1,0 +1,61 @@
+#+title: Puppet Mode Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle puppet-mode.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Puppet development environment in Emacs, providing syntax highlighting, indentation, and validation for Puppet manifests.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Puppet Mode
+** Core Puppet Mode
+The puppet-mode package provides syntax highlighting and basic editing features for Puppet manifests.
+
+[[https://github.com/voxpupuli/puppet-mode][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package puppet-mode
+  :straight t)
+#+end_src
+
+* Usage Notes
+** File Extensions
+Puppet mode automatically activates for files with the following extensions:
+- `.pp` - Puppet manifest files
+
+** Basic Features
+Puppet mode provides:
+- Syntax highlighting for Puppet DSL
+- Proper indentation for Puppet manifests
+- Navigation commands for Puppet modules
+- Integration with puppet-lint (if installed)
+
+** Common Tasks
+- Declare resources with proper indentation
+- Navigate between class and define declarations
+- Validate syntax with puppet-lint
+
+* External Dependencies
+For enhanced functionality, install Puppet and related tools:
+
+#+begin_src sh :tangle no
+# macOS with Homebrew
+brew install puppet puppet-lint
+
+# Verify installation
+puppet --version
+puppet-lint --version
+#+end_src
+
+* TODO Improvements
+- Add flycheck integration for puppet-lint
+- Configure company-mode completion for Puppet resources
+- Add snippets for common Puppet patterns
+- Configure format-on-save using puppet-lint
+- Add integration with Puppet Language Server

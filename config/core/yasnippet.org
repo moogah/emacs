@@ -1,0 +1,108 @@
+#+title: YASnippet Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle yasnippet.el
+#+auto_tangle: y
+
+* Introduction
+This file configures YASnippet, a template system for Emacs that allows inserting snippets of code with placeholders and dynamic expansion.
+It also configures automatic insertion of templates for new files.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* YASnippet Configuration
+** Core YASnippet Package
+YASnippet provides template functionality with dynamic fields and expansion.
+
+[[https://github.com/joaotavora/yasnippet][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package yasnippet
+  :straight t
+  :config
+  (use-package yasnippet-snippets
+    :straight t)
+    (setq yas-snippet-dirs
+        (list (expand-file-name "snippets" user-emacs-directory)                     ;; personal snippets
+              (expand-file-name "straight/repos/yasnippet-snippets/snippets" user-emacs-directory)))   ;; yasnippet snippets
+  (yas-global-mode 1))
+#+end_src
+
+** Auto YASnippet
+Provides commands for quickly creating temporary snippets on the fly.
+
+[[https://github.com/abo-abo/auto-yasnippet][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package auto-yasnippet
+  :straight t)
+;; @TODO
+;; bind aya-create and aya-expand
+#+end_src
+
+* Auto-Insert Configuration
+Automatically insert templates into newly created files.
+
+** Auto-Insert Mode
+Enable and configure the auto-insert mode.
+
+#+begin_src emacs-lisp
+(use-package autoinsert
+  :straight t
+  :init
+  (setq auto-insert-query nil)
+  (setq auto-insert-directory (locate-user-emacs-file "templates"))
+  (add-hook 'file-file-hook 'auto-insert)
+  (auto-insert-mode 1))
+#+end_src
+
+** YASnippet Integration Function
+Define a function to expand YASnippet templates in auto-inserted content.
+
+#+begin_src emacs-lisp
+(defun jf/autoinsert-yas-expand()
+  "Replace text in yasnippet template."
+  (interactive)
+  (yas-expand-snippet (buffer-string) (point-min) (point-max)))
+#+end_src
+
+** File Templates
+Define templates for specific file types.
+
+#+begin_src emacs-lisp
+(define-auto-insert "\\.pp$" ["default-puppet.pp" jf/autoinsert-yas-expand])
+(define-auto-insert "dotfiles\/emacs.*\.org" "emacs-config-org-tangle.org")
+#+end_src
+
+* Usage Notes
+** Creating and Using Snippets
+YASnippet provides several ways to use and create snippets:
+
+- Type a snippet key and press TAB to expand it
+- Use M-x yas-new-snippet to create a new snippet
+- Use M-/ to expand a snippet at point
+- Use M-x yas-visit-snippet-file to edit a snippet
+
+** Auto-YASnippet Usage
+Auto-YASnippet allows for temporary snippet creation:
+
+1. Type text with ~ markers for fields you want to be placeholders
+2. Select the text and run `aya-create` (suggested keybinding: C-c C-y c)
+3. Type the new content and run `aya-expand` (suggested keybinding: C-c C-y e)
+
+** Auto-Insert Templates
+When creating new files that match specified patterns, templates will be automatically inserted.
+Current templates:
+- `.pp` files: Puppet module template
+- Emacs configuration org files: Tangleable org template
+
+* TODO Improvements
+- Add keybindings for Auto-YASnippet (aya-create and aya-expand)
+- Create more file templates for common programming languages
+- Consider adding support for project-specific snippet directories
+- Add snippets for common editing patterns
+- Explore integration with LSP for snippet expansion

@@ -1,0 +1,399 @@
+#+title: GPtel Skills Transient Menu
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle gptel-skills-transient.el
+#+auto_tangle: y
+
+* Introduction
+
+This module provides a transient menu interface for managing gptel skills,
+similar to the ~gptel-tools~ transient menu. Skills can be activated for the
+current gptel session via an interactive menu, providing an alternative to
+the @mention-based interface.
+
+** Features
+
+- *Session-based activation*: Skills selected via menu persist for buffer lifetime
+- *Adaptive layout*: UI adapts based on whether categories are present
+  - With categories: Two-column layout (categories + skills)
+  - Without categories: Single-column list of all skills
+- *Backward compatible*: @mention interface continues to work alongside transient menu
+- *Buffer-local scope*: Each gptel buffer has independent skill selection
+
+** Usage
+
+Open the skills menu with ~C-c @ s~ in a gptel buffer, or run ~M-x gptel-skills~.
+
+- Toggle skills on/off with their assigned keys
+- When categories exist, select a category to view its skills
+- Press RET to confirm selection
+- Press q to cancel
+
+Selected skills are stored in buffer-local ~gptel-skills~ variable and
+injected into system messages for all requests in that buffer.
+
+* Configuration
+
+Setup lexical binding and dependencies.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+(require 'gptel-skills)
+(require 'transient)
+#+end_src
+
+* Data Structures
+
+** Buffer-Local Variables
+
+#+begin_src emacs-lisp
+(defvar-local gptel-skills nil
+  "List of skill names active in this gptel session.
+Skills persist for the lifetime of the buffer.
+
+Example: (\"writing-elisp\" \"emacs-elisp-debugging\")")
+#+end_src
+
+* Helper Functions
+
+** Build Structure
+
+Analyze the registry to determine if categories exist and build appropriate structure.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--build-structure ()
+  "Build structure from jf/gptel-skills--registry.
+
+Returns plist with:
+  :has-categories - Always t (we always use categories)
+  :data - Nested alist of categories to skill names
+
+Categories are assigned as:
+  - Markdown skills (from .claude/): \"Claude Skills\"
+  - Org-roam skills with CATEGORY property: use that category
+  - Org-roam skills without CATEGORY: \"Uncategorized\"
+
+Data format:
+  ((\"Claude Skills\" . (\"skill1\" \"skill2\"))
+   (\"Emacs\" . (\"skill3\"))
+   (\"Uncategorized\" . (\"skill4\")))"
+  (let ((categorized-skills (make-hash-table :test 'equal)))
+
+    ;; Collect and categorize all skills
+    (maphash
+     (lambda (skill-name metadata)
+       (let* ((source (plist-get metadata :source))
+              (category (plist-get metadata :category))
+              ;; Determine effective category
+              (effective-category
+               (cond
+                ;; Markdown skills from .claude/ -> "Claude Skills"
+                ((eq source 'markdown) "Claude Skills")
+                ;; Org-roam skills with category -> use it
+                (category category)
+                ;; Org-roam skills without category -> "Uncategorized"
+                (t "Uncategorized"))))
+         ;; Add skill to its category
+         (let ((skills-list (gethash effective-category categorized-skills)))
+           (puthash effective-category
+                    (cons skill-name skills-list)
+                    categorized-skills))))
+     jf/gptel-skills--registry)
+
+    ;; Build categories alist
+    (let ((categories-alist '()))
+      (maphash
+       (lambda (category skills)
+         (push (cons category (sort (nreverse skills) #'string<))
+               categories-alist))
+       categorized-skills)
+      ;; Sort categories alphabetically, but with "Claude Skills" first
+      (setq categories-alist
+            (sort categories-alist
+                  (lambda (a b)
+                    (let ((cat-a (car a))
+                          (cat-b (car b)))
+                      (cond
+                       ((equal cat-a "Claude Skills") t)
+                       ((equal cat-b "Claude Skills") nil)
+                       (t (string< cat-a cat-b)))))))
+      (list :has-categories t
+            :data categories-alist))))
+#+end_src
+
+** Initialize Value
+
+Initialize the transient switch value based on current buffer-local ~gptel-skills~.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--init-value (skill-name)
+  "Return initial value for SKILL-NAME switch.
+Returns non-nil if SKILL-NAME is in buffer-local gptel-skills list."
+  (and gptel-skills
+       (member skill-name gptel-skills)))
+#+end_src
+
+** Get Skill Description
+
+Get the description for a skill from the registry.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills--get-description (skill-name)
+  "Get description for SKILL-NAME from registry.
+Returns description string or empty string if not found."
+  (let ((metadata (gethash skill-name jf/gptel-skills--registry)))
+    (if metadata
+        (or (plist-get metadata :description) "")
+      "")))
+#+end_src
+
+* Custom Transient Classes
+
+** Skill Switch Class
+
+Class for toggling individual skills. Works for both categorized and uncategorized views.
+
+#+begin_src emacs-lisp
+(defclass jf/gptel-skills--switch (transient-switch)
+  ((skill-name :initarg :skill-name))
+  "Class for transient switches that toggle individual skills.")
+
+(cl-defmethod transient-infix-set ((obj jf/gptel-skills--switch) value)
+  "Set VALUE of a skill switch OBJ.
+Adds or removes the skill from the :skills list in transient scope."
+  (let* ((state (transient-scope))
+         (skill-name (oref obj skill-name))
+         (skills (plist-get state :skills)))
+    (if value
+        (progn
+          ;; Add skill to list if not present
+          (cl-pushnew skill-name skills :test #'equal)
+          (plist-put state :skills skills)
+          (oset obj value skill-name))
+      ;; Remove skill from list
+      (plist-put state :skills (delete skill-name skills))
+      (oset obj value nil))
+    (oset transient--prefix scope state)))
+#+end_src
+
+** Category Switch Class
+
+Class for toggling skill categories. Only instantiated when categories are present.
+
+#+begin_src emacs-lisp
+(defclass jf/gptel-skills--switch-category (transient-switch)
+  ((category :initarg :category))
+  "Class for transient switches that toggle entire skill categories.
+Their own value is ignored - they control visibility and bulk selection.")
+
+(cl-defmethod transient-format-value ((obj jf/gptel-skills--switch-category))
+  "Format the value display for category OBJ showing (active/total) count."
+  (let* ((category (oref obj category))
+         (structure (jf/gptel-skills--build-structure))
+         (categories-data (plist-get structure :data))
+         (category-skills (cdr (assoc category categories-data)))
+         (active-skills (plist-get (transient-scope) :skills))
+         (active-count (cl-count-if
+                        (lambda (skill) (member skill active-skills))
+                        category-skills))
+         (total-count (length category-skills)))
+    (if (> active-count 0)
+        (propertize (format "(%d/%d)" active-count total-count)
+                    'face 'transient-value)
+      (propertize (format "(0/%d)" total-count)
+                  'face 'transient-inactive-value))))
+
+(cl-defmethod transient-infix-read ((obj jf/gptel-skills--switch-category))
+  "Determine OBJ value according to category toggle settings.
+Three-state logic:
+- If category not active: return current value (to activate it)
+- If category active and skills selected: return nil (to deselect all)
+- If category active and no skills selected: return argument (to select all)"
+  (let* ((category (oref obj category))
+         (active (equal category (plist-get (transient-scope) :category)))
+         (structure (jf/gptel-skills--build-structure))
+         (categories-data (plist-get structure :data))
+         (category-skills (cdr (assoc category categories-data)))
+         (active-skills (plist-get (transient-scope) :skills))
+         (selected (cl-some (lambda (skill) (member skill active-skills))
+                            category-skills)))
+    (if (not active)
+        (oref obj value)
+      (if selected nil (oref obj argument)))))
+
+(cl-defmethod transient-infix-set ((obj jf/gptel-skills--switch-category) value)
+  "When setting VALUE, toggle all skills in the category of OBJ."
+  (let* ((category (oref obj category))
+         (structure (jf/gptel-skills--build-structure))
+         (categories-data (plist-get structure :data))
+         (category-skills (cdr (assoc category categories-data))))
+    ;; Find all skill switches with this category and toggle them
+    (dolist (suffix-obj transient--suffixes)
+      (when (and (cl-typep suffix-obj 'jf/gptel-skills--switch)
+                 (member (oref suffix-obj skill-name) category-skills))
+        (if value
+            (transient-infix-set suffix-obj (oref suffix-obj skill-name))
+          (transient-infix-set suffix-obj nil))))
+    ;; Update the active category in scope
+    (plist-put (transient-scope) :category category)
+    (plist-put (transient-scope) :key (oref obj key))
+    ;; Set the "value" of the category itself
+    (oset obj value value)))
+#+end_src
+
+* Transient Menu Definition
+
+** Main Menu Command
+
+The ~gptel-skills~ transient prefix provides a two-column menu for managing skills.
+Skills are organized by category in the left column, with individual skills shown
+in the right column when a category is selected.
+
+#+begin_src emacs-lisp
+;;;###autoload
+(transient-define-prefix gptel-skills ()
+  "Select skills to include with gptel requests in this buffer.
+
+Skills persist for the lifetime of the gptel buffer session.
+You can also use @mention syntax as an alternative interface.
+
+Skills are organized by category:
+- Claude Skills: Markdown skills from ~/.claude/skills/
+- Custom categories: Org-roam skills with :CATEGORY: property
+- Uncategorized: Org-roam skills without category"
+  :refresh-suffixes t
+  [:description "Select skills for this gptel session"
+   [""
+    ;; Show count of active skills
+    (:info (lambda ()
+             (let ((count (length (plist-get (transient-scope) :skills))))
+               (if (> count 0)
+                   (propertize (format "%d skill%s active"
+                                      count
+                                      (if (= count 1) "" "s"))
+                               'face 'transient-value)
+                 (propertize "No skills active"
+                             'face 'transient-inactive-value))))
+           :format " %d")]
+   [""
+    ("RET" "Confirm selection"
+     (lambda ()
+       (interactive)
+       (let ((selected-skills (plist-get (transient-scope) :skills)))
+         (setq gptel-skills selected-skills)
+         (message "Activated %d skill%s for this buffer: %S"
+                  (length selected-skills)
+                  (if (= (length selected-skills) 1) "" "s")
+                  selected-skills)))
+     :transient transient--do-return)
+    ("q" "Cancel" transient-quit-one)]]
+  ;; Left column: categories
+  [[:class transient-column
+    :setup-children
+    (lambda (_)
+      (let* ((structure (jf/gptel-skills--build-structure))
+             (data (plist-get structure :data)))
+        (transient-parse-suffixes
+         'gptel-skills
+         (cl-loop
+          for (category . skills) in data
+          with unused-keys = (nconc (number-sequence ?a ?z)
+                                    (number-sequence ?0 ?9))
+          for category-key = (seq-first unused-keys)
+          for display-category = (or category "Uncategorized")
+          do (setq unused-keys (cdr unused-keys))
+          collect (list (key-description (list category-key))
+                       (concat (propertize display-category 'face 'transient-heading)
+                               (make-string (max (- 20 (length display-category)) 0) ? ))
+                       (char-to-string category-key)
+                       :format " %k %d %v"
+                       :class 'jf/gptel-skills--switch-category
+                       :category category)
+          into categories
+          finally do (plist-put (transient-scope) :keys unused-keys)
+          finally return categories))))]
+   [:class transient-column
+    :setup-children
+    (lambda (_)
+      ;; Right column: skills for selected category
+      (let* ((structure (jf/gptel-skills--build-structure)))
+        (transient-parse-suffixes
+         'gptel-skills
+         (when-let* ((category (plist-get (transient-scope) :category))
+                    (skill-keys (plist-get (transient-scope) :keys))
+                    (data (plist-get structure :data))
+                    (category-skills (cdr (assoc category data))))
+           (cl-loop
+            for skill-name in category-skills
+            for skill-key = (seq-first skill-keys)
+            do (setq skill-keys (cdr skill-keys))
+            collect (list (key-description (list skill-key))
+                         (concat (make-string (max (- 25 (length skill-name)) 0) ? )
+                                 (propertize
+                                  (concat "(" (jf/gptel-skills--get-description skill-name) ")")
+                                  'face 'shadow))
+                         skill-name
+                         :format " %k %v %d"
+                         :init-value (lambda (obj)
+                                      (oset obj value
+                                            (jf/gptel-skills--init-value
+                                             (oref obj skill-name))))
+                         :class 'jf/gptel-skills--switch
+                         :skill-name skill-name)
+            into infixes-for-category
+            finally return
+            (cons (list :info
+                       (lambda ()
+                         (concat
+                          (propertize (plist-get (transient-scope) :key)
+                                     'face 'transient-key)
+                          (propertize " toggle all" 'face 'transient-heading)))
+                       :format " %d")
+                  infixes-for-category))))))]]
+  (interactive)
+  (unless (hash-table-p jf/gptel-skills--registry)
+    (user-error "Skills registry not initialized. Run M-x jf/gptel-skills-reload"))
+  (when (= (hash-table-count jf/gptel-skills--registry) 0)
+    (user-error "No skills found. Check your skills directory"))
+  (transient-setup
+   'gptel-skills nil nil
+   :scope (list :skills (copy-sequence gptel-skills))))
+#+end_src
+
+* Keybinding Integration
+
+Add keybinding to make the skills menu easily accessible from gptel buffers.
+
+#+begin_src emacs-lisp
+;; Add keybinding to gptel-mode-map
+(with-eval-after-load 'gptel
+  (when (boundp 'gptel-mode-map)
+    (define-key gptel-mode-map (kbd "C-c @ s") 'gptel-skills)))
+#+end_src
+
+* Integration with gptel-menu
+
+Add skills section to the main gptel-menu, similar to the tools section.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'gptel-transient
+  ;; Add skills section to gptel-menu after the tools section
+  (transient-append-suffix 'gptel-menu '(0 -1)
+    [:pad-keys t
+     ""
+     (:info
+      (lambda ()
+        (let ((count (length gptel-skills)))
+          (concat "Skills"
+                  (when (> count 0)
+                    (concat " (" (propertize (format "%d active" count)
+                                            'face 'warning)
+                            ")")))))
+      :format "%d" :face transient-heading)
+     ("S" "Select skills" gptel-skills :transient t)]))
+#+end_src
+
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'gptel-skills-transient)
+#+end_src

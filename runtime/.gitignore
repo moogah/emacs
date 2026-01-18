@@ -1,0 +1,33 @@
+# Runtime data - explicitly ignore these
+custom.el
+data/*
+cache/*
+state/*
+packages/*
+straight/
+eln-cache/
+persist/
+transient/
+backups/
+auto-save-list/
+elfeed/
+.org-id-locations
+history
+bookmarks
+recentf
+projectile-bookmarks.eld
+places
+.lsp-session-v1
+.chatgpt-shell.el
+.claude/
+.cache/
+.emacs.desktop
+chatgpt/
+dall-e/
+day1perspective
+
+# Keep structure files
+!data/.gitkeep
+!cache/.gitkeep
+!state/.gitkeep
+!packages/.gitkeep

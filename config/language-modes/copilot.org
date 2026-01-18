@@ -1,0 +1,122 @@
+#+title: GitHub Copilot Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle copilot.el
+#+auto_tangle: y
+
+* Introduction
+This file configures GitHub Copilot integration for Emacs, providing AI-assisted code completion and suggestions while programming.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Copilot Setup
+** Core Copilot Package
+The copilot.el package provides integration with GitHub Copilot service.
+
+[[https://github.com/zerolfx/copilot.el][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package copilot
+  :straight (:host github :repo "zerolfx/copilot.el" :files ("dist" "*.el"))
+  :ensure t)
+#+end_src
+
+* Keybindings and Integration
+** Company Mode Integration
+Configure Copilot to work with company-mode.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'company
+  ;; disable inline previews
+  (delq 'company-preview-if-just-one-frontend company-frontends))
+#+end_src
+
+** Keybindings
+Setup key bindings for accepting Copilot completions.
+
+#+begin_src emacs-lisp
+(define-key copilot-completion-map (kbd "<tab>") 'copilot-accept-completion)
+(define-key copilot-completion-map (kbd "TAB") 'copilot-accept-completion)
+#+end_src
+
+* Usage Notes
+** Enabling Copilot Mode
+To enable Copilot in a specific mode, add a hook like:
+
+#+begin_src emacs-lisp :tangle no
+(add-hook 'prog-mode-hook 'copilot-mode)
+#+end_src
+
+You can also enable it for specific programming languages:
+
+#+begin_src emacs-lisp :tangle no
+(add-hook 'python-mode-hook 'copilot-mode)
+(add-hook 'js-mode-hook 'copilot-mode)
+#+end_src
+
+** Basic Usage
+When Copilot mode is enabled:
+1. Type code as usual
+2. Copilot will suggest completions as you type
+3. Press TAB to accept the suggestion
+4. Use M-n and M-p to cycle through alternative suggestions
+
+** Authentication
+On first use, you'll need to authenticate with GitHub:
+1. Run `M-x copilot-login`
+2. Follow the instructions to authenticate via GitHub
+
+* External Dependencies
+Copilot requires:
+- Node.js 16+
+- A GitHub account with Copilot subscription
+
+Install Node.js:
+#+begin_src sh :tangle no
+# macOS with Homebrew
+brew install node
+
+# Check version
+node --version
+#+end_src
+
+* Advanced Configuration
+** Customizing when Copilot makes suggestions
+For more control over when Copilot makes suggestions, you can create custom hooks.
+
+Example from Robert Krahn's blog (https://robert.kra.hn/posts/2023-02-22-copilot-emacs-setup/):
+
+#+begin_src emacs-lisp :tangle no
+;; define function to determine if copilot should be enabled
+(defun my-copilot-tab-p ()
+  "Return non-nil if tab should trigger copilot completion."
+  (and
+   ;; company is not active
+   (or (not company--active-mode)
+       ;; company is showing candidates, but none are selected
+       (eq company-selection -1))
+   ;; copilot has a suggestion available
+   copilot--current-completion))
+
+;; define tab and backtab functions that check for copilot
+(defun my-copilot-tab ()
+  "Tab command that will trigger copilot completion if appropriate."
+  (interactive)
+  (if (my-copilot-tab-p)
+      (copilot-accept-completion)
+    (indent-for-tab-command)))
+
+;; set keybindings
+(define-key global-map (kbd "<tab>") #'my-copilot-tab)
+#+end_src
+
+* TODO Improvements
+- Create mode-specific configurations for different languages
+- Add keybindings for accepting only parts of suggestions
+- Configure automatic enabling/disabling based on file type
+- Add integration with other completion frameworks
+- Consider exploring alternatives like TabNine or Codeium

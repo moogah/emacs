@@ -1,0 +1,72 @@
+#+title: Markdown Mode Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle markdown-mode.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Markdown editing support in Emacs, providing syntax highlighting, formatting, and preview capabilities for Markdown files.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Markdown Mode
+** Core Markdown Mode
+The markdown-mode package provides syntax highlighting and editing features for Markdown files.
+
+[[https://jblevins.org/projects/markdown-mode/][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package markdown-mode
+  :straight t
+  :mode ("README\\.md\\'" . gfm-mode)
+  :init (setq markdown-command "multimarkdown"))
+#+end_src
+
+* Usage Notes
+** Markdown Mode Variants
+This configuration includes two main modes:
+- `markdown-mode`: For standard Markdown files
+- `gfm-mode`: For GitHub Flavored Markdown (used for README.md files)
+
+** Basic Commands
+- `C-c C-c p`: Preview the rendered HTML
+- `C-c C-c m`: Run markdown command on buffer
+- `C-c C-c l`: Toggle live preview
+- `C-c C-s b`: Insert bold text
+- `C-c C-s i`: Insert italic text
+- `C-c C-s c`: Insert code
+- `C-c C-s k`: Insert link
+- `TAB`: Cycle visibility of headings
+
+** Multimarkdown
+The configuration uses `multimarkdown` as the renderer. This provides additional features like:
+- Tables
+- Definition lists
+- Footnotes
+- Citations
+- Math support
+
+* External Dependencies
+For full functionality, install the multimarkdown processor:
+
+#+begin_src sh :tangle no
+# macOS with Homebrew
+brew install multimarkdown
+
+# Ubuntu/Debian
+sudo apt-get install multimarkdown
+
+# Verify installation
+multimarkdown --version
+#+end_src
+
+* TODO Improvements
+- Add prettier or other markdown formatters
+- Configure syntax checking for markdown
+- Add pandoc integration for document conversion
+- Consider markdown-toc for automatic table of contents
+- Add ox-hugo integration for blog writing

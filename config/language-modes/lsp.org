@@ -1,0 +1,30 @@
+#+auto_tangle: y
+
+* Install LSP-Mode
+
+#+begin_src emacs-lisp :tangle yes
+  (use-package lsp-mode
+    :straight t
+    :commands lsp
+    :hook ((js2-mode . lsp)
+           (typescript-mode . lsp)
+           (rjsx-mode . lsp))
+    :config
+    (setq lsp-enable-snippet nil))
+
+  (use-package lsp-ui
+    :straight t
+    :commands lsp-ui-mode)
+#+end_src
+
+
+Install language servers
+
+#+begin_src shell :async t :dir ~/ :prologue exec 2>&1 :epilogue "true" :results output
+  npm install -g typescript-language-server typescript
+#+end_src
+
+#+RESULTS:
+: zsh: command not found: \ufeffexec
+
+

@@ -1,0 +1,160 @@
+#+title: Themes Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle themes.el
+#+auto_tangle: y
+
+* Introduction
+This file configures visual themes for Emacs, providing a cohesive and aesthetically pleasing color scheme.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Theme Packages
+Install a selection of popular themes.
+
+#+begin_src emacs-lisp
+(use-package monokai-theme
+  :straight t)
+(use-package material-theme
+  :straight t)
+(use-package vs-light-theme
+  :straight t)
+(use-package color-theme-sanityinc-tomorrow
+  :straight t)
+(use-package cyberpunk-theme
+  :straight t)
+(use-package afternoon-theme
+  :straight t)
+(use-package darkburn-theme
+  :straight t)
+(use-package distinguished-theme
+  :straight t)
+(use-package doom-themes
+  :straight t
+  :init
+  ;; Enable bold and italic (set before theme loads)
+  (setq doom-themes-enable-bold t
+        doom-themes-enable-italic t))
+(use-package nano-theme
+  :straight (nano-theme :type git :host github :repo "rougier/nano-theme"))
+(use-package timu-macos-theme
+  :straight t)
+#+end_src
+
+* Active Theme
+Set the active theme.
+
+#+begin_src emacs-lisp
+  ;; set default theme
+  ;; doom-henna
+  ;; doom-peacock
+  ;; doom-vibrant
+  ;; doom-ir
+  ;; doom-old-hope
+  ;; doom-ephemeral
+  ;; doom-laserwave
+  ;; doom-moonlight
+  ;; doom-palenight
+
+  ;; Load theme after Emacs fully starts to ensure all UI elements are initialized
+  ;; This fixes issues with doom themes not applying colors correctly on startup
+  (add-hook 'emacs-startup-hook
+            (lambda ()
+              (load-theme 'doom-palenight t)
+              ;; Apply doom-themes configuration after theme loads
+              (doom-themes-org-config)))
+
+  ;; (load-theme 'distinguished)
+  ;; (enable-theme 'distinguished)
+  ;;(set-background-color "black")
+#+end_src
+
+* Custom Theme Tweaks
+Custom adjustments to the active theme (currently commented out).
+
+#+begin_src emacs-lisp :tangle no
+;; https://emacs.stackexchange.com/questions/48365/custom-theme-set-faces-does-not-work-in-emacs-27
+;; (custom-theme-set-faces
+;;  'doom-palenight
+;;  '(default ((t (:background "black"))))
+;;  '(font-lock-comment-face ((t (:foreground "dark gray"))))
+;;  '(tree-sitter-hl-face:method.call ((t (:foreground "light blue"))))
+;;  '(tree-sitter-hl-face:function.call ((t (:foreground "light blue"))))
+;;  '(tree-sitter-hl-face:type ((t (:foreground "DodgerBlue1"))))
+;;  '(magit-diff-hunk-heading ((t (:background "black" :foreground "dark gray"))))
+;;  '(magit-diff-hunk-heading-highlight ((t (:background "black" :foreground "wheat1"))))
+;;  '(magit-diff-context-highlight ((t (:background "black"))))
+;;  '(magit-diff-removed-highlight ((t (:background "black" :foreground "red"))))
+;;  '(magit-diff-removed ((t (:background "#292D3E" :foreground "#cc4259"))))
+;;  '(magit-diff-added-highlight ((t (:background "black" :foreground "green"))))
+;;  '(magit-diff-added ((t (:background "#292D3E" :foreground "#9cb970"))))
+;;  '(org-table ((t (:background "#292D3E" :foreground "wheat1"))))
+;;  '(org-default ((t (:foreground "wheat1"))))
+;;  '(org-link ((t (:foreground "DodgerBlue1"))))
+;;  '(org-level-1 ((t (:foreground "white"))))
+;;  '(org-level-2 ((t (:foreground "white"))))
+;;  '(org-level-3 ((t (:foreground "white"))))
+;;  '(org-level-4 ((t (:foreground "white"))))
+;;  '(org-level-5 ((t (:foreground "white"))))
+;;  '(font-lock-string-face ((t (:foreground "wheat1")))))
+#+end_src
+
+* Font Configuration
+Configure the default font.
+
+NOTE: This configuration uses `setq` to replace `default-frame-alist` which discards
+the frame size settings from core/defaults. This is not ideal, but necessary because:
+- Using `add-to-list` (with or without append) causes theme faces to render with
+  incorrect/low-contrast colors on startup
+- The issue affects multiple themes (doom-palenight, distinguished, etc.)
+- Theme colors render correctly when manually switching themes with consult-theme
+- Root cause: Unknown interaction between font parameter position in default-frame-alist
+  and theme face initialization
+- Attempted fixes that didn't work:
+  * `add-to-list` prepending (adds to beginning)
+  * `add-to-list` with append flag (adds to end)
+  * `frame-resize-pixelwise` disabled (was causing bug#38497)
+  * Loading theme in `emacs-startup-hook`
+  * `set-face-attribute` approaches
+
+TODO: Investigate proper font setting approach that doesn't interfere with themes
+or find alternative way to preserve frame size settings from core/defaults.
+
+#+begin_src emacs-lisp
+;; set font size to 14pt for my aging eyes
+(setq default-frame-alist '((font . "Menlo-14")))
+#+end_src
+
+* Usage Notes
+This configuration:
+
+- Installs multiple themes for easy switching
+- Sets 'distinguished' as the active theme
+- Configures Menlo 14pt as the default font
+- Includes commented out customizations for doom-palenight theme
+
+To change themes:
+1. Edit the active theme section to load a different theme
+2. Uncomment and modify custom theme tweaks if needed
+3. Use `M-x customize-themes` for interactive theme selection
+
+Available themes:
+- doom-* (multiple variants)
+- monokai
+- material
+- vs-light
+- cyberpunk
+- afternoon
+- darkburn
+- distinguished
+- nano
+- timu-macos
+
+* TODO Improvements
+- Create a custom theme with personalized color choices
+- Add time-based theme switching (light during day, dark at night)
+- Configure per-mode theme customizations

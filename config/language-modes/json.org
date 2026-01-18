@@ -1,0 +1,59 @@
+#+title: JSON Mode Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle json.el
+#+auto_tangle: y
+
+* Introduction
+This file configures JSON editing support in Emacs, providing syntax highlighting, formatting, and validation for JSON files.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* JSON Mode
+** Core JSON Mode
+The json-mode package provides syntax highlighting and editing capabilities for JSON files.
+
+[[https://github.com/joshwnj/json-mode][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package json-mode
+  :straight t)
+#+end_src
+
+* Usage Notes
+** JSON Mode Features
+JSON mode provides several features for working with JSON files:
+
+- Syntax highlighting for JSON files
+- Commands for navigating JSON structure
+- Pretty-printing/formatting capabilities
+- Path display showing current position in nested structure
+- Support for working with JSON arrays and objects
+
+** Basic Commands
+- `C-c C-f`: Format the region or buffer
+- `C-c C-p`: Print the path to the JSON value under cursor
+- `C-c C-t`: Toggle between values at point (e.g., true ⟷ false)
+
+* External Tools
+For advanced JSON manipulation, consider external tools:
+
+- [jq](https://stedolan.github.io/jq/) - Command-line JSON processor
+- [fx](https://github.com/antonmedv/fx) - Interactive JSON viewer
+
+These can be integrated with Emacs through shell commands.
+
+* TODO Improvements
+- Add jq integration for advanced JSON manipulation
+- Configure schema validation for JSON files
+- Add integration with jsonlint for validation
+- Consider using tree-sitter for better syntax highlighting and structure navigation
+- Add snippets for common JSON patterns
+- Explore alternative JSON modes mentioned in [Stack Overflow](https://stackoverflow.com/questions/435847/emacs-mode-to-edit-json)
+  - json-navigator for visualization
+  - jsonian for improved performance
+  - json-snatcher for extracting values

@@ -1,0 +1,594 @@
+#+title: GPTEL Tools Guide
+#+author: Jeff Farr
+
+* Introduction
+
+This directory contains custom tools for gptel that can be used by LLMs to interact with
+your Emacs environment. Tools are defined using =gptel-make-tool= and organized by category.
+
+* What are GPTEL Tools?
+
+GPTEL tools are elisp functions with metadata that LLMs can call to extend their capabilities.
+When an LLM decides to use a tool, it provides arguments, gptel runs the function in Emacs,
+and optionally returns the result to the LLM.
+
+Tools enable LLMs to:
+- Read and write files
+- Execute commands
+- Query databases
+- Search the web
+- Interact with Emacs buffers
+- Control your Emacs environment
+
+* Tool Definition Structure
+
+** Required Parameters
+
+Every tool requires these four parameters:
+
+- =:name= :: Tool name in snake_case (e.g., "read_file", "create_buffer")
+- =:function= :: The elisp function (lambda or symbol) that runs
+- =:description= :: Verbose description of what the tool does, how to call it, and what it returns
+- =:args= :: List of argument specifications (or nil for no arguments)
+
+** Argument Specification
+
+Each argument in =:args= is a plist with required keys:
+
+- =:name= :: Argument name as a string
+- =:type= :: Type as a symbol: =string=, =number=, =integer=, =boolean=, =array=, =object=, or =null=
+- =:description= :: Description of what the argument represents
+
+** Optional Parameters
+
+*** For Arguments:
+- =:optional= :: Boolean indicating if argument is optional
+- =:enum= :: Vector of strings for enumerated types (e.g., =["read" "write" "append"]=)
+- =:items= :: For =array= type, plist with at least =:type= of items
+- =:properties= :: For =object= type, plist serializable to JSON object spec
+
+*** For Tools:
+- =:category= :: String for grouping in UI (default: "misc")
+- =:async= :: Boolean for async functions (see Async Tools section)
+- =:confirm= :: Boolean or function to prompt user before running
+- =:include= :: Whether to include tool results in LLM output (useful for chat buffers)
+
+* Basic Examples
+
+** Simple Tool with One Argument
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "read_buffer"
+ :function (lambda (buffer)
+             (unless (buffer-live-p (get-buffer buffer))
+               (error "Buffer %s is not live" buffer))
+             (with-current-buffer buffer
+               (buffer-substring-no-properties (point-min) (point-max))))
+ :description "Return the contents of an Emacs buffer"
+ :args (list '(:name "buffer"
+               :type string
+               :description "The name of the buffer to read"))
+ :category "emacs")
+#+end_src
+
+** Tool with Multiple Arguments
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "create_file"
+ :function (lambda (path filename content)
+             (let ((full-path (expand-file-name filename path)))
+               (with-temp-buffer
+                 (insert content)
+                 (write-file full-path))
+               (format "Created file %s in %s" filename path)))
+ :description "Create a new file with specified content"
+ :args (list '(:name "path"
+               :type string
+               :description "Directory where to create the file")
+             '(:name "filename"
+               :type string
+               :description "Name of the file to create")
+             '(:name "content"
+               :type string
+               :description "Content to write to the file"))
+ :category "filesystem")
+#+end_src
+
+* Advanced Examples
+
+** Tool with Optional Arguments
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "search_files"
+ :function (lambda (pattern &optional directory case-sensitive)
+             (let ((default-directory (or directory default-directory)))
+               ;; Search implementation
+               ))
+ :description "Search for pattern in files"
+ :args (list '(:name "pattern"
+               :type string
+               :description "Pattern to search for")
+             '(:name "directory"
+               :type string
+               :optional t
+               :description "Directory to search in (defaults to current)")
+             '(:name "case_sensitive"
+               :type boolean
+               :optional t
+               :description "Whether search is case-sensitive"))
+ :category "search")
+#+end_src
+
+** Tool with Enum Arguments
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "open_file"
+ :function (lambda (filepath mode)
+             (let ((buf (find-file-noselect filepath)))
+               (pcase mode
+                 ("read" (view-buffer buf))
+                 ("edit" (switch-to-buffer buf))
+                 ("split" (switch-to-buffer-other-window buf)))
+               (format "Opened %s in %s mode" filepath mode)))
+ :description "Open a file in Emacs with specified display mode"
+ :args (list '(:name "filepath"
+               :type string
+               :description "Full path to the file")
+             '(:name "mode"
+               :type string
+               :enum ["read" "edit" "split"]
+               :description "How to display the file"))
+ :category "emacs")
+#+end_src
+
+** Tool with Array Arguments
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "delete_files"
+ :function (lambda (filepaths)
+             (mapconcat
+              (lambda (path)
+                (if (file-exists-p path)
+                    (progn (delete-file path)
+                           (format "Deleted: %s" path))
+                  (format "Not found: %s" path)))
+              filepaths
+              "\n"))
+ :description "Delete multiple files"
+ :args (list '(:name "filepaths"
+               :type array
+               :items (:type string)
+               :description "Array of file paths to delete"))
+ :category "filesystem")
+#+end_src
+
+** Tool with Confirmation
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "execute_command"
+ :function (lambda (command)
+             (shell-command-to-string command))
+ :description "Execute a shell command and return output"
+ :args (list '(:name "command"
+               :type string
+               :description "Shell command to execute"))
+ :category "system"
+ :confirm t  ; Always prompt user before running
+ :include t) ; Include results in LLM output
+#+end_src
+
+* Async Tools
+
+For long-running operations, mark the tool as =:async t=. The function should:
+1. Take a callback as its FIRST argument (not included in =:args=)
+2. Call the callback with the result when ready
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "fetch_url"
+ :function (lambda (callback url)  ; callback is first arg
+             (url-retrieve
+              url
+              (lambda (status)
+                (if (plist-get status :error)
+                    (funcall callback (format "Error: %s" (plist-get status :error)))
+                  (goto-char (point-min))
+                  (re-search-forward "\n\n")
+                  (funcall callback (buffer-substring (point) (point-max)))))))
+ :description "Fetch content from a URL asynchronously"
+ :args (list '(:name "url"
+               :type string
+               :description "URL to fetch"))
+ :category "network"
+ :async t)  ; Mark as async
+#+end_src
+
+* Subagent System
+
+** Overview
+
+The subagent system enables LLM agents to delegate specialized tasks to isolated subagents
+that run with dedicated tool sets, models, and configurations. This preserves the primary
+agent's context window by offloading complex subtasks to specialized agents that return
+concise summaries.
+
+Built on [[https://github.com/karthink/gptel-agent][gptel-agent]] infrastructure for robust, battle-tested subagent execution.
+
+** Architecture
+
+*File-Based Agent Definitions*: Agents are defined in markdown/org files with YAML frontmatter
+
+*Invisible Execution*: Subagents run in the background without creating visible buffers
+
+*Standard Tool*: Use the =Agent= tool (from gptel-agent) to invoke subagents
+
+*Complete Isolation*: Each subagent gets its own:
+- FSM (finite state machine) instance for state management
+- Tool set (defined in agent file)
+- Backend and model configuration
+- System prompt with specialized instructions
+- Optional skills integration via =@mention= syntax
+
+** Available Agents
+
+*** explorer
+
+Read-only code exploration and semantic analysis.
+
+*Tools*: Glob, Grep, Read, list_known_projects, get_project_info, list_project_files,
+search_project_content, check_ggtags_project, find_definition, find_references, find_symbol
+
+*Model*: claude-3-7-sonnet-20250219 (temperature: 0.5)
+
+*Use Cases*:
+- Analyzing code structure and organization
+- Understanding implementations and architectures
+- Tracing dependencies and data flow
+- Finding where functionality is implemented
+- Semantic code navigation with ggtags
+
+*Location*: =emacs/major-modes/gpt-tools/agents/explorer.md=
+
+*** planner
+
+Planning and requirements gathering with delegation capability.
+
+*Tools*: Agent (can delegate to other agents), Glob, Grep, Read
+
+*Model*: claude-3-7-sonnet-20250219 (temperature: 0.7)
+
+*Use Cases*:
+- Developing implementation plans
+- Breaking down complex tasks into steps
+- Gathering requirements and identifying constraints
+- Coordinating exploration via delegation to explorer/researcher
+- Considering architectural trade-offs
+
+*Location*: =emacs/major-modes/gpt-tools/agents/planner.md=
+
+*** executor
+
+Autonomous execution with file modification capabilities.
+
+*Tools*: Agent, TodoWrite, Glob, Grep, Read, Insert, Edit, Write, Mkdir, Eval, Bash,
+WebSearch, WebFetch, YouTube, list_known_projects, get_project_info, list_project_files,
+search_project_content
+
+*Model*: claude-3-7-sonnet-20250219 (temperature: 0.3)
+
+*Special Features*: Includes guidance on Emacs literate programming (edit .org files, not .el)
+
+*Use Cases*:
+- Autonomous execution of well-defined tasks
+- File modifications (create, edit, write)
+- Running commands, tests, builds
+- Multi-step tasks with TodoWrite planning
+- Delegates to explorer/researcher when needs investigation
+
+*Location*: =emacs/major-modes/gpt-tools/agents/executor.md=
+
+*** researcher (from gptel-agent)
+
+Web research and codebase exploration for information gathering.
+
+*Tools*: Glob, Grep, Read, WebSearch, WebFetch, YouTube
+
+*Use Cases*:
+- Searching the web for documentation and solutions
+- Research best practices and current information
+- Codebase exploration (alternative to explorer agent)
+- Multi-source information synthesis
+
+*** introspector (from gptel-agent)
+
+Emacs and elisp introspection specialist.
+
+*Use Cases*:
+- Understanding elisp APIs and Emacs internals
+- Exploring Emacs state and package functionality
+- Documenting Emacs built-in functions
+
+** Usage
+
+*** Basic Invocation
+
+Invoke agents via the =Agent= tool in gptel:
+
+#+begin_example
+Agent(
+  subagent_type="explorer",
+  description="Understand authentication system",
+  prompt="Analyze the authentication implementation in this codebase.
+         Find the key modules, trace the login flow, and identify security patterns."
+)
+#+end_example
+
+*** Delegation Chains
+
+Agents can delegate to other agents:
+
+#+begin_example
+Primary Agent
+  └─> planner: "Design implementation for feature X"
+       └─> explorer: "Find existing authentication patterns"
+       └─> researcher: "Research OAuth 2.0 best practices"
+#+end_example
+
+The planner agent automatically has access to the =Agent= tool for delegation.
+
+*** Result Format
+
+Subagents return only their final response (not full conversation history):
+
+#+begin_example
+[executor] result for task: Create authentication module
+
+Created authentication module with the following components:
+- auth.org (source file)
+- auth.el (tangled output)
+- Functions: jf/auth-login, jf/auth-logout, jf/auth-verify-token
+- Validation passed (check-parens)
+
+Files modified:
+- emacs/core/auth.org
+- emacs/core/auth.el
+#+end_example
+
+** Creating Custom Agents
+
+*** Agent Definition Format
+
+Create a markdown or org file in =emacs/major-modes/gpt-tools/agents/=:
+
+#+begin_example
+---
+name: my-agent
+description: >
+  Brief description of agent purpose and capabilities.
+  Used in agent selection UI.
+tools:
+  - Glob
+  - Read
+  - my_custom_tool
+backend: Claude
+model: claude-3-7-sonnet-20250219
+temperature: 0.5
+---
+
+You are a custom agent for <specific purpose>.
+
+<core_responsibilities>
+- Responsibility 1
+- Responsibility 2
+</core_responsibilities>
+
+<tool_usage_guidelines>
+Specific guidance on when and how to use tools...
+</tool_usage_guidelines>
+
+<output_requirements>
+Format expectations for results...
+</output_requirements>
+#+end_example
+
+*** Skills Integration
+
+Agents can reference skills via =@mention= syntax:
+
+#+begin_example
+---
+name: emacs-expert
+description: Emacs configuration specialist
+---
+
+@emacs-literate-programming
+@emacs-modular-config
+
+You are an Emacs configuration expert...
+#+end_example
+
+When =gptel-agent-update= runs, =@mentions= are automatically expanded with skill content.
+
+*** Register New Agent
+
+After creating the agent file, register it:
+
+#+begin_src emacs-lisp
+(gptel-agent-update)  ; Scans agent directories and registers new agents
+#+end_src
+
+The agent will now appear in the =Agent= tool's enum list.
+
+*** Project-Specific Agents
+
+Agents can also be defined in =.agents/= directories within project roots.
+gptel-agent will scan these locations automatically.
+
+** Configuration
+
+*** Agent Directory
+
+Agent directory is configured in =emacs/major-modes/gpt.org=:
+
+#+begin_src emacs-lisp
+(add-to-list 'gptel-agent-dirs
+             (expand-file-name "major-modes/gpt-tools/agents/" jf/emacs-dir))
+#+end_src
+
+*** Tool Confirmation Settings
+
+gptel uses a three-level system for managing tool confirmations:
+
+**** Level 1: Global Setting
+
+Set in =community-tools.org=:
+
+#+begin_src emacs-lisp
+(setq gptel-confirm-tool-calls 'auto)  ; Let tools/agents decide
+#+end_src
+
+Options:
+- ='auto= - Respect per-tool and per-agent settings (recommended)
+- =t= - Always confirm all tools
+- =nil= - Never confirm any tools
+
+**** Level 2: Per-Agent Setting
+
+Set in agent YAML frontmatter using =confirm-tool-calls=:
+
+#+begin_example
+---
+name: explorer
+confirm-tool-calls: nil  # Never confirm for read-only agent
+tools: [Glob, Grep, Read, ...]
+---
+#+end_example
+
+Current configuration:
+- =explorer= - =nil= (no confirmations, read-only tools)
+- =planner= - =nil= (no confirmations, read-only tools)
+- =executor= - =auto= (respects per-tool settings for safety)
+
+**** Level 3: Per-Tool Setting
+
+Set when defining tools using =:confirm=:
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "read_file"
+ :confirm nil  ; Read-only, no confirmation needed
+ ...)
+
+(gptel-make-tool
+ :name "execute_bash"
+ :confirm t    ; Destructive, always confirm
+ ...)
+#+end_src
+
+This is only used when =confirm-tool-calls= is ='auto= at the global or agent level.
+
+**** Benefits of This Approach
+
+- Read-only agents (explorer, planner) run without interruption
+- Destructive operations in executor agent still prompt for safety
+- Easy to create new agent types with custom confirmation policies
+- User maintains control at the global level
+- Agent authors control sensible defaults per agent type
+
+** Comparison to Legacy Implementation
+
+Previous custom implementation (now deprecated):
+- Created visible buffers (=*gptel-subagent-*=)
+- Hardcoded presets in elisp
+- Custom =invoke_subagent= tool
+- Manual FSM and callback management
+
+Current gptel-agent implementation:
+- Invisible background execution
+- File-based agent definitions
+- Standard =Agent= tool
+- Proven FSM and state management
+- Skills integration support
+- Template system for agent discovery
+
+* Organization
+
+Tools are organized by category in separate files:
+
+- =filesystem-tools.org= :: File and directory operations
+- =projectile-tools.org= :: Project-aware navigation and file discovery
+- =ggtags-tools.org= :: Semantic code navigation using GNU Global
+- =org-roam-tools.org= :: Knowledge management and note operations
+- =meta-tools.org= :: Tools for generating new tools
+- =community-tools.org= :: External tool packages (gptel-agent, ragmacs, etc.)
+
+Agent definitions:
+
+- =agents/= :: Directory containing agent definition files (markdown/org with YAML frontmatter)
+  - =explorer.md= :: Read-only code exploration agent
+  - =planner.md= :: Planning and requirements gathering agent
+  - =executor.md= :: Autonomous execution agent with file modifications
+
+Deprecated files:
+
+- =subagent-tools.org= :: Legacy subagent implementation (superseded by gptel-agent integration)
+
+Each =.org= file tangles to a =.el= file that is loaded by =major-modes/gpt.org=.
+
+* Using Tools
+
+** Selecting Tools
+
+Tools can be selected from gptel's transient menu (=M-x gptel-menu=):
+1. Navigate to the tools section
+2. Select which tools to enable (globally or buffer-locally)
+3. Configure confirmation and result inclusion settings
+
+** Setting Tools via Elisp
+
+#+begin_src emacs-lisp
+;; Set tools globally
+(setq gptel-tools (list tool1 tool2 tool3))
+
+;; Set tools for current buffer only
+(setq-local gptel-tools (list tool1 tool2))
+#+end_src
+
+** Tools in Presets
+
+Include tools in gptel presets for specific workflows:
+
+#+begin_src emacs-lisp
+(gptel-make-preset 'coding-assistant
+  :description "Assistant with file and buffer access"
+  :tools (list read_buffer create_file list_directory))
+#+end_src
+
+* Resources
+
+** Official Documentation
+- [[https://github.com/karthink/gptel][gptel README]]
+- [[https://github.com/karthink/gptel/wiki/Tools-collection][gptel Wiki - Tool Collection]]
+
+** Community Tool Collections
+- [[https://github.com/skissue/llm-tool-collection][llm-tool-collection]] - Files, buffers, system commands
+- [[https://github.com/karthink/gptel-agent][gptel-agent]] - Agentic tools: filesystem, bash, web search
+- [[https://github.com/ultronozm/codel.el][codel.el]] - Code editing tools
+- [[https://codeberg.org/bajsicki/gptel-org-tools][gptel-org-tools]] - Org file interaction
+- [[https://github.com/positron-solutions/ragmacs][ragmacs]] - Emacs introspection
+
+* Tips
+
+1. *Descriptive names*: Use clear, descriptive snake_case names
+2. *Detailed descriptions*: LLMs rely on descriptions to understand when and how to use tools
+3. *Error handling*: Always handle errors gracefully and return informative messages
+4. *Security*: Use =:confirm t= for dangerous operations (file deletion, command execution)
+5. *Return values*: Return strings that are useful as context for the LLM's next response
+6. *Categories*: Group related tools with consistent category names
+7. *Testing*: Test tools manually before relying on LLM to call them correctly

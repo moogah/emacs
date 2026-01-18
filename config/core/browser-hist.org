@@ -1,0 +1,77 @@
+#+title: Browser History
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle browser-hist.el
+#+auto_tangle: y
+
+* Introduction
+Browser-hist is a package that allows you to search and access your web browser's history from within Emacs.
+
+[[https://github.com/agzam/browser-hist.el][Browser Hist]] provides a convenient interface to search through Chrome, Firefox, or other browser
+history databases directly from Emacs.
+
+
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Configuration
+#+begin_src emacs-lisp
+  ;; ===============================================================================
+  ;; Configure browser-hist for accessing browser history
+  ;; ===============================================================================
+
+  (use-package browser-hist
+    :straight (browser-hist :type git :host github :repo "agzam/browser-hist.el")
+    :config
+    (defun browser-hist-create-org-roam-node (&optional force-update)
+      "Create an org-roam node from browser history selection.
+  With FORCE-UPDATE argument, ensure that the history cache is updated."
+      (interactive "P")
+      (require 'org-roam)
+      
+      (when force-update (message "Forcing browser history update"))
+      (browser-hist--make-db-copy browser-hist-default-browser force-update)
+      
+      (unwind-protect
+          (let* ((completion-styles '(basic partial-completion))
+                 (selected-url
+                  (completing-read "Browser history: " #'browser-hist--completion-table))
+                 (rows-raw (browser-hist--send-query nil))
+                 (title (alist-get selected-url rows-raw nil nil #'string=))
+                 (url selected-url))
+            (when (and url title)
+              (org-roam-capture-
+               :keys "b"
+               :node (org-roam-node-create :title title)
+               :info (list :ref url)
+               :templates org-roam-capture-ref-templates)))
+        (and browser-hist--db-connection
+             (ignore-errors (sqlite-close browser-hist--db-connection))
+             (setq browser-hist--db-connection nil))))
+
+    :bind ("C-c n b" . browser-hist-create-org-roam-node))
+#+end_src
+
+* Usage
+To search your browser history:
+
+- `M-x browser-hist-search`: Search history from the default browser
+- `M-x browser-hist-search-chrome`: Search specifically in Chrome's history
+- `M-x browser-hist-search-firefox`: Search specifically in Firefox's history
+
+Results are displayed in a buffer where you can select an entry to open in your browser.
+
+** Org-Roam Integration
+Create org-roam nodes from browser history entries:
+
+- `C-c n b` or `M-x browser-hist-create-org-roam-node`: Search browser history and create a new org-roam node with the selected URL and title
+
+This function will:
+- Present the same browser history search interface
+- Create a new org-roam node with the page title
+- Set the `ROAM_REFS` property to the URL for reference
+- Store the file in the `browser-history/` subdirectory of your org-roam directory

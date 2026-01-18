@@ -1,0 +1,44 @@
+#+title: Vim Tab Bar Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle vim-tab.el
+#+auto_tangle: y
+
+* Introduction
+This file configures vim-tab-bar, which provides a vim-like tab bar for Emacs, making it easier to work with multiple buffers visually.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Vim Tab Bar
+Configure the vim-tab-bar package for a more intuitive tab bar experience.
+
+#+begin_src emacs-lisp
+(use-package vim-tab-bar
+  :straight (:host github :repo "jamescherti/vim-tab-bar.el")
+  :commands vim-tab-bar-mode
+  :hook
+  (after-init . vim-tab-bar-mode))
+#+end_src
+
+* Usage Notes
+Vim-tab-bar provides a familiar tab interface:
+
+- Each tab can contain multiple buffers
+- Tabs are displayed at the top of the frame
+- Navigation between tabs is similar to vim's tab navigation
+- Visual styling is minimal and integrates well with most themes
+
+Key commands:
+- `C-x t 2`: Create a new tab
+- `C-x t 0`: Close current tab
+- `C-x t o`: Switch to next tab
+- `C-x t LEFT/RIGHT`: Navigate between tabs
+
+* TODO Improvements
+- Add custom keybindings for more intuitive tab navigation
+- Configure tab appearance to better match the active theme
+- Add buffer grouping logic for smarter tab organization

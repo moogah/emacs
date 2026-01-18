@@ -1,0 +1,28 @@
+#+title: Mini-Frame Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle mini-frame.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Mini-Frame, which displays the minibuffer in a separate child frame.
+This provides a cleaner UI experience, especially for completion operations.
+
+* Basic Configuration
+Setup lexical binding and mini-frame functionality.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+;; ===============================================================================
+;; Configure Mini-Frame for Minibuffer Display
+;; ===============================================================================
+(use-package mini-frame
+  :straight t
+  :config
+  (setq mini-frame-mode t)
+  (setq resize-mini-frames t))
+
+(custom-set-variables
+ '(mini-frame-show-parameters
+   '((top . 80))))
+#+end_src

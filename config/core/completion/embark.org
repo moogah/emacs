@@ -1,0 +1,44 @@
+#+title: Embark Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle embark.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Embark, which provides context-aware action menus.
+It lets you act on targets with contextual commands without leaving the current flow.
+
+* Basic Configuration
+Setup lexical binding and core Embark functionality.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+;; ===============================================================================
+;; Configure Embark - Context-Aware Actions
+;; ===============================================================================
+
+(use-package embark
+  :straight t
+  :bind
+  (("C-." . embark-act)) ;; @TODO this is overwritten by evil mode
+  :init
+  (setq prefix-help-command #'embark-prefix-help-command)
+  :config
+  (add-to-list 'display-buffer-alist
+               '("\\`\\*Embark Collect \\(Live\\|Completions\\)\\*"
+                 nill
+                 (window-parameters (mode-line-format . none)))))
+#+end_src
+
+* Embark-Consult Integration
+Configure integration between Embark and Consult.
+
+#+begin_src emacs-lisp
+;; Integrate Embark with Consult
+(use-package embark-consult
+  :straight t
+  :after (embark consult)
+  :demand t
+  :hook
+  (embark-collect-mode . consult-preview-at-point-mode))
+#+end_src

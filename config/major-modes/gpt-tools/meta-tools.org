@@ -1,0 +1,79 @@
+#+title: GPTEL Meta Tools
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle meta-tools.el
+#+auto_tangle: y
+
+* Introduction
+Tools for creating and managing gptel tools.
+
+* Basic Configuration
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Create Tool Generator
+
+A tool that generates elisp code for new gptel tools.
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "create_gptel_tool"
+ :function (lambda (name description category args)
+             (let* ((arg-specs (if (stringp args)
+                                   (json-parse-string args :object-type 'alist)
+                                 args))
+                    (args-code (mapconcat
+                                (lambda (arg)
+                                  (let ((arg-name (alist-get 'name arg))
+                                        (arg-type (alist-get 'type arg))
+                                        (arg-desc (alist-get 'description arg)))
+                                    (format "             '(:name \"%s\"\n               :type %s\n               :description \"%s\")"
+                                            arg-name arg-type arg-desc)))
+                                arg-specs
+                                "\n             "))
+                    (lambda-args (mapconcat
+                                  (lambda (arg) (alist-get 'name arg))
+                                  arg-specs
+                                  " "))
+                    (tool-code (format "(gptel-make-tool
+ :name \"%s\"
+ :function (lambda (%s)
+             ;; TODO: Implement tool logic here
+             (format \"Tool %s called with args: %%S\" (list %s)))
+ :description \"%s\"
+ :args (list %s)
+ :category \"%s\")"
+                                       name
+                                       lambda-args
+                                       name
+                                       lambda-args
+                                       description
+                                       (if (string-empty-p args-code) "" args-code)
+                                       category)))
+               (with-current-buffer (get-buffer-create "*gptel-tool-generator*")
+                 (erase-buffer)
+                 (emacs-lisp-mode)
+                 (insert tool-code)
+                 (indent-region (point-min) (point-max))
+                 (pop-to-buffer (current-buffer)))
+               (format "Generated tool code in buffer *gptel-tool-generator*\n\n%s" tool-code)))
+ :description "Generate elisp code for a new gptel tool. Creates a basic tool template with the specified name, description, category and arguments. The generated code appears in a new buffer and includes a TODO placeholder for implementation."
+ :args (list '(:name "name"
+               :type string
+               :description "Tool name in snake_case (e.g., 'read_file', 'search_web')")
+             '(:name "description"
+               :type string
+               :description "Detailed description of what the tool does and how to use it")
+             '(:name "category"
+               :type string
+               :description "Category for grouping the tool (e.g., 'filesystem', 'emacs', 'network')")
+             '(:name "args"
+               :type array
+               :items (:type object
+                       :properties (:name (:type string :description "Argument name")
+                                    :type (:type string :description "Argument type (string, number, boolean, array, object)")
+                                    :description (:type string :description "What the argument represents")))
+               :description "Array of argument specifications, each with name, type, and description"))
+ :category "meta")
+#+end_src

@@ -1,0 +1,78 @@
+#+title: Projectile Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle projectile.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Projectile, a project interaction library for Emacs. Projectile provides easy project management and navigation, with features for project discovery, file navigation, and project-specific commands execution.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Projectile Core
+** Basic Setup
+Configure the main Projectile package with key bindings.
+
+[[https://github.com/bbatsov/projectile][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package projectile
+  :straight t
+  :init
+  (projectile-mode +1)
+  :bind (:map projectile-mode-map
+              ("s-p" . projectile-command-map) ;; map to "super" (command) key
+              ("C-c p" . projectile-command-map)))
+#+end_src
+
+* Custom Project Types
+** Python with Docker Compose
+Define a custom project type for Python projects that use pytest and docker-compose for testing.
+
+#+begin_src emacs-lisp
+;; configure python custom project type for testing with docker-compose
+(projectile-register-project-type 'python '("pytest.ini" "docker-compose.yaml")
+                                  :project-file "pytest.ini"
+                                  :test "docker-compose run test-watch"
+                                  :test-prefix "test")
+#+end_src
+
+* Usage Notes
+** Key Commands
+Projectile provides many useful commands through its command map:
+
+- `C-c p f` or `s-p f`: Find file in project
+- `C-c p s s` or `s-p s s`: Search in project (using grep)
+- `C-c p p` or `s-p p`: Switch project
+- `C-c p b` or `s-p b`: Switch to project buffer
+- `C-c p t` or `s-p t`: Toggle between implementation and test
+- `C-c p c` or `s-p c`: Run project compilation command
+- `C-c p P` or `s-p P`: Run project test command
+
+** Project Discovery
+Projectile can automatically recognize many project types by looking for specific files:
+
+- Git, Mercurial, and other VCS root directories
+- Project build files (Makefile, package.json, etc.)
+- Language-specific project files (e.g., Gemfile for Ruby)
+
+** Command Caching
+To improve performance for large projects, Projectile caches project files. You may occasionally need to refresh the cache with `C-c p i`.
+
+* Project Integration
+The custom Python project type defined in this configuration provides specific benefits:
+
+- Automatically recognizes Python projects with pytest.ini and docker-compose.yaml
+- Sets up test commands to run through docker-compose
+- Configures test file prefix/suffix patterns for easy test navigation
+
+* TODO Improvements
+- Add additional custom project types for other languages/frameworks
+- Configure Projectile with Consult for enhanced completion
+- Set up project-specific compilation commands
+- Consider adding persp-mode or perspective.el integration for project workspaces
+- Add snippets for common Projectile workflows

@@ -1,0 +1,46 @@
+#+title: Terminal Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle terminal.el
+#+auto_tangle: y
+
+* Introduction
+This file configures terminal/shell emulation settings in Emacs, ensuring proper color handling and display of compilation output.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* XTerm Color Configuration
+Configure xterm-color for proper color handling in compilation buffers.
+
+#+begin_src emacs-lisp
+;; Configure compilation output to handle color terminal output
+(use-package xterm-color
+  :straight t
+  :config
+  (setq compilation-environment '("TERM=xterm-256color"))
+  (defun my/advice-compilation-filter (f proc string)
+    (funcall f proc (xterm-color-filter string)))
+  (advice-add 'compilation-filter :around #'my/advice-compilation-filter))
+#+end_src
+
+* Usage Notes
+This configuration:
+
+- Ensures compilation buffers properly display colored output
+- Sets TERM=xterm-256color for proper color support
+- Uses advice to filter all compilation output through xterm-color
+
+This is particularly useful when:
+- Running test suites with colored output
+- Using build tools that produce colored diagnostics
+- Viewing logs with color-coded severity levels
+
+* TODO Improvements
+- Add support for additional terminal types
+- Configure shell-mode with proper color handling
+- Add support for terminal graphics (sixel, etc.)
+- Consider adding configuration for vterm for better terminal emulation

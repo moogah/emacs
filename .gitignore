@@ -1,0 +1,28 @@
+# Machine-specific
+.machine-role
+
+# Runtime - mostly ignored
+runtime/custom.el
+runtime/data/*
+runtime/cache/*
+runtime/state/*
+runtime/packages/*
+
+# Keep structure
+!runtime/data/.gitkeep
+!runtime/cache/.gitkeep
+!runtime/state/.gitkeep
+!runtime/packages/.gitkeep
+
+# Emacs temp files
+*.elc
+*.eln
+*~
+\#*\#
+.\#*
+
+# OS
+.DS_Store
+
+# Claude Code settings
+.claude/

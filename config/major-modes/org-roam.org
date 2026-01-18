@@ -1,0 +1,337 @@
+#+title: Org Roam Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle org-roam.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Org Roam, a personal knowledge management system for Emacs based on the Zettelkasten method.
+It includes settings for basic functionality, daily notes, capture templates, and Git synchronization.
+
+Directory structure:
+- ~/org/roam/ - Main roam directory
+  - dailies/ - Daily journal entries (hostname-specific subdirectories)
+  - gptel/ - Notes created by gptel agents (AI-assisted research)
+  - inbox/ - Quick capture inbox
+  - reference/ - Reference material summaries (web pages, papers, docs)
+  - skills/ - Skill documentation
+
+
+* Basic Configuration
+Setup lexical binding and core dependencies.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Version Requirements and Dependencies
+Org-Roam requires specific versions of Org and other dependencies to work correctly.
+
+** Org Compatibility
+Ensure we're using a compatible version of Org with Org-Roam.
+
+#+begin_src emacs-lisp
+;; org-roam is sensitive to org version changes
+;; Ensure we have a compatible version of org loaded
+(straight-use-package 'org)
+#+end_src
+
+** Database Dependencies
+Fix for sqlite dependency issues.
+
+This is hopefully a temporary shim to get emacsql-sqlite installed correctly, without this the relatively new emacsql-sqlite-common file is not included in the [[https://github.com/melpa/melpa/blob/master/recipes/emacsql-sqlite][melpa recipe]].
+
+A similar issue may occur after updating to v29 as there is a reported [[https://github.com/org-roam/org-roam/issues/2146][github issue]] with emacsql-sqlite-builtin as well.
+
+
+* Core Org Roam Setup
+Configure the main Org Roam package with keybindings and basic settings.
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Configure Org-Roam Core
+;; ===============================================================================
+
+(use-package org-roam
+  :straight (org-roam :host github :repo "org-roam/org-roam" :tag "v2.3.1")
+  :bind (("C-c n f" . org-roam-node-find)
+         ("C-c n i" . org-roam-node-insert)
+         ("C-c n c" . org-roam-capture)
+         ("C-c n d" . org-roam-dailies-goto-today))
+  :config
+  (setq org-roam-directory (file-truename (expand-file-name "roam" jf/org-directory)))
+
+  ;; Ensure gptel subdirectory exists for agent-created notes
+  (let ((gptel-dir (expand-file-name "gptel" org-roam-directory)))
+    (unless (file-directory-p gptel-dir)
+      (make-directory gptel-dir t)))
+
+  ;; Ensure reference subdirectory exists for reference material summaries
+  (let ((reference-dir (expand-file-name "reference" org-roam-directory)))
+    (unless (file-directory-p reference-dir)
+      (make-directory reference-dir t)))
+
+  (setq find-file-visit-truename t)
+  (setq org-roam-completion-everywhere t)
+  (org-roam-db-autosync-mode))
+#+end_src
+
+
+* Dailies Configuration
+Configure daily notes functionality for journaling and daily tracking.
+
+** Previous Attempt
+This attempt to use a file template didn't work, the content of the template didn't appear in a new node.
+Kept for reference purposes.
+
+#+begin_src emacs-lisp :tangle no
+(setq org-roam-dailies-capture-templates
+      '(("d" "default" plain
+         (file "~/.emacs.d/templates/org-roam-dailies-default.org")
+         :if-new (file+head "%<%Y-%m-%d>.org"
+                            "#+title: %<%Y-%m-%d>\nddddd")
+         :unnarrowed t)))
+#+end_src
+
+** Daily Templates
+Configure the directory and templates for daily notes.
+
+#+begin_src emacs-lisp
+  ;; Set the directory for daily notes
+  ;; this may be overridden by machine specific config
+
+  (setq org-roam-dailies-directory "dailies/")
+
+  ;; Configure daily note templates
+  (setq org-roam-dailies-capture-templates
+        `(("d" "default" plain
+           (file ,(expand-file-name "templates/org-roam-dailies-default.org" user-emacs-directory))
+           :if-new (file+head "%<%Y-%m-%d>.org"
+                              "#+title: %<%Y-%m-%d>\n\n")
+           :unnarrowed t)))
+#+end_src
+
+* Protocol Configuration
+Setup org-roam-protocol for capturing web content into your Org Roam database.
+
+Follow the [[https://www.orgroam.com/manual.html#org_002droam_002dprotocol][org-roam-protocol documentation]] to complete the browser setup.
+
+#+begin_src emacs-lisp
+;; Enable org-roam-protocol
+(require 'org-roam-protocol) 
+
+;; Ensure Emacs server is running (required for protocol)
+(server-start)
+#+end_src
+
+* Note Capture Templates
+Configure templates for capturing different types of notes.
+
+#+begin_src emacs-lisp
+;; Configure standard capture templates
+(setq org-roam-capture-templates
+ `(("d" "default" plain
+    "%?"
+    :if-new (file+head "%<%Y%m%d%H%M%S>-${slug}.org" "#+title: ${title}\n")
+    :unnarrowed t)
+   ("f" "foo" plain
+    (file ,(expand-file-name "templates/org-roam-default.org" user-emacs-directory))
+    :if-new (file+head "inbox/%<%Y%m%d%H%M%S>-${slug}.org" "#+title: ${title}\n ${body}")
+    :unnarrowed t)))
+#+end_src
+
+* Web Capture Templates
+Configure capture templates for web content via org-roam-protocol.
+
+#+begin_src emacs-lisp
+;; Templates for capturing web content
+(setq org-roam-capture-ref-templates
+      '(("r" "ref" plain
+        "%?"
+        :target
+        (file+head "${slug}.org" "#+title: ${title}\n${body}")
+        :unnarrowed t)
+        ("b" "browser-history" plain
+        "%?"
+        :target
+        (file+head "${slug}.org" "#+title: ${title}\n\n")
+        :unnarrowed t)))
+#+end_src
+
+* Gptel Agent Integration
+Configure how gptel agents interact with org-roam for knowledge management.
+
+** Agent-Created Notes Directory
+Gptel agents create research notes in =~/org/roam/gptel/= to separate
+AI-assisted notes from user-created content while maintaining full org-roam
+integration.
+
+Agent notes are:
+- Fully searchable via org-roam (=org-roam-node-find=)
+- Linkable to/from any roam nodes
+- Tagged with session metadata for traceability
+
+** Querying Agent Notes
+Find notes by session, agent, or model:
+
+#+begin_src emacs-lisp :tangle no
+;; All gptel agent notes
+(org-roam-db-query
+ [:select [nodes:id nodes:title nodes:file]
+  :from nodes
+  :where (like file "%/gptel/%")])
+
+;; Notes from specific session
+(org-roam-db-query
+ [:select [nodes:id nodes:title properties:value]
+  :from nodes
+  :inner :join properties :on (= nodes:id properties:node_id)
+  :where (and (= properties:property "GPTEL_SESSION")
+              (= properties:value "SESSION-ID"))])
+
+;; Notes by specific agent
+(org-roam-db-query
+ [:select [nodes:id nodes:title properties:value]
+  :from nodes
+  :inner :join properties :on (= nodes:id properties:node_id)
+  :where (and (= properties:property "GPTEL_AGENT")
+              (= properties:value "explorer"))])
+#+end_src
+
+** Agent Workflow
+
+*** Zettelkasten Agent
+The =zettelkasten= agent specializes in creating interconnected knowledge notes:
+1. Searches existing knowledge base for related notes
+2. Delegates to explorer/researcher agents to gather information
+3. Synthesizes findings into atomic notes (one concept per note)
+4. Creates descriptive, concept-focused titles
+5. Links new notes to related existing knowledge
+6. Tags notes for discoverability
+
+Usage: =M-x gptel-agent= → select =zettelkasten= → provide research topic
+
+See =emacs/major-modes/gpt-tools/agents/zettelkasten.md= for detailed
+Zettelkasten methodology.
+
+*** Explorer Agent
+The =explorer= agent focuses on code analysis and semantic navigation:
+1. Semantic analysis using tree-sitter, ggtags, projectile
+2. Web research for external APIs/libraries
+3. Synthesis into exploration report
+
+Usage: =M-x gptel-agent= → select =explorer= → provide research question
+
+*** Perplexity-Researcher Agent
+The =perplexity-researcher= agent creates comprehensive, well-cited research
+documents:
+1. Conducts web research using Perplexity's real-time access
+2. Synthesizes findings into polished, publication-ready documents
+3. Creates reference nodes for major sources cited
+4. Links documents to reference nodes for provenance
+
+Usage: =M-x gptel-agent= → select =perplexity-researcher= → provide research question
+
+See =emacs/major-modes/gpt-tools/agents/perplexity-researcher.md= for detailed
+research methodology.
+
+** Reference Nodes
+
+Reference nodes are specialized org-roam nodes that capture concise summaries
+of external source material (web pages, papers, documentation). They live in
+=~/org/roam/reference/= and use the =:ROAM_REFS:= property to link to their
+source URL.
+
+*** Structure
+
+Reference nodes follow this structure:
+
+#+begin_example
+:PROPERTIES:
+:ID:       <uuid>
+:ROAM_REFS: https://example.com/article
+:GPTEL_SESSION: <session-id>  (if created by agent)
+:GPTEL_AGENT: perplexity-researcher
+:GPTEL_MODEL: sonar-pro
+:END:
+#+title: Article Title
+
+* Summary
+
+2-5 paragraph concise summary of the source material.
+Key insights, main arguments, important facts.
+#+end_example
+
+*** Purpose
+
+Reference nodes serve multiple purposes:
+- **Provenance**: Show where knowledge came from
+- **Reusability**: One reference can be linked to many knowledge notes
+- **Discovery**: Find related sources through backlinks
+- **Context**: Understand source material without rereading
+
+*** Creating Reference Nodes
+
+Reference nodes are typically created by the =perplexity-researcher= agent
+automatically when conducting research. You can also create them manually
+or via other agents using the =create_reference_node= tool.
+
+*** Linking Knowledge to References
+
+Use =link_roam_nodes= to connect knowledge notes to their source references:
+
+#+begin_src emacs-lisp :tangle no
+;; Link a knowledge note to its reference source
+(link_roam_nodes knowledge-note-id reference-node-id)
+#+end_src
+
+This creates bidirectional links showing:
+- From knowledge note → "This insight came from [source]"
+- From reference node → "This source informed [these concepts]"
+
+*** Querying Reference Nodes
+
+#+begin_src emacs-lisp :tangle no
+;; All reference nodes
+(org-roam-db-query
+ [:select [nodes:id nodes:title nodes:file]
+  :from nodes
+  :where (like file "%/reference/%")])
+
+;; Find reference for a specific URL
+(org-roam-db-query
+ [:select [nodes:id nodes:title properties:value]
+  :from nodes
+  :inner :join properties :on (= nodes:id properties:node_id)
+  :where (and (= properties:property "ROAM_REFS")
+              (like properties:value "%example.com%"))])
+#+end_src
+
+** Known Limitations (V1)
+
+*** Session Metadata in Subagent-Created Notes
+When agents delegate to subagents (e.g., zettelkasten delegates to explorer),
+session metadata properties (=GPTEL_SESSION=, =GPTEL_AGENT=, =GPTEL_MODEL=, etc.)
+may be incomplete or missing.
+
+*Reason*: Subagents execute in isolated buffer contexts where parent session
+buffer-local variables are not accessible.
+
+*Impact*: Notes created by delegated agents may lack full traceability metadata.
+The notes themselves remain fully functional and integrated into org-roam.
+
+*Workaround*: Direct tool calls (not via subagent delegation) capture metadata
+correctly. A future version will implement cross-agent context passing.
+
+* Automatic Git Synchronization
+Setup automatic Git synchronization for your knowledge base.
+
+This will automatically add and commit changes to files in your Org Roam directory.
+
+#+begin_src emacs-lisp
+;; Configure automatic Git synchronization
+;;(use-package git-sync-mode
+;;  :straight (git-sync-mode :host github :repo "justinbarclay/git-sync-mode")
+;;  :config
+;;  (git-sync-global-mode)
+;;  (add-to-list 'git-sync-allow-list '"~/org/roam"))
+#+end_src

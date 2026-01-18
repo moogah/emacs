@@ -1,0 +1,20 @@
+#+auto_tangle: y
+
+* Install Transient and Transient Showcase
+
+#+begin_src emacs-lisp :tangle yes 
+  (use-package transient
+    :straight (:tag "v0.6.0"))
+#+end_src
+
+
+Transient Showcase comes with a [[file:~/.emacs.d/straight/repos/transient-showcase/transient-showcase.org][literate org]] file for exploring
+
+#+begin_src emacs-lisp :tangle yes
+  (use-package transient-showcase
+    :straight '(transient-showcase :type git :host github :repo "positron-solutions/transient-showcase"))
+#+end_src
+
+* Other Docs
+
+[[id:C0A680FA-A7F2-4FB0-A6D6-7F7DFC7B2155][emacs transient]]

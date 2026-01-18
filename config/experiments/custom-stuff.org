@@ -1,0 +1,63 @@
+#+auto_tangle: y
+
+* Using narrow to help organize many windows
+
+This method will take the function or heading at point and create a new window containing only a narrowed view of that region.
+
+The idea is to help creating dense perspectives by packing in many windows with a speficic function.
+
+This won't help organize the layout of the windows, that will need to be done elsewhere.
+
+#+begin_src emacs-lisp :tangle yes
+  (defun create-narrowed-window ()
+    "Create a new window with a narrowed view of the current function or heading."
+    (interactive)
+    (let ((filetype (file-name-extension (buffer-file-name)))
+          (filename (buffer-file-name))
+          (start nil)
+          (end nil))
+      (save-excursion
+        (cond
+         ;; Python
+         ((string-equal filetype "py")
+          (beginning-of-defun)
+          (setq start (point))
+          (end-of-defun)
+          (setq end (point)))
+
+         ;; JavaScript
+         ((or (string-equal filetype "js") (string-equal filetype "jsx"))
+          (js2-mode)
+          (js2-beginning-of-defun)
+          (setq start (point))
+          (js2-end-of-defun)
+          (setq end (point)))
+
+         ;; Org mode
+         ((string-equal filetype "org")
+          (org-back-to-heading t)
+          (setq start (point))
+          (org-forward-heading-same-level 1 t)
+          (setq end (point)))
+
+         (t
+          (error "File type not supported"))))
+
+      ;; Create new window with narrowed view
+      (clone-indirect-buffer "buffer-name" t) ; add NEWNAME t ie: my-function-name t to name the buffer
+      (narrow-to-region start end)))
+
+#+end_src
+
+* Detecting if windows exist relative to the current window:
+
+#+begin_src emacs-lisp :async t :dir ~/ :prologue exec 2>&1 :epilogue "true" :results output
+  ; detecting if a window is in /position/ from the current window
+  (window-in-direction 'above (selected-window))
+  (window-in-direction 'below (selected-window))
+  (window-in-direction 'right (selected-window))
+  (window-in-direction 'left (selected-window))
+
+  ; getting a reference to the detected window
+  (let (window (window-in-direction 'right (selected-window))))
+#+end_src

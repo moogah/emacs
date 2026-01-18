@@ -1,0 +1,454 @@
+#+title: GPTel Skills Roam System (Org-Roam Integration)
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle gptel-skills-roam.el
+#+auto_tangle: y
+
+* Introduction
+
+This module extends the gptel-skills system to support org-roam nodes as skills.
+Skills can be stored as org-roam nodes (tagged with ~:skill:~) in addition to
+markdown SKILL.md files, enabling richer metadata, link-based progressive
+disclosure, and native integration with org-roam workflows.
+
+** Architecture Overview
+
+1. **Discovery**: Query org-roam DB for nodes tagged ~:skill:~
+2. **Metadata**: Extract from org properties (SKILL_DESCRIPTION)
+3. **Content Extraction**: Parse org-mode heading structure at multiple granularity levels
+4. **Progressive Disclosure**: Follow links to reference nodes on-demand
+5. **Integration**: Unified registry with markdown skills, same @mention syntax
+
+** Key Features
+
+- Tag-based discovery via SQL queries
+- Rich metadata through org properties
+- Multiple granularity levels (heading, body, subtree, full)
+- Progressive disclosure via link relationships
+- Heading-level content injection
+- Compatible with existing markdown skills
+
+** Org-Roam Skills: Complete Guide
+
+This section explains how to create, manage, and use org-roam based skills.
+
+*** Why Org-Roam Skills?
+
+Org-roam skills offer advantages over markdown SKILL.md files:
+
+- *Native integration*: Works with your existing org-roam workflow
+- *Linking*: Can link to other org-roam nodes for progressive disclosure
+- *Org-mode features*: Full org-mode editing, folding, properties
+- *Same interface*: Uses the same @mention syntax as markdown skills
+
+*** Skill File Structure
+
+A complete org-roam skill file example:
+
+#+begin_example
+:PROPERTIES:
+:ID:       a1b2c3d4-e5f6-7890-abcd-ef1234567890
+:SKILL_DESCRIPTION: Guide for writing valid Emacs Lisp with incremental validation
+:END:
+#+title: writing-elisp
+#+filetags: :skill:
+
+* Overview
+
+Guidance for writing valid Emacs Lisp code with proper syntax validation.
+
+* Key Principles
+
+Always use lexical binding. Prefer ~let*~ over ~let~ for sequential bindings.
+Use ~cl-lib~ functions instead of deprecated ~cl~ package.
+
+* Common Patterns
+
+** Error Handling
+...
+#+end_example
+
+**** Required Components
+
+| Component | Purpose | Example |
+|-----------|---------|---------|
+| =:ID:= property | Org-roam node identifier | Auto-generated via =org-id-new= |
+| =:SKILL_DESCRIPTION:= | Shown in completion UI | "Guide for writing elisp" |
+| =:CATEGORY:= (optional) | Skill category for menu grouping | "Emacs" or "Testing" |
+| =#+title:= | Node title / skill name | =writing-elisp= |
+| =#+filetags:= | Must include =:skill:= | =:skill:= or =:skill:reference:= |
+
+**** File Location
+
+Org-roam skills must be in: =~/.org-roam/skills/= (or =org-roam-directory/skills=)
+
+The discovery mechanism scans all =.org= files in this directory - no database
+queries needed. Files don't need to be in the org-roam database to work.
+
+*** Creating Skills
+
+**** Interactive Creation
+
+Use =jf/gptel-skills-roam-create-skill= for guided creation:
+
+#+begin_src emacs-lisp :tangle no
+M-x jf/gptel-skills-roam-create-skill
+  Skill title: writing-elisp
+  Skill description: Guide for writing valid Emacs Lisp
+#+end_src
+
+This uses org-roam-capture to create a properly structured file with:
+- Auto-generated ID
+- Proper properties
+- Template structure (Overview, When to Use, Quick Reference)
+- Correct file location
+
+**** Manual Creation
+
+1. Create file in =~/.org-roam/skills/skillname.org=
+2. Add required properties:
+   - Press =C-c C-x p= (org-set-property)
+   - Add =ID= with =(org-id-new)= value
+   - Add =SKILL_DESCRIPTION=
+3. Add =#+title:= and =#+filetags: :skill:=
+4. Write skill content
+5. Run =jf/gptel-skills-reload= to register it
+
+*** Property Reference
+
+**** SKILL_DESCRIPTION
+
+Brief description shown during completion and in skill listing.
+
+Format: Single line, 50-100 characters, describes when to use the skill.
+
+Examples:
+- "Guide for writing valid Emacs Lisp with validation"
+- "Conventions for dotfiles repository structure"
+- "Debugging strategies for missing parentheses"
+
+**** CATEGORY (Optional)
+
+Optional category for organizing skills in the transient menu.
+
+Format: Single word or short phrase (e.g., "Emacs", "Testing", "Documentation").
+
+When present, skills are grouped by category in the transient menu UI.
+When absent, skills appear in the uncategorized group.
+
+Note: Markdown skills (.md files) do not support categories.
+
+*** Discovery and Loading
+
+**** Discovery Process
+
+On initialization (or =jf/gptel-skills-reload=):
+
+1. Scan =~/.org-roam/skills/= directory for =*.org= files
+2. Read each file in a temp buffer with =org-mode= enabled
+3. Extract =#+title:= (via =org-roam-get-keyword=)
+4. Extract properties (via =org-entry-get=)
+5. Build metadata plist
+6. Register in =jf/gptel-skills--registry= (unified with markdown skills)
+
+**** Lazy Loading
+
+Content is loaded on first @mention:
+- Reads entire .org file into string
+- Caches in =:content= property
+- Subsequent mentions use cached version
+
+**** Cache Invalidation
+
+#+begin_src emacs-lisp :tangle no
+;; Invalidate single skill
+(jf/gptel-skills-roam--invalidate-cache "writing-elisp")
+
+;; Invalidate all caches
+(jf/gptel-skills-roam--invalidate-all-caches)
+
+;; Full reload (re-discovers and clears caches)
+(jf/gptel-skills-reload)
+#+end_src
+
+*** Using Org-Roam Skills
+
+Org-roam skills use identical syntax to markdown skills:
+
+#+begin_example
+In gptel buffer, type:
+"Help me with my config @emacs-literate-programming"
+
+Press C-c RET to send.
+The skill content is injected into the system message.
+#+end_example
+
+No difference from user perspective - org-roam vs markdown is transparent.
+
+* Configuration
+
+Setup lexical binding and dependencies.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+(require 'cl-lib)
+(require 'org-roam)
+#+end_src
+
+** Customization Variables
+
+#+begin_src emacs-lisp
+(defgroup gptel-skills-roam nil
+  "Org-roam based skills for gptel."
+  :group 'gptel-skills
+  :prefix "jf/gptel-skills-roam-")
+
+(defcustom jf/gptel-skills-roam-enabled t
+  "Enable org-roam skills discovery and loading.
+When nil, only markdown skills are used."
+  :type 'boolean
+  :group 'gptel-skills-roam)
+
+(defcustom jf/gptel-skills-roam-directory
+  (when (boundp 'org-roam-directory)
+    (expand-file-name "skills" org-roam-directory))
+  "Directory containing org-roam skill files.
+Defaults to 'skills' subdirectory within org-roam-directory."
+  :type 'directory
+  :group 'gptel-skills-roam)
+
+(defcustom jf/gptel-skills-roam-context-limit 40000
+  "Maximum characters for loaded skill content.
+Prevents context overflow when loading linked resources."
+  :type 'integer
+  :group 'gptel-skills-roam)
+
+(defcustom jf/gptel-skills-roam-verbose nil
+  "When non-nil, print verbose messages during operations."
+  :type 'boolean
+  :group 'gptel-skills-roam)
+#+end_src
+
+* Data Structures
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-skills-roam--registry (make-hash-table :test 'equal)
+  "Hash table mapping skill file basenames to metadata plists.
+
+Each entry is a plist with keys:
+  :name             - Skill name (file basename without .org)
+  :title            - Node title from #+TITLE (string)
+  :description      - SKILL_DESCRIPTION property (string)
+  :category         - Optional CATEGORY property (string, may be nil)
+  :file             - Full file path (string)
+  :source           - Always 'org-roam (symbol)
+  :loaded           - Whether content loaded (boolean)
+  :content          - Cached content (string or nil)")
+#+end_src
+
+* Discovery Functions
+
+** File Discovery
+
+Discover skills by listing all .org files in the skills directory. No database queries needed!
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam--discover-files ()
+  "Find all .org files in skills directory.
+Returns list of full file paths."
+  (when (and jf/gptel-skills-roam-enabled
+             jf/gptel-skills-roam-directory
+             (file-directory-p jf/gptel-skills-roam-directory))
+    (let ((files (directory-files jf/gptel-skills-roam-directory
+                                  t                ; Return full paths
+                                  "\\.org$"        ; Only .org files
+                                  t)))             ; Sort by name
+      (when jf/gptel-skills-roam-verbose
+        (message "Org-roam discovery: found %d skill files in %s"
+                 (length files)
+                 jf/gptel-skills-roam-directory))
+      files)))
+#+end_src
+
+** Metadata Parsing
+
+Parse metadata directly from skill files using org-mode functions.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam--parse-file-metadata (file)
+  "Parse skill metadata from FILE.
+Returns plist with :title, :description, :file, :name, and optionally :category."
+  (when (file-exists-p file)
+    (with-temp-buffer
+      (insert-file-contents file)
+      (org-mode)
+      (goto-char (point-min))
+      ;; Get properties from file
+      (let* ((title (org-roam-get-keyword "TITLE"))
+             (description (org-entry-get (point-min) "SKILL_DESCRIPTION" t))
+             (category (org-entry-get (point-min) "CATEGORY" t))
+             (skill-name (file-name-base file))
+             (metadata (list :name skill-name
+                            :title (or title skill-name)
+                            :description (or description "")
+                            :file file
+                            :source 'org-roam
+                            :loaded nil
+                            :content nil)))
+        ;; Add category only if present and not the org-mode default placeholder
+        (when (and category (not (equal category "???")))
+          (plist-put metadata :category category))
+        metadata))))
+#+end_src
+
+* Content Extraction
+
+Simple content loading - start with full file content.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam--load-content (skill-name &optional _granularity)
+  "Load content for skill with SKILL-NAME.
+Uses cached content if available, otherwise reads file and caches.
+GRANULARITY parameter ignored for now (always loads full file)."
+  (let ((metadata (gethash skill-name jf/gptel-skills-roam--registry)))
+    (when metadata
+      (if (plist-get metadata :loaded)
+          ;; Return cached content
+          (plist-get metadata :content)
+        ;; Load and cache content
+        (let* ((file (plist-get metadata :file))
+               (content (when (file-exists-p file)
+                         (with-temp-buffer
+                           (insert-file-contents file)
+                           (buffer-string)))))
+          (when content
+            ;; Update metadata with content
+            (plist-put metadata :content content)
+            (plist-put metadata :loaded t)
+            (puthash skill-name metadata jf/gptel-skills-roam--registry)
+            content))))))
+#+end_src
+
+* Registry Management
+
+** Build Registry
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam--build-registry ()
+  "Build registry of all org-roam skill files.
+Populates `jf/gptel-skills-roam--registry' with metadata."
+  (clrhash jf/gptel-skills-roam--registry)
+  (let ((skill-files (jf/gptel-skills-roam--discover-files))
+        (count 0))
+    (dolist (file skill-files)
+      (let ((metadata (jf/gptel-skills-roam--parse-file-metadata file)))
+        (when metadata
+          (let ((skill-name (plist-get metadata :name)))
+            (puthash skill-name metadata jf/gptel-skills-roam--registry)
+            (setq count (1+ count))))))
+    (when jf/gptel-skills-roam-verbose
+      (message "Built registry with %d org-roam skills" count))
+    count))
+#+end_src
+
+** Initialization
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam-setup ()
+  "Initialize org-roam skills system.
+Discovers and registers all skill files."
+  (interactive)
+  (when jf/gptel-skills-roam-enabled
+    (jf/gptel-skills-roam--build-registry)
+    (when jf/gptel-skills-roam-verbose
+      (message "Org-roam skills system initialized"))))
+#+end_src
+
+* Skill Creation Helpers
+
+** Create New Skill Node
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam-create-skill (title description)
+  "Create a new org-roam skill node.
+
+TITLE is the skill name.
+DESCRIPTION is the skill description for discovery/matching."
+  (interactive
+   (list
+    (read-string "Skill title: ")
+    (read-string "Skill description (use when...): ")))
+  ;; Build the header template with proper variable substitution
+  (let* ((header (format ":PROPERTIES:
+:ID:       %%(org-id-new)
+:SKILL_DESCRIPTION: %s
+:END:
+#+title: ${title}
+#+filetags: :skill:
+
+" description))
+         (org-roam-capture-templates
+          `(("s" "Skill" plain
+             "* Overview\n\n%?\n\n* When to Use\n\n* Quick Reference\n\n"
+             :target (file+head "skills/${slug}.org" ,header)
+             :unnarrowed t))))
+    (org-roam-capture- :node (org-roam-node-create :title title)
+                       :templates org-roam-capture-templates
+                       :keys "s")))
+#+end_src
+
+** Create Reference Node
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam-create-reference (title)
+  "Create a new reference node linked to the current skill.
+TITLE is the reference node title."
+  (interactive "sReference title: ")
+  (let ((org-roam-capture-templates
+         `(("r" "Reference" plain
+            "%?"
+            :target (file+head "${slug}.org"
+                               ":PROPERTIES:
+:ID:       %(org-id-new)
+:END:
+#+title: ${title}
+#+filetags: :skill:reference:
+
+")
+            :unnarrowed t))))
+    (org-roam-capture- :node (org-roam-node-create :title title)
+                       :templates org-roam-capture-templates
+                       :keys "r")))
+#+end_src
+
+* Cache Management
+
+Simple cache management - reload content when needed.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-skills-roam--invalidate-cache (skill-name)
+  "Invalidate cached content for SKILL-NAME.
+Forces reload on next access."
+  (let ((metadata (gethash skill-name jf/gptel-skills-roam--registry)))
+    (when (and metadata (plist-get metadata :loaded))
+      (plist-put metadata :loaded nil)
+      (plist-put metadata :content nil)
+      (puthash skill-name metadata jf/gptel-skills-roam--registry)
+      (when jf/gptel-skills-roam-verbose
+        (message "Invalidated cache for skill: %s" skill-name)))))
+
+(defun jf/gptel-skills-roam--invalidate-all-caches ()
+  "Invalidate all cached skill content.
+Useful after modifying multiple skill files."
+  (interactive)
+  (maphash (lambda (skill-name _metadata)
+             (jf/gptel-skills-roam--invalidate-cache skill-name))
+           jf/gptel-skills-roam--registry)
+  (when jf/gptel-skills-roam-verbose
+    (message "Invalidated all skill caches")))
+#+end_src
+
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'gptel-skills-roam)
+#+end_src

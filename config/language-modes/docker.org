@@ -1,0 +1,69 @@
+#+title: Docker Mode Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle docker.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Docker-related packages for Emacs, providing support for Dockerfile editing and Docker container/image management.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Docker Compose Configuration
+Define the path to the Docker Compose executable.
+
+#+begin_src emacs-lisp
+(defvar docker-compose-cli-path
+  "/usr/local/bin/docker-compose"
+  "Path to the docker compose executable.")
+#+end_src
+
+* Docker Packages
+** Docker
+The docker package provides a convenient interface to manage Docker containers, images, volumes, and networks.
+
+[[https://github.com/Silex/docker.el][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package docker
+  :straight t
+  :bind ("C-c d" . docker))
+#+end_src
+
+** Dockerfile Mode
+Dockerfile mode provides syntax highlighting and editing support for Dockerfiles.
+
+[[https://github.com/spotify/dockerfile-mode][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package dockerfile-mode
+  :straight t)
+#+end_src
+
+* Usage Notes
+** Docker Interface
+The Docker interface provides a tabulated view of Docker resources and operations:
+
+- Press `C-c d` to open the main Docker interface
+- From there, you can:
+  - View and manage containers (start, stop, remove)
+  - Browse and manage images
+  - Configure volumes and networks
+  - Run containers with specific settings
+
+** Dockerfile Editing
+Dockerfile-mode automatically activates for files named `Dockerfile` and provides:
+
+- Syntax highlighting for Dockerfile instructions
+- Indentation support
+- Completion for common instructions
+
+* TODO Improvements
+- Add docker-compose mode for better docker-compose.yml editing
+- Configure syntax checking for Dockerfiles with flycheck
+- Set up integration with container shells
+- Consider adding snippets for common Dockerfile patterns

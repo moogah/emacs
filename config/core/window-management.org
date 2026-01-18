@@ -1,0 +1,114 @@
+#+title: Window Management
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle window-management.el
+#+auto_tangle: y
+
+* Introduction
+This file configures packages for window and workspace management in Emacs,
+including winner mode for window configuration history, perspective for workspace management,
+ace-window for quick window navigation, and activities for advanced workflow organization.
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Winner Mode
+Winner mode allows you to undo and redo changes to your window configuration.
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Winner Mode - Window configuration history
+;; ===============================================================================
+
+;; Enable winner-mode for window configuration undo/redo
+(winner-mode 1)
+#+end_src
+
+* Perspective
+Perspective provides workspace functionality similar to virtual desktops.
+
+#+begin_src emacs-lisp
+  ;; ===============================================================================
+  ;; Perspective - Workspace management for Emacs
+  ;; ===============================================================================
+
+    (use-package perspective
+      :straight t
+      :custom
+      (persp-mode-prefix-key (kbd "C-c M-p"))
+      (persp-modestring-short t)
+      :config
+      (persp-mode))
+#+end_src
+
+* Ace Window
+Ace Window provides quick window selection with visual cues.
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Ace Window - Quick window selection
+;; ===============================================================================
+
+(use-package ace-window
+  :straight t)
+#+end_src
+
+* Activities
+Activities provides a higher-level workspace management and task organization system.
+
+#+begin_src emacs-lisp
+  ;; ===============================================================================
+  ;; Activities - Advanced workspace and workflow management
+  ;; ===============================================================================
+
+  (use-package activities
+    :straight (:host github :repo "alphapapa/activities.el" :branch "master" :files ("*.el"))
+    :init
+    (activities-mode)
+    (activities-tabs-mode)
+    ;; Prevent `edebug' default bindings from interfering.
+    (setq edebug-inhibit-emacs-lisp-mode-bindings t)
+  
+    :config
+    (activities-mode)
+    (activities-tabs-mode)
+
+    :bind
+    (("C-x C-a C-n" . activities-new)
+     ("C-x C-a C-d" . activities-define)
+     ("C-x C-a C-a" . activities-resume)
+     ("C-x C-a C-s" . activities-suspend)
+     ("C-x C-a C-k" . activities-kill)
+     ("C-x C-a RET" . activities-switch)
+     ("C-x C-a b" . activities-switch-buffer)
+     ("C-x C-a g" . activities-revert)
+     ("C-x C-a l" . activities-list)))
+#+end_src
+
+* Usage
+Quick reference for the configured window management tools:
+
+** Winner Mode
+- `C-c left` - Undo window configuration change
+- `C-c right` - Redo window configuration change
+
+** Perspective
+- `C-c M-p s` - Create/switch to a perspective
+- `C-c M-p k` - Kill current perspective
+- `C-c M-p r` - Rename current perspective
+- `C-c M-p A` - Add buffer to current perspective
+
+** Ace Window
+- `M-o` - Default ace-window command (may need to be bound)
+- Select windows using the displayed characters
+
+** Activities
+- `C-x C-a C-n` - Create a new activity
+- `C-x C-a RET` - Switch between activities
+- `C-x C-a C-s` - Suspend current activity
+- `C-x C-a C-a` - Resume a suspended activity
+- `C-x C-a C-k` - Kill an activity
+- `C-x C-a l` - List all activities

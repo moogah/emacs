@@ -1,0 +1,27 @@
+#+title: Marginalia Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle marginalia.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Marginalia, which provides rich annotations for minibuffer completions.
+It shows additional information about candidates in the minibuffer.
+
+* Basic Configuration
+Setup lexical binding and core Marginalia functionality.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+;; ===============================================================================
+;; Configure Marginalia - Rich Annotations for Minibuffer Completions
+;; ===============================================================================
+
+(use-package marginalia
+  :straight (marginalia :host github :repo "minad/marginalia") 
+  bind (
+   :map minibuffer-local-map
+        ("M-A" . marginalia-cycle))
+  :init
+  (marginalia-mode))
+#+end_src

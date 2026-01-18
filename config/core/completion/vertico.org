@@ -1,0 +1,57 @@
+#+title: Vertico Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle vertico.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Vertico, a performant and minimalistic vertical completion UI.
+It works with the built-in Emacs completion commands and enhances the minibuffer experience.
+
+* Basic Configuration
+Setup lexical binding and core Vertico functionality.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+;; ===============================================================================
+;; Configure Vertico - Vertical Completion UI
+;; ===============================================================================
+
+(use-package vertico
+  :straight (vertico :host github :repo "minad/vertico") ; later versions require emacs 29
+  :init
+  (vertico-mode)
+  (setq vertico-cycle t))
+#+end_src
+
+* Savehist
+Enable saving of minibuffer history for persistence across sessions.
+
+#+begin_src emacs-lisp
+;; Save minibuffer history
+(use-package savehist
+  :straight t
+  :init
+  (savehist-mode))
+#+end_src
+
+* Recentf
+Enable tracking of recently opened files.
+
+#+begin_src emacs-lisp
+;; Track recently opened files
+(recentf-mode 1)
+#+end_src
+
+* Orderless
+Configure flexible completion style with Orderless for powerful filtering.
+
+#+begin_src emacs-lisp
+;; Configure flexible completion style
+(use-package orderless
+  :straight t
+  :init
+  (setq completion-styles '(orderless basic)
+        comletion-category-defaults nil
+        completion-category-overrides '((file (styles partial-completion)))))
+#+end_src

@@ -1,0 +1,139 @@
+#+title: Tree-sitter Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle tree-sitter.el
+#+auto_tangle: y
+
+* Introduction
+This file configures Tree-sitter integration for Emacs, providing enhanced syntax highlighting and structural editing features through incremental parsing.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Core Tree-sitter Packages
+** Tree-sitter Base
+The main Tree-sitter package provides the core functionality for incremental parsing.
+
+[[https://github.com/emacs-tree-sitter/elisp-tree-sitter][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package tree-sitter
+  :straight t
+  :hook ((python-mode . tree-sitter-mode)
+         (python-mode . tree-sitter-hl-mode)
+         (js-mode . tree-sitter-mode)
+         (js-mode . tree-sitter-hl-mode)
+         (javascript-mode . tree-sitter-mode)
+         (javascript-mode . tree-sitter-hl-mode)
+         (sh-mode . tree-sitter-mode)
+         (sh-mode . tree-sitter-hl-mode)
+         (php-mode . tree-sitter-mode)
+         (php-mode . tree-sitter-hl-mode)
+         (hcl-mode . tree-sitter-mode)
+         (hcl-mode . tree-sitter-hl-mode)
+         (terraform-mode . tree-sitter-mode)
+         (terraform-mode . tree-sitter-hl-mode)))
+#+end_src
+
+** Tree-sitter Language Grammars
+Provides the language grammar binaries for various programming languages.
+
+[[https://github.com/emacs-tree-sitter/tree-sitter-langs][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package tree-sitter-langs
+  :straight t)
+#+end_src
+
+* Grammar Sources for Built-in Tree-sitter
+Configure the sources for downloading and installing built-in Tree-sitter grammar libraries (for Emacs 29+).
+
+#+begin_src emacs-lisp
+(setq treesit-language-source-alist
+   '((bash "https://github.com/tree-sitter/tree-sitter-bash")
+     (cmake "https://github.com/uyha/tree-sitter-cmake")
+     (css "https://github.com/tree-sitter/tree-sitter-css")
+     (elisp "https://github.com/Wilfred/tree-sitter-elisp")
+     (go "https://github.com/tree-sitter/tree-sitter-go")
+     (html "https://github.com/tree-sitter/tree-sitter-html")
+     (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
+     (json "https://github.com/tree-sitter/tree-sitter-json")
+     (make "https://github.com/alemuller/tree-sitter-make")
+     (markdown "https://github.com/ikatyang/tree-sitter-markdown")
+     (python "https://github.com/tree-sitter/tree-sitter-python")
+     (toml "https://github.com/tree-sitter/tree-sitter-toml")
+     (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
+     (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
+     (yaml "https://github.com/ikatyang/tree-sitter-yaml")))
+#+end_src
+
+* Additional Tree-sitter Packages
+** Evil Text Objects for Tree-sitter
+Provides Evil text objects based on Tree-sitter's understanding of code structure.
+
+[[https://github.com/meain/evil-textobj-tree-sitter][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package evil-textobj-tree-sitter
+  :straight t)
+#+end_src
+
+** Combobulate
+Provides structural editing and navigation capabilities using Tree-sitter.
+
+[[https://github.com/mickeynp/combobulate][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package combobulate
+  :straight (combobulate :type git :host github :repo "mickeynp/combobulate")
+  :hook ((python-mode . combobulate-mode)
+         (js-mode . combobulate-mode)
+         (typescript-mode . combobulate-mode)))
+#+end_src
+
+* Installation Instructions
+** For tree-sitter-langs (Emacs 28 and below)
+The language grammars should be automatically installed by the package.
+
+** For Built-in Tree-sitter (Emacs 29+)
+To install the configured Tree-sitter grammars, use the following Emacs command:
+
+#+begin_src emacs-lisp :tangle no
+(mapc #'treesit-install-language-grammar (mapcar #'car treesit-language-source-alist))
+#+end_src
+
+* Usage Notes
+** Benefits of Tree-sitter
+Tree-sitter provides several advantages over traditional syntax highlighting:
+
+- More accurate and resilient syntax highlighting
+- Better code navigation based on structural understanding of code
+- Incremental parsing for better performance with large files
+- Foundation for advanced refactoring and structural editing
+
+** Using Combobulate
+Combobulate provides intelligent structural editing commands:
+
+- `C-c o n`: Navigate to the next logical node
+- `C-c o p`: Navigate to the previous logical node
+- `C-c o u`: Navigate up to the parent node
+- `C-c o d`: Navigate down to the first child node
+- `C-c o s`: Surround the current region with a template
+
+** Using Evil Text Objects
+With evil-textobj-tree-sitter, you can use structural text objects:
+
+- `af`: A function
+- `if`: Inner function (without function declaration)
+- `ac`: A class
+- `ic`: Inner class (without class declaration)
+
+* TODO Improvements
+- Add configuration for tree-sitter-based indentation modes
+- Configure tree-sitter query patterns for custom highlighting
+- Add additional language mode hooks
+- Enable more Evil text objects for different code structures
+- Consider adding more languages to the grammar list

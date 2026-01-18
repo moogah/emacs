@@ -1,0 +1,39 @@
+#+title: Expand Region
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle expand-region.el
+#+auto_tangle: y
+
+* Introduction
+The expand-region package enables semantic region selection with incremental expansion based on language syntax.
+
+[[https://github.com/magnars/expand-region.el][Expand Region]] allows selecting the nearest semantically defined region of text and expanding the selection 
+by further semantic units (word, sentence, paragraph, function, etc.) with repeated keypresses.
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Configuration
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Configure expand-region for smart text selection
+;; ===============================================================================
+
+(use-package expand-region
+  :straight t)
+#+end_src
+
+* Usage
+To use expand-region:
+
+- `er/expand-region`: Expand the selection by semantic units
+- `er/contract-region`: Contract the selection by semantic units
+
+You can bind these to keys of your choice. For example, in Evil mode:
+#+begin_example
+(evil-define-key 'visual 'global (kbd "v") 'er/expand-region)
+(evil-define-key 'visual 'global (kbd "V") 'er/contract-region)
+#+end_example

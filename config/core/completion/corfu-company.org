@@ -1,0 +1,1748 @@
+#+title: In-buffer Completion Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle corfu-company.el
+#+auto_tangle: y
+
+* Introduction
+This file configures in-buffer completion frameworks including Corfu and Company.
+These packages provide autocompletion while typing in buffers.
+
+* Corfu Configuration
+Setup Corfu, a minimal in-buffer completion framework.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+;; ===============================================================================
+;; Configure Corfu Auto-Completion
+;; ===============================================================================
+(use-package corfu
+  :straight t
+  :custom
+  (corfu-auto t)
+  (corfu-auto-prefix 2)
+  :init)
+;;  (global-corfu-mode))
+#+end_src
+
+* Company Configuration
+Setup Company, a more feature-rich completion framework.
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Configure Company Auto-Completion
+;; ===============================================================================
+;; also try out https://github.com/minad/corfu
+(use-package company
+  :straight t
+  ;;:bind(:map company-active-map
+  ;;           ([return] . nil)
+  ;;           ("RET" . nil))
+  :config
+  (company-mode)
+  (add-hook 'after-init-hook 'global-company-mode))
+
+;; use C-RET to cancel completion
+#+end_src
+
+* Educational Deep Dive: Understanding Emacs Completion Systems
+
+This section contains interactive, untangled code blocks for learning and experimentation.
+These blocks will NOT be tangled into the configuration file.
+
+** Understanding Completion Systems Architecture
+
+Emacs has evolved multiple approaches to in-buffer completion. Understanding the
+underlying architecture is key to configuring and troubleshooting completion effectively.
+
+*** Completion-at-Point Functions (CAPF)
+
+The modern standard for Emacs completion is ~completion-at-point-functions~ (CAPF).
+This is a buffer-local hook that contains functions which can provide completions
+at the current point.
+
+#+begin_src emacs-lisp :tangle no :results output
+;; Inspect what completion functions are registered in the current buffer
+(defun jf/show-capf ()
+  "Display the current completion-at-point-functions."
+  (interactive)
+  (let ((funcs completion-at-point-functions))
+    (princ (format "Completion-at-point-functions in %s:\n" (buffer-name)))
+    (princ (format "Major mode: %s\n\n" major-mode))
+    (if funcs
+        (dolist (func funcs)
+          (princ (format "  • %s\n" func)))
+      (princ "  (none registered)\n"))
+    (princ "\nTo test, position cursor and run: M-x completion-at-point")))
+
+;; Execute this block with C-c C-c to see what's registered
+(jf/show-capf)
+#+end_src
+
+#+RESULTS:
+: Completion-at-point-functions in corfu-company.org:
+: Major mode: org-mode
+: 
+:   • pcomplete-completions-at-point
+:   • t
+:   • ispell-completion-at-point
+: 
+: To test, position cursor and run: M-x completion-at-point
+
+*** How CAPF Works
+
+Each function in ~completion-at-point-functions~ is called in order until one returns
+a valid completion table. The function should return nil if it can't provide completions
+at point, or a list with this structure:
+
+#+begin_example
+(START END COLLECTION . PROPS)
+
+Where:
+  START      - Buffer position where completion starts
+  END        - Buffer position where completion ends
+  COLLECTION - List of completion candidates or a function
+  PROPS      - Property list with metadata (:annotation-function, :company-docsig, etc.)
+#+end_example
+
+*** Inspecting CAPF Return Values
+
+Let's write a function to see what a CAPF function actually returns:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/test-capf-at-point ()
+  "Test each CAPF function and show what it returns."
+  (interactive)
+  (let ((funcs completion-at-point-functions)
+        (found-completion nil))
+    (princ (format "Testing CAPF functions at point in %s:\n" (buffer-name)))
+    (princ (format "Position: %d\n" (point)))
+    (princ (format "Context: '%s'\n\n"
+                   (buffer-substring-no-properties
+                    (max (point-min) (- (point) 20))
+                    (min (point-max) (+ (point) 20)))))
+
+    (dolist (func funcs)
+      (princ (format "Testing: %s\n" func))
+      (condition-case err
+          (let ((result (funcall func)))
+            (if result
+                (progn
+                  (setq found-completion t)
+                  (princ (format "  ✓ Returns: START=%d END=%d\n"
+                                 (nth 0 result) (nth 1 result)))
+                  (let ((coll (nth 2 result)))
+                    (princ (format "  ✓ Collection type: %s\n" (type-of coll)))
+                    (when (listp coll)
+                      (princ (format "  ✓ First 5 candidates: %s\n"
+                                     (seq-take coll 5)))))
+                  (princ (format "  ✓ Properties: %s\n\n" (nthcdr 3 result))))
+              (princ "  ✗ Returned nil (no completion here)\n\n")))
+        (error (princ (format "  ✗ Error: %s\n\n" err)))))
+
+    (unless found-completion
+      (princ "No CAPF function provided completions at this point.\n"))))
+
+;; Run this with cursor at different positions to see what happens
+(jf/test-capf-at-point)
+#+end_src
+
+*** Company vs Corfu: Architectural Differences
+
+*Company Mode Architecture:*
+- Uses its own ~company-backends~ system (predates CAPF)
+- Each backend is a function that responds to specific commands
+- Company provides the UI and calls backends with commands like:
+  - ~'prefix~ - Get the completion prefix
+  - ~'candidates~ - Get completion candidates
+  - ~'meta~ - Get metadata for a candidate
+  - ~'doc-buffer~ - Get documentation
+- Can use CAPF backends via ~company-capf~ adapter
+
+*Corfu Architecture:*
+- Pure CAPF consumer - no backend system of its own
+- Only provides the popup UI
+- Directly uses ~completion-at-point-functions~
+- More "Emacs native" but depends entirely on CAPF providers
+- Lighter weight and faster
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/compare-completion-systems ()
+  "Show key differences between Company and Corfu."
+  (interactive)
+  (princ "=== Company vs Corfu Comparison ===\n\n")
+
+  (princ "Company Status:\n")
+  (princ (format "  • Loaded: %s\n" (featurep 'company)))
+  (princ (format "  • Global mode active: %s\n" (bound-and-true-p company-mode)))
+  (when (featurep 'company)
+    (princ (format "  • Backends: %d registered\n"
+                   (length (bound-and-true-p company-backends)))))
+
+  (princ "\nCorfu Status:\n")
+  (princ (format "  • Loaded: %s\n" (featurep 'corfu)))
+  (princ (format "  • Global mode active: %s\n" (bound-and-true-p global-corfu-mode)))
+
+  (princ "\nCAPF Status:\n")
+  (princ (format "  • Functions registered: %d\n"
+                 (length completion-at-point-functions)))
+  (princ (format "  • List: %s\n" completion-at-point-functions)))
+
+(jf/compare-completion-systems)
+#+end_src
+
+** Company Mode Deep Dive
+
+Company Mode is a mature, feature-rich completion framework with its own backend system.
+Understanding how backends work is essential for configuring useful completions.
+
+*** Company Backend Architecture
+
+A Company backend is a function that responds to different commands. When Company needs
+completions, it calls backends with specific command symbols.
+
+*Key Commands:*
+- ~'prefix~ - Return the text to complete, or nil if can't complete here
+- ~'candidates~ - Return list of completion candidates for the prefix
+- ~'meta~ - Return one-line documentation for a candidate
+- ~'annotation~ - Return short annotation (type, signature, etc.)
+- ~'doc-buffer~ - Return buffer with full documentation
+- ~'location~ - Return (FILE . LINE) or (BUFFER . POS) for definition
+- ~'post-completion~ - Called after completing, for side effects
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/show-company-backends ()
+  "Display all registered Company backends."
+  (interactive)
+  (princ "=== Company Backend Configuration ===\n\n")
+
+  (if (not (featurep 'company))
+      (princ "Company is not loaded.\n")
+    (let ((backends (if (boundp 'company-backends)
+                        company-backends
+                      nil)))
+      (princ (format "Total backends: %d\n\n" (length backends)))
+
+      (princ "Backends (in priority order):\n")
+      (let ((idx 1))
+        (dolist (backend backends)
+          (princ (format "%2d. %s\n" idx backend))
+          (setq idx (1+ idx))))
+
+      (princ "\n")
+      (princ "Notes:\n")
+      (princ "  • Backends are tried in order until one returns candidates\n")
+      (princ "  • A list like (backend1 backend2) creates a 'grouped' backend\n")
+      (princ "  • :with keyword merges candidates from multiple backends\n")
+      (princ "  • :separate keeps them separate in the popup\n"))))
+
+;; Execute to see your current backend configuration
+(jf/show-company-backends)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+=== Company Backend Configuration ===
+
+Total backends: 9
+
+Backends (in priority order):
+ 1. company-bbdb
+ 2. company-semantic
+ 3. company-cmake
+ 4. company-capf
+ 5. company-clang
+ 6. company-files
+ 7. (company-dabbrev-code company-gtags company-etags company-keywords)
+ 8. company-oddmuse
+ 9. company-dabbrev
+
+Notes:
+  • Backends are tried in order until one returns candidates
+  • A list like (backend1 backend2) creates a 'grouped' backend
+  • :with keyword merges candidates from multiple backends
+  • :separate keeps them separate in the popup
+#+end_example
+
+*** Testing Individual Backends
+
+Let's write functions to manually test what each backend provides:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/test-company-backend (backend)
+  "Test a single Company backend and show what it returns."
+  (interactive
+   (list (intern (completing-read "Backend: "
+                                  (mapcar #'symbol-name
+                                          (if (listp company-backends)
+                                              (flatten-list company-backends)
+                                            company-backends))))))
+
+  (princ (format "=== Testing Backend: %s ===\n\n" backend))
+  (princ (format "Position: %d\n" (point)))
+  (princ (format "Context: '%s'\n\n"
+                 (buffer-substring-no-properties
+                  (max (point-min) (- (point) 20))
+                  (min (point-max) (+ (point) 20)))))
+
+  ;; Test 'prefix command
+  (princ "1. Testing 'prefix command:\n")
+  (condition-case err
+      (let ((prefix (funcall backend 'prefix)))
+        (princ (format "   Result: %s\n" prefix))
+        (princ (format "   Type: %s\n\n" (type-of prefix)))
+
+        ;; If we got a prefix, test 'candidates
+        (when (and prefix (stringp prefix))
+          (princ "2. Testing 'candidates command:\n")
+          (let ((candidates (funcall backend 'candidates prefix)))
+            (princ (format "   Found %d candidates\n" (length candidates)))
+            (when candidates
+              (princ (format "   First 10: %s\n\n" (seq-take candidates 10)))
+
+              ;; Test 'meta for first candidate
+              (when (car candidates)
+                (princ "3. Testing 'meta for first candidate:\n")
+                (let ((meta (funcall backend 'meta (car candidates))))
+                  (princ (format "   Meta: %s\n\n" meta)))
+
+                ;; Test 'annotation
+                (princ "4. Testing 'annotation for first candidate:\n")
+                (let ((ann (funcall backend 'annotation (car candidates))))
+                  (princ (format "   Annotation: %s\n" ann))))))))
+    (error (princ (format "   Error: %s\n" err)))))
+
+;; Example: Test the dabbrev backend
+;; (jf/test-company-backend 'company-dabbrev)
+
+;; Or run interactively: M-x jf/test-company-backend
+#+end_src
+
+*** Backend Priority and Chaining
+
+Company tries backends in order. You can customize ~company-backends~ to change priority.
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/explain-backend-chaining ()
+  "Explain how Company backend chaining works."
+  (interactive)
+  (princ "=== Company Backend Chaining ===\n\n")
+
+  (princ "Backend List Formats:\n\n")
+
+  (princ "1. Simple list (try in order):\n")
+  (princ "   (setq company-backends '(backend-a backend-b backend-c))\n")
+  (princ "   → Tries backend-a first, then backend-b, then backend-c\n\n")
+
+  (princ "2. Grouped backends (merge results):\n")
+  (princ "   (setq company-backends '((backend-a backend-b) backend-c))\n")
+  (princ "   → Merges candidates from backend-a and backend-b\n\n")
+
+  (princ "3. Using :with (add supplementary candidates):\n")
+  (princ "   (setq company-backends '((backend-a :with backend-b)))\n")
+  (princ "   → Uses backend-a, enriches with backend-b candidates\n\n")
+
+  (princ "4. Using :separate (keep separate sections):\n")
+  (princ "   (setq company-backends '((backend-a :separate backend-b)))\n")
+  (princ "   → Shows two separate groups in popup\n\n")
+
+  (princ "Example: LSP with supplementary completions:\n")
+  (princ "   '((company-capf :with company-dabbrev-code))\n")
+  (princ "   → Uses LSP via CAPF, adds words from code buffers\n"))
+
+(jf/explain-backend-chaining)
+#+end_src
+
+*** Examining Backend Behavior in Real-Time
+
+This function shows which backend is actually providing completions:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/which-backend-completed ()
+  "Show which backend provided the last completion."
+  (interactive)
+  (if (not (boundp 'company-backend))
+      (princ "No completion in progress or Company not active.\n")
+    (princ (format "Current backend: %s\n" company-backend))
+    (princ (format "Common name: %s\n"
+                   (if (symbolp company-backend)
+                       company-backend
+                     (car company-backend))))))
+
+;; Tip: Run this during or after a completion to see which backend was used
+;; You can also add this to mode-line:
+;; (add-to-list 'mode-line-format
+;;              '(:eval (when (bound-and-true-p company-backend)
+;;                       (format " [%s]" company-backend))))
+#+end_src
+
+*** Understanding Common Backends
+
+Here's what the most common Company backends do:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/describe-common-backends ()
+  "Describe commonly used Company backends."
+  (interactive)
+  (princ "=== Common Company Backends ===\n\n")
+
+  (let ((backends
+         '((company-capf
+            "Completion-At-Point Functions"
+            "Adapts CAPF to Company. This is how LSP, eglot, and modern modes provide completions.")
+
+           (company-dabbrev
+            "Dynamic Abbreviations"
+            "Completes words found in all open buffers. Case-sensitive by default. Good for prose and comments.")
+
+           (company-dabbrev-code
+            "Dynamic Abbreviations (code only)"
+            "Like dabbrev but only in code contexts (not strings/comments). Case-insensitive. Good for variable names.")
+
+           (company-files
+            "File Path Completion"
+            "Completes file and directory paths when typing /path/to/...")
+
+           (company-keywords
+            "Language Keywords"
+            "Completes language keywords (if, for, while, etc.) based on major-mode.")
+
+           (company-elisp
+            "Emacs Lisp Symbols"
+            "Completes Emacs Lisp functions, variables in emacs-lisp-mode.")
+
+           (company-ispell
+            "Spell Checking"
+            "Uses ispell/aspell for word completion in text modes.")
+
+           (company-yasnippet
+            "YASnippet Integration"
+            "Completes snippet names from yasnippet library."))))
+
+    (dolist (backend backends)
+      (princ (format "• %s\n" (nth 0 backend)))
+      (princ (format "  %s\n" (nth 1 backend)))
+      (princ (format "  %s\n\n" (nth 2 backend))))))
+
+(jf/describe-common-backends)
+#+end_src
+
+** Corfu Deep Dive
+
+Corfu is a minimal completion popup that directly consumes ~completion-at-point-functions~.
+It's part of the modern "Emacs native" completion ecosystem.
+
+*** How Corfu Works
+
+Unlike Company, Corfu doesn't have its own backend system. Instead:
+
+1. Corfu hooks into Emacs's completion system
+2. It calls ~completion-at-point~ (which tries each CAPF function)
+3. It displays the results in a small popup
+4. All completion logic comes from CAPF providers (LSP, major modes, etc.)
+
+This makes Corfu simpler and more integrated with Emacs, but means you need
+CAPF providers for all your completion needs.
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/corfu-status ()
+  "Show Corfu's current status and configuration."
+  (interactive)
+  (princ "=== Corfu Status ===\n\n")
+
+  (if (not (featurep 'corfu))
+      (princ "Corfu is not loaded.\n")
+    (princ (format "Corfu loaded: yes\n"))
+    (princ (format "Global mode: %s\n" (bound-and-true-p global-corfu-mode)))
+
+    (princ "\nKey Settings:\n")
+    (princ (format "  • corfu-auto: %s\n" (bound-and-true-p corfu-auto)))
+    (princ (format "  • corfu-auto-delay: %s\n" (bound-and-true-p corfu-auto-delay)))
+    (princ (format "  • corfu-auto-prefix: %s\n" (bound-and-true-p corfu-auto-prefix)))
+    (princ (format "  • corfu-cycle: %s\n" (bound-and-true-p corfu-cycle)))
+
+    (princ "\nCompletion Provider (CAPF):\n")
+    (princ (format "  • Functions: %s\n" completion-at-point-functions))
+
+    (princ "\nNote: Corfu relies entirely on completion-at-point-functions.\n")
+    (princ "      If you don't see completions, check your CAPF setup.\n")))
+
+(jf/corfu-status)
+#+end_src
+
+*** Corfu Extensions Ecosystem
+
+Corfu is designed to be extended with separate packages:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/describe-corfu-extensions ()
+  "Describe available Corfu extensions."
+  (interactive)
+  (princ "=== Corfu Extension Packages ===\n\n")
+
+  (let ((extensions
+         '((corfu-popupinfo
+            "Documentation popup"
+            "Shows documentation in a separate popup next to completions")
+
+           (corfu-history
+            "Completion history"
+            "Sorts completions by how recently/frequently you've used them")
+
+           (corfu-indexed
+            "Quick selection"
+            "Adds numbers/letters for quick candidate selection")
+
+           (corfu-quick
+            "Keyboard shortcuts"
+            "Assigns keys to visible candidates for instant selection")
+
+           (cape
+            "Completion At Point Extensions"
+            "Provides additional CAPF functions: cape-file, cape-dabbrev, cape-keyword, etc.")
+
+           (kind-icon
+            "Completion kind icons"
+            "Adds VSCode-style icons showing completion type (function, variable, etc.)"))))
+
+    (dolist (ext extensions)
+      (princ (format "• %s\n" (nth 0 ext)))
+      (princ (format "  %s\n" (nth 1 ext)))
+      (princ (format "  %s\n" (nth 2 ext)))
+      (princ (format "  Status: %s\n\n"
+                     (if (featurep (nth 0 ext))
+                         "loaded"
+                       "not loaded"))))))
+
+(jf/describe-corfu-extensions)
+#+end_src
+
+*** Testing Corfu vs Company Side-by-Side
+
+Here's how you can quickly switch between Corfu and Company to compare:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/switch-to-corfu ()
+  "Disable Company and enable Corfu."
+  (interactive)
+  (when (fboundp 'global-company-mode)
+    (global-company-mode -1))
+  (when (fboundp 'global-corfu-mode)
+    (global-corfu-mode 1))
+  (message "Switched to Corfu"))
+
+(defun jf/switch-to-company ()
+  "Disable Corfu and enable Company."
+  (interactive)
+  (when (fboundp 'global-corfu-mode)
+    (global-corfu-mode -1))
+  (when (fboundp 'global-company-mode)
+    (global-company-mode 1))
+  (message "Switched to Company"))
+
+(defun jf/show-active-completion-system ()
+  "Show which completion system is currently active."
+  (interactive)
+  (princ "=== Active Completion System ===\n\n")
+  (let ((company-active (bound-and-true-p global-company-mode))
+        (corfu-active (bound-and-true-p global-corfu-mode)))
+    (princ (format "Company: %s\n" (if company-active "ACTIVE" "inactive")))
+    (princ (format "Corfu:   %s\n" (if corfu-active "ACTIVE" "inactive")))
+
+    (cond
+     ((and company-active corfu-active)
+      (princ "\n⚠ WARNING: Both systems are active! This may cause conflicts.\n"))
+     ((not (or company-active corfu-active))
+      (princ "\n⚠ WARNING: No completion system is active.\n"))
+     (t
+      (princ "\n✓ Configuration looks good.\n")))))
+
+(jf/show-active-completion-system)
+
+;; To experiment:
+;; 1. Execute (jf/switch-to-corfu) to try Corfu
+;; 2. Open a Python/Go file and type to see completions
+;; 3. Execute (jf/switch-to-company) to switch back
+;; 4. Compare the behavior, speed, and UI
+#+end_src
+
+*** Configuring CAPF for Corfu
+
+Since Corfu uses CAPF directly, you need to ensure modes provide CAPF functions:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/add-capf-providers ()
+  "Example: How to add CAPF providers for Corfu."
+  (interactive)
+  (princ "=== Adding CAPF Providers for Corfu ===\n\n")
+
+  (princ "Most modern modes automatically add to completion-at-point-functions.\n\n")
+
+  (princ "LSP/Eglot:\n")
+  (princ "  • Automatically provides CAPF\n")
+  (princ "  • No configuration needed\n\n")
+
+  (princ "Cape (Completion At Point Extensions):\n")
+  (princ "  Provides CAPF versions of common backends:\n\n")
+
+  (princ "  ;; File completion\n")
+  (princ "  (add-to-list 'completion-at-point-functions #'cape-file)\n\n")
+
+  (princ "  ;; Dabbrev (dynamic abbreviations)\n")
+  (princ "  (add-to-list 'completion-at-point-functions #'cape-dabbrev)\n\n")
+
+  (princ "  ;; Keywords\n")
+  (princ "  (add-to-list 'completion-at-point-functions #'cape-keyword)\n\n")
+
+  (princ "  ;; Ispell (spell checking)\n")
+  (princ "  (add-to-list 'completion-at-point-functions #'cape-ispell)\n\n")
+
+  (princ "Example configuration:\n")
+  (princ "  (use-package cape\n")
+  (princ "    :straight t\n")
+  (princ "    :init\n")
+  (princ "    (add-to-list 'completion-at-point-functions #'cape-dabbrev)\n")
+  (princ "    (add-to-list 'completion-at-point-functions #'cape-file)\n")
+  (princ "    (add-to-list 'completion-at-point-functions #'cape-keyword))\n"))
+
+(jf/add-capf-providers)
+#+end_src
+
+*** Corfu Performance Characteristics
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/compare-performance ()
+  "Discuss performance differences between Corfu and Company."
+  (interactive)
+  (princ "=== Corfu vs Company Performance ===\n\n")
+
+  (princ "Corfu advantages:\n")
+  (princ "  • Lighter weight (smaller codebase)\n")
+  (princ "  • Faster startup (no backend system)\n")
+  (princ "  • Lower latency (direct CAPF access)\n")
+  (princ "  • Better integration with native Emacs features\n\n")
+
+  (princ "Company advantages:\n")
+  (princ "  • More mature (older, well-tested)\n")
+  (princ "  • Rich built-in backends\n")
+  (princ "  • More customization options\n")
+  (princ "  • Better documentation popup by default\n\n")
+
+  (princ "When to use Corfu:\n")
+  (princ "  • You want minimal, fast completion\n")
+  (princ "  • You use LSP/Eglot exclusively\n")
+  (princ "  • You prefer the modern Emacs ecosystem (vertico, consult, etc.)\n\n")
+
+  (princ "When to use Company:\n")
+  (princ "  • You need specific backends (e.g., company-tabnine)\n")
+  (princ "  • You want batteries-included experience\n")
+  (princ "  • You have existing Company configuration\n"))
+
+(jf/compare-performance)
+#+end_src
+
+** LSP Integration: Language Server Protocol Completions
+
+Language Server Protocol (LSP) is the primary way modern editors get intelligent
+code completions. Understanding how LSP integrates with Emacs completion is crucial
+for debugging completion issues.
+
+*** How LSP Provides Completions
+
+LSP Mode and Eglot both provide completions through CAPF:
+
+1. Language server runs in background (pylsp, gopls, typescript-language-server, etc.)
+2. LSP client (lsp-mode or eglot) communicates with server
+3. When you type, LSP client requests completions from server
+4. Server returns completion items with rich metadata
+5. LSP client creates a CAPF function that provides these completions
+6. Company (via company-capf) or Corfu displays them
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/lsp-completion-status ()
+  "Check LSP completion configuration."
+  (interactive)
+  (princ "=== LSP Completion Status ===\n\n")
+
+  ;; Check if LSP mode is loaded
+  (if (not (featurep 'lsp-mode))
+      (princ "LSP Mode: not loaded\n")
+    (princ "LSP Mode: loaded\n")
+    (princ (format "LSP active in buffer: %s\n"
+                   (if (bound-and-true-p lsp-mode) "yes" "no")))
+
+    (when (bound-and-true-p lsp-mode)
+      (princ (format "LSP server: %s\n"
+                     (if (boundp 'lsp--cur-workspace)
+                         (lsp--workspace-server-id (car (lsp-workspaces)))
+                       "unknown")))
+
+      (princ "\nLSP Completion Settings:\n")
+      (princ (format "  • lsp-completion-provider: %s\n"
+                     (bound-and-true-p lsp-completion-provider)))
+      (princ (format "  • lsp-completion-enable: %s\n"
+                     (bound-and-true-p lsp-completion-enable)))
+
+      (princ "\nCAPF Check:\n")
+      (if (member 'lsp-completion-at-point completion-at-point-functions)
+          (princ "  ✓ lsp-completion-at-point is registered\n")
+        (princ "  ✗ lsp-completion-at-point NOT found in CAPF list\n"))))
+
+  ;; Check for eglot
+  (princ "\n")
+  (if (not (featurep 'eglot))
+      (princ "Eglot: not loaded\n")
+    (princ "Eglot: loaded\n")
+    (princ (format "Eglot active: %s\n"
+                   (if (bound-and-true-p eglot--managed-mode) "yes" "no")))))
+
+(jf/lsp-completion-status)
+#+end_src
+
+*** Inspecting LSP Completion Metadata
+
+LSP completions come with rich metadata. Let's see what we get:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/inspect-lsp-completion ()
+  "Show detailed info about LSP completions at point."
+  (interactive)
+  (princ "=== LSP Completion Analysis ===\n\n")
+
+  (if (not (bound-and-true-p lsp-mode))
+      (princ "LSP mode is not active in this buffer.\n")
+    (princ (format "Buffer: %s\n" (buffer-name)))
+    (princ (format "Major mode: %s\n" major-mode))
+    (princ (format "Position: %d\n\n" (point)))
+
+    ;; Try to get completions via CAPF
+    (let ((capf-result (and (member 'lsp-completion-at-point
+                                    completion-at-point-functions)
+                            (lsp-completion-at-point))))
+      (if (not capf-result)
+          (princ "No completions available at this position.\n")
+        (let* ((start (nth 0 capf-result))
+               (end (nth 1 capf-result))
+               (collection (nth 2 capf-result))
+               (props (nthcdr 3 capf-result))
+               (prefix (buffer-substring-no-properties start end)))
+
+          (princ (format "Prefix: '%s'\n" prefix))
+          (princ (format "Range: %d-%d\n\n" start end))
+
+          ;; Get actual candidates
+          (let* ((candidates (all-completions prefix collection))
+                 (first-five (seq-take candidates 5)))
+            (princ (format "Total candidates: %d\n\n" (length candidates)))
+
+            (when first-five
+              (princ "First 5 candidates with metadata:\n")
+              (dolist (cand first-five)
+                (princ (format "\n• %s\n" cand))
+
+                ;; Try to get metadata
+                (let ((meta (completion-metadata prefix collection)))
+                  ;; Get annotation function if available
+                  (when-let ((ann-fn (completion-metadata-get meta 'annotation-function)))
+                    (princ (format "  Annotation: %s\n"
+                                   (funcall ann-fn cand))))
+
+                  ;; Get company-specific properties if available
+                  (when (get-text-property 0 'lsp-completion-item cand)
+                    (let ((item (get-text-property 0 'lsp-completion-item cand)))
+                      (princ (format "  Kind: %s\n"
+                                     (or (plist-get item :kind) "unknown")))
+                      (princ (format "  Detail: %s\n"
+                                     (or (plist-get item :detail) "none")))))))))))))
+
+;; Run this function in a Python, Go, or TypeScript buffer with LSP active
+;; Position your cursor after a partial identifier
+(jf/inspect-lsp-completion)
+#+end_src
+
+*** Testing LSP Completions by Language
+
+Let's create helpers to test LSP completions in different language contexts:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/test-lsp-python ()
+  "Instructions for testing Python LSP completions."
+  (interactive)
+  (princ "=== Testing Python LSP Completions ===\n\n")
+
+  (princ "1. Open a Python file in a project with pylsp running\n")
+  (princ "2. Type some Python code, e.g.:\n\n")
+  (princ "   import os\n")
+  (princ "   os.pat  # <- cursor here, should see os.path completions\n\n")
+  (princ "3. Run (jf/inspect-lsp-completion) to see metadata\n\n")
+
+  (princ "Expected completions:\n")
+  (princ "  • os.path, os.pathconf, os.pathconf_names, etc.\n\n")
+
+  (princ "LSP Server: pylsp (python-lsp-server)\n")
+  (princ "Install: pip install python-lsp-server\n"))
+
+(defun jf/test-lsp-go ()
+  "Instructions for testing Go LSP completions."
+  (interactive)
+  (princ "=== Testing Go LSP Completions ===\n\n")
+
+  (princ "1. Open a Go file with gopls running\n")
+  (princ "2. Type Go code, e.g.:\n\n")
+  (princ "   package main\n")
+  (princ "   import \"fmt\"\n")
+  (princ "   func main() {\n")
+  (princ "     fmt.Pr  # <- cursor here\n\n")
+  (princ "3. Should see: Print, Printf, Println completions\n\n")
+
+  (princ "LSP Server: gopls\n")
+  (princ "Install: go install golang.org/x/tools/gopls@latest\n"))
+
+(defun jf/test-lsp-typescript ()
+  "Instructions for testing TypeScript LSP completions."
+  (interactive)
+  (princ "=== Testing TypeScript LSP Completions ===\n\n")
+
+  (princ "1. Open a .ts file with typescript-language-server running\n")
+  (princ "2. Type TypeScript code, e.g.:\n\n")
+  (princ "   const arr = [1, 2, 3]\n")
+  (princ "   arr.ma  # <- cursor here\n\n")
+  (princ "3. Should see: map, Math completions\n\n")
+
+  (princ "LSP Server: typescript-language-server\n")
+  (princ "Install: npm install -g typescript-language-server\n"))
+
+;; Execute these for language-specific testing instructions
+(jf/test-lsp-python)
+#+end_src
+
+*** Understanding LSP Completion Kinds
+
+LSP defines standard completion kinds (function, variable, class, etc.):
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/explain-lsp-completion-kinds ()
+  "Explain LSP completion item kinds."
+  (interactive)
+  (princ "=== LSP Completion Kinds ===\n\n")
+
+  (princ "LSP defines these completion kinds:\n\n")
+
+  (let ((kinds
+         '((1  "Text"          "Plain text")
+           (2  "Method"        "Class method")
+           (3  "Function"      "Function or subroutine")
+           (4  "Constructor"   "Constructor")
+           (5  "Field"         "Class field/property")
+           (6  "Variable"      "Variable")
+           (7  "Class"         "Class definition")
+           (8  "Interface"     "Interface definition")
+           (9  "Module"        "Module/namespace")
+           (10 "Property"      "Object property")
+           (11 "Unit"          "Unit of measurement")
+           (12 "Value"         "Value/constant")
+           (13 "Enum"          "Enumeration")
+           (14 "Keyword"       "Language keyword")
+           (15 "Snippet"       "Code snippet")
+           (16 "Color"         "Color value")
+           (17 "File"          "File reference")
+           (18 "Reference"     "Reference/link")
+           (19 "Folder"        "Directory")
+           (20 "EnumMember"    "Enum member")
+           (21 "Constant"      "Constant")
+           (22 "Struct"        "Struct definition")
+           (23 "Event"         "Event")
+           (24 "Operator"      "Operator")
+           (25 "TypeParameter" "Type parameter/generic"))))
+
+    (dolist (kind kinds)
+      (princ (format "%2d. %-14s - %s\n"
+                     (nth 0 kind)
+                     (nth 1 kind)
+                     (nth 2 kind)))))
+
+  (princ "\nThese kinds can be used for:\n")
+  (princ "  • Icons (different icon per kind)\n")
+  (princ "  • Sorting (prioritize functions over text)\n")
+  (princ "  • Filtering (show only functions)\n"))
+
+(jf/explain-lsp-completion-kinds)
+#+end_src
+
+*** Troubleshooting LSP Completions
+
+Common issues and how to diagnose them:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/troubleshoot-lsp-completion ()
+  "Diagnose common LSP completion issues."
+  (interactive)
+  (princ "=== LSP Completion Troubleshooting ===\n\n")
+
+  (princ "1. Check LSP server is running:\n")
+  (princ "   M-x lsp-describe-session\n")
+  (princ "   Should show active workspace and server\n\n")
+
+  (princ "2. Check CAPF registration:\n")
+  (princ "   (jf/show-capf) or check completion-at-point-functions\n")
+  (princ "   Should include 'lsp-completion-at-point\n\n")
+
+  (princ "3. Check Company/Corfu configuration:\n")
+  (princ "   Company: company-capf should be in company-backends\n")
+  (princ "   Corfu: Should use CAPF directly\n\n")
+
+  (princ "4. Test raw completion:\n")
+  (princ "   M-x completion-at-point\n")
+  (princ "   Should show completions in *Completions* buffer\n\n")
+
+  (princ "5. Check LSP logs:\n")
+  (princ "   M-x lsp-workspace-show-log\n")
+  (princ "   Look for completion requests/responses\n\n")
+
+  (princ "6. Common issues:\n")
+  (princ "   • Server not installed: Install language server\n")
+  (princ "   • Server crashed: Check *lsp-log* buffer\n")
+  (princ "   • CAPF not registered: LSP mode hook issue\n")
+  (princ "   • Company priority: company-capf should be early in list\n")
+  (princ "   • File not in project: LSP needs project root\n"))
+
+(jf/troubleshoot-lsp-completion)
+#+end_src
+
+** Building Custom Backends
+
+Sometimes you need completions that aren't provided by existing backends.
+Let's learn how to build custom completion sources for both Company and Corfu.
+
+*** Anatomy of a Company Backend
+
+A Company backend is a function that handles different commands. Here's the minimal structure:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun my-simple-company-backend (command &optional arg &rest ignored)
+  "A minimal Company backend example."
+  (interactive (list 'interactive))
+  (cl-case command
+    ;; 'interactive - Return t if this is an interactive call
+    (interactive (company-begin-backend 'my-simple-company-backend))
+
+    ;; 'prefix - Return the completion prefix or nil if we can't complete here
+    (prefix (and (eq major-mode 'text-mode)
+                 (company-grab-symbol)))
+
+    ;; 'candidates - Return list of completion candidates for ARG (the prefix)
+    (candidates
+     (list "example" "exemplar" "exemplify" "extend" "extend-life"))
+
+    ;; 'meta - Return one-line documentation for ARG (a candidate)
+    (meta (format "This is the completion: %s" arg))
+
+    ;; 'annotation - Return a short annotation for ARG
+    (annotation (format " <%s>" (length arg)))))
+
+;; Test it:
+;; 1. Add to backends: (add-to-list 'company-backends 'my-simple-company-backend)
+;; 2. Open text-mode buffer
+;; 3. Type "ex" and trigger completion
+
+(princ "Simple Company backend template defined.\n")
+(princ "Commands it handles:\n")
+(princ "  • interactive - For M-x company-begin\n")
+(princ "  • prefix - When to offer completions\n")
+(princ "  • candidates - What to complete\n")
+(princ "  • meta - Documentation\n")
+(princ "  • annotation - Short label\n")
+#+end_src
+
+*** Building a Project-Specific Company Backend
+
+Let's create a real example: completing project-specific identifiers or keywords.
+
+#+begin_src emacs-lisp :tangle no :results output
+(defvar my-project-completions
+  '("initialize_system" "process_data" "validate_input"
+    "send_notification" "log_error" "cleanup_resources")
+  "List of project-specific identifiers to complete.")
+
+(defun my-project-backend (command &optional arg &rest ignored)
+  "Company backend for project-specific completions."
+  (interactive (list 'interactive))
+  (cl-case command
+    (interactive (company-begin-backend 'my-project-backend))
+
+    ;; Only activate in certain modes
+    (prefix (and (or (derived-mode-p 'prog-mode)
+                     (derived-mode-p 'text-mode))
+                 (company-grab-symbol)))
+
+    ;; Filter completions based on prefix
+    (candidates
+     (cl-remove-if-not
+      (lambda (c) (string-prefix-p arg c))
+      my-project-completions))
+
+    ;; Provide documentation
+    (meta
+     (format "Project function: %s" arg))
+
+    ;; Annotate with category
+    (annotation " <project>")
+
+    ;; Optional: provide detailed docs
+    (doc-buffer
+     (let ((buf (company-doc-buffer)))
+       (with-current-buffer buf
+         (insert (format "Documentation for %s\n\n" arg))
+         (insert "This is a project-specific function.\n")
+         (insert "Add your documentation here."))
+       buf))))
+
+;; To use:
+;; (add-to-list 'company-backends 'my-project-backend)
+
+(princ "=== Project-Specific Backend Example ===\n\n")
+(princ "Created backend: my-project-backend\n")
+(princ (format "Provides %d completions\n" (length my-project-completions)))
+(princ "\nTo activate:\n")
+(princ "  (add-to-list 'company-backends 'my-project-backend)\n")
+#+end_src
+
+*** Building a CAPF Function for Corfu
+
+CAPF functions are simpler than Company backends. They just return completion data:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun my-simple-capf ()
+  "A simple completion-at-point function."
+  ;; Check if we should provide completions here
+  (when (and (eq major-mode 'text-mode)
+             (looking-back "\\<\\w+" nil))
+    (let* ((end (point))
+           (start (save-excursion
+                    (skip-chars-backward "[:word:]")
+                    (point)))
+           (prefix (buffer-substring-no-properties start end))
+           (candidates '("example" "exemplar" "exemplify" "extend")))
+      ;; Return completion data
+      (list start end
+            (cl-remove-if-not
+             (lambda (c) (string-prefix-p prefix c))
+             candidates)
+            :annotation-function
+            (lambda (cand) (format " <%d>" (length cand)))
+            :company-docsig
+            (lambda (cand) (format "Length: %d" (length cand)))))))
+
+;; To use:
+;; (add-hook 'text-mode-hook
+;;           (lambda () (add-hook 'completion-at-point-functions
+;;                                #'my-simple-capf nil t)))
+
+(princ "=== Simple CAPF Example ===\n\n")
+(princ "Created CAPF function: my-simple-capf\n")
+(princ "\nReturns:\n")
+(princ "  (START END COLLECTION :annotation-function FN ...)\n\n")
+(princ "To activate:\n")
+(princ "  (add-hook 'completion-at-point-functions #'my-simple-capf)\n")
+#+end_src
+
+*** Advanced: Async Company Backend
+
+For slow completion sources (API calls, database queries), use async backends:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun my-async-backend (command &optional arg &rest ignored)
+  "Company backend with asynchronous completion."
+  (interactive (list 'interactive))
+  (cl-case command
+    (interactive (company-begin-backend 'my-async-backend))
+
+    (prefix (and (eq major-mode 'text-mode)
+                 (company-grab-symbol)))
+
+    ;; Return :async and call callback with results later
+    (candidates
+     (cons :async
+           (lambda (callback)
+             ;; Simulate async operation (network call, etc.)
+             (run-with-timer
+              0.5 nil
+              (lambda ()
+                ;; Call callback with completion candidates
+                (funcall callback
+                         (list "async-result-1"
+                               "async-result-2"
+                               "async-result-3")))))))))
+
+(princ "=== Async Company Backend ===\n\n")
+(princ "For slow completion sources:\n")
+(princ "  • API calls\n")
+(princ "  • Database queries\n")
+(princ "  • File system searches\n\n")
+(princ "Return (cons :async CALLBACK-FN)\n")
+(princ "Call callback with results when ready\n")
+#+end_src
+
+*** Advanced: Dynamic CAPF with Properties
+
+CAPF functions can include rich metadata:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun my-advanced-capf ()
+  "CAPF with rich metadata and properties."
+  (when (looking-back "\\<\\w+" nil)
+    (let* ((end (point))
+           (start (save-excursion
+                    (skip-chars-backward "[:word:]")
+                    (point)))
+           (candidates
+            '(("function" . (:kind "Function" :type "void"))
+              ("variable" . (:kind "Variable" :type "int"))
+              ("constant" . (:kind "Constant" :type "string")))))
+      (list start end
+            (mapcar #'car candidates)
+
+            ;; Annotation function
+            :annotation-function
+            (lambda (cand)
+              (when-let ((props (cdr (assoc cand candidates))))
+                (format " %s" (plist-get props :type))))
+
+            ;; Documentation function
+            :company-doc-buffer
+            (lambda (cand)
+              (let ((buf (get-buffer-create "*my-completion-doc*")))
+                (with-current-buffer buf
+                  (erase-buffer)
+                  (insert (format "Candidate: %s\n\n" cand))
+                  (when-let ((props (cdr (assoc cand candidates))))
+                    (insert (format "Kind: %s\n" (plist-get props :kind)))
+                    (insert (format "Type: %s\n" (plist-get props :type)))))
+                buf))
+
+            ;; One-line docstring
+            :company-docsig
+            (lambda (cand)
+              (when-let ((props (cdr (assoc cand candidates))))
+                (format "%s: %s"
+                        (plist-get props :kind)
+                        (plist-get props :type))))
+
+            ;; Exit function (called after completion)
+            :exit-function
+            (lambda (cand status)
+              (when (eq status 'finished)
+                (message "Completed with: %s" cand)))))))
+
+(princ "=== Advanced CAPF with Properties ===\n\n")
+(princ "Supported properties:\n")
+(princ "  • :annotation-function - Short label\n")
+(princ "  • :company-docsig - One-line doc\n")
+(princ "  • :company-doc-buffer - Full documentation\n")
+(princ "  • :company-location - Jump to definition\n")
+(princ "  • :exit-function - Post-completion action\n")
+(princ "  • :exclusive - Whether this is the only completion\n")
+#+end_src
+
+*** Testing Your Custom Backend
+
+Helper to test backends in isolation:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/test-custom-backend ()
+  "Interactive testing of custom backends."
+  (interactive)
+  (let ((backend (intern (completing-read "Backend to test: "
+                                          '("my-simple-company-backend"
+                                            "my-project-backend"
+                                            "my-async-backend")))))
+    (princ (format "=== Testing %s ===\n\n" backend))
+
+    ;; Temporarily add to backends
+    (let ((company-backends (list backend)))
+      (princ "Temporarily using only this backend.\n")
+      (princ "Type in a buffer to see completions.\n\n")
+      (princ "Commands:\n")
+      (princ "  M-x company-complete - Trigger completion\n")
+      (princ "  C-h v company-backends - Check backend list\n"))))
+
+(defun jf/test-custom-capf ()
+  "Interactive testing of custom CAPF functions."
+  (interactive)
+  (let ((capf (intern (completing-read "CAPF to test: "
+                                       '("my-simple-capf"
+                                         "my-advanced-capf")))))
+    (princ (format "=== Testing %s ===\n\n" capf))
+
+    ;; Temporarily set as only CAPF
+    (setq-local completion-at-point-functions (list capf))
+    (princ "Set as buffer-local completion-at-point-functions.\n")
+    (princ "\nTest with:\n")
+    (princ "  M-x completion-at-point\n")
+    (princ "  Or trigger company/corfu completion\n")))
+
+(princ "=== Backend Testing Helpers ===\n\n")
+(princ "Use these functions to test your custom backends:\n")
+(princ "  • (jf/test-custom-backend) - Test Company backend\n")
+(princ "  • (jf/test-custom-capf) - Test CAPF function\n")
+#+end_src
+
+** Backend Demonstrations: Testing What Each Backend Provides
+
+Let's interactively test each backend type to understand what completions they offer.
+This will help you decide which backends to enable and configure.
+
+*** Testing company-dabbrev (Dynamic Abbreviations)
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/demo-dabbrev ()
+  "Demonstrate what company-dabbrev provides."
+  (interactive)
+  (princ "=== company-dabbrev Backend ===\n\n")
+
+  (princ "Purpose:\n")
+  (princ "  Completes words found in ALL open buffers\n")
+  (princ "  Good for: prose, comments, repeated identifiers\n\n")
+
+  (princ "Configuration:\n")
+  (princ "  company-dabbrev-downcase: %s\n"
+         (if (boundp 'company-dabbrev-downcase)
+             company-dabbrev-downcase
+           'not-set))
+  (princ "  company-dabbrev-ignore-case: %s\n"
+         (if (boundp 'company-dabbrev-ignore-case)
+             company-dabbrev-ignore-case
+           'not-set))
+  (princ "  company-dabbrev-minimum-length: %s\n"
+         (if (boundp 'company-dabbrev-minimum-length)
+             company-dabbrev-minimum-length
+           'not-set))
+
+  (princ "\nExample: Type 'comple' in any buffer\n")
+  (princ "Should complete to words like:\n")
+  (princ "  • completion\n")
+  (princ "  • complete\n")
+  (princ "  • completions\n\n")
+
+  (princ "Test: Try typing partial words that appear elsewhere\n")
+  (princ "in your buffers to see what gets suggested.\n"))
+
+(jf/demo-dabbrev)
+#+end_src
+
+*** Testing company-dabbrev-code (Code-Only Abbreviations)
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/demo-dabbrev-code ()
+  "Demonstrate what company-dabbrev-code provides."
+  (interactive)
+  (princ "=== company-dabbrev-code Backend ===\n\n")
+
+  (princ "Purpose:\n")
+  (princ "  Like dabbrev, but ONLY in code (not strings/comments)\n")
+  (princ "  Case-insensitive by default\n")
+  (princ "  Good for: variable names, function names\n\n")
+
+  (princ "Difference from company-dabbrev:\n")
+  (princ "  • Ignores text in strings and comments\n")
+  (princ "  • Typically case-insensitive\n")
+  (princ "  • More focused on code identifiers\n\n")
+
+  (princ "Example: In a Python file with:\n")
+  (princ "  user_input = get_user_input()\n")
+  (princ "  process_user_data()\n\n")
+  (princ "Typing 'user' should complete to:\n")
+  (princ "  • user_input\n")
+  (princ "  • user_data (from process_user_data)\n\n")
+
+  (princ "Test: Open a code file and type partial variable names.\n"))
+
+(jf/demo-dabbrev-code)
+#+end_src
+
+*** Testing company-files (File Path Completion)
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/demo-files ()
+  "Demonstrate what company-files provides."
+  (interactive)
+  (princ "=== company-files Backend ===\n\n")
+
+  (princ "Purpose:\n")
+  (princ "  Completes file and directory paths\n")
+  (princ "  Triggers when typing paths like /home/ or ./\n\n")
+
+  (princ "Triggers:\n")
+  (princ "  • Absolute paths: /usr/local/\n")
+  (princ "  • Relative paths: ./src/\n")
+  (princ "  • Home directory: ~/Documents/\n\n")
+
+  (princ "Example: Type in any buffer:\n")
+  (princ "  /tmp/\n")
+  (princ "Should show files in /tmp directory\n\n")
+
+  (princ "  ~/.emacs.d/\n")
+  (princ "Should show contents of .emacs.d\n\n")
+
+  (princ "Test: Type a path and see file completions appear.\n"))
+
+(jf/demo-files)
+#+end_src
+
+*** Testing company-keywords (Language Keywords)
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/demo-keywords ()
+  "Demonstrate what company-keywords provides."
+  (interactive)
+  (princ "=== company-keywords Backend ===\n\n")
+
+  (princ "Purpose:\n")
+  (princ "  Completes language-specific keywords\n")
+  (princ "  Based on major-mode\n\n")
+
+  (princ "Examples by language:\n\n")
+
+  (princ "Python mode:\n")
+  (princ "  if, elif, else, for, while, def, class, import, etc.\n\n")
+
+  (princ "JavaScript mode:\n")
+  (princ "  function, const, let, var, if, else, for, while, etc.\n\n")
+
+  (princ "Emacs Lisp mode:\n")
+  (princ "  defun, defvar, let, if, cond, when, unless, etc.\n\n")
+
+  (princ "Current major mode: %s\n" major-mode)
+
+  (when (fboundp 'company-keywords-alist)
+    (let ((keywords (cdr (assoc major-mode company-keywords-alist))))
+      (if keywords
+          (progn
+            (princ (format "\nKeywords for %s:\n" major-mode))
+            (princ (format "  %s\n" (seq-take keywords 10)))
+            (princ (format "  ... (%d total)\n" (length keywords))))
+        (princ "\nNo keywords defined for this mode.\n"))))
+
+  (princ "\nTest: In a code buffer, type partial keywords (e.g., 'def' in Python)\n"))
+
+(jf/demo-keywords)
+#+end_src
+
+*** Testing company-capf (Completion-at-Point Functions)
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/demo-capf ()
+  "Demonstrate what company-capf provides."
+  (interactive)
+  (princ "=== company-capf Backend ===\n\n")
+
+  (princ "Purpose:\n")
+  (princ "  Adapter that lets Company use CAPF functions\n")
+  (princ "  This is how LSP completions reach Company\n\n")
+
+  (princ "What it provides depends on active CAPF functions:\n\n")
+
+  (let ((capf-funcs completion-at-point-functions))
+    (if (null capf-funcs)
+        (princ "  No CAPF functions registered in this buffer.\n")
+      (princ (format "  %d CAPF function(s) registered:\n" (length capf-funcs)))
+      (dolist (func capf-funcs)
+        (princ (format "    • %s\n" func))
+        (cond
+         ((eq func 'lsp-completion-at-point)
+          (princ "      → Provides LSP completions from language server\n"))
+         ((eq func 'eglot-completion-at-point)
+          (princ "      → Provides Eglot LSP completions\n"))
+         ((eq func 'elisp-completion-at-point)
+          (princ "      → Provides Emacs Lisp symbol completions\n"))
+         ((string-match-p "cape" (symbol-name func))
+          (princ "      → Provides cape-based completions\n"))))))
+
+  (princ "\nIn LSP-enabled buffers:\n")
+  (princ "  • Function/method names\n")
+  (princ "  • Variable names\n")
+  (princ "  • Class names\n")
+  (princ "  • Module imports\n")
+  (princ "  • Snippets\n\n")
+
+  (princ "Test: Open a Python/Go/TS file with LSP active,\n")
+  (princ "type code and see intelligent completions.\n"))
+
+(jf/demo-capf)
+#+end_src
+
+*** Interactive Backend Comparison
+
+Compare what different backends provide at the current position:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/compare-backends-here ()
+  "Show what each backend provides at the current position."
+  (interactive)
+  (princ "=== Backend Comparison at Point ===\n\n")
+  (princ (format "Buffer: %s\n" (buffer-name)))
+  (princ (format "Position: %d\n" (point)))
+  (princ (format "Mode: %s\n\n" major-mode))
+
+  (let ((backends '(company-capf
+                    company-dabbrev
+                    company-dabbrev-code
+                    company-files
+                    company-keywords)))
+    (dolist (backend backends)
+      (when (fboundp backend)
+        (princ (format "--- %s ---\n" backend))
+        (condition-case err
+            (let ((prefix (funcall backend 'prefix)))
+              (if (not prefix)
+                  (princ "  No completion here\n\n")
+                (when (stringp prefix)
+                  (let ((candidates (funcall backend 'candidates prefix)))
+                    (if (null candidates)
+                        (princ "  No candidates found\n\n")
+                      (princ (format "  Prefix: '%s'\n" prefix))
+                      (princ (format "  Candidates: %d\n" (length candidates)))
+                      (princ (format "  First 5: %s\n\n"
+                                     (seq-take candidates 5))))))))
+          (error (princ (format "  Error: %s\n\n" err)))))))
+
+  (princ "Use this to understand which backend is providing what\n")
+  (princ "at different positions in your code.\n"))
+
+;; Execute this in different contexts (code, comments, strings, file paths)
+;; to see how backends behave differently
+(jf/compare-backends-here)
+#+end_src
+
+*** Bulk Backend Testing
+
+Test all backends with a specific prefix:
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/test-all-backends-with-prefix (prefix)
+  "Test all Company backends with a specific PREFIX."
+  (interactive "sPrefix to test: ")
+  (princ (format "=== Testing All Backends with '%s' ===\n\n" prefix))
+
+  (if (not (featurep 'company))
+      (princ "Company is not loaded.\n")
+    (let ((backends (if (boundp 'company-backends)
+                        (flatten-list company-backends)
+                      nil)))
+      (dolist (backend backends)
+        (when (and (symbolp backend)
+                   (not (keywordp backend)))
+          (princ (format "Backend: %s\n" backend))
+          (condition-case err
+              (let ((candidates (funcall backend 'candidates prefix)))
+                (if candidates
+                    (progn
+                      (princ (format "  Found %d candidates\n" (length candidates)))
+                      (princ (format "  %s\n\n" (seq-take candidates 5))))
+                  (princ "  No candidates\n\n")))
+            (error (princ (format "  Error: %s\n\n" err)))))))))
+
+;; Example: Test what all backends provide for "pro"
+;; (jf/test-all-backends-with-prefix "pro")
+#+end_src
+
+** Comparison Matrix & Troubleshooting
+
+A comprehensive comparison and troubleshooting guide for completion systems.
+
+*** Feature Comparison: Company vs Corfu
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/completion-feature-matrix ()
+  "Display a feature comparison matrix."
+  (interactive)
+  (princ "=== Company vs Corfu Feature Comparison ===\n\n")
+
+  (let ((features
+         '(("Architecture" "Own backend system" "Pure CAPF consumer")
+           ("Codebase size" "~10k lines" "~2k lines")
+           ("Startup time" "Slower" "Faster")
+           ("Built-in backends" "Many (15+)" "None (uses CAPF)")
+           ("LSP support" "Via company-capf" "Native via CAPF")
+           ("Documentation popup" "Built-in" "Needs corfu-popupinfo")
+           ("Icons" "Via company-box" "Via kind-icon")
+           ("Async support" "Native" "Via CAPF")
+           ("Backend chaining" "Native (:with, :separate)" "Via cape-super-capf")
+           ("Customization" "Extensive" "Minimal")
+           ("Keyboard shortcuts" "Many built-in" "Simple, extensible")
+           ("Maturity" "Very mature (~10 years)" "Newer (~3 years)")
+           ("Maintenance" "Active" "Active")
+           ("Integration" "Standalone" "Part of minad ecosystem"))))
+
+    (princ (format "%-25s | %-20s | %-20s\n" "Feature" "Company" "Corfu"))
+    (princ (make-string 70 ?-))
+    (princ "\n")
+
+    (dolist (feature features)
+      (princ (format "%-25s | %-20s | %-20s\n"
+                     (nth 0 feature)
+                     (nth 1 feature)
+                     (nth 2 feature))))))
+
+(jf/completion-feature-matrix)
+#+end_src
+
+*** Backend Comparison Matrix
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/backend-comparison ()
+  "Compare common completion backends."
+  (interactive)
+  (princ "=== Backend Comparison Matrix ===\n\n")
+
+  (let ((backends
+         '(("company-capf" "LSP/mode completions" "High" "Depends on server" "★★★★★")
+           ("company-dabbrev" "All buffers" "Medium" "Fast" "★★★☆☆")
+           ("company-dabbrev-code" "Code only" "Medium" "Fast" "★★★★☆")
+           ("company-files" "File paths" "High" "Fast" "★★★★★")
+           ("company-keywords" "Language keywords" "Medium" "Instant" "★★★☆☆")
+           ("company-elisp" "Elisp symbols" "High" "Fast" "★★★★☆")
+           ("company-yasnippet" "Snippets" "Medium" "Instant" "★★★☆☆")
+           ("cape-dabbrev" "CAPF: All buffers" "Medium" "Fast" "★★★☆☆")
+           ("cape-file" "CAPF: File paths" "High" "Fast" "★★★★★")
+           ("cape-keyword" "CAPF: Keywords" "Medium" "Instant" "★★★☆☆"))))
+
+    (princ (format "%-22s | %-20s | %-8s | %-10s | %-7s\n"
+                   "Backend" "Source" "Quality" "Speed" "Rating"))
+    (princ (make-string 80 ?-))
+    (princ "\n")
+
+    (dolist (backend backends)
+      (princ (format "%-22s | %-20s | %-8s | %-10s | %-7s\n"
+                     (nth 0 backend)
+                     (nth 1 backend)
+                     (nth 2 backend)
+                     (nth 3 backend)
+                     (nth 4 backend))))))
+
+(jf/backend-comparison)
+#+end_src
+
+*** Common Issues and Solutions
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/troubleshooting-guide ()
+  "Display common completion issues and solutions."
+  (interactive)
+  (princ "=== Completion Troubleshooting Guide ===\n\n")
+
+  (let ((issues
+         '(("No completions appear at all"
+            ("Check if company/corfu mode is enabled"
+             "Verify company-backends or CAPF functions exist"
+             "Try M-x completion-at-point to test raw completion"
+             "Check company-minimum-prefix-length setting"))
+
+           ("Completions are too slow"
+            ("Disable heavy backends like company-dabbrev"
+             "Reduce dabbrev search scope with company-dabbrev-time-limit"
+             "Use async backends for slow sources"
+             "Profile with M-x profiler-start"))
+
+           ("LSP completions not working"
+            ("Verify LSP server is running: M-x lsp-describe-session"
+             "Check lsp-completion-at-point in CAPF list"
+             "Ensure company-capf is in company-backends"
+             "Check LSP logs: M-x lsp-workspace-show-log"))
+
+           ("Wrong completions appearing"
+            ("Check backend priority in company-backends"
+             "Use company-transformers to filter results"
+             "Disable unwanted backends"
+             "Configure backend-specific variables"))
+
+           ("Completion popup flickers"
+            ("Increase company-idle-delay"
+             "Disable conflicting minor modes"
+             "Check for hooks modifying buffer during completion"
+             "Try corfu instead (lighter weight)"))
+
+           ("Can't see documentation"
+            ("For Company: Enable company-quickhelp or company-box"
+             "For Corfu: Install corfu-popupinfo"
+             "Check if backend provides 'doc-buffer command"
+             "Try C-h in company menu to open doc buffer"))
+
+           ("Completions don't match my typing"
+            ("Check completion-styles (orderless, basic, partial)"
+             "Configure company-matching-method"
+             "Adjust case-sensitivity settings"
+             "Check if backend respects prefix")))))
+
+    (dolist (issue issues)
+      (princ (format "Problem: %s\n" (nth 0 issue)))
+      (princ "Solutions:\n")
+      (dolist (solution (nth 1 issue))
+        (princ (format "  • %s\n" solution)))
+      (princ "\n"))))
+
+(jf/troubleshooting-guide)
+#+end_src
+
+*** Configuration Recommendations
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/configuration-recommendations ()
+  "Provide configuration recommendations based on use case."
+  (interactive)
+  (princ "=== Configuration Recommendations ===\n\n")
+
+  (princ "For LSP-heavy development (Python, Go, TypeScript):\n")
+  (princ "  Recommended: Corfu + LSP Mode + Cape\n")
+  (princ "  Why: Lightweight, fast, native LSP integration\n")
+  (princ "  Config:\n")
+  (princ "    (use-package corfu :straight t\n")
+  (princ "      :custom (corfu-auto t) (corfu-auto-prefix 2)\n")
+  (princ "      :init (global-corfu-mode))\n")
+  (princ "    (use-package cape :straight t\n")
+  (princ "      :init (add-to-list 'completion-at-point-functions #'cape-dabbrev))\n\n")
+
+  (princ "For mixed text/code (Org, Markdown, comments):\n")
+  (princ "  Recommended: Company with dabbrev + capf\n")
+  (princ "  Why: Better text completion, flexible backends\n")
+  (princ "  Config:\n")
+  (princ "    (setq company-backends\n")
+  (princ "          '((company-capf :with company-dabbrev)\n")
+  (princ "            company-dabbrev-code company-files))\n\n")
+
+  (princ "For Emacs Lisp development:\n")
+  (princ "  Recommended: Either works well\n")
+  (princ "  Company: Built-in company-elisp backend\n")
+  (princ "  Corfu: Uses elisp-completion-at-point (built-in)\n\n")
+
+  (princ "For slow/remote connections:\n")
+  (princ "  Recommended: Company with async backends\n")
+  (princ "  Why: Better async support, caching\n")
+  (princ "  Config: Use company-async-backend wrapper\n\n")
+
+  (princ "For minimal setup:\n")
+  (princ "  Recommended: Corfu\n")
+  (princ "  Why: Smallest footprint, fastest startup\n")
+  (princ "  Config: Just enable global-corfu-mode\n"))
+
+(jf/configuration-recommendations)
+#+end_src
+
+*** Diagnostic Function: Complete System Check
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/completion-system-diagnostic ()
+  "Run a complete diagnostic of the completion system."
+  (interactive)
+  (princ "=== Complete Completion System Diagnostic ===\n\n")
+  (princ (format "Date: %s\n" (current-time-string)))
+  (princ (format "Buffer: %s\n" (buffer-name)))
+  (princ (format "Major mode: %s\n\n" major-mode))
+
+  ;; Check which system is active
+  (princ "1. Active Completion System:\n")
+  (princ (format "   Company: %s\n"
+                 (if (bound-and-true-p global-company-mode) "✓ ACTIVE" "✗ inactive")))
+  (princ (format "   Corfu: %s\n\n"
+                 (if (bound-and-true-p global-corfu-mode) "✓ ACTIVE" "✗ inactive")))
+
+  ;; Check backends
+  (princ "2. Registered Backends:\n")
+  (if (featurep 'company)
+      (let ((backends (if (boundp 'company-backends) company-backends nil)))
+        (princ (format "   Company backends: %d\n" (length backends)))
+        (dolist (backend (seq-take backends 5))
+          (princ (format "     • %s\n" backend))))
+    (princ "   Company not loaded\n"))
+
+  ;; Check CAPF
+  (princ "\n3. CAPF Functions:\n")
+  (if completion-at-point-functions
+      (progn
+        (princ (format "   Registered: %d\n" (length completion-at-point-functions)))
+        (dolist (func completion-at-point-functions)
+          (princ (format "     • %s\n" func))))
+    (princ "   None registered\n"))
+
+  ;; Check LSP
+  (princ "\n4. LSP Status:\n")
+  (if (featurep 'lsp-mode)
+      (princ (format "   LSP Mode: %s\n"
+                     (if (bound-and-true-p lsp-mode) "✓ Active" "✗ Inactive")))
+    (princ "   LSP Mode: not loaded\n"))
+
+  (if (featurep 'eglot)
+      (princ (format "   Eglot: %s\n"
+                     (if (bound-and-true-p eglot--managed-mode) "✓ Active" "✗ Inactive")))
+    (princ "   Eglot: not loaded\n"))
+
+  ;; Performance metrics
+  (princ "\n5. Configuration:\n")
+  (when (featurep 'company)
+    (princ (format "   company-idle-delay: %s\n"
+                   (if (boundp 'company-idle-delay) company-idle-delay "not set")))
+    (princ (format "   company-minimum-prefix-length: %s\n"
+                   (if (boundp 'company-minimum-prefix-length)
+                       company-minimum-prefix-length "not set"))))
+
+  ;; Recommendations
+  (princ "\n6. Recommendations:\n")
+  (cond
+   ((and (bound-and-true-p global-company-mode)
+         (bound-and-true-p global-corfu-mode))
+    (princ "   ⚠ WARNING: Both Company and Corfu are active!\n")
+    (princ "   → Disable one to avoid conflicts\n"))
+
+   ((not (or (bound-and-true-p global-company-mode)
+             (bound-and-true-p global-corfu-mode)))
+    (princ "   ⚠ No completion system is active\n")
+    (princ "   → Enable Company or Corfu\n"))
+
+   ((and (null completion-at-point-functions)
+         (bound-and-true-p global-corfu-mode))
+    (princ "   ⚠ Corfu is active but no CAPF functions registered\n")
+    (princ "   → Add CAPF providers or enable LSP\n"))
+
+   (t
+    (princ "   ✓ Configuration looks healthy\n"))))
+
+(jf/completion-system-diagnostic)
+#+end_src
+
+*** Quick Reference: Useful Commands
+
+#+begin_src emacs-lisp :tangle no :results output
+(defun jf/completion-quick-reference ()
+  "Display a quick reference of useful completion commands."
+  (interactive)
+  (princ "=== Completion System Quick Reference ===\n\n")
+
+  (princ "Inspection Commands:\n")
+  (princ "  (jf/show-capf)                  - Show registered CAPF functions\n")
+  (princ "  (jf/show-company-backends)      - Show Company backends\n")
+  (princ "  (jf/compare-completion-systems) - Compare Company vs Corfu status\n")
+  (princ "  (jf/completion-system-diagnostic) - Run full diagnostic\n\n")
+
+  (princ "Testing Commands:\n")
+  (princ "  (jf/test-capf-at-point)         - Test CAPF at current position\n")
+  (princ "  (jf/test-company-backend 'BACKEND) - Test specific backend\n")
+  (princ "  (jf/compare-backends-here)      - Compare all backends at point\n\n")
+
+  (princ "Switching Systems:\n")
+  (princ "  (jf/switch-to-corfu)            - Disable Company, enable Corfu\n")
+  (princ "  (jf/switch-to-company)          - Disable Corfu, enable Company\n\n")
+
+  (princ "LSP Commands:\n")
+  (princ "  (jf/lsp-completion-status)      - Check LSP completion setup\n")
+  (princ "  (jf/inspect-lsp-completion)     - Inspect LSP completions\n")
+  (princ "  (jf/troubleshoot-lsp-completion) - LSP troubleshooting guide\n\n")
+
+  (princ "Emacs Built-in:\n")
+  (princ "  M-x completion-at-point         - Trigger raw completion\n")
+  (princ "  M-x company-diag                - Company diagnostic buffer\n")
+  (princ "  M-x lsp-describe-session        - Show LSP session info\n")
+  (princ "  C-h v completion-at-point-functions - View CAPF list\n")
+  (princ "  C-h v company-backends          - View backend list\n"))
+
+(jf/completion-quick-reference)
+#+end_src

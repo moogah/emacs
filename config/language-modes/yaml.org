@@ -1,0 +1,94 @@
+#+title: YAML Mode Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle yaml.el
+#+auto_tangle: y
+
+* Introduction
+This file configures YAML editing in Emacs, providing syntax highlighting, indentation, and advanced features through tree-sitter integration.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* YAML Mode
+** Core YAML Mode
+The yaml-mode package provides syntax highlighting and basic editing features for YAML files.
+
+[[https://github.com/yoshiki/yaml-mode][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package yaml-mode
+  :straight t)
+#+end_src
+
+** YAML Library
+The yaml package provides parsing and serialization capabilities for YAML in Emacs Lisp.
+
+[[https://github.com/zkry/yaml.el][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package yaml
+  :straight t)
+#+end_src
+
+* Tree-sitter Integration
+** YAML Pro
+YAML Pro provides advanced editing features for YAML files using tree-sitter parsing.
+
+[[https://github.com/zkry/yaml-pro][Documentation]]
+
+#+begin_src emacs-lisp
+(use-package yaml-pro
+  :straight t
+  :hook (yaml-mode . yaml-pro-mode))
+#+end_src
+
+* External Dependencies
+
+** Tree-sitter YAML Grammar
+YAML Pro and tree-sitter highlighting for YAML require the tree-sitter-yaml library to be installed.
+
+Installation:
+#+begin_src sh :results output :tangle no
+npm install -g tree-sitter-yaml
+#+end_src
+
+You can verify the installation with:
+#+begin_src sh :results output :tangle no
+npm list -g --depth 0
+#+end_src
+
+#+RESULTS:
+: /Users/jefarr/.nvm/versions/node/v19.3.0/lib
+: ├── corepack@0.15.2
+: ├── npm@9.2.0
+: └── tree-sitter-yaml@0.5.0
+: 
+
+** Troubleshooting Installation
+If you encounter permission errors when installing npm packages globally:
+
+```
+Error: EACCES: permission denied, rename '/usr/local/lib/node_modules/npm' -> '/usr/local/lib/node_modules/.npm-i9nnxROI'
+```
+
+See the [npm documentation on resolving EACCES permissions errors](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally) for solutions.
+
+* Usage Notes
+** YAML Pro Features
+YAML Pro provides several advanced features:
+
+- Structural navigation through YAML documents
+- Path display in modeline showing current position in nested structure
+- Narrowing to sections
+- Completing-read for keys
+- Improved indentation
+
+* TODO Improvements
+- Add schema validation for YAML files
+- Configure flycheck or other linting for YAML
+- Consider integrating with language servers for advanced features
+- Add snippets for common YAML patterns

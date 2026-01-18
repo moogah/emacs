@@ -1,0 +1,55 @@
+#+title: Modeline Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle modeline.el
+#+auto_tangle: y
+
+* Introduction
+This file configures the Emacs modeline appearance using the telephone-line package for a more aesthetically pleasing and functional status bar.
+
+* Basic Configuration
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Active Modeline Configuration
+Configure telephone-line as the active modeline theme.
+
+#+begin_src emacs-lisp
+(use-package telephone-line
+  :straight t
+  :config
+ (telephone-line-mode 1))
+#+end_src
+
+* Alternative Modelines
+These are alternative modeline packages that are currently disabled but available for use.
+
+#+begin_src emacs-lisp :tangle no
+;;(use-package doom-modeline
+;;  :straight t
+;;  :config
+;;  (doom-modeline-mode 1))
+
+;;(use-package powerline
+;;  :straight (powerline :type git :host github :repo "milkypostman/powerline")
+;;  :config
+;;  (powerline-default-theme))
+#+end_src
+
+* Usage Notes
+The modeline provides essential information about:
+
+- Current buffer name and modification status
+- Major and minor modes
+- Position in the buffer (line and column)
+- Version control status
+- File encoding and line ending type
+
+To switch to a different modeline, comment out the active one and uncomment one of the alternatives.
+
+* TODO Improvements
+- Customize telephone-line segments for better information density
+- Consider integrating icons (requires all-the-icons package)
+- Add mode-specific modeline customizations
