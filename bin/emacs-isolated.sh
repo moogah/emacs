@@ -4,7 +4,7 @@
 # This script launches an isolated Emacs instance that:
 # - Uses runtime/ for all packages, cache, and state (not ~/.emacs.d)
 # - Doesn't interfere with system Emacs installations
-# - Loads configuration from this repository's config/ directory
+# - Loads configuration from this repository (init files at root, modules in config/)
 #
 # Usage:
 #   ./bin/emacs-isolated.sh [emacs arguments...]
@@ -20,8 +20,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUNTIME_DIR="$CONFIG_ROOT/runtime"
-EARLY_INIT="$CONFIG_ROOT/config/early-init.el"
-INIT="$CONFIG_ROOT/config/init.el"
+EARLY_INIT="$CONFIG_ROOT/early-init.el"
+INIT="$CONFIG_ROOT/init.el"
 
 # Verify required directories and files exist
 if [[ ! -d "$RUNTIME_DIR" ]]; then

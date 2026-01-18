@@ -63,8 +63,17 @@ Looks up session from registry, updates metadata, returns trace-id."
   (when-let ((session-data (jf/gptel--get-session-data session-id)))
     (car (plist-get session-data :trace-stack))))
 
-(defun jf/gptel--record-tool-call (session-id trace-id tool-name args result)
-  "Record tool call incrementally to metadata.json."
+(defun jf/gptel--generate-tool-use-id (tool-name)
+  "Generate a tool use ID in Claude API format.
+Returns format: toolu_TIMESTAMP_RANDOM."
+  (format "toolu_%s_%04x"
+          (format-time-string "%Y%m%d%H%M%S")
+          (random 65536)))
+
+(defun jf/gptel--record-tool-call-initial (session-id trace-id tool args)
+  "Record initial tool call (before execution).
+TOOL is the tool object, ARGS is the arguments plist.
+Captures tool name, ID, arguments, and timestamp."
   (when-let* ((session-data (jf/gptel--get-session-data session-id))
               (metadata (plist-get session-data :metadata))
               (traces (plist-get metadata :agent_traces)))
@@ -73,18 +82,107 @@ Looks up session from registry, updates metadata, returns trace-id."
                               (equal (plist-get tr :trace_id) trace-id))
                             (append traces nil))))
       (when trace
-        ;; Create tool call entry
-        (let ((tool-call (list :tool_name tool-name
-                              :args args
-                              :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-                              :result_preview (jf/gptel--preview-string result 200))))
+        (let* ((tool-name (gptel-tool-name tool))
+               (tool-use-id (jf/gptel--generate-tool-use-id tool-name))
+               (args-json (json-encode args))
+               (tool-call (list :tool_use_id tool-use-id
+                               :tool_name tool-name
+                               :timestamp_call (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+                               :timestamp_result nil
+                               :args_json args-json
+                               :result_preview nil
+                               :result_file nil
+                               :error nil)))
           ;; Append to trace's tool_calls
           (let ((calls (plist-get trace :tool_calls)))
             (plist-put trace :tool_calls (vconcat calls (vector tool-call)))))
 
-        ;; Write metadata immediately (incremental recording)
+        ;; Write metadata immediately
         (let ((session-dir (plist-get session-data :directory)))
           (jf/gptel--write-metadata session-dir metadata))))))
+
+(defun jf/gptel--record-tool-call-result (session-id trace-id tool-name args result)
+  "Update tool call with result after execution.
+Finds matching tool call by TOOL-NAME and ARGS, updates with RESULT."
+  (when-let* ((session-data (jf/gptel--get-session-data session-id))
+              (metadata (plist-get session-data :metadata))
+              (traces (plist-get metadata :agent_traces)))
+    (let ((trace (cl-find-if (lambda (tr)
+                              (equal (plist-get tr :trace_id) trace-id))
+                            (append traces nil))))
+      (when trace
+        (let* ((tool-calls (plist-get trace :tool_calls))
+               (args-json (json-encode args))
+               ;; Find matching tool call (by name, args, and null result)
+               (tool-call (cl-find-if
+                          (lambda (tc)
+                            (and (equal (plist-get tc :tool_name) tool-name)
+                                 (equal (plist-get tc :args_json) args-json)
+                                 (null (plist-get tc :timestamp_result))))
+                          (append tool-calls nil))))
+          (when tool-call
+            ;; Convert result to string
+            (let ((result-str (cond
+                               ((stringp result) result)
+                               ((listp result) (format "%S" result))
+                               (t (format "%s" result)))))
+              ;; Decide storage strategy based on result size
+              (if (< (length result-str) 1024)
+                  ;; Small result: store inline
+                  (progn
+                    (plist-put tool-call :result_preview
+                              (jf/gptel--preview-string result-str 500))
+                    (plist-put tool-call :result_file nil))
+                ;; Large result: save to file
+                (let* ((session-dir (plist-get session-data :directory))
+                       (trace-dir (expand-file-name
+                                  (format "traces/%s" trace-id) session-dir))
+                       (results-dir (expand-file-name "tool-results" trace-dir))
+                       (tool-use-id (plist-get tool-call :tool_use_id))
+                       (result-file (format "%s.txt" tool-use-id))
+                       (result-path (expand-file-name result-file results-dir)))
+                  ;; Create directory
+                  (make-directory results-dir t)
+                  ;; Save result to file
+                  (with-temp-file result-path
+                    (insert result-str))
+                  ;; Update metadata
+                  (plist-put tool-call :result_preview
+                            (jf/gptel--preview-string result-str 200))
+                  (plist-put tool-call :result_file result-file)))
+
+              ;; Update timestamp
+              (plist-put tool-call :timestamp_result
+                        (format-time-string "%Y-%m-%dT%H:%M:%SZ"))))
+
+          ;; Write metadata immediately
+          (let ((session-dir (plist-get session-data :directory)))
+            (jf/gptel--write-metadata session-dir metadata)))))))
+
+(defun jf/gptel--record-tool-call-error (session-id trace-id tool-name args error-msg)
+  "Record tool call error.
+Finds matching tool call and marks it with ERROR-MSG."
+  (when-let* ((session-data (jf/gptel--get-session-data session-id))
+              (metadata (plist-get session-data :metadata))
+              (traces (plist-get metadata :agent_traces)))
+    (let ((trace (cl-find-if (lambda (tr)
+                              (equal (plist-get tr :trace_id) trace-id))
+                            (append traces nil))))
+      (when trace
+        (let* ((tool-calls (plist-get trace :tool_calls))
+               (args-json (json-encode args))
+               (tool-call (cl-find-if
+                          (lambda (tc)
+                            (and (equal (plist-get tc :tool_name) tool-name)
+                                 (equal (plist-get tc :args_json) args-json)
+                                 (null (plist-get tc :timestamp_result))))
+                          (append tool-calls nil))))
+          (when tool-call
+            (plist-put tool-call :error error-msg)
+            (plist-put tool-call :timestamp_result
+                      (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+            (let ((session-dir (plist-get session-data :directory)))
+              (jf/gptel--write-metadata session-dir metadata))))))))
 
 (defun jf/gptel--preview-string (obj &optional max-len)
   "Create preview string from OBJ (string, list, etc)."

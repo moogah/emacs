@@ -126,7 +126,7 @@ Wraps callback to intercept and save responses during subagent execution."
                               ;; TODO: Extract token count from response metadata if available
                               :tokens 0))))
 
-                    ;; Tool calls
+                    ;; Tool calls (initial capture)
                     ((and (consp response) (eq (car response) 'tool-call))
                      (let ((tool-calls (cdr response)))
                        (message "DEBUG capture-subagent: Recording %d tool calls for trace %s"
@@ -134,9 +134,23 @@ Wraps callback to intercept and save responses during subagent execution."
                        (dolist (call tool-calls)
                          (let ((tool (nth 0 call))
                                (args (nth 1 call)))
-                           (jf/gptel--record-tool-call session-id trace-id
-                                                      (gptel-tool-name tool)
-                                                      args nil)))))  ; result captured later
+                           ;; Call new initial capture function
+                           (jf/gptel--record-tool-call-initial
+                            session-id trace-id tool args)))))
+
+                    ;; Tool results (result capture)
+                    ((and (consp response) (eq (car response) 'tool-result))
+                     (let ((result-alist (cdr response)))
+                       (message "DEBUG capture-subagent: Recording %d tool results for trace %s"
+                               (length result-alist) trace-id)
+                       (dolist (result-entry result-alist)
+                         (let* ((tool-spec (nth 0 result-entry))
+                                (args (nth 1 result-entry))
+                                (result (nth 2 result-entry))
+                                (tool-name (gptel-tool-name tool-spec)))
+                           ;; Update tool call with result
+                           (jf/gptel--record-tool-call-result
+                            session-id trace-id tool-name args result)))))
 
                     ;; Stream end marker
                     ((eq response t)
