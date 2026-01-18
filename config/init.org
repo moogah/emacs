@@ -140,10 +140,13 @@ Define which modules to load and in what order.
     
     ;; Feature modules
     ("look-and-feel/look-and-feel" "UI appearance and behavior")
-    
+
     ;; Language mode modules
     ("language-modes/language-modes" "Programming language modes")
-    
+
+    ;; Transient - must load before magit (overrides built-in version)
+    ("transient" "Transient menu system (newer than built-in)")
+
     ;; Major mode modules
     ("major-modes/magit"  "Git interface")
     ("major-modes/org"    "Org-mode configuration")

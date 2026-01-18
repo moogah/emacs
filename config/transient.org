@@ -2,9 +2,9 @@
 
 * Install Transient and Transient Showcase
 
-#+begin_src emacs-lisp :tangle yes 
+#+begin_src emacs-lisp :tangle yes
   (use-package transient
-    :straight (:tag "v0.6.0"))
+    :straight t)  ; Use latest version instead of old v0.6.0
 #+end_src
 
 
