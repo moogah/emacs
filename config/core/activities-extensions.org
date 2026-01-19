@@ -805,7 +805,16 @@ Opens org-roam document and recent project files based on settings."
   (when-let ((ext-data (activities-ext--get-metadata activity)))
     (let ((projects (plist-get ext-data :projects))
           (org-roam-data (plist-get ext-data :org-roam))
+          (gptel-session (plist-get ext-data :gptel-session))
           (settings (plist-get ext-data :settings)))
+
+      ;; Open gptel session buffer if exists
+      (when (and gptel-session
+                 (fboundp 'jf/gptel-session--open-existing)
+                 (plist-get gptel-session :session-file))
+        (let ((session-file (plist-get gptel-session :session-file)))
+          (when (file-exists-p session-file)
+            (jf/gptel-session--open-existing session-file))))
 
       ;; Open org-roam document in current window
       (when org-roam-data
@@ -936,7 +945,8 @@ The activity name has already been captured by the entry function.
   "Select projects and options for new activity.
 Activity name has already been captured."
   ["Configuration"
-   ("-p" "Select projects" activities-ext--select-projects-infix)]
+   ("-p" "Select projects" activities-ext--select-projects-infix)
+   ("-g" "Create gptel session" "--gptel")]
   ["Documentation"
    ("-d" "Create org-roam document" "--org-roam")]
   ["Actions"
@@ -974,13 +984,16 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
          ;; Find the list element in args (that's the projects)
          (project-paths (cl-find-if #'listp args))
          (create-org-roam (member "--org-roam" args))
+         (create-gptel (member "--gptel" args))
          (project-metadata nil)
-         (org-roam-data nil))
+         (org-roam-data nil)
+         (gptel-session-data nil))
 
     ;; Debug output
     (message "DEBUG: args=%S" args)
     (message "DEBUG: activity-name=%s sanitized=%s" activity-name sanitized-name)
     (message "DEBUG: project-paths=%S" project-paths)
+    (message "DEBUG: create-gptel=%S" create-gptel)
 
     (unless activity-name
       (user-error "No activity name provided"))
@@ -1007,6 +1020,11 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
       (setq org-roam-data
             (activities-ext--create-org-roam-doc activity-name project-metadata)))
 
+    ;; Create gptel session if requested
+    (when (and create-gptel (fboundp 'jf/gptel-session-create-persistent))
+      (setq gptel-session-data
+            (jf/gptel-session-create-persistent activity-name)))
+
     ;; Create the activity using activities-new
     (activities-new activity-name)
 
@@ -1016,7 +1034,15 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
                       project-metadata
                       org-roam-data
                       (list :auto-open-recent activities-ext-auto-open-recent))))
+        ;; Add gptel session data if created
+        (when gptel-session-data
+          (plist-put metadata :gptel-session gptel-session-data))
         (activities-ext--set-metadata activity metadata)))
+
+    ;; Open gptel session buffer if created
+    (when (and gptel-session-data (fboundp 'jf/gptel-session--create-buffer))
+      (let ((buffer (jf/gptel-session--create-buffer gptel-session-data)))
+        (pop-to-buffer buffer)))
 
     ;; Open org-roam document if created
     (when org-roam-data

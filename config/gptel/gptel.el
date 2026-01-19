@@ -172,6 +172,11 @@ Run this after gptel-agent-update to inject skill content into agents."
 (jf/load-module (expand-file-name "config/gptel/scope/scope-shell-tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/scope/scope-commands.el" jf/emacs-dir))
 
+;; Load activities integration (optional - only if activities package is loaded)
+;; Enables creating persistent gptel sessions as part of activity creation
+(when (featurep 'activities)
+  (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
+
 (defun jf/gptel-launcher ()
   "Launch gptel session with a selected backend and model.
 Prompts for display method, then backend:model selection using
