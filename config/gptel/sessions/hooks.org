@@ -35,17 +35,17 @@ The advice chain order is critical:
 Session-id is passed via :context (as overlay property or plist), records agent lifecycle."
   ;; Get session-id from parent buffer (buffer-local variable)
   (let ((session-id jf/gptel--session-id))
-    (message "DEBUG trace-agent-task: session-id=%s, agent-type=%s" session-id agent-type)
+    (jf/gptel--log 'debug "trace-agent-task: session-id=%s, agent-type=%s" session-id agent-type)
     (if (not session-id)
         ;; No active session, run agent without tracing
         (progn
-          (message "DEBUG trace-agent-task: No session-id, skipping trace")
+          (jf/gptel--log 'debug "trace-agent-task: No session-id, skipping trace")
           (funcall orig-fn main-cb agent-type description prompt))
       ;; Create trace entry using registry
       (let* ((parent-trace-id (jf/gptel--current-trace-id session-id))
              (trace-id (jf/gptel--create-trace session-id agent-type description
                                                prompt parent-trace-id)))
-        (message "DEBUG trace-agent-task: Created trace-id=%s, parent=%s" trace-id parent-trace-id)
+        (jf/gptel--log 'debug "trace-agent-task: Created trace-id=%s, parent=%s" trace-id parent-trace-id)
 
         ;; Save initial subagent prompt
         (jf/gptel--save-trace-message session-id trace-id 'prompt prompt
@@ -58,7 +58,7 @@ Session-id is passed via :context (as overlay property or plist), records agent 
                                   ((null result) "error")
                                   ((string-prefix-p "Error:" result) "error")
                                   (t "completed"))))
-                     (message "DEBUG trace-agent-task: Completing trace-id=%s, status=%s" trace-id status)
+                     (jf/gptel--log 'debug "trace-agent-task: Completing trace-id=%s, status=%s" trace-id status)
 
                      ;; Save final result if successful
                      (when (and (stringp result) (not (string-prefix-p "Error:" result)))
@@ -83,21 +83,21 @@ If :context is an overlay (from gptel-agent), stores session-id as overlay prope
 Otherwise, wraps or merges session-id into :context plist.
 Also initializes session if needed BEFORE the request is sent."
   (let ((session-id jf/gptel--session-id)) ; From parent buffer
-    (message "DEBUG inject-session-context: session-id=%s" session-id)
+    (jf/gptel--log 'debug "inject-session-context: session-id=%s" session-id)
 
     ;; Initialize session if needed (autosave is enabled and in gptel-mode)
     (when (and (not session-id)
                jf/gptel-autosave-enabled
                gptel-mode
                (not (minibufferp))) ; Don't create sessions for minibuffer
-      (message "DEBUG inject-session-context: No session-id, initializing now")
+      (jf/gptel--log 'debug "inject-session-context: No session-id, initializing now")
       (jf/gptel--initialize-session)
       (setq session-id jf/gptel--session-id))
 
     (if (not session-id)
         ;; Still no session (autosave disabled), call original
         (progn
-          (message "DEBUG inject-session-context: No session-id, not injecting")
+          (jf/gptel--log 'debug "inject-session-context: No session-id, not injecting")
           (apply orig-fn prompt args))
       ;; Inject session-id into :context
       (let* ((existing-context (plist-get args :context))
@@ -107,7 +107,7 @@ Also initializes session if needed BEFORE the request is sent."
                             (list :session-id session-id))
                            ;; If context is an overlay (from gptel-agent), attach session-id as property
                            ((overlayp existing-context)
-                            (overlay-put existing-context 'jf/session-id session-id)
+                            (jf/gptel--overlay-set-session-id existing-context session-id)
                             existing-context)  ; Return overlay unchanged
                            ;; If context is already a plist, merge session-id into it
                            ((and (listp existing-context)
@@ -118,7 +118,7 @@ Also initializes session if needed BEFORE the request is sent."
                             (list :original-context existing-context
                                   :session-id session-id))))
              (new-args (plist-put (copy-sequence args) :context new-context)))
-        (message "DEBUG inject-session-context: Injected session-id into context (type: %s)"
+        (jf/gptel--log 'debug "inject-session-context: Injected session-id into context (type: %s)"
                  (cond ((overlayp new-context) "overlay")
                        ((listp new-context) "plist")
                        (t "other")))
@@ -135,9 +135,9 @@ Wraps callback to intercept and save responses during subagent execution."
          ;; Extract session-id from context (overlay property or plist)
          (session-id (cond
                       ((null context) nil)
-                      ;; If context is overlay, get session-id from property
+                      ;; If context is an overlay, get session-id from property
                       ((overlayp context)
-                       (overlay-get context 'jf/session-id))
+                       (jf/gptel--overlay-get-session-id context))
                       ;; If context is plist, get session-id from it
                       ((and (listp context) (keywordp (car context)))
                        (plist-get context :session-id))
@@ -153,13 +153,13 @@ Wraps callback to intercept and save responses during subagent execution."
         (if (and (not trace-id) (not existing-callback))
             ;; Main conversation with no callback - pass through without wrapping
             (progn
-              (message "DEBUG capture: Skipping callback wrap for main conversation (no existing callback)")
+              (jf/gptel--log 'debug "capture: Skipping callback wrap for main conversation (no existing callback)")
               (apply orig-fn prompt args))
           ;; Subagent or main conversation with callback - wrap it
           (let ((wrapped-callback
                (lambda (response info)
                  ;; Log all response types for debugging
-                 (message "DEBUG capture: response type=%s, trace-id=%s, session-id=%s"
+                 (jf/gptel--log 'debug "capture: response type=%s, trace-id=%s, session-id=%s"
                          (cond
                           ((stringp response) "string")
                           ((eq response t) "stream-end")
@@ -173,7 +173,7 @@ Wraps callback to intercept and save responses during subagent execution."
                   ;; String response (final or chunk)
                   ((and (stringp response) trace-id)
                    (when (> (length response) 0)  ; Ignore empty chunks
-                     (message "DEBUG capture: Saving response chunk for trace %s" trace-id)
+                     (jf/gptel--log 'debug "capture: Saving response chunk for trace %s" trace-id)
                      (jf/gptel--save-trace-message
                       session-id trace-id 'response response
                       (list :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
@@ -184,13 +184,13 @@ Wraps callback to intercept and save responses during subagent execution."
                   ((and (consp response) (eq (car response) 'tool-result))
                    (when-let* ((tool-use (plist-get info :tool-use)))
                      (if trace-id
-                         (message "DEBUG capture: Capturing %d completed tools for trace %s"
+                         (jf/gptel--log 'debug "capture: Capturing %d completed tools for trace %s"
                                   (length tool-use) trace-id)
-                       (message "DEBUG capture: Capturing %d completed tools for session %s"
+                       (jf/gptel--log 'debug "capture: Capturing %d completed tools for session %s"
                                 (length tool-use) session-id))
                      (dolist (tool-call tool-use)
                        (when (plist-get tool-call :result)
-                         (message "DEBUG capture: Recording tool %s (id=%s)%s"
+                         (jf/gptel--log 'debug "capture: Recording tool %s (id=%s)%s"
                                   (plist-get tool-call :name)
                                   (plist-get tool-call :id)
                                   (if trace-id (format " in trace %s" trace-id) " in main conversation"))
@@ -198,24 +198,24 @@ Wraps callback to intercept and save responses during subagent execution."
                          (condition-case err
                              (jf/gptel--record-complete-tool-call session-id trace-id tool-call)
                            (error
-                            (message "ERROR capturing tool call: %s" (error-message-string err))))))))
+                            (jf/gptel--log 'error "capturing tool call: %s" (error-message-string err))))))))
 
                   ;; Stream end marker
                   ((and (eq response t) trace-id)
-                   (message "DEBUG capture: Stream completed for trace %s" trace-id)))
+                   (jf/gptel--log 'debug "capture: Stream completed for trace %s" trace-id)))
 
                  ;; Call original callback
                  (if existing-callback
                      (funcall existing-callback response info)
                    ;; No existing callback - this is unexpected for main conversation
                    (when (and (stringp response) (not trace-id))
-                     (message "DEBUG capture: WARNING - No existing-callback for main conversation string response!"))))))
+                     (jf/gptel--log 'warn "capture: No existing-callback for main conversation string response!"))))))
           ;; Replace callback with wrapped version
           (setq args (plist-put args :callback wrapped-callback))
           (if trace-id
-              (message "DEBUG capture: Installed capture for trace %s (existing-callback: %s)"
+              (jf/gptel--log 'debug "capture: Installed capture for trace %s (existing-callback: %s)"
                        trace-id (if existing-callback "present" "nil"))
-            (message "DEBUG capture: Installed capture for session %s (main conversation, existing-callback: %s)"
+            (jf/gptel--log 'debug "capture: Installed capture for session %s (main conversation, existing-callback: %s)"
                      session-id (if existing-callback "present" "nil")))
           (apply orig-fn prompt args)))))))
 #+end_src
@@ -389,19 +389,19 @@ Runs AFTER tools execute, when tool-call plists have :result populated."
               ;; Extract session-id from context
               (session-id (cond
                            ((null context) nil)
-                           ((overlayp context) (overlay-get context 'jf/session-id))
+                           ((overlayp context) (jf/gptel--overlay-get-session-id context))
                            ((and (listp context) (keywordp (car context)))
                             (plist-get context :session-id))
                            (t nil))))
     ;; Get trace-id if we're in a trace
     (let ((trace-id (jf/gptel--current-trace-id session-id)))
-      (message "DEBUG capture-tool-calls: session-id=%s, trace-id=%s, tool-use count=%d"
+      (jf/gptel--log 'debug "capture-tool-calls: session-id=%s, trace-id=%s, tool-use count=%d"
                session-id trace-id (length tool-use))
 
       ;; Iterate through all tool calls that have results
       (dolist (tool-call tool-use)
         (when (plist-get tool-call :result)
-          (message "DEBUG capture-tool-calls: Recording tool %s (id=%s)"
+          (jf/gptel--log 'debug "capture-tool-calls: Recording tool %s (id=%s)"
                    (plist-get tool-call :name)
                    (plist-get tool-call :id))
           (jf/gptel--record-complete-tool-call session-id trace-id tool-call))))))

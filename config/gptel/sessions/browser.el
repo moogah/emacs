@@ -11,16 +11,16 @@ Shows leaf nodes (endpoints) of each branch."
                                     (directory-files sessions-dir t "^[^.]"))))
          (candidates (jf/gptel--build-session-candidates session-dirs)))
 
-    (message "DEBUG browse: candidates=%S" candidates)
-    (message "DEBUG browse: candidates type=%s" (type-of candidates))
+    (jf/gptel--log 'debug "browse: candidates=%S" candidates)
+    (jf/gptel--log 'debug "browse: candidates type=%s" (type-of candidates))
 
     (if (null candidates)
         (message "No gptel sessions found in %s" sessions-dir)
       (let* ((choice-list (mapcar #'car candidates)))
-        (message "DEBUG browse: choice-list=%S" choice-list)
+        (jf/gptel--log 'debug "browse: choice-list=%S" choice-list)
         (let* ((choice (completing-read "Open session branch: " choice-list nil t))
                (session-info (cdr (assoc choice candidates))))
-          (message "DEBUG browse: selected=%s, info=%S" choice session-info)
+          (jf/gptel--log 'debug "browse: selected=%s, info=%S" choice session-info)
           (jf/gptel--open-session-branch session-info))))))
 
 (defun jf/gptel--build-session-candidates (session-dirs)

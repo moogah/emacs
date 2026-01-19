@@ -59,11 +59,11 @@ where to branch from."
          (parent-path (if (and (> context-length 0)
                               (>= actual-path-length desired-path-length))
                          (seq-subseq current-path 0 desired-path-length)
-                       ["root"]))
+                       (vector jf/gptel-session-tree-root-id)))
          (next-msg-num (1+ (/ context-length 2)))
          (branch-id (jf/gptel--get-next-branch-id next-msg-num)))
 
-    (message "DEBUG branch: choice=%s, context-length=%d, parent-path=%S"
+    (jf/gptel--log 'debug "branch: choice=%s, context-length=%d, parent-path=%S"
              choice context-length parent-path)
 
     ;; Create new buffer with branch context
@@ -154,7 +154,7 @@ If NEXT-MESSAGE-TEXT is provided, insert it as the starting prompt for editing."
 
       ;; Update current path to branch parent
       (plist-put jf/gptel--session-metadata :current_path parent-path)
-      (message "DEBUG branch-buffer: set current-path=%S" parent-path)
+      (jf/gptel--log 'debug "branch-buffer: set current-path=%S" parent-path)
 
       ;; Set message counter for next message
       (setq jf/gptel--message-counter (/ (length context) 2))
