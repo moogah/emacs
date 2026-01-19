@@ -52,6 +52,19 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 - Fails with error if validation detects syntax errors
 - Batch mode with clear error messages
 
+#### Manual Validation
+
+**Only needed if you're debugging or testing `.el` files directly (rare):**
+```bash
+# Validate single file - use full Emacs path
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
+
+# Byte-compile check (more thorough, slower)
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (byte-compile-file \"file.el\"))"
+```
+
+**IMPORTANT:** Always use `/Applications/Emacs.app/Contents/MacOS/Emacs` (not `emacs` or `/usr/local/bin/emacs`)
+
 #### Required File Headers
 
 ```org
@@ -72,10 +85,10 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 |---------|---------|-----|
 | Editing `.el` files directly | Changes overwritten on next tangle | Edit `.org` file instead |
 | Committing only `.org` | `.el` out of sync, breaks config | Commit both `.org` and `.el` |
-| Forgetting to tangle | Changes in `.org` not applied | Save (auto-tangle) or run `C-c C-v t` |
+| Forgetting to tangle | Changes in `.org` not applied | Save (auto-tangle) or `./bin/tangle-org.sh` |
 | Missing `#+auto_tangle: y` | Manual tangling required | Add header to `.org` file |
 | Property line not activated | Tangling fails silently | Press `C-c C-c` on `#+PROPERTY` line |
-| Syntax errors in org blocks | Tangle fails silently | Use validation after tangling |
+| Syntax errors in org blocks | Breaks config on load | `./bin/tangle-org.sh` catches these |
 
 ### Dual-Launch Support
 
@@ -254,17 +267,12 @@ gptel/
 ### Literate Programming
 
 ```bash
-# Tangle single file (automatically validates)
+# Tangle single file (auto-validates)
 ./bin/tangle-org.sh config/core/defaults.org
 
-# Tangle init file (automatically validates, affects module loading)
-./bin/tangle-org.sh init.org
-
-# Tangle all org files in config/
+# Tangle all org files
 find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 ```
-
-**Note:** The tangle script automatically validates tangled `.el` files and exits with error if syntax issues are detected.
 
 ### Testing Configuration
 
@@ -413,23 +421,6 @@ cd ~/.emacs.d
 git checkout v0.3.0
 ```
 
-### Syntax Validation
-
-**Automatic validation:** The `./bin/tangle-org.sh` script automatically validates all tangled `.el` files.
-
-**Manual validation** (if needed):
-```bash
-# Validate single file (use full Emacs binary path)
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"config/path/to/file.el\") (check-parens))"
-
-# Validate multiple files
-for f in config/core/*.el; do
-  /Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"$f\") (check-parens))"
-done
-```
-
-**IMPORTANT:** Always use the full path `/Applications/Emacs.app/Contents/MacOS/Emacs` for batch validation commands to ensure you're using the same Emacs version as the GUI application. Do not use `emacs` or `/usr/local/bin/emacs`.
-
 ## Development Workflow with Git
 
 This section describes the iterative development workflow for making changes to the Emacs configuration. The workflow emphasizes **granular milestone commits** and a clear separation of responsibilities between Claude Code and the user.
@@ -462,14 +453,10 @@ git submodule update --init
 
 **Claude Code's responsibilities:**
 1. Edit `.org` source files (never `.el` directly)
-2. Tangle and validate: `./bin/tangle-org.sh path/to/file.org`
-   - Script automatically validates tangled `.el` files
-   - Exits with error if syntax issues detected
-3. Stage files if validation passes (see next section)
+2. Tangle: `./bin/tangle-org.sh path/to/file.org` (auto-validates)
+3. Stage files if validation passes
 
-**Important:** This cycle repeats for each iteration based on user feedback.
-
-**See also:** [Writing and Validating Elisp](#writing-and-validating-elisp) for incremental validation workflow when writing complex functions.
+**This cycle repeats for each iteration based on user feedback.**
 
 ### Staging Changes
 
@@ -569,11 +556,10 @@ git checkout -b add-session-metadata
 # 2. User requests: "Add metadata tracking to gptel sessions"
 
 # 3. Claude implements changes to .org files
-# 4. Claude tangles and validates:
+# 4. Claude tangles (auto-validates):
 ./bin/tangle-org.sh config/gptel/sessions/metadata.org
-# ✓ Validation passed: config/gptel/sessions/metadata.el
 
-# 5. Validation passes - Claude stages files:
+# 5. Claude stages files:
 git add config/gptel/sessions/metadata.org config/gptel/sessions/metadata.el
 
 # 6. User tests:
@@ -604,7 +590,6 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 **This workflow integrates with:**
 - [Literate Programming Workflow](#literate-programming-workflow) - Always edit `.org` then tangle
 - [Worktree Management](#worktree-management) - Use worktrees for feature isolation
-- [Validation After Changes](#validation-after-changes) - Run appropriate validation commands
 - [Release Management](#release-management) - Milestones accumulate into releases
 
 **Key workflow principle:** Small, tested, working increments accumulate into complete features.
@@ -688,42 +673,13 @@ Available roles: `apploi-mac`, `personal-mac`, `personal-mac-air`
 2. **Adding new subsystem:** Create `.org` file with tangle header, add to `jf/enabled-modules`
 3. **Changing load order:** Edit `jf/enabled-modules` list in `init.org`, consider dependency chain
 4. **Reorganizing directories:** Update paths in source `.org` files, not `.el` files
-5. **Always:** Tangle → Validate → Test → Commit both `.org` and `.el`
+5. **Always:** Tangle (auto-validates) → Test → Commit both `.org` and `.el`
 
 ## Secrets Management
 
 Sensitive values go in `~/.emacs-secrets.el` (outside repository), loaded automatically by init.el if present.
 
 Template: `.emacs-secrets.el.example` in repository root.
-
-## Validation After Changes
-
-**Automatic syntax validation:**
-```bash
-# Tangle script automatically validates
-./bin/tangle-org.sh path/to/file.org
-# ✓ Validation passed: path/to/file.el
-```
-
-**Full validation:**
-```bash
-# Tangle all changed files (each is automatically validated)
-./bin/tangle-org.sh init.org
-./bin/tangle-org.sh config/gptel/gptel.org
-# ... others
-
-# Launch and check *Messages* buffer for runtime errors
-./bin/emacs-isolated.sh
-```
-
-**Release validation:**
-```bash
-# Test in fresh worktree with meaningful name
-git worktree add ~/emacs-test-v0.3.0 -b test-v0.3.0
-cd ~/emacs-test-v0.3.0
-./bin/emacs-isolated.sh
-# Verify no errors in *Messages* buffer
-```
 
 ## Writing and Validating Elisp
 
@@ -749,42 +705,9 @@ The key principle: **validate after each function, before moving to the next**.
 
 ### Validation Commands
 
-**Automatic Validation (Recommended)**
-```bash
-# The tangle script automatically validates after tangling
-./bin/tangle-org.sh file.org
-```
+**Use `./bin/tangle-org.sh file.org` - validation is automatic.** See [Literate Programming Workflow](#literate-programming-workflow) for details.
 
-Returns immediately with error or success. This is the preferred method.
-
-**Manual Quick Paren Check**
-```bash
-# Use full Emacs path for consistency
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
-```
-
-Returns immediately with error or success. Use this for manual validation.
-
-**Full Syntax Check with Byte Compiler**
-```bash
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (byte-compile-file \"file.el\"))"
-```
-
-Catches more issues but slower. Use before committing.
-
-**Scan for Premature Expression Endings**
-```bash
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval \
-  "(with-temp-buffer
-     (insert-file-contents \"file.el\")
-     (goto-char (point-min))
-     (condition-case scan-err
-         (while (not (eobp)) (forward-sexp 1))
-       (scan-error
-         (message \"Scan error at position %d: %s\" (point) scan-err))))"
-```
-
-Shows exact position of paren mismatches. Use when check-parens reports errors.
+For manual validation or debugging, see the "Manual Validation" section in [Literate Programming Workflow](#literate-programming-workflow).
 
 ### Complexity Thresholds
 
@@ -825,37 +748,21 @@ Shows exact position of paren mismatches. Use when check-parens reports errors.
 
 ### Integration with Literate Programming
 
-When working with org-mode tangled files:
-
-**After Writing Elisp Block**
-```org
-#+begin_src emacs-lisp
-(defun my-complex-function (arg1 arg2)
-  "Documentation..."
-  (let ((result (calculate arg1)))
-    (when result
-      (process result arg2))))
-#+end_src
-```
-
-**Immediate Validation Step**
+After writing each elisp block in your `.org` file, tangle immediately:
 ```bash
-./bin/tangle-org.sh file.org
-# Automatically validates - exits with error if syntax issues found
+./bin/tangle-org.sh file.org  # Automatic validation included
 ```
 
-Add this as a habit after each significant elisp block. Validation is automatic.
+This validates syntax early, preventing error accumulation.
 
 ### Example Workflow
 
 **Task:** "Add a function to load context from a tree path"
 
-**Steps:**
 1. Write function in org-mode code block
-2. Tangle to .el file: `./bin/tangle-org.sh file.org` (automatically validates)
-3. If errors: Fix in .org file and repeat step 2
-4. If clean: Continue to next function
-5. Before committing: Run byte-compile check on full file (optional)
+2. `./bin/tangle-org.sh file.org` (automatic validation)
+3. Fix errors in .org file if needed, repeat step 2
+4. Continue to next function
 
 ### Common LLM Failure Patterns
 
@@ -929,11 +836,10 @@ All code blocks under "Helper Functions" will now tangle.
 
 After enabling each subtree:
 ```bash
-./bin/tangle-org.sh file.org
-# Validation is automatic - script will exit with error if syntax issues found
+./bin/tangle-org.sh file.org  # Auto-validates
 ```
 
-If validation passes (exit code 0), continue to next subtree. If it fails, the error is in the subtree you just enabled.
+If it exits successfully, continue to next subtree. If it fails, the error is in the subtree you just enabled.
 
 #### Step 4: Narrow Down Within Subtree
 
