@@ -165,6 +165,7 @@ Run this after gptel-agent-update to inject skill content into agents."
 (jf/load-module (expand-file-name "config/gptel/sessions/hooks.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/transient.el" jf/emacs-dir))
 
 ;; Load scope system (requires session system)
 ;; Scope-aware tools check approved patterns internally and return

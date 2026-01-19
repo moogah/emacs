@@ -2,22 +2,18 @@
 (require 'cl-lib)
 
 (defun jf/gptel-browse-sessions ()
-  "Browse saved gptel sessions in dirvish.
-Opens the sessions directory where each subdirectory is a session.
-Use dirvish navigation to explore conversation trees."
+  "Browse saved gptel sessions in dired.
+Opens the sessions directory where each subdirectory is a session."
   (interactive)
   (let ((sessions-dir (expand-file-name jf/gptel-sessions-directory)))
     (unless (file-directory-p sessions-dir)
       (make-directory sessions-dir t))
-    (if (fboundp 'dirvish)
-        (dirvish sessions-dir)
-      (dired sessions-dir))
-    (message "Browse sessions: Use RET to enter, TAB to expand tree")))
+    (dired sessions-dir)
+    (message "Session browser: Navigate with arrows/hjkl, press ? for commands")))
 
 (defun jf/gptel-open-session ()
   "Select and open a specific gptel session.
-Provides completing-read interface to choose from available sessions,
-then opens the selected session in dirvish."
+Provides completing-read interface to choose from available sessions."
   (interactive)
   (let* ((sessions-dir (expand-file-name jf/gptel-sessions-directory))
          (session-dirs (when (file-directory-p sessions-dir)
@@ -43,9 +39,7 @@ then opens the selected session in dirvish."
         (message "No gptel sessions found in %s" sessions-dir)
       (let* ((choice (completing-read "Open session: " (mapcar #'car candidates) nil t))
              (session-path (cdr (assoc choice candidates))))
-        (if (fboundp 'dirvish)
-            (dirvish session-path)
-          (dired session-path))
+        (dired session-path)
         (message "Opened session: %s" (file-name-nondirectory session-path))))))
 
 (defun jf/gptel-show-current-position ()
@@ -58,13 +52,10 @@ Follows the 'current' symlink to show the active node in the tree."
       (if (not (file-symlink-p current-link))
           (message "No current position marker found")
         (let ((target (file-truename current-link)))
-          (if (fboundp 'dirvish)
-              (progn
-                (dirvish (file-name-directory target))
-                (goto-char (point-min))
-                (search-forward (file-name-nondirectory target) nil t)
-                (beginning-of-line))
-            (dired (file-name-directory target))))))))
+          (dired (file-name-directory target))
+          (goto-char (point-min))
+          (search-forward (file-name-nondirectory target) nil t)
+          (beginning-of-line))))))
 
 (defun jf/gptel-view-context-at-point ()
   "View context.md file in the directory at point.
@@ -76,7 +67,8 @@ If point is on a msg-N or response-N directory, opens its context.md file."
                         file-at-point)))
     (if (and context-file (file-exists-p context-file))
         (progn
-          (find-file-read-only-other-window context-file)
+          (find-file-other-window context-file)
+          (view-mode 1)
           (goto-char (point-min))
           (message "Viewing context: %s" (file-name-nondirectory (file-name-directory context-file))))
       (message "No context.md file found at point"))))
@@ -91,18 +83,22 @@ If point is on a msg-N or response-N directory with tools.md, opens it."
                       nil)))
     (if (and tools-file (file-exists-p tools-file))
         (progn
-          (find-file-read-only-other-window tools-file)
+          (find-file-other-window tools-file)
+          (view-mode 1)
           (goto-char (point-min))
           (message "Viewing tools: %s" (file-name-nondirectory (file-name-directory tools-file))))
       (message "No tools.md file found at point"))))
 
 (defvar jf/gptel-session-tree-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-v") #'jf/gptel-view-context-at-point)
-    (define-key map (kbd "C-c C-t") #'jf/gptel-view-tools-at-point)
-    (define-key map (kbd "C-c C-p") #'jf/gptel-show-current-position)
-    (define-key map (kbd "C-c C-r") #'jf/gptel-resume-from-context)
-    (define-key map (kbd "C-c C-b") #'jf/gptel-branch-from-point)
+    (define-key map (kbd "?") #'jf/gptel-session-browser-menu)
+    (define-key map (kbd "v") #'jf/gptel-view-context-at-point)
+    (define-key map (kbd "t") #'jf/gptel-view-tools-at-point)
+    (define-key map (kbd "p") #'jf/gptel-show-current-position)
+    (define-key map (kbd "r") #'jf/gptel-resume-from-context)
+    (define-key map (kbd "b") #'jf/gptel-branch-from-point)
+    (define-key map (kbd "o") #'jf/gptel-open-session)
+    (define-key map (kbd "q") #'quit-window)
     map)
   "Keymap for gptel-session-tree-mode.")
 
