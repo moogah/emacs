@@ -510,6 +510,92 @@ When contributing changes:
 4. Commit both `.org` and `.el` files
 5. Include clear commit messages
 
+## GPTEL Session Browser
+
+This configuration includes a **filesystem-based session browser** for gptel (LLM) conversations.
+
+### Features
+
+✅ **Filesystem-Native Storage** - Sessions stored as directory trees
+✅ **Complete History** - Each node contains full conversation context
+✅ **Easy Branching** - Try different conversation paths
+✅ **Standard Tools** - Browse with dired/dirvish
+✅ **Plain Markdown** - All content is human-readable
+✅ **Git-Friendly** - Version control your conversations
+
+### Quick Start
+
+```elisp
+;; Start a conversation
+SPC l   (jf/gptel-launcher)
+
+;; Browse saved sessions
+M-x jf/gptel-browse-sessions
+
+;; View conversation history
+Navigate to any msg-N or response-N directory
+Press C-c C-v
+
+;; Create a branch
+Put cursor on a node directory
+Press C-c C-b to copy
+Edit the context.md file
+Press C-c C-r to resume
+```
+
+### Directory Structure
+
+```
+~/gptel-sessions/
+└── SESSION-ID/
+    ├── current -> msg-1/.../context.md
+    ├── metadata.json
+    └── msg-1/
+        ├── context.md           # Complete conversation to this point
+        └── response-1/
+            ├── context.md
+            └── msg-2/
+                ├── context.md   # Continues down the tree
+                └── msg-2-alt1/  # Branch (alternate path)
+```
+
+### Key Concepts
+
+**Each directory is a conversation node** - Navigate the tree structure to explore different conversation paths
+
+**context.md contains complete history** - Self-contained, can be fed back to any LLM
+
+**Branches are copies** - Create alternative conversation paths by copying node directories
+
+**Three Operations**:
+1. **View** (`C-c C-v`) - Browse conversation history (read-only)
+2. **Resume** (`C-c C-r`) - Load context into gptel buffer to continue
+3. **Branch** (`C-c C-b`) - Copy node to create alternate path
+
+### Documentation
+
+See **[config/gptel/sessions/USAGE.md](config/gptel/sessions/USAGE.md)** for:
+- Detailed workflows with flowcharts
+- Step-by-step instructions
+- Complete keybinding reference
+- Troubleshooting guide
+- Advanced usage examples
+
+### Architecture
+
+The session browser consists of three modules:
+
+```
+filesystem.el  → Core directory/file operations
+registry.el    → Session state tracking
+hooks.el       → Auto-save integration
+    ↓
+browser.el     → Navigation (dired/dirvish integration)
+branching.el   → Resume and branch operations
+```
+
+All modules use **literate programming** - source in `.org` files, tangled to `.el`.
+
 ## License
 
 This configuration is personal and unlicensed. Feel free to fork and adapt for your own use.

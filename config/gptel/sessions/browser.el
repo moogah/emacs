@@ -102,6 +102,7 @@ If point is on a msg-N or response-N directory with tools.md, opens it."
     (define-key map (kbd "C-c C-t") #'jf/gptel-view-tools-at-point)
     (define-key map (kbd "C-c C-p") #'jf/gptel-show-current-position)
     (define-key map (kbd "C-c C-r") #'jf/gptel-resume-from-context)
+    (define-key map (kbd "C-c C-b") #'jf/gptel-branch-from-point)
     map)
   "Keymap for gptel-session-tree-mode.")
 
