@@ -7,7 +7,7 @@ Looks up session from registry, updates metadata, returns trace-id."
   (when-let* ((session-data (jf/gptel--get-session-data session-id))
               (metadata (plist-get session-data :metadata)))
     (let* ((trace-counter (plist-get session-data :trace-counter))
-           (trace-id (format "trace-%d" (cl-incf trace-counter)))
+           (trace-id (format "%s%d" jf/gptel-session-node-prefix-trace (cl-incf trace-counter)))
            (trace-stack (plist-get session-data :trace-stack))
            (depth (length trace-stack))
            (trace (list :trace_id trace-id
@@ -104,9 +104,12 @@ If TRACE-ID is nil, records to session-level. Otherwise records to trace."
                   (session-dir (plist-get session-data :directory)))
         (let* ((results-dir (if trace-id
                                (expand-file-name
-                                (format "traces/%s/tool-results" trace-id)
+                                (format "%s/%s/%s"
+                                        jf/gptel-session-traces-dirname
+                                        trace-id
+                                        jf/gptel-session-trace-tool-results-dirname)
                                 session-dir)
-                             (expand-file-name "tool-results" session-dir)))
+                             (expand-file-name jf/gptel-session-trace-tool-results-dirname session-dir)))
                (result-file (format "%s.txt" tool-id))
                (result-path (expand-file-name result-file results-dir)))
           (make-directory results-dir t)
@@ -138,8 +141,8 @@ If TRACE-ID is nil, records to session-level. Otherwise records to trace."
       ;; Also update trace directory metadata if this is a trace
       (when trace-id
         (when-let* ((session-dir (plist-get session-data :directory))
-                    (trace-dir (expand-file-name (format "traces/%s" trace-id) session-dir))
-                    (metadata-file (expand-file-name "metadata.json" trace-dir)))
+                    (trace-dir (expand-file-name (format "%s/%s" jf/gptel-session-traces-dirname trace-id) session-dir))
+                    (metadata-file (expand-file-name jf/gptel-session-trace-metadata-filename trace-dir)))
           (let* ((trace-metadata (if (file-exists-p metadata-file)
                                     (with-temp-buffer
                                       (insert-file-contents metadata-file)
@@ -188,8 +191,8 @@ CONTENT is the message text.
 METADATA is optional plist with :timestamp, :tokens, :tool_calls, etc."
   (when-let* ((session-data (jf/gptel--get-session-data session-id))
               (session-dir (plist-get session-data :directory)))
-    (let* ((trace-dir (expand-file-name (format "traces/%s" trace-id) session-dir))
-           (metadata-file (expand-file-name "metadata.json" trace-dir))
+    (let* ((trace-dir (expand-file-name (format "%s/%s" jf/gptel-session-traces-dirname trace-id) session-dir))
+           (metadata-file (expand-file-name jf/gptel-session-trace-metadata-filename trace-dir))
            ;; Count existing message files to get next ID
            (message-files (when (file-directory-p trace-dir)
                            (directory-files trace-dir nil "^\\(message\\|response\\)-[0-9]+\\.txt$")))

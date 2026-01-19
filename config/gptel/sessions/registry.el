@@ -62,6 +62,56 @@ session context via session-id lookup.")
     (plist-put session-data key value)
     (puthash session-id session-data jf/gptel--session-registry)))
 
+(defun jf/gptel-session-directory (session-id-or-dirname)
+  "Get full path to session directory.
+SESSION-ID-OR-DIRNAME can be either:
+- A session ID (looks up directory from registry)
+- A directory name (expands relative to sessions base directory)
+- An absolute path (returned as-is)"
+  (cond
+   ;; If it's an absolute path, return it
+   ((file-name-absolute-p session-id-or-dirname)
+    session-id-or-dirname)
+   ;; Try lookup in registry first (if it looks like a session ID)
+   ((and (stringp session-id-or-dirname)
+         (string-match-p "^[0-9]\\{14\\}-[0-9a-f]\\{4\\}$" session-id-or-dirname))
+    (when-let ((session-data (jf/gptel--get-session-data session-id-or-dirname)))
+      (plist-get session-data :directory)))
+   ;; Otherwise treat as directory name
+   (t
+    (expand-file-name session-id-or-dirname
+                      (expand-file-name jf/gptel-sessions-directory)))))
+
+(defun jf/gptel-session-trace-directory (session-id trace-id)
+  "Get full path to trace directory within session.
+SESSION-ID identifies the session (looked up in registry).
+TRACE-ID is the trace identifier (e.g., \"trace-1\")."
+  (when-let* ((session-data (jf/gptel--get-session-data session-id))
+              (session-dir (plist-get session-data :directory)))
+    (expand-file-name trace-id
+                      (expand-file-name "traces" session-dir))))
+
+(defun jf/gptel-session-trace-tool-results-directory (session-id trace-id)
+  "Get full path to tool results directory within trace.
+SESSION-ID identifies the session (looked up in registry).
+TRACE-ID is the trace identifier (e.g., \"trace-1\")."
+  (when-let* ((trace-dir (jf/gptel-session-trace-directory session-id trace-id)))
+    (expand-file-name "tool-results" trace-dir)))
+
+(defun jf/gptel--overlay-get-session-id (overlay)
+  "Get session ID from OVERLAY.
+Returns the session ID string or nil if not set.
+This property is used to track session context across buffers,
+particularly for subagents that run in separate buffers."
+  (overlay-get overlay 'jf/session-id))
+
+(defun jf/gptel--overlay-set-session-id (overlay session-id)
+  "Set SESSION-ID on OVERLAY.
+SESSION-ID should be a string returned by `jf/gptel--generate-session-id'.
+This property enables subagents running in separate buffers to access
+the parent session's context via registry lookup."
+  (overlay-put overlay 'jf/session-id session-id))
+
 (defun jf/gptel--sanitize-model-name (model)
   "Sanitize MODEL symbol for use in filename.
 Converts to lowercase, replaces special chars with hyphens."

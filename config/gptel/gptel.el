@@ -151,6 +151,10 @@ Run this after gptel-agent-update to inject skill content into agents."
     (setf (gptel-tool-confirm agent-tool) nil)
     (message "Disabled confirmation for Agent tool")))
 
+;; Load foundational modules first (used by all other session modules)
+(jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+
 ;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))

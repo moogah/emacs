@@ -45,7 +45,7 @@ All tool invocations within subagent execution are captured with:
 - Arguments as Lisp plist strings (e.g., ~(:file_path "~/file.txt")~)
 - Results:
   - Small results (<1KB): Stored inline as ~result_preview~
-  - Large results (≥1KB): Saved to ~tool-results/TOOL_ID.txt~, preview truncated to 200 chars
+  - Large results (≥1KB): Saved to ~jf/gptel-session-trace-tool-results-dirname/TOOL_ID.txt~, preview truncated to 200 chars
 - Timestamp of tool invocation
 - Error status (if tool call failed)
 
@@ -67,7 +67,7 @@ The Agent tool invocation is visible in the response markdown but not in ~sessio
 ├── metadata.json              # Session-level metadata with tool calls
 ├── message-N.md               # User messages
 ├── response-N.md              # LLM responses
-├── tool-results/              # Large tool results from main conversation
+├── jf/gptel-session-trace-tool-results-dirname/              # Large tool results from main conversation
 │   └── TOOL_ID.txt
 └── traces/                    # Subagent execution traces
     └── trace-N/
@@ -75,7 +75,7 @@ The Agent tool invocation is visible in the response markdown but not in ~sessio
         ├── prompt.txt         # Subagent initial prompt
         ├── response-N.txt     # Streaming response chunks
         ├── result.txt         # Final subagent result
-        └── tool-results/      # Large tool results from this trace
+        └── jf/gptel-session-trace-tool-results-dirname/      # Large tool results from this trace
             └── TOOL_ID.txt
 #+end_example
 
@@ -133,7 +133,7 @@ The ~metadata.json~ file contains:
 - ~timestamp~: When the tool was called (ISO 8601 format)
 - ~args_str~: Tool arguments serialized as Lisp plist string using ~prin1-to-string~
 - ~result_preview~: First 200-500 chars of result (or full result if small)
-- ~result_file~: Filename in ~tool-results/~ directory (only for large results)
+- ~result_file~: Filename in ~jf/gptel-session-trace-tool-results-dirname/~ directory (only for large results)
 - ~error~: Error message if tool call failed (usually null)
 
 *** Trace Metadata Format
@@ -315,7 +315,7 @@ handles any Lisp object correctly.
 **Rationale**: Tool results can be very large (e.g., complete file contents). Storing
 everything in metadata.json would make it unreadable and slow to parse.
 
-**Implementation**: Results ≥1KB saved to ~tool-results/TOOL_ID.txt~, with 200-char
+**Implementation**: Results ≥1KB saved to ~jf/gptel-session-trace-tool-results-dirname/TOOL_ID.txt~, with 200-char
 preview in metadata.
 
 **** 5. Skip Callback Wrapping for Main Conversation
@@ -420,7 +420,7 @@ After implementing tool capture, verify:
 
 - [ ] Tool calls appear in ~metadata.json~ under ~agent_traces[N].tool_calls~
 - [ ] Tool calls appear in ~traces/trace-N/metadata.json~ under ~tool_calls~
-- [ ] Large results (>1KB) saved to ~tool-results/~ with correct TOOL_ID filename
+- [ ] Large results (>1KB) saved to ~jf/gptel-session-trace-tool-results-dirname/~ with correct TOOL_ID filename
 - [ ] Small results (<1KB) stored inline in ~result_preview~
 - [ ] API-provided tool IDs present (not synthetic)
 - [ ] Arguments serialized correctly as Lisp plists
@@ -440,7 +440,7 @@ After implementing tool capture, verify:
 ;; 5. Check session directory: ~/gptel-sessions/LATEST/
 ;; 6. Verify metadata.json has populated tool_calls arrays
 ;; 7. Verify trace-1/metadata.json matches
-;; 8. Check tool-results/ directory for large results
+;; 8. Check jf/gptel-session-trace-tool-results-dirname/ directory for large results
 #+end_src
 
 ** Related Documentation
@@ -468,7 +468,7 @@ Looks up session from registry, updates metadata, returns trace-id."
   (when-let* ((session-data (jf/gptel--get-session-data session-id))
               (metadata (plist-get session-data :metadata)))
     (let* ((trace-counter (plist-get session-data :trace-counter))
-           (trace-id (format "trace-%d" (cl-incf trace-counter)))
+           (trace-id (format "%s%d" jf/gptel-session-node-prefix-trace (cl-incf trace-counter)))
            (trace-stack (plist-get session-data :trace-stack))
            (depth (length trace-stack))
            (trace (list :trace_id trace-id
@@ -586,9 +586,12 @@ If TRACE-ID is nil, records to session-level. Otherwise records to trace."
                   (session-dir (plist-get session-data :directory)))
         (let* ((results-dir (if trace-id
                                (expand-file-name
-                                (format "traces/%s/tool-results" trace-id)
+                                (format "%s/%s/%s"
+                                        jf/gptel-session-traces-dirname
+                                        trace-id
+                                        jf/gptel-session-trace-tool-results-dirname)
                                 session-dir)
-                             (expand-file-name "tool-results" session-dir)))
+                             (expand-file-name jf/gptel-session-trace-tool-results-dirname session-dir)))
                (result-file (format "%s.txt" tool-id))
                (result-path (expand-file-name result-file results-dir)))
           (make-directory results-dir t)
@@ -620,8 +623,8 @@ If TRACE-ID is nil, records to session-level. Otherwise records to trace."
       ;; Also update trace directory metadata if this is a trace
       (when trace-id
         (when-let* ((session-dir (plist-get session-data :directory))
-                    (trace-dir (expand-file-name (format "traces/%s" trace-id) session-dir))
-                    (metadata-file (expand-file-name "metadata.json" trace-dir)))
+                    (trace-dir (expand-file-name (format "%s/%s" jf/gptel-session-traces-dirname trace-id) session-dir))
+                    (metadata-file (expand-file-name jf/gptel-session-trace-metadata-filename trace-dir)))
           (let* ((trace-metadata (if (file-exists-p metadata-file)
                                     (with-temp-buffer
                                       (insert-file-contents metadata-file)
@@ -729,8 +732,8 @@ Finds matching tool call by TOOL-NAME and ARGS, updates with RESULT."
                 ;; Large result: save to file
                 (let* ((session-dir (plist-get session-data :directory))
                        (trace-dir (expand-file-name
-                                  (format "traces/%s" trace-id) session-dir))
-                       (results-dir (expand-file-name "tool-results" trace-dir))
+                                  (format "%s/%s" jf/gptel-session-traces-dirname trace-id) session-dir))
+                       (results-dir (expand-file-name jf/gptel-session-trace-tool-results-dirname trace-dir))
                        (tool-use-id (plist-get tool-call :tool_use_id))
                        (result-file (format "%s.txt" tool-use-id))
                        (result-path (expand-file-name result-file results-dir)))
@@ -846,7 +849,7 @@ Finds matching tool call by TOOL-NAME and ARGS, updates with RESULT."
                 (plist-put tool-call :result_file nil))
             ;; Large result: save to file
             (let* ((session-dir (plist-get session-data :directory))
-                   (results-dir (expand-file-name "tool-results" session-dir))
+                   (results-dir (expand-file-name jf/gptel-session-trace-tool-results-dirname session-dir))
                    (tool-use-id (plist-get tool-call :tool_use_id))
                    (result-file (format "%s.txt" tool-use-id))
                    (result-path (expand-file-name result-file results-dir)))
@@ -914,8 +917,8 @@ CONTENT is the message text.
 METADATA is optional plist with :timestamp, :tokens, :tool_calls, etc."
   (when-let* ((session-data (jf/gptel--get-session-data session-id))
               (session-dir (plist-get session-data :directory)))
-    (let* ((trace-dir (expand-file-name (format "traces/%s" trace-id) session-dir))
-           (metadata-file (expand-file-name "metadata.json" trace-dir))
+    (let* ((trace-dir (expand-file-name (format "%s/%s" jf/gptel-session-traces-dirname trace-id) session-dir))
+           (metadata-file (expand-file-name jf/gptel-session-trace-metadata-filename trace-dir))
            ;; Count existing message files to get next ID
            (message-files (when (file-directory-p trace-dir)
                            (directory-files trace-dir nil "^\\(message\\|response\\)-[0-9]+\\.txt$")))

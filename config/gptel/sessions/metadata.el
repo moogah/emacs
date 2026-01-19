@@ -10,15 +10,15 @@ MODEL is the model symbol, BACKEND is the backend name."
         :model (symbol-name model)
         :backend backend
         :created (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-        :tree (list :id "root"
+        :tree (list :id jf/gptel-session-tree-root-id
                     :children [])
-        :current_path ["root"]
+        :current_path (vector jf/gptel-session-tree-root-id)
         :agent_traces []))
 
 (defun jf/gptel--read-metadata (session-dir)
   "Read metadata.json from SESSION-DIR.
 Returns metadata plist or nil if file doesn't exist."
-  (let ((metadata-file (expand-file-name "metadata.json" session-dir)))
+  (let ((metadata-file (expand-file-name jf/gptel-session-metadata-filename session-dir)))
     (when (file-exists-p metadata-file)
       (condition-case nil
           (let ((json-object-type 'plist)
@@ -29,7 +29,7 @@ Returns metadata plist or nil if file doesn't exist."
 
 (defun jf/gptel--write-metadata (session-dir metadata)
   "Write METADATA plist to metadata.json in SESSION-DIR."
-  (let ((metadata-file (expand-file-name "metadata.json" session-dir))
+  (let ((metadata-file (expand-file-name jf/gptel-session-metadata-filename session-dir))
         (json-encoding-pretty-print t))
     (with-temp-file metadata-file
       (insert (json-encode metadata)))))
@@ -54,7 +54,7 @@ Returns the updated tree."
                         :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
                         :preview preview
                         :children [])))
-    (if (equal parent-path ["root"])
+    (if (equal parent-path (vector jf/gptel-session-tree-root-id))
         ;; Add to root's children
         (let ((children (plist-get tree :children)))
           (plist-put tree :children
@@ -87,12 +87,12 @@ Mutates tree in place."
 (defun jf/gptel--find-leaf-nodes (tree &optional path)
   "Find all leaf nodes in TREE.
 Returns list of (path . node) pairs where path is vector of node IDs."
-  (let* ((current-path (or path ["root"]))
+  (let* ((current-path (or path (vector jf/gptel-session-tree-root-id)))
          (children (plist-get tree :children)))
     (if (or (null children)
             (and (vectorp children) (zerop (length children))))
         ;; This is a leaf - only return if not the root with no children
-        (if (equal current-path ["root"])
+        (if (equal current-path (vector jf/gptel-session-tree-root-id))
             nil  ; Empty tree, return empty list
           (list (cons current-path tree)))
       ;; Recurse into children
@@ -125,7 +125,7 @@ Returns format 'message-N' or 'message-N-altM' for forks."
 
 (defun jf/gptel--find-node-by-path (tree path)
   "Find node in TREE by following PATH (vector of node IDs)."
-  (if (or (null path) (equal path ["root"]))
+  (if (or (null path) (equal path (vector jf/gptel-session-tree-root-id)))
       tree
     (jf/gptel--find-node-recursive tree (cl-coerce path 'list) 1)))
 
@@ -146,7 +146,7 @@ Returns format 'message-N' or 'message-N-altM' for forks."
   (let* ((tree (plist-get jf/gptel--session-metadata :tree))
          (current-path (plist-get jf/gptel--session-metadata :current_path)))
 
-    (message "DEBUG update-tree: msg-id=%s, current-path=%S" msg-id current-path)
+    (jf/gptel--log 'debug "update-tree: msg-id=%s, current-path=%S" msg-id current-path)
 
     ;; Add message node
     (jf/gptel--add-tree-node tree current-path msg-id 'message msg-file msg-preview)
@@ -156,7 +156,7 @@ Returns format 'message-N' or 'message-N-altM' for forks."
       ;; Update current path
       (let ((new-path (vconcat new-msg-path (vector resp-id))))
         (plist-put jf/gptel--session-metadata :current_path new-path)
-        (message "DEBUG update-tree: new current-path=%S" new-path)))
+        (jf/gptel--log 'debug "update-tree: new current-path=%S" new-path)))
 
     ;; Write to disk
     (jf/gptel--write-metadata jf/gptel--session-dir jf/gptel--session-metadata)))

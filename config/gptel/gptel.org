@@ -11,7 +11,7 @@ shells, buffers, and tools for working with these AI assistants.
 
 The gptel configuration is modular:
 - =gptel/= - Main loader (this file)
-- =gptel/sessions/= - Session management (6 modules)
+- =gptel/sessions/= - Session management (8 modules)
 - =gptel/skills/= - Skills system (3 modules)
 - =gptel/tools/= - Tool definitions (7 modules)
 - =gptel/agents/= - Agent definitions (5 files)
@@ -250,14 +250,20 @@ Run this after gptel-agent-update to inject skill content into agents."
 * GPTEL Session Management
 
 Load session management modules in dependency order:
-1. Registry - Global session registry and initialization
-2. Metadata - Metadata persistence and tree operations
-3. Tracing - Agent execution tracing
-4. Hooks - Advice functions and auto-save
-5. Browser - Session browsing and reconstruction
-6. Branching - Branch creation and management
+1. Constants - Centralized constants for magic strings
+2. Logging - Leveled logging system (replaces 54+ debug messages)
+3. Registry - Global session registry and initialization
+4. Metadata - Metadata persistence and tree operations
+5. Tracing - Agent execution tracing
+6. Hooks - Advice functions and auto-save
+7. Browser - Session browsing and reconstruction
+8. Branching - Branch creation and management
 
 #+begin_src emacs-lisp
+;; Load foundational modules first (used by all other session modules)
+(jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+
 ;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
