@@ -527,20 +527,22 @@ This configuration includes a **filesystem-based session browser** for gptel (LL
 
 ```elisp
 ;; Start a conversation
-SPC l   (jf/gptel-launcher)
+SPC l                          (jf/gptel-launcher)
 
 ;; Browse saved sessions
-M-x jf/gptel-browse-sessions
+M-x jf/gptel-browse-sessions   Opens sessions directory in dired
 
-;; View conversation history
-Navigate to any msg-N or response-N directory
-Press C-c C-v
+;; Show all commands (transient menu)
+?                              Discoverable menu with all operations
 
-;; Create a branch
-Put cursor on a node directory
-Press C-c C-b to copy
-Edit the context.md file
-Press C-c C-r to resume
+;; Quick keybindings (when in session browser)
+v                              View context.md for node at point
+t                              View tools.md for node at point
+r                              Resume conversation from this point
+b                              Branch: create alternate conversation path
+o                              Open specific session (completing-read)
+p                              Show current position in active session
+q                              Quit window
 ```
 
 ### Directory Structure
@@ -567,10 +569,15 @@ Press C-c C-r to resume
 
 **Branches are copies** - Create alternative conversation paths by copying node directories
 
-**Three Operations**:
-1. **View** (`C-c C-v`) - Browse conversation history (read-only)
-2. **Resume** (`C-c C-r`) - Load context into gptel buffer to continue
-3. **Branch** (`C-c C-b`) - Copy node to create alternate path
+**Three Core Operations**:
+1. **View** (`v`) - Browse conversation history (read-only)
+2. **Resume** (`r`) - Load context into gptel buffer to continue
+3. **Branch** (`b`) - Copy node to create alternate path
+
+**Discoverable Interface**:
+- Press `?` in the session browser to see the **transient menu** with all available commands
+- Menu shows context-aware information (current session, node type, session count)
+- Commands organized into logical groups (Browse, View, Actions)
 
 ### Documentation
 
@@ -583,18 +590,32 @@ See **[config/gptel/sessions/USAGE.md](config/gptel/sessions/USAGE.md)** for:
 
 ### Architecture
 
-The session browser consists of three modules:
+The session browser consists of seven modules:
 
 ```
 filesystem.el  → Core directory/file operations
 registry.el    → Session state tracking
+metadata.el    → Session metadata storage
+tracing.el     → Agent execution tracing
 hooks.el       → Auto-save integration
     ↓
-browser.el     → Navigation (dired/dirvish integration)
+browser.el     → Navigation and viewing (dired integration)
 branching.el   → Resume and branch operations
+transient.el   → Transient menu (discoverable commands)
 ```
 
 All modules use **literate programming** - source in `.org` files, tangled to `.el`.
+
+**Phase 4 (Current - Alpha):**
+- Transient menu with `?` key for discoverable commands
+- Simple dired-based navigation
+- Single-key bindings (v, t, r, b, o, p, q)
+- Session tree mode auto-enables in session directories
+
+**Future Enhancements:**
+- Persistent side window (dirvish-side style)
+- Auto-preview that updates as you navigate
+- Additional filtering and sorting options
 
 ## License
 
