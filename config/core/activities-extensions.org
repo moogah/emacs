@@ -688,9 +688,10 @@ Reports missing files but continues opening available ones."
 ** Create Org-Roam Document
 
 #+begin_src emacs-lisp
-(defun activities-ext--create-org-roam-doc (activity-name &optional projects)
+(defun activities-ext--create-org-roam-doc (activity-name &optional projects gptel-session)
   "Create org-roam document for ACTIVITY-NAME.
 Optional PROJECTS is a list of project plists to include in document.
+Optional GPTEL-SESSION is plist with session info to include in document.
 Returns plist with :node-id, :file, :title, :created keys."
   (let* ((slug (format "%s-%s"
                       (format-time-string "%Y%m%d%H%M%S")
@@ -710,8 +711,15 @@ Returns plist with :node-id, :file, :title, :created keys."
     ;; Create the file with content
     (with-temp-file file-path
       (insert (format "#+title: %s\n" title))
-      (insert (format "#+filetags: :activity:%s:\n\n" (activities-ext--slugify activity-name)))
-      (insert (activities-ext--default-template activity-name projects)))
+      (insert (format "#+filetags: :activity:%s:\n" (activities-ext--slugify activity-name)))
+      ;; Add gptel session properties if provided
+      (when gptel-session
+        (insert (format "#+property: gptel_session_id %s\n"
+                       (plist-get gptel-session :session-id)))
+        (insert (format "#+property: gptel_session_dir %s\n"
+                       (plist-get gptel-session :session-dir))))
+      (insert "\n")
+      (insert (activities-ext--default-template activity-name projects gptel-session)))
 
     ;; Update org-roam database
     (when (fboundp 'org-roam-db-update-file)
@@ -733,13 +741,20 @@ Returns plist with :node-id, :file, :title, :created keys."
 ** Default Template
 
 #+begin_src emacs-lisp
-(defun activities-ext--default-template (activity-name projects)
+(defun activities-ext--default-template (activity-name projects &optional gptel-session)
   "Generate default template content for ACTIVITY-NAME with PROJECTS.
 PROJECTS is a list of project plists with :path, :name, :branch, :worktree keys.
+Optional GPTEL-SESSION is plist with session info to link in document.
 Each project is stored as an org heading with properties for programmatic access."
   (concat
    "* Overview\n\n"
    (format "Activity: %s\n\n" activity-name)
+   ;; Add gptel session link if provided
+   (if gptel-session
+       (format "GPTEL Session: [[file:%s][%s]]\n\n"
+               (plist-get gptel-session :session-file)
+               (plist-get gptel-session :session-id))
+     "")
    "* Projects\n\n"
    (if projects
        (mapconcat
@@ -943,12 +958,13 @@ The activity name has already been captured by the entry function.
 #+begin_src emacs-lisp
 (transient-define-prefix activities-ext-create-transient ()
   "Select projects and options for new activity.
-Activity name has already been captured."
+Activity name has already been captured.
+By default, creates both org-roam document and gptel session."
   ["Configuration"
-   ("-p" "Select projects" activities-ext--select-projects-infix)
-   ("-g" "Create gptel session" "--gptel")]
-  ["Documentation"
-   ("-d" "Create org-roam document" "--org-roam")]
+   ("-p" "Select projects" activities-ext--select-projects-infix)]
+  ["Skip (optional)"
+   ("-G" "Skip gptel session" "--no-gptel")
+   ("-D" "Skip org-roam document" "--no-org-roam")]
   ["Actions"
    ("RET" "Create Activity" activities-ext--create-action)
    ("q" "Cancel" transient-quit-one)])
@@ -983,8 +999,9 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
          (sanitized-name (activities-ext--slugify activity-name))
          ;; Find the list element in args (that's the projects)
          (project-paths (cl-find-if #'listp args))
-         (create-org-roam (member "--org-roam" args))
-         (create-gptel (member "--gptel" args))
+         ;; Default to creating both org-roam and gptel unless explicitly skipped
+         (create-org-roam (not (member "--no-org-roam" args)))
+         (create-gptel (not (member "--no-gptel" args)))
          (project-metadata nil)
          (org-roam-data nil)
          (gptel-session-data nil))
@@ -1015,15 +1032,15 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
 
     (setq project-metadata (nreverse project-metadata))
 
-    ;; Create org-roam document if requested
-    (when create-org-roam
-      (setq org-roam-data
-            (activities-ext--create-org-roam-doc activity-name project-metadata)))
-
-    ;; Create gptel session if requested
+    ;; Create gptel session first (if requested) so we can link it in roam doc
     (when (and create-gptel (fboundp 'jf/gptel-session-create-persistent))
       (setq gptel-session-data
             (jf/gptel-session-create-persistent activity-name)))
+
+    ;; Create org-roam document with gptel session info if requested
+    (when create-org-roam
+      (setq org-roam-data
+            (activities-ext--create-org-roam-doc activity-name project-metadata gptel-session-data)))
 
     ;; Create the activity using activities-new
     (activities-new activity-name)

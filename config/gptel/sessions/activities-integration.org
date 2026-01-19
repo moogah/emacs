@@ -62,30 +62,12 @@ Create session.org file that the gptel buffer will visit.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-session--create-session-file (file-path activity-name backend model session-id)
-  "Create session.org file at FILE-PATH with proper headers.
+  "Create session.md file at FILE-PATH with initial prompt.
 ACTIVITY-NAME is the human-readable activity name.
 BACKEND and MODEL are the gptel backend and model names.
 SESSION-ID is the unique session identifier."
   (with-temp-file file-path
-    (insert (format "#+title: Activity: %s\n" activity-name))
-    (insert "#+filetags: :gptel:activity:\n")
-    (insert (format "#+property: session_id %s\n" session-id))
-    (insert (format "#+property: activity_name %s\n"
-                    (if (fboundp 'activities-ext--slugify)
-                        (activities-ext--slugify activity-name)
-                      activity-name)))
-    (insert "\n")
-    (insert "* Session Info\n")
-    (insert (format "- Backend: %s\n" backend))
-    (insert (format "- Model: %s\n" model))
-    (insert (format "- Created: %s\n" (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
-    (insert "\n")
-    (insert "* Notes\n")
-    (insert "Use this file for session notes, context, and planning.\n")
-    (insert "The conversation is stored in metadata.json.\n")
-    (insert "\n")
-    (insert "* Tasks\n")
-    (insert "** TODO Document activity goals\n")))
+    (insert "###")))
 #+end_src
 
 * Default Scope Plan Creation
@@ -179,7 +161,7 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
          (dirname session-id)
          (session-dir (expand-file-name dirname
                                        (expand-file-name jf/gptel-sessions-directory)))
-         (session-file (expand-file-name "session.org" session-dir))
+         (session-file (expand-file-name "session.md" session-dir))
          (backend (or backend gptel-backend))
          (model (or model gptel-model))
          (backend-name (gptel-backend-name backend)))
