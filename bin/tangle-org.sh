@@ -53,3 +53,25 @@ else
     echo "Error tangling $ORG_FILE"
     exit 1
 fi
+
+# Validate the tangled .el files
+# Find the corresponding .el file(s) - typically same base name in same directory
+ORG_DIR=$(dirname "$ORG_FILE")
+ORG_BASE=$(basename "$ORG_FILE" .org)
+EL_FILE="$ORG_DIR/$ORG_BASE.el"
+
+if [ -f "$EL_FILE" ]; then
+    echo "Validating $EL_FILE..."
+    "$EMACS" --batch --eval "(progn (find-file \"$EL_FILE\") (check-parens))" 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo "✓ Validation passed: $EL_FILE"
+    else
+        echo "✗ Validation failed: $EL_FILE"
+        echo "Error: Tangled file has syntax errors (unmatched parens)"
+        exit 1
+    fi
+else
+    echo "Warning: Expected tangled file '$EL_FILE' not found, skipping validation"
+    echo "Note: This org file may tangle to a different location or filename"
+fi

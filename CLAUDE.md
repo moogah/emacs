@@ -16,9 +16,11 @@ This is an **isolated, modular Emacs configuration** using literate programming.
 
 **Required workflow for all changes:**
 1. Edit `.org` file (never edit `.el` directly)
-2. Tangle: `./bin/tangle-org.sh path/to/file.org`
-3. Validate: `emacs --batch --eval "(progn (find-file \"path/to/file.el\") (check-parens))"`
-4. Commit **both** `.org` and `.el` files
+2. Tangle and validate: `./bin/tangle-org.sh path/to/file.org`
+   - Automatically tangles to `.el` file
+   - Automatically validates with `check-parens`
+   - Exits with error if validation fails
+3. Commit **both** `.org` and `.el` files
 
 **Why both files in git:** Preserves history, allows diffs, ensures generated code matches source.
 
@@ -37,14 +39,18 @@ This is an **isolated, modular Emacs configuration** using literate programming.
 
 **CLI Tangling (bin/tangle-org.sh)**
 ```bash
-# Single file
+# Single file - tangles AND validates automatically
 ./bin/tangle-org.sh config/major-modes/org.org
 
-# All org files
+# All org files - each is validated after tangling
 find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 ```
 
-**Features**: Auto-finds Emacs, validates files, batch mode, clear errors
+**Features**:
+- Auto-finds Emacs binary (uses `/Applications/Emacs.app/Contents/MacOS/Emacs` on macOS)
+- Validates tangled `.el` files with `check-parens` automatically
+- Fails with error if validation detects syntax errors
+- Batch mode with clear error messages
 
 #### Required File Headers
 
@@ -248,16 +254,17 @@ gptel/
 ### Literate Programming
 
 ```bash
-# Tangle single file
+# Tangle single file (automatically validates)
 ./bin/tangle-org.sh config/core/defaults.org
 
-# Tangle and validate
-./bin/tangle-org.sh config/core/defaults.org && \
-  emacs --batch --eval "(progn (find-file \"config/core/defaults.el\") (check-parens))"
-
-# Tangle init file (affects module loading)
+# Tangle init file (automatically validates, affects module loading)
 ./bin/tangle-org.sh init.org
+
+# Tangle all org files in config/
+find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 ```
+
+**Note:** The tangle script automatically validates tangled `.el` files and exits with error if syntax issues are detected.
 
 ### Testing Configuration
 
@@ -408,15 +415,20 @@ git checkout v0.3.0
 
 ### Syntax Validation
 
+**Automatic validation:** The `./bin/tangle-org.sh` script automatically validates all tangled `.el` files.
+
+**Manual validation** (if needed):
 ```bash
-# Validate single file
-emacs --batch --eval "(progn (find-file \"config/path/to/file.el\") (check-parens))"
+# Validate single file (use full Emacs binary path)
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"config/path/to/file.el\") (check-parens))"
 
 # Validate multiple files
 for f in config/core/*.el; do
-  emacs --batch --eval "(progn (find-file \"$f\") (check-parens))"
+  /Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"$f\") (check-parens))"
 done
 ```
+
+**IMPORTANT:** Always use the full path `/Applications/Emacs.app/Contents/MacOS/Emacs` for batch validation commands to ensure you're using the same Emacs version as the GUI application. Do not use `emacs` or `/usr/local/bin/emacs`.
 
 ## Development Workflow with Git
 
@@ -450,9 +462,10 @@ git submodule update --init
 
 **Claude Code's responsibilities:**
 1. Edit `.org` source files (never `.el` directly)
-2. Tangle modified files: `./bin/tangle-org.sh path/to/file.org`
-3. Run syntax validation: `emacs --batch --eval "(progn (find-file \"path/to/file.el\") (check-parens))"`
-4. Stage files if validation passes (see next section)
+2. Tangle and validate: `./bin/tangle-org.sh path/to/file.org`
+   - Script automatically validates tangled `.el` files
+   - Exits with error if syntax issues detected
+3. Stage files if validation passes (see next section)
 
 **Important:** This cycle repeats for each iteration based on user feedback.
 
@@ -556,27 +569,25 @@ git checkout -b add-session-metadata
 # 2. User requests: "Add metadata tracking to gptel sessions"
 
 # 3. Claude implements changes to .org files
-# 4. Claude tangles:
+# 4. Claude tangles and validates:
 ./bin/tangle-org.sh config/gptel/sessions/metadata.org
+# ✓ Validation passed: config/gptel/sessions/metadata.el
 
-# 5. Claude validates:
-emacs --batch --eval "(progn (find-file \"config/gptel/sessions/metadata.el\") (check-parens))"
-
-# 6. Validation passes - Claude stages files:
+# 5. Validation passes - Claude stages files:
 git add config/gptel/sessions/metadata.org config/gptel/sessions/metadata.el
 
-# 7. User tests:
+# 6. User tests:
 ./bin/emacs-isolated.sh
 # User opens gptel session, creates metadata, verifies storage
 # User checks *Messages* buffer for errors
 
-# 8. Issue found: "Metadata not persisting across sessions"
+# 7. Issue found: "Metadata not persisting across sessions"
 
-# 9. User provides feedback, Claude adjusts, repeats steps 3-7
+# 8. User provides feedback, Claude adjusts, repeats steps 3-6
 
-# 10. Testing passes - milestone reached!
+# 9. Testing passes - milestone reached!
 
-# 11. User commits:
+# 10. User commits:
 git commit -m "Add metadata tracking to gptel sessions
 
 Implements core data structure for session metadata.
@@ -585,7 +596,7 @@ Tested: metadata correctly stored, retrieved, and persists across sessions
 
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
-# 12. Continue to next milestone (e.g., "Display metadata in session browser")
+# 11. Continue to next milestone (e.g., "Display metadata in session browser")
 ```
 
 ### Integration with Existing Workflows
@@ -687,20 +698,21 @@ Template: `.emacs-secrets.el.example` in repository root.
 
 ## Validation After Changes
 
-**Minimal validation:**
+**Automatic syntax validation:**
 ```bash
+# Tangle script automatically validates
 ./bin/tangle-org.sh path/to/file.org
-emacs --batch --eval "(progn (find-file \"path/to/file.el\") (check-parens))"
+# ✓ Validation passed: path/to/file.el
 ```
 
 **Full validation:**
 ```bash
-# Tangle all changed files
+# Tangle all changed files (each is automatically validated)
 ./bin/tangle-org.sh init.org
 ./bin/tangle-org.sh config/gptel/gptel.org
 # ... others
 
-# Launch and check *Messages* buffer for errors
+# Launch and check *Messages* buffer for runtime errors
 ./bin/emacs-isolated.sh
 ```
 
@@ -737,23 +749,32 @@ The key principle: **validate after each function, before moving to the next**.
 
 ### Validation Commands
 
-**Quick Paren Check (Fastest)**
+**Automatic Validation (Recommended)**
 ```bash
-emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
+# The tangle script automatically validates after tangling
+./bin/tangle-org.sh file.org
 ```
 
-Returns immediately with error or success. Use this after every function.
+Returns immediately with error or success. This is the preferred method.
+
+**Manual Quick Paren Check**
+```bash
+# Use full Emacs path for consistency
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
+```
+
+Returns immediately with error or success. Use this for manual validation.
 
 **Full Syntax Check with Byte Compiler**
 ```bash
-emacs --batch --eval "(progn (find-file \"file.el\") (byte-compile-file \"file.el\"))"
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (byte-compile-file \"file.el\"))"
 ```
 
 Catches more issues but slower. Use before committing.
 
 **Scan for Premature Expression Endings**
 ```bash
-emacs --batch --eval \
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval \
   "(with-temp-buffer
      (insert-file-contents \"file.el\")
      (goto-char (point-min))
@@ -819,11 +840,11 @@ When working with org-mode tangled files:
 
 **Immediate Validation Step**
 ```bash
-./bin/tangle-org.sh file.org && \
-emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
+./bin/tangle-org.sh file.org
+# Automatically validates - exits with error if syntax issues found
 ```
 
-Add this as a habit after each significant elisp block.
+Add this as a habit after each significant elisp block. Validation is automatic.
 
 ### Example Workflow
 
@@ -831,11 +852,10 @@ Add this as a habit after each significant elisp block.
 
 **Steps:**
 1. Write function in org-mode code block
-2. Tangle to .el file: `./bin/tangle-org.sh file.org`
-3. Validate: Run check-parens on tangled .el file
-4. If errors: Fix in .org file and repeat steps 2-3
-5. If clean: Continue to next function
-6. Before committing: Run byte-compile check on full file
+2. Tangle to .el file: `./bin/tangle-org.sh file.org` (automatically validates)
+3. If errors: Fix in .org file and repeat step 2
+4. If clean: Continue to next function
+5. Before committing: Run byte-compile check on full file (optional)
 
 ### Common LLM Failure Patterns
 
@@ -910,10 +930,10 @@ All code blocks under "Helper Functions" will now tangle.
 After enabling each subtree:
 ```bash
 ./bin/tangle-org.sh file.org
-emacs --batch --eval "(progn (find-file \"file.el\") (check-parens) (message \"✓ OK\"))"
+# Validation is automatic - script will exit with error if syntax issues found
 ```
 
-If validation passes, continue to next subtree. If it fails, the error is in the subtree you just enabled.
+If validation passes (exit code 0), continue to next subtree. If it fails, the error is in the subtree you just enabled.
 
 #### Step 4: Narrow Down Within Subtree
 
@@ -998,7 +1018,7 @@ When you suspect missing parentheses but can't spot them:
    ```elisp
    M-x check-parens  ; in the buffer
    ; or batch mode:
-   emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
+   /Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
    ```
 
 4. **Manual paren counting** (last resort for non-org files):
@@ -1065,7 +1085,7 @@ Look for commits where the file loaded successfully (before the error appeared).
 **Test Specific Commit**
 ```bash
 git show <commit-hash>:path/to/file.el > /tmp/working.el
-emacs --batch --eval \
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval \
   "(progn (find-file \"/tmp/working.el\") (check-parens))"
 ```
 
@@ -1121,7 +1141,7 @@ Warning: This blocks saving until you fix the error.
 
 **Forward-Sexp Scanning** - Programmatically find exact position of paren mismatches:
 ```bash
-emacs --batch --eval "
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "
 (condition-case err
     (with-temp-buffer
       (insert-file-contents \"file.el\")
