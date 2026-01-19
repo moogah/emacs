@@ -252,17 +252,21 @@ Run this after gptel-agent-update to inject skill content into agents."
 Load session management modules in dependency order:
 1. Constants - Centralized constants for magic strings
 2. Logging - Leveled logging system (replaces 54+ debug messages)
-3. Registry - Global session registry and initialization
-4. Metadata - Metadata persistence and tree operations
-5. Tracing - Agent execution tracing
-6. Hooks - Advice functions and auto-save
-7. Browser - Session browsing and reconstruction
-8. Branching - Branch creation and management
+3. Filesystem - Filesystem utilities for directory-based persistence
+4. Registry - Global session registry and initialization
+5. Metadata - Metadata persistence (simplified for filesystem format)
+6. Tracing - Agent execution tracing
+7. Hooks - Advice functions and auto-save (uses filesystem persistence)
+8. Browser - Session browsing and reconstruction
+9. Branching - Branch creation and management
 
 #+begin_src emacs-lisp
 ;; Load foundational modules first (used by all other session modules)
 (jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+
+;; Load filesystem utilities before other modules (registry and hooks depend on it)
+(jf/load-module (expand-file-name "config/gptel/sessions/filesystem.el" jf/emacs-dir))
 
 ;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
@@ -271,6 +275,7 @@ Load session management modules in dependency order:
 (jf/load-module (expand-file-name "config/gptel/sessions/hooks.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/transient.el" jf/emacs-dir))
 
 ;; Load scope system (requires session system)
 ;; Scope-aware tools check approved patterns internally and return

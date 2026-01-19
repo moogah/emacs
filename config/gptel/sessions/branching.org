@@ -5,21 +5,19 @@
 
 * Introduction
 
-Session branching allows you to create alternate conversation paths from any point
-in the conversation history. This is useful for:
-- Exploring different approaches to a problem
-- Trying alternative phrasings of a question
-- Comparing responses from different prompts
-- Maintaining multiple conversation threads
+Session branching in the filesystem-based approach is done by copying and editing
+context.md files. The workflow:
 
-Each branch is tracked in the conversation tree structure, and you can switch between
-branches using the session browser.
+1. Navigate to any response-N directory in dirvish/dired
+2. Copy the next msg-N directory to msg-N-alt1
+3. Edit msg-N-alt1/context.md to change the message
+4. Resume from the edited context and send
 
 This module provides:
-- Branch creation from any point in conversation
-- Branch candidate building for selection
-- Branch buffer creation with context
-- Next branch ID generation (handles -alt1, -alt2, etc.)
+- Session resumption from context.md files
+- Context file sending to API
+- Branch creation helpers
+- Node path determination from filesystem structure
 
 * Lexical Binding
 
@@ -28,147 +26,191 @@ This module provides:
 (require 'cl-lib)
 #+end_src
 
-* Branch Session Command
+* Resume Session from Context
+
+Load a context.md file into a gptel buffer and set up session state for continuation.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-branch-session ()
-  "Create new branch by selecting which messages to include.
-Presents a list of message/response pairs and lets user choose
-where to branch from."
+(defun jf/gptel-resume-from-context (&optional context-file)
+  "Resume gptel session from CONTEXT-FILE.
+If called interactively in dired, uses context.md at point.
+If CONTEXT-FILE is nil, prompts for file selection.
+Creates a gptel buffer with the conversation loaded and ready to continue."
   (interactive)
-  (unless (and jf/gptel--session-dir jf/gptel--session-metadata)
-    (user-error "No active session to branch"))
+  (let* ((context-path (or context-file
+                          (when (derived-mode-p 'dired-mode)
+                            (let ((file-at-point (dired-get-filename nil t)))
+                              (if (and file-at-point (file-directory-p file-at-point))
+                                  (expand-file-name "context.md" file-at-point)
+                                (when (and file-at-point
+                                          (string= (file-name-nondirectory file-at-point)
+                                                  "context.md"))
+                                  file-at-point))))
+                          (read-file-name "Context file: " nil nil t nil
+                                         (lambda (f) (string= (file-name-nondirectory f)
+                                                            "context.md")))))
+         (session-dir (jf/gptel--find-session-root context-path))
+         (node-path (jf/gptel--determine-node-path session-dir context-path))
+         (metadata (jf/gptel--read-metadata session-dir)))
 
-  ;; Get all messages and build candidates
-  (let* ((all-messages (jf/gptel--get-all-messages))
-         (candidates (jf/gptel--build-branch-candidates all-messages))
-         (choice (completing-read "Branch before: " candidates nil t))
-         (choice-index (cdr (assoc choice candidates)))
-         ;; Take first N messages (up to but NOT including the chosen point)
-         (branch-context (seq-take all-messages choice-index))
-         ;; Get the next message text (the one we're branching before)
-         (next-message-text (when (< choice-index (length all-messages))
-                             (let ((next-msg (nth choice-index all-messages)))
-                               (when (eq (plist-get next-msg :type) 'message)
-                                 (plist-get next-msg :content)))))
-         (context-length (length branch-context))
-         ;; Get the parent path
-         (current-path (plist-get jf/gptel--session-metadata :current_path))
-         (desired-path-length (1+ context-length))
-         (actual-path-length (length current-path))
-         (parent-path (if (and (> context-length 0)
-                              (>= actual-path-length desired-path-length))
-                         (seq-subseq current-path 0 desired-path-length)
-                       (vector jf/gptel-session-tree-root-id)))
-         (next-msg-num (1+ (/ context-length 2)))
-         (branch-id (jf/gptel--get-next-branch-id next-msg-num)))
+    (unless (file-exists-p context-path)
+      (user-error "Context file not found: %s" context-path))
 
-    (jf/gptel--log 'debug "branch: choice=%s, context-length=%d, parent-path=%S"
-             choice context-length parent-path)
+    (unless session-dir
+      (user-error "Could not find session root for: %s" context-path))
 
-    ;; Create new buffer with branch context
-    (jf/gptel--create-branch-buffer branch-context branch-id parent-path next-message-text)))
+    (unless metadata
+      (user-error "Could not read session metadata from: %s" session-dir))
+
+    ;; Create buffer and load context
+    (let* ((session-id (file-name-nondirectory session-dir))
+           (buffer-name (format "*gptel-%s*" session-id))
+           (buf (get-buffer-create buffer-name)))
+
+      (with-current-buffer buf
+        ;; Set up mode
+        (markdown-mode)
+        (gptel-mode 1)
+        (erase-buffer)
+
+        ;; Insert context from file
+        (insert-file-contents context-path)
+
+        ;; Set up session state
+        (setq jf/gptel--session-dir session-dir)
+        (setq jf/gptel--session-id (file-name-nondirectory session-dir))
+        (setq jf/gptel--session-metadata metadata)
+        (setq jf/gptel--current-node-path node-path)
+
+        ;; Restore backend/model from metadata
+        (jf/gptel--restore-backend-model metadata)
+
+        (goto-char (point-max))
+        (message "Resumed session %s at %s"
+                 session-id
+                 (string-join node-path "/")))
+
+      (switch-to-buffer buf))))
 #+end_src
 
-* Build Branch Candidates
+* Send Context to API
+
+Send an edited context.md file to the API to generate a response.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--build-branch-candidates (messages)
-  "Build completing-read candidates from MESSAGES list.
-Returns alist of (display-string . message-count).
-Each option represents branching BEFORE that message."
-  (let ((candidates '())
-        (count 0))
-    ;; Add option to branch before first message (fresh start)
-    (push (cons "[Beginning] - Start fresh conversation" 0) candidates)
+(defun jf/gptel-send-from-context ()
+  "Send current buffer (context.md) to API to get response.
+Buffer should contain markdown-formatted conversation history.
+Creates response node in session directory tree."
+  (interactive)
+  (unless (and jf/gptel--session-dir jf/gptel--current-node-path)
+    (user-error "No active session state. Use jf/gptel-resume-from-context first"))
 
-    ;; Add option for each message (branch before this message)
-    (while (< count (length messages))
-      (let* ((msg (nth count messages))
-             (msg-content (plist-get msg :content))
-             (msg-preview (substring msg-content 0
-                                    (min 50 (length msg-content))))
-             (msg-num (/ (+ count 2) 2)))
-        ;; Only add option if this is a message (not response)
-        (when (eq (plist-get msg :type) 'message)
-          (push (cons (format "Before message %d: \"%s...\""
-                             msg-num msg-preview)
-                      count)
-                candidates))
-        (setq count (1+ count))))
-
-    (nreverse candidates)))
+  ;; Use gptel's normal send mechanism
+  ;; The autosave hook will create the appropriate response node
+  (gptel-send))
 #+end_src
 
-* Get Next Branch ID
+* Branch from Point
+
+Create a branch by copying a node directory.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--get-next-branch-id (message-num)
-  "Get next branch ID for MESSAGE-NUM by scanning directory.
-Returns 'message-N' if no branches exist, or 'message-N-altM' for next alt."
-  (let* ((base-pattern (format "message-%d" message-num))
-         (alt-pattern (format "%s-alt\\([0-9]+\\)" base-pattern))
-         (files (directory-files jf/gptel--session-dir nil base-pattern))
-         (max-alt 0))
-    ;; Scan for existing alts
-    (dolist (file files)
-      (when (string-match alt-pattern file)
-        (let ((alt-num (string-to-number (match-string 1 file))))
-          (setq max-alt (max max-alt alt-num)))))
-    (if (> max-alt 0)
-        (format "message-%d-alt%d" message-num (1+ max-alt))
-      ;; Check if base message exists
-      (if (seq-find (lambda (f) (string-match (format "^%s\\." base-pattern) f)) files)
-          (format "message-%d-alt1" message-num)
-        (format "message-%d" message-num)))))
+(defun jf/gptel-branch-from-point ()
+  "Create a branch by copying the node at point.
+If point is on a msg-N or response-N directory, copies it to create an alt branch.
+The copied directory can then be edited before resuming."
+  (interactive)
+  (unless (derived-mode-p 'dired-mode)
+    (user-error "Must be in dired/dirvish to create branches"))
+
+  (let* ((node-dir (dired-get-filename nil t))
+         (node-name (file-name-nondirectory node-dir)))
+
+    (unless (and node-dir (file-directory-p node-dir))
+      (user-error "Point must be on a directory"))
+
+    (unless (string-match "^\\(msg\\|response\\)-\\([0-9]+\\)$" node-name)
+      (user-error "Directory must be a msg-N or response-N node"))
+
+    (let* ((parent-dir (file-name-directory (directory-file-name node-dir)))
+           (branch-name (jf/gptel--next-branch-id parent-dir node-name))
+           (branch-dir (expand-file-name branch-name parent-dir)))
+
+      ;; Copy directory
+      (copy-directory node-dir branch-dir)
+
+      ;; Refresh dired
+      (revert-buffer)
+
+      ;; Navigate to new branch
+      (goto-char (point-min))
+      (search-forward branch-name nil t)
+      (beginning-of-line)
+
+      (message "Created branch: %s (edit context.md and resume)" branch-name))))
 #+end_src
 
-* Create Branch Buffer
+* Helper Functions
+
+** Find Session Root
+
+Walk up directory tree to find session root (contains metadata.json).
 
 #+begin_src emacs-lisp
-(defun jf/gptel--create-branch-buffer (context branch-id parent-path &optional next-message-text)
-  "Create new gptel buffer with CONTEXT loaded, ready for branching at BRANCH-ID.
-If NEXT-MESSAGE-TEXT is provided, insert it as the starting prompt for editing."
-  (let* ((metadata jf/gptel--session-metadata)
-         (session-id (plist-get metadata :session_id))
-         (buffer-name (format "*gptel-%s-branch-%s*" session-id branch-id))
-         (buf (get-buffer-create buffer-name))
-         (parent-session-dir jf/gptel--session-dir))
+(defun jf/gptel--find-session-root (path)
+  "Find session root directory by walking up from PATH.
+Returns directory containing metadata.json or nil if not found."
+  (let ((current-dir (if (file-directory-p path)
+                        path
+                      (file-name-directory path))))
+    (while (and current-dir
+                (not (file-exists-p (expand-file-name "metadata.json" current-dir)))
+                (not (string= current-dir "/")))
+      (setq current-dir (file-name-directory (directory-file-name current-dir))))
+    (when (file-exists-p (expand-file-name "metadata.json" current-dir))
+      current-dir)))
+#+end_src
 
-    (with-current-buffer buf
-      ;; Set up mode
-      (markdown-mode)
-      (gptel-mode 1)
+** Determine Node Path
 
-      ;; Reconstruct conversation with proper formatting
-      (erase-buffer)
-      (jf/gptel--insert-context context t) ; t = include final prompt prefix
+Determine the node path from a context file path.
 
-      ;; If we have next message text, insert it as editable content
-      (when next-message-text
-        (insert next-message-text))
+#+begin_src emacs-lisp
+(defun jf/gptel--determine-node-path (session-dir context-file)
+  "Determine node path from SESSION-DIR to CONTEXT-FILE.
+Returns list of node names representing the path.
+Example: '(\"msg-1\" \"response-1\" \"msg-2\")"
+  (let* ((context-dir (file-name-directory context-file))
+         (rel-path (file-relative-name context-dir session-dir))
+         (path-parts (split-string rel-path "/" t)))
+    ;; Filter out current directory marker
+    (seq-filter (lambda (part) (not (string= part "."))) path-parts)))
+#+end_src
 
-      ;; Set up session state (shared with parent)
-      (setq jf/gptel--session-dir parent-session-dir)
-      (setq jf/gptel--session-metadata (copy-sequence metadata))
+** Restore Backend and Model
 
-      ;; Update current path to branch parent
-      (plist-put jf/gptel--session-metadata :current_path parent-path)
-      (jf/gptel--log 'debug "branch-buffer: set current-path=%S" parent-path)
+#+begin_src emacs-lisp
+(defun jf/gptel--restore-backend-model (metadata)
+  "Restore gptel backend and model from METADATA.
+Sets buffer-local gptel-backend and gptel-model variables."
+  (let* ((backend-name (plist-get metadata :backend))
+         (model-name (plist-get metadata :model))
+         (backend (cdr (assoc backend-name gptel--known-backends)))
+         (model (when backend
+                 (seq-find (lambda (m)
+                            (string= (gptel--model-name m) model-name))
+                          (gptel-backend-models backend)))))
+    (when backend
+      (setq-local gptel-backend backend))
+    (when model
+      (setq-local gptel-model model))
+    (when (or backend model)
+      (message "Restored: %s / %s" backend-name model-name))))
+#+end_src
 
-      ;; Set message counter for next message
-      (setq jf/gptel--message-counter (/ (length context) 2))
+* Provide Feature
 
-      ;; Mark that next message is a branch
-      (setq-local jf/gptel--branching-next t)
-      (setq-local jf/gptel--branch-id branch-id)
-
-      ;; Restore backend/model
-      (jf/gptel--restore-backend-model metadata)
-
-      (goto-char (point-max))
-      (message "Created branch at %s. Edit and send message to continue." branch-id))
-
-    ;; Display buffer
-    (switch-to-buffer buf)))
+#+begin_src emacs-lisp
+(provide 'jf/gptel-session-branching)
 #+end_src

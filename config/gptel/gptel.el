@@ -155,6 +155,9 @@ Run this after gptel-agent-update to inject skill content into agents."
 (jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
 
+;; Load filesystem utilities before other modules (registry and hooks depend on it)
+(jf/load-module (expand-file-name "config/gptel/sessions/filesystem.el" jf/emacs-dir))
+
 ;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
@@ -162,6 +165,7 @@ Run this after gptel-agent-update to inject skill content into agents."
 (jf/load-module (expand-file-name "config/gptel/sessions/hooks.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/transient.el" jf/emacs-dir))
 
 ;; Load scope system (requires session system)
 ;; Scope-aware tools check approved patterns internally and return

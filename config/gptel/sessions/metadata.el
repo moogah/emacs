@@ -5,7 +5,18 @@
 (defun jf/gptel--create-metadata (session-dir session-id model backend)
   "Create initial metadata structure for a new session.
 SESSION-DIR is the directory path, SESSION-ID is the session identifier,
-MODEL is the model symbol, BACKEND is the backend name."
+MODEL is the model symbol, BACKEND is the backend name.
+Returns simplified metadata plist for filesystem-based persistence.
+Tree structure is now represented by filesystem directories, not metadata."
+  (list :session_id session-id
+        :model (symbol-name model)
+        :backend backend
+        :created (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+
+(defun jf/gptel--create-metadata-legacy (session-dir session-id model backend)
+  "DEPRECATED: Create metadata with tree structure (old format).
+Use jf/gptel--create-metadata instead, which creates simplified metadata
+for filesystem-based persistence."
   (list :session_id session-id
         :model (symbol-name model)
         :backend backend
@@ -35,12 +46,12 @@ Returns metadata plist or nil if file doesn't exist."
       (insert (json-encode metadata)))))
 
 (defun jf/gptel--validate-metadata (metadata)
-  "Validate metadata structure. Returns t if valid, nil otherwise."
+  "Validate metadata structure. Returns t if valid, nil otherwise.
+Works with both simplified (filesystem-based) and legacy (tree-based) formats."
   (and (plist-get metadata :session_id)
        (plist-get metadata :model)
        (plist-get metadata :backend)
-       (plist-get metadata :tree)
-       (vectorp (plist-get metadata :current_path))))
+       (plist-get metadata :created)))
 
 (defun jf/gptel--add-tree-node (tree parent-path node-id node-type filename preview)
   "Add a new node to TREE at PARENT-PATH.

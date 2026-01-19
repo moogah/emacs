@@ -185,7 +185,8 @@ Wraps callback to intercept and save responses during subagent execution."
 (defun jf/gptel--autosave-session (response-start response-end)
   "Automatically save gptel session after LLM response.
 RESPONSE-START and RESPONSE-END mark the response boundaries.
-This function is added to `gptel-post-response-functions'."
+This function is added to `gptel-post-response-functions'.
+Uses filesystem-based persistence with directory tree structure."
   (when (and jf/gptel-autosave-enabled
              gptel-mode)
     (condition-case err
@@ -194,67 +195,36 @@ This function is added to `gptel-post-response-functions'."
           (unless jf/gptel--session-dir
             (jf/gptel--initialize-session))
 
-          ;; Determine message ID (branch or sequential)
-          (let* ((ext (jf/gptel--get-file-extension))
-                 (msg-id (if (bound-and-true-p jf/gptel--branching-next)
-                             ;; Use predetermined branch ID
-                             (prog1 jf/gptel--branch-id
-                               (setq jf/gptel--branching-next nil)
-                               (setq jf/gptel--branch-id nil))
-                           ;; Normal sequential ID
-                           (progn
-                             (setq jf/gptel--message-counter (1+ jf/gptel--message-counter))
-                             (format "message-%d" jf/gptel--message-counter))))
-                 ;; Response ID matches message number
-                 (resp-id (replace-regexp-in-string "message-" "response-" msg-id))
-                 (msg-file (format "%s.%s" msg-id ext))
-                 (resp-file (format "%s.%s" resp-id ext))
-                 ;; For now, extract the last message and response
-                 ;; TODO: Improve to extract exact content
-                 (message-content (jf/gptel--extract-last-message response-start))
-                 (response-content (buffer-substring response-start response-end))
-                 (msg-preview (substring message-content 0 (min 80 (length message-content))))
-                 (resp-preview (substring response-content 0 (min 80 (length response-content)))))
+          ;; Create message node (extracts history up to response-start)
+          (let ((msg-id (jf/gptel--create-message-node
+                        jf/gptel--session-dir
+                        jf/gptel--current-node-path
+                        response-start)))
+            ;; Update node path to include new message
+            (setq jf/gptel--current-node-path
+                  (append jf/gptel--current-node-path (list msg-id)))
 
-            ;; Save message file
-            (with-temp-file (expand-file-name msg-file jf/gptel--session-dir)
-              (insert message-content))
+            ;; Update current symlink to point to message
+            (jf/gptel--update-current-symlink
+             jf/gptel--session-dir
+             jf/gptel--current-node-path)
 
-            ;; Save response file
-            (with-temp-file (expand-file-name resp-file jf/gptel--session-dir)
-              (insert response-content))
+            ;; Create response node (extracts full history including response)
+            (let ((resp-id (jf/gptel--create-response-node
+                           jf/gptel--session-dir
+                           jf/gptel--current-node-path)))
+              ;; Update node path to include response
+              (setq jf/gptel--current-node-path
+                    (append jf/gptel--current-node-path (list resp-id)))
 
-            ;; Sync buffer-local metadata FROM registry (get latest with traces)
-            (when jf/gptel--session-id
-              (when-let ((session-data (jf/gptel--get-session-data jf/gptel--session-id)))
-                (setq jf/gptel--session-metadata (plist-get session-data :metadata))))
+              ;; Update current symlink to point to response
+              (jf/gptel--update-current-symlink
+               jf/gptel--session-dir
+               jf/gptel--current-node-path)
 
-            ;; Update metadata tree (uses buffer-local metadata, which now has traces)
-            (jf/gptel--update-metadata-tree msg-id msg-file msg-preview
-                                            resp-id resp-file resp-preview)
-
-            ;; Sync registry with updated buffer-local (has both tree + traces)
-            (when jf/gptel--session-id
-              (jf/gptel--update-session-data jf/gptel--session-id :metadata
-                                             jf/gptel--session-metadata))
-
-            ;; Link any completed traces to this message/response
-            (when jf/gptel--session-id
-              (when-let* ((session-data (jf/gptel--get-session-data jf/gptel--session-id))
-                          (metadata (plist-get session-data :metadata))
-                          (traces (plist-get metadata :agent_traces)))
-                (dolist (trace (append traces nil))  ; Convert vector to list
-                  (when (and (equal (plist-get trace :status) "completed")
-                             (null (plist-get trace :associated_nodes)))
-                    ;; This trace just completed, associate it
-                    (plist-put trace :associated_nodes (vector msg-id resp-id))))
-                ;; Write updated metadata
-                (let ((session-dir (plist-get session-data :directory)))
-                  (jf/gptel--write-metadata session-dir metadata))))
-
-            (message "Session saved: %s/%s"
-                     (file-name-nondirectory jf/gptel--session-dir)
-                     resp-file)))
+              (message "Session saved: %s at %s"
+                       jf/gptel--session-id
+                       (string-join jf/gptel--current-node-path "/")))))
       (file-error
        (message "gptel autosave failed: %s" (error-message-string err)))
       (error

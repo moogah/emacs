@@ -510,6 +510,113 @@ When contributing changes:
 4. Commit both `.org` and `.el` files
 5. Include clear commit messages
 
+## GPTEL Session Browser
+
+This configuration includes a **filesystem-based session browser** for gptel (LLM) conversations.
+
+### Features
+
+✅ **Filesystem-Native Storage** - Sessions stored as directory trees
+✅ **Complete History** - Each node contains full conversation context
+✅ **Easy Branching** - Try different conversation paths
+✅ **Standard Tools** - Browse with dired/dirvish
+✅ **Plain Markdown** - All content is human-readable
+✅ **Git-Friendly** - Version control your conversations
+
+### Quick Start
+
+```elisp
+;; Start a conversation
+SPC l                          (jf/gptel-launcher)
+
+;; Browse saved sessions
+M-x jf/gptel-browse-sessions   Opens sessions directory in dired
+
+;; Show all commands (transient menu)
+?                              Discoverable menu with all operations
+
+;; Quick keybindings (when in session browser)
+v                              View context.md for node at point
+t                              View tools.md for node at point
+r                              Resume conversation from this point
+b                              Branch: create alternate conversation path
+o                              Open specific session (completing-read)
+p                              Show current position in active session
+q                              Quit window
+```
+
+### Directory Structure
+
+```
+~/gptel-sessions/
+└── SESSION-ID/
+    ├── current -> msg-1/.../context.md
+    ├── metadata.json
+    └── msg-1/
+        ├── context.md           # Complete conversation to this point
+        └── response-1/
+            ├── context.md
+            └── msg-2/
+                ├── context.md   # Continues down the tree
+                └── msg-2-alt1/  # Branch (alternate path)
+```
+
+### Key Concepts
+
+**Each directory is a conversation node** - Navigate the tree structure to explore different conversation paths
+
+**context.md contains complete history** - Self-contained, can be fed back to any LLM
+
+**Branches are copies** - Create alternative conversation paths by copying node directories
+
+**Three Core Operations**:
+1. **View** (`v`) - Browse conversation history (read-only)
+2. **Resume** (`r`) - Load context into gptel buffer to continue
+3. **Branch** (`b`) - Copy node to create alternate path
+
+**Discoverable Interface**:
+- Press `?` in the session browser to see the **transient menu** with all available commands
+- Menu shows context-aware information (current session, node type, session count)
+- Commands organized into logical groups (Browse, View, Actions)
+
+### Documentation
+
+See **[config/gptel/sessions/USAGE.md](config/gptel/sessions/USAGE.md)** for:
+- Detailed workflows with flowcharts
+- Step-by-step instructions
+- Complete keybinding reference
+- Troubleshooting guide
+- Advanced usage examples
+
+### Architecture
+
+The session browser consists of seven modules:
+
+```
+filesystem.el  → Core directory/file operations
+registry.el    → Session state tracking
+metadata.el    → Session metadata storage
+tracing.el     → Agent execution tracing
+hooks.el       → Auto-save integration
+    ↓
+browser.el     → Navigation and viewing (dired integration)
+branching.el   → Resume and branch operations
+transient.el   → Transient menu (discoverable commands)
+```
+
+All modules use **literate programming** - source in `.org` files, tangled to `.el`.
+
+**Phase 4 (Current - Alpha):**
+- Transient menu with `?` key for discoverable commands
+- Simple dired-based navigation
+- Single-key bindings (v, t, r, b, o, p, q)
+- Session tree mode auto-enables in session directories
+
+**Future Enhancements:**
+- Persistent side window (dirvish-side style)
+- Auto-preview that updates as you navigate
+- Additional filtering and sorting options
+
 ## License
 
 This configuration is personal and unlicensed. Feel free to fork and adapt for your own use.

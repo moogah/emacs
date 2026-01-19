@@ -246,7 +246,7 @@ Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
 ```
 gptel/
 ├── gptel.org/el         - Main loader
-├── sessions/            - 6 modules (registry, metadata, tracing, hooks, browser, branching)
+├── sessions/            - 7 modules (registry, metadata, tracing, hooks, browser, branching, transient)
 ├── skills/              - 3 modules (skills-core, skills-roam, skills-transient)
 ├── tools/               - 7 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community)
 └── agents/              - 5 agent definitions (.md files)
@@ -255,12 +255,31 @@ gptel/
 **Load order enforced in gptel.org:**
 1. Skills system (core, roam, transient)
 2. gptel-agent package + tool definitions
-3. Session modules in dependency order (registry → metadata → tracing → hooks → browser/branching)
+3. Session modules in dependency order (registry → metadata → tracing → hooks → browser → branching → transient)
 
 **All paths use `config/` prefix:**
 ```elisp
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 ```
+
+#### Session Browser Module Details
+
+**sessions/browser.el** - Core browsing functionality
+- `jf/gptel-browse-sessions` - Open sessions directory in dired
+- `jf/gptel-open-session` - Select specific session with completing-read
+- `jf/gptel-view-context-at-point` - View context.md files
+- `jf/gptel-view-tools-at-point` - View tools.md files
+- `jf/gptel-session-tree-mode` - Minor mode with keybindings (auto-enabled in session directories)
+
+**sessions/transient.el** - Transient menu (press `?` in session browser)
+- Organized command groups: Browse, View, Actions
+- Context-aware info display (current session, node type, session count)
+- Discoverable interface for all session operations
+
+**sessions/branching.el** - Resume and branch operations
+- `jf/gptel-resume-from-context` - Load context into gptel buffer
+- `jf/gptel-branch-from-point` - Copy node to create alternate path
+- `jf/gptel-send-from-context` - Send edited context to API
 
 ## Common Development Commands
 

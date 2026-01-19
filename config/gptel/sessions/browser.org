@@ -5,17 +5,14 @@
 
 * Introduction
 
-The session browser allows you to:
-- List all saved gptel sessions
-- View session branches (leaf nodes) from the conversation tree
-- Select and restore a session to continue the conversation
-- Reconstruct the full conversation history from disk
+The session browser provides simple navigation and browsing for filesystem-based gptel sessions.
+Uses standard dired with custom keybindings, transient menu, and preview functionality.
 
 This module provides:
-- Session discovery and listing
-- Branch selection interface
-- Conversation reconstruction from saved files
-- Session state restoration (backend, model, metadata)
+- Session listing and selection
+- Context file viewing with preview
+- Current position tracking
+- Transient menu for discoverable commands
 
 * Lexical Binding
 
@@ -24,219 +21,193 @@ This module provides:
 (require 'cl-lib)
 #+end_src
 
-* Browse Sessions Command
+* Browse Sessions
+
+Open the sessions directory in dired.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-browse-sessions ()
-  "Browse and open saved gptel sessions from directory.
-Shows leaf nodes (endpoints) of each branch."
+  "Browse saved gptel sessions in dired.
+Opens the sessions directory where each subdirectory is a session."
+  (interactive)
+  (let ((sessions-dir (expand-file-name jf/gptel-sessions-directory)))
+    (unless (file-directory-p sessions-dir)
+      (make-directory sessions-dir t))
+    (dired sessions-dir)
+    (message "Session browser: Navigate with arrows/hjkl, press ? for commands")))
+#+end_src
+
+* Open Specific Session
+
+Select a session from completing-read and navigate to it.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-open-session ()
+  "Select and open a specific gptel session.
+Provides completing-read interface to choose from available sessions."
   (interactive)
   (let* ((sessions-dir (expand-file-name jf/gptel-sessions-directory))
          (session-dirs (when (file-directory-p sessions-dir)
-                         (seq-filter #'file-directory-p
-                                    (directory-files sessions-dir t "^[^.]"))))
-         (candidates (jf/gptel--build-session-candidates session-dirs)))
-
-    (jf/gptel--log 'debug "browse: candidates=%S" candidates)
-    (jf/gptel--log 'debug "browse: candidates type=%s" (type-of candidates))
-
+                        (seq-filter
+                         (lambda (f)
+                           (and (file-directory-p (expand-file-name f sessions-dir))
+                                (not (string-prefix-p "." f))))
+                         (directory-files sessions-dir))))
+         (candidates (mapcar
+                     (lambda (dirname)
+                       (let* ((full-path (expand-file-name dirname sessions-dir))
+                              (metadata (jf/gptel--read-metadata full-path))
+                              (model (if metadata
+                                       (plist-get metadata :model)
+                                     "unknown"))
+                              (created (if metadata
+                                         (plist-get metadata :created)
+                                       "unknown")))
+                         (cons (format "%-30s  [%s] %s" dirname model created)
+                               full-path)))
+                     session-dirs)))
     (if (null candidates)
         (message "No gptel sessions found in %s" sessions-dir)
-      (let* ((choice-list (mapcar #'car candidates)))
-        (jf/gptel--log 'debug "browse: choice-list=%S" choice-list)
-        (let* ((choice (completing-read "Open session branch: " choice-list nil t))
-               (session-info (cdr (assoc choice candidates))))
-          (jf/gptel--log 'debug "browse: selected=%s, info=%S" choice session-info)
-          (jf/gptel--open-session-branch session-info))))))
+      (let* ((choice (completing-read "Open session: " (mapcar #'car candidates) nil t))
+             (session-path (cdr (assoc choice candidates))))
+        (dired session-path)
+        (message "Opened session: %s" (file-name-nondirectory session-path))))))
 #+end_src
 
-* Build Session Candidates
+* Show Current Position
+
+Navigate to the current symlink in the active session.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--build-session-candidates (session-dirs)
-  "Build list of session branch candidates from SESSION-DIRS.
-Returns alist of (display-string . (session-dir path leaf-node))."
-  (let (candidates)
-    (dolist (dir session-dirs)
-      (let ((metadata (jf/gptel--read-metadata dir)))
-        (when metadata
-          (let* ((tree (plist-get metadata :tree))
-                 (leaves (jf/gptel--find-leaf-nodes tree))
-                 (session-id (plist-get metadata :session_id)))
-            ;; Add candidate for each leaf
-            (dolist (leaf leaves)
-              (let* ((path (car leaf))
-                     (node (cdr leaf))
-                     (depth (1- (length path))) ; subtract root
-                     (last-id (aref path (1- (length path))))
-                     (is-alt (string-match "alt\\([0-9]+\\)" (format "%s" last-id)))
-                     (branch-label (if is-alt
-                                      (format " [alt%s, depth:%d]"
-                                             (match-string 1 (format "%s" last-id))
-                                             depth)
-                                    (format " [main, depth:%d]" depth)))
-                     (preview (plist-get node :preview))
-                     (display (format "%-35s %-20s | %s"
-                                     session-id
-                                     branch-label
-                                     (if preview
-                                         (substring preview 0 (min 60 (length preview)))
-                                       "..."))))
-                (push (cons display (list :dir dir :path path :node node))
-                      candidates)))))))
-    (nreverse candidates)))
+(defun jf/gptel-show-current-position ()
+  "Navigate to current conversation position in session directory.
+Follows the 'current' symlink to show the active node in the tree."
+  (interactive)
+  (if (not jf/gptel--session-dir)
+      (message "No active gptel session in this buffer")
+    (let ((current-link (expand-file-name "current" jf/gptel--session-dir)))
+      (if (not (file-symlink-p current-link))
+          (message "No current position marker found")
+        (let ((target (file-truename current-link)))
+          (dired (file-name-directory target))
+          (goto-char (point-min))
+          (search-forward (file-name-nondirectory target) nil t)
+          (beginning-of-line))))))
 #+end_src
 
-* Open Session Branch
+* View Context at Point
+
+View the context.md file at point.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--open-session-branch (session-info)
-  "Open a session branch and reconstruct conversation.
-SESSION-INFO is a plist with :dir, :path, and :node."
-  (let* ((dir (plist-get session-info :dir))
-         (path (plist-get session-info :path))
-         (metadata (jf/gptel--read-metadata dir))
-         (tree (plist-get metadata :tree)))
-    ;; Reconstruct conversation from root to this leaf
-    (jf/gptel--reconstruct-conversation dir tree path)))
+(defun jf/gptel-view-context-at-point ()
+  "View context.md file in the directory at point.
+If point is on a msg-N or response-N directory, opens its context.md file."
+  (interactive)
+  (let* ((file-at-point (dired-get-filename nil t))
+         (context-file (if (and file-at-point (file-directory-p file-at-point))
+                          (expand-file-name "context.md" file-at-point)
+                        file-at-point)))
+    (if (and context-file (file-exists-p context-file))
+        (progn
+          (find-file-other-window context-file)
+          (view-mode 1)
+          (goto-char (point-min))
+          (message "Viewing context: %s" (file-name-nondirectory (file-name-directory context-file))))
+      (message "No context.md file found at point"))))
 #+end_src
 
-* Reconstruct Conversation
+* View Tools at Point
+
+View the tools.md file at point.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--reconstruct-conversation (session-dir tree path)
-  "Reconstruct conversation from root to PATH endpoint in TREE."
-  (let* ((metadata (jf/gptel--read-metadata session-dir))
-         (session-id (plist-get metadata :session_id))
-         (buffer-name (format "*gptel-%s*" session-id))
-         (context (jf/gptel--load-context-from-path session-dir tree path)))
-
-    (let ((buf (get-buffer-create buffer-name)))
-      (with-current-buffer buf
-        (markdown-mode)
-        (gptel-mode 1)
-        (erase-buffer)
-
-        ;; Insert conversation with final prompt
-        (jf/gptel--insert-context context t)
-
-        ;; Set up session state
-        (setq jf/gptel--session-dir session-dir)
-        (setq jf/gptel--session-metadata metadata)
-        (plist-put jf/gptel--session-metadata :current_path path)
-        (jf/gptel--write-metadata session-dir jf/gptel--session-metadata)
-
-        ;; Set counter from path depth
-        (setq jf/gptel--message-counter (/ (length context) 2))
-
-        ;; Restore backend/model
-        (jf/gptel--restore-backend-model metadata)
-
-        (goto-char (point-max)))
-
-      (switch-to-buffer buf)
-      (message "Loaded session: %s" session-id))))
+(defun jf/gptel-view-tools-at-point ()
+  "View tools.md file in the directory at point.
+If point is on a msg-N or response-N directory with tools.md, opens it."
+  (interactive)
+  (let* ((file-at-point (dired-get-filename nil t))
+         (tools-file (if (and file-at-point (file-directory-p file-at-point))
+                        (expand-file-name "tools.md" file-at-point)
+                      nil)))
+    (if (and tools-file (file-exists-p tools-file))
+        (progn
+          (find-file-other-window tools-file)
+          (view-mode 1)
+          (goto-char (point-min))
+          (message "Viewing tools: %s" (file-name-nondirectory (file-name-directory tools-file))))
+      (message "No tools.md file found at point"))))
 #+end_src
 
-* Load Context from Path
+* Session Tree Mode
+
+Minor mode for navigating gptel session directories with custom keybindings.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--load-context-from-path (session-dir tree path)
-  "Load message/response pairs from SESSION-DIR following PATH in TREE.
-Returns list of plists suitable for jf/gptel--insert-context."
-  (let ((context '())
-        (node tree))
-    ;; Walk path (skip root at index 0)
-    (cl-loop for i from 1 below (length path)
-             for target-id = (aref path i)
-             do
-             (let ((children (plist-get node :children)))
-               ;; Find matching child
-               (setq node
-                     (seq-find (lambda (child)
-                                 (equal (plist-get child :id) target-id))
-                               children))
-               (when node
-                 (let* ((file (plist-get node :file))
-                        (type (intern (plist-get node :type)))
-                        (full-path (expand-file-name file session-dir))
-                        (content (when (file-exists-p full-path)
-                                  (with-temp-buffer
-                                    (insert-file-contents full-path)
-                                    (buffer-string)))))
-                   (when content
-                     (push (list :type type :content content) context))))))
-    (nreverse context)))
+(defvar jf/gptel-session-tree-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "?") #'jf/gptel-session-browser-menu)
+    (define-key map (kbd "v") #'jf/gptel-view-context-at-point)
+    (define-key map (kbd "t") #'jf/gptel-view-tools-at-point)
+    (define-key map (kbd "p") #'jf/gptel-show-current-position)
+    (define-key map (kbd "r") #'jf/gptel-resume-from-context)
+    (define-key map (kbd "b") #'jf/gptel-branch-from-point)
+    (define-key map (kbd "o") #'jf/gptel-open-session)
+    (define-key map (kbd "q") #'quit-window)
+    map)
+  "Keymap for gptel-session-tree-mode.")
+
+(define-minor-mode jf/gptel-session-tree-mode
+  "Minor mode for navigating gptel session trees.
+Provides keybindings for viewing context files and navigating conversation trees.
+
+\\{jf/gptel-session-tree-mode-map}"
+  :lighter " GPTel-Tree"
+  :keymap jf/gptel-session-tree-mode-map)
 #+end_src
 
-* Context Helpers
+* Auto-Enable Session Tree Mode
 
-** Insert Context
+Automatically enable session tree mode when browsing gptel sessions.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--insert-context (context &optional include-final-prompt)
-  "Insert CONTEXT (list of message/response plists) with proper formatting.
-Adds text properties, prefixes, and separators.
-If INCLUDE-FINAL-PROMPT is non-nil, adds a final prompt prefix for user input."
-  (let ((prompt-prefix (gptel-prompt-prefix-string))
-        (response-prefix (gptel-response-prefix-string))
-        (separator gptel-response-separator))
-    (dolist (item context)
-      (let* ((type (plist-get item :type))
-             (content (plist-get item :content))
-             (is-response (eq type 'response))
-             (prefix (if is-response response-prefix prompt-prefix))
-             (start-pos (point)))
+(defun jf/gptel--enable-tree-mode-if-session-dir ()
+  "Enable gptel-session-tree-mode if current directory is a gptel session."
+  (when (and (derived-mode-p 'dired-mode)
+             (string-prefix-p (expand-file-name jf/gptel-sessions-directory)
+                            default-directory))
+    (jf/gptel-session-tree-mode 1)))
 
-        ;; Insert separator before responses
-        (when is-response
-          (insert separator))
-
-        ;; Insert prefix and content
-        (insert prefix content "\n")
-
-        ;; Add text properties for responses
-        (when is-response
-          (add-text-properties start-pos (point)
-                              '(gptel response rear-nonsticky t)))))
-
-    ;; Add final prompt prefix if requested
-    (when include-final-prompt
-      (insert "\n\n" prompt-prefix))))
+;; Hook into dired-mode
+(add-hook 'dired-mode-hook #'jf/gptel--enable-tree-mode-if-session-dir)
 #+end_src
 
-** Restore Backend and Model
+* Helper Functions
+
+** Is Session Directory
 
 #+begin_src emacs-lisp
-(defun jf/gptel--restore-backend-model (metadata)
-  "Restore backend and model from METADATA."
-  (let ((backend-name (plist-get metadata :backend))
-        (model-name (plist-get metadata :model)))
-
-    ;; Restore backend
-    (when backend-name
-      (let ((backend (alist-get backend-name gptel--known-backends
-                               nil nil #'equal)))
-        (when backend
-          (setq-local gptel-backend backend))))
-
-    ;; Restore model (convert string to symbol)
-    (when model-name
-      (setq-local gptel-model (intern model-name)))))
+(defun jf/gptel--is-session-directory-p (dir)
+  "Return t if DIR is a gptel session directory.
+Checks for presence of metadata.json file."
+  (file-exists-p (expand-file-name "metadata.json" dir)))
 #+end_src
 
-** Get Session Context
+** Get Session Info
 
 #+begin_src emacs-lisp
-(defun jf/gptel--get-session-context ()
-  "Extract gptel session context from current buffer.
-Returns plist with :session-id, :model, :backend, :agent-name, :timestamp.
-Returns nil if not in a gptel session."
-  (when (and gptel-mode jf/gptel--session-dir)
-    (list :session-id (when jf/gptel--session-metadata
-                        (plist-get jf/gptel--session-metadata :session_id))
-          :model (when gptel-model (symbol-name gptel-model))
-          :backend (when gptel-backend (gptel-backend-name gptel-backend))
-          :agent-name jf/gptel--agent-name
-          :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))))
+(defun jf/gptel--get-session-info (session-dir)
+  "Get session information from SESSION-DIR.
+Returns plist with :id, :model, :backend, :created."
+  (when-let ((metadata (jf/gptel--read-metadata session-dir)))
+    (list :id (file-name-nondirectory session-dir)
+          :model (plist-get metadata :model)
+          :backend (plist-get metadata :backend)
+          :created (plist-get metadata :created))))
+#+end_src
+
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'jf/gptel-session-browser)
 #+end_src

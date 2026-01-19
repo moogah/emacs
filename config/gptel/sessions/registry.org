@@ -318,29 +318,28 @@ Format: TIMESTAMP-MODELNAME"
   "Initialize a new session directory, metadata, and register in global registry.
 Session ID is generated first and used as directory name for consistency."
   (let* ((session-id (jf/gptel--generate-session-id))
-         ;; Use session-id as directory name for consistency
-         (dirname session-id)
-         (sessions-base (expand-file-name jf/gptel-sessions-directory))
-         (session-dir (expand-file-name dirname sessions-base))
-         (backend-name (gptel-backend-name gptel-backend)))
-    ;; Create session directory
-    (make-directory session-dir t)
+         (backend-name (gptel-backend-name gptel-backend))
+         ;; Create simplified metadata for filesystem format
+         (metadata (list :model gptel-model
+                        :backend backend-name
+                        :created (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+         ;; Create session directory using new filesystem function
+         (session-dir (jf/gptel--create-session-directory session-id metadata)))
 
-    ;; Create initial metadata with session-id
-    (setq jf/gptel--session-metadata
-          (jf/gptel--create-metadata session-dir session-id gptel-model backend-name))
-
-    ;; Write metadata
-    (jf/gptel--write-metadata session-dir jf/gptel--session-metadata)
+    ;; Store metadata in buffer-local variable for compatibility
+    (setq jf/gptel--session-metadata metadata)
 
     ;; Register in global registry with pre-generated session-id
-    (jf/gptel--register-session session-dir jf/gptel--session-metadata
+    (jf/gptel--register-session session-dir metadata
                                 (current-buffer) session-id)
 
     ;; Store session-id as buffer-local variable
     (setq jf/gptel--session-id session-id)
     ;; Keep old vars for backwards compatibility
     (setq jf/gptel--session-dir session-dir)
+
+    ;; Initialize node path tracking (empty at session start)
+    (setq jf/gptel--current-node-path nil)
 
     (message "Created session: %s" session-id)))
 #+end_src
@@ -375,4 +374,10 @@ DEPRECATED: Kept for backwards compatibility. Use registry lookup instead.")
 (defvar-local jf/gptel--agent-name nil
   "Name of the agent currently active in this buffer.
 Set when delegating to a subagent via gptel-agent.")
+
+(defvar-local jf/gptel--current-node-path nil
+  "Current path in the conversation tree.
+List of node names from root to current position.
+Example: '(\"msg-1\" \"response-1\" \"msg-2\" \"response-2\")
+This tracks the active branch for filesystem-based persistence.")
 #+end_src
