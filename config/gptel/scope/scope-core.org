@@ -68,60 +68,12 @@ Load and parse the YAML scope plan for a session.
 Note: Session directory lookups work differently depending on whether the session is in the in-memory registry or needs to be found on disk.
 
 #+begin_src elisp
-(defun jf/gptel-scope--find-session-dir (session-id)
-  "Find session directory for SESSION-ID.
-First tries registry (in-memory), then falls back to disk lookup.
-
-SESSION-ID can be either:
-- Registry ID (short format): '20260119114629-aaed'
-- Directory name (full format): '20260119-114629-claude-opus-4-5-20251101'
-
-The function tries both formats to handle all cases."
-  (or
-   ;; Try registry first (fast, works for current session)
-   (when-let ((session-data (jf/gptel--get-session-data session-id)))
-     (plist-get session-data :directory))
-
-   ;; Try direct directory lookup (session-id might BE the dirname)
-   (let ((dir-path (expand-file-name session-id jf/gptel-sessions-directory)))
-     (when (file-directory-p dir-path)
-       dir-path))
-
-   ;; Fall back to searching all session directories
-   ;; Needed when session-id is registry ID but registry is empty (after restart)
-   (let ((sessions-base (expand-file-name jf/gptel-sessions-directory))
-         (found-dir nil))
-     (when (file-directory-p sessions-base)
-       ;; Match directories like: 20260119-114629-claude-opus-4-5-20251101
-       (dolist (dirname (directory-files sessions-base nil "^[0-9]\\{8\\}-[0-9]\\{6\\}-"))
-         (unless found-dir
-           (let* ((dir-path (expand-file-name dirname sessions-base))
-                  (metadata-file (expand-file-name "metadata.json" dir-path)))
-             (when (file-exists-p metadata-file)
-               (condition-case nil
-                   (let* ((json-object-type 'plist)
-                          (json-array-type 'vector)
-                          (json-key-type 'keyword)
-                          (metadata (json-read-file metadata-file))
-                          (meta-session-id (plist-get metadata :session_id)))
-                     ;; Match against metadata session_id
-                     ;; Handle two ID formats:
-                     ;; - Registry format: "20260119114629-aaed" (YYYYMMDDHHmmss-RRRR)
-                     ;; - Directory format: "20260119-114629-..." (YYYYMMDD-HHmmss-model)
-                     (when (or (string= meta-session-id session-id)
-                               ;; If session-id is registry format, convert to directory prefix
-                               (and (string-match "^\\([0-9]\\{8\\}\\)\\([0-9]\\{6\\}\\)-[0-9a-f]\\{4\\}$" session-id)
-                                    (let ((dir-prefix (concat (match-string 1 session-id) "-" (match-string 2 session-id))))
-                                      (string-prefix-p dir-prefix meta-session-id))))
-                       (setq found-dir dir-path)))
-                 (error nil)))))))
-     found-dir)))
-
 (defun jf/gptel-scope--load-plan (session-id)
   "Load scope plan for SESSION-ID from session directory.
 Returns parsed plan as plist or nil if not found."
   (condition-case err
-      (when-let ((session-dir (jf/gptel-scope--find-session-dir session-id)))
+      (when-let* ((session (jf/gptel-session-find session-id))
+                  (session-dir (plist-get session :directory)))
         (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
           (when (file-exists-p plan-file)
             (with-temp-buffer
@@ -140,7 +92,8 @@ Write updated scope plan back to YAML file.
 (defun jf/gptel-scope--save-plan (session-id plan)
   "Save PLAN for SESSION-ID to session directory.
 Updates timestamp and writes formatted YAML."
-  (when-let ((session-dir (jf/gptel-scope--find-session-dir session-id)))
+  (when-let* ((session (jf/gptel-session-find session-id))
+              (session-dir (plist-get session :directory)))
     (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
       ;; Update timestamp
       (plist-put plan :updated (format-time-string "%Y-%m-%dT%H:%M:%SZ"))

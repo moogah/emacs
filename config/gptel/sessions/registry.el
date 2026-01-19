@@ -112,6 +112,66 @@ This property enables subagents running in separate buffers to access
 the parent session's context via registry lookup."
   (overlay-put overlay 'jf/session-id session-id))
 
+(defun jf/gptel-session-find (id-or-dirname)
+  "Find session by ID or directory name.
+Returns plist with :id, :directory, and :metadata on success, nil otherwise.
+
+ID-OR-DIRNAME can be:
+- Registry session ID (e.g., \"20260119114629-aaed\")
+- Directory name (e.g., \"20260119-114629-claude-opus-4-5-20251101\")
+- Absolute directory path
+
+Lookup strategy:
+1. Check in-memory registry (fast, works for current sessions)
+2. Try as direct directory path
+3. Search all session directories and match by session_id in metadata
+
+This handles sessions that exist on disk but not in registry
+(e.g., after Emacs restart)."
+  (or
+   ;; Strategy 1: Try registry first (fast, works for current session)
+   (when-let ((session-data (jf/gptel--get-session-data id-or-dirname)))
+     (list :id id-or-dirname
+           :directory (plist-get session-data :directory)
+           :metadata (plist-get session-data :metadata)))
+
+   ;; Strategy 2: Try as direct directory path
+   (let ((dir-path (if (file-name-absolute-p id-or-dirname)
+                       id-or-dirname
+                     (expand-file-name id-or-dirname
+                                       (expand-file-name jf/gptel-sessions-directory)))))
+     (when (file-directory-p dir-path)
+       (when-let ((metadata (jf/gptel--read-metadata dir-path)))
+         (list :id (plist-get metadata :session_id)
+               :directory dir-path
+               :metadata metadata))))
+
+   ;; Strategy 3: Search all session directories
+   (let ((sessions-base (expand-file-name jf/gptel-sessions-directory))
+         (found nil))
+     (when (file-directory-p sessions-base)
+       ;; Match directories like: 20260119-114629-claude-opus-4-5-20251101
+       (dolist (dirname (directory-files sessions-base nil "^[0-9]\\{8\\}-[0-9]\\{6\\}-"))
+         (unless found
+           (let ((dir-path (expand-file-name dirname sessions-base)))
+             (when-let ((metadata (jf/gptel--read-metadata dir-path)))
+               (let ((meta-session-id (plist-get metadata :session_id)))
+                 ;; Match against metadata session_id
+                 ;; Handle two ID formats:
+                 ;; - Registry format: "20260119114629-aaed" (YYYYMMDDHHmmss-RRRR)
+                 ;; - Directory format: "20260119-114629-..." (YYYYMMDD-HHmmss-model)
+                 (when (or (string= meta-session-id id-or-dirname)
+                           ;; If id-or-dirname is registry format, convert to directory prefix
+                           (and (string-match "^\\([0-9]\\{8\\}\\)\\([0-9]\\{6\\}\\)-[0-9a-f]\\{4\\}$" id-or-dirname)
+                                (let ((dir-prefix (concat (match-string 1 id-or-dirname)
+                                                         "-"
+                                                         (match-string 2 id-or-dirname))))
+                                  (string-prefix-p dir-prefix meta-session-id))))
+                   (setq found (list :id meta-session-id
+                                     :directory dir-path
+                                     :metadata metadata)))))))))
+     found)))
+
 (defun jf/gptel--sanitize-model-name (model)
   "Sanitize MODEL symbol for use in filename.
 Converts to lowercase, replaces special chars with hyphens."
