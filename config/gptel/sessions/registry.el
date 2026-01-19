@@ -35,9 +35,11 @@ session context via session-id lookup.")
   "Generate unique session ID using timestamp and random component."
   (format "%s-%04x" (format-time-string "%Y%m%d%H%M%S") (random 65536)))
 
-(defun jf/gptel--register-session (session-dir session-metadata parent-buffer)
-  "Register new session in global registry. Returns session-id."
-  (let ((session-id (jf/gptel--generate-session-id)))
+(defun jf/gptel--register-session (session-dir session-metadata parent-buffer &optional session-id)
+  "Register new session in global registry. Returns session-id.
+If SESSION-ID is provided, use it; otherwise generate a new one.
+This allows callers to provide their own session IDs (e.g., activity-based sessions)."
+  (let ((session-id (or session-id (jf/gptel--generate-session-id))))
     (puthash session-id
              (list :directory session-dir
                    :metadata session-metadata
@@ -197,30 +199,34 @@ Format: TIMESTAMP-MODELNAME"
    (t "txt")))
 
 (defun jf/gptel--initialize-session ()
-  "Initialize a new session directory, metadata, and register in global registry."
-  (let* ((dirname (jf/gptel--generate-session-dirname))
+  "Initialize a new session directory, metadata, and register in global registry.
+Session ID is generated first and used as directory name for consistency."
+  (let* ((session-id (jf/gptel--generate-session-id))
+         ;; Use session-id as directory name for consistency
+         (dirname session-id)
          (sessions-base (expand-file-name jf/gptel-sessions-directory))
          (session-dir (expand-file-name dirname sessions-base))
          (backend-name (gptel-backend-name gptel-backend)))
     ;; Create session directory
     (make-directory session-dir t)
 
-    ;; Create initial metadata (now includes :agent_traces [])
+    ;; Create initial metadata with session-id
     (setq jf/gptel--session-metadata
-          (jf/gptel--create-metadata session-dir dirname gptel-model backend-name))
+          (jf/gptel--create-metadata session-dir session-id gptel-model backend-name))
 
     ;; Write metadata
     (jf/gptel--write-metadata session-dir jf/gptel--session-metadata)
 
-    ;; Register in global registry
-    (let ((session-id (jf/gptel--register-session session-dir jf/gptel--session-metadata
-                                                  (current-buffer))))
-      ;; Store session-id as buffer-local variable
-      (setq jf/gptel--session-id session-id)
-      ;; Keep old vars for backwards compatibility
-      (setq jf/gptel--session-dir session-dir)
+    ;; Register in global registry with pre-generated session-id
+    (jf/gptel--register-session session-dir jf/gptel--session-metadata
+                                (current-buffer) session-id)
 
-      (message "Created session: %s (ID: %s)" dirname session-id))))
+    ;; Store session-id as buffer-local variable
+    (setq jf/gptel--session-id session-id)
+    ;; Keep old vars for backwards compatibility
+    (setq jf/gptel--session-dir session-dir)
+
+    (message "Created session: %s" session-id)))
 
 ;; Buffer-local variables to track session state
 ;; NOTE: Only session-id is buffer-local now. All other state lives in global registry.

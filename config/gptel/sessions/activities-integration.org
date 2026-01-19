@@ -172,8 +172,11 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                    (activities-ext--slugify activity-name)
                  (replace-regexp-in-string "[^a-z0-9-]" "-"
                                           (downcase activity-name))))
-         (timestamp (format-time-string "%Y%m%d-%H%M%S"))
-         (dirname (format "%s-%s" slug timestamp))
+         (timestamp (format-time-string "%Y%m%d%H%M%S"))
+         ;; Session ID is activity slug + timestamp (no hyphens for consistency)
+         (session-id (format "%s-%s" slug timestamp))
+         ;; Directory name is the same as session ID
+         (dirname session-id)
          (session-dir (expand-file-name dirname
                                        (expand-file-name jf/gptel-sessions-directory)))
          (session-file (expand-file-name "session.org" session-dir))
@@ -183,31 +186,31 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
 
     ;; Create session directory
     (make-directory session-dir t)
-    (jf/gptel--log 'info "Created session directory: %s" session-dir)
+    (jf/gptel--log 'info "Created session directory: %s (session-id: %s)" session-dir session-id)
 
-    ;; Create metadata.json
-    (let ((metadata (jf/gptel--create-metadata session-dir dirname model backend-name)))
+    ;; Create metadata.json with our pre-generated session ID
+    (let ((metadata (jf/gptel--create-metadata session-dir session-id model backend-name)))
       (jf/gptel--write-metadata session-dir metadata)
 
-      ;; Register in global registry
-      (let ((session-id (jf/gptel--register-session session-dir metadata (current-buffer))))
-        (jf/gptel--log 'info "Registered session: %s" session-id)
+      ;; Register in global registry using our pre-generated session-id
+      (jf/gptel--log 'info "Registering session: %s" session-id)
+      (jf/gptel--register-session session-dir metadata (current-buffer) session-id)
 
-        ;; Create deny-all scope plan
-        (jf/gptel-scope--create-default-plan session-id)
+      ;; Create deny-all scope plan
+      (jf/gptel-scope--create-default-plan session-id)
 
-        ;; Create session.org file
-        (jf/gptel-session--create-session-file session-file activity-name
-                                               backend-name model session-id)
-        (jf/gptel--log 'info "Created session file: %s" session-file)
+      ;; Create session.org file
+      (jf/gptel-session--create-session-file session-file activity-name
+                                             backend-name model session-id)
+      (jf/gptel--log 'info "Created session file: %s" session-file)
 
-        ;; Return session info
-        (list :session-id session-id
-              :session-dir session-dir
-              :buffer-name (format "*gptel-%s*" slug)
-              :session-file session-file
-              :backend backend-name
-              :model (if (symbolp model) (symbol-name model) model))))))
+      ;; Return session info
+      (list :session-id session-id
+            :session-dir session-dir
+            :buffer-name (format "*gptel-%s*" slug)
+            :session-file session-file
+            :backend backend-name
+            :model (if (symbolp model) (symbol-name model) model)))))
 #+end_src
 
 * Buffer Creation and Association
