@@ -1,82 +1,75 @@
-(require 'cl-lib)
+;;; logging.el --- GPTEL Session Logging -*- lexical-binding: t; -*-
 
-(defcustom jf/gptel-session-debug-level 'warn
-  "Debug level for gptel session logging.
-Valid levels (in order of increasing verbosity):
-  none  - No logging output
-  error - Only critical errors
-  warn  - Errors and warnings (default, production-friendly)
-  info  - Informational messages about major operations
-  debug - Detailed debugging information
-  trace - Extremely verbose trace-level logging"
-  :type '(choice (const :tag "No logging" none)
-                 (const :tag "Errors only" error)
-                 (const :tag "Warnings and errors" warn)
-                 (const :tag "Informational" info)
-                 (const :tag "Debug" debug)
-                 (const :tag "Trace" trace))
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Leveled logging system for gptel sessions.
+;; Logs to *Messages* buffer and optionally to session-specific log files.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'gptel-session-constants)
+
+(defcustom jf/gptel-log-level 'debug
+  "Minimum log level for gptel session messages.
+Levels in order: debug, info, warn, error.
+Messages at or above this level will be logged."
+  :type '(choice (const :tag "Debug" debug)
+                 (const :tag "Info" info)
+                 (const :tag "Warning" warn)
+                 (const :tag "Error" error))
   :group 'gptel)
 
-(defconst jf/gptel-session-log-levels
-  '((none . 0)
-    (error . 1)
-    (warn . 2)
-    (info . 3)
-    (debug . 4)
-    (trace . 5))
-  "Numeric values for log levels, used for comparison.")
+(defvar jf/gptel-log-to-file nil
+  "Whether to log session events to files.
+When t, logs are written to <session-dir>/session.log.")
 
-(defun jf/gptel--log-enabled-p (level)
-  "Return t if LEVEL is enabled by current debug level."
-  (let ((current-level (alist-get jf/gptel-session-debug-level
-                                  jf/gptel-session-log-levels))
-        (requested-level (alist-get level jf/gptel-session-log-levels)))
-    (and current-level
-         requested-level
-         (>= current-level requested-level))))
+(defun jf/gptel--log-level-p (level)
+  "Return t if LEVEL should be logged given current log level."
+  (let ((levels '(debug info warn error))
+        (current-level jf/gptel-log-level))
+    (>= (cl-position level levels)
+        (cl-position current-level levels))))
 
 (defun jf/gptel--log (level format-string &rest args)
-  "Log message if LEVEL is enabled.
-LEVEL is one of: error, warn, info, debug, trace.
-FORMAT-STRING and ARGS are passed to `format' for message construction."
-  (when (jf/gptel--log-enabled-p level)
-    (let ((prefix (upcase (symbol-name level)))
-          (formatted-msg (apply #'format format-string args)))
-      (message "[GPTEL-SESSION/%s] %s" prefix formatted-msg))))
+  "Log message at LEVEL using FORMAT-STRING and ARGS.
+LEVEL should be one of: debug, info, warn, error.
+Only logs if level is at or above jf/gptel-log-level."
+  (when (jf/gptel--log-level-p level)
+    (let* ((level-str (upcase (symbol-name level)))
+           (msg (apply #'format format-string args))
+           (full-msg (format "[GPTEL-%s] %s" level-str msg)))
+      ;; Log to *Messages*
+      (message "%s" full-msg)
 
-(defun jf/gptel--with-error-recovery (operation-name fn &optional recovery-fn)
-  "Execute FN with error handling, logging failures.
-OPERATION-NAME is a string describing the operation.
-FN is the function to execute.
-RECOVERY-FN (optional) is called if FN signals an error.
+      ;; Optionally log to session file
+      (when (and jf/gptel-log-to-file
+                 jf/gptel--session-dir
+                 (file-directory-p jf/gptel--session-dir))
+        (let ((log-file (expand-file-name "session.log" jf/gptel--session-dir)))
+          (with-temp-buffer
+            (insert (format-time-string "[%Y-%m-%d %H:%M:%S] "))
+            (insert full-msg)
+            (insert "\n")
+            (append-to-file (point-min) (point-max) log-file)))))))
 
-Returns the result of FN on success, or the result of RECOVERY-FN
-(or nil if no recovery function) on error.
+(defun jf/gptel--log-debug (format-string &rest args)
+  "Log debug message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'debug format-string args))
 
-Errors are logged to both *Messages* and *gptel-sessions-errors* buffer."
-  (condition-case err
-      (funcall fn)
-    (error
-     (let ((error-msg (format "Error in %s: %S" operation-name err))
-           (error-buffer "*gptel-sessions-errors*"))
-       ;; Log to messages
-       (jf/gptel--log 'error error-msg)
-       ;; Log to dedicated error buffer
-       (with-current-buffer (get-buffer-create error-buffer)
-         (goto-char (point-max))
-         (insert (format "[%s] %s\n"
-                        (format-time-string "%Y-%m-%d %H:%M:%S")
-                        error-msg))
-         (insert (format "  Backtrace: %S\n\n" (backtrace-to-string))))
-       ;; Call recovery function if provided
-       (when recovery-fn
-         (funcall recovery-fn))))))
+(defun jf/gptel--log-info (format-string &rest args)
+  "Log info message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'info format-string args))
 
-(defun backtrace-to-string ()
-  "Return current backtrace as a string."
-  (with-temp-buffer
-    (let ((standard-output (current-buffer)))
-      (backtrace))
-    (buffer-string)))
+(defun jf/gptel--log-warn (format-string &rest args)
+  "Log warning message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'warn format-string args))
 
-(provide 'jf/gptel-session-logging)
+(defun jf/gptel--log-error (format-string &rest args)
+  "Log error message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'error format-string args))
+
+(provide 'gptel-session-logging)
+;;; logging.el ends here

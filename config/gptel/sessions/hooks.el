@@ -1,300 +1,182 @@
-;; -*- lexical-binding: t; -*-
+;;; hooks.el --- GPTEL Session Hooks -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Hooks and advice for gptel session management.
+;; Provides auto-save, tool logging, and system prompt tracking.
+
+;;; Code:
+
 (require 'cl-lib)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'gptel-session-tracing)
 
-(defun jf/gptel--trace-agent-task (orig-fn main-cb agent-type description prompt)
-  "Advice around `gptel-agent--task' to capture execution trace.
-Session-id is passed via :context (as overlay property or plist), records agent lifecycle."
-  ;; Get session-id from parent buffer (buffer-local variable)
-  (let ((session-id jf/gptel--session-id))
-    (jf/gptel--log 'debug "trace-agent-task: session-id=%s, agent-type=%s" session-id agent-type)
-    (if (not session-id)
-        ;; No active session, run agent without tracing
-        (progn
-          (jf/gptel--log 'debug "trace-agent-task: No session-id, skipping trace")
-          (funcall orig-fn main-cb agent-type description prompt))
-      ;; Create trace entry using registry
-      (let* ((parent-trace-id (jf/gptel--current-trace-id session-id))
-             (trace-id (jf/gptel--create-trace session-id agent-type description
-                                               prompt parent-trace-id)))
-        (jf/gptel--log 'debug "trace-agent-task: Created trace-id=%s, parent=%s" trace-id parent-trace-id)
+(defun jf/gptel--post-response-save (start end)
+  "Save session buffer after response insertion.
+START and END are the response positions (provided by gptel-post-response-functions)."
+  (when (and jf/gptel--session-dir
+             (buffer-modified-p))
+    (save-buffer)
+    (jf/gptel--log 'debug "Auto-saved session after response: %s"
+                  jf/gptel--session-id)))
 
-        ;; Save initial subagent prompt
-        (jf/gptel--save-trace-message session-id trace-id 'prompt prompt
-                                      (list :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+;; Add to gptel's post-response hook
+(add-hook 'gptel-post-response-functions #'jf/gptel--post-response-save)
 
-        ;; Wrap callback to capture completion and result
-        (funcall orig-fn
-                 (lambda (result)
-                   (let ((status (cond
-                                  ((null result) "error")
-                                  ((string-prefix-p "Error:" result) "error")
-                                  (t "completed"))))
-                     (jf/gptel--log 'debug "trace-agent-task: Completing trace-id=%s, status=%s" trace-id status)
+(defvar-local jf/gptel--autosave-timer nil
+  "Buffer-local timer for auto-saving session.")
 
-                     ;; Save final result if successful
-                     (when (and (stringp result) (not (string-prefix-p "Error:" result)))
-                       (jf/gptel--save-trace-message session-id trace-id 'result result
-                                                     (list :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))))
-
-                     ;; Complete trace in registry
-                     (jf/gptel--complete-trace session-id trace-id status)
-
-                     ;; Call original callback
-                     (funcall main-cb result)))
-                 agent-type description prompt)))))
-
-(defun jf/gptel--inject-session-context (orig-fn prompt &rest args)
-  "Advice around `gptel-request' to inject session-id into :context.
-This allows subagents in separate buffers to access session data via registry.
-If :context is an overlay (from gptel-agent), stores session-id as overlay property.
-Otherwise, wraps or merges session-id into :context plist.
-Also initializes session if needed BEFORE the request is sent."
-  (let ((session-id jf/gptel--session-id)) ; From parent buffer
-    (jf/gptel--log 'debug "inject-session-context: session-id=%s" session-id)
-
-    ;; Initialize session if needed (autosave is enabled and in gptel-mode)
-    (when (and (not session-id)
-               jf/gptel-autosave-enabled
-               gptel-mode
-               (not (minibufferp))) ; Don't create sessions for minibuffer
-      (jf/gptel--log 'debug "inject-session-context: No session-id, initializing now")
-      (jf/gptel--initialize-session)
-      (setq session-id jf/gptel--session-id))
-
-    (if (not session-id)
-        ;; Still no session (autosave disabled), call original
-        (progn
-          (jf/gptel--log 'debug "inject-session-context: No session-id, not injecting")
-          (apply orig-fn prompt args))
-      ;; Inject session-id into :context
-      (let* ((existing-context (plist-get args :context))
-             (new-context (cond
-                           ;; If context is nil, create plist with session-id
-                           ((null existing-context)
-                            (list :session-id session-id))
-                           ;; If context is an overlay (from gptel-agent), attach session-id as property
-                           ((overlayp existing-context)
-                            (jf/gptel--overlay-set-session-id existing-context session-id)
-                            existing-context)  ; Return overlay unchanged
-                           ;; If context is already a plist, merge session-id into it
-                           ((and (listp existing-context)
-                                 (keywordp (car existing-context)))
-                            (plist-put (copy-sequence existing-context) :session-id session-id))
-                           ;; Unknown type, wrap it in plist
-                           (t
-                            (list :original-context existing-context
-                                  :session-id session-id))))
-             (new-args (plist-put (copy-sequence args) :context new-context)))
-        (jf/gptel--log 'debug "inject-session-context: Injected session-id into context (type: %s)"
-                 (cond ((overlayp new-context) "overlay")
-                       ((listp new-context) "plist")
-                       (t "other")))
-        (apply orig-fn prompt new-args)))))
-
-(defun jf/gptel--capture-subagent-messages (orig-fn prompt &rest args)
-  "Advice to capture messages within subagent execution.
-Wraps callback to intercept and save responses during subagent execution."
-  (let* ((context (plist-get args :context))
-         ;; Extract session-id from context (overlay property or plist)
-         (session-id (cond
-                      ((null context) nil)
-                      ;; If context is an overlay, get session-id from property
-                      ((overlayp context)
-                       (jf/gptel--overlay-get-session-id context))
-                      ;; If context is plist, get session-id from it
-                      ((and (listp context) (keywordp (car context)))
-                       (plist-get context :session-id))
-                      (t nil)))
-         (existing-callback (plist-get args :callback)))
-    (if (not session-id)
-        ;; Not in a traced session, pass through
-        (apply orig-fn prompt args)
-      ;; In a session, get current trace (if any)
-      (let ((trace-id (jf/gptel--current-trace-id session-id)))
-        ;; Only wrap callback if we're in a trace OR there's an existing callback
-        ;; Main conversation has no :callback (uses stream processor directly)
-        (if (and (not trace-id) (not existing-callback))
-            ;; Main conversation with no callback - pass through without wrapping
-            (progn
-              (jf/gptel--log 'debug "capture: Skipping callback wrap for main conversation (no existing callback)")
-              (apply orig-fn prompt args))
-          ;; Subagent or main conversation with callback - wrap it
-          (let ((wrapped-callback
-               (lambda (response info)
-                 ;; Log all response types for debugging
-                 (jf/gptel--log 'debug "capture: response type=%s, trace-id=%s, session-id=%s"
-                         (cond
-                          ((stringp response) "string")
-                          ((eq response t) "stream-end")
-                          ((and (consp response) (eq (car response) 'tool-call)) "tool-call")
-                          ((and (consp response) (eq (car response) 'tool-result)) "tool-result")
-                          ((consp response) (format "cons:%s" (car response)))
-                          (t (format "other:%s" (type-of response))))
-                         trace-id session-id)
-                 ;; Capture streaming text and tool completions
-                 (cond
-                  ;; String response (final or chunk)
-                  ((and (stringp response) trace-id)
-                   (when (> (length response) 0)  ; Ignore empty chunks
-                     (jf/gptel--log 'debug "capture: Saving response chunk for trace %s" trace-id)
-                     (jf/gptel--save-trace-message
-                      session-id trace-id 'response response
-                      (list :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-                            ;; TODO: Extract token count from response metadata if available
-                            :tokens 0))))
-
-                  ;; Tool results - capture completed tool calls from FSM info
-                  ((and (consp response) (eq (car response) 'tool-result))
-                   (when-let* ((tool-use (plist-get info :tool-use)))
-                     (if trace-id
-                         (jf/gptel--log 'debug "capture: Capturing %d completed tools for trace %s"
-                                  (length tool-use) trace-id)
-                       (jf/gptel--log 'debug "capture: Capturing %d completed tools for session %s"
-                                (length tool-use) session-id))
-                     (dolist (tool-call tool-use)
-                       (when (plist-get tool-call :result)
-                         (jf/gptel--log 'debug "capture: Recording tool %s (id=%s)%s"
-                                  (plist-get tool-call :name)
-                                  (plist-get tool-call :id)
-                                  (if trace-id (format " in trace %s" trace-id) " in main conversation"))
-                         ;; Wrap in condition-case to prevent errors from breaking callback chain
-                         (condition-case err
-                             (jf/gptel--record-complete-tool-call session-id trace-id tool-call)
-                           (error
-                            (jf/gptel--log 'error "capturing tool call: %s" (error-message-string err))))))))
-
-                  ;; Stream end marker
-                  ((and (eq response t) trace-id)
-                   (jf/gptel--log 'debug "capture: Stream completed for trace %s" trace-id)))
-
-                 ;; Call original callback
-                 (if existing-callback
-                     (funcall existing-callback response info)
-                   ;; No existing callback - this is unexpected for main conversation
-                   (when (and (stringp response) (not trace-id))
-                     (jf/gptel--log 'warn "capture: No existing-callback for main conversation string response!"))))))
-          ;; Replace callback with wrapped version
-          (setq args (plist-put args :callback wrapped-callback))
-          (if trace-id
-              (jf/gptel--log 'debug "capture: Installed capture for trace %s (existing-callback: %s)"
-                       trace-id (if existing-callback "present" "nil"))
-            (jf/gptel--log 'debug "capture: Installed capture for session %s (main conversation, existing-callback: %s)"
-                     session-id (if existing-callback "present" "nil")))
-          (apply orig-fn prompt args)))))))
-
-(defun jf/gptel--autosave-session (response-start response-end)
-  "Automatically save gptel session after LLM response.
-RESPONSE-START and RESPONSE-END mark the response boundaries.
-This function is added to `gptel-post-response-functions'.
-Uses filesystem-based persistence with directory tree structure."
+(defun jf/gptel--schedule-autosave ()
+  "Schedule auto-save for current buffer after idle time.
+Only schedules if jf/gptel-autosave-enabled is non-nil."
   (when (and jf/gptel-autosave-enabled
-             gptel-mode)
-    (condition-case err
-        (progn
-          ;; Initialize session if needed
-          (unless jf/gptel--session-dir
-            (jf/gptel--initialize-session))
-
-          ;; Create message node (extracts history up to response-start)
-          (let ((msg-id (jf/gptel--create-message-node
-                        jf/gptel--session-dir
-                        jf/gptel--current-node-path
-                        response-start)))
-            ;; Update node path to include new message
-            (setq jf/gptel--current-node-path
-                  (append jf/gptel--current-node-path (list msg-id)))
-
-            ;; Update current symlink to point to message
-            (jf/gptel--update-current-symlink
              jf/gptel--session-dir
-             jf/gptel--current-node-path)
+             (> jf/gptel-autosave-idle-time 0))
+    ;; Cancel existing timer if present
+    (when jf/gptel--autosave-timer
+      (cancel-timer jf/gptel--autosave-timer))
 
-            ;; Create response node (extracts full history including response)
-            (let ((resp-id (jf/gptel--create-response-node
-                           jf/gptel--session-dir
-                           jf/gptel--current-node-path)))
-              ;; Update node path to include response
-              (setq jf/gptel--current-node-path
-                    (append jf/gptel--current-node-path (list resp-id)))
+    ;; Schedule new timer
+    (setq jf/gptel--autosave-timer
+          (run-with-idle-timer
+           jf/gptel-autosave-idle-time
+           nil
+           (lambda (buffer)
+             (when (buffer-live-p buffer)
+               (with-current-buffer buffer
+                 (when (and jf/gptel--session-dir
+                           (buffer-modified-p))
+                   (save-buffer)
+                   (jf/gptel--log 'debug "Auto-saved session: %s"
+                                 jf/gptel--session-id)))))
+           (current-buffer)))))
 
-              ;; Update current symlink to point to response
-              (jf/gptel--update-current-symlink
-               jf/gptel--session-dir
-               jf/gptel--current-node-path)
+(defun jf/gptel--enable-autosave ()
+  "Enable auto-save for current buffer.
+Adds after-change-functions hook to schedule saves."
+  (add-hook 'after-change-functions
+           (lambda (&rest _) (jf/gptel--schedule-autosave))
+           nil t))
 
-              (message "Session saved: %s at %s"
-                       jf/gptel--session-id
-                       (string-join jf/gptel--current-node-path "/")))))
-      (file-error
-       (message "gptel autosave failed: %s" (error-message-string err)))
-      (error
-       (message "gptel autosave error: %s" (error-message-string err))))))
+(defun jf/gptel--disable-autosave ()
+  "Disable auto-save for current buffer."
+  (when jf/gptel--autosave-timer
+    (cancel-timer jf/gptel--autosave-timer)
+    (setq jf/gptel--autosave-timer nil)))
 
-(defun jf/gptel--extract-last-message (response-start)
-  "Extract user's last message before RESPONSE-START using text properties."
-  (save-excursion
-    (goto-char response-start)
-    ;; Find start of last user message (previous property change from response)
-    (let ((msg-end response-start)
-          (msg-start (previous-single-property-change response-start 'gptel nil (point-min))))
-      ;; If we're at a response, go back one more to get the user message
-      (when (eq (get-char-property msg-start 'gptel) 'response)
-        (setq msg-end msg-start)
-        (setq msg-start (previous-single-property-change msg-start 'gptel nil (point-min))))
-      ;; Extract and trim
-      (let ((content (buffer-substring-no-properties msg-start msg-end)))
-        (gptel--trim-prefixes content)))))
+(defun jf/gptel--advice-log-fsm-transition (fsm &optional new-state)
+  "Advice for gptel--fsm-transition to log tool calls.
+FSM is the finite state machine, NEW-STATE is optional forced state.
+When transitioning from TOOL state with completed tools, logs all tool results.
+Checks FSM info for :jf/session-dir first (for subagents), then buffer-local variable."
+  (let* ((info (gptel-fsm-info fsm))
+         ;; Check FSM info for session dir (subagents), fall back to buffer-local (parent)
+         (fsm-session-dir (plist-get info :jf/session-dir))
+         (session-dir (or fsm-session-dir
+                         jf/gptel--session-dir)))
+    (jf/gptel--log 'debug "FSM info has :jf/session-dir = %s, buffer-local = %s, using = %s"
+                  fsm-session-dir jf/gptel--session-dir session-dir)
+    (when session-dir
+      (let* ((current-state (gptel-fsm-state fsm))
+             (tool-success (plist-get info :tool-success))
+             (tool-use (plist-get info :tool-use)))
 
-(defun jf/gptel--get-all-messages ()
-  "Extract all message/response pairs from current buffer.
-Returns list of plists: (:type 'message|'response :content string)."
-  (let (messages (prev-pt (point-max)))
-    (save-excursion
-      (goto-char (point-max))
-      (while (> prev-pt (point-min))
-        (let ((prop-change (previous-single-property-change prev-pt 'gptel nil (point-min))))
-          (when prop-change
-            (let* ((prop (get-char-property prop-change 'gptel))
-                   (content (gptel--trim-prefixes
-                            (buffer-substring-no-properties prop-change prev-pt)))
-                   (type (if (eq prop 'response) 'response 'message)))
-              (when (and content (not (string-empty-p content)))
-                (push (list :type type :content content) messages)))
-            (setq prev-pt prop-change)))))
-    messages))
+        ;; Log when leaving TOOL state with successful tool execution
+        (when (and (eq current-state 'TOOL)
+                   tool-success
+                   tool-use)
+          (jf/gptel--log 'debug "FSM transitioning from TOOL state, logging %d tools to %s"
+                        (length tool-use) session-dir)
+          ;; Log each completed tool call
+          (dolist (tool-call tool-use)
+            (when-let* ((result (plist-get tool-call :result))
+                        (tool-name (plist-get tool-call :name))
+                        (args (plist-get tool-call :args)))
+              (jf/gptel--log 'info "Logging completed tool: %s" tool-name)
+              ;; Get subagent link if this is an Agent tool
+              (let ((subagent-link
+                     (when (and (fboundp 'jf/gptel--get-subagent-link-for-tool)
+                               (equal tool-name "Agent"))
+                       (jf/gptel--get-subagent-link-for-tool tool-name tool-call))))
+                (jf/gptel--log-tool-call tool-name args result session-dir
+                                        nil subagent-link)))))))))
 
-(defun jf/gptel--get-context-before-point (pt)
-  "Get all message/response pairs before point PT.
-Returns list of plists in chronological order."
-  (let ((context nil)
-        (scan-pt (point-min)))
-    (save-excursion
-      (while (< scan-pt pt)
-        (goto-char scan-pt)
-        (let ((next-change (next-single-property-change scan-pt 'gptel nil pt)))
-          (when next-change
-            (let* ((prop (get-char-property scan-pt 'gptel))
-                   (content (gptel--trim-prefixes
-                            (buffer-substring-no-properties scan-pt next-change)))
-                   (type (if (eq prop 'response) 'response 'message)))
-              (when (and content (not (string-empty-p content)))
-                (push (list :type type :content content) context)))
-            (setq scan-pt next-change))
-          (unless next-change
-            (setq scan-pt pt)))))
-    (nreverse context)))
-
-;; Install advice after packages load
-(with-eval-after-load 'gptel-agent
-  (advice-add 'gptel-agent--task :around #'jf/gptel--trace-agent-task))
-
+;; Add advice to FSM transition (when gptel is loaded)
 (with-eval-after-load 'gptel
-  ;; IMPORTANT: Order matters! Last added runs first.
-  ;; capture-subagent-messages must run AFTER inject-session-context has added session-id
-  ;; So we add inject-session-context LAST (it will run first in the chain)
-  (advice-add 'gptel-request :around #'jf/gptel--capture-subagent-messages)
-  (advice-add 'gptel-request :around #'jf/gptel--inject-session-context))
+  (when (fboundp 'gptel--fsm-transition)
+    (advice-add 'gptel--fsm-transition :before
+               #'jf/gptel--advice-log-fsm-transition)
+    (jf/gptel--log 'info "Installed FSM transition tool logging advice")))
 
-;; Install auto-save hook
+(defvar jf/gptel--last-system-prompt nil
+  "Buffer-local cache of last system prompt for change detection.")
+(make-variable-buffer-local 'jf/gptel--last-system-prompt)
+
+(defun jf/gptel--advice-track-system-prompt (&rest _args)
+  "Advice function to track system prompt changes.
+Should be added as :after advice to gptel--set-with-scope."
+  (when (and jf/gptel--session-dir
+             (boundp 'gptel--system-message))
+    (let ((new-prompt gptel--system-message))
+      (unless (equal new-prompt jf/gptel--last-system-prompt)
+        (jf/gptel--log-system-prompt-change
+         jf/gptel--last-system-prompt
+         new-prompt
+         jf/gptel--session-dir)
+        (setq jf/gptel--last-system-prompt new-prompt)))))
+
+;; Add advice when gptel is loaded
 (with-eval-after-load 'gptel
-  (add-hook 'gptel-post-response-functions #'jf/gptel--autosave-session))
+  (when (fboundp 'gptel--set-with-scope)
+    (advice-add 'gptel--set-with-scope :after
+               #'jf/gptel--advice-track-system-prompt)))
+
+(defun jf/gptel--maybe-init-session-buffer ()
+  "Initialize session tracking for current buffer if session variables are set.
+This is called when gptel-mode is enabled."
+  (when (and jf/gptel--session-id
+             jf/gptel--session-dir)
+    ;; Update registry with this buffer
+    (jf/gptel--update-session-buffer jf/gptel--session-id (current-buffer))
+
+    ;; Enable auto-save if configured
+    (when jf/gptel-autosave-enabled
+      (jf/gptel--enable-autosave))
+
+    ;; Initialize system prompt tracking
+    (when (boundp 'gptel--system-message)
+      (setq jf/gptel--last-system-prompt gptel--system-message))
+
+    (jf/gptel--log 'info "Initialized session buffer: %s" jf/gptel--session-id)))
+
+;; Add to gptel-mode-hook
+(add-hook 'gptel-mode-hook #'jf/gptel--maybe-init-session-buffer)
+
+(defun jf/gptel--cleanup-session-buffer ()
+  "Clean up session tracking when buffer is killed."
+  (when jf/gptel--session-id
+    ;; Cancel autosave timer
+    (jf/gptel--disable-autosave)
+
+    ;; Save final state
+    (when (and jf/gptel--session-dir (buffer-modified-p))
+      (save-buffer))
+
+    ;; Update registry to clear buffer reference
+    (when-let ((session (jf/gptel-session-find jf/gptel--session-id)))
+      (plist-put session :buffer nil)
+      (puthash jf/gptel--session-id session jf/gptel--session-registry))
+
+    (jf/gptel--log 'info "Cleaned up session buffer: %s" jf/gptel--session-id)))
+
+;; Add to kill-buffer-hook
+(add-hook 'kill-buffer-hook #'jf/gptel--cleanup-session-buffer)
+
+(provide 'gptel-session-hooks)
+;;; hooks.el ends here

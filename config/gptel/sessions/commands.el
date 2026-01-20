@@ -1,0 +1,280 @@
+;;; commands.el --- GPTEL Session Commands -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Interactive commands for gptel session management.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'gptel)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'gptel-session-tracing)
+(require 'jf-gptel-scope-commands)
+
+(defun jf/gptel--generate-preset-plist (session-name backend model)
+  "Generate preset plist for session SESSION-NAME.
+Uses BACKEND and MODEL, with current gptel values as fallbacks.
+System message defaults to empty, tools default to empty list."
+  (list :description (format "Session preset for %s" session-name)
+        :backend (or backend gptel-backend)
+        :model (or model gptel-model)
+        :system ""  ; Empty - use gptel default
+        :temperature (or (bound-and-true-p gptel-temperature) 1.0)
+        :tools '()))  ; Empty - user adds via preset.json editing
+
+(defun jf/gptel--write-preset-file (session-dir preset-plist)
+  "Write PRESET-PLIST to preset.json in SESSION-DIR.
+Converts backend objects to names, converts keywords to strings."
+  (require 'json)
+  (let* ((backend (plist-get preset-plist :backend))
+         (backend-name (if (gptel-backend-p backend)
+                          (gptel-backend-name backend)
+                        backend))
+         (model (plist-get preset-plist :model))
+         (model-name (if (symbolp model) (symbol-name model) model))
+         (preset-alist `(("description" . ,(plist-get preset-plist :description))
+                        ("backend" . ,backend-name)
+                        ("model" . ,model-name)
+                        ("system" . ,(plist-get preset-plist :system))
+                        ("temperature" . ,(plist-get preset-plist :temperature))
+                        ("tools" . ,(plist-get preset-plist :tools))))
+         (preset-file (expand-file-name "preset.json" session-dir)))
+    (with-temp-file preset-file
+      (insert (json-encode preset-alist)))
+    (jf/gptel--log 'info "Created preset file: %s" preset-file)))
+
+(defun jf/gptel--load-preset-from-file (session-dir)
+  "Load preset from SESSION-DIR/preset.json and return plist.
+Converts backend names to objects, converts JSON keys to keywords."
+  (require 'json)
+  (let* ((preset-file (expand-file-name "preset.json" session-dir)))
+    (unless (file-exists-p preset-file)
+      (error "Preset file not found: %s" preset-file))
+    (let* ((json-object-type 'alist)
+           (json-array-type 'list)
+           (preset-alist (json-read-file preset-file))
+           (backend-name (alist-get "backend" preset-alist nil nil #'equal))
+           (backend (alist-get backend-name gptel--known-backends nil nil #'equal))
+           (model-name (alist-get "model" preset-alist nil nil #'equal))
+           (model (if (stringp model-name) (intern model-name) model-name)))
+      (list :description (alist-get "description" preset-alist nil nil #'equal)
+            :backend backend
+            :model model
+            :system (alist-get "system" preset-alist "" nil #'equal)
+            :temperature (alist-get "temperature" preset-alist 1.0 nil #'equal)
+            :tools (alist-get "tools" preset-alist nil nil #'equal)))))
+
+(defun jf/gptel--apply-session-preset (preset-plist)
+  "Apply PRESET-PLIST to current buffer buffer-locally."
+  (let ((backend (plist-get preset-plist :backend))
+        (model (plist-get preset-plist :model))
+        (system (plist-get preset-plist :system))
+        (temperature (plist-get preset-plist :temperature)))
+    (when backend
+      (setq-local gptel-backend backend))
+    (when model
+      (setq-local gptel-model model))
+    (when system
+      (setq-local gptel--system-message system))
+    (when temperature
+      (setq-local gptel-temperature temperature))
+    (jf/gptel--log 'info "Applied session preset")))
+
+(defun jf/gptel-persistent-session (session-name &optional backend model)
+  "Create a new persistent gptel session named SESSION-NAME.
+Optional BACKEND and MODEL default to current gptel settings.
+
+Creates session directory, metadata, and opens session buffer.
+The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.md"
+  (interactive "sSession name: ")
+  (let* ((session-id (jf/gptel--generate-session-id session-name))
+         (session-dir (jf/gptel--create-session-directory session-id))
+         (session-file (jf/gptel--context-file-path session-dir))
+         (backend (or backend gptel-backend))
+         (model (or model gptel-model))
+         (backend-name (gptel-backend-name backend))
+         (model-name (if (symbolp model) (symbol-name model) model)))
+
+    ;; Create metadata
+    (let ((metadata (jf/gptel--create-metadata session-dir session-id model backend-name)))
+      (jf/gptel--write-metadata session-dir metadata)
+      (jf/gptel--register-session session-dir metadata nil session-id))
+
+    ;; Create session file with initial content
+    (with-temp-file session-file
+      (insert "# " session-name "\n\n"))
+
+    ;; Open session file in buffer
+    (let ((buffer (find-file session-file)))
+      (with-current-buffer buffer
+        ;; Enable gptel-mode
+        (unless gptel-mode
+          (gptel-mode 1))
+
+        ;; Set session variables
+        (setq-local jf/gptel--session-id session-id)
+        (setq-local jf/gptel--session-dir session-dir)
+
+        ;; Set backend and model
+        (setq-local gptel-backend backend)
+        (setq-local gptel-model model)
+
+        ;; Enable auto-save
+        (setq-local jf/gptel-autosave-enabled t)
+
+        ;; Update registry with buffer
+        (jf/gptel--update-session-buffer session-id buffer)
+
+        ;; Save initial system prompt
+        (when (boundp 'gptel--system-message)
+          (jf/gptel--log-system-prompt-change nil gptel--system-message session-dir))
+
+        ;; Create deny-all scope plan
+        (let ((scope-yaml (jf/gptel--generate-scope-plan-yaml session-id "deny-all"))
+              (scope-file (expand-file-name "scope-plan.yml" session-dir)))
+          (with-temp-file scope-file
+            (insert scope-yaml))
+          (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+
+        ;; Create and apply preset
+        (let ((preset-plist (jf/gptel--generate-preset-plist session-name backend model)))
+          ;; Write preset to file
+          (jf/gptel--write-preset-file session-dir preset-plist)
+          ;; Apply preset to buffer
+          (jf/gptel--apply-session-preset preset-plist))
+
+        (jf/gptel--log 'info "Created persistent session: %s" session-id)
+        (message "Created persistent session: %s\nDirectory: %s" session-name session-dir)
+
+        buffer))))
+
+(defun jf/gptel-list-sessions ()
+  "List all persistent gptel sessions."
+  (interactive)
+  (let ((sessions (jf/gptel--all-sessions)))
+    (if (null sessions)
+        (message "No persistent sessions found")
+      (with-current-buffer (get-buffer-create "*GPTEL Sessions*")
+        (erase-buffer)
+        (insert "GPTEL Persistent Sessions\n")
+        (insert "=========================\n\n")
+        (dolist (session sessions)
+          (let ((session-id (plist-get session :session-id))
+                (created (plist-get session :created))
+                (metadata (plist-get session :metadata))
+                (buffer (plist-get session :buffer)))
+            (insert (format "• %s\n" session-id))
+            (when created
+              (insert (format "  Created: %s\n" created)))
+            (when metadata
+              (insert (format "  Backend: %s\n" (plist-get metadata :backend)))
+              (insert (format "  Model: %s\n" (plist-get metadata :model))))
+            (when buffer
+              (insert (format "  Active in: %s\n" (buffer-name buffer))))
+            (insert "\n")))
+        (goto-char (point-min))
+        (display-buffer (current-buffer))))))
+
+(defun jf/gptel-resume-session (session-id)
+  "Resume persistent session SESSION-ID.
+Opens the session's context file and restores session state."
+  (interactive
+   (list (completing-read "Resume session: "
+                         (mapcar (lambda (s) (plist-get s :session-id))
+                                (jf/gptel--all-sessions))
+                         nil t)))
+  (let* ((session (jf/gptel-session-find session-id))
+         (session-dir (plist-get session :directory))
+         (session-file (jf/gptel--context-file-path session-dir))
+         (metadata (plist-get session :metadata)))
+
+    (unless (file-exists-p session-file)
+      (user-error "Session file not found: %s" session-file))
+
+    ;; Open session file
+    (let ((buffer (find-file session-file)))
+      (with-current-buffer buffer
+        ;; Enable gptel-mode if needed
+        (unless gptel-mode
+          (gptel-mode 1))
+
+        ;; Set session variables
+        (setq-local jf/gptel--session-id session-id)
+        (setq-local jf/gptel--session-dir session-dir)
+
+        ;; Restore backend/model from metadata
+        (when-let ((backend-name (plist-get metadata :backend)))
+          (setq-local gptel-backend (alist-get backend-name gptel--known-backends
+                                              nil nil #'equal)))
+        (when-let ((model-name (plist-get metadata :model)))
+          (setq-local gptel-model (if (stringp model-name)
+                                     (intern model-name)
+                                   model-name)))
+
+        ;; Enable auto-save
+        (setq-local jf/gptel-autosave-enabled t)
+
+        ;; Update registry
+        (jf/gptel--update-session-buffer session-id buffer)
+
+        (jf/gptel--log 'info "Resumed session: %s" session-id)
+        (message "Resumed session: %s" session-id)
+
+        buffer))))
+
+(defun jf/gptel-refresh-sessions ()
+  "Refresh the session registry by scanning session directories.
+Useful if sessions were created outside Emacs or after startup."
+  (interactive)
+  (jf/gptel--init-registry)
+  (message "Refreshed session registry: %d sessions found"
+          (jf/gptel--session-count)))
+
+(defun jf/gptel-session-diagnostics ()
+  "Show diagnostic information about current session and advice installation."
+  (interactive)
+  (with-current-buffer (get-buffer-create "*GPTEL Session Diagnostics*")
+    (erase-buffer)
+    (insert "GPTEL Session Diagnostics\n")
+    (insert "=========================\n\n")
+
+    ;; Current buffer info
+    (insert "Current Buffer:\n")
+    (insert (format "  Name: %s\n" (buffer-name)))
+    (insert (format "  Session ID: %s\n" (or jf/gptel--session-id "NOT SET")))
+    (insert (format "  Session Dir: %s\n" (or jf/gptel--session-dir "NOT SET")))
+    (insert (format "  GPTel Mode: %s\n" (if (bound-and-true-p gptel-mode) "enabled" "disabled")))
+    (insert (format "  Auto-save: %s\n" (if jf/gptel-autosave-enabled "enabled" "disabled")))
+    (insert "\n")
+
+    ;; Advice installation
+    (insert "Advice Installation:\n")
+    (insert (format "  gptel--fsm-transition (tool logging): %s\n"
+                    (if (advice-member-p #'jf/gptel--advice-log-fsm-transition 'gptel--fsm-transition)
+                        "INSTALLED"
+                      "NOT INSTALLED")))
+    (insert (format "  gptel--set-with-scope (system prompt): %s\n"
+                    (if (and (fboundp 'gptel--set-with-scope)
+                            (advice-member-p #'jf/gptel--advice-track-system-prompt 'gptel--set-with-scope))
+                        "INSTALLED"
+                      "NOT INSTALLED")))
+    (insert "\n")
+
+    ;; Log level
+    (insert "Configuration:\n")
+    (insert (format "  Log Level: %s\n" jf/gptel-log-level))
+    (insert (format "  Sessions Directory: %s\n" jf/gptel-sessions-directory))
+    (insert (format "  Registry Count: %d\n" (jf/gptel--session-count)))
+
+    (goto-char (point-min))
+    (display-buffer (current-buffer))))
+
+(provide 'gptel-session-commands)
+;;; commands.el ends here

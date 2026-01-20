@@ -1,119 +1,110 @@
-;; -*- lexical-binding: t; -*-
+;;; transient.el --- GPTEL Session Transient Menu -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Transient menu for gptel session management.
+;; Provides unified interface for session commands.
+
+;;; Code:
+
+(require 'cl-lib)
 (require 'transient)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-branching)
 
-(defun jf/gptel-session--current-session-info ()
-  "Return formatted string with current session information.
-Shows session ID and node type if in a session directory."
-  (let* ((in-session-dir (and (derived-mode-p 'dired-mode)
-                             (boundp 'jf/gptel-sessions-directory)
-                             (string-prefix-p (expand-file-name jf/gptel-sessions-directory)
-                                            default-directory)))
-         (session-id (when in-session-dir
-                      (let ((rel-path (file-relative-name
-                                      default-directory
-                                      (expand-file-name jf/gptel-sessions-directory))))
-                        (car (split-string rel-path "/")))))
-         (node-type (jf/gptel-session--node-type-at-point)))
-    (concat
-     (if session-id
-         (propertize (format "Session: %s" session-id)
-                    'face 'transient-value)
-       (propertize "Not in session directory"
-                  'face 'transient-inactive-value))
-     (when node-type
-       (concat " | " (propertize (format "Node: %s" node-type)
-                                'face 'transient-value))))))
-
-(defun jf/gptel-session--node-type-at-point ()
-  "Return node type at point in dired: 'msg', 'response', or nil.
-Checks if point is on a msg-N or response-N directory."
-  (when (derived-mode-p 'dired-mode)
-    (let* ((file-at-point (dired-get-filename nil t))
-           (node-name (when (and file-at-point
-                                (file-directory-p file-at-point))
-                       (file-name-nondirectory
-                        (directory-file-name file-at-point)))))
-      (cond
-       ((and node-name (string-match "^msg-[0-9]+" node-name)) 'msg)
-       ((and node-name (string-match "^response-[0-9]+" node-name)) 'response)
-       (t nil)))))
-
-(defun jf/gptel-session--count-sessions ()
-  "Return the number of saved gptel sessions."
-  (if (not (boundp 'jf/gptel-sessions-directory))
-      0
-    (let ((sessions-dir (expand-file-name jf/gptel-sessions-directory)))
-      (if (not (file-directory-p sessions-dir))
-          0
-        (length (seq-filter
-                (lambda (f)
-                  (and (file-directory-p (expand-file-name f sessions-dir))
-                       (not (string-prefix-p "." f))))
-                (directory-files sessions-dir)))))))
-
-(defun jf/gptel-session--session-count-info ()
-  "Return formatted string with session count."
-  (let ((count (jf/gptel-session--count-sessions)))
-    (if (> count 0)
-        (propertize (format "%d session%s available"
-                           count
-                           (if (= count 1) "" "s"))
-                   'face 'transient-value)
-      (propertize "No sessions found"
-                 'face 'transient-inactive-value))))
-
-;;;###autoload
 (transient-define-prefix jf/gptel-session-browser-menu ()
-  "GPTEL Session Browser commands.
+  "Transient menu for gptel session browser commands."
+  ["GPTEL Session Browser"
+   ["Browse"
+    ("b" "Browse sessions" jf/gptel-browse-sessions)
+    ("o" "Open session" jf/gptel-open-session)
+    ("p" "Show current position" jf/gptel-show-current-position)]
+   ["View"
+    ("v" "View context at point" jf/gptel-view-context-at-point)
+    ("t" "View tools at point" jf/gptel-view-tools-at-point)]
+   ["Actions"
+    ("r" "Resume from context" jf/gptel-resume-from-context)
+    ("B" "Branch from point" jf/gptel-branch-from-point)
+    ("s" "Send from context" jf/gptel-send-from-context)
+    ("S" "Switch branch" jf/gptel-switch-branch)]
+   ["Info"
+    ("i" "Session info" jf/gptel-session-show-info)
+    ("?" "Help" jf/gptel-session-help)]
+   ["Quit"
+    ("q" "Quit" transient-quit-one)]])
 
-Provides organized access to session browsing, viewing, and manipulation
-operations. Only active when browsing gptel session directories.
-
-Commands are organized into three categories:
-- Browse: Navigate and open sessions
-- View: Inspect context and tools
-- Actions: Resume, branch, and send operations"
-  [:description "GPTEL Session Browser"
-   [""
-    (:info (lambda () (jf/gptel-session--current-session-info))
-           :format " %d")]
-   [""
-    (:info (lambda () (jf/gptel-session--session-count-info))
-           :format " %d")]
-   [""
-    ("q" "Quit" transient-quit-one)]]
-  ["Browse"
-   ("b" "Browse all sessions" jf/gptel-browse-sessions
-    :if (lambda () (fboundp 'jf/gptel-browse-sessions)))
-   ("o" "Open session..." jf/gptel-open-session
-    :if (lambda () (fboundp 'jf/gptel-open-session)))
-   ("p" "Show current position" jf/gptel-show-current-position
-    :if (lambda () (fboundp 'jf/gptel-show-current-position)))]
-  ["View"
-   ("v" "View context" jf/gptel-view-context-at-point
-    :if (lambda () (fboundp 'jf/gptel-view-context-at-point)))
-   ("t" "View tools" jf/gptel-view-tools-at-point
-    :if (lambda () (fboundp 'jf/gptel-view-tools-at-point)))]
-  ["Actions"
-   ("r" "Resume from context" jf/gptel-resume-from-context
-    :if (lambda () (fboundp 'jf/gptel-resume-from-context)))
-   ("B" "Branch from point" jf/gptel-branch-from-point
-    :if (lambda () (fboundp 'jf/gptel-branch-from-point)))
-   ("s" "Send context" jf/gptel-send-from-context
-    :if (lambda () (fboundp 'jf/gptel-send-from-context)))]
+(defun jf/gptel-session-show-info ()
+  "Show information about the current session or session at point."
   (interactive)
-  ;; Check if we're in a session directory
-  (unless (and (derived-mode-p 'dired-mode)
-               (boundp 'jf/gptel-sessions-directory)
-               (string-prefix-p (expand-file-name jf/gptel-sessions-directory)
-                              default-directory))
-    (user-error "Session browser menu only available in gptel session directories"))
-  (transient-setup 'jf/gptel-session-browser-menu))
+  (let* ((session (if jf/gptel--session-id
+                     (jf/gptel-session-find jf/gptel--session-id)
+                   ;; Try to get session from dired point
+                   (when (derived-mode-p 'dired-mode)
+                     (let* ((dir (dired-get-filename nil t))
+                            (session-dir (if (file-directory-p dir)
+                                           dir
+                                         (file-name-directory dir))))
+                       (when (jf/gptel--valid-session-directory-p session-dir)
+                         (let ((session-id (jf/gptel--session-id-from-directory session-dir)))
+                           (jf/gptel-session-find session-id)))))))
+         (metadata (when session (plist-get session :metadata))))
 
-;; Add keybinding to gptel-session-tree-mode-map
-(with-eval-after-load 'jf/gptel-session-browser
-  (when (boundp 'jf/gptel-session-tree-mode-map)
-    (define-key jf/gptel-session-tree-mode-map (kbd "?")
-      'jf/gptel-session-browser-menu)))
+    (if (not session)
+        (message "No session found")
+      (let ((info-buffer (get-buffer-create "*GPTEL Session Info*")))
+        (with-current-buffer info-buffer
+          (erase-buffer)
+          (insert "GPTEL Session Information\n")
+          (insert "=========================\n\n")
+          (insert (format "Session ID: %s\n" (plist-get session :session-id)))
+          (insert (format "Directory: %s\n" (plist-get session :directory)))
+          (insert (format "Created: %s\n" (plist-get session :created)))
+          (insert (format "Backend: %s\n" (plist-get metadata :backend)))
+          (insert (format "Model: %s\n" (plist-get metadata :model)))
+          (when-let ((buffer (plist-get session :buffer)))
+            (insert (format "Active Buffer: %s\n" (buffer-name buffer))))
+          (insert "\n")
+          (when-let ((branches (jf/gptel--list-branches (plist-get session :directory))))
+            (insert "Branches:\n")
+            (dolist (branch branches)
+              (insert (format "  - %s\n" (car branch))))))
+        (display-buffer info-buffer)))))
 
-(provide 'jf/gptel-session-transient)
+(defun jf/gptel-session-help ()
+  "Display help for gptel session browser."
+  (interactive)
+  (let ((help-buffer (get-buffer-create "*GPTEL Session Help*")))
+    (with-current-buffer help-buffer
+      (erase-buffer)
+      (insert "GPTEL Session Browser Help\n")
+      (insert "===========================\n\n")
+      (insert "Keybindings:\n")
+      (insert "  ? - Show this menu\n")
+      (insert "  b - Browse sessions directory\n")
+      (insert "  o - Open specific session\n")
+      (insert "  v - View context.md at point\n")
+      (insert "  t - View tools.md at point\n")
+      (insert "  r - Resume session from context\n")
+      (insert "  B - Create branch from point\n")
+      (insert "  S - Switch between branches\n")
+      (insert "  p - Show current position in tree\n")
+      (insert "  q - Quit window\n\n")
+      (insert "Session Structure:\n")
+      (insert "  Each session is a directory containing:\n")
+      (insert "    - context.md: Main conversation\n")
+      (insert "    - metadata.json: Session configuration\n")
+      (insert "    - tools.md: Tool call log\n")
+      (insert "    - system-prompts.md: System prompt history\n")
+      (insert "    - subagents/: Nested agent sessions\n\n")
+      (insert "Branching:\n")
+      (insert "  Create alternate conversation paths by branching.\n")
+      (insert "  Branches are stored as context-<name>.md files.\n"))
+    (display-buffer help-buffer)))
+
+(provide 'gptel-session-transient)
+;;; transient.el ends here

@@ -201,6 +201,27 @@ shell:
             project-root)))
 ;; Permissive Template:1 ends here
 
+;; Generate Scope Plan YAML
+
+;; Helper function to generate scope plan YAML string without user interaction.
+;; Used for auto-initialization and programmatic plan creation.
+
+
+;; [[file:scope-commands.org::*Generate Scope Plan YAML][Generate Scope Plan YAML:1]]
+(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template)
+  "Generate scope plan YAML for SESSION-ID using TEMPLATE.
+TEMPLATE can be deny-all, codebase-read, org-roam-safe, or permissive.
+Defaults to deny-all.
+
+This is an internal helper used for auto-initialization of session scope plans.
+Returns YAML string directly without writing to file."
+  (let* ((template (or template "deny-all"))
+         (template-fn (intern (format "jf/gptel-scope--template-%s" template))))
+    (unless (fboundp template-fn)
+      (error "Unknown scope template: %s" template))
+    (funcall template-fn session-id)))
+;; Generate Scope Plan YAML:1 ends here
+
 ;; Initialize Scope Plan
 
 ;; Create new scope plan for current gptel session.

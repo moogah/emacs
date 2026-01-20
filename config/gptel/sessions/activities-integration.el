@@ -7,7 +7,11 @@
 ;;; Code:
 
 (require 'gptel nil t)
-(require 'jf-gptel-registry nil t)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
 (require 'jf-gptel-scope-core nil t)
 
 ;; Optional dependency - checked at runtime

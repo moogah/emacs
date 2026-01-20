@@ -5,212 +5,191 @@
 
 * Introduction
 
-Session branching in the filesystem-based approach is done by copying and editing
-context.md files. The workflow:
-
-1. Navigate to any response-N directory in dirvish/dired
-2. Copy the next msg-N directory to msg-N-alt1
-3. Edit msg-N-alt1/context.md to change the message
-4. Resume from the edited context and send
-
-This module provides:
-- Session resumption from context.md files
-- Context file sending to API
-- Branch creation helpers
-- Node path determination from filesystem structure
+Conversation branching for gptel sessions.
+Allows creating alternate conversation paths by copying and editing context.
 
 * Lexical Binding
 
 #+begin_src emacs-lisp
-;; -*- lexical-binding: t; -*-
+;;; branching.el --- GPTEL Session Branching -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Conversation branching for gptel sessions.
+;; Create alternate paths, resume from specific points, and manage branches.
+
+;;; Code:
+
 (require 'cl-lib)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
 #+end_src
 
-* Resume Session from Context
+* Resume from Context
 
-Load a context.md file into a gptel buffer and set up session state for continuation.
-
-#+begin_src emacs-lisp
-(defun jf/gptel-resume-from-context (&optional context-file)
-  "Resume gptel session from CONTEXT-FILE.
-If called interactively in dired, uses context.md at point.
-If CONTEXT-FILE is nil, prompts for file selection.
-Creates a gptel buffer with the conversation loaded and ready to continue."
-  (interactive)
-  (let* ((context-path (or context-file
-                          (when (derived-mode-p 'dired-mode)
-                            (let ((file-at-point (dired-get-filename nil t)))
-                              (if (and file-at-point (file-directory-p file-at-point))
-                                  (expand-file-name "context.md" file-at-point)
-                                (when (and file-at-point
-                                          (string= (file-name-nondirectory file-at-point)
-                                                  "context.md"))
-                                  file-at-point))))
-                          (read-file-name "Context file: " nil nil t nil
-                                         (lambda (f) (string= (file-name-nondirectory f)
-                                                            "context.md")))))
-         (session-dir (jf/gptel--find-session-root context-path))
-         (node-path (jf/gptel--determine-node-path session-dir context-path))
-         (metadata (jf/gptel--read-metadata session-dir)))
-
-    (unless (file-exists-p context-path)
-      (user-error "Context file not found: %s" context-path))
-
-    (unless session-dir
-      (user-error "Could not find session root for: %s" context-path))
-
-    (unless metadata
-      (user-error "Could not read session metadata from: %s" session-dir))
-
-    ;; Create buffer and load context
-    (let* ((session-id (file-name-nondirectory session-dir))
-           (buffer-name (format "*gptel-%s*" session-id))
-           (buf (get-buffer-create buffer-name)))
-
-      (with-current-buffer buf
-        ;; Set up mode
-        (markdown-mode)
-        (gptel-mode 1)
-        (erase-buffer)
-
-        ;; Insert context from file
-        (insert-file-contents context-path)
-
-        ;; Set up session state
-        (setq jf/gptel--session-dir session-dir)
-        (setq jf/gptel--session-id (file-name-nondirectory session-dir))
-        (setq jf/gptel--session-metadata metadata)
-        (setq jf/gptel--current-node-path node-path)
-
-        ;; Restore backend/model from metadata
-        (jf/gptel--restore-backend-model metadata)
-
-        (goto-char (point-max))
-        (message "Resumed session %s at %s"
-                 session-id
-                 (string-join node-path "/")))
-
-      (switch-to-buffer buf))))
-#+end_src
-
-* Send Context to API
-
-Send an edited context.md file to the API to generate a response.
+Load a context file into a gptel buffer.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-send-from-context ()
-  "Send current buffer (context.md) to API to get response.
-Buffer should contain markdown-formatted conversation history.
-Creates response node in session directory tree."
+(defun jf/gptel-resume-from-context ()
+  "Resume gptel session from context.md file at point in dired.
+Opens the context file in a gptel buffer with proper session state."
   (interactive)
-  (unless (and jf/gptel--session-dir jf/gptel--current-node-path)
-    (user-error "No active session state. Use jf/gptel-resume-from-context first"))
+  (let* ((file-at-point (dired-get-filename nil t))
+         (context-file (if (and file-at-point (file-directory-p file-at-point))
+                          (expand-file-name "context.md" file-at-point)
+                        (when (and file-at-point
+                                  (string-match-p "context\\.md$" file-at-point))
+                          file-at-point))))
+    (unless (and context-file (file-exists-p context-file))
+      (user-error "No context.md file found at point"))
 
-  ;; Use gptel's normal send mechanism
-  ;; The autosave hook will create the appropriate response node
-  (gptel-send))
+    (let* ((session-dir (file-name-directory context-file))
+           (session-id (jf/gptel--session-id-from-directory session-dir))
+           (metadata (jf/gptel--read-metadata session-dir)))
+
+      (unless metadata
+        (user-error "No metadata found for session"))
+
+      ;; Open context file
+      (find-file context-file)
+
+      ;; Enable gptel-mode
+      (unless gptel-mode
+        (gptel-mode 1))
+
+      ;; Set session variables
+      (setq-local jf/gptel--session-id session-id)
+      (setq-local jf/gptel--session-dir session-dir)
+
+      ;; Restore backend/model from metadata
+      (when-let ((backend-name (plist-get metadata :backend)))
+        (setq-local gptel-backend (alist-get backend-name gptel--known-backends
+                                            nil nil #'equal)))
+      (when-let ((model-name (plist-get metadata :model)))
+        (setq-local gptel-model (if (stringp model-name)
+                                   (intern model-name)
+                                 model-name)))
+
+      ;; Enable autosave
+      (setq-local jf/gptel-autosave-enabled t)
+      (jf/gptel--enable-autosave)
+
+      (jf/gptel--log 'info "Resumed session: %s" session-id)
+      (message "Resumed gptel session: %s" session-id))))
 #+end_src
 
 * Branch from Point
 
-Create a branch by copying a node directory.
+Create a new branch by copying and truncating context.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-branch-from-point ()
-  "Create a branch by copying the node at point.
-If point is on a msg-N or response-N directory, copies it to create an alt branch.
-The copied directory can then be edited before resuming."
+  "Create a conversation branch from the context at point.
+Prompts for branch name and creates a new context file."
   (interactive)
-  (unless (derived-mode-p 'dired-mode)
-    (user-error "Must be in dired/dirvish to create branches"))
+  (let* ((file-at-point (dired-get-filename nil t))
+         (context-file (if (and file-at-point (file-directory-p file-at-point))
+                          (expand-file-name "context.md" file-at-point)
+                        (when (and file-at-point
+                                  (string-match-p "context\\.md$" file-at-point))
+                          file-at-point))))
+    (unless (and context-file (file-exists-p context-file))
+      (user-error "No context.md file found at point"))
 
-  (let* ((node-dir (dired-get-filename nil t))
-         (node-name (file-name-nondirectory node-dir)))
+    (let* ((session-dir (file-name-directory context-file))
+           (branch-name (read-string "Branch name: "))
+           (branch-file (expand-file-name
+                        (format "context-%s.md" branch-name)
+                        session-dir)))
 
-    (unless (and node-dir (file-directory-p node-dir))
-      (user-error "Point must be on a directory"))
+      (when (file-exists-p branch-file)
+        (user-error "Branch already exists: %s" branch-name))
 
-    (unless (string-match "^\\(msg\\|response\\)-\\([0-9]+\\)$" node-name)
-      (user-error "Directory must be a msg-N or response-N node"))
+      ;; Copy context file to branch file
+      (copy-file context-file branch-file)
 
-    (let* ((parent-dir (file-name-directory (directory-file-name node-dir)))
-           (branch-name (jf/gptel--next-branch-id parent-dir node-name))
-           (branch-dir (expand-file-name branch-name parent-dir)))
+      ;; Open branch file
+      (find-file branch-file)
 
-      ;; Copy directory
-      (copy-directory node-dir branch-dir)
+      ;; Optionally prompt to truncate at a specific point
+      (when (y-or-n-p "Truncate branch at specific line? ")
+        (let ((line (read-number "Line number to truncate after: ")))
+          (goto-char (point-min))
+          (forward-line (1- line))
+          (delete-region (point) (point-max))
+          (save-buffer)))
 
-      ;; Refresh dired
-      (revert-buffer)
-
-      ;; Navigate to new branch
-      (goto-char (point-min))
-      (search-forward branch-name nil t)
-      (beginning-of-line)
-
-      (message "Created branch: %s (edit context.md and resume)" branch-name))))
+      (jf/gptel--log 'info "Created branch: %s" branch-name)
+      (message "Created branch: %s" branch-name))))
 #+end_src
 
-* Helper Functions
+* Branch Management
 
-** Find Session Root
-
-Walk up directory tree to find session root (contains metadata.json).
+List and switch between branches.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--find-session-root (path)
-  "Find session root directory by walking up from PATH.
-Returns directory containing metadata.json or nil if not found."
-  (let ((current-dir (if (file-directory-p path)
-                        path
-                      (file-name-directory path))))
-    (while (and current-dir
-                (not (file-exists-p (expand-file-name "metadata.json" current-dir)))
-                (not (string= current-dir "/")))
-      (setq current-dir (file-name-directory (directory-file-name current-dir))))
-    (when (file-exists-p (expand-file-name "metadata.json" current-dir))
-      current-dir)))
+(defun jf/gptel--list-branches (session-dir)
+  "List all context files (branches) in SESSION-DIR.
+Returns list of (branch-name . file-path) cons cells."
+  (let ((context-files (directory-files session-dir t "^context.*\\.md$")))
+    (mapcar (lambda (file)
+              (let ((name (if (string= (file-name-nondirectory file) "context.md")
+                            "main"
+                          (replace-regexp-in-string
+                           "^context-\\(.*\\)\\.md$" "\\1"
+                           (file-name-nondirectory file)))))
+                (cons name file)))
+            context-files)))
+
+(defun jf/gptel-switch-branch ()
+  "Switch to a different branch in the current session.
+Prompts for branch name using completing-read."
+  (interactive)
+  (unless jf/gptel--session-dir
+    (user-error "Not in a gptel session buffer"))
+
+  (let* ((branches (jf/gptel--list-branches jf/gptel--session-dir))
+         (branch-names (mapcar #'car branches))
+         (choice (completing-read "Switch to branch: " branch-names nil t))
+         (branch-file (cdr (assoc choice branches))))
+
+    (when branch-file
+      ;; Save current buffer if modified
+      (when (buffer-modified-p)
+        (save-buffer))
+
+      ;; Open branch file
+      (find-file branch-file)
+
+      (jf/gptel--log 'info "Switched to branch: %s" choice)
+      (message "Switched to branch: %s" choice))))
 #+end_src
 
-** Determine Node Path
+* Send from Context
 
-Determine the node path from a context file path.
-
-#+begin_src emacs-lisp
-(defun jf/gptel--determine-node-path (session-dir context-file)
-  "Determine node path from SESSION-DIR to CONTEXT-FILE.
-Returns list of node names representing the path.
-Example: '(\"msg-1\" \"response-1\" \"msg-2\")"
-  (let* ((context-dir (file-name-directory context-file))
-         (rel-path (file-relative-name context-dir session-dir))
-         (path-parts (split-string rel-path "/" t)))
-    ;; Filter out current directory marker
-    (seq-filter (lambda (part) (not (string= part "."))) path-parts)))
-#+end_src
-
-** Restore Backend and Model
+Resume a context and send it to the API (useful for editing and resending).
 
 #+begin_src emacs-lisp
-(defun jf/gptel--restore-backend-model (metadata)
-  "Restore gptel backend and model from METADATA.
-Sets buffer-local gptel-backend and gptel-model variables."
-  (let* ((backend-name (plist-get metadata :backend))
-         (model-name (plist-get metadata :model))
-         (backend (cdr (assoc backend-name gptel--known-backends)))
-         (model (when backend
-                 (seq-find (lambda (m)
-                            (string= (gptel--model-name m) model-name))
-                          (gptel-backend-models backend)))))
-    (when backend
-      (setq-local gptel-backend backend))
-    (when model
-      (setq-local gptel-model model))
-    (when (or backend model)
-      (message "Restored: %s / %s" backend-name model-name))))
+(defun jf/gptel-send-from-context ()
+  "Resume context at point and send to API.
+Useful for editing a saved context and continuing the conversation."
+  (interactive)
+  ;; First resume the context
+  (jf/gptel-resume-from-context)
+
+  ;; Prompt to send
+  (when (y-or-n-p "Send this context to the API? ")
+    (call-interactively #'gptel-send)))
 #+end_src
 
 * Provide Feature
 
 #+begin_src emacs-lisp
-(provide 'jf/gptel-session-branching)
+(provide 'gptel-session-branching)
+;;; branching.el ends here
 #+end_src
