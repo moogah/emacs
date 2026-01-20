@@ -1,3 +1,16 @@
+#+title: GPTEL Session Hooks
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle hooks.el
+#+auto_tangle: y
+
+* Introduction
+
+Hooks and advice functions for gptel session auto-save and persistence.
+Integrates with gptel's existing save/restore mechanism and adds real-time auto-save.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
 ;;; hooks.el --- GPTEL Session Hooks -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -10,13 +23,19 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-metadata)
-(require 'jf-gptel-session-tracing)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'gptel-session-tracing)
+#+end_src
 
+* Auto-Save After Response
+
+Save session buffers after each LLM response using gptel's post-response hook.
+
+#+begin_src emacs-lisp
 (defun jf/gptel--post-response-save (start end)
   "Save session buffer after response insertion.
 START and END are the response positions (provided by gptel-post-response-functions)."
@@ -28,7 +47,13 @@ START and END are the response positions (provided by gptel-post-response-functi
 
 ;; Add to gptel's post-response hook
 (add-hook 'gptel-post-response-functions #'jf/gptel--post-response-save)
+#+end_src
 
+* Auto-Save Timer (Fallback)
+
+Fallback auto-save using idle timer for changes outside request/response cycle.
+
+#+begin_src emacs-lisp
 (defvar-local jf/gptel--autosave-timer nil
   "Buffer-local timer for auto-saving session.")
 
@@ -69,7 +94,22 @@ Adds after-change-functions hook to schedule saves."
   (when jf/gptel--autosave-timer
     (cancel-timer jf/gptel--autosave-timer)
     (setq jf/gptel--autosave-timer nil)))
+#+end_src
 
+* Tool Call Advice
+
+Advice gptel FSM transition to log completed tool calls.
+
+The approach: Hook `gptel--fsm-transition` and when transitioning FROM tool
+state (when `:tool-success` is set), log all tool calls with results.
+
+This works because:
+1. Tools execute and populate results via async callbacks
+2. When all tools complete, `:tool-success` flag is set
+3. FSM transitions from TOOL → WAIT
+4. Our advice captures tools at this point when ALL results are available
+
+#+begin_src emacs-lisp
 (defun jf/gptel--advice-log-fsm-transition (fsm &optional new-state)
   "Advice for gptel--fsm-transition to log tool calls.
 FSM is the finite state machine, NEW-STATE is optional forced state.
@@ -113,7 +153,13 @@ Checks FSM info for :jf/session-dir first (for subagents), then buffer-local var
     (advice-add 'gptel--fsm-transition :before
                #'jf/gptel--advice-log-fsm-transition)
     (jf/gptel--log 'info "Installed FSM transition tool logging advice")))
+#+end_src
 
+* System Prompt Change Advice
+
+Track system prompt modifications.
+
+#+begin_src emacs-lisp
 (defvar jf/gptel--last-system-prompt nil
   "Buffer-local cache of last system prompt for change detection.")
 (make-variable-buffer-local 'jf/gptel--last-system-prompt)
@@ -136,7 +182,13 @@ Should be added as :after advice to gptel--set-with-scope."
   (when (fboundp 'gptel--set-with-scope)
     (advice-add 'gptel--set-with-scope :after
                #'jf/gptel--advice-track-system-prompt)))
+#+end_src
 
+* Session Buffer Initialization
+
+Hook into gptel-mode to initialize session tracking.
+
+#+begin_src emacs-lisp
 (defun jf/gptel--maybe-init-session-buffer ()
   "Initialize session tracking for current buffer if session variables are set.
 This is called when gptel-mode is enabled."
@@ -157,7 +209,13 @@ This is called when gptel-mode is enabled."
 
 ;; Add to gptel-mode-hook
 (add-hook 'gptel-mode-hook #'jf/gptel--maybe-init-session-buffer)
+#+end_src
 
+* Session Cleanup
+
+Clean up when buffers are killed.
+
+#+begin_src emacs-lisp
 (defun jf/gptel--cleanup-session-buffer ()
   "Clean up session tracking when buffer is killed."
   (when jf/gptel--session-id
@@ -177,6 +235,11 @@ This is called when gptel-mode is enabled."
 
 ;; Add to kill-buffer-hook
 (add-hook 'kill-buffer-hook #'jf/gptel--cleanup-session-buffer)
+#+end_src
 
-(provide 'jf-gptel-session-hooks)
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'gptel-session-hooks)
 ;;; hooks.el ends here
+#+end_src

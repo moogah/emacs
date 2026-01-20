@@ -10,9 +10,9 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
 
 (defvar jf/gptel--session-registry (make-hash-table :test 'equal)
   "Global registry of active gptel sessions.
@@ -107,5 +107,5 @@ Returns nil if current buffer is not a gptel session."
   (when jf/gptel--session-id
     (jf/gptel-session-find jf/gptel--session-id)))
 
-(provide 'jf-gptel-session-registry)
+(provide 'gptel-session-registry)
 ;;; registry.el ends here

@@ -1,6 +1,6 @@
 #+title: GPTEL Session Subagent Integration
 #+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-subagent.el
+#+property: header-args:emacs-lisp :tangle subagent.el
 #+auto_tangle: y
 
 * Introduction
@@ -11,7 +11,7 @@ Captures subagent executions and creates nested session directories with bidirec
 * Lexical Binding
 
 #+begin_src emacs-lisp
-;;; jf-gptel-session-subagent.el --- GPTEL Subagent Sessions -*- lexical-binding: t; -*-
+;;; subagent.el --- GPTEL Subagent Sessions -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
 
@@ -23,12 +23,12 @@ Captures subagent executions and creates nested session directories with bidirec
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-metadata)
-(require 'jf-gptel-session-tracing)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'gptel-session-tracing)
 #+end_src
 
 * Subagent Session Creation
@@ -251,6 +251,6 @@ Returns path to subagent session directory or nil."
 * Provide Feature
 
 #+begin_src emacs-lisp
-(provide 'jf-gptel-session-subagent)
-;;; jf-gptel-session-subagent.el ends here
+(provide 'gptel-session-subagent)
+;;; subagent.el ends here
 #+end_src

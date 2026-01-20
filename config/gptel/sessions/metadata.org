@@ -1,6 +1,6 @@
 #+title: GPTEL Session Metadata
 #+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-metadata.el
+#+property: header-args:emacs-lisp :tangle metadata.el
 #+auto_tangle: y
 
 * Introduction
@@ -24,9 +24,9 @@ Handles reading and writing metadata.json files that store session configuration
 
 (require 'cl-lib)
 (require 'json)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
 #+end_src
 
 * Metadata Structure
@@ -145,6 +145,6 @@ TREE is the new tree structure plist."
 * Provide Feature
 
 #+begin_src emacs-lisp
-(provide 'jf-gptel-session-metadata)
+(provide 'gptel-session-metadata)
 ;;; metadata.el ends here
 #+end_src

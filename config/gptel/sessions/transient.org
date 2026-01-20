@@ -1,6 +1,6 @@
 #+title: GPTEL Session Transient Menu
 #+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-transient.el
+#+property: header-args:emacs-lisp :tangle transient.el
 #+auto_tangle: y
 
 * Introduction
@@ -24,11 +24,11 @@ Provides discoverable commands for browsing, branching, and managing sessions.
 
 (require 'cl-lib)
 (require 'transient)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-branching)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-branching)
 #+end_src
 
 * Session Browser Transient
@@ -141,6 +141,6 @@ Display help for session browser.
 * Provide Feature
 
 #+begin_src emacs-lisp
-(provide 'jf-gptel-session-transient)
+(provide 'gptel-session-transient)
 ;;; transient.el ends here
 #+end_src

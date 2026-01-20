@@ -1,16 +1,3 @@
-#+title: GPTEL Session Logging
-#+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-logging.el
-#+auto_tangle: y
-
-* Introduction
-
-Leveled logging system for gptel session management.
-Provides debug, info, warn, and error logging with optional file output.
-
-* Lexical Binding
-
-#+begin_src emacs-lisp
 ;;; logging.el --- GPTEL Session Logging -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -23,12 +10,8 @@ Provides debug, info, warn, and error logging with optional file output.
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-#+end_src
+(require 'gptel-session-constants)
 
-* Log Level Configuration
-
-#+begin_src emacs-lisp
 (defcustom jf/gptel-log-level 'debug
   "Minimum log level for gptel session messages.
 Levels in order: debug, info, warn, error.
@@ -42,22 +25,14 @@ Messages at or above this level will be logged."
 (defvar jf/gptel-log-to-file nil
   "Whether to log session events to files.
 When t, logs are written to <session-dir>/session.log.")
-#+end_src
 
-* Log Level Comparison
-
-#+begin_src emacs-lisp
 (defun jf/gptel--log-level-p (level)
   "Return t if LEVEL should be logged given current log level."
   (let ((levels '(debug info warn error))
         (current-level jf/gptel-log-level))
     (>= (cl-position level levels)
         (cl-position current-level levels))))
-#+end_src
 
-* Core Logging Function
-
-#+begin_src emacs-lisp
 (defun jf/gptel--log (level format-string &rest args)
   "Log message at LEVEL using FORMAT-STRING and ARGS.
 LEVEL should be one of: debug, info, warn, error.
@@ -79,11 +54,7 @@ Only logs if level is at or above jf/gptel-log-level."
             (insert full-msg)
             (insert "\n")
             (append-to-file (point-min) (point-max) log-file)))))))
-#+end_src
 
-* Convenience Functions
-
-#+begin_src emacs-lisp
 (defun jf/gptel--log-debug (format-string &rest args)
   "Log debug message using FORMAT-STRING and ARGS."
   (apply #'jf/gptel--log 'debug format-string args))
@@ -99,11 +70,6 @@ Only logs if level is at or above jf/gptel-log-level."
 (defun jf/gptel--log-error (format-string &rest args)
   "Log error message using FORMAT-STRING and ARGS."
   (apply #'jf/gptel--log 'error format-string args))
-#+end_src
 
-* Provide Feature
-
-#+begin_src emacs-lisp
-(provide 'jf-gptel-session-logging)
+(provide 'gptel-session-logging)
 ;;; logging.el ends here
-#+end_src

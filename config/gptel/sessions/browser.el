@@ -1,12 +1,12 @@
 ;; -*- lexical-binding: t; -*-
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-metadata)
-(require 'jf-gptel-session-branching)
-(require 'jf-gptel-session-transient)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'gptel-session-branching)
+(require 'gptel-session-transient)
 
 (defun jf/gptel-browse-sessions ()
   "Browse saved gptel sessions in dired.

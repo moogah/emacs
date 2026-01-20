@@ -1,16 +1,3 @@
-#+title: GPTEL Session Tracing
-#+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-tracing.el
-#+auto_tangle: y
-
-* Introduction
-
-Agent and tool execution tracing for gptel sessions.
-Logs tool calls, system prompt changes, and subagent executions to session files.
-
-* Lexical Binding
-
-#+begin_src emacs-lisp
 ;;; tracing.el --- GPTEL Session Tracing -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -23,16 +10,10 @@ Logs tool calls, system prompt changes, and subagent executions to session files
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-#+end_src
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
 
-* Tool Call Logging
-
-Log tool executions to tools.md file.
-
-#+begin_src emacs-lisp
 (defun jf/gptel--log-tool-call (tool-name args result &optional session-dir context-line subagent-link)
   "Log a tool call to the tools.md file.
 TOOL-NAME is the name of the tool.
@@ -78,13 +59,7 @@ SUBAGENT-LINK is optional path to subagent session (for Agent tool)."
           (append-to-file (point-min) (point-max) tools-file))
 
         (jf/gptel--log 'debug "Logged tool call: %s" tool-name)))))
-#+end_src
 
-* System Prompt Change Logging
-
-Log system prompt modifications to system-prompts.md file.
-
-#+begin_src emacs-lisp
 (defun jf/gptel--log-system-prompt-change (old-prompt new-prompt &optional session-dir)
   "Log system prompt change to system-prompts.md file.
 OLD-PROMPT is the previous system prompt (or nil if first set).
@@ -118,11 +93,7 @@ SESSION-DIR is optional; uses current session if nil."
           (append-to-file (point-min) (point-max) prompts-file))
 
         (jf/gptel--log 'debug "Logged system prompt change")))))
-#+end_src
 
-* Subagent Session Linking
-
-#+begin_src emacs-lisp
 (defun jf/gptel--link-subagent-to-parent (subagent-dir parent-session-id)
   "Create bidirectional link between subagent and parent.
 SUBAGENT-DIR is the subagent session directory.
@@ -136,11 +107,6 @@ Writes parent link to subagent metadata and logs to parent tools.md."
     (jf/gptel--log 'debug "Linked subagent to parent: %s -> %s"
                   (file-name-nondirectory subagent-dir)
                   parent-session-id)))
-#+end_src
 
-* Provide Feature
-
-#+begin_src emacs-lisp
-(provide 'jf-gptel-session-tracing)
+(provide 'gptel-session-tracing)
 ;;; tracing.el ends here
-#+end_src

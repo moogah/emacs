@@ -11,9 +11,9 @@
 
 (require 'cl-lib)
 (require 'json)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
 
 (defun jf/gptel--create-metadata (session-dir session-id model backend)
   "Create initial metadata plist for new session.
@@ -102,5 +102,5 @@ TREE is the new tree structure plist."
               (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t))
     (jf/gptel--write-metadata session-dir metadata)))
 
-(provide 'jf-gptel-session-metadata)
+(provide 'gptel-session-metadata)
 ;;; metadata.el ends here

@@ -1,16 +1,3 @@
-#+title: GPTEL Session Branching
-#+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-branching.el
-#+auto_tangle: y
-
-* Introduction
-
-Conversation branching for gptel sessions.
-Allows creating alternate conversation paths by copying and editing context.
-
-* Lexical Binding
-
-#+begin_src emacs-lisp
 ;;; branching.el --- GPTEL Session Branching -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -23,18 +10,12 @@ Allows creating alternate conversation paths by copying and editing context.
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-metadata)
-#+end_src
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
 
-* Resume from Context
-
-Load a context file into a gptel buffer.
-
-#+begin_src emacs-lisp
 (defun jf/gptel-resume-from-context ()
   "Resume gptel session from context.md file at point in dired.
 Opens the context file in a gptel buffer with proper session state."
@@ -81,13 +62,7 @@ Opens the context file in a gptel buffer with proper session state."
 
       (jf/gptel--log 'info "Resumed session: %s" session-id)
       (message "Resumed gptel session: %s" session-id))))
-#+end_src
 
-* Branch from Point
-
-Create a new branch by copying and truncating context.
-
-#+begin_src emacs-lisp
 (defun jf/gptel-branch-from-point ()
   "Create a conversation branch from the context at point.
 Prompts for branch name and creates a new context file."
@@ -126,13 +101,7 @@ Prompts for branch name and creates a new context file."
 
       (jf/gptel--log 'info "Created branch: %s" branch-name)
       (message "Created branch: %s" branch-name))))
-#+end_src
 
-* Branch Management
-
-List and switch between branches.
-
-#+begin_src emacs-lisp
 (defun jf/gptel--list-branches (session-dir)
   "List all context files (branches) in SESSION-DIR.
 Returns list of (branch-name . file-path) cons cells."
@@ -168,13 +137,7 @@ Prompts for branch name using completing-read."
 
       (jf/gptel--log 'info "Switched to branch: %s" choice)
       (message "Switched to branch: %s" choice))))
-#+end_src
 
-* Send from Context
-
-Resume a context and send it to the API (useful for editing and resending).
-
-#+begin_src emacs-lisp
 (defun jf/gptel-send-from-context ()
   "Resume context at point and send to API.
 Useful for editing a saved context and continuing the conversation."
@@ -185,11 +148,6 @@ Useful for editing a saved context and continuing the conversation."
   ;; Prompt to send
   (when (y-or-n-p "Send this context to the API? ")
     (call-interactively #'gptel-send)))
-#+end_src
 
-* Provide Feature
-
-#+begin_src emacs-lisp
-(provide 'jf-gptel-session-branching)
+(provide 'gptel-session-branching)
 ;;; branching.el ends here
-#+end_src

@@ -1,4 +1,4 @@
-;;; jf-gptel-session-subagent.el --- GPTEL Subagent Sessions -*- lexical-binding: t; -*-
+;;; subagent.el --- GPTEL Subagent Sessions -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
 
@@ -10,12 +10,12 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-metadata)
-(require 'jf-gptel-session-tracing)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'gptel-session-tracing)
 
 (defun jf/gptel--create-subagent-session (parent-session-dir agent-type description)
   "Create a subagent session directory under PARENT-SESSION-DIR.
@@ -210,5 +210,5 @@ Returns path to subagent session directory or nil."
         ;; Return most recent (last in sorted list)
         (car (last matching))))))
 
-(provide 'jf-gptel-session-subagent)
-;;; jf-gptel-session-subagent.el ends here
+(provide 'gptel-session-subagent)
+;;; subagent.el ends here

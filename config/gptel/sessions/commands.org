@@ -1,4 +1,16 @@
-;;; jf-gptel-session-commands.el --- GPTEL Session Commands -*- lexical-binding: t; -*-
+#+title: GPTEL Session Commands
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle commands.el
+#+auto_tangle: y
+
+* Introduction
+
+User-facing commands for creating and managing gptel persistent sessions.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
+;;; commands.el --- GPTEL Session Commands -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
 
@@ -10,14 +22,22 @@
 
 (require 'cl-lib)
 (require 'gptel)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-metadata)
-(require 'jf-gptel-session-tracing)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'gptel-session-tracing)
 (require 'jf-gptel-scope-commands)
+#+end_src
 
+* Preset Management Helpers
+
+Helper functions for creating, loading, and applying session presets.
+
+** Generate Preset Plist
+
+#+begin_src emacs-lisp
 (defun jf/gptel--generate-preset-plist (session-name backend model)
   "Generate preset plist for session SESSION-NAME.
 Uses BACKEND and MODEL, with current gptel values as fallbacks.
@@ -28,7 +48,11 @@ System message defaults to empty, tools default to empty list."
         :system ""  ; Empty - use gptel default
         :temperature (or (bound-and-true-p gptel-temperature) 1.0)
         :tools '()))  ; Empty - user adds via preset.json editing
+#+end_src
 
+** Write Preset to File
+
+#+begin_src emacs-lisp
 (defun jf/gptel--write-preset-file (session-dir preset-plist)
   "Write PRESET-PLIST to preset.json in SESSION-DIR.
 Converts backend objects to names, converts keywords to strings."
@@ -49,7 +73,11 @@ Converts backend objects to names, converts keywords to strings."
     (with-temp-file preset-file
       (insert (json-encode preset-alist)))
     (jf/gptel--log 'info "Created preset file: %s" preset-file)))
+#+end_src
 
+** Load Preset from File
+
+#+begin_src emacs-lisp
 (defun jf/gptel--load-preset-from-file (session-dir)
   "Load preset from SESSION-DIR/preset.json and return plist.
 Converts backend names to objects, converts JSON keys to keywords."
@@ -70,7 +98,11 @@ Converts backend names to objects, converts JSON keys to keywords."
             :system (alist-get "system" preset-alist "" nil #'equal)
             :temperature (alist-get "temperature" preset-alist 1.0 nil #'equal)
             :tools (alist-get "tools" preset-alist nil nil #'equal)))))
+#+end_src
 
+** Apply Session Preset
+
+#+begin_src emacs-lisp
 (defun jf/gptel--apply-session-preset (preset-plist)
   "Apply PRESET-PLIST to current buffer buffer-locally."
   (let ((backend (plist-get preset-plist :backend))
@@ -86,7 +118,13 @@ Converts backend names to objects, converts JSON keys to keywords."
     (when temperature
       (setq-local gptel-temperature temperature))
     (jf/gptel--log 'info "Applied session preset")))
+#+end_src
 
+* Create Persistent Session
+
+Interactive command to create a new persistent session.
+
+#+begin_src emacs-lisp
 (defun jf/gptel-persistent-session (session-name &optional backend model)
   "Create a new persistent gptel session named SESSION-NAME.
 Optional BACKEND and MODEL default to current gptel settings.
@@ -154,7 +192,13 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
         (message "Created persistent session: %s\nDirectory: %s" session-name session-dir)
 
         buffer))))
+#+end_src
 
+* List Sessions
+
+Show all available persistent sessions.
+
+#+begin_src emacs-lisp
 (defun jf/gptel-list-sessions ()
   "List all persistent gptel sessions."
   (interactive)
@@ -181,7 +225,13 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
             (insert "\n")))
         (goto-char (point-min))
         (display-buffer (current-buffer))))))
+#+end_src
 
+* Resume Session
+
+Resume an existing session by opening its context file.
+
+#+begin_src emacs-lisp
 (defun jf/gptel-resume-session (session-id)
   "Resume persistent session SESSION-ID.
 Opens the session's context file and restores session state."
@@ -228,7 +278,13 @@ Opens the session's context file and restores session state."
         (message "Resumed session: %s" session-id)
 
         buffer))))
+#+end_src
 
+* Initialize Registry
+
+Command to initialize/refresh the session registry.
+
+#+begin_src emacs-lisp
 (defun jf/gptel-refresh-sessions ()
   "Refresh the session registry by scanning session directories.
 Useful if sessions were created outside Emacs or after startup."
@@ -236,7 +292,13 @@ Useful if sessions were created outside Emacs or after startup."
   (jf/gptel--init-registry)
   (message "Refreshed session registry: %d sessions found"
           (jf/gptel--session-count)))
+#+end_src
 
+* Session Diagnostics
+
+Check session state and advice installation.
+
+#+begin_src emacs-lisp
 (defun jf/gptel-session-diagnostics ()
   "Show diagnostic information about current session and advice installation."
   (interactive)
@@ -275,6 +337,11 @@ Useful if sessions were created outside Emacs or after startup."
 
     (goto-char (point-min))
     (display-buffer (current-buffer))))
+#+end_src
 
-(provide 'jf-gptel-session-commands)
-;;; jf-gptel-session-commands.el ends here
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'gptel-session-commands)
+;;; commands.el ends here
+#+end_src

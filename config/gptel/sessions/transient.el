@@ -11,11 +11,11 @@
 
 (require 'cl-lib)
 (require 'transient)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
-(require 'jf-gptel-session-registry)
-(require 'jf-gptel-session-branching)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-branching)
 
 (transient-define-prefix jf/gptel-session-browser-menu ()
   "Transient menu for gptel session browser commands."
@@ -106,5 +106,5 @@
       (insert "  Branches are stored as context-<name>.md files.\n"))
     (display-buffer help-buffer)))
 
-(provide 'jf-gptel-session-transient)
+(provide 'gptel-session-transient)
 ;;; transient.el ends here

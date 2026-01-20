@@ -1,16 +1,3 @@
-#+title: GPTEL Session Filesystem Utilities
-#+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-filesystem.el
-#+auto_tangle: y
-
-* Introduction
-
-Filesystem utilities for directory-based gptel session persistence.
-Provides functions for creating, managing, and navigating session directories.
-
-* Lexical Binding
-
-#+begin_src emacs-lisp
 ;;; filesystem.el --- GPTEL Session Filesystem Utilities -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -23,13 +10,9 @@ Provides functions for creating, managing, and navigating session directories.
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-#+end_src
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
 
-* Session Directory Creation
-
-#+begin_src emacs-lisp
 (defun jf/gptel--ensure-sessions-root ()
   "Ensure the root sessions directory exists.
 Creates jf/gptel-sessions-directory if it doesn't exist.
@@ -52,11 +35,7 @@ Returns the absolute path to the created directory."
       (make-directory session-dir t)
       (jf/gptel--log 'info "Created session directory: %s" session-dir)
       session-dir)))
-#+end_src
 
-* Session ID Generation
-
-#+begin_src emacs-lisp
 (defun jf/gptel--generate-session-id (base-name)
   "Generate unique session ID from BASE-NAME.
 Format: <slugified-base-name>-<timestamp>
@@ -70,11 +49,7 @@ Example: 'react-refactoring-20260120153042'"
   "Extract session ID from SESSION-DIR path.
 Returns the directory name (last path component)."
   (file-name-nondirectory (directory-file-name session-dir)))
-#+end_src
 
-* Path Resolution
-
-#+begin_src emacs-lisp
 (defun jf/gptel--session-file-path (session-dir filename)
   "Get absolute path to FILENAME in SESSION-DIR.
 Does not check if file exists."
@@ -99,11 +74,7 @@ Does not check if file exists."
 (defun jf/gptel--subagents-dir-path (session-dir)
   "Get path to subagents directory in SESSION-DIR."
   (jf/gptel--session-file-path session-dir jf/gptel-session--subagents-dir))
-#+end_src
 
-* Session Discovery
-
-#+begin_src emacs-lisp
 (defun jf/gptel--list-session-directories ()
   "List all session directories in jf/gptel-sessions-directory.
 Returns list of absolute paths to session directories."
@@ -123,11 +94,7 @@ Returns absolute path if found, nil otherwise."
                                    (expand-file-name jf/gptel-sessions-directory))))
     (when (file-directory-p expected)
       expected)))
-#+end_src
 
-* Subagent Directories
-
-#+begin_src emacs-lisp
 (defun jf/gptel--create-subagent-directory (parent-session-dir agent-type description)
   "Create subagent directory under PARENT-SESSION-DIR.
 AGENT-TYPE is the subagent type (e.g., 'researcher', 'executor').
@@ -155,21 +122,12 @@ Returns list of absolute paths."
       (seq-filter
        #'file-directory-p
        (directory-files subagents-dir t "^[^.]")))))
-#+end_src
 
-* Validation
-
-#+begin_src emacs-lisp
 (defun jf/gptel--valid-session-directory-p (dir)
   "Return t if DIR is a valid session directory.
 Checks for existence and presence of metadata file."
   (and (file-directory-p dir)
        (file-exists-p (jf/gptel--metadata-file-path dir))))
-#+end_src
 
-* Provide Feature
-
-#+begin_src emacs-lisp
-(provide 'jf-gptel-session-filesystem)
+(provide 'gptel-session-filesystem)
 ;;; filesystem.el ends here
-#+end_src

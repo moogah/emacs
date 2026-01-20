@@ -1,6 +1,6 @@
 #+title: GPTEL Session Registry
 #+author: Jeff Farr
-#+property: header-args:emacs-lisp :tangle jf-gptel-session-registry.el
+#+property: header-args:emacs-lisp :tangle registry.el
 #+auto_tangle: y
 
 * Introduction
@@ -23,9 +23,9 @@ Maintains in-memory index of sessions for quick lookup and management.
 ;;; Code:
 
 (require 'cl-lib)
-(require 'jf-gptel-session-constants)
-(require 'jf-gptel-session-logging)
-(require 'jf-gptel-session-filesystem)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
 #+end_src
 
 * Registry Data Structure
@@ -158,6 +158,6 @@ Returns nil if current buffer is not a gptel session."
 * Provide Feature
 
 #+begin_src emacs-lisp
-(provide 'jf-gptel-session-registry)
+(provide 'gptel-session-registry)
 ;;; registry.el ends here
 #+end_src
