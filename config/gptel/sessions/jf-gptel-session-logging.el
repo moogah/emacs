@@ -1,0 +1,75 @@
+;;; logging.el --- GPTEL Session Logging -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Leveled logging system for gptel sessions.
+;; Logs to *Messages* buffer and optionally to session-specific log files.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'jf-gptel-session-constants)
+
+(defcustom jf/gptel-log-level 'debug
+  "Minimum log level for gptel session messages.
+Levels in order: debug, info, warn, error.
+Messages at or above this level will be logged."
+  :type '(choice (const :tag "Debug" debug)
+                 (const :tag "Info" info)
+                 (const :tag "Warning" warn)
+                 (const :tag "Error" error))
+  :group 'gptel)
+
+(defvar jf/gptel-log-to-file nil
+  "Whether to log session events to files.
+When t, logs are written to <session-dir>/session.log.")
+
+(defun jf/gptel--log-level-p (level)
+  "Return t if LEVEL should be logged given current log level."
+  (let ((levels '(debug info warn error))
+        (current-level jf/gptel-log-level))
+    (>= (cl-position level levels)
+        (cl-position current-level levels))))
+
+(defun jf/gptel--log (level format-string &rest args)
+  "Log message at LEVEL using FORMAT-STRING and ARGS.
+LEVEL should be one of: debug, info, warn, error.
+Only logs if level is at or above jf/gptel-log-level."
+  (when (jf/gptel--log-level-p level)
+    (let* ((level-str (upcase (symbol-name level)))
+           (msg (apply #'format format-string args))
+           (full-msg (format "[GPTEL-%s] %s" level-str msg)))
+      ;; Log to *Messages*
+      (message "%s" full-msg)
+
+      ;; Optionally log to session file
+      (when (and jf/gptel-log-to-file
+                 jf/gptel--session-dir
+                 (file-directory-p jf/gptel--session-dir))
+        (let ((log-file (expand-file-name "session.log" jf/gptel--session-dir)))
+          (with-temp-buffer
+            (insert (format-time-string "[%Y-%m-%d %H:%M:%S] "))
+            (insert full-msg)
+            (insert "\n")
+            (append-to-file (point-min) (point-max) log-file)))))))
+
+(defun jf/gptel--log-debug (format-string &rest args)
+  "Log debug message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'debug format-string args))
+
+(defun jf/gptel--log-info (format-string &rest args)
+  "Log info message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'info format-string args))
+
+(defun jf/gptel--log-warn (format-string &rest args)
+  "Log warning message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'warn format-string args))
+
+(defun jf/gptel--log-error (format-string &rest args)
+  "Log error message using FORMAT-STRING and ARGS."
+  (apply #'jf/gptel--log 'error format-string args))
+
+(provide 'jf-gptel-session-logging)
+;;; logging.el ends here

@@ -262,20 +262,31 @@ Load session management modules in dependency order:
 
 #+begin_src emacs-lisp
 ;; Load foundational modules first (used by all other session modules)
-(jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-constants.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-logging.el" jf/emacs-dir))
 
 ;; Load filesystem utilities before other modules (registry and hooks depend on it)
-(jf/load-module (expand-file-name "config/gptel/sessions/filesystem.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-filesystem.el" jf/emacs-dir))
 
 ;; Load session modules in dependency order
-(jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/tracing.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/hooks.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/transient.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-registry.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-metadata.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-tracing.el" jf/emacs-dir))
+
+;; Load subagent integration (must be before hooks to provide helper functions)
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-subagent.el" jf/emacs-dir))
+
+;; Load hooks module (depends on subagent for helper functions)
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-hooks.el" jf/emacs-dir))
+
+;; Load user-facing commands
+(jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-commands.el" jf/emacs-dir))
+
+;; TODO: Browser, branching, and transient modules commented out temporarily
+;; These were from an older implementation and need integration work
+;; (jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
+;; (jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-branching.el" jf/emacs-dir))
+;; (jf/load-module (expand-file-name "config/gptel/sessions/jf-gptel-session-transient.el" jf/emacs-dir))
 
 ;; Load scope system (requires session system)
 ;; Scope-aware tools check approved patterns internally and return

@@ -19,6 +19,13 @@ This module provides:
 #+begin_src emacs-lisp
 ;; -*- lexical-binding: t; -*-
 (require 'cl-lib)
+(require 'jf-gptel-session-constants)
+(require 'jf-gptel-session-logging)
+(require 'jf-gptel-session-filesystem)
+(require 'jf-gptel-session-registry)
+(require 'jf-gptel-session-metadata)
+(require 'jf-gptel-session-branching)
+(require 'jf-gptel-session-transient)
 #+end_src
 
 * Browse Sessions
