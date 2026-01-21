@@ -1,3 +1,21 @@
+;;; persistent-agent.el --- GPTEL Persistent Agent Tool -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Persistent agent tool for gptel that launches specialized agents
+;; in persistent session buffers with full tool access and conversation history.
+
+;;; Code:
+
+(require 'gptel)
+(require 'gptel-agent)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-metadata)
+(require 'gptel-session-registry)
+(require 'gptel-session-logging)
+
 (defun jf/gptel--auto-save-session-buffer (&rest _args)
   "Auto-save session buffer after each gptel response.
 Hooked into gptel-post-response-functions.
@@ -71,13 +89,13 @@ FSM is the finite state machine managing the request."
   "Custom FSM handlers for persistent agents.
 Each entry is (STATE UI-HANDLER CORE-HANDLER).")
 
-(defun jf/gptel-persistent-agent--task (agent_type description prompt main-cb)
+(defun jf/gptel-persistent-agent--task (main-cb agent_type description prompt)
   "Launch a persistent agent in a new session buffer.
 
+MAIN-CB is the callback function to invoke with the final result.
 AGENT_TYPE is the type of agent (e.g., \"researcher\").
 DESCRIPTION is a short (3-5 word) task summary.
 PROMPT is the detailed task instructions.
-MAIN-CB is the callback function to invoke with the final result.
 
 Creates a nested subagent session under the current persistent session,
 launches the agent with tool support, displays progress in parent buffer
@@ -112,58 +130,58 @@ with zero inheritance from the parent session."
           (plist-put metadata :agent-type agent_type)
           (plist-put metadata :description description)
           (jf/gptel--write-metadata session-dir metadata)
-          (jf/gptel--link-subagent-to-parent session-dir jf/gptel--session-id))
+          (jf/gptel--link-subagent-to-parent session-dir jf/gptel--session-id)
 
-        ;; Create preset file ONLY from agent definition (NO parent inheritance)
-        (let* ((preset-plist (copy-sequence agent-config)))
-          ;; Override to ensure tool results are included
-          (plist-put preset-plist :include-tool-results t)
-          (jf/gptel--write-preset-file session-dir preset-plist))
+          ;; Create preset file ONLY from agent definition (NO parent inheritance)
+          (let* ((preset-plist (copy-sequence agent-config)))
+            ;; Override to ensure tool results are included
+            (plist-put preset-plist :include-tool-results t)
+            (jf/gptel--write-preset-file session-dir preset-plist))
 
-        ;; Create agent buffer with session infrastructure
-        (let* ((buffer-name (format "*gptel-agent:%s:%s*" agent_type description))
-               (agent-buffer (generate-new-buffer buffer-name)))
+          ;; Create agent buffer with session infrastructure
+          (let* ((buffer-name (format "*gptel-agent:%s:%s*" agent_type description))
+                 (agent-buffer (generate-new-buffer buffer-name)))
 
-          ;; Initialize buffer with session tracking and auto-save
-          (with-current-buffer agent-buffer
-            (markdown-mode)
-            (gptel-mode 1)
+            ;; Initialize buffer with session tracking and auto-save
+            (with-current-buffer agent-buffer
+              (markdown-mode)
+              (gptel-mode 1)
 
-            ;; Set persistent session vars BEFORE preset scope
-            (setq-local jf/gptel--session-id session-id)
-            (setq-local jf/gptel--session-dir session-dir)
-            (setq-local gptel-tools nil)  ; Prevent inheritance EXPLICITLY
+              ;; Set persistent session vars BEFORE preset scope
+              (setq-local jf/gptel--session-id session-id)
+              (setq-local jf/gptel--session-dir session-dir)
+              (setq-local gptel-tools nil)  ; Prevent inheritance EXPLICITLY
 
-            ;; Add auto-save via gptel's post-response hook
-            (add-hook 'gptel-post-response-functions
-                      #'jf/gptel--auto-save-session-buffer
-                      nil t)  ; buffer-local hook
+              ;; Add auto-save via gptel's post-response hook
+              (add-hook 'gptel-post-response-functions
+                        #'jf/gptel--auto-save-session-buffer
+                        nil t)  ; buffer-local hook
 
-            ;; Write initial file
-            (write-file (jf/gptel--context-file-path session-dir)))
+              ;; Write initial file
+              (write-file (jf/gptel--context-file-path session-dir)))
 
-          ;; Register session globally
-          (jf/gptel--register-session session-dir metadata agent-buffer session-id)
+            ;; Register session globally
+            (jf/gptel--register-session session-dir metadata agent-buffer session-id)
 
           ;; Create overlay for parent feedback
           (let ((ov (jf/gptel-persistent-agent--create-overlay
                      where agent_type description)))
 
-            ;; Accumulator for response
-            (let ((partial ""))
+            ;; Execute with preset scope for configuration only
+            (gptel-with-preset
+                (nconc (list :include-reasoning nil
+                             :use-tools t
+                             :use-context nil)
+                       (cdr (assoc agent_type gptel-agent--agents)))
 
-              ;; Execute with preset scope for configuration only
-              (gptel-with-preset
-                  (nconc (list :include-reasoning nil
-                               :use-tools t
-                               :use-context nil)
-                         (cdr (assoc agent_type gptel-agent--agents)))
+              ;; Accumulator for response (must be inside preset scope)
+              (let ((partial ""))
 
                 ;; Launch the agent request
                 (gptel-request prompt
                   :buffer agent-buffer
                   :context ov  ; Parent buffer overlay
-                  :fsm jf/gptel-persistent-agent--fsm-handlers
+                  :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
 
                   :callback
                   (lambda (resp info)
@@ -196,7 +214,7 @@ with zero inheritance from the parent session."
                            ;; Apply transformer if present
                            (when-let ((transform (plist-get info :transformer)))
                              (setq partial (funcall transform partial)))
-                           (funcall main-cb partial)))))))))))))))
+                           (funcall main-cb partial))))))))))))))))
 
 (gptel-make-tool
  :name "PersistentAgent"
@@ -228,3 +246,4 @@ Use for complex research, open-ended exploration, or iterative tasks."
  :include t)   ; Results appear in parent buffer
 
 (provide 'gptel-persistent-agent)
+;;; persistent-agent.el ends here
