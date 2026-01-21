@@ -151,6 +151,7 @@ with zero inheritance from the parent session."
               (setq-local jf/gptel--session-id session-id)
               (setq-local jf/gptel--session-dir session-dir)
               (setq-local gptel-tools nil)  ; Prevent inheritance EXPLICITLY
+              (setq-local gptel-include-tool-results t)  ; Enable tool result persistence
 
               ;; Add auto-save via gptel's post-response hook
               (add-hook 'gptel-post-response-functions
@@ -176,7 +177,8 @@ with zero inheritance from the parent session."
             (gptel-with-preset
                 (nconc (list :include-reasoning nil
                              :use-tools t
-                             :use-context nil)
+                             :use-context nil
+                             :include-tool-results t)
                        (cdr (assoc agent_type gptel-agent--agents)))
 
               ;; Accumulator for response (must be inside preset scope)
@@ -191,7 +193,7 @@ with zero inheritance from the parent session."
                   :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
 
                   :callback
-                  (lambda (resp info)
+                  (lambda (resp info &optional raw)
                     (let ((ov (plist-get info :context))
                           (buf (plist-get info :buffer)))
                       (pcase resp
@@ -211,29 +213,38 @@ with zero inheritance from the parent session."
                         (`(tool-call . ,calls)
                          (gptel--display-tool-calls calls info))
 
+                        ;; Tool results ready - display in agent buffer
+                        (`(tool-result . ,tool-results)
+                         (gptel--display-tool-results tool-results info))
+
                         ;; String response - DUAL DUTY: insert to buffer AND accumulate
                         ((pred stringp)
                          ;; 1. Insert into agent-buffer for persistence
                          (with-current-buffer buf
                            (save-excursion
                              (goto-char (point-max))
-                             (let ((start (point)))
-                               (insert resp)
-                               ;; Mark response with text properties for gptel parsing
-                               (when gptel-mode
-                                 (put-text-property start (point)
-                                                   'gptel 'response)))))
+                             (if raw
+                                 ;; Raw (tool results): properties already set
+                                 (insert resp)
+                               ;; Regular response: add properties
+                               (let ((start (point)))
+                                 (insert resp)
+                                 (when gptel-mode
+                                   (put-text-property start (point)
+                                                     'gptel 'response))))))
 
-                         ;; 2. Accumulate for parent callback
-                         (setq partial (concat partial resp))
+                         ;; 2-3. Accumulate and callback only for non-raw responses
+                         (unless raw
+                           ;; 2. Accumulate for parent callback
+                           (setq partial (concat partial resp))
 
-                         ;; 3. Return to parent when done (not in tool-use)
-                         (unless (plist-get info :tool-use)
-                           (delete-overlay ov)
-                           ;; Apply transformer if present
-                           (when-let ((transform (plist-get info :transformer)))
-                             (setq partial (funcall transform partial)))
-                           (funcall main-cb partial))))))))))))))))
+                           ;; 3. Return to parent when done (not in tool-use)
+                           (unless (plist-get info :tool-use)
+                             (delete-overlay ov)
+                             ;; Apply transformer if present
+                             (when-let ((transform (plist-get info :transformer)))
+                               (setq partial (funcall transform partial)))
+                             (funcall main-cb partial)))))))))))))))))
 
 (gptel-make-tool
  :name "PersistentAgent"
