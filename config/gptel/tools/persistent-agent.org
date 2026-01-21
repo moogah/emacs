@@ -22,6 +22,386 @@ This tool replicates gptel-agent's superior architecture while maintaining buffe
 - *Auto-save*: Automatic buffer save after each response
 - *Zero Inheritance*: Agent configured ONLY from agent definition, not parent
 
+* Detailed Architecture
+
+This section provides comprehensive architectural analysis of the PersistentAgent tool implementation.
+
+** Context & Purpose
+
+PersistentAgent is an Emacs Lisp tool that integrates with the =gptel= package (an LLM client for Emacs) to create *persistent, autonomous agent sessions*.
+
+*Domain:* Emacs-based AI assistant infrastructure for literate programming workflows
+
+*Primary Use Cases:*
+- Research tasks requiring multiple tool invocations
+- Complex exploration of codebases
+- Planning and execution that benefits from conversation history
+- Hierarchical agent delegation (parent agents spawning child agents)
+
+*Architectural Philosophy:*
+
+The tool emphasizes *"zero inheritance"* - child agents are configured ONLY from their agent definition files, not from parent session state. This prevents configuration pollution and ensures predictable agent behavior.
+
+** Component Architecture
+
+The PersistentAgent tool is part of a larger modular gptel configuration:
+
+#+begin_example
+config/gptel/
+├── gptel.org/el           - Main loader
+├── sessions/              - 11 session management modules
+│   ├── filesystem.el      - Directory structure, path helpers
+│   ├── metadata.el        - Session metadata (model, backend, timestamps)
+│   ├── registry.el        - Global session tracking
+│   ├── subagent.el        - Parent-child session linking
+│   ├── logging.el         - Debug logging
+│   └── constants.el       - Path constants
+├── tools/                 - 9 tool definitions
+│   ├── persistent-agent.el  - THIS MODULE
+│   ├── filesystem-tools.el
+│   └── projectile-tools.el
+└── agents/                - 5 agent definition markdown files
+    ├── executor.md
+    ├── explorer.md
+    ├── planner.md
+    └── researcher.md
+#+end_example
+
+** Component Diagram
+
+#+begin_src mermaid
+graph TB
+    LLM[Parent LLM Session] -->|invokes tool| Tool[PersistentAgent Tool]
+    Tool --> Session[Session Creation]
+    Tool --> Overlay[Overlay System]
+    Tool --> FSM[Custom FSM Handlers]
+
+    Session --> Dir[Directory Structure]
+    Session --> Meta[Metadata Files]
+    Session --> Buffer[Agent Buffer]
+    Session --> Registry[Global Registry]
+
+    Buffer --> Preset[Agent Preset Config]
+    Buffer --> AutoSave[Auto-save Hook]
+    Buffer --> Request[gptel-request]
+
+    Request --> FSM
+    FSM --> Wait[WAIT State Handler]
+    FSM --> ToolState[TOOL State Handler]
+
+    Wait --> Overlay
+    ToolState --> Overlay
+
+    Request --> Callback[Response Callback]
+    Callback --> Accumulate[Accumulate Response]
+    Callback --> Persist[Persist to Buffer]
+    Callback --> Return[Return to Parent]
+
+    style Tool fill:#f9f,stroke:#333,stroke-width:4px
+    style Buffer fill:#bbf,stroke:#333,stroke-width:2px
+    style Overlay fill:#bfb,stroke:#333,stroke-width:2px
+#+end_src
+
+** Data Flow
+
+#+begin_src mermaid
+sequenceDiagram
+    participant P as Parent LLM
+    participant T as PersistentAgent Tool
+    participant FS as Filesystem
+    participant B as Agent Buffer
+    participant O as Overlay
+    participant API as LLM API
+
+    P->>T: Invoke tool(agent_type, description, prompt)
+    T->>T: Validate parent session exists
+    T->>FS: Create subagent directory
+    FS-->>T: session-dir path
+
+    T->>FS: Load agent config (NO parent inheritance)
+    T->>FS: Write metadata.json
+    T->>FS: Write preset.json
+    T->>FS: Link to parent session
+
+    T->>B: Create buffer with session vars
+    T->>B: Insert prompt
+    T->>B: Add auto-save hook
+
+    T->>O: Create overlay in parent buffer
+
+    T->>API: gptel-request with FSM handlers
+
+    loop Tool calls & responses
+        API->>B: Tool call
+        B->>O: Update overlay (tool count)
+        B->>API: Tool results
+        API->>B: Response chunk
+        B->>B: Accumulate response
+        B->>FS: Auto-save buffer
+    end
+
+    API->>B: Final response
+    B->>O: Delete overlay
+    B->>P: Return accumulated result
+#+end_src
+
+** Session Directory Structure
+
+Sessions are persisted to disk with the following structure:
+
+#+begin_example
+~/gptel-sessions/
+└── parent-session-20260121143022/
+    ├── metadata.json                    # Parent session metadata
+    ├── preset.json                      # Parent configuration
+    ├── context.md                       # Parent conversation
+    ├── tools.md                         # Parent tool calls
+    └── subagents/                       # Subagent sessions
+        └── researcher-20260121143245-analyze-code/
+            ├── metadata.json            # Subagent metadata (includes parent-session-id)
+            ├── preset.json              # Agent-specific config (NO inheritance)
+            ├── context.md               # Subagent conversation (auto-saved)
+            └── tools.md                 # Subagent tool calls
+#+end_example
+
+** FSM State Handler Flow
+
+#+begin_src mermaid
+stateDiagram-v2
+    [*] --> WAIT: gptel-request initiated
+
+    WAIT --> TOOL: LLM requests tools
+    WAIT --> Response: LLM sends text
+
+    TOOL --> WAIT: Tool results sent
+
+    Response --> Accumulate: String response
+    Accumulate --> CheckToolUse: Is in tool-use?
+
+    CheckToolUse --> WAIT: Yes (more turns)
+    CheckToolUse --> Complete: No (final response)
+
+    Complete --> [*]: Return to parent
+
+    note right of WAIT
+        Custom handler:
+        jf/gptel-persistent-agent--indicate-wait
+        Updates overlay: "Waiting..."
+    end note
+
+    note right of TOOL
+        Custom handler:
+        jf/gptel-persistent-agent--indicate-tool-call
+        Updates overlay: "Tools (+N)"
+    end note
+
+    note right of Accumulate
+        DUAL DUTY:
+        1. Insert to buffer (persist)
+        2. Accumulate for parent callback
+    end note
+#+end_src
+
+** Design Patterns
+
+*** Finite State Machine (FSM) Pattern
+
+*Location:* Lines 129-136
+
+The tool extends gptel's FSM architecture with custom handlers for WAIT and TOOL states.
+
+*Why good:* Clean separation of concerns - UI updates (overlay) are decoupled from core request handling. Each state has a dedicated handler.
+
+*** Overlay-based Progress Indicator Pattern
+
+*Location:* Lines 67-88
+
+Instead of switching buffers or popping up windows, progress is shown via text overlays in the parent buffer.
+
+*Why good:* Non-intrusive UX - user stays in parent context while monitoring subagent progress. Similar to how gptel-agent works.
+
+*** Configuration Isolation via Dynamic Scoping
+
+*Location:* Lines 230-235
+
+Uses =gptel-with-preset= macro to create a clean dynamic scope for agent configuration.
+
+*Why good:* Prevents configuration leakage between parent and child sessions. Agent gets config ONLY from its definition file.
+
+*** Hook-based Auto-save Pattern
+
+*Location:* Lines 52-60, 208-210
+
+Leverages gptel's post-response hook infrastructure for automatic persistence.
+
+*Why good:* Automatic, transparent persistence. No manual save calls scattered through code.
+
+*** Registry Pattern
+
+*Location:* Line 223 (via =jf/gptel--register-session=)
+
+Sessions are registered in a global registry (=jf/gptel--session-registry=) that maps session IDs to metadata plists.
+
+*Why good:* Centralized session lookup, enables features like session browsing, parent-child navigation, and resumption.
+
+*** Dual-duty Callback Pattern
+
+*Location:* Lines 273-300
+
+The response callback serves two purposes:
+1. Insert responses into buffer (for persistence)
+2. Accumulate responses (for parent return value)
+
+*Why good:* Single source of truth for response handling. Ensures buffer content matches what parent receives.
+
+** Anti-patterns & Risks
+
+*** Complex Nested Let Bindings (Medium Risk)
+
+*Location:* Lines 162-300
+
+The main function has 6 nested =let*= blocks creating deep nesting.
+
+*Impact:* Hard to follow data flow, difficult to debug, high cognitive load.
+
+*Mitigation:* Already uses descriptive variable names. Could be refactored into helper functions, but current implementation is manageable for a 150-line function.
+
+*** Implicit Global State Dependencies (Low Risk)
+
+*Location:* Line 158
+
+The function checks buffer-local variable =jf/gptel--session-dir= without explicit parameter.
+
+*Impact:* Function behavior depends on buffer context. Not obvious from signature.
+
+*Mitigation:* This is intentional - the tool is designed to work ONLY in persistent session buffers. The error message clearly states the requirement.
+
+*** Marker Position Mutation Risk (Low Risk)
+
+*Location:* Lines 162, 78
+
+Creates overlay at marker position in parent buffer, potentially modifying buffer content if cursor is at beginning.
+
+*Impact:* Modifies buffer content (inserts newline) if cursor is at buffer start.
+
+*Mitigation:* Minimal - only inserts single newline, and this is expected behavior (can't create overlay at buffer start).
+
+** Architectural Strengths
+
+1. *Clear Separation of Concerns*
+   - Session management (filesystem, metadata, registry)
+   - UI feedback (overlays)
+   - Configuration (preset files, agent definitions)
+   - Persistence (auto-save hooks)
+
+2. *Configuration Isolation*
+   - Zero inheritance from parent
+   - Explicit agent configuration loading
+   - Clean dynamic scope via =gptel-with-preset=
+
+3. *Transparent Persistence*
+   - Automatic buffer saves via hooks
+   - Conversation history preserved
+   - Tool calls included (via =gptel-include-tool-results=)
+
+4. *Resumable Sessions*
+   - Full state saved to disk
+   - Session registry enables lookup
+   - Parent-child links preserved
+
+5. *Non-intrusive UX*
+   - Overlay-based progress (no buffer switching)
+   - Async execution (non-blocking)
+   - User confirmation required (=:confirm t=)
+
+** Architectural Trade-offs
+
+| Aspect | Choice | Benefit | Cost |
+|--------|--------|---------|------|
+| *Persistence* | Save every response to disk | Complete history, resumable | I/O overhead on every turn |
+| *Configuration* | Zero inheritance, agent-only config | Predictable behavior | More setup (preset files, agent defs) |
+| *Async* | Tool runs async (=:async t=) | Non-blocking parent | Complex callback handling |
+| *Overlay UI* | In-buffer progress display | No context switching | Limited visual space |
+| *Nested structure* | 6-level let* nesting | All state in one function | Hard to test individual steps |
+
+** Critical Invariants
+
+1. *Parent Session Required* (Line 158)
+
+   Tool ONLY works in persistent session buffers, not ad-hoc gptel buffers.
+
+2. *Buffer-local Vars Set Before Preset Scope* (Lines 202-205)
+
+   Session state persists outside preset dynamic scope.
+
+3. *Tool Results Included* (Lines 205, 234)
+
+   Ensures tool I/O is saved to context.md for full conversation history.
+
+4. *Auto-save Triggers on Response* (Lines 208-210)
+
+   Every API response triggers buffer save.
+
+5. *Prompt Inserted to Buffer, Request Reads from Buffer* (Lines 212-242)
+
+   Prompt becomes part of buffer content (persisted) rather than ephemeral parameter.
+
+** Integration Points
+
+*Key Dependencies:*
+- *gptel-agent*: Provides agent definition loading (=gptel-agent--agents= alist)
+- *gptel-session-filesystem*: Directory creation, path helpers
+- *gptel-session-metadata*: Metadata file read/write
+- *gptel-session-registry*: Global session tracking
+- *gptel-session-subagent*: Parent-child linking
+
+** Testing Considerations
+
+*How to test:*
+1. Create parent persistent session
+2. Invoke PersistentAgent tool from parent
+3. Verify subagent directory created under =subagents/=
+4. Check metadata.json includes =:parent-session-id=
+5. Verify overlay appears in parent buffer
+6. Monitor overlay updates during tool calls
+7. Check final result returned to parent
+8. Verify context.md contains full conversation
+
+*Edge cases:*
+- Parent session doesn't exist → Error (expected)
+- Agent type not in =gptel-agent--agents= → Nil config (graceful degradation)
+- Network failure → Error callback invoked, overlay deleted
+- User aborts tool confirmation → 'abort callback, overlay deleted
+- Buffer killed during execution → Overlay buffer check prevents crash
+
+** Summary & Recommendations
+
+*Architectural Highlights:*
+
+PersistentAgent is a well-structured Emacs Lisp tool that elegantly solves the problem of *persistent, autonomous agent sessions* within gptel. Its architecture emphasizes:
+
+1. *Configuration Isolation* - Zero inheritance from parent ensures predictable agent behavior
+2. *Transparent Persistence* - Hook-based auto-save makes session preservation automatic
+3. *Non-intrusive UX* - Overlay-based progress display keeps user in parent context
+4. *Clean State Management* - FSM pattern with custom handlers separates UI from logic
+5. *Resumable Sessions* - Complete history saved enables session browsing and resumption
+
+*Strengths:*
+- Leverages Emacs idioms (overlays, buffer-local vars, hooks, markers)
+- Clean separation between transient (preset scope) and persistent (session vars) state
+- Dual-duty callback elegantly handles both persistence and parent return
+- Registry pattern enables advanced features (browsing, linking, resumption)
+
+*Areas for Improvement:*
+- *Complexity:* 6-level nested let* blocks could be refactored into helper functions
+- *Testing:* No visible test suite (consider ERT tests for critical invariants)
+- *Documentation:* Inline comments are sparse; relies on docstrings
+- *Error Handling:* Limited error recovery (e.g., filesystem errors during metadata write)
+
+*Recommendation:*
+
+The architecture is *sound and fit for purpose*. The complexity is justified by the feature set (persistence + async + overlay UI + configuration isolation). The "zero inheritance" principle is well-implemented and prevents configuration pollution. The main improvement opportunity is refactoring the nested let* blocks into smaller helper functions for better testability and maintainability.
+
 * Lexical Binding
 
 #+begin_src emacs-lisp
