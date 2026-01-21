@@ -29,7 +29,7 @@
 (jf/load-module (expand-file-name "config/language-modes/typescript.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/language-modes/javascript.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/language-modes/golang.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/language-modes/postgres.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/language-modes/sql.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/language-modes/docker.el" jf/emacs-dir))
 
 (use-package wgrep

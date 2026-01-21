@@ -82,6 +82,7 @@
   (jf/load-module (expand-file-name "config/gptel/tools/ggtags-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/treesitter-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/org-roam-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/sql-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
 

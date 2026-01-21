@@ -173,7 +173,7 @@ This ensures stable machine role identification even when hostname changes."
     (load secrets-file nil 'nomessage)))
 
 ;; Load machine-specific configuration if it exists
-(let ((machine-config (expand-file-name (concat "local/" jf/machine-role ".el") jf/emacs-dir)))
+(let ((machine-config (expand-file-name (concat "config/local/" jf/machine-role ".el") jf/emacs-dir)))
   (when (file-exists-p machine-config)
     (jf/load-module machine-config)))
 
