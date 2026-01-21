@@ -157,7 +157,12 @@ with zero inheritance from the parent session."
                         #'jf/gptel--auto-save-session-buffer
                         nil t)  ; buffer-local hook
 
-              ;; Write initial file
+              ;; Insert prompt into buffer BEFORE writing file
+              ;; This allows gptel-request with PROMPT=nil to read from buffer
+              (insert prompt)
+              (insert "\n\n")  ; Separator for response
+
+              ;; Write initial file with prompt
               (write-file (jf/gptel--context-file-path session-dir)))
 
             ;; Register session globally
@@ -178,14 +183,17 @@ with zero inheritance from the parent session."
               (let ((partial ""))
 
                 ;; Launch the agent request
-                (gptel-request prompt
+                ;; PROMPT=nil reads from agent-buffer (which now contains prompt)
+                (gptel-request nil
                   :buffer agent-buffer
+                  :position (point-max)  ; Insert response at end of buffer
                   :context ov  ; Parent buffer overlay
                   :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
 
                   :callback
                   (lambda (resp info)
-                    (let ((ov (plist-get info :context)))
+                    (let ((ov (plist-get info :context))
+                          (buf (plist-get info :buffer)))
                       (pcase resp
                         ;; Network/API error
                         ('nil
@@ -203,12 +211,23 @@ with zero inheritance from the parent session."
                         (`(tool-call . ,calls)
                          (gptel--display-tool-calls calls info))
 
-                        ;; String response - accumulate and return when done
+                        ;; String response - DUAL DUTY: insert to buffer AND accumulate
                         ((pred stringp)
-                         ;; Accumulate response
+                         ;; 1. Insert into agent-buffer for persistence
+                         (with-current-buffer buf
+                           (save-excursion
+                             (goto-char (point-max))
+                             (let ((start (point)))
+                               (insert resp)
+                               ;; Mark response with text properties for gptel parsing
+                               (when gptel-mode
+                                 (put-text-property start (point)
+                                                   'gptel 'response)))))
+
+                         ;; 2. Accumulate for parent callback
                          (setq partial (concat partial resp))
 
-                         ;; Only fire callback when NOT in tool-use
+                         ;; 3. Return to parent when done (not in tool-use)
                          (unless (plist-get info :tool-use)
                            (delete-overlay ov)
                            ;; Apply transformer if present
