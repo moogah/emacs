@@ -36,26 +36,33 @@ BACKEND is the backend name string."
 
 (defun jf/gptel--metadata-to-json (metadata)
   "Convert METADATA plist to JSON string.
-Uses json.el to serialize the plist."
-  (let ((json-encoding-pretty-print t))
-    (json-encode
-     (list :session_id (plist-get metadata :session-id)
-           :created (plist-get metadata :created)
-           :modified (plist-get metadata :modified)
-           :backend (plist-get metadata :backend)
-           :model (plist-get metadata :model)
-           :tree (plist-get metadata :tree)))))
+Uses json.el to serialize the plist. Handles any plist fields flexibly."
+  (let ((json-encoding-pretty-print t)
+        (alist nil))
+    ;; Convert plist to alist, transforming kebab-case keywords to snake_case strings
+    (cl-loop for (key val) on metadata by #'cddr
+             do (push (cons (intern (replace-regexp-in-string "-" "_"
+                                     (substring (symbol-name key) 1)))
+                           val)
+                     alist))
+    (json-encode (nreverse alist))))
 
 (defun jf/gptel--metadata-from-json (json-string)
   "Parse JSON-STRING into metadata plist.
-Converts from snake_case JSON keys to kebab-case keywords."
-  (let ((json-data (json-read-from-string json-string)))
-    (list :session-id (alist-get 'session_id json-data)
-          :created (alist-get 'created json-data)
-          :modified (alist-get 'modified json-data)
-          :backend (alist-get 'backend json-data)
-          :model (alist-get 'model json-data)
-          :tree (alist-get 'tree json-data))))
+Converts from snake_case JSON keys to kebab-case keywords.
+Handles any JSON fields flexibly."
+  (let* ((json-object-type 'alist)
+         (json-array-type 'list)
+         (json-data (json-read-from-string json-string))
+         (plist nil))
+    ;; Convert alist to plist, transforming snake_case to kebab-case keywords
+    (dolist (pair json-data)
+      (let* ((key-str (symbol-name (car pair)))
+             (key-keyword (intern (concat ":"
+                                   (replace-regexp-in-string "_" "-" key-str))))
+             (val (cdr pair)))
+        (setq plist (plist-put plist key-keyword val))))
+    plist))
 
 (defun jf/gptel--write-metadata (session-dir metadata)
   "Write METADATA to metadata.json in SESSION-DIR.
@@ -101,6 +108,21 @@ TREE is the new tree structure plist."
     (plist-put metadata :modified
               (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t))
     (jf/gptel--write-metadata session-dir metadata)))
+
+(defun jf/gptel--load-metadata-from-file (session-dir)
+  "Load metadata from SESSION-DIR/metadata.json.
+Convenience alias for jf/gptel--read-metadata."
+  (jf/gptel--read-metadata session-dir))
+
+(defun jf/gptel--metadata-is-subagent-p (metadata)
+  "Return t if METADATA represents a subagent session."
+  (and metadata
+       (or (equal (plist-get metadata :type) "subagent")
+           (plist-get metadata :parent-session-id))))
+
+(defun jf/gptel--metadata-get-parent-id (metadata)
+  "Get parent session ID from METADATA, or nil if not a subagent."
+  (plist-get metadata :parent-session-id))
 
 (provide 'gptel-session-metadata)
 ;;; metadata.el ends here

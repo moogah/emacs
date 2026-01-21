@@ -15,18 +15,19 @@
 (require 'gptel-session-filesystem)
 (require 'gptel-session-registry)
 (require 'gptel-session-metadata)
-(require 'gptel-session-tracing)
 (require 'jf-gptel-scope-commands)
 
 (defun jf/gptel--generate-preset-plist (session-name backend model)
   "Generate preset plist for session SESSION-NAME.
 Uses BACKEND and MODEL, with current gptel values as fallbacks.
-System message defaults to empty, tools default to empty list."
+System message defaults to empty, tools default to empty list.
+Tool result persistence is enabled by default via include-tool-results."
   (list :description (format "Session preset for %s" session-name)
         :backend (or backend gptel-backend)
         :model (or model gptel-model)
         :system ""  ; Empty - use gptel default
         :temperature (or (bound-and-true-p gptel-temperature) 1.0)
+        :include-tool-results t  ; Enable native tool persistence
         :tools '()))  ; Empty - user adds via preset.json editing
 
 (defun jf/gptel--write-preset-file (session-dir preset-plist)
@@ -44,6 +45,7 @@ Converts backend objects to names, converts keywords to strings."
                         ("model" . ,model-name)
                         ("system" . ,(plist-get preset-plist :system))
                         ("temperature" . ,(plist-get preset-plist :temperature))
+                        ("include-tool-results" . ,(plist-get preset-plist :include-tool-results))
                         ("tools" . ,(plist-get preset-plist :tools))))
          (preset-file (expand-file-name "preset.json" session-dir)))
     (with-temp-file preset-file
@@ -69,14 +71,17 @@ Converts backend names to objects, converts JSON keys to keywords."
             :model model
             :system (alist-get "system" preset-alist "" nil #'equal)
             :temperature (alist-get "temperature" preset-alist 1.0 nil #'equal)
+            :include-tool-results (alist-get "include-tool-results" preset-alist t nil #'equal)
             :tools (alist-get "tools" preset-alist nil nil #'equal)))))
 
 (defun jf/gptel--apply-session-preset (preset-plist)
-  "Apply PRESET-PLIST to current buffer buffer-locally."
+  "Apply PRESET-PLIST to current buffer buffer-locally.
+Includes gptel-include-tool-results for native tool persistence."
   (let ((backend (plist-get preset-plist :backend))
         (model (plist-get preset-plist :model))
         (system (plist-get preset-plist :system))
-        (temperature (plist-get preset-plist :temperature)))
+        (temperature (plist-get preset-plist :temperature))
+        (include-tool-results (plist-get preset-plist :include-tool-results)))
     (when backend
       (setq-local gptel-backend backend))
     (when model
@@ -85,7 +90,9 @@ Converts backend names to objects, converts JSON keys to keywords."
       (setq-local gptel--system-message system))
     (when temperature
       (setq-local gptel-temperature temperature))
-    (jf/gptel--log 'info "Applied session preset")))
+    (when (not (null include-tool-results))
+      (setq-local gptel-include-tool-results include-tool-results))
+    (jf/gptel--log 'info "Applied session preset (include-tool-results: %s)" include-tool-results)))
 
 (defun jf/gptel-persistent-session (session-name &optional backend model)
   "Create a new persistent gptel session named SESSION-NAME.
@@ -131,10 +138,6 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
 
         ;; Update registry with buffer
         (jf/gptel--update-session-buffer session-id buffer)
-
-        ;; Save initial system prompt
-        (when (boundp 'gptel--system-message)
-          (jf/gptel--log-system-prompt-change nil gptel--system-message session-dir))
 
         ;; Create deny-all scope plan
         (let ((scope-yaml (jf/gptel--generate-scope-plan-yaml session-id "deny-all"))
@@ -275,6 +278,115 @@ Useful if sessions were created outside Emacs or after startup."
 
     (goto-char (point-min))
     (display-buffer (current-buffer))))
+
+(defun jf/gptel--build-session-tree (sessions)
+  "Build tree structure from flat SESSIONS list.
+SESSIONS is a list of plists from jf/gptel--find-all-sessions-recursive.
+Returns tree with :children property added to each node."
+  (let ((by-parent (make-hash-table :test 'equal))
+        (tree nil))
+    ;; Group sessions by parent-path
+    (dolist (session sessions)
+      (let ((parent-path (plist-get session :parent-path)))
+        (if parent-path
+            (push session (gethash parent-path by-parent))
+          (push session tree))))
+    ;; Attach children to their parents
+    (dolist (session sessions)
+      (let* ((path (plist-get session :path))
+             (children (gethash path by-parent)))
+        (when children
+          (plist-put session :children (nreverse children)))))
+    (nreverse tree)))
+
+(defun jf/gptel--render-session-tree (nodes depth)
+  "Render session tree NODES at DEPTH with indentation.
+Inserts formatted text into current buffer."
+  (dolist (node nodes)
+    (let* ((indent (make-string (* depth 2) ?\s))
+           (prefix (if (zerop depth) "▸ " "└─ "))
+           (session-id (plist-get node :id))
+           (path (plist-get node :path))
+           (metadata-file (jf/gptel--metadata-file-path path))
+           (metadata (when (file-exists-p metadata-file)
+                      (jf/gptel--read-metadata path)))
+           (type-str (if (jf/gptel--metadata-is-subagent-p metadata)
+                        (format " [%s subagent]" (plist-get metadata :agent-type))
+                      ""))
+           (created (when metadata
+                     (plist-get metadata :created))))
+      (insert (format "%s%s%s%s\n" indent prefix session-id type-str))
+      (when created
+        (insert (format "%s   Created: %s\n" indent created)))
+      (when-let ((children (plist-get node :children)))
+        (jf/gptel--render-session-tree children (1+ depth))))))
+
+(defun jf/gptel-browse-sessions-hierarchical ()
+  "Browse sessions in hierarchical tree view showing subagent relationships."
+  (interactive)
+  (let* ((sessions (jf/gptel--find-all-sessions-recursive))
+         (tree (jf/gptel--build-session-tree sessions)))
+    (with-current-buffer (get-buffer-create "*GPTEL Sessions*")
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "# GPTEL Persistent Sessions\n\n")
+        (if (null tree)
+            (insert "No sessions found.\n\n")
+          (insert (format "Total sessions: %d (including subagents)\n\n" (length sessions)))
+          (jf/gptel--render-session-tree tree 0))
+        (goto-char (point-min))
+        (special-mode))
+      (pop-to-buffer (current-buffer)))))
+
+(defun jf/gptel-resume-subagent ()
+  "Resume work in a subagent session buffer."
+  (interactive)
+  (let* ((sessions (jf/gptel--find-all-sessions-recursive))
+         (subagents (seq-filter
+                    (lambda (s)
+                      (> (plist-get s :depth) 0))
+                    sessions))
+         (choices (mapcar
+                  (lambda (s)
+                    (let* ((path (plist-get s :path))
+                           (metadata (jf/gptel--read-metadata path))
+                           (parent-id (jf/gptel--metadata-get-parent-id metadata))
+                           (agent-type (plist-get metadata :agent-type)))
+                      (cons (format "[%s] %s (%s)"
+                              parent-id
+                              (plist-get s :id)
+                              (or agent-type "unknown"))
+                           s)))
+                  subagents)))
+    (if (null choices)
+        (message "No subagent sessions found")
+      (let* ((choice (completing-read "Resume subagent: " choices nil t))
+             (session (alist-get choice choices nil nil #'equal))
+             (session-dir (plist-get session :path))
+             (session-file (jf/gptel--context-file-path session-dir))
+             (session-id (plist-get session :id)))
+        (unless (file-exists-p session-file)
+          (user-error "Session file not found: %s" session-file))
+        ;; Open session file
+        (let ((buffer (find-file session-file)))
+          (with-current-buffer buffer
+            ;; Enable gptel-mode if needed
+            (unless gptel-mode
+              (gptel-mode 1))
+            ;; Set session variables
+            (setq-local jf/gptel--session-id session-id)
+            (setq-local jf/gptel--session-dir session-dir)
+            ;; Load and apply preset
+            (when-let ((preset-plist (jf/gptel--load-preset-from-file session-dir)))
+              (jf/gptel--apply-session-preset preset-plist))
+            ;; Enable auto-save
+            (setq-local jf/gptel-autosave-enabled t)
+            ;; Update registry
+            (when-let ((metadata (jf/gptel--read-metadata session-dir)))
+              (jf/gptel--register-session session-dir metadata buffer session-id))
+            (jf/gptel--log 'info "Resumed subagent session: %s" session-id)
+            (message "Resumed subagent: %s" session-id)
+            buffer))))))
 
 (provide 'gptel-session-commands)
 ;;; commands.el ends here

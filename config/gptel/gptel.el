@@ -85,6 +85,7 @@
   (jf/load-module (expand-file-name "config/gptel/tools/sql-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
+  ;; Note: persistent-agent.el loaded later after session modules
 
   ;; Scan and register agents from all configured directories
   (gptel-agent-update)
@@ -159,22 +160,21 @@ Run this after gptel-agent-update to inject skill content into agents."
 ;; Load filesystem utilities before other modules (registry and hooks depend on it)
 (jf/load-module (expand-file-name "config/gptel/sessions/filesystem.el" jf/emacs-dir))
 
-;; Load session modules in dependency order
+;;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/tracing.el" jf/emacs-dir))
 
-;; Load subagent integration (must be before hooks to provide helper functions)
+;; Load subagent integration (simplified - no longer hooks into FSM)
 (jf/load-module (expand-file-name "config/gptel/sessions/subagent.el" jf/emacs-dir))
-
-;; Load hooks module (depends on subagent for helper functions)
-(jf/load-module (expand-file-name "config/gptel/sessions/hooks.el" jf/emacs-dir))
 
 ;; Load scope-core (needed by scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
 
 ;; Load scope-commands BEFORE session-commands (session-commands requires scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-commands.el" jf/emacs-dir))
+
+;; Load PersistentAgent tool (requires session modules to be loaded first)
+(jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
 
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))

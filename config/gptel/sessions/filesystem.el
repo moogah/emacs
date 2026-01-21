@@ -95,6 +95,40 @@ Returns absolute path if found, nil otherwise."
     (when (file-directory-p expected)
       expected)))
 
+(defun jf/gptel--find-all-sessions-recursive (&optional root-dir depth)
+  "Find all session directories recursively, including subagents.
+ROOT-DIR defaults to jf/gptel-sessions-directory.
+DEPTH is current nesting level (0 for top-level).
+
+Returns list of plists with:
+  :path - Full path to session directory
+  :id - Session ID (directory name)
+  :depth - Nesting depth (0 for top-level, 1+ for subagents)
+  :parent-path - Path to parent session (nil for top-level)"
+  (let ((root (or root-dir (expand-file-name jf/gptel-sessions-directory)))
+        (current-depth (or depth 0))
+        (sessions nil))
+    (when (file-directory-p root)
+      ;; Find direct subdirectories
+      (dolist (entry (directory-files root t "^[^.]"))
+        (when (and (file-directory-p entry)
+                  (jf/gptel--valid-session-directory-p entry))
+          ;; Add this session
+          (push (list :path entry
+                     :id (jf/gptel--session-id-from-directory entry)
+                     :depth current-depth
+                     :parent-path (when (> current-depth 0) root))
+               sessions)
+          ;; Recursively find subagents
+          (let ((subagents-dir (jf/gptel--subagents-dir-path entry)))
+            (when (file-directory-p subagents-dir)
+              (setq sessions
+                   (append sessions
+                          (jf/gptel--find-all-sessions-recursive
+                           subagents-dir
+                           (1+ current-depth)))))))))
+    (nreverse sessions)))
+
 (defun jf/gptel--create-subagent-directory (parent-session-dir agent-type description)
   "Create subagent directory under PARENT-SESSION-DIR.
 AGENT-TYPE is the subagent type (e.g., 'researcher', 'executor').
