@@ -146,12 +146,13 @@ Run this after gptel-agent-update to inject skill content into agents."
 (with-eval-after-load 'gptel-agent
   (advice-add 'gptel-agent-update :after #'jf/gptel-agent--expand-all-agent-skills))
 
-;; Disable confirmation for Agent tool (subagent invocations)
-;; The Agent tool by default has :confirm t, but we trust our subagents
-(with-eval-after-load 'gptel-agent-tools
-  (when-let ((agent-tool (gptel-get-tool "Agent")))
-    (setf (gptel-tool-confirm agent-tool) nil)
-    (message "Disabled confirmation for Agent tool")))
+;; TEMPORARILY COMMENTED OUT: Testing cursor movement with confirmation enabled
+;; ;; Disable confirmation for Agent tool (subagent invocations)
+;; ;; The Agent tool by default has :confirm t, but we trust our subagents
+;; (with-eval-after-load 'gptel-agent-tools
+;;   (when-let ((agent-tool (gptel-get-tool "Agent")))
+;;     (setf (gptel-tool-confirm agent-tool) nil)
+;;     (message "Disabled confirmation for Agent tool")))
 
 ;; Load foundational modules first (used by all other session modules)
 (jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))

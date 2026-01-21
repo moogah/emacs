@@ -16,6 +16,10 @@
 (require 'gptel-session-registry)
 (require 'gptel-session-logging)
 
+(defconst jf/gptel-persistent-agent--hrule
+  (propertize "\n" 'face '(:inherit shadow :underline t :extend t))
+  "Horizontal rule for separating overlay sections.")
+
 (defun jf/gptel--auto-save-session-buffer (&rest _args)
   "Auto-save session buffer after each gptel response.
 Hooked into gptel-post-response-functions.
@@ -33,34 +37,48 @@ Returns overlay to pass as :context to gptel-request."
   (let* ((buffer (if (markerp where) (marker-buffer where) (current-buffer)))
          (pos (if (markerp where) (marker-position where) where)))
     (with-current-buffer buffer
-      (save-excursion
-        (goto-char pos)
-        ;; Ensure we're not at beginning of buffer
-        (when (bobp) (insert "\n") (backward-char 1))
-        (let ((ov (make-overlay (line-beginning-position)
-                               (line-end-position) nil t)))
-          (overlay-put ov 'gptel-persistent-agent t)
-          (overlay-put ov 'count 0)
-          (overlay-put ov 'msg (format "[%s: %s]" agent-type description))
-          (overlay-put ov 'after-string
-                      (propertize (format "\n[%s: %s]\nWaiting...\n"
-                                         agent-type description)
-                                 'face '(:foreground "orange" :weight bold)))
-          ov)))))
+      (let* ((bounds
+              (save-excursion
+                (goto-char pos)
+                (when (bobp) (insert "\n"))
+                (if (and (bolp) (eolp))
+                    (cons (1- (point)) (point))
+                  (cons (line-beginning-position) (line-end-position)))))
+             (ov (make-overlay (car bounds) (cdr bounds) nil t))
+             (msg (concat
+                   (unless (eq (char-after (car bounds)) 10) "\n")
+                   "\n" jf/gptel-persistent-agent--hrule
+                   (propertize (concat (capitalize agent-type) " Task: ")
+                               'face 'font-lock-escape-face)
+                   (propertize description 'face 'font-lock-doc-face) "\n")))
+        (overlay-put ov 'gptel-persistent-agent t)
+        (overlay-put ov 'count 0)
+        (overlay-put ov 'msg msg)
+        (overlay-put ov 'line-prefix "")
+        (overlay-put ov 'after-string
+                    (concat msg (propertize "Waiting... " 'face 'warning) "\n"
+                            jf/gptel-persistent-agent--hrule))
+        ov))))
 
 (defun jf/gptel-persistent-agent--indicate-wait (fsm)
   "Update overlay to show waiting status.
 FSM is the finite state machine managing the request."
   (when-let* ((info (gptel-fsm-info fsm))
               (ov (plist-get info :context)))
-    (run-at-time 1.5 nil  ; Delayed update like gptel-agent
-      (lambda (overlay)
-        (when (overlay-buffer overlay)
-          (overlay-put overlay 'after-string
-                      (concat (overlay-get overlay 'msg)
-                             (propertize "\nWaiting...\n"
-                                        'face 'warning)))))
-      ov)))
+    (let ((count (overlay-get ov 'count)))
+      (run-at-time 1.5 nil
+        (lambda (overlay count)
+          (when (and (overlay-buffer overlay)
+                     (eql (overlay-get overlay 'count) count))
+            (let* ((task-msg (overlay-get overlay 'msg))
+                   (new-info-msg
+                    (concat task-msg
+                            (concat
+                             (propertize "Waiting... " 'face 'warning) "\n"
+                             (propertize "\n" 'face
+                                        '(:inherit shadow :underline t :extend t))))))
+              (overlay-put overlay 'after-string new-info-msg))))
+        ov count))))
 
 (defun jf/gptel-persistent-agent--indicate-tool-call (fsm)
   "Update overlay to show tool calls in progress.
@@ -68,18 +86,23 @@ FSM is the finite state machine managing the request."
   (when-let* ((info (gptel-fsm-info fsm))
               (tool-use (plist-get info :tool-use))
               (ov (plist-get info :context)))
-    (let* ((count (overlay-get ov 'count))
-           (new-count (+ count (length tool-use)))
-           (tool-summary
-            (mapconcat (lambda (call)
-                        (format "  - %s" (plist-get call :name)))
-                      tool-use "\n")))
-      (overlay-put ov 'count new-count)
-      (overlay-put ov 'after-string
-                  (concat (overlay-get ov 'msg)
-                         (propertize (format "\nTools (+%d):\n%s\n"
-                                            new-count tool-summary)
-                                    'face 'mode-line-emphasis))))))
+    (when (overlay-buffer ov)
+      (let* ((task-msg (overlay-get ov 'msg))
+             (info-count (overlay-get ov 'count))
+             (new-info-msg))
+        (setq new-info-msg
+              (concat task-msg
+                      (concat
+                       (propertize "Calling Tools... " 'face 'mode-line-emphasis)
+                       (if (= info-count 0) "\n" (format "(+%d)\n" info-count))
+                       (mapconcat (lambda (call)
+                                    (gptel--format-tool-call
+                                     (plist-get call :name)
+                                     (map-values (plist-get call :args))))
+                                  tool-use)
+                       "\n" jf/gptel-persistent-agent--hrule)))
+        (overlay-put ov 'count (+ info-count (length tool-use)))
+        (overlay-put ov 'after-string new-info-msg)))))
 
 (defvar jf/gptel-persistent-agent--fsm-handlers
   `((WAIT ,#'jf/gptel-persistent-agent--indicate-wait
