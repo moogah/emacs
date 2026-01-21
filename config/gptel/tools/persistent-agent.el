@@ -158,13 +158,15 @@ with zero inheritance from the parent session."
                         #'jf/gptel--auto-save-session-buffer
                         nil t)  ; buffer-local hook
 
-              ;; Insert prompt into buffer BEFORE writing file
+              ;; Insert prompt into buffer
               ;; This allows gptel-request with PROMPT=nil to read from buffer
               (insert prompt)
               (insert "\n\n")  ; Separator for response
 
-              ;; Write initial file with prompt
-              (write-file (jf/gptel--context-file-path session-dir)))
+              ;; Associate buffer with file but don't write yet
+              ;; Let auto-save handle first write (ensures Local Variables at end)
+              (set-visited-file-name (jf/gptel--context-file-path session-dir))
+              (set-buffer-modified-p t))
 
             ;; Register session globally
             (jf/gptel--register-session session-dir metadata agent-buffer session-id)
