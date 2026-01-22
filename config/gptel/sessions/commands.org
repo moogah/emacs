@@ -136,6 +136,10 @@ Interactive command to create a new persistent session.
   "Create a new persistent gptel session named SESSION-NAME.
 Optional BACKEND and MODEL default to current gptel settings.
 
+Prompts user to select projectile projects (0 or more).
+If projects selected, creates project-aware scope plan.
+Otherwise creates deny-all scope plan.
+
 Creates session directory, metadata, and opens session buffer.
 The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.md"
   (interactive "sSession name: ")
@@ -145,10 +149,20 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
          (backend (or backend gptel-backend))
          (model (or model gptel-model))
          (backend-name (gptel-backend-name backend))
-         (model-name (if (symbolp model) (symbol-name model) model)))
+         (model-name (if (symbolp model) (symbol-name model) model))
+         ;; Project selection
+         (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
+                             (jf/gptel--select-projects)))
+         (project-names (when selected-projects
+                         (mapcar #'jf/gptel--project-display-name selected-projects))))
 
-    ;; Create metadata
+    ;; Create metadata with project information
     (let ((metadata (jf/gptel--create-metadata session-dir session-id model backend-name)))
+      ;; Add project fields to metadata if projects selected
+      (when selected-projects
+        (setq metadata (plist-put metadata :projects selected-projects))
+        (setq metadata (plist-put metadata :project-names project-names)))
+
       (jf/gptel--write-metadata session-dir metadata)
       (jf/gptel--register-session session-dir metadata nil session-id))
 
@@ -177,8 +191,11 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
         ;; Update registry with buffer
         (jf/gptel--update-session-buffer session-id buffer)
 
-        ;; Create deny-all scope plan
-        (let ((scope-yaml (jf/gptel--generate-scope-plan-yaml session-id "deny-all"))
+        ;; Create project-aware or deny-all scope plan
+        (let ((scope-yaml (if selected-projects
+                             (jf/gptel--generate-scope-plan-yaml
+                              session-id "project-aware" selected-projects)
+                           (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
               (scope-file (expand-file-name "scope-plan.yml" session-dir)))
           (with-temp-file scope-file
             (insert scope-yaml))
@@ -191,8 +208,17 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
           ;; Apply preset to buffer
           (jf/gptel--apply-session-preset preset-plist))
 
-        (jf/gptel--log 'info "Created persistent session: %s" session-id)
-        (message "Created persistent session: %s\nDirectory: %s" session-name session-dir)
+        (jf/gptel--log 'info "Created persistent session: %s%s"
+                      session-id
+                      (if selected-projects
+                          (format " with %d project(s)" (length selected-projects))
+                        ""))
+        (message "Created persistent session: %s\nDirectory: %s%s"
+                session-name
+                session-dir
+                (if project-names
+                    (format "\nProjects: %s" (string-join project-names ", "))
+                  ""))
 
         buffer))))
 #+end_src

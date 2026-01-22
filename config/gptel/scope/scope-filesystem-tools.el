@@ -6,6 +6,22 @@
 (require 'jf-gptel-scope-core)
 ;; Dependencies:1 ends here
 
+;; Git-Tracked File Validation
+
+;; Check if a file is tracked by git. Used to enforce git-safe editing in project-aware sessions.
+
+
+;; [[file:scope-filesystem-tools.org::*Git-Tracked File Validation][Git-Tracked File Validation:1]]
+(defun jf/gptel--file-is-git-tracked-p (file)
+  "Check if FILE is tracked by git.
+Returns t if file is tracked, nil if untracked or ignored.
+Returns nil if file is not in a git repository."
+  (when-let* ((git-dir (locate-dominating-file file ".git")))
+    (let ((default-directory git-dir)
+          (relative-file (file-relative-name file git-dir)))
+      (= 0 (call-process "git" nil nil nil "ls-files" "--error-unmatch" relative-file)))))
+;; Git-Tracked File Validation:1 ends here
+
 ;; Read File Tool (Scope-Aware)
 
 ;; Read file contents, checking scope patterns. Templates typically grant very permissive read access.
@@ -94,6 +110,10 @@ When you receive a scope violation:
  "Edit a file by replacing old_string with new_string, respecting scope plan.
 Returns error if path is not in approved scope patterns.
 
+GIT-SAFE EDITING: This tool only allows editing files tracked by git.
+This prevents accidentally modifying ignored files like node_modules/, build artifacts, etc.
+If you get a 'file_not_git_tracked' error, the file must be added to git first.
+
 The file must already exist. Use write_file_in_scope to create new files.
 
 Example usage:
@@ -123,6 +143,13 @@ Returns scope violation error if path not approved."
        (list :success nil
              :error "file_not_found"
              :message (format "File does not exist: %s. Use write_file_in_scope to create new files." full-path))))
+
+   ;; Check if file is git-tracked (git-safe editing)
+   (unless (jf/gptel--file-is-git-tracked-p full-path)
+     (cl-return-from nil
+       (list :success nil
+             :error "file_not_git_tracked"
+             :message (format "Cannot edit file: %s is not tracked by git. This is a safety feature to prevent editing ignored files (node_modules, build artifacts, etc.). To edit this file, either: 1) Add it to git (git add %s), or 2) Use write_file_in_scope if you need to create/overwrite it." full-path filepath))))
 
    ;; Execute edit
    (let ((replaced nil))

@@ -4,20 +4,44 @@
 
 * Overview
 
-This module provides scope-aware filesystem tools for gptel sessions. Tools check approved scope patterns internally and return structured errors to the LLM when operations are outside approved scope.
+This module provides scope-aware filesystem tools for gptel sessions. All tools use the =gptel-make-scoped-tool= macro which automatically handles:
+- Session ID retrieval and plan loading
+- Tool-specific permission validation
+- Structured error formatting
+- Exception handling
+
+Tools are defined with minimal boilerplate - just the core logic.
 
 ** Key Principles
 
-1. *Read operations always allowed*: No scope checking on reads
-2. *Writes check scope internally*: Tools validate before execution
-3. *Structured errors for LLM*: Return plist with error details, not exceptions
-4. *LLM mediates communication*: LLM receives errors and handles user interaction
+1. *Tool-level permissions*: Independent control for read_file, write_file_in_scope, and edit_file_in_scope
+2. *Consistent interface*: All tools use =(filepath ...)= as first parameter
+3. *Permissive reads*: Templates grant =/**= patterns for read_file by default
+4. *Restricted writes*: write_file and edit_file require explicit pattern approval
+5. *Structured errors*: Macro returns formatted errors automatically on scope violations
 
 * Dependencies
 
 #+begin_src elisp
 (require 'cl-lib)
 (require 'jf-gptel-scope-core)
+#+end_src
+
+* Helper Functions
+
+** Git-Tracked File Validation
+
+Check if a file is tracked by git. Used to enforce git-safe editing in project-aware sessions.
+
+#+begin_src elisp
+(defun jf/gptel--file-is-git-tracked-p (file)
+  "Check if FILE is tracked by git.
+Returns t if file is tracked, nil if untracked or ignored.
+Returns nil if file is not in a git repository."
+  (when-let* ((git-dir (locate-dominating-file file ".git")))
+    (let ((default-directory git-dir)
+          (relative-file (file-relative-name file git-dir)))
+      (= 0 (call-process "git" nil nil nil "ls-files" "--error-unmatch" relative-file)))))
 #+end_src
 
 * Read File Tool (Scope-Aware)
@@ -105,6 +129,10 @@ Edit a file by replacing strings, checking scope before execution.
  "Edit a file by replacing old_string with new_string, respecting scope plan.
 Returns error if path is not in approved scope patterns.
 
+GIT-SAFE EDITING: This tool only allows editing files tracked by git.
+This prevents accidentally modifying ignored files like node_modules/, build artifacts, etc.
+If you get a 'file_not_git_tracked' error, the file must be added to git first.
+
 The file must already exist. Use write_file_in_scope to create new files.
 
 Example usage:
@@ -134,6 +162,13 @@ Returns scope violation error if path not approved."
        (list :success nil
              :error "file_not_found"
              :message (format "File does not exist: %s. Use write_file_in_scope to create new files." full-path))))
+
+   ;; Check if file is git-tracked (git-safe editing)
+   (unless (jf/gptel--file-is-git-tracked-p full-path)
+     (cl-return-from nil
+       (list :success nil
+             :error "file_not_git_tracked"
+             :message (format "Cannot edit file: %s is not tracked by git. This is a safety feature to prevent editing ignored files (node_modules, build artifacts, etc.). To edit this file, either: 1) Add it to git (git add %s), or 2) Use write_file_in_scope if you need to create/overwrite it." full-path filepath))))
 
    ;; Execute edit
    (let ((replaced nil))
