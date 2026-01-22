@@ -398,6 +398,18 @@ Returns plist with :allowed t/nil and relevant patterns/config."
        (jf/gptel-scope--validate-link-nodes tool-config tool-args))
       ("run_approved_command"
        (jf/gptel-scope--validate-shell-command tool-config tool-args))
+      ("list_project_files"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("list_project_directories"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("search_project_content"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("list_test_files"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_related_test"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_related_files"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
       (_
        ;; Unknown tool - deny by default
        (list :allowed nil
@@ -621,6 +633,50 @@ Args: (source-id target-id) - both node IDs used for validation."
   ;; For now, if tool is allowed, all linking is allowed
   ;; Could be extended to check node subdirectories/tags
   (list :allowed t))
+#+end_src
+
+*** Projectile Tools
+
+Validate projectile operations based on directory path.
+
+#+begin_src elisp
+(defun jf/gptel-scope--validate-projectile (config args)
+  "Validate projectile operation against CONFIG with ARGS.
+Args: (directory ...) - directory is first argument.
+All projectile tools validate based on directory path."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-projectile
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "Projectile tool not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-projectile
+      (list :allowed nil
+            :message "Projectile tool explicitly disabled in scope plan")))
+
+  (let* ((directory (nth 0 args))
+         (full-path (expand-file-name directory))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns)))
+
+    ;; Check deny patterns first
+    (when (and deny-patterns
+               (jf/gptel-scope--matches-any-pattern full-path deny-patterns))
+      (cl-return-from jf/gptel-scope--validate-projectile
+        (list :allowed nil
+              :patterns patterns
+              :deny_patterns deny-patterns
+              :resource full-path)))
+
+    ;; Check allow patterns
+    (if (and patterns
+             (jf/gptel-scope--matches-any-pattern full-path patterns))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource full-path))))
 #+end_src
 
 *** Shell Tools

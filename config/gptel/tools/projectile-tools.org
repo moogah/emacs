@@ -7,12 +7,25 @@
 This file defines gptel tools for project-aware navigation using Projectile.
 These tools enable LLMs to understand project scope, boundaries, and file structure.
 
+Six tools are scope-aware and require permission via session scope plans before
+accessing project directories:
+- list_project_files
+- list_project_directories
+- search_project_content
+- list_test_files
+- find_related_test
+- find_related_files
+
+Permission is validated based on the directory (project root) path against
+glob patterns defined in ~/.gptel/sessions/SESSION_ID/scope-plan.yml.
+
 * Basic Configuration
 Setup lexical binding and require projectile package.
 
 #+begin_src emacs-lisp
 ;; -*- lexical-binding: t; -*-
 (require 'projectile)
+(require 'jf-gptel-scope-core)
 #+end_src
 
 * Helper Functions
@@ -119,30 +132,11 @@ the project contents."
 List all files in the project, respecting ignore rules from VCS and projectile config.
 
 #+begin_src emacs-lisp
-(gptel-make-tool
- :name "list_project_files"
- :function (lambda (directory &optional limit filter-pattern)
-             (let ((project-root (projectile-project-root directory)))
-               (if (not project-root)
-                   (format "No project found at %s. Use list_known_projects to discover available projects." directory)
-                 (let* ((file-limit (min (or limit 100) 500))
-                        (all-files (projectile-project-files project-root))
-                        (filtered-files (if filter-pattern
-                                            (seq-filter (lambda (f) (string-match-p filter-pattern f)) all-files)
-                                          all-files))
-                        (total-count (length filtered-files))
-                        (display-files (seq-take filtered-files (min file-limit total-count)))
-                        (result (concat
-                                 (format "Project: %s\nTotal files: %d%s\nShowing: %d\n\n"
-                                         project-root
-                                         total-count
-                                         (if filter-pattern (format " (filtered by: %s)" filter-pattern) "")
-                                         (length display-files))
-                                 (mapconcat #'identity display-files "\n")
-                                 (when (> total-count file-limit)
-                                   (format "\n\n[Truncated. Use filter_pattern to narrow results or increase limit (max 500)]")))))
-                   (gptel-projectile--result-limit result)))))
- :description "List all files in the project (respecting ignore rules).
+(gptel-make-scoped-tool
+ "list_project_files"
+ "SCOPE-AWARE: Requires directory to match allowed patterns.
+
+List all files in the project (respecting ignore rules).
 
 Returns a list of relative file paths within the project, respecting VCS ignore rules
 (.gitignore, .hgignore, etc.) and projectile configuration. Files are listed relative
@@ -167,45 +161,58 @@ Arguments:
 - filter_pattern: Regex pattern to filter results (e.g., '\\.py$' for Python files, '^src/' for src directory)
 
 The tool will warn if results exceed 40,000 characters. Use filter_pattern to narrow
-results in large projects."
- :args (list '(:name "directory"
-               :type string
-               :description "Project directory path. Use list_known_projects to discover available projects.")
-             '(:name "limit"
-               :type integer
-               :optional t
-               :description "Max files to return (default 100, max 500)")
-             '(:name "filter_pattern"
-               :type string
-               :optional t
-               :description "Regex pattern to filter results (e.g., '\\\\.py$', '^src/')"))
- :category "projectile")
+results in large projects.
+
+Returns scope_violation error if directory not in allowed patterns.
+Use request_scope_expansion to request access."
+ (list '(:name "directory"
+         :type string
+         :description "Project directory path. Use list_known_projects to discover available projects.")
+       '(:name "limit"
+         :type integer
+         :optional t
+         :description "Max files to return (default 100, max 500)")
+       '(:name "filter_pattern"
+         :type string
+         :optional t
+         :description "Regex pattern to filter results (e.g., '\\\\.py$', '^src/')"))
+ "projectile"
+ (let ((project-root (projectile-project-root directory)))
+   (if (not project-root)
+       (list :success nil
+             :error "no_project_found"
+             :message (format "No project found at %s. Use list_known_projects to discover available projects." directory))
+     (let* ((file-limit (min (or limit 100) 500))
+            (all-files (projectile-project-files project-root))
+            (filtered-files (if filter-pattern
+                                (seq-filter (lambda (f) (string-match-p filter-pattern f)) all-files)
+                              all-files))
+            (total-count (length filtered-files))
+            (display-files (seq-take filtered-files (min file-limit total-count)))
+            (message-str (concat
+                          (format "Project: %s\nTotal files: %d%s\nShowing: %d\n\n"
+                                  project-root
+                                  total-count
+                                  (if filter-pattern (format " (filtered by: %s)" filter-pattern) "")
+                                  (length display-files))
+                          (mapconcat #'identity display-files "\n")
+                          (when (> total-count file-limit)
+                            (format "\n\n[Truncated. Use filter_pattern to narrow results or increase limit (max 500)]")))))
+       (list :success t
+             :files display-files
+             :total_count total-count
+             :message (gptel-projectile--result-limit message-str))))))
 #+end_src
 
 ** list_project_directories
 List all directories in project structure to understand layout.
 
 #+begin_src emacs-lisp
-(gptel-make-tool
- :name "list_project_directories"
- :function (lambda (directory &optional limit)
-             (let ((project-root (projectile-project-root directory)))
-               (if (not project-root)
-                   (format "No project found at %s. Use list_known_projects to discover available projects." directory)
-                 (let* ((dir-limit (min (or limit 50) 200))
-                        (all-dirs (projectile-project-dirs project-root))
-                        (total-count (length all-dirs))
-                        (display-dirs (seq-take all-dirs (min dir-limit total-count)))
-                        (result (concat
-                                 (format "Project: %s\nTotal directories: %d\nShowing: %d\n\n"
-                                         project-root
-                                         total-count
-                                         (length display-dirs))
-                                 (mapconcat #'identity display-dirs "\n")
-                                 (when (> total-count dir-limit)
-                                   (format "\n\n[Truncated. Increase limit (max 200) to see more directories]")))))
-                   (gptel-projectile--result-limit result)))))
- :description "List all directories in project structure.
+(gptel-make-scoped-tool
+ "list_project_directories"
+ "SCOPE-AWARE: Requires directory to match allowed patterns.
+
+List all directories in project structure.
 
 Returns a list of relative directory paths within the project, respecting ignore rules.
 This helps understand the overall structure and organization of the project.
@@ -227,15 +234,39 @@ Arguments:
 - directory: Project directory path (required). Use list_known_projects to discover projects.
 - limit: Max directories to return (default 50, max 200)
 
-Returns directories relative to project root, sorted alphabetically."
- :args (list '(:name "directory"
-               :type string
-               :description "Project directory path. Use list_known_projects to discover available projects.")
-             '(:name "limit"
-               :type integer
-               :optional t
-               :description "Max directories to return (default 50, max 200)"))
- :category "projectile")
+Returns directories relative to project root, sorted alphabetically.
+
+Returns scope_violation error if directory not in allowed patterns.
+Use request_scope_expansion to request access."
+ (list '(:name "directory"
+         :type string
+         :description "Project directory path. Use list_known_projects to discover available projects.")
+       '(:name "limit"
+         :type integer
+         :optional t
+         :description "Max directories to return (default 50, max 200)"))
+ "projectile"
+ (let ((project-root (projectile-project-root directory)))
+   (if (not project-root)
+       (list :success nil
+             :error "no_project_found"
+             :message (format "No project found at %s. Use list_known_projects to discover available projects." directory))
+     (let* ((dir-limit (min (or limit 50) 200))
+            (all-dirs (projectile-project-dirs project-root))
+            (total-count (length all-dirs))
+            (display-dirs (seq-take all-dirs (min dir-limit total-count)))
+            (message-str (concat
+                          (format "Project: %s\nTotal directories: %d\nShowing: %d\n\n"
+                                  project-root
+                                  total-count
+                                  (length display-dirs))
+                          (mapconcat #'identity display-dirs "\n")
+                          (when (> total-count dir-limit)
+                            (format "\n\n[Truncated. Increase limit (max 200) to see more directories]")))))
+       (list :success t
+             :directories display-dirs
+             :total_count total-count
+             :message (gptel-projectile--result-limit message-str))))))
 #+end_src
 
 ** expand_project_path
@@ -286,29 +317,11 @@ it can still be used for file creation operations."
 Find all files in the project containing a specific string or pattern.
 
 #+begin_src emacs-lisp
-(gptel-make-tool
- :name "search_project_content"
- :function (lambda (directory search-term &optional file-pattern)
-             (let ((project-root (projectile-project-root directory)))
-               (if (not project-root)
-                   (format "No project found at %s. Use list_known_projects to discover available projects." directory)
-                 (condition-case err
-                     (let* ((files (projectile-files-with-string search-term project-root file-pattern))
-                            (count (length files))
-                            (result (if (zerop count)
-                                        (format "No files found containing '%s'%s in project %s"
-                                                search-term
-                                                (if file-pattern (format " matching pattern '%s'" file-pattern) "")
-                                                project-root)
-                                      (format "Found %d file%s containing '%s'%s:\n\n%s"
-                                              count
-                                              (if (= count 1) "" "s")
-                                              search-term
-                                              (if file-pattern (format " matching pattern '%s'" file-pattern) "")
-                                              (mapconcat #'identity files "\n")))))
-                       (gptel-projectile--result-limit result))
-                   (error (format "Error searching project: %s" (error-message-string err)))))))
- :description "Find all files containing a specific string or pattern.
+(gptel-make-scoped-tool
+ "search_project_content"
+ "SCOPE-AWARE: Requires directory to match allowed patterns.
+
+Find all files containing a specific string or pattern.
 
 This is the PRIMARY search tool for finding where code is defined or used in a project.
 It searches file contents (not just filenames) and returns a list of matching files.
@@ -332,18 +345,48 @@ Example queries:
 - search_project_content('/path/to/project', 'import pandas', '*.py')
 - search_project_content('/path/to/project', 'TODO', '*.{el,org}')
 
-The search uses ripgrep, ag, or grep (fastest available) and respects .gitignore rules."
- :args (list '(:name "directory"
-               :type string
-               :description "Project directory path. Use list_known_projects to discover available projects.")
-             '(:name "search_term"
-               :type string
-               :description "String to search for in file contents")
-             '(:name "file_pattern"
-               :type string
-               :optional t
-               :description "Optional glob pattern to filter files (e.g., '*.el', '*.py', '*.{js,ts}')"))
- :category "projectile")
+The search uses ripgrep, ag, or grep (fastest available) and respects .gitignore rules.
+
+Returns scope_violation error if directory not in allowed patterns.
+Use request_scope_expansion to request access."
+ (list '(:name "directory"
+         :type string
+         :description "Project directory path. Use list_known_projects to discover available projects.")
+       '(:name "search_term"
+         :type string
+         :description "String to search for in file contents")
+       '(:name "file_pattern"
+         :type string
+         :optional t
+         :description "Optional glob pattern to filter files (e.g., '*.el', '*.py', '*.{js,ts}')"))
+ "projectile"
+ (let ((project-root (projectile-project-root directory)))
+   (if (not project-root)
+       (list :success nil
+             :error "no_project_found"
+             :message (format "No project found at %s. Use list_known_projects to discover available projects." directory))
+     (condition-case err
+         (let* ((files (projectile-files-with-string search-term project-root file-pattern))
+                (count (length files))
+                (message-str (if (zerop count)
+                                 (format "No files found containing '%s'%s in project %s"
+                                         search-term
+                                         (if file-pattern (format " matching pattern '%s'" file-pattern) "")
+                                         project-root)
+                               (format "Found %d file%s containing '%s'%s:\n\n%s"
+                                       count
+                                       (if (= count 1) "" "s")
+                                       search-term
+                                       (if file-pattern (format " matching pattern '%s'" file-pattern) "")
+                                       (mapconcat #'identity files "\n")))))
+           (list :success t
+                 :files files
+                 :match_count count
+                 :search_term search-term
+                 :message (gptel-projectile--result-limit message-str)))
+       (error (list :success nil
+                    :error "search_error"
+                    :message (format "Error searching project: %s" (error-message-string err))))))))
 #+end_src
 
 * Test Discovery Tools
@@ -352,29 +395,11 @@ The search uses ripgrep, ag, or grep (fastest available) and respects .gitignore
 Get all test files in the project based on project type conventions.
 
 #+begin_src emacs-lisp
-(gptel-make-tool
- :name "list_test_files"
- :function (lambda (directory &optional limit)
-             (let ((project-root (projectile-project-root directory)))
-               (if (not project-root)
-                   (format "No project found at %s. Use list_known_projects to discover available projects." directory)
-                 (let* ((all-files (projectile-project-files project-root))
-                        (test-files (projectile-test-files all-files))
-                        (file-limit (or limit 100))
-                        (total-count (length test-files))
-                        (display-files (seq-take test-files (min file-limit total-count))))
-                   (if (zerop total-count)
-                       (format "No test files found in project %s.\n\nThis could mean:\n- Project has no tests yet\n- Test files don't follow naming conventions\n- Project type not detected correctly (check get_project_info)" project-root)
-                     (let ((result (format "Found %d test file%s in project %s:\n\n%s%s"
-                                           total-count
-                                           (if (= total-count 1) "" "s")
-                                           project-root
-                                           (mapconcat #'identity display-files "\n")
-                                           (if (> total-count file-limit)
-                                               (format "\n\n[Showing %d of %d test files. Increase limit to see more.]" file-limit total-count)
-                                             ""))))
-                       (gptel-projectile--result-limit result)))))))
- :description "Get all test files in the project.
+(gptel-make-scoped-tool
+ "list_test_files"
+ "SCOPE-AWARE: Requires directory to match allowed patterns.
+
+Get all test files in the project.
 
 This tool identifies test files based on project-specific naming conventions and patterns.
 It understands different testing frameworks and languages automatically.
@@ -403,41 +428,56 @@ Common test patterns by language:
 - Ruby: *_spec.rb, *_test.rb in spec/ or test/ directory
 - JavaScript: *.test.js, *.spec.js in __tests__/ or alongside source
 - Java: *Test.java in src/test/java/
-- Go: *_test.go alongside source files"
- :args (list '(:name "directory"
-               :type string
-               :description "Project directory path. Use list_known_projects to discover available projects.")
-             '(:name "limit"
-               :type integer
-               :optional t
-               :description "Max test files to return (default 100)"))
- :category "projectile")
+- Go: *_test.go alongside source files
+
+Returns scope_violation error if directory not in allowed patterns.
+Use request_scope_expansion to request access."
+ (list '(:name "directory"
+         :type string
+         :description "Project directory path. Use list_known_projects to discover available projects.")
+       '(:name "limit"
+         :type integer
+         :optional t
+         :description "Max test files to return (default 100)"))
+ "projectile"
+ (let ((project-root (projectile-project-root directory)))
+   (if (not project-root)
+       (list :success nil
+             :error "no_project_found"
+             :message (format "No project found at %s. Use list_known_projects to discover available projects." directory))
+     (let* ((all-files (projectile-project-files project-root))
+            (test-files (projectile-test-files all-files))
+            (file-limit (or limit 100))
+            (total-count (length test-files))
+            (display-files (seq-take test-files (min file-limit total-count))))
+       (if (zerop total-count)
+           (list :success t
+                 :test_files nil
+                 :test_count 0
+                 :message (format "No test files found in project %s.\n\nThis could mean:\n- Project has no tests yet\n- Test files don't follow naming conventions\n- Project type not detected correctly (check get_project_info)" project-root))
+         (let ((message-str (format "Found %d test file%s in project %s:\n\n%s%s"
+                                    total-count
+                                    (if (= total-count 1) "" "s")
+                                    project-root
+                                    (mapconcat #'identity display-files "\n")
+                                    (if (> total-count file-limit)
+                                        (format "\n\n[Showing %d of %d test files. Increase limit to see more.]" file-limit total-count)
+                                      ""))))
+           (list :success t
+                 :test_files display-files
+                 :test_count total-count
+                 :message (gptel-projectile--result-limit message-str))))))))
 #+end_src
 
 ** find_related_test
 Find the test file(s) for a specific implementation file.
 
 #+begin_src emacs-lisp
-(gptel-make-tool
- :name "find_related_test"
- :function (lambda (directory file-path)
-             (let ((project-root (projectile-project-root directory)))
-               (if (not project-root)
-                   (format "No project found at %s. Use list_known_projects to discover available projects." directory)
-                 (let* ((absolute-path (if (file-name-absolute-p file-path)
-                                          file-path
-                                        (expand-file-name file-path project-root)))
-                        (relative-path (file-relative-name absolute-path project-root)))
-                   (condition-case err
-                       (let ((test-files (projectile--related-files absolute-path :test)))
-                         (if (null test-files)
-                             (format "No test file found for %s\n\nPossible reasons:\n- No test exists yet for this file\n- Test naming convention not followed\n- File is already a test file\n- Project type not correctly detected\n\nUse list_test_files to see all tests in the project." relative-path)
-                           (format "Test file%s for %s:\n\n%s"
-                                   (if (> (length test-files) 1) "s" "")
-                                   relative-path
-                                   (mapconcat (lambda (f) (file-relative-name f project-root)) test-files "\n"))))
-                     (error (format "Error finding test for %s: %s" relative-path (error-message-string err))))))))
- :description "Find the test file(s) for a specific implementation file.
+(gptel-make-scoped-tool
+ "find_related_test"
+ "SCOPE-AWARE: Requires directory to match allowed patterns.
+
+Find the test file(s) for a specific implementation file.
 
 This tool finds the corresponding test file for an implementation file based on
 project conventions and naming patterns. It's the inverse of finding implementation from test.
@@ -470,14 +510,43 @@ Common patterns:
 - Python: src/foo/bar.py → tests/foo/test_bar.py or tests/foo/bar_test.py
 - Ruby: lib/foo.rb → spec/lib/foo_spec.rb
 - JavaScript: src/Component.js → src/Component.test.js or __tests__/Component.test.js
-- Java: src/main/java/Foo.java → src/test/java/FooTest.java"
- :args (list '(:name "directory"
-               :type string
-               :description "Project directory path. Use list_known_projects to discover available projects.")
-             '(:name "file_path"
-               :type string
-               :description "Path to implementation file (relative to project root or absolute)"))
- :category "projectile")
+- Java: src/main/java/Foo.java → src/test/java/FooTest.java
+
+Returns scope_violation error if directory not in allowed patterns.
+Use request_scope_expansion to request access."
+ (list '(:name "directory"
+         :type string
+         :description "Project directory path. Use list_known_projects to discover available projects.")
+       '(:name "file_path"
+         :type string
+         :description "Path to implementation file (relative to project root or absolute)"))
+ "projectile"
+ (let ((project-root (projectile-project-root directory)))
+   (if (not project-root)
+       (list :success nil
+             :error "no_project_found"
+             :message (format "No project found at %s. Use list_known_projects to discover available projects." directory))
+     (let* ((absolute-path (if (file-name-absolute-p file-path)
+                               file-path
+                             (expand-file-name file-path project-root)))
+            (relative-path (file-relative-name absolute-path project-root)))
+       (condition-case err
+           (let ((test-files (projectile--related-files absolute-path :test)))
+             (if (null test-files)
+                 (list :success t
+                       :test_files nil
+                       :source_file relative-path
+                       :message (format "No test file found for %s\n\nPossible reasons:\n- No test exists yet for this file\n- Test naming convention not followed\n- File is already a test file\n- Project type not correctly detected\n\nUse list_test_files to see all tests in the project." relative-path))
+               (list :success t
+                     :test_files (mapcar (lambda (f) (file-relative-name f project-root)) test-files)
+                     :source_file relative-path
+                     :message (format "Test file%s for %s:\n\n%s"
+                                      (if (> (length test-files) 1) "s" "")
+                                      relative-path
+                                      (mapconcat (lambda (f) (file-relative-name f project-root)) test-files "\n")))))
+         (error (list :success nil
+                      :error "find_test_error"
+                      :message (format "Error finding test for %s: %s" relative-path (error-message-string err)))))))))
 #+end_src
 
 * File Relationship Tools
@@ -486,43 +555,11 @@ Common patterns:
 Find all semantically related files (tests, implementations, headers, etc.) for a given file.
 
 #+begin_src emacs-lisp
-(gptel-make-tool
- :name "find_related_files"
- :function (lambda (directory file-path &optional relationship-type)
-             (let ((project-root (projectile-project-root directory)))
-               (if (not project-root)
-                   (format "No project found at %s. Use list_known_projects to discover available projects." directory)
-                 (let* ((absolute-path (if (file-name-absolute-p file-path)
-                                          file-path
-                                        (expand-file-name file-path project-root)))
-                        (relative-path (file-relative-name absolute-path project-root)))
-                   (condition-case err
-                       (if relationship-type
-                           ;; Specific relationship type requested
-                           (let* ((rel-keyword (intern (concat ":" relationship-type)))
-                                  (related (projectile--related-files absolute-path rel-keyword)))
-                             (if (null related)
-                                 (format "No %s files found for %s" relationship-type relative-path)
-                               (format "%s file%s for %s:\n\n%s"
-                                       (capitalize relationship-type)
-                                       (if (> (length related) 1) "s" "")
-                                       relative-path
-                                       (mapconcat (lambda (f) (file-relative-name f project-root)) related "\n"))))
-                         ;; All relationships
-                         (let* ((kinds (projectile--related-files-kinds absolute-path))
-                                (results '()))
-                           (dolist (kind kinds)
-                             (let ((files (projectile--related-files absolute-path kind)))
-                               (when files
-                                 (push (format "%s:\n  %s"
-                                              (capitalize (substring (symbol-name kind) 1))
-                                              (mapconcat (lambda (f) (file-relative-name f project-root)) files "\n  "))
-                                       results))))
-                           (if (null results)
-                               (format "No related files found for %s\n\nThis file may be standalone or relationships not configured for this project type." relative-path)
-                             (format "Related files for %s:\n\n%s" relative-path (mapconcat #'identity (reverse results) "\n\n")))))
-                     (error (format "Error finding related files for %s: %s" relative-path (error-message-string err))))))))
- :description "Find all semantically related files for a given file.
+(gptel-make-scoped-tool
+ "find_related_files"
+ "SCOPE-AWARE: Requires directory to match allowed patterns.
+
+Find all semantically related files for a given file.
 
 This tool discovers files that are logically related to a source file, based on
 project conventions and file relationships. It goes beyond just finding tests.
@@ -563,18 +600,75 @@ Common patterns by language:
 - C/C++: header ↔ implementation (.h ↔ .c/.cpp)
 - Python: implementation ↔ test (foo.py ↔ test_foo.py)
 - TypeScript: source ↔ test ↔ types (.ts ↔ .test.ts ↔ .d.ts)
-- Java: implementation ↔ test (Foo.java ↔ FooTest.java)"
- :args (list '(:name "directory"
-               :type string
-               :description "Project directory path. Use list_known_projects to discover available projects.")
-             '(:name "file_path"
-               :type string
-               :description "Path to file (relative to project root or absolute)")
-             '(:name "relationship_type"
-               :type string
-               :optional t
-               :description "Optional: 'test', 'impl', or 'other'. Omit to see all relationships."))
- :category "projectile")
+- Java: implementation ↔ test (Foo.java ↔ FooTest.java)
+
+Returns scope_violation error if directory not in allowed patterns.
+Use request_scope_expansion to request access."
+ (list '(:name "directory"
+         :type string
+         :description "Project directory path. Use list_known_projects to discover available projects.")
+       '(:name "file_path"
+         :type string
+         :description "Path to file (relative to project root or absolute)")
+       '(:name "relationship_type"
+         :type string
+         :optional t
+         :description "Optional: 'test', 'impl', or 'other'. Omit to see all relationships."))
+ "projectile"
+ (let ((project-root (projectile-project-root directory)))
+   (if (not project-root)
+       (list :success nil
+             :error "no_project_found"
+             :message (format "No project found at %s. Use list_known_projects to discover available projects." directory))
+     (let* ((absolute-path (if (file-name-absolute-p file-path)
+                               file-path
+                             (expand-file-name file-path project-root)))
+            (relative-path (file-relative-name absolute-path project-root)))
+       (condition-case err
+           (if relationship-type
+               ;; Specific relationship type requested
+               (let* ((rel-keyword (intern (concat ":" relationship-type)))
+                      (related (projectile--related-files absolute-path rel-keyword)))
+                 (if (null related)
+                     (list :success t
+                           :relationships (list (cons (intern relationship-type) nil))
+                           :source_file relative-path
+                           :message (format "No %s files found for %s" relationship-type relative-path))
+                   (list :success t
+                         :relationships (list (cons (intern relationship-type)
+                                                    (mapcar (lambda (f) (file-relative-name f project-root)) related)))
+                         :source_file relative-path
+                         :message (format "%s file%s for %s:\n\n%s"
+                                          (capitalize relationship-type)
+                                          (if (> (length related) 1) "s" "")
+                                          relative-path
+                                          (mapconcat (lambda (f) (file-relative-name f project-root)) related "\n")))))
+             ;; All relationships
+             (let* ((kinds (projectile--related-files-kinds absolute-path))
+                    (results '())
+                    (relationships '()))
+               (dolist (kind kinds)
+                 (let ((files (projectile--related-files absolute-path kind)))
+                   (when files
+                     (let* ((kind-name (substring (symbol-name kind) 1))
+                            (rel-files (mapcar (lambda (f) (file-relative-name f project-root)) files)))
+                       (push (cons (intern kind-name) rel-files) relationships)
+                       (push (format "%s:\n  %s"
+                                     (capitalize kind-name)
+                                     (mapconcat #'identity rel-files "\n  "))
+                             results)))))
+               (if (null results)
+                   (list :success t
+                         :relationships nil
+                         :source_file relative-path
+                         :message (format "No related files found for %s\n\nThis file may be standalone or relationships not configured for this project type." relative-path))
+                 (list :success t
+                       :relationships (reverse relationships)
+                       :source_file relative-path
+                       :message (format "Related files for %s:\n\n%s" relative-path (mapconcat #'identity (reverse results) "\n\n"))))))
+         (error (list :success nil
+                      :error "find_related_error"
+                      :message (format "Error finding related files for %s: %s" relative-path (error-message-string err)))))))))
 #+end_src
 
 * Provide Feature

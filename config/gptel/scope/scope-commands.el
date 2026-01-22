@@ -414,6 +414,60 @@ tools:
       - \"**/.env\"
       - \"**/node_modules/**\"
 
+  list_project_files:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_project_directories:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  search_project_content:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_test_files:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_related_test:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_related_files:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
   create_roam_node_in_scope:
     allowed: false
     patterns:
@@ -461,7 +515,13 @@ tools:
                       "\n")
             project-patterns  ; read_file patterns
             project-patterns  ; write_file_in_scope patterns
-            project-patterns)))  ; edit_file_in_scope patterns
+            project-patterns  ; edit_file_in_scope patterns
+            project-patterns  ; list_project_files patterns
+            project-patterns  ; list_project_directories patterns
+            project-patterns  ; search_project_content patterns
+            project-patterns  ; list_test_files patterns
+            project-patterns  ; find_related_test patterns
+            project-patterns)))  ; find_related_files patterns
 ;; Project-Aware Template:1 ends here
 
 ;; Project Selection
