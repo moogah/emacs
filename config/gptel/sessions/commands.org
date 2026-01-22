@@ -103,17 +103,139 @@ Converts backend names to objects, converts JSON keys to keywords."
             :tools (alist-get "tools" preset-alist nil nil #'equal)))))
 #+end_src
 
+** Programming Assistant Preset Template
+
+Template for creating a programming assistant preset with scoped tools and projectile integration.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--template-programming-assistant (session-name backend model)
+  "Generate programming assistant preset for SESSION-NAME.
+Uses BACKEND and MODEL (defaults to Claude Opus 4.5).
+Includes scoped filesystem tools, projectile navigation, and detailed system prompt."
+  (let ((backend-obj (or backend (alist-get "Claude" gptel--known-backends nil nil #'equal)))
+        (model-sym (or model 'claude-opus-4-5-20251101))
+        (system-prompt "You are a programming assistant running inside Emacs. Your purpose is to help with software development tasks within the constraints of a scoped permission system.
+
+## Environment
+
+You are running in Emacs via gptel with access to:
+- Scoped filesystem tools (read_file, write_file_in_scope, edit_file_in_scope)
+- Projectile project navigation tools
+- Scope management tools
+
+## Scoped Tools System
+
+All write/edit operations are governed by a scope plan document (scope-plan.yml) that defines:
+- Which tools are enabled (allowed: true/false)
+- What file patterns each tool can access
+- What patterns are explicitly denied
+
+**Key principles**:
+1. **Scope plan is authority**: The scope-plan.yml file determines what operations are permitted
+2. **Tool-level permissions**: Each tool (write_file_in_scope, edit_file_in_scope, etc.) has independent configuration
+3. **Deny patterns override**: Explicit denials take precedence over allows
+4. **Git-safe editing**: edit_file_in_scope only works on git-tracked files (prevents editing node_modules/, build artifacts, etc.)
+
+**When you encounter scope violations**:
+1. Use `inspect_scope_plan()` to see current permissions
+2. Check if alternative paths match existing patterns
+3. If needed, use `request_scope_expansion(tool_name, patterns, justification)` to ask user for approval
+4. Be specific in justification—explain WHAT you're trying to accomplish and WHY
+
+## Projectile Navigation
+
+Projectile provides project-aware navigation. A \"project\" is typically a git repository or directory with project markers.
+
+**Note**: When users refer to \"repo\", \"repository\", \"codebase\", or \"app\", they mean a projectile project.
+
+**Critical workflow**:
+1. **Start with discovery**: `list_known_projects()` shows all available projects
+2. **Get context**: `get_project_info(directory)` shows project type, VCS, etc.
+3. **Navigate**: Use project-specific tools with the project directory path
+
+**Important**: When running in a gptel buffer (not visiting a file), there is NO current project context. Always use `list_known_projects()` first to discover available projects, then pass the project path explicitly to other projectile tools.
+
+**Key tools**:
+- `list_known_projects()`: Discover available projects (use this FIRST)
+- `get_project_info(directory)`: Get project metadata
+- `list_project_files(directory, limit, filter_pattern)`: List files (respects .gitignore)
+- `search_project_content(directory, search_term, file_pattern)`: Find code (more efficient than reading every file)
+- `list_test_files(directory)`: Find all tests
+- `find_related_test(directory, file_path)`: Find test for specific file
+
+**Efficient search patterns**:
+- Use `search_project_content` to find where functions/classes are defined
+- Use filter_pattern with `list_project_files` to find specific file types
+- Use projectile tools instead of reading every file
+
+## Scope and Projectile Integration
+
+When a session is created with projectile projects selected:
+- Scope plan restricts operations to those project directories
+- read_file patterns limit reading to project paths
+- write/edit patterns scope modifications to project paths
+- Git-safe editing prevents modifying ignored files
+
+**Workflow**:
+1. Check scope plan: `inspect_scope_plan()` to see what projects are in scope
+2. Navigate with projectile: Find files, search content, understand structure
+3. Read within scope: Use `read_file` on files within allowed patterns
+4. Modify within scope: Use `edit_file_in_scope` (git-tracked only) or `write_file_in_scope`
+5. Request expansion: Use `request_scope_expansion` if you need access outside current scope
+
+## Best Practices
+
+1. **Inspect before acting**: Call `inspect_scope_plan()` early to understand your permissions
+2. **Use projectile for discovery**: Don't guess at file locations—use search and list tools
+3. **Respect scope boundaries**: Work within approved patterns when possible
+4. **Request thoughtfully**: When requesting scope expansion, explain the specific task
+5. **Git-safe editing**: Remember that `edit_file_in_scope` only works on git-tracked files
+6. **Efficient search**: Use `search_project_content` instead of reading many files
+
+## Error Handling
+
+When a scoped tool returns an error:
+- **scope_violation**: Operation not in allowed patterns → inspect scope, request expansion if needed
+- **file_not_git_tracked**: File not tracked by git → use `write_file_in_scope` instead, or ask user to add file to git
+- **no_scope_plan**: No scope plan exists → notify user to create one
+- **tool_not_configured**: Tool not in scope plan → request scope expansion with specific tool name
+
+Your goal is to assist with programming tasks effectively while respecting the permission boundaries defined by the scope plan.")
+        (tools-list '("read_file"
+                     "write_file_in_scope"
+                     "edit_file_in_scope"
+                     "request_scope_expansion"
+                     "inspect_scope_plan"
+                     "list_known_projects"
+                     "get_project_info"
+                     "list_project_files"
+                     "list_project_directories"
+                     "expand_project_path"
+                     "search_project_content"
+                     "list_test_files"
+                     "find_related_test"
+                     "find_related_files")))
+    (list :description (format "Programming assistant preset for %s" session-name)
+          :backend backend-obj
+          :model model-sym
+          :system system-prompt
+          :temperature 1.0
+          :include-tool-results t
+          :tools tools-list)))
+#+end_src
+
 ** Apply Session Preset
 
 #+begin_src emacs-lisp
 (defun jf/gptel--apply-session-preset (preset-plist)
   "Apply PRESET-PLIST to current buffer buffer-locally.
-Includes gptel-include-tool-results for native tool persistence."
+Includes tools from preset and gptel-include-tool-results for native tool persistence."
   (let ((backend (plist-get preset-plist :backend))
         (model (plist-get preset-plist :model))
         (system (plist-get preset-plist :system))
         (temperature (plist-get preset-plist :temperature))
-        (include-tool-results (plist-get preset-plist :include-tool-results)))
+        (include-tool-results (plist-get preset-plist :include-tool-results))
+        (tools (plist-get preset-plist :tools)))
     (when backend
       (setq-local gptel-backend backend))
     (when model
@@ -124,6 +246,16 @@ Includes gptel-include-tool-results for native tool persistence."
       (setq-local gptel-temperature temperature))
     (when (not (null include-tool-results))
       (setq-local gptel-include-tool-results include-tool-results))
+    ;; Apply tools from preset
+    (when tools
+      (let ((resolved-tools
+             (cl-loop for tool-name in tools
+                      for tool = (gptel-get-tool tool-name)
+                      when tool collect tool
+                      else do (jf/gptel--log 'warn "Tool not found: %s" tool-name))))
+        (when resolved-tools
+          (setq-local gptel-tools resolved-tools)
+          (jf/gptel--log 'info "Applied %d tools from preset" (length resolved-tools)))))
     (jf/gptel--log 'info "Applied session preset (include-tool-results: %s)" include-tool-results)))
 #+end_src
 
@@ -234,6 +366,107 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
                           (format " with %d project(s)" (length selected-projects))
                         ""))
         (message "Created persistent session: %s\nDirectory: %s%s"
+                session-name
+                session-dir
+                (if project-names
+                    (format "\nProjects: %s" (string-join project-names ", "))
+                  ""))
+
+        buffer))))
+#+end_src
+
+* Create Programming Session
+
+Interactive command to create a programming session with scoped tools and projectile integration.
+This uses the programming assistant preset template which includes:
+- Claude Opus 4.5 model
+- Scoped filesystem tools
+- Projectile navigation tools
+- Detailed system prompt for programming assistance
+
+#+begin_src emacs-lisp
+(defun jf/gptel-create-programming-session (session-name)
+  "Create a new persistent gptel session for programming tasks.
+Uses programming assistant preset with scoped tools and projectile integration.
+
+Prompts user to select projectile projects (0 or more).
+If projects selected, creates project-aware scope plan.
+Otherwise creates deny-all scope plan.
+
+Creates session directory, metadata, preset, scope plan, and opens session buffer."
+  (interactive "sSession name: ")
+  (let* ((session-id (jf/gptel--generate-session-id session-name))
+         (session-dir (jf/gptel--create-session-directory session-id))
+         (session-file (jf/gptel--context-file-path session-dir))
+         (backend (alist-get "Claude" gptel--known-backends nil nil #'equal))
+         (model 'claude-opus-4-5-20251101)
+         (backend-name "Claude")
+         (model-name "claude-opus-4-5-20251101")
+         ;; Project selection
+         (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
+                             (jf/gptel--select-projects)))
+         (project-names (when selected-projects
+                         (mapcar #'jf/gptel--project-display-name selected-projects))))
+
+    ;; Create metadata with project information
+    (let ((metadata (jf/gptel--create-metadata session-dir session-id model backend-name)))
+      ;; Add project fields to metadata if projects selected
+      (when selected-projects
+        (setq metadata (plist-put metadata :projects selected-projects))
+        (setq metadata (plist-put metadata :project-names project-names)))
+
+      (jf/gptel--write-metadata session-dir metadata)
+      (jf/gptel--register-session session-dir metadata nil session-id))
+
+    ;; Create session file with initial content
+    (with-temp-file session-file
+      (insert "# " session-name "\n\n"))
+
+    ;; Open session file in buffer
+    (let ((buffer (find-file session-file)))
+      (with-current-buffer buffer
+        ;; Enable gptel-mode
+        (unless gptel-mode
+          (gptel-mode 1))
+
+        ;; Set session variables
+        (setq-local jf/gptel--session-id session-id)
+        (setq-local jf/gptel--session-dir session-dir)
+
+        ;; Set backend and model
+        (setq-local gptel-backend backend)
+        (setq-local gptel-model model)
+
+        ;; Enable auto-save
+        (setq-local jf/gptel-autosave-enabled t)
+
+        ;; Update registry with buffer
+        (jf/gptel--update-session-buffer session-id buffer)
+
+        ;; Create project-aware or deny-all scope plan
+        (let ((scope-yaml (if selected-projects
+                             (jf/gptel--generate-scope-plan-yaml
+                              session-id "project-aware" selected-projects)
+                           (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
+              (scope-file (expand-file-name "scope-plan.yml" session-dir)))
+          (with-temp-file scope-file
+            (insert scope-yaml))
+          (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+
+        ;; Create and apply programming assistant preset
+        (let ((preset-plist (jf/gptel-scope--template-programming-assistant
+                            session-name backend model)))
+          ;; Write preset to file
+          (jf/gptel--write-preset-file session-dir preset-plist)
+          ;; Apply preset to buffer
+          (jf/gptel--apply-session-preset preset-plist))
+
+        (jf/gptel--log 'info "Created programming session: %s%s"
+                      session-id
+                      (if selected-projects
+                          (format " with %d project(s)" (length selected-projects))
+                        ""))
+        (message "Created programming session: %s\nDirectory: %s%s\nModel: Claude Opus 4.5\nTools: Scoped filesystem + Projectile navigation"
                 session-name
                 session-dir
                 (if project-names

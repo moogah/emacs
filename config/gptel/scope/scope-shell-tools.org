@@ -208,6 +208,53 @@ Approve this scope expansion? "
                :message "User denied scope expansion request. Try a different approach or explain why the access is important."))))))
 #+end_src
 
+* Inspect Scope Plan Tool (Meta Tool)
+
+LLM uses this tool to view current scope plan and understand permissions before requesting expansion.
+
+#+begin_src elisp
+(gptel-make-tool
+ :name "inspect_scope_plan"
+ :description "Inspect the current session's scope plan to understand tool permissions.
+
+Returns information about:
+- Which tools are enabled (allowed: true)
+- What patterns each tool accepts
+- What deny patterns exist
+- Default policy
+
+Use this BEFORE requesting scope expansion to:
+- Check if your desired operation is already allowed
+- Understand what patterns are currently approved
+- Make informed scope expansion requests
+- Suggest operations that fit within existing scope"
+ :args (list)
+ :category "scope"
+ :function
+ (lambda ()
+   (let* ((session-id (jf/gptel-scope--get-session-id))
+          (plan (jf/gptel-scope--load-plan session-id)))
+     (if (not plan)
+         (list :success nil
+               :error "no_scope_plan"
+               :message "No scope plan found for this session.")
+       ;; Format plan as readable structure
+       (let* ((tools-data (plist-get plan :tools))
+              (formatted-tools
+               (cl-loop for (tool-key tool-config) on tools-data by #'cddr
+                        when (keywordp tool-key)
+                        collect (list
+                                 :tool (substring (symbol-name tool-key) 1)
+                                 :enabled (plist-get tool-config :allowed)
+                                 :patterns (plist-get tool-config :patterns)
+                                 :deny_patterns (plist-get tool-config :deny_patterns)))))
+         (list :success t
+               :session_id (plist-get plan :session_id)
+               :default_policy (plist-get plan :default_policy)
+               :tools formatted-tools
+               :message "Scope plan retrieved successfully. Check which tools are enabled and what patterns are allowed."))))))
+#+end_src
+
 * Provide Feature
 
 #+begin_src elisp
