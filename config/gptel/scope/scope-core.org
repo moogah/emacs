@@ -4,21 +4,40 @@
 
 * Overview
 
-This module provides the core infrastructure for scope-aware tools in gptel sessions. It implements shared validation functions used by all scope-aware tools to check operations against scope plans.
+This module provides the core infrastructure for scope-aware tools in gptel sessions. It implements:
+- Generic =gptel-make-scoped-tool= macro that eliminates boilerplate
+- Tool-specific validators for fine-grained permission control
+- YAML plan parser/formatter for v2.0 tool-level permission format
 
-** Architecture
+** Architecture (v2.0)
 
 The scope system uses YAML plan documents stored in session directories:
-- Location: =~/gptel-sessions/SESSION_ID/scope-plan.yml=
-- Format: YAML with filesystem, org-roam, and shell sections
-- Default policy: Deny by default
+- Location: =~/.gptel/sessions/SESSION_ID/scope-plan.yml=
+- Format: v2.0 YAML with tool-level permissions (write_file_in_scope, edit_file_in_scope, etc.)
+- Default policy: Deny by default, explicit tool configuration required
+
+Example v2.0 structure:
+#+begin_example yaml
+version: "2.0"
+tools:
+  write_file_in_scope:
+    allowed: true
+    patterns: ["/project/**"]
+    deny_patterns: ["**/.git/**"]
+
+  read_file:
+    allowed: true
+    patterns: ["/**"]
+    deny_patterns: ["**/.env"]
+#+end_example
 
 ** Key Design Principles
 
-1. *Scope-aware tools check internally*: Each tool validates before execution
-2. *Structured errors returned to LLM*: Tools return descriptive errors, not exceptions
-3. *LLM mediates user communication*: No automatic prompts, LLM asks user when needed
-4. *Read operations always allowed*: Only write operations require scope checking
+1. *Tool-level permissions*: Each tool has independent configuration (write_file vs edit_file)
+2. *Generic macro eliminates duplication*: =gptel-make-scoped-tool= handles all boilerplate
+3. *Structured errors returned to LLM*: Tools return descriptive errors, not exceptions
+4. *LLM mediates user communication*: No automatic prompts, LLM uses request_scope_expansion
+5. *Read operations scope-controlled*: But templates grant permissive =/**= patterns by default
 
 * Dependencies
 

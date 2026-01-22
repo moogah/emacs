@@ -4,18 +4,25 @@
 
 * Overview
 
-This module provides scope-aware shell execution tools and meta tools for scope expansion. It includes:
+This module provides scope-aware shell execution and meta tools for v2.0 tool-level permission management:
 
-1. *Shell tool*: =run_approved_command= - Execute shell commands with whitelist/blacklist checking
-2. *Meta tool*: =request_scope_expansion= - LLM requests user approval to expand scope
+1. *Shell tool*: =run_approved_command= - Execute shell commands with pattern checking
+2. *Meta tool*: =request_scope_expansion= - LLM requests user approval to expand specific tool permissions
 
-** Shell Command Scoping
+** Shell Command Scoping (v2.0)
 
-Scope plans support:
-- *allow_commands*: Whitelist of allowed command names (e.g., "ls", "git status")
-- *deny_commands*: Blacklist patterns (substring matching, e.g., "rm -rf", "sudo")
+The =run_approved_command= tool uses tool-level configuration:
+- *patterns*: Whitelist of allowed command names (e.g., ["ls", "git", "npm"])
+- *deny_patterns*: Blacklist patterns (substring matching, e.g., ["rm -rf", "sudo"])
 
 Deny patterns override allow patterns for security.
+
+** Scope Expansion (v2.0)
+
+The =request_scope_expansion= tool is now tool-specific (not category-based):
+- LLM specifies exact tool name: "write_file_in_scope", "edit_file_in_scope", etc.
+- Patterns added only to that specific tool
+- Provides fine-grained control (can grant write but deny edit)
 
 * Dependencies
 
