@@ -221,7 +221,19 @@ Your goal is to assist with programming tasks effectively while respecting the p
                      "find_symbol"
                      "create_ggtags_project"
                      "update_ggtags_project"
-                     "explain_ggtags_indexing")))
+                     "explain_ggtags_indexing"
+                     "get_node_at_position"
+                     "get_node_info"
+                     "get_node_context"
+                     "get_syntax_tree"
+                     "list_functions"
+                     "list_classes"
+                     "list_imports"
+                     "extract_definition"
+                     "query_nodes"
+                     "find_nodes_by_type"
+                     "find_nodes_in_range"
+                     "get_scope_structure")))
     (list :description (format "Programming assistant preset for %s" session-name)
           :backend backend-obj
           :model model-sym

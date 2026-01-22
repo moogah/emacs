@@ -531,6 +531,114 @@ tools:
       - \"**/.env\"
       - \"**/node_modules/**\"
 
+  get_node_at_position:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_node_info:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_node_context:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_syntax_tree:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_functions:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_classes:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_imports:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  extract_definition:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  query_nodes:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_nodes_by_type:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_nodes_in_range:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_scope_structure:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
   create_roam_node_in_scope:
     allowed: false
     patterns:
@@ -591,7 +699,19 @@ tools:
             project-patterns  ; find_symbol patterns
             project-patterns  ; create_ggtags_project patterns
             project-patterns  ; update_ggtags_project patterns
-            project-patterns)))  ; explain_ggtags_indexing patterns
+            project-patterns  ; explain_ggtags_indexing patterns
+            project-patterns  ; get_node_at_position patterns
+            project-patterns  ; get_node_info patterns
+            project-patterns  ; get_node_context patterns
+            project-patterns  ; get_syntax_tree patterns
+            project-patterns  ; list_functions patterns
+            project-patterns  ; list_classes patterns
+            project-patterns  ; list_imports patterns
+            project-patterns  ; extract_definition patterns
+            project-patterns  ; query_nodes patterns
+            project-patterns  ; find_nodes_by_type patterns
+            project-patterns  ; find_nodes_in_range patterns
+            project-patterns)))  ; get_scope_structure patterns
 ;; Project-Aware Template:1 ends here
 
 ;; Project Selection

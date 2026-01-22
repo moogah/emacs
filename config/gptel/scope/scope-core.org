@@ -424,6 +424,30 @@ Returns plist with :allowed t/nil and relevant patterns/config."
        (jf/gptel-scope--validate-projectile tool-config tool-args))
       ("explain_ggtags_indexing"
        (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("get_node_at_position"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_node_info"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_syntax_tree"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("list_functions"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("list_classes"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("list_imports"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("extract_definition"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("query_nodes"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("find_nodes_by_type"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("find_nodes_in_range"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_node_context"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_scope_structure"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
       (_
        ;; Unknown tool - deny by default
        (list :allowed nil
@@ -737,6 +761,50 @@ Args: (command) - command string is first argument."
             :patterns patterns
             :deny_patterns deny-patterns
             :resource command))))
+#+end_src
+
+*** Tree-sitter Tools
+
+Validate tree-sitter operations based on file path.
+
+#+begin_src elisp
+(defun jf/gptel-scope--validate-treesitter (config args)
+  "Validate tree-sitter operation against CONFIG with ARGS.
+Args: (filepath ...) - filepath is first argument.
+All tree-sitter file operations validate based on filepath."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-treesitter
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "Tree-sitter tool not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-treesitter
+      (list :allowed nil
+            :message "Tree-sitter tool explicitly disabled in scope plan")))
+
+  (let* ((filepath (nth 0 args))
+         (full-path (expand-file-name filepath))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns)))
+
+    ;; Check deny patterns first
+    (when (and deny-patterns
+               (jf/gptel-scope--matches-any-pattern full-path deny-patterns))
+      (cl-return-from jf/gptel-scope--validate-treesitter
+        (list :allowed nil
+              :patterns patterns
+              :deny_patterns deny-patterns
+              :resource full-path)))
+
+    ;; Check allow patterns
+    (if (and patterns
+             (jf/gptel-scope--matches-any-pattern full-path patterns))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource full-path))))
 #+end_src
 
 
