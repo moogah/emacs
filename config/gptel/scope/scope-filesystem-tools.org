@@ -16,9 +16,10 @@ Tools are defined with minimal boilerplate - just the core logic.
 
 1. *Tool-level permissions*: Independent control for read_file, write_file_in_scope, and edit_file_in_scope
 2. *Consistent interface*: All tools use =(filepath ...)= as first parameter
-3. *Permissive reads*: Templates grant =/**= patterns for read_file by default
+3. *Scoped reads*: Most templates grant =/**= patterns for read_file; project-aware restricts to selected projects
 4. *Restricted writes*: write_file and edit_file require explicit pattern approval
-5. *Structured errors*: Macro returns formatted errors automatically on scope violations
+5. *Git-safe editing*: edit_file_in_scope enforces git-tracked file requirement (prevents editing ignored files)
+6. *Structured errors*: Macro returns formatted errors automatically on scope violations
 
 * Dependencies
 

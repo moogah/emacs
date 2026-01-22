@@ -21,7 +21,7 @@ All templates now use v2.0 tool-level format with independent configuration per 
 - *permissive*: Broad filesystem and shell access for trusted workflows (use with caution)
 - *project-aware*: Git-safe defaults scoped to selected projectile projects only (read/write within projects, edit only git-tracked files, blocks .git/.env/runtime/node_modules)
 
-Each template grants read_file permissive =/**= access to any file (except .env, .git, runtime).
+Most templates grant read_file permissive =/**= access to any file (except .env, .git, runtime). The project-aware template restricts reads to selected project directories.
 
 * Dependencies
 

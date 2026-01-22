@@ -129,7 +129,27 @@ Includes gptel-include-tool-results for native tool persistence."
 
 * Create Persistent Session
 
-Interactive command to create a new persistent session.
+Interactive command to create a new persistent session with optional projectile integration.
+
+** Workflow
+
+1. Prompts for session name
+2. Optionally prompts to select projectile projects (y-or-n-p)
+3. If projects selected: Multi-select from =projectile-known-projects=
+4. Creates session directory structure
+5. Stores selected projects in metadata (=:projects=, =:project-names= fields)
+6. Creates scope plan:
+   - *With projects*: project-aware template (scoped read/write/edit to selected projects)
+   - *Without projects*: deny-all template (secure default)
+7. Opens session buffer
+
+** Projectile Integration (New)
+
+When projects are selected:
+- Session metadata includes =:projects= (full paths) and =:project-names= (display names)
+- Scope plan restricts all operations to selected project directories
+- Git-safe editing enforced: =edit_file_in_scope= only allows git-tracked files
+- Prevents accidental modification of ignored files (node_modules/, build artifacts, etc.)
 
 #+begin_src emacs-lisp
 (defun jf/gptel-persistent-session (session-name &optional backend model)
