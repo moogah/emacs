@@ -76,6 +76,9 @@
   (add-to-list 'gptel-agent-dirs
                (expand-file-name "config/gptel/agents/" jf/emacs-dir))
 
+  ;; Load scope-core FIRST (required by scope-controlled tools)
+  (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
+
   ;; Load custom tools BEFORE agent update so agents can reference them
   (jf/load-module (expand-file-name "config/gptel/tools/filesystem-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/projectile-tools.el" jf/emacs-dir))

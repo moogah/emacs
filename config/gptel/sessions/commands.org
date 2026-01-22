@@ -214,7 +214,14 @@ Your goal is to assist with programming tasks effectively while respecting the p
                      "search_project_content"
                      "list_test_files"
                      "find_related_test"
-                     "find_related_files")))
+                     "find_related_files"
+                     "check_ggtags_project"
+                     "find_definition"
+                     "find_references"
+                     "find_symbol"
+                     "create_ggtags_project"
+                     "update_ggtags_project"
+                     "explain_ggtags_indexing")))
     (list :description (format "Programming assistant preset for %s" session-name)
           :backend backend-obj
           :model model-sym

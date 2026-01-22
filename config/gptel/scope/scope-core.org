@@ -410,6 +410,20 @@ Returns plist with :allowed t/nil and relevant patterns/config."
        (jf/gptel-scope--validate-projectile tool-config tool-args))
       ("find_related_files"
        (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("check_ggtags_project"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_definition"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_references"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_symbol"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("create_ggtags_project"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("update_ggtags_project"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("explain_ggtags_indexing"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
       (_
        ;; Unknown tool - deny by default
        (list :allowed nil

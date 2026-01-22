@@ -468,6 +468,69 @@ tools:
       - \"**/.env\"
       - \"**/node_modules/**\"
 
+  check_ggtags_project:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_definition:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_references:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_symbol:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  create_ggtags_project:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  update_ggtags_project:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  explain_ggtags_indexing:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
   create_roam_node_in_scope:
     allowed: false
     patterns:
@@ -521,7 +584,14 @@ tools:
             project-patterns  ; search_project_content patterns
             project-patterns  ; list_test_files patterns
             project-patterns  ; find_related_test patterns
-            project-patterns)))  ; find_related_files patterns
+            project-patterns  ; find_related_files patterns
+            project-patterns  ; check_ggtags_project patterns
+            project-patterns  ; find_definition patterns
+            project-patterns  ; find_references patterns
+            project-patterns  ; find_symbol patterns
+            project-patterns  ; create_ggtags_project patterns
+            project-patterns  ; update_ggtags_project patterns
+            project-patterns)))  ; explain_ggtags_indexing patterns
 ;; Project-Aware Template:1 ends here
 
 ;; Project Selection
