@@ -221,112 +221,24 @@ Includes tools from preset and gptel-include-tool-results for native tool persis
     (jf/gptel--log 'info "Applied session preset (include-tool-results: %s)" include-tool-results)))
 
 (defun jf/gptel-persistent-session (session-name &optional backend model)
-  "Create a new persistent gptel session named SESSION-NAME.
-Optional BACKEND and MODEL default to current gptel settings.
+  "Create a new persistent gptel programming session named SESSION-NAME.
+Uses programming assistant preset with scoped tools and projectile integration.
 
+Optional BACKEND and MODEL default to Claude Opus 4.5.
 Prompts user to select projectile projects (0 or more).
 If projects selected, creates project-aware scope plan.
 Otherwise creates deny-all scope plan.
 
-Creates session directory, metadata, and opens session buffer.
+Creates session directory, metadata, preset, scope plan, and opens session buffer.
 The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.md"
   (interactive "sSession name: ")
   (let* ((session-id (jf/gptel--generate-session-id session-name))
          (session-dir (jf/gptel--create-session-directory session-id))
          (session-file (jf/gptel--context-file-path session-dir))
-         (backend (or backend gptel-backend))
-         (model (or model gptel-model))
+         (backend (or backend (alist-get "Claude" gptel--known-backends nil nil #'equal)))
+         (model (or model 'claude-opus-4-5-20251101))
          (backend-name (gptel-backend-name backend))
          (model-name (if (symbolp model) (symbol-name model) model))
-         ;; Project selection
-         (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
-                             (jf/gptel--select-projects)))
-         (project-names (when selected-projects
-                         (mapcar #'jf/gptel--project-display-name selected-projects))))
-
-    ;; Create metadata with project information
-    (let ((metadata (jf/gptel--create-metadata session-dir session-id model backend-name)))
-      ;; Add project fields to metadata if projects selected
-      (when selected-projects
-        (setq metadata (plist-put metadata :projects selected-projects))
-        (setq metadata (plist-put metadata :project-names project-names)))
-
-      (jf/gptel--write-metadata session-dir metadata)
-      (jf/gptel--register-session session-dir metadata nil session-id))
-
-    ;; Create session file with initial content
-    (with-temp-file session-file
-      (insert "# " session-name "\n\n"))
-
-    ;; Open session file in buffer
-    (let ((buffer (find-file session-file)))
-      (with-current-buffer buffer
-        ;; Enable gptel-mode
-        (unless gptel-mode
-          (gptel-mode 1))
-
-        ;; Set session variables
-        (setq-local jf/gptel--session-id session-id)
-        (setq-local jf/gptel--session-dir session-dir)
-
-        ;; Set backend and model
-        (setq-local gptel-backend backend)
-        (setq-local gptel-model model)
-
-        ;; Enable auto-save
-        (setq-local jf/gptel-autosave-enabled t)
-
-        ;; Update registry with buffer
-        (jf/gptel--update-session-buffer session-id buffer)
-
-        ;; Create project-aware or deny-all scope plan
-        (let ((scope-yaml (if selected-projects
-                             (jf/gptel--generate-scope-plan-yaml
-                              session-id "project-aware" selected-projects)
-                           (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
-              (scope-file (expand-file-name "scope-plan.yml" session-dir)))
-          (with-temp-file scope-file
-            (insert scope-yaml))
-          (jf/gptel--log 'info "Created scope plan: %s" scope-file))
-
-        ;; Create and apply preset
-        (let ((preset-plist (jf/gptel--generate-preset-plist session-name backend model)))
-          ;; Write preset to file
-          (jf/gptel--write-preset-file session-dir preset-plist)
-          ;; Apply preset to buffer
-          (jf/gptel--apply-session-preset preset-plist))
-
-        (jf/gptel--log 'info "Created persistent session: %s%s"
-                      session-id
-                      (if selected-projects
-                          (format " with %d project(s)" (length selected-projects))
-                        ""))
-        (message "Created persistent session: %s\nDirectory: %s%s"
-                session-name
-                session-dir
-                (if project-names
-                    (format "\nProjects: %s" (string-join project-names ", "))
-                  ""))
-
-        buffer))))
-
-(defun jf/gptel-create-programming-session (session-name)
-  "Create a new persistent gptel session for programming tasks.
-Uses programming assistant preset with scoped tools and projectile integration.
-
-Prompts user to select projectile projects (0 or more).
-If projects selected, creates project-aware scope plan.
-Otherwise creates deny-all scope plan.
-
-Creates session directory, metadata, preset, scope plan, and opens session buffer."
-  (interactive "sSession name: ")
-  (let* ((session-id (jf/gptel--generate-session-id session-name))
-         (session-dir (jf/gptel--create-session-directory session-id))
-         (session-file (jf/gptel--context-file-path session-dir))
-         (backend (alist-get "Claude" gptel--known-backends nil nil #'equal))
-         (model 'claude-opus-4-5-20251101)
-         (backend-name "Claude")
-         (model-name "claude-opus-4-5-20251101")
          ;; Project selection
          (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
                              (jf/gptel--select-projects)))
