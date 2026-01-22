@@ -82,33 +82,41 @@ Use request_scope_expansion to ask user to add command to allowed list."
 ;; [[file:scope-shell-tools.org::*Request Scope Expansion Tool (Meta Tool)][Request Scope Expansion Tool (Meta Tool):1]]
 (gptel-make-tool
  :name "request_scope_expansion"
- :description "Request user approval to expand scope plan with new patterns.
+ :description "Request user approval to expand scope plan with new patterns for a specific tool.
 
-Use this when operations are denied by scope and you need user permission.
+Use this when a tool operation is denied and you need user permission.
 Displays approval dialog to user explaining why access is needed.
 
 The user will see:
-- Resource type (filesystem, org_roam, shell)
+- Which specific tool needs access (write_file_in_scope, edit_file_in_scope, etc.)
 - Patterns you want to add
 - Your justification for why access is needed
 
 Returns success with patterns_added if user approves, or user_denied if rejected.
 
 IMPORTANT: Always explain to the user WHY you need the expanded access in the justification.
-Be specific about what you're trying to accomplish."
- :args (list '(:name "resource_type"
+Be specific about what you're trying to accomplish.
+
+Available tool names:
+- write_file_in_scope
+- edit_file_in_scope
+- create_roam_node_in_scope
+- add_roam_tags_in_scope
+- link_roam_nodes_in_scope
+- run_approved_command"
+ :args (list '(:name "tool_name"
                :type string
-               :description "Type: 'filesystem', 'org_roam', or 'shell'")
+               :description "Specific tool name (e.g., 'write_file_in_scope', 'edit_file_in_scope', 'run_approved_command')")
              '(:name "patterns"
                :type array
                :items (:type string)
-               :description "List of patterns to add to scope (e.g., [\"/tmp/**\"] for filesystem, [\"tag:gptel\"] for org_roam, [\"npm\"] for shell)")
+               :description "List of patterns to add (e.g., [\"/tmp/**\"] for filesystem tools, [\"tag:gptel\"] for org_roam, [\"npm\"] for shell)")
              '(:name "justification"
                :type string
                :description "Explain to user why this access is needed. Be specific about the task you're trying to accomplish."))
  :category "scope"
  :function
- (lambda (resource-type patterns justification)
+ (lambda (tool_name patterns justification)
    ;; Convert patterns from vector to list if needed (JSON arrays come as vectors)
    (when (vectorp patterns)
      (setq patterns (append patterns nil)))
@@ -129,7 +137,7 @@ Be specific about what you're trying to accomplish."
 SCOPE EXPANSION REQUEST
 ═══════════════════════════════════════
 
-Resource type: %s
+Tool: %s
 
 Patterns to add:
   %s
@@ -139,32 +147,29 @@ Justification:
 
 ═══════════════════════════════════════
 Approve this scope expansion? "
-                     resource-type
+                     tool_name
                      (mapconcat #'identity patterns "\n  ")
                      justification))))
 
        (if approved
-           ;; User approved - add patterns to plan
+           ;; User approved - add patterns to the specific tool (v2.0 tool-level format)
            (progn
-             (pcase resource-type
-               ("filesystem"
-                (let* ((fs-data (plist-get plan :filesystem))
-                       (existing (plist-get fs-data :write))
-                       (updated (append existing patterns)))
-                  (plist-put fs-data :write updated)
-                  (plist-put plan :filesystem fs-data)))
-               ("org_roam"
-                (let* ((roam-data (plist-get plan :org_roam))
-                       (existing (plist-get roam-data :write))
-                       (updated (append existing patterns)))
-                  (plist-put roam-data :write updated)
-                  (plist-put plan :org_roam roam-data)))
-               ("shell"
-                (let* ((shell-data (plist-get plan :shell))
-                       (existing (plist-get shell-data :allow_commands))
-                       (updated (append existing patterns)))
-                  (plist-put shell-data :allow_commands updated)
-                  (plist-put plan :shell shell-data))))
+             (let* ((tools-data (or (plist-get plan :tools) nil))
+                    (tool-key (intern (concat ":" tool_name)))
+                    (tool-config (or (plist-get tools-data tool-key) nil))
+                    (existing (plist-get tool-config :patterns))
+                    (updated (append existing patterns)))
+
+               ;; Ensure tool is enabled and has the new patterns
+               (setq tool-config (plist-put tool-config :allowed t))
+               (setq tool-config (plist-put tool-config :patterns updated))
+               ;; Preserve deny_patterns if they exist
+               (unless (plist-member tool-config :deny_patterns)
+                 (setq tool-config (plist-put tool-config :deny_patterns nil)))
+               (setq tools-data (plist-put tools-data tool-key tool-config))
+
+               ;; Update plan with modified tools data (capture return value!)
+               (setq plan (plist-put plan :tools tools-data)))
 
              ;; Save updated plan
              (jf/gptel-scope--save-plan session-id plan)
@@ -172,7 +177,7 @@ Approve this scope expansion? "
              (list :success t
                    :patterns_added patterns
                    :message (format "Scope expanded. Added %d pattern(s) to %s"
-                                  (length patterns) resource-type)))
+                                  (length patterns) tool_name)))
 
          ;; User denied
          (list :success nil

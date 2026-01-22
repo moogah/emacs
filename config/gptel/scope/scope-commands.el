@@ -15,31 +15,73 @@
 (defun jf/gptel-scope--template-deny-all (session-id)
   "Secure default template - nothing allowed, user must add patterns.
 Recommended for new sessions where you want explicit control."
-  (format "version: \"1.0\"
+  (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write: []
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
-    - \"**/node_modules/**\"
-    - \"**/.env\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write: []
-  link: []
+  write_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
 
-shell:
-  allow_commands: []
-  deny_commands:
-    - \"rm -rf\"
-    - \"sudo\"
-    - \"chmod\"
-    - \"chown\"
+  edit_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
+
+  create_roam_node_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"rm -rf\"
+      - \"sudo\"
+      - \"chmod\"
+      - \"chown\"
+
 "
           session-id
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
@@ -56,42 +98,81 @@ shell:
   "Read-only exploration template.
 Allows safe shell commands for code exploration (ls, find, grep, git log).
 No write operations allowed - LLM must request permission."
-  (format "version: \"1.0\"
+  (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write: []
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
-    - \"**/node_modules/**\"
-    - \"**/.env\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write: []
-  link: []
+  write_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
 
-shell:
-  allow_commands:
-    - \"ls\"
-    - \"find\"
-    - \"grep\"
-    - \"git status\"
-    - \"git log\"
-    - \"git diff\"
-    - \"cat\"
-    - \"head\"
-    - \"tail\"
-  deny_commands:
-    - \"rm\"
-    - \"sudo\"
-    - \"chmod\"
-    - \"chown\"
-    - \"mv\"
-    - \"cp\"
+  edit_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
+
+  create_roam_node_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: true
+    patterns:
+      - \"ls\"
+      - \"find\"
+      - \"grep\"
+      - \"git\"
+      - \"cat\"
+      - \"head\"
+      - \"tail\"
+    deny_patterns:
+      - \"rm\"
+      - \"sudo\"
+      - \"chmod\"
+      - \"chown\"
+      - \"mv\"
+      - \"cp\"
+
 "
           session-id
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
@@ -108,38 +189,75 @@ shell:
   "Org-roam safe template.
 Allows creating and linking nodes in gptel/ subdirectory with gptel tag.
 Safe for LLM-generated notes that are clearly separated from personal notes."
-  (format "version: \"1.0\"
+  (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write:
-    - \"%s/gptel/**/*.org\"
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write:
-    - \"subdirectory:gptel/**\"
-    - \"tag:gptel\"
-  link:
-    - \"node_id:*\"
+  write_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/gptel/**/*.org\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
 
-shell:
-  allow_commands:
-    - \"ls\"
-    - \"find\"
-    - \"grep\"
-  deny_commands:
-    - \"rm\"
-    - \"sudo\"
+  edit_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/gptel/**/*.org\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+
+  create_roam_node_in_scope:
+    allowed: true
+    patterns:
+      - \"subdirectory:gptel/**\"
+      - \"tag:gptel\"
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: true
+    patterns:
+      - \"tag:gptel\"
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: true
+    patterns:
+      - \"node_id:*\"
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: true
+    patterns:
+      - \"ls\"
+      - \"find\"
+      - \"grep\"
+    deny_patterns:
+      - \"rm\"
+      - \"sudo\"
+
 "
           session-id
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+          org-roam-directory
           org-roam-directory))
 ;; Org-Roam Safe Template:1 ends here
 
@@ -154,50 +272,88 @@ shell:
 USE WITH CAUTION: Allows wide filesystem access and many shell commands.
 Only use when you trust the LLM workflow and want minimal restrictions."
   (let ((project-root (or (projectile-project-root) default-directory)))
-    (format "version: \"1.0\"
+    (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write:
-    - \"%s/**\"
-    - \"/tmp/**\"
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
-    - \"**/node_modules/**\"
-    - \"**/.env\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write:
-    - \"subdirectory:**\"
-    - \"tag:*\"
-  link:
-    - \"node_id:*\"
+  write_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/**\"
+      - \"/tmp/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
 
-shell:
-  allow_commands:
-    - \"ls\"
-    - \"find\"
-    - \"grep\"
-    - \"git status\"
-    - \"git log\"
-    - \"git diff\"
-    - \"cat\"
-    - \"head\"
-    - \"tail\"
-    - \"npm\"
-    - \"node\"
-    - \"python\"
-  deny_commands:
-    - \"rm -rf\"
-    - \"sudo\"
+  edit_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/**\"
+      - \"/tmp/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
+
+  create_roam_node_in_scope:
+    allowed: true
+    patterns:
+      - \"subdirectory:**\"
+      - \"tag:*\"
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: true
+    patterns:
+      - \"tag:*\"
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: true
+    patterns:
+      - \"node_id:*\"
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: true
+    patterns:
+      - \"ls\"
+      - \"find\"
+      - \"grep\"
+      - \"git\"
+      - \"cat\"
+      - \"head\"
+      - \"tail\"
+      - \"npm\"
+      - \"node\"
+      - \"python\"
+    deny_patterns:
+      - \"rm -rf\"
+      - \"sudo\"
+
 "
             session-id
             (format-time-string "%Y-%m-%dT%H:%M:%SZ")
             (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+            project-root
             project-root)))
 ;; Permissive Template:1 ends here
 
