@@ -1,93 +1,184 @@
-# gptel-transient Async Integration Experiments
+# gptel-transient Async Integration Tests
 
-This directory contains experiments to isolate and understand the incompatibility between gptel's FSM-based async tool callbacks and transient's command-driven menu system.
+This directory contains tests to isolate and understand the incompatibility between gptel's FSM-based async tool callbacks and transient's command-driven menu system.
 
-## Usage
+## Approach
 
-### Load the experiments
+- **Use REAL transient code** (from runtime/straight/build/transient)
+- **Simulate ONLY gptel FSM** (minimal mock to avoid external dependencies)
+- **No user interaction required** (programmatically set answers and call submit)
+- **Runnable in batch mode** (automated testing via script)
 
-```elisp
-M-x load-file RET experiments/gptel-transient-async.el RET
+## Quick Start
+
+### Run all tests (batch mode)
+
+```bash
+./experiments/run-tests.sh
 ```
 
-### Run individual experiments
+### Run individual experiments (interactive)
 
 ```elisp
-M-x gptel-exp-run-experiment-1  ; Baseline async pattern
-M-x gptel-exp-run-experiment-2  ; Transient basics
-M-x gptel-exp-run-experiment-3  ; Naive integration
-M-x gptel-exp-run-experiment-4  ; Scope isolation
-M-x gptel-exp-run-experiment-5  ; Execution context
-M-x gptel-exp-run-experiment-6  ; FSM state access
-```
-
-### Run all experiments
-
-```elisp
-M-x gptel-exp-run-all
-```
-
-### View results
-
-Results are displayed in the `*gptel-exp-log*` buffer, which opens automatically after each experiment.
-
-You can also view the log manually:
-
-```elisp
-M-x gptel-exp-show-log
+emacs -Q -l experiments/test-transient-async.el -f test-run-experiment-1
 ```
 
 ## Experiments
 
-### Experiment 1: Baseline Async Pattern
+### Experiment 1: Baseline (matches question-tools.el pattern)
 
-Tests that gptel's closure-based async coordination works without transient.
+Tests the exact pattern used in `config/gptel/tools/question-tools.el`:
 
-**Expected:** FSM transitions correctly via callback.
+1. Create gptel buffer with FSM
+2. Create callback closure
+3. Set up transient with test data
+4. Programmatically fill in answers
+5. Call `transient-quit-one` FIRST
+6. Invoke callback via `run-at-time` timer (0.05s delay)
+7. Verify FSM transitions correctly
 
-### Experiment 2: Transient Basics
+**Expected:** FSM transitions from TOOL → WAIT after callback.
 
-Understand transient's execution model and lifecycle timing.
+### Experiment 2: Callback Before Quit
 
-**Expected:** Understand when commands return and hooks run.
+Tests calling the callback BEFORE `transient-quit-one`:
 
-### Experiment 3: Naive Integration
+1. Set up transient
+2. Fill in answers
+3. Call callback FIRST
+4. Then quit transient
 
-Attempt straightforward integration of callback with transient suffix using three strategies:
-- Immediate invocation
-- Post-command hook invocation
-- Timer-based invocation
+**Tests:** Does transient state interfere with callback execution?
 
-**Expected:** May reproduce the original error.
+### Experiment 3: Immediate Callback (No Timer)
 
-### Experiment 4: Transient Scope Isolation
+Tests if the timer is necessary:
 
-Tests if transient's scope interferes with callback execution.
+1. Set up transient
+2. Fill in answers
+3. Quit transient
+4. Call callback IMMEDIATELY (no `run-at-time`)
 
-**Expected:** Callbacks work regardless of transient state.
+**Tests:** Is the 0.05s delay required, or can callback run immediately?
 
-### Experiment 5: Callback Execution Context
+## Test Structure
 
-Tests if buffer context affects callback execution.
+### Mock gptel FSM
 
-**Expected:** Closures work across buffers (lexical scoping).
+Minimal simulation of gptel's FSM:
 
-### Experiment 6: FSM State Access Pattern
+```elisp
+(defvar-local test-gptel--fsm
+  (list :state 'TOOL
+        :pending-tool-results '()))
+```
 
-Simulates gptel's actual FSM transition mechanism with buffer-local state.
+Callback closure captures buffer and modifies FSM state:
 
-**Expected:** Callbacks can modify buffer-local state from any buffer.
+```elisp
+(lambda (result)
+  (with-current-buffer buffer
+    ;; Transition FSM
+    (test-gptel-fsm-transition 'WAIT)
+    ;; Store result
+    (push result pending-tool-results)))
+```
 
-## Analysis
+### Real Transient Menu
 
-After running experiments, document findings in the log buffer and determine:
+Uses actual transient code with simplified menu matching question-tools.el structure:
 
-1. **Root cause** of the incompatibility
-2. **Working patterns** (if any)
-3. **Recommendations** for implementation
+- Stores callback in buffer-local variable (NOT in transient scope)
+- Stores origin buffer for callback invocation
+- `test-submit` function matches `jf/gptel-questions--submit` pattern
+
+## Key Patterns Being Tested
+
+### Pattern 1: Buffer-Local Callback Storage
+
+```elisp
+(defvar-local test-callback nil)
+(defvar-local test-origin-buffer nil)
+
+;; Store callback outside transient scope
+(setq-local test-callback callback)
+(setq-local test-origin-buffer origin-buffer)
+```
+
+**Why:** Avoids transient scope serialization issues.
+
+### Pattern 2: Quit-Then-Callback
+
+```elisp
+(defun test-submit ()
+  (let ((result (test-build-result)))
+    ;; Close transient FIRST
+    (transient-quit-one)
+
+    ;; Invoke callback AFTER transient cleanup
+    (run-at-time 0.05 nil
+      (lambda ()
+        (funcall callback result)))))
+```
+
+**Why:** Ensures transient state doesn't interfere with callback.
+
+### Pattern 3: Buffer Context Preservation
+
+```elisp
+(lambda (result)
+  (with-current-buffer origin-buffer
+    ;; Modify FSM state
+    (test-gptel-fsm-transition 'WAIT)))
+```
+
+**Why:** FSM state is buffer-local, callback must run in correct buffer.
+
+## Expected Outcomes
+
+### Success Scenario
+
+All three experiments pass:
+- Experiment 1: Timer-based callback works
+- Experiment 2: Callback-before-quit works OR fails with clear error
+- Experiment 3: Immediate callback works OR timer is necessary
+
+→ Identifies working integration pattern.
+
+### Failure Scenario
+
+One or more experiments fail:
+- Document specific failure mode
+- Identify which pattern element is problematic
+- Propose alternative approaches
+
+## Analyzing Results
+
+Look for these in the output:
+
+- `[FSM] Transition: TOOL -> WAIT` - FSM transitioning correctly
+- `[CALLBACK] FSM state after: WAIT` - Callback successfully modified FSM
+- `✓ EXPERIMENT N PASSED` - Test succeeded
+- `✗ EXPERIMENT N FAILED` - Test failed with details
 
 ## Files
 
-- `gptel-transient-async.el` - All experiment code (lexical binding enabled)
-- `gptel-transient-async.org` - Original org-babel notebook (deprecated due to binding issues)
+- `test-transient-async.el` - Test suite (runnable in batch or interactive)
+- `run-tests.sh` - Batch mode test runner
+- `gptel-transient-async.el` - Old mock-based experiments (deprecated)
+- `gptel-transient-async.org` - Org-babel notebook (deprecated)
 - `README.md` - This file
+
+## Dependencies
+
+- Emacs 29.1+ (for transient compatibility)
+- transient.el (loaded from runtime/straight/build/transient)
+- No other dependencies (gptel is mocked)
+
+## Next Steps After Testing
+
+1. **If all tests pass:** Update `question-tools.el` with any refinements discovered
+2. **If tests fail:** Document the specific incompatibility and explore alternatives:
+   - Use `completing-read-multiple` instead of transient
+   - Use dedicated buffer UI instead of transient
+   - Use synchronous tool (less user-friendly but simpler)
