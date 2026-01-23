@@ -2,6 +2,12 @@
 #+property: header-args:emacs-lisp :tangle question-tools.el
 #+auto_tangle: y
 
+* File Header
+
+#+begin_src emacs-lisp
+;;; question-tools.el --- Async question tool for gptel -*- lexical-binding: t -*-
+#+end_src
+
 * Overview
 
 This module implements an async gptel tool that allows LLMs (particularly the planner agent) to collect structured questions from users through an intuitive transient interface.
@@ -62,6 +68,10 @@ The tool uses transient for the UI and stores state in ~transient-scope~. When t
 (defvar-local jf/gptel-questions--callback nil
   "Buffer-local storage for async tool callback.
 Stored outside transient scope to avoid serialization issues.")
+
+(defvar-local jf/gptel-questions--origin-buffer nil
+  "Buffer where the tool was originally invoked.
+Callback must be invoked in this buffer to access FSM state.")
 #+end_src
 
 ** Answer Storage and Retrieval
@@ -331,20 +341,37 @@ Returns JSON-encoded string for LLM consumption."
     (if (car validation)
         ;; Build answer JSON from scope before quitting
         (let* ((answer-json (jf/gptel-questions--build-answer-list))
-               (callback jf/gptel-questions--callback))
+               (callback jf/gptel-questions--callback)
+               (origin-buffer jf/gptel-questions--origin-buffer))
 
-          ;; Close transient to clean up scope
+          ;; Close transient FIRST to clean up state
           (transient-quit-one)
 
-          ;; Invoke callback directly - no delay needed
-          ;; The key fix is storing callback outside transient scope
-          (condition-case err
-              (progn
-                (message "Invoking callback with: %s" answer-json)
-                (funcall callback answer-json))
-            (error
-             (message "Error in callback: %s" (error-message-string err))
-             (message "Answer JSON was: %s" answer-json))))
+          ;; THEN invoke callback via timer (after transient cleanup completes)
+          ;; Timer ensures transient state doesn't interfere with callback
+          (message "=== SUBMIT CALLBACK ===")
+          (message "Origin: %s" origin-buffer)
+          (message "Answers: %s" answer-json)
+
+          (run-at-time
+           0.05 nil
+           (lambda ()
+             (condition-case err
+                 (with-current-buffer origin-buffer
+                   (message "→ In origin buffer (mode: %s, gptel--fsm: %s)"
+                            major-mode (boundp 'gptel--fsm))
+                   (when (boundp 'gptel--fsm)
+                     (message "→ FSM state: %s" (plist-get gptel--fsm :state)))
+
+                   (message "→ About to funcall callback...")
+                   (funcall callback answer-json)
+                   (message "→ Callback returned")
+
+                   (when (boundp 'gptel--fsm)
+                     (message "→ FSM state after: %s" (plist-get gptel--fsm :state))))
+               (error
+                (message "→ ERROR: %s" (error-message-string err))
+                (message "→ Error details: %S" err))))))
 
       ;; Validation failed
       (message "%s" (cdr validation)))))
@@ -354,20 +381,32 @@ Returns JSON-encoded string for LLM consumption."
   (interactive)
   ;; Build answer JSON from scope before quitting
   (let* ((answer-json (jf/gptel-questions--build-answer-list))
-         (callback jf/gptel-questions--callback))
+         (callback jf/gptel-questions--callback)
+         (origin-buffer jf/gptel-questions--origin-buffer))
 
-    ;; Close transient to clean up scope
+    ;; Close transient FIRST
     (transient-quit-one)
 
-    ;; Invoke callback directly - no delay needed
-    ;; The key fix is storing callback outside transient scope
-    (condition-case err
-        (progn
-          (message "Invoking callback (cancel) with: %s" answer-json)
-          (funcall callback answer-json))
-      (error
-       (message "Error in callback: %s" (error-message-string err))
-       (message "Answer JSON was: %s" answer-json)))))
+    ;; THEN invoke callback via timer
+    (message "=== CANCEL CALLBACK ===")
+    (message "Origin: %s (partial answers: %s)" origin-buffer answer-json)
+
+    (run-at-time
+     0.05 nil
+     (lambda ()
+       (condition-case err
+           (with-current-buffer origin-buffer
+             (message "→ In origin (gptel--fsm: %s)" (boundp 'gptel--fsm))
+             (when (boundp 'gptel--fsm)
+               (message "→ FSM state: %s" (plist-get gptel--fsm :state)))
+
+             (funcall callback answer-json)
+             (message "→ Callback returned")
+
+             (when (boundp 'gptel--fsm)
+               (message "→ FSM state after: %s" (plist-get gptel--fsm :state))))
+         (error
+          (message "→ ERROR: %s" (error-message-string err))))))))
 #+end_src
 
 * Custom Transient Classes
@@ -522,22 +561,35 @@ QUESTIONS is array of question plists from LLM.
 
 Normalizes and validates questions before displaying UI.
 Signals clear errors if questions are malformed."
+  (message "=== TOOL INVOCATION START ===")
+  (message "Entry buffer: %s (mode: %s)" (current-buffer) major-mode)
+  (message "gptel--fsm bound: %s" (boundp 'gptel--fsm))
+  (when (boundp 'gptel--fsm)
+    (message "FSM state: %s" (plist-get gptel--fsm :state)))
+
   (condition-case err
-      (let* (;; Normalize and validate questions
+      (let* ((origin-buffer (current-buffer))  ; Capture IMMEDIATELY
+             ;; Normalize and validate questions
              (questions-list (jf/gptel-questions--normalize-questions questions))
              (answers (make-hash-table :test 'equal))
              (comments (make-hash-table :test 'equal)))
+
+        (message "→ Captured origin: %s" origin-buffer)
 
         ;; Initialize hash tables
         (dolist (q questions-list)
           (puthash (plist-get q :id) nil answers)
           (puthash (plist-get q :id) "" comments))
 
-        ;; Store callback in buffer-local variable (NOT in transient scope)
+        ;; Store callback and origin buffer in buffer-local variables (NOT in transient scope)
         ;; This avoids serialization issues when gptel tries to serialize state
+        ;; Origin buffer needed so callback can access FSM state
+        ;; CRITICAL: Use captured origin-buffer, not (current-buffer) which may have changed
         (setq-local jf/gptel-questions--callback callback)
+        (setq-local jf/gptel-questions--origin-buffer origin-buffer)
+        (message "→ Stored callback in: %s" (current-buffer))
 
-        ;; Launch transient with scope (callback NOT included)
+        ;; Launch transient with scope (callback and origin buffer NOT included)
         (transient-setup
          'jf/gptel-questions-menu
          nil nil
@@ -589,27 +641,27 @@ Use this when you need user input to refine your plan or make decisions.
 For example, ask about goals, constraints, preferences, or technical choices."
 
  :args '((:name "questions"
-          :type array
-          :items (:type object
-                  :properties (:id (:type string
+          :type "array"
+          :items (:type "object"
+                  :properties (:id (:type "string"
                                    :description "Unique question identifier")
-                              :type (:type string
+                              :type (:type "string"
                                     :enum ["multiple-choice" "yes-no" "text" "numeric"]
                                     :description "Question type")
-                              :prompt (:type string
+                              :prompt (:type "string"
                                       :description "Question text to display")
-                              :description (:type string
+                              :description (:type "string"
                                            :description "Optional additional context")
-                              :required (:type boolean
+                              :required (:type "boolean"
                                         :description "Whether answer is required (default: true)")
-                              :default (:type string
+                              :default (:type "string"
                                        :description "Default answer value")
-                              :choices (:type array
-                                       :items (:type string)
+                              :choices (:type "array"
+                                       :items (:type "string")
                                        :description "For multiple-choice: list of options")
-                              :min (:type number
+                              :min (:type "number"
                                    :description "For numeric: minimum value")
-                              :max (:type number
+                              :max (:type "number"
                                    :description "For numeric: maximum value")))
           :description "Array of question objects to ask user"))
 
@@ -807,7 +859,7 @@ When returning tool results to the LLM, gptel serializes the request context (in
 *** Root Cause
 Emacs ~json-encode~ doesn't handle plists correctly - it treats them as flat arrays instead of objects:
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle no
 ;; This plist:
 '(:id "test" :answer "foo")
 
@@ -821,7 +873,7 @@ Emacs ~json-encode~ doesn't handle plists correctly - it treats them as flat arr
 *** Solution
 Convert to alists before JSON encoding:
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle no
 ;; Use alist format for proper JSON encoding
 `((id . ,id)
   (answer . ,(or answer ""))
@@ -834,7 +886,7 @@ Convert to alists before JSON encoding:
 *** Problem
 Initially stored the callback function in the transient scope:
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle no
 :scope (list :questions questions-list
              :answers answers
              :comments comments
@@ -857,7 +909,7 @@ The callback is a closure that captures gptel's request context. When we stored 
 *** Solution
 Store callback in buffer-local variable **outside** transient scope:
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle no
 ;; Store callback separately
 (setq-local jf/gptel-questions--callback callback)
 
@@ -867,145 +919,366 @@ Store callback in buffer-local variable **outside** transient scope:
              :comments comments)  ; callback NOT here
 #+end_src
 
-** Challenge 3: Callback Invocation Timing
+** Challenge 3: Callback Invocation and FSM Continuation (IN PROGRESS)
 
-*** Problem
-After fixing serialization, tool results appeared in buffer but LLM didn't respond:
+*** Problem Evolution
 
+**** Issue 1: Closure Scoping (SOLVED)
+Initial implementation failed with ~(void-variable hook-fn)~ errors.
+
+**Root cause:** Missing ~lexical-binding: t~ header in tangled .el file.
+- Without lexical binding, Emacs uses dynamic scoping
+- Closures cannot capture variables from enclosing scope
+- Self-referential lambdas (hooks that remove themselves) fail
+
+**Solution:** Added file header ~;;; -*- lexical-binding: t -*-~ to enable lexical closures.
+
+**** Issue 2: FSM Not Continuing (CURRENT)
+Tool UI works, callback is invoked, tool results appear in buffer, but LLM doesn't respond.
+
+**Observable behavior:**
+- Transient menu appears ✓
+- User can answer questions ✓
+- Submit triggers post-command hook ✓
+- Callback is invoked ✓
+- Tool result appears in gptel buffer ✓
+- FSM does NOT continue to send results back to LLM ✗
+
+**Example tool result visible in buffer:**
 #+begin_example
-[{"id":"coding_philosophy","answer":"Take a break...","skipped":null}]
-
-# Conversation ends here - no LLM response
+[{"id":"task_type","answer":"Debug or fix an issue","comment":"","skipped":null}]
 #+end_example
 
-*** Investigation
-Tried multiple approaches to callback invocation timing:
+**What should happen next (but doesn't):**
+1. Tool result stored in FSM state
+2. GPtel makes follow-up API request with tool results
+3. LLM responds with final answer incorporating user's answers
 
-1. **Call immediately after quit** - Current approach, still not working
-2. **Call with timer delay** - Caused variable scoping issues, lost tool output display
-3. **Call with buffer context switching** - Same issues as timer approach
+*** Current Hypothesis: Buffer Context Issue
+
+The ~process-tool-result~ closure (callback parameter) likely requires execution in the
+**originating gptel buffer context** to properly access FSM state and trigger transitions.
+
+**Current implementation problem:**
+1. Tool invoked in gptel buffer A
+2. Callback stored as buffer-local variable in buffer A
+3. Transient may run in buffer A or separate buffer
+4. Post-command hook runs in *current buffer* (wherever transient quit)
+5. Callback invoked without ensuring we're in buffer A
+6. Callback cannot access buffer-local FSM state → FSM doesn't transition
+
+**Supporting evidence:**
+- Working async tool (~persistent-agent~) invokes callback from within gptel's own
+  callback infrastructure, which manages buffer context automatically
+- Our tool invokes callback from user command context after transient cleanup
+- GPtel FSM state is buffer-local in the originating gptel buffer
+
+*** Proposed Solution: Buffer Context Preservation
+
+Store originating buffer and restore context before invoking callback:
+
+#+begin_src emacs-lisp :tangle no
+;; In jf/gptel-questions--ask:
+(setq-local jf/gptel-questions--callback callback)
+(setq-local jf/gptel-questions--origin-buffer (current-buffer))  ; NEW
+
+;; In jf/gptel-questions--submit:
+(let ((answer-json (jf/gptel-questions--build-answer-list))
+      (callback jf/gptel-questions--callback)
+      (origin-buffer jf/gptel-questions--origin-buffer))  ; NEW
+
+  (transient-quit-one)
+
+  (let (hook-fn)
+    (setq hook-fn
+          (lambda ()
+            (remove-hook 'post-command-hook hook-fn)
+            (condition-case err
+                (progn
+                  (message "Invoking callback with: %s" answer-json)
+                  ;; NEW: Invoke in originating buffer context
+                  (with-current-buffer origin-buffer
+                    (funcall callback answer-json)))
+              (error
+               (message "Error in callback: %s" (error-message-string err))
+               (message "Answer JSON was: %s" answer-json)))))
+    (add-hook 'post-command-hook hook-fn)))
+#+end_src
+
+*** Research Questions
+
+To validate hypothesis and solution:
+
+1. **Which buffer is current when callback executes?**
+   - Add debug logging: ~(message "Callback buffer: %s" (current-buffer))~
+   - Compare to originating gptel buffer name
+
+2. **Does gptel FSM state exist in callback buffer?**
+   - Check buffer-local variables related to gptel requests/FSM
+   - Look for ~gptel--*~ buffer-local variables
+
+3. **What does ~process-tool-result~ closure expect?**
+   - Examine ~gptel-request.el:1700-1713~ to understand closure implementation
+   - What buffer-local state does it access?
+   - Does it call ~gptel--fsm-transition~ directly or schedule it?
+
+4. **Does ~persistent-agent~ tool handle buffer context explicitly?**
+   - Review ~config/gptel/tools/persistent-agent.el:220-272~
+   - How does it ensure callback runs in correct buffer?
+
+5. **Can we trace FSM transitions?**
+   - Enable ~(setq gptel-log-level 'debug)~
+   - Look for FSM state changes in ~*gptel-log*~ buffer
+   - Expected: TOOL → WAIT → (should see follow-up request)
+   - Actual: TOOL → nothing
+
+*** Debugging Steps
+
+#+begin_src emacs-lisp :tangle no
+;; 1. Enable gptel debug logging
+(setq gptel-log-level 'debug)
+
+;; 2. Add buffer context logging to submit function
+(defun jf/gptel-questions--submit ()
+  "Validate and submit answers."
+  (interactive)
+  (let ((validation (jf/gptel-questions--validate-answers)))
+    (if (car validation)
+        (let* ((answer-json (jf/gptel-questions--build-answer-list))
+               (callback jf/gptel-questions--callback)
+               (origin-buffer (current-buffer)))  ; Capture current buffer
+
+          (message "Origin buffer: %s" origin-buffer)  ; DEBUG
+
+          (transient-quit-one)
+
+          (let (hook-fn)
+            (setq hook-fn
+                  (lambda ()
+                    (remove-hook 'post-command-hook hook-fn)
+                    (message "Callback buffer: %s" (current-buffer))  ; DEBUG
+                    (message "Origin buffer: %s" origin-buffer)       ; DEBUG
+                    (condition-case err
+                        (progn
+                          (message "Invoking callback with: %s" answer-json)
+                          (funcall callback answer-json))
+                      (error
+                       (message "Error in callback: %s" (error-message-string err))
+                       (message "Answer JSON was: %s" answer-json)))))
+            (add-hook 'post-command-hook hook-fn)))
+
+      (message "%s" (cdr validation)))))
+
+;; 3. Test and check *Messages* buffer for:
+;;    - "Origin buffer: *gptel*"
+;;    - "Callback buffer: *gptel*" or different?
+
+;; 4. Check *gptel-log* buffer for FSM transitions after tool result
+#+end_src
+
+*** Files to Study
+
+- ~gptel-request.el:1700-1713~ - ~process-tool-result~ closure implementation
+- ~gptel-request.el:1564-1582~ - FSM transition table and state machine
+- ~gptel-request.el:1679-1747~ - ~gptel--handle-tool-use~ (async tool execution)
+- ~config/gptel/tools/persistent-agent.el:220-272~ - Working async tool for comparison
+
+*** Key Architectural Insights
+
+1. **Lexical binding is mandatory** for closures to work correctly in Elisp
+2. **Post-command hooks run in current buffer** - not guaranteed to be originating buffer
+3. **GPtel FSM state is buffer-local** - callbacks must execute in correct buffer context
+4. **Async tool callbacks** are ~process-tool-result~ closures that manage FSM state
+5. **Transient cleanup** must complete before FSM operations (confirmed working)
 
 *** Current Status
-The callback is being invoked (we can see tool output in buffer), but gptel's FSM is not continuing to send results back to LLM and get final response.
 
-*** Hypotheses for FSM Not Continuing
+- ✓ Tool UI fully functional
+- ✓ Question answering and validation working
+- ✓ JSON serialization working
+- ✓ Callback storage outside transient scope working
+- ✓ Lexical binding enabled
+- ✓ Post-command hook pattern working (callback invokes)
+- ✗ FSM continuation failing (no follow-up LLM request)
 
-**** H1: Transient Command Context
-Callback might need to execute outside the transient command's interactive context. The ~transient-quit-one~ may not be sufficient cleanup before callback invocation.
+**Next step:** Implement buffer context preservation and test hypothesis.
 
-**** H2: Buffer Context
-Callback might need to execute in the original gptel session buffer context, not from within the transient command's execution context.
+*** Debugging Session: January 2026 - FSM Integration Attempts
 
-**** H3: FSM State Issue
-The FSM might be in an unexpected state after the async tool completes. Comparing with persistent-agent tool (which works), that tool's callback is invoked from within gptel's own callback infrastructure, not from a user command.
+**** Problem Statement
 
-**** H4: Missing FSM Signals
-The callback might need to trigger specific FSM transitions or signals that we're not providing. The persistent-agent tool's dual-duty callback both inserts to buffer AND accumulates for return - we might be missing a step.
+After implementing buffer context preservation and callback invocation, the tool still fails
+to continue the GPtel conversation after returning results. The conversation stops after the
+tool result is captured.
 
-** Comparison with Working Async Tools
+**** Key Observations
 
-*** persistent-agent Tool (WORKING)
+**1. FSM Not Present in Buffer**
 
-#+begin_src emacs-lisp
-;; In persistent-agent tool:
-(gptel-request nil
-  :callback
-  (lambda (resp info &optional raw)
-    ;; ... process response ...
-    (unless (plist-get info :tool-use)
-      ;; Call main-cb when done
-      (funcall main-cb partial))))
+~gptel--fsm~ is consistently ~nil~ in the session.md buffer when the tool is invoked:
+
+#+begin_example
+=== TOOL INVOCATION START ===
+Entry buffer: session.md (mode: markdown-mode)
+gptel--fsm bound: nil
+#+end_example
+
+However, examining the callback structure reveals the FSM IS embedded in the callback closure
+as the last element: ~#s(gptel-fsm TOOL ...)~
+
+This suggests gptel does NOT use a buffer-local FSM variable, but rather passes FSM state
+through callback closures.
+
+**2. Error Shows Choice Strings, Not User Answers**
+
+Critical observation: The error message references strings from the question's ~:choices~ array,
+NOT the user's selected answer:
+
+#+begin_example
+User selected: "Summer - Warm weather and long days"
+Error message: Wrong type argument: symbolp, "Spring - Fresh beginnings and flowers blooming"
+#+end_example
+
+"Spring" is a choice from the ~:choices~ array, not the answer. This indicates the error occurs
+when GPtel processes the ORIGINAL tool call arguments (the question definition), not when
+processing the tool RESULT (the user's answer).
+
+**3. Tool Schema Type Issue**
+
+Initial tool schema used symbol types instead of string types:
+
+#+begin_src emacs-lisp :tangle no
+;; WRONG - causes type errors
+:args '((:name "questions"
+         :type array          ; Should be "array"
+         :items (:type object ; Should be "object"
 #+end_src
 
-Key differences:
-- Callback is invoked FROM WITHIN gptel's response handler
-- Not invoked from user command context
-- Buffer context is managed by gptel-request
+Fixed to use string types:
 
-*** ask_questions Tool (NOT WORKING)
-
-#+begin_src emacs-lisp
-;; In ask_questions tool:
-(defun jf/gptel-questions--submit ()
-  (interactive)  ; <- User command context
-  ;; ... build result ...
-  (transient-quit-one)
-  (funcall callback answer-json))  ; <- Called from user command
+#+begin_src emacs-lisp :tangle no
+;; CORRECT
+:args '((:name "questions"
+         :type "array"
+         :items (:type "object"
 #+end_src
 
-Key differences:
-- Callback invoked from user interactive command
-- After transient UI cleanup
-- Not within gptel's callback infrastructure
+However, the error persists even after this fix, suggesting either:
+- The tool definition wasn't actually reloaded
+- The error occurs in a different part of the schema serialization
+- There's a deeper incompatibility with how GPtel serializes tool schemas
 
-** Potential Solutions to Investigate
+**** Attempted Solutions
 
-*** Option 1: Defer Callback to Idle Timer
-Instead of calling immediately after quit, defer to next idle time:
+**Attempt 1: Synchronous Callback (Before Quit)**
 
-#+begin_src emacs-lisp
-(run-with-idle-timer 0.1 nil
-  (lambda ()
-    (funcall callback answer-json)))
+Strategy: Invoke callback immediately before closing transient to ensure FSM is still active.
+
+#+begin_src emacs-lisp :tangle no
+(funcall callback answer-json)  ; Call first
+(transient-quit-one)            ; Then close
 #+end_src
 
-This ensures we're completely outside transient's command context.
+Result: ERROR - "Wrong type argument: symbolp" on choice string. User reported that calling
+callback before closing transient causes "extra stuff" to be passed back, likely due to
+transient state contamination.
 
-*** Option 2: Use gptel's Callback Infrastructure
-Store the result and have gptel poll/check for completion, similar to how it handles other async operations.
+**Attempt 2: Post-Command Hook Deferral**
 
-*** Option 3: Invoke from Post-Command Hook
-Register a one-time post-command hook that invokes the callback after the transient command fully completes:
+Strategy: Close transient first, then defer callback via ~post-command-hook~.
 
-#+begin_src emacs-lisp
-(let ((hook-fn (lambda ()
-                 (funcall callback answer-json)
-                 (remove-hook 'post-command-hook hook-fn))))
+#+begin_src emacs-lisp :tangle no
+(transient-quit-one)           ; Close first
+
+(let (hook-fn)
+  (setq hook-fn
+        (lambda ()
+          (remove-hook 'post-command-hook hook-fn)
+          (funcall callback answer-json)))
   (add-hook 'post-command-hook hook-fn))
 #+end_src
 
-*** Option 4: Study gptel's Tool Execution Context
-Need to understand exactly what context gptel expects when async tool callback is invoked:
-- What buffer should be current?
-- What FSM state should exist?
-- What info plist fields are needed?
-- Are there specific signals or transitions we need to trigger?
+Result: ERROR - Same error. Post-command-hook runs after transient cleanup but FSM context
+may be stale by that point.
 
-** Questions for Further Investigation
+**Attempt 3: Timer-Based Deferral**
 
-1. Does the callback need to be invoked in the gptel buffer that initiated the tool call?
-2. Is there FSM state that gets corrupted/lost when we invoke from transient command context?
-3. Do we need to manually trigger ~(gptel--fsm-transition fsm)~ or similar?
-4. Should we store the FSM instance itself and interact with it directly?
-5. What does gptel's log buffer show when this happens? (Enable ~gptel-log-level 'debug~)
+Strategy: Close transient first, then use ~run-at-time~ with short delay to invoke callback
+after transient cleanup completes.
 
-** Current Workaround
+#+begin_src emacs-lisp :tangle no
+(transient-quit-one)           ; Close first
 
-None - feature is not functional. Tool UI works perfectly, JSON encoding works, but conversation doesn't continue after tool results are submitted.
-
-** Files to Study
-
-- =gptel-request.el:1679-1747= - ~gptel--handle-tool-use~ (how gptel executes async tools)
-- =gptel-request.el:1564-1582= - FSM transition table
-- =config/gptel/tools/persistent-agent.el= - Working async tool implementation
-
-** Debug Commands for Next Session
-
-#+begin_src emacs-lisp
-;; Enable gptel debug logging
-(setq gptel-log-level 'debug)
-
-;; Check FSM state in gptel buffer
-;; (examine buffer-local variables after tool completes)
-
-;; Trace callback invocation
-(trace-function 'jf/gptel-questions--callback)
-
-;; Compare working vs non-working tool execution in *gptel-log*
+(run-at-time
+ 0.05 nil                      ; 50ms delay
+ (lambda ()
+   (funcall callback answer-json)))
 #+end_src
+
+Result: ERROR - Same error persists. Timer allows transient to fully clean up but doesn't
+resolve the underlying type error.
+
+**Attempt 4: Buffer Context Preservation**
+
+Strategy: Capture origin buffer immediately at tool entry, store as buffer-local, and use
+it when invoking callback.
+
+#+begin_src emacs-lisp :tangle no
+;; In jf/gptel-questions--ask:
+(let* ((origin-buffer (current-buffer))  ; Capture immediately
+       ...)
+  (setq-local jf/gptel-questions--origin-buffer origin-buffer))
+
+;; In jf/gptel-questions--submit:
+(with-current-buffer origin-buffer
+  (funcall callback answer-json))
+#+end_src
+
+Result: ERROR - Same error. Buffer context is correct (session.md), but ~gptel--fsm~ is
+still nil in that buffer, confirming FSM is not buffer-local.
+
+**** Current Understanding
+
+1. **FSM is NOT buffer-local** - It's passed through callback closures, not stored in buffers
+2. **Error occurs during schema serialization** - The error references choice strings from
+   the tool schema, not the user's answer
+3. **Callback structure appears correct** - The callback contains the FSM and is being invoked
+   correctly
+4. **Type error in schema** - Despite fixing type declarations from symbols to strings,
+   the error persists, suggesting:
+   - Tool wasn't reloaded properly, OR
+   - There's additional schema issues we haven't found, OR
+   - GPtel's serialization has different requirements we're not meeting
+
+**** Open Questions
+
+1. Why does the error reference choice strings instead of the answer?
+   - Hypothesis: Error occurs when GPtel re-serializes the original tool call arguments
+     to include in the next API request message history
+
+2. Why does ~gptel--fsm bound: nil~ if FSM is in the callback?
+   - Hypothesis: GPtel doesn't use buffer-local FSM, only closure-based FSM
+
+3. Are there additional type issues in the schema?
+   - Need to verify ALL type declarations use strings
+   - Check if ~:enum~ vectors need special handling
+
+4. Is the tool definition actually being reloaded?
+   - ~M-x jf/reload-module~ may not fully re-register the tool
+   - May need to clear gptel's tool cache manually
+
+**** Next Debugging Steps
+
+1. **Verify tool reload**: Check ~gptel--known-tools~ to confirm new schema is registered
+2. **Test minimal tool**: Create simplified test tool with single string arg to isolate issue
+3. **Trace callback execution**: Add logging inside the callback closure to see what it does
+4. **Check Anthropic backend**: Verify ~gptel--parse-tool-results~ for Anthropic backend
+5. **Compare with working tool**: Study ~persistent-agent~ callback structure in detail
 
 * Provide Feature
 
 #+begin_src emacs-lisp
 (provide 'jf/gptel-questions)
+
+;;; question-tools.el ends here
 #+end_src

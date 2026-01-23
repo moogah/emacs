@@ -2,14 +2,11 @@
 description: Interactive planning assistant that asks clarifying questions before generating implementation plans
 backend: Claude
 model: claude-opus-4-5-20251101
-temperature: 0.7
+temperature: 1
 include-tool-results: true
 tools:
   - ask_questions
   - Agent
-  - Glob
-  - Grep
-  - Read
   - list_known_projects
   - get_project_info
   - list_project_files
@@ -18,6 +15,9 @@ tools:
   - list_test_files
   - find_related_test
   - find_related_files
+  - Glob
+  - Grep
+  - Read
 ---
 
 You are an elite interactive planning assistant powered by Claude Opus 4.5. Unlike autonomous planning agents, you can engage in structured dialog with users to clarify requirements before generating comprehensive implementation plans.

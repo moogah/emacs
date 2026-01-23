@@ -1,0 +1,633 @@
+#+title: gptel-transient Async Integration Experiments
+#+author: Jeff Farr & Claude Sonnet 4.5
+#+date: 2026-01-23
+#+property: header-args:emacs-lisp :lexical t :results output :exports both
+
+* Overview
+
+This notebook explores the incompatibility between gptel's FSM-based async tool callbacks and transient's command-driven menu system through incremental experiments.
+
+** Problem Statement
+
+gptel tools receive a callback as the first parameter. This callback is a closure that captures FSM state and must be invoked to transition the FSM (TOOL → WAIT → next request).
+
+Transient commands modify state and return immediately. They have no built-in async callback mechanism.
+
+Current implementation in question-tools.org:
+- Tool UI works
+- Callback is invoked
+- Tool results appear in buffer
+- FSM doesn't transition after callback
+- Error: "Wrong type argument: symbolp" on choice strings
+
+** Approach
+
+Create incrementally complex experiments to isolate the issue:
+1. Baseline async pattern (without transient)
+2. Transient basics (without gptel)
+3. Naive integration
+4. Scope isolation testing
+5. Callback execution context
+6. FSM state access
+7. Working pattern or documented incompatibility
+
+* Setup
+
+** Test Utilities
+
+#+begin_src emacs-lisp
+;; Logging utilities
+(defvar gptel-exp-log nil
+  "Log of experiment events.")
+
+(defun gptel-exp-clear-log ()
+  "Clear the experiment log."
+  (setq gptel-exp-log nil))
+
+(defun gptel-exp-log (event &rest args)
+  "Log an EVENT with ARGS."
+  (let ((entry (cons event args)))
+    (push entry gptel-exp-log)
+    (message "[LOG] %s: %s" event args)))
+
+(defun gptel-exp-show-log ()
+  "Display the experiment log."
+  (dolist (entry (reverse gptel-exp-log))
+    (princ (format "%s: %s\n" (car entry) (cdr entry)))))
+
+(message "Test utilities loaded")
+#+end_src
+
+#+RESULTS:
+
+** Mock gptel FSM
+
+#+begin_src emacs-lisp
+;; Simplified gptel FSM simulation
+(cl-defstruct gptel-exp-fsm
+  "Mock gptel FSM structure."
+  state        ; Current state: READY, WAITING_FOR_TOOL, WAITING_FOR_RESPONSE
+  tools        ; Available tools
+  pending      ; Pending tool results
+  callback)    ; Continuation callback
+
+(defun gptel-exp-create-fsm ()
+  "Create a mock gptel FSM."
+  (make-gptel-exp-fsm
+   :state 'READY
+   :tools '()
+   :pending '()
+   :callback nil))
+
+(defun gptel-exp-fsm-transition (fsm new-state)
+  "Transition FSM to NEW-STATE."
+  (gptel-exp-log 'fsm-transition
+                 (format "%s -> %s" (gptel-exp-fsm-state fsm) new-state))
+  (setf (gptel-exp-fsm-state fsm) new-state))
+
+(defun gptel-exp-create-tool-callback (fsm tool-name)
+  "Create a tool callback closure for FSM and TOOL-NAME.
+This simulates gptel's process-tool-result closure."
+  (lambda (result)
+    (gptel-exp-log 'callback-invoked
+                   (format "tool=%s result=%s" tool-name result))
+    ;; Store result
+    (push (cons tool-name result) (gptel-exp-fsm-pending fsm))
+    ;; Transition FSM
+    (gptel-exp-fsm-transition fsm 'PROCESSING_RESULT)
+    ;; Simulate processing complete
+    (run-with-timer 0.1 nil
+                    (lambda ()
+                      (gptel-exp-log 'processing-complete "FSM ready for next request")
+                      (gptel-exp-fsm-transition fsm 'READY)))))
+
+(message "Mock gptel FSM loaded")
+#+end_src
+
+#+RESULTS:
+
+** Mock Transient
+
+#+begin_src emacs-lisp
+;; Simplified transient simulation
+(defvar gptel-exp-transient-active nil
+  "Whether transient is active.")
+
+(defvar gptel-exp-transient-scope nil
+  "Transient scope data.")
+
+(defun gptel-exp-transient-setup (prefix)
+  "Setup transient with PREFIX."
+  (gptel-exp-log 'transient-setup prefix)
+  (setq gptel-exp-transient-active t)
+  (setq gptel-exp-transient-scope (make-hash-table)))
+
+(defun gptel-exp-transient-quit ()
+  "Quit transient."
+  (gptel-exp-log 'transient-quit "Cleaning up")
+  (setq gptel-exp-transient-active nil)
+  (setq gptel-exp-transient-scope nil))
+
+(defun gptel-exp-transient-suffix (name fn)
+  "Define a transient suffix NAME that calls FN."
+  (lambda ()
+    (interactive)
+    (gptel-exp-log 'suffix-invoke name)
+    (funcall fn)
+    ;; Simulate transient staying active (transient suffix)
+    ;; or quitting (non-transient suffix)
+    (when (string-suffix-p "-quit" (symbol-name name))
+      (gptel-exp-transient-quit))))
+
+(message "Mock transient loaded")
+#+end_src
+
+#+RESULTS:
+
+* Experiment 1: Baseline Async Pattern
+
+Test that gptel's closure-based async coordination works without transient.
+
+** Hypothesis
+
+FSM transitions via callback work correctly when invoked directly, without any transient interference.
+
+** Code
+
+#+begin_src emacs-lisp
+(gptel-exp-clear-log)
+
+;; Create FSM
+(defvar exp1-fsm (gptel-exp-create-fsm))
+
+;; Transition to waiting for tool
+(gptel-exp-fsm-transition exp1-fsm 'WAITING_FOR_TOOL)
+
+;; Create callback
+(defvar exp1-callback (gptel-exp-create-tool-callback exp1-fsm "test-tool"))
+
+;; Simulate tool execution
+(gptel-exp-log 'tool-execute "test-tool starting")
+
+;; Invoke callback immediately (simulating tool completion)
+(funcall exp1-callback "tool-result-data")
+
+;; Wait for async processing
+(sleep-for 0.2)
+
+;; Check final state
+(gptel-exp-log 'final-state (gptel-exp-fsm-state exp1-fsm))
+(gptel-exp-log 'pending-results (gptel-exp-fsm-pending exp1-fsm))
+
+;; Display log
+(gptel-exp-show-log)
+#+end_src
+
+** Expected Results
+
+- FSM transitions: READY → WAITING_FOR_TOOL → PROCESSING_RESULT → READY
+- Callback invoked successfully
+- Result stored in pending list
+- Final state: READY
+
+** Analysis
+
+[Run experiment and document findings here]
+
+* Experiment 2: Transient Basics
+
+Understand transient's execution model and lifecycle timing.
+
+** Hypothesis
+
+Transient commands return immediately, and post-command hooks run after the command completes but while transient is still active.
+
+** Code
+
+#+begin_src emacs-lisp
+(gptel-exp-clear-log)
+
+;; Setup transient
+(gptel-exp-transient-setup 'test-prefix)
+
+;; Test immediate execution
+(defvar exp2-test-value nil)
+
+(defun exp2-suffix-immediate ()
+  "Suffix that modifies state immediately."
+  (gptel-exp-log 'suffix-start "immediate")
+  (setq exp2-test-value "immediate-result")
+  (gptel-exp-log 'suffix-end "immediate"))
+
+;; Simulate calling suffix
+(exp2-suffix-immediate)
+(gptel-exp-log 'after-suffix-call (format "value=%s" exp2-test-value))
+
+;; Test post-command hook timing
+(defun exp2-suffix-with-hook ()
+  "Suffix that uses post-command hook."
+  (gptel-exp-log 'suffix-start "with-hook")
+  (add-hook 'post-command-hook
+            (lambda ()
+              (gptel-exp-log 'post-command-hook "running")
+              (setq exp2-test-value "post-command-result")
+              (remove-hook 'post-command-hook (lambda () nil)))
+            nil t))
+
+;; Simulate calling suffix
+(exp2-suffix-with-hook)
+;; Simulate post-command hook execution
+(run-hooks 'post-command-hook)
+(gptel-exp-log 'after-hook (format "value=%s" exp2-test-value))
+
+;; Test timer-based deferral
+(defun exp2-suffix-with-timer ()
+  "Suffix that uses timer."
+  (gptel-exp-log 'suffix-start "with-timer")
+  (run-with-timer 0.05 nil
+                  (lambda ()
+                    (gptel-exp-log 'timer-callback "running")
+                    (setq exp2-test-value "timer-result"))))
+
+;; Simulate calling suffix
+(exp2-suffix-with-timer)
+(gptel-exp-log 'after-timer-scheduled (format "value=%s" exp2-test-value))
+(sleep-for 0.1)
+(gptel-exp-log 'after-timer-fires (format "value=%s" exp2-test-value))
+
+;; Cleanup
+(gptel-exp-transient-quit)
+
+;; Display log
+(gptel-exp-show-log)
+#+end_src
+
+** Expected Results
+
+- Immediate execution: value set during suffix call
+- Post-command hook: runs after suffix returns
+- Timer: fires after scheduled delay, even after suffix returns
+
+** Analysis
+
+[Run experiment and document findings here]
+
+* Experiment 3: Naive Integration
+
+Attempt straightforward integration of callback with transient suffix.
+
+** Hypothesis
+
+Storing callback in buffer-local variable and invoking from transient suffix will fail, reproducing the original error.
+
+** Code
+
+#+begin_src emacs-lisp
+(gptel-exp-clear-log)
+
+;; Create FSM and callback
+(defvar exp3-fsm (gptel-exp-create-fsm))
+(defvar exp3-callback nil)
+
+;; Setup: simulate tool registration
+(defun exp3-setup ()
+  "Setup experiment 3."
+  (gptel-exp-fsm-transition exp3-fsm 'WAITING_FOR_TOOL)
+  (setq exp3-callback (gptel-exp-create-tool-callback exp3-fsm "transient-tool"))
+  (gptel-exp-transient-setup 'exp3-prefix))
+
+;; Suffix: invoke callback immediately
+(defun exp3-suffix-immediate ()
+  "Invoke callback immediately from suffix."
+  (gptel-exp-log 'suffix-start "immediate")
+  (condition-case err
+      (progn
+        (funcall exp3-callback "immediate-result")
+        (gptel-exp-log 'callback-success "immediate"))
+    (error
+     (gptel-exp-log 'callback-error (format "immediate: %s" err))))
+  (gptel-exp-transient-quit))
+
+;; Suffix: invoke callback via post-command hook
+(defun exp3-suffix-post-command ()
+  "Invoke callback via post-command hook."
+  (gptel-exp-log 'suffix-start "post-command")
+  (let ((callback exp3-callback))
+    (add-hook 'post-command-hook
+              (lambda ()
+                (remove-hook 'post-command-hook (lambda () nil))
+                (gptel-exp-log 'post-command-hook "invoking callback")
+                (condition-case err
+                    (progn
+                      (funcall callback "post-command-result")
+                      (gptel-exp-log 'callback-success "post-command"))
+                  (error
+                   (gptel-exp-log 'callback-error (format "post-command: %s" err)))))
+              nil t)))
+
+;; Suffix: invoke callback via timer
+(defun exp3-suffix-timer ()
+  "Invoke callback via timer."
+  (gptel-exp-log 'suffix-start "timer")
+  (let ((callback exp3-callback))
+    (run-with-timer 0.05 nil
+                    (lambda ()
+                      (gptel-exp-log 'timer-callback "invoking callback")
+                      (condition-case err
+                          (progn
+                            (funcall callback "timer-result")
+                            (gptel-exp-log 'callback-success "timer"))
+                        (error
+                         (gptel-exp-log 'callback-error (format "timer: %s" err)))))))
+  (gptel-exp-transient-quit))
+
+;; Run tests
+(exp3-setup)
+
+;; Test 1: Immediate invocation
+(gptel-exp-log 'test "immediate invocation")
+(exp3-suffix-immediate)
+(sleep-for 0.2)
+
+;; Reset for test 2
+(exp3-setup)
+(gptel-exp-log 'test "post-command invocation")
+(exp3-suffix-post-command)
+(run-hooks 'post-command-hook)
+(sleep-for 0.2)
+
+;; Reset for test 3
+(exp3-setup)
+(gptel-exp-log 'test "timer invocation")
+(exp3-suffix-timer)
+(sleep-for 0.2)
+
+;; Check final state
+(gptel-exp-log 'final-state (gptel-exp-fsm-state exp3-fsm))
+(gptel-exp-log 'pending-results (gptel-exp-fsm-pending exp3-fsm))
+
+;; Display log
+(gptel-exp-show-log)
+#+end_src
+
+** Expected Results
+
+- One or more invocation strategies should fail
+- Error messages captured in log
+- FSM may or may not transition correctly
+
+** Analysis
+
+[Run experiment and document findings here]
+
+* Experiment 4: Transient Scope Isolation
+
+Test if transient's scope interferes with callback execution.
+
+** Hypothesis
+
+Transient's scope serialization or state management interferes with closure-captured variables.
+
+** Code
+
+#+begin_src emacs-lisp
+(gptel-exp-clear-log)
+
+;; Test: Store complex data in transient scope
+(gptel-exp-transient-setup 'exp4-prefix)
+
+;; Create callback with complex closure data
+(defvar exp4-fsm (gptel-exp-create-fsm))
+(defvar exp4-complex-data (make-hash-table :test 'equal))
+(puthash "key1" "value1" exp4-complex-data)
+(puthash "key2" '(a b c) exp4-complex-data)
+
+(defvar exp4-callback
+  (let ((data exp4-complex-data)
+        (fsm exp4-fsm))
+    (lambda (result)
+      (gptel-exp-log 'callback-start (format "result=%s" result))
+      ;; Access closure data
+      (gptel-exp-log 'closure-data-access
+                     (format "key1=%s key2=%s"
+                             (gethash "key1" data)
+                             (gethash "key2" data)))
+      ;; Modify FSM
+      (gptel-exp-fsm-transition fsm 'PROCESSING_RESULT)
+      (gptel-exp-log 'callback-end "success"))))
+
+;; Test 1: Invoke with transient active
+(gptel-exp-log 'test "callback with transient active")
+(condition-case err
+    (funcall exp4-callback "test-result-1")
+  (error
+   (gptel-exp-log 'error (format "with-transient: %s" err))))
+
+;; Test 2: Invoke after transient quit
+(gptel-exp-transient-quit)
+(gptel-exp-log 'test "callback after transient quit")
+(condition-case err
+    (funcall exp4-callback "test-result-2")
+  (error
+   (gptel-exp-log 'error (format "after-quit: %s" err))))
+
+;; Display log
+(gptel-exp-show-log)
+#+end_src
+
+** Expected Results
+
+- Callback should work in both cases (with/without transient active)
+- If one fails but not the other, transient scope is interfering
+
+** Analysis
+
+[Run experiment and document findings here]
+
+* Experiment 5: Callback Execution Context
+
+Test if buffer context affects callback execution.
+
+** Hypothesis
+
+gptel callbacks may require execution in the same buffer where they were created.
+
+** Code
+
+#+begin_src emacs-lisp
+(gptel-exp-clear-log)
+
+;; Create FSM in buffer A
+(with-temp-buffer
+  (rename-buffer "*exp5-buffer-a*" t)
+  (gptel-exp-log 'setup "Creating FSM in buffer A")
+
+  (defvar exp5-fsm (gptel-exp-create-fsm))
+  (defvar exp5-buffer-a (current-buffer))
+  (defvar exp5-callback (gptel-exp-create-tool-callback exp5-fsm "test-tool"))
+
+  ;; Test 1: Invoke in same buffer
+  (gptel-exp-log 'test "invoke in buffer A (same buffer)")
+  (condition-case err
+      (progn
+        (funcall exp5-callback "result-in-buffer-a")
+        (gptel-exp-log 'success "buffer A"))
+    (error
+     (gptel-exp-log 'error (format "buffer A: %s" err))))
+
+  ;; Test 2: Invoke in different buffer
+  (with-temp-buffer
+    (rename-buffer "*exp5-buffer-b*" t)
+    (gptel-exp-log 'test "invoke in buffer B (different buffer)")
+    (condition-case err
+        (progn
+          (funcall exp5-callback "result-in-buffer-b")
+          (gptel-exp-log 'success "buffer B"))
+      (error
+       (gptel-exp-log 'error (format "buffer B: %s" err)))))
+
+  ;; Test 3: Invoke with explicit buffer context
+  (with-temp-buffer
+    (rename-buffer "*exp5-buffer-c*" t)
+    (gptel-exp-log 'test "invoke in buffer C with-current-buffer wrapper")
+    (condition-case err
+        (with-current-buffer exp5-buffer-a
+          (funcall exp5-callback "result-with-context")
+          (gptel-exp-log 'success "buffer C with context"))
+      (error
+       (gptel-exp-log 'error (format "buffer C: %s" err)))))
+
+  ;; Wait for async processing
+  (sleep-for 0.2)
+
+  ;; Check final state
+  (gptel-exp-log 'final-state (gptel-exp-fsm-state exp5-fsm))
+  (gptel-exp-log 'pending-results (gptel-exp-fsm-pending exp5-fsm)))
+
+;; Display log
+(gptel-exp-show-log)
+#+end_src
+
+** Expected Results
+
+- All three tests should succeed (closures are lexically scoped)
+- If buffer context matters, tests 2 or 3 will fail
+
+** Analysis
+
+[Run experiment and document findings here]
+
+* Experiment 6: FSM State Access Pattern
+
+Simulate gptel's actual FSM transition mechanism more closely.
+
+** Hypothesis
+
+The real gptel callback may access buffer-local variables or call functions that expect specific context.
+
+** Code
+
+#+begin_src emacs-lisp
+(gptel-exp-clear-log)
+
+;; More realistic FSM with buffer-local state
+(defvar-local exp6-fsm-state 'READY
+  "Buffer-local FSM state.")
+
+(defvar-local exp6-fsm-pending nil
+  "Buffer-local pending results.")
+
+(defun exp6-create-callback (buffer tool-name)
+  "Create callback that modifies buffer-local state in BUFFER."
+  (lambda (result)
+    (gptel-exp-log 'callback-invoke (format "tool=%s buffer=%s" tool-name buffer))
+    (with-current-buffer buffer
+      ;; Access buffer-local variables
+      (gptel-exp-log 'state-access (format "current-state=%s" exp6-fsm-state))
+      ;; Modify state
+      (setq exp6-fsm-state 'PROCESSING_RESULT)
+      (push (cons tool-name result) exp6-fsm-pending)
+      (gptel-exp-log 'state-modified
+                     (format "new-state=%s pending=%s"
+                             exp6-fsm-state
+                             exp6-fsm-pending)))))
+
+;; Create test buffer
+(with-current-buffer (get-buffer-create "*exp6-test*")
+  (setq exp6-fsm-state 'WAITING_FOR_TOOL)
+  (setq exp6-fsm-pending nil)
+
+  (defvar exp6-test-buffer (current-buffer))
+  (defvar exp6-callback (exp6-create-callback (current-buffer) "test-tool")))
+
+;; Test 1: Invoke from different buffer (like transient would)
+(with-temp-buffer
+  (gptel-exp-log 'test "invoke from different buffer")
+  (condition-case err
+      (progn
+        (funcall exp6-callback "test-result")
+        (gptel-exp-log 'success "callback executed"))
+    (error
+     (gptel-exp-log 'error (format "%s" err)))))
+
+;; Check state in test buffer
+(with-current-buffer exp6-test-buffer
+  (gptel-exp-log 'final-state
+                 (format "state=%s pending=%s"
+                         exp6-fsm-state
+                         exp6-fsm-pending)))
+
+;; Display log
+(gptel-exp-show-log)
+#+end_src
+
+** Expected Results
+
+- Callback should successfully modify buffer-local state
+- with-current-buffer wrapper in callback should handle buffer context
+
+** Analysis
+
+[Run experiment and document findings here]
+
+* Experiment 7: Integration Pattern Test
+
+Based on findings from experiments 1-6, test the most promising integration pattern.
+
+** Code
+
+[To be filled in based on results of previous experiments]
+
+** Analysis
+
+[To be filled in after running experiment]
+
+* Conclusions
+
+** Summary of Findings
+
+[To be filled in after running all experiments]
+
+** Root Cause Analysis
+
+[To be filled in after running all experiments]
+
+** Recommendations
+
+[To be filled in after running all experiments]
+
+*** If Working Pattern Found
+
+[Document the pattern here]
+
+*** If Incompatible
+
+[Document the incompatibility and suggest alternatives]
+
+* References
+
+- =runtime/straight/repos/gptel/gptel-request.el:1679-1747= - gptel--handle-tool-use
+- =config/gptel/tools/question-tools.org= - Current implementation
+- =roam/20260120160500-gptel-tool-calling-condensed.org= - gptel architecture
+- =roam/20260123000000-emacs-async-programming.org= - Async patterns
+- =roam/20260123130203-emacs_transient_architecture.org= - Transient architecture

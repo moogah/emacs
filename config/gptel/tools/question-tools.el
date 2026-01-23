@@ -1,3 +1,5 @@
+;;; question-tools.el --- Async question tool for gptel -*- lexical-binding: t -*-
+
 ;; Example question plist:
 ;; (:id "question-1"                    ; Unique identifier (required)
 ;;  :type "multiple-choice"             ; Question type (required)
@@ -27,6 +29,10 @@
 (defvar-local jf/gptel-questions--callback nil
   "Buffer-local storage for async tool callback.
 Stored outside transient scope to avoid serialization issues.")
+
+(defvar-local jf/gptel-questions--origin-buffer nil
+  "Buffer where the tool was originally invoked.
+Callback must be invoked in this buffer to access FSM state.")
 
 (defun jf/gptel-questions--answer-question (question-id answer)
   "Store ANSWER for QUESTION-ID in current scope."
@@ -268,20 +274,37 @@ Returns JSON-encoded string for LLM consumption."
     (if (car validation)
         ;; Build answer JSON from scope before quitting
         (let* ((answer-json (jf/gptel-questions--build-answer-list))
-               (callback jf/gptel-questions--callback))
+               (callback jf/gptel-questions--callback)
+               (origin-buffer jf/gptel-questions--origin-buffer))
 
-          ;; Close transient to clean up scope
+          ;; Close transient FIRST to clean up state
           (transient-quit-one)
 
-          ;; Invoke callback directly - no delay needed
-          ;; The key fix is storing callback outside transient scope
-          (condition-case err
-              (progn
-                (message "Invoking callback with: %s" answer-json)
-                (funcall callback answer-json))
-            (error
-             (message "Error in callback: %s" (error-message-string err))
-             (message "Answer JSON was: %s" answer-json))))
+          ;; THEN invoke callback via timer (after transient cleanup completes)
+          ;; Timer ensures transient state doesn't interfere with callback
+          (message "=== SUBMIT CALLBACK ===")
+          (message "Origin: %s" origin-buffer)
+          (message "Answers: %s" answer-json)
+
+          (run-at-time
+           0.05 nil
+           (lambda ()
+             (condition-case err
+                 (with-current-buffer origin-buffer
+                   (message "→ In origin buffer (mode: %s, gptel--fsm: %s)"
+                            major-mode (boundp 'gptel--fsm))
+                   (when (boundp 'gptel--fsm)
+                     (message "→ FSM state: %s" (plist-get gptel--fsm :state)))
+
+                   (message "→ About to funcall callback...")
+                   (funcall callback answer-json)
+                   (message "→ Callback returned")
+
+                   (when (boundp 'gptel--fsm)
+                     (message "→ FSM state after: %s" (plist-get gptel--fsm :state))))
+               (error
+                (message "→ ERROR: %s" (error-message-string err))
+                (message "→ Error details: %S" err))))))
 
       ;; Validation failed
       (message "%s" (cdr validation)))))
@@ -291,20 +314,32 @@ Returns JSON-encoded string for LLM consumption."
   (interactive)
   ;; Build answer JSON from scope before quitting
   (let* ((answer-json (jf/gptel-questions--build-answer-list))
-         (callback jf/gptel-questions--callback))
+         (callback jf/gptel-questions--callback)
+         (origin-buffer jf/gptel-questions--origin-buffer))
 
-    ;; Close transient to clean up scope
+    ;; Close transient FIRST
     (transient-quit-one)
 
-    ;; Invoke callback directly - no delay needed
-    ;; The key fix is storing callback outside transient scope
-    (condition-case err
-        (progn
-          (message "Invoking callback (cancel) with: %s" answer-json)
-          (funcall callback answer-json))
-      (error
-       (message "Error in callback: %s" (error-message-string err))
-       (message "Answer JSON was: %s" answer-json)))))
+    ;; THEN invoke callback via timer
+    (message "=== CANCEL CALLBACK ===")
+    (message "Origin: %s (partial answers: %s)" origin-buffer answer-json)
+
+    (run-at-time
+     0.05 nil
+     (lambda ()
+       (condition-case err
+           (with-current-buffer origin-buffer
+             (message "→ In origin (gptel--fsm: %s)" (boundp 'gptel--fsm))
+             (when (boundp 'gptel--fsm)
+               (message "→ FSM state: %s" (plist-get gptel--fsm :state)))
+
+             (funcall callback answer-json)
+             (message "→ Callback returned")
+
+             (when (boundp 'gptel--fsm)
+               (message "→ FSM state after: %s" (plist-get gptel--fsm :state))))
+         (error
+          (message "→ ERROR: %s" (error-message-string err))))))))
 
 (defclass jf/gptel-question-infix (transient-infix)
   ((question :initarg :question))
@@ -421,22 +456,35 @@ QUESTIONS is array of question plists from LLM.
 
 Normalizes and validates questions before displaying UI.
 Signals clear errors if questions are malformed."
+  (message "=== TOOL INVOCATION START ===")
+  (message "Entry buffer: %s (mode: %s)" (current-buffer) major-mode)
+  (message "gptel--fsm bound: %s" (boundp 'gptel--fsm))
+  (when (boundp 'gptel--fsm)
+    (message "FSM state: %s" (plist-get gptel--fsm :state)))
+
   (condition-case err
-      (let* (;; Normalize and validate questions
+      (let* ((origin-buffer (current-buffer))  ; Capture IMMEDIATELY
+             ;; Normalize and validate questions
              (questions-list (jf/gptel-questions--normalize-questions questions))
              (answers (make-hash-table :test 'equal))
              (comments (make-hash-table :test 'equal)))
+
+        (message "→ Captured origin: %s" origin-buffer)
 
         ;; Initialize hash tables
         (dolist (q questions-list)
           (puthash (plist-get q :id) nil answers)
           (puthash (plist-get q :id) "" comments))
 
-        ;; Store callback in buffer-local variable (NOT in transient scope)
+        ;; Store callback and origin buffer in buffer-local variables (NOT in transient scope)
         ;; This avoids serialization issues when gptel tries to serialize state
+        ;; Origin buffer needed so callback can access FSM state
+        ;; CRITICAL: Use captured origin-buffer, not (current-buffer) which may have changed
         (setq-local jf/gptel-questions--callback callback)
+        (setq-local jf/gptel-questions--origin-buffer origin-buffer)
+        (message "→ Stored callback in: %s" (current-buffer))
 
-        ;; Launch transient with scope (callback NOT included)
+        ;; Launch transient with scope (callback and origin buffer NOT included)
         (transient-setup
          'jf/gptel-questions-menu
          nil nil
@@ -484,27 +532,27 @@ Use this when you need user input to refine your plan or make decisions.
 For example, ask about goals, constraints, preferences, or technical choices."
 
  :args '((:name "questions"
-          :type array
-          :items (:type object
-                  :properties (:id (:type string
+          :type "array"
+          :items (:type "object"
+                  :properties (:id (:type "string"
                                    :description "Unique question identifier")
-                              :type (:type string
+                              :type (:type "string"
                                     :enum ["multiple-choice" "yes-no" "text" "numeric"]
                                     :description "Question type")
-                              :prompt (:type string
+                              :prompt (:type "string"
                                       :description "Question text to display")
-                              :description (:type string
+                              :description (:type "string"
                                            :description "Optional additional context")
-                              :required (:type boolean
+                              :required (:type "boolean"
                                         :description "Whether answer is required (default: true)")
-                              :default (:type string
+                              :default (:type "string"
                                        :description "Default answer value")
-                              :choices (:type array
-                                       :items (:type string)
+                              :choices (:type "array"
+                                       :items (:type "string")
                                        :description "For multiple-choice: list of options")
-                              :min (:type number
+                              :min (:type "number"
                                    :description "For numeric: minimum value")
-                              :max (:type number
+                              :max (:type "number"
                                    :description "For numeric: maximum value")))
           :description "Array of question objects to ask user"))
 
@@ -671,68 +719,6 @@ For example, ask about goals, constraints, preferences, or technical choices."
    ;; Invalid question: missing :type field
    [(:id "test" :prompt "Question without type field")]))
 
-;; This plist:
-'(:id "test" :answer "foo")
-
-;; Gets encoded as:
-{"id": ["test", "answer", "foo"]}  ; Wrong!
-
-;; Instead of:
-{"id": "test", "answer": "foo"}    ; Correct
-
-;; Use alist format for proper JSON encoding
-`((id . ,id)
-  (answer . ,(or answer ""))
-  (comment . ,(or comment ""))
-  (skipped . ,skipped))
-
-:scope (list :questions questions-list
-             :answers answers
-             :comments comments
-             :callback callback)  ; PROBLEM: callback in scope
-
-;; Store callback separately
-(setq-local jf/gptel-questions--callback callback)
-
-;; Don't include in scope
-:scope (list :questions questions-list
-             :answers answers
-             :comments comments)  ; callback NOT here
-
-;; In persistent-agent tool:
-(gptel-request nil
-  :callback
-  (lambda (resp info &optional raw)
-    ;; ... process response ...
-    (unless (plist-get info :tool-use)
-      ;; Call main-cb when done
-      (funcall main-cb partial))))
-
-;; In ask_questions tool:
-(defun jf/gptel-questions--submit ()
-  (interactive)  ; <- User command context
-  ;; ... build result ...
-  (transient-quit-one)
-  (funcall callback answer-json))  ; <- Called from user command
-
-(run-with-idle-timer 0.1 nil
-  (lambda ()
-    (funcall callback answer-json)))
-
-(let ((hook-fn (lambda ()
-                 (funcall callback answer-json)
-                 (remove-hook 'post-command-hook hook-fn))))
-  (add-hook 'post-command-hook hook-fn))
-
-;; Enable gptel debug logging
-(setq gptel-log-level 'debug)
-
-;; Check FSM state in gptel buffer
-;; (examine buffer-local variables after tool completes)
-
-;; Trace callback invocation
-(trace-function 'jf/gptel-questions--callback)
-
-;; Compare working vs non-working tool execution in *gptel-log*
-
 (provide 'jf/gptel-questions)
+
+;;; question-tools.el ends here
