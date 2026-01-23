@@ -140,20 +140,34 @@ Returns (valid-p . error-message)."
 ** Comment Management
 
 #+begin_src emacs-lisp
-(defun jf/gptel-questions--add-comment (question-id)
-  "Prompt for and add comment to QUESTION-ID."
+(defun jf/gptel-questions--add-or-edit-comment ()
+  "Interactively select a question and add/edit its comment."
   (interactive)
-  (let* ((current-comment (jf/gptel-questions--get-comment question-id))
-         (new-comment (read-string "Comment: " current-comment)))
-    (jf/gptel-questions--set-comment question-id new-comment)
-    (message "Comment saved")))
+  (let* ((scope (transient-scope))
+         (questions (plist-get scope :questions))
+         (choices (mapcar (lambda (q)
+                           (let* ((id (plist-get q :id))
+                                  (prompt (plist-get q :prompt))
+                                  (has-comment (not (string-empty-p
+                                                    (jf/gptel-questions--get-comment id))))
+                                  (indicator (if has-comment "💬 " "")))
+                             (cons (format "%s%s" indicator prompt) id)))
+                         questions))
+         (selection (completing-read "Add/edit comment for: " choices nil t))
+         (question-id (cdr (assoc selection choices))))
+
+    (when question-id
+      (let* ((current-comment (jf/gptel-questions--get-comment question-id))
+             (new-comment (read-string "Comment: " current-comment)))
+        (jf/gptel-questions--set-comment question-id new-comment)
+        (message "Comment saved for: %s" selection)))))
 #+end_src
 
 ** Formatting Functions
 
 #+begin_src emacs-lisp
-(defun jf/gptel-questions--format-question (question)
-  "Format QUESTION for display in transient menu."
+(defun jf/gptel-questions--format-question (question key)
+  "Format QUESTION for display in transient menu with KEY binding."
   (let* ((prompt (plist-get question :prompt))
          (required (if (plist-member question :required)
                        (plist-get question :required)
@@ -169,9 +183,11 @@ Returns (valid-p . error-message)."
                      (t (propertize "○" 'face 'transient-inactive-value))))
          (comment-indicator (if has-comment
                                 (propertize " 💬" 'face 'transient-value)
-                              "")))
+                              ""))
+         (key-str (propertize (format "[%s]" key) 'face 'transient-key)))
 
-    (format "%s %s%s%s"
+    (format "%s %s %s%s%s"
+            key-str
             indicator
             prompt
             (if answered
@@ -285,12 +301,7 @@ Returns (valid-p . error-message)."
   "Set VALUE as answer for question OBJ."
   (let ((q-id (plist-get (oref obj question) :id)))
     (jf/gptel-questions--answer-question q-id value)
-    (oset obj value value))
-
-  ;; Prompt for optional comment after answering
-  (when (y-or-n-p "Add comment? ")
-    (let ((q-id (plist-get (oref obj question) :id)))
-      (jf/gptel-questions--add-comment q-id))))
+    (oset obj value value)))
 #+end_src
 
 ** Format Method
@@ -299,11 +310,37 @@ Returns (valid-p . error-message)."
 (cl-defmethod transient-format ((obj jf/gptel-question-infix))
   "Format question and answer for display."
   (let* ((q (oref obj question))
-         (formatted (jf/gptel-questions--format-question q)))
+         (key (oref obj key))
+         (formatted (jf/gptel-questions--format-question q key)))
     (format "  %s" formatted)))
 #+end_src
 
 * Transient Menu
+
+** Key Pool Generation
+
+#+begin_src emacs-lisp
+(defun jf/gptel-questions--generate-key-pool (count)
+  "Generate COUNT key bindings for questions.
+Uses single letters (a-z) for first 26, then two-letter combinations (aa-zz)."
+  (let ((keys '())
+        (letters "abcdefghijklmnopqrstuvwxyz"))
+    ;; Single letters: a-z (26 keys)
+    (dotimes (i (min count 26))
+      (push (substring letters i (1+ i)) keys))
+
+    ;; Two letters: aa-zz (676 more keys if needed)
+    (when (> count 26)
+      (dotimes (i (min (- count 26) 676))
+        (let ((first (/ i 26))
+              (second (mod i 26)))
+          (push (format "%c%c"
+                        (aref letters first)
+                        (aref letters second))
+                keys))))
+
+    (nreverse keys)))
+#+end_src
 
 ** Dynamic Suffix Generation
 
@@ -312,16 +349,14 @@ Returns (valid-p . error-message)."
   "Generate transient suffixes for each question."
   (let* ((scope (transient-scope))
          (questions (plist-get scope :questions))
-         (key-pool (append (number-sequence ?1 ?9)
-                          (number-sequence ?a ?z))))
+         (key-pool (jf/gptel-questions--generate-key-pool (length questions))))
 
     (transient-parse-suffixes
      'jf/gptel-questions-menu
      (cl-loop for q in questions
-              for key = (pop key-pool)
-              when key
+              for key in key-pool
               collect
-              (list (key-description (char-to-string key))
+              (list key
                     ""  ; Description computed dynamically by transient-format
                     (plist-get q :id)  ; Use question ID as the argument
                     :class 'jf/gptel-question-infix
@@ -341,6 +376,8 @@ Returns (valid-p . error-message)."
     (:info (lambda () (jf/gptel-questions--progress-info)))]
    [""
     ("RET" "Submit answers" jf/gptel-questions--submit)
+    ("C" "Add/edit comment" jf/gptel-questions--add-or-edit-comment
+     :transient t)
     ("q" "Cancel (send partial)" jf/gptel-questions--cancel)]]
 
   ;; Questions section: dynamically generated
