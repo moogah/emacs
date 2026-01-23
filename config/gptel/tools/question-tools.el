@@ -300,10 +300,14 @@ Uses single letters (a-z) for first 26, then two-letter combinations (aa-zz)."
 (defun jf/gptel-questions--ask (callback questions)
   "Async tool function. Display questions UI and invoke CALLBACK with answers.
 QUESTIONS is array of question plists from LLM."
-  (let ((answers (make-hash-table :test 'equal))
-        (comments (make-hash-table :test 'equal)))
+  ;; Convert vector to list if needed (JSON arrays come as vectors)
+  (let* ((questions-list (if (vectorp questions)
+                             (append questions nil)
+                           questions))
+         (answers (make-hash-table :test 'equal))
+         (comments (make-hash-table :test 'equal)))
     ;; Initialize hash tables
-    (dolist (q questions)
+    (dolist (q questions-list)
       (puthash (plist-get q :id) nil answers)
       (puthash (plist-get q :id) "" comments))
 
@@ -311,11 +315,11 @@ QUESTIONS is array of question plists from LLM."
     (transient-setup
      'jf/gptel-questions-menu
      nil nil
-     :scope (list :questions questions
+     :scope (list :questions questions-list
                   :answers answers
                   :comments comments
                   :callback callback
-                  :current-question (plist-get (car questions) :id)))))
+                  :current-question (plist-get (car questions-list) :id)))))
 
 (gptel-make-tool
  :name "ask_questions"
