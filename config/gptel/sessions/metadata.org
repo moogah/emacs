@@ -45,6 +45,12 @@ Additional fields for subagents:
 - :agent-type - Agent type (e.g., "Bash", "Explore")
 - :prompt-preview - Preview of task prompt
 
+Optional preset configuration:
+- :preset-file - Path to external preset file (.md or .org format)
+  When present, session loads preset from this file instead of
+  inline preset.md/preset.org in session directory.
+  Allows multiple sessions to share the same preset.
+
 The metadata system is now flexible and preserves any additional fields.
 
 #+begin_src emacs-lisp

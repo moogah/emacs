@@ -34,73 +34,142 @@ User-facing commands for creating and managing gptel persistent sessions.
 
 Helper functions for creating, loading, and applying session presets.
 
-** Generate Preset Plist
+** Write Preset to Markdown File
 
 #+begin_src emacs-lisp
-(defun jf/gptel--generate-preset-plist (session-name backend model)
-  "Generate preset plist for session SESSION-NAME.
-Uses BACKEND and MODEL, with current gptel values as fallbacks.
-System message defaults to empty, tools default to empty list.
-Tool result persistence is enabled by default via include-tool-results."
-  (list :description (format "Session preset for %s" session-name)
-        :backend (or backend gptel-backend)
-        :model (or model gptel-model)
-        :system ""  ; Empty - use gptel default
-        :temperature (or (bound-and-true-p gptel-temperature) 1.0)
-        :include-tool-results t  ; Enable native tool persistence
-        :tools '()))  ; Empty - user adds via preset.json editing
-#+end_src
-
-** Write Preset to File
-
-#+begin_src emacs-lisp
-(defun jf/gptel--write-preset-file (session-dir preset-plist)
-  "Write PRESET-PLIST to preset.json in SESSION-DIR.
-Converts backend objects to names, converts keywords to strings."
-  (require 'json)
+(defun jf/gptel--write-preset-md (session-dir preset-plist)
+  "Write PRESET-PLIST as preset.md in SESSION-DIR.
+Converts backend/model objects to names, tools to name strings."
   (let* ((backend (plist-get preset-plist :backend))
          (backend-name (if (gptel-backend-p backend)
                           (gptel-backend-name backend)
                         backend))
          (model (plist-get preset-plist :model))
          (model-name (if (symbolp model) (symbol-name model) model))
-         (preset-alist `(("description" . ,(plist-get preset-plist :description))
-                        ("backend" . ,backend-name)
-                        ("model" . ,model-name)
-                        ("system" . ,(plist-get preset-plist :system))
-                        ("temperature" . ,(plist-get preset-plist :temperature))
-                        ("include-tool-results" . ,(plist-get preset-plist :include-tool-results))
-                        ("tools" . ,(plist-get preset-plist :tools))))
-         (preset-file (expand-file-name "preset.json" session-dir)))
+         (system (plist-get preset-plist :system))
+         (temperature (plist-get preset-plist :temperature))
+         (include-tool-results (plist-get preset-plist :include-tool-results))
+         (tools (plist-get preset-plist :tools))
+         (preset-file (expand-file-name "preset.md" session-dir)))
     (with-temp-file preset-file
-      (insert (json-encode preset-alist)))
-    (jf/gptel--log 'info "Created preset file: %s" preset-file)))
+      (insert "---\n")
+      (insert (format "description: %s\n" (plist-get preset-plist :description)))
+      (insert (format "backend: %s\n" backend-name))
+      (insert (format "model: %s\n" model-name))
+      (insert (format "temperature: %s\n" temperature))
+      (insert (format "include-tool-results: %s\n" include-tool-results))
+      (when tools
+        (insert "tools:\n")
+        (dolist (tool tools)
+          (let ((tool-name (if (stringp tool) tool
+                            (gptel-tool-name tool))))
+            (insert (format "  - %s\n" tool-name)))))
+      (insert "---\n\n")
+      (when system
+        (insert system)))
+    (jf/gptel--log 'info "Created preset.md: %s" preset-file)))
+#+end_src
+
+** Write Preset to Org File
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-preset-org (session-dir preset-plist)
+  "Write PRESET-PLIST as preset.org in SESSION-DIR.
+Converts backend/model objects to names, tools to space-separated string."
+  (let* ((backend (plist-get preset-plist :backend))
+         (backend-name (if (gptel-backend-p backend)
+                          (gptel-backend-name backend)
+                        backend))
+         (model (plist-get preset-plist :model))
+         (model-name (if (symbolp model) (symbol-name model) model))
+         (system (plist-get preset-plist :system))
+         (temperature (plist-get preset-plist :temperature))
+         (include-tool-results (plist-get preset-plist :include-tool-results))
+         (tools (plist-get preset-plist :tools))
+         (preset-file (expand-file-name "preset.org" session-dir)))
+    (with-temp-file preset-file
+      (insert ":PROPERTIES:\n")
+      (insert (format ":description: %s\n" (plist-get preset-plist :description)))
+      (insert (format ":backend: %s\n" backend-name))
+      (insert (format ":model: %s\n" model-name))
+      (insert (format ":temperature: %s\n" temperature))
+      (insert (format ":include-tool-results: %s\n" include-tool-results))
+      (when tools
+        (let ((tools-str (mapconcat
+                         (lambda (tool)
+                           (if (stringp tool) tool
+                             (gptel-tool-name tool)))
+                         tools " ")))
+          (insert (format ":tools: %s\n" tools-str))))
+      (insert ":END:\n\n")
+      (when system
+        (insert system)))
+    (jf/gptel--log 'info "Created preset.org: %s" preset-file)))
+#+end_src
+
+** Write Preset File (Dispatcher)
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-preset-file (session-dir preset-plist &optional format)
+  "Write PRESET-PLIST to preset file in SESSION-DIR.
+FORMAT can be 'md (markdown) or 'org (default: 'md).
+Converts backend objects to names, tools to name strings."
+  (let ((format (or format 'md)))
+    (pcase format
+      ('md (jf/gptel--write-preset-md session-dir preset-plist))
+      ('org (jf/gptel--write-preset-org session-dir preset-plist))
+      (_ (error "Unsupported preset format: %s (expected 'md or 'org)" format)))))
 #+end_src
 
 ** Load Preset from File
 
 #+begin_src emacs-lisp
-(defun jf/gptel--load-preset-from-file (session-dir)
-  "Load preset from SESSION-DIR/preset.json and return plist.
-Converts backend names to objects, converts JSON keys to keywords."
-  (require 'json)
-  (let* ((preset-file (expand-file-name "preset.json" session-dir)))
-    (unless (file-exists-p preset-file)
-      (error "Preset file not found: %s" preset-file))
-    (let* ((json-object-type 'alist)
-           (json-array-type 'list)
-           (preset-alist (json-read-file preset-file))
-           (backend-name (alist-get "backend" preset-alist nil nil #'equal))
-           (backend (alist-get backend-name gptel--known-backends nil nil #'equal))
-           (model-name (alist-get "model" preset-alist nil nil #'equal))
-           (model (if (stringp model-name) (intern model-name) model-name)))
-      (list :description (alist-get "description" preset-alist nil nil #'equal)
-            :backend backend
-            :model model
-            :system (alist-get "system" preset-alist "" nil #'equal)
-            :temperature (alist-get "temperature" preset-alist 1.0 nil #'equal)
-            :include-tool-results (alist-get "include-tool-results" preset-alist t nil #'equal)
-            :tools (alist-get "tools" preset-alist nil nil #'equal)))))
+(defun jf/gptel--load-preset-from-file (session-dir &optional external-preset-path)
+  "Load preset for session in SESSION-DIR.
+If EXTERNAL-PRESET-PATH is provided, load from that file instead.
+Supports .md and .org formats only.
+
+Priority order:
+1. EXTERNAL-PRESET-PATH if provided
+2. session-dir/preset.md
+3. session-dir/preset.org
+
+Returns preset plist with keys :description, :backend, :model, :system,
+:temperature, :include-tool-results, :tools."
+  (let* ((preset-path
+          (or external-preset-path
+              (let ((md-file (expand-file-name "preset.md" session-dir))
+                    (org-file (expand-file-name "preset.org" session-dir)))
+                (cond
+                 ((file-exists-p md-file) md-file)
+                 ((file-exists-p org-file) org-file)
+                 (t (error "No preset file found in %s (expected preset.md or preset.org)" session-dir))))))
+         (ext (file-name-extension preset-path)))
+    (unless (member ext '("md" "org"))
+      (error "Unsupported preset file format: %s (expected .md or .org)" ext))
+    ;; Load using gptel-agent parser
+    (require 'gptel-agent)
+    (let* ((preset-data (gptel-agent-read-file preset-path))
+           (preset-plist (cdr preset-data))
+           ;; Convert tool names to tool objects if needed
+           (tools (plist-get preset-plist :tools))
+           (resolved-tools
+            (when tools
+              (if (listp tools)
+                  tools  ; Already a list
+                (split-string tools)))))  ; Space-separated string from org
+      ;; Update tools in plist
+      (when resolved-tools
+        (plist-put preset-plist :tools resolved-tools))
+      ;; Convert backend name to object
+      (when-let ((backend-name (plist-get preset-plist :backend)))
+        (plist-put preset-plist :backend
+                   (alist-get backend-name gptel--known-backends nil nil #'equal)))
+      ;; Convert model name to symbol
+      (when-let ((model-name (plist-get preset-plist :model)))
+        (plist-put preset-plist :model
+                   (if (symbolp model-name) model-name (intern model-name))))
+      preset-plist)))
 #+end_src
 
 ** Programming Assistant Preset Template
@@ -311,11 +380,15 @@ When projects are selected:
 - Prevents accidental modification of ignored files (node_modules/, build artifacts, etc.)
 
 #+begin_src emacs-lisp
-(defun jf/gptel-persistent-session (session-name &optional backend model)
+(defun jf/gptel-persistent-session (session-name &optional backend model preset-file)
   "Create a new persistent gptel programming session named SESSION-NAME.
 Uses programming assistant preset with scoped tools and projectile integration.
 
 Optional BACKEND and MODEL default to Claude Opus 4.5.
+Optional PRESET-FILE is a path to an external preset file (.md or .org).
+If PRESET-FILE is provided, metadata will reference it instead of creating
+inline preset. This allows multiple sessions to share the same preset.
+
 Prompts user to select projectile projects (0 or more).
 If projects selected, creates project-aware scope plan.
 Otherwise creates deny-all scope plan.
@@ -342,6 +415,9 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
       (when selected-projects
         (setq metadata (plist-put metadata :projects selected-projects))
         (setq metadata (plist-put metadata :project-names project-names)))
+      ;; Add preset-file reference if provided
+      (when preset-file
+        (setq metadata (plist-put metadata :preset-file preset-file)))
 
       (jf/gptel--write-metadata session-dir metadata)
       (jf/gptel--register-session session-dir metadata nil session-id))
@@ -384,19 +460,25 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
         ;; Create and apply programming assistant preset
         (let ((preset-plist (jf/gptel-scope--template-programming-assistant
                             session-name backend model)))
-          ;; Write preset to file
-          (jf/gptel--write-preset-file session-dir preset-plist)
-          ;; Apply preset to buffer
-          (jf/gptel--apply-session-preset preset-plist))
+          ;; Only create inline preset if no external preset-file specified
+          (unless preset-file
+            (jf/gptel--write-preset-file session-dir preset-plist))
+          ;; Apply preset to buffer (load from external file if provided)
+          (let ((loaded-preset (if preset-file
+                                  (jf/gptel--load-preset-from-file session-dir preset-file)
+                                preset-plist)))
+            (jf/gptel--apply-session-preset loaded-preset)))
 
-        (jf/gptel--log 'info "Created programming session: %s%s"
+        (jf/gptel--log 'info "Created programming session: %s%s%s"
                       session-id
+                      (if preset-file (format " (preset: %s)" (file-name-nondirectory preset-file)) "")
                       (if selected-projects
                           (format " with %d project(s)" (length selected-projects))
                         ""))
-        (message "Created programming session: %s\nDirectory: %s%s\nModel: Claude Opus 4.5\nTools: Scoped filesystem + Projectile navigation"
+        (message "Created programming session: %s\nDirectory: %s%s%s\nModel: Claude Opus 4.5\nTools: Scoped filesystem + Projectile navigation"
                 session-name
                 session-dir
+                (if preset-file (format "\nPreset: %s" preset-file) "")
                 (if project-names
                     (format "\nProjects: %s" (string-join project-names ", "))
                   ""))
@@ -444,7 +526,9 @@ Resume an existing session by opening its context file.
 #+begin_src emacs-lisp
 (defun jf/gptel-resume-session (session-id)
   "Resume persistent session SESSION-ID.
-Opens the session's context file and restores session state."
+Opens the session's context file and restores session state.
+Loads preset from external preset-file if specified in metadata,
+otherwise loads from inline preset.md/preset.org in session directory."
   (interactive
    (list (completing-read "Resume session: "
                          (mapcar (lambda (s) (plist-get s :session-id))
@@ -453,7 +537,8 @@ Opens the session's context file and restores session state."
   (let* ((session (jf/gptel-session-find session-id))
          (session-dir (plist-get session :directory))
          (session-file (jf/gptel--context-file-path session-dir))
-         (metadata (plist-get session :metadata)))
+         (metadata (plist-get session :metadata))
+         (preset-file (plist-get metadata :preset-file)))
 
     (unless (file-exists-p session-file)
       (user-error "Session file not found: %s" session-file))
@@ -478,13 +563,22 @@ Opens the session's context file and restores session state."
                                      (intern model-name)
                                    model-name)))
 
+        ;; Load and apply preset (supports both inline and external)
+        (when-let ((preset-plist (condition-case err
+                                     (jf/gptel--load-preset-from-file session-dir preset-file)
+                                   (error
+                                    (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
+                                    nil))))
+          (jf/gptel--apply-session-preset preset-plist))
+
         ;; Enable auto-save
         (setq-local jf/gptel-autosave-enabled t)
 
         ;; Update registry
         (jf/gptel--update-session-buffer session-id buffer)
 
-        (jf/gptel--log 'info "Resumed session: %s" session-id)
+        (jf/gptel--log 'info "Resumed session: %s%s" session-id
+                      (if preset-file (format " (preset: %s)" (file-name-nondirectory preset-file)) ""))
         (message "Resumed session: %s" session-id)
 
         buffer))))
@@ -665,14 +759,20 @@ Inserts formatted text into current buffer."
             ;; Set session variables
             (setq-local jf/gptel--session-id session-id)
             (setq-local jf/gptel--session-dir session-dir)
-            ;; Load and apply preset
-            (when-let ((preset-plist (jf/gptel--load-preset-from-file session-dir)))
-              (jf/gptel--apply-session-preset preset-plist))
+            ;; Load and apply preset (supports both inline and external)
+            (let* ((metadata (jf/gptel--read-metadata session-dir))
+                   (preset-file (plist-get metadata :preset-file)))
+              (when-let ((preset-plist (condition-case err
+                                          (jf/gptel--load-preset-from-file session-dir preset-file)
+                                        (error
+                                         (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
+                                         nil))))
+                (jf/gptel--apply-session-preset preset-plist))
+              ;; Update registry
+              (when metadata
+                (jf/gptel--register-session session-dir metadata buffer session-id)))
             ;; Enable auto-save
             (setq-local jf/gptel-autosave-enabled t)
-            ;; Update registry
-            (when-let ((metadata (jf/gptel--read-metadata session-dir)))
-              (jf/gptel--register-session session-dir metadata buffer session-id))
             (jf/gptel--log 'info "Resumed subagent session: %s" session-id)
             (message "Resumed subagent: %s" session-id)
             buffer))))))
