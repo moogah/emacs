@@ -9,7 +9,7 @@ This architecture simplification removes ~40% of custom complexity by leveraging
 1. **Leverage gptel's native capabilities** - Don't reimplement what gptel already does
 2. **Visible buffers for all interactions** - Subagents are first-class citizens with their own buffers
 3. **Nested session directories** - Clear parent-child relationships via filesystem structure
-4. **Preset-based configuration** - Consistent settings via preset.json files
+4. **Preset-based configuration** - Consistent settings via preset.md files
 
 ## Directory Structure
 
@@ -19,14 +19,14 @@ sessions/
 │   ├── session.md              # Conversation + tool results (gptel native persistence)
 │   ├── metadata.json           # Session config + relationships
 │   ├── scope-plan.yml          # Access control policy
-│   ├── preset.json             # Backend/model/temperature + gptel-include-tool-results
+│   ├── preset.md               # Backend/model/temperature/system message + gptel-include-tool-results
 │   ├── system-prompts.org      # System prompt history
 │   └── subagents/
 │       ├── bash-TIMESTAMP-description/
 │       │   ├── session.md
 │       │   ├── metadata.json   # Includes parent-session-id
 │       │   ├── scope-plan.yml  # Permissive for agents
-│       │   └── preset.json
+│       │   └── preset.md
 │       └── explore-TIMESTAMP-description/
 │           └── (same structure)
 ```
@@ -44,7 +44,7 @@ sessions/
 - File-local variables preserve state across sessions
 
 **Configuration:**
-- Set in `preset.json` for each session
+- Set in `preset.md` for each session
 - Defaults to `t` for all new sessions
 - Applied via `jf/gptel--apply-session-preset`
 
@@ -156,7 +156,40 @@ Total sessions: 5 (including subagents)
      Created: 2026-01-21T15:06:48Z
 ```
 
-### 6. Subagent Module (Simplified)
+### 6. System Message Management
+
+**Location:** `config/gptel/sessions/commands.el`
+
+**Problem:** gptel saves system messages to Local Variables when they differ from the default value. Long system messages (>4000 chars) trigger a bug in `add-file-local-variable` that creates duplicate Local Variables blocks on each save.
+
+**Solution:** System messages are managed via preset files, not Local Variables:
+
+**Key functions:**
+- `jf/gptel--skip-system-message-save-advice` - Advice that temporarily removes buffer-local system message binding during save
+- `jf/gptel--set-session-system-message` - Helper that sets system message and installs save-prevention advice
+
+**How it works:**
+1. At session creation or resume, system message is loaded from preset file
+2. `jf/gptel--set-session-system-message` sets the message and installs buffer-local advice
+3. When gptel saves (via `gptel--save-state`), advice temporarily removes the buffer-local binding
+4. gptel sees system message equals default value, so doesn't save it
+5. After save completes, advice restores the buffer-local binding
+6. System message remains active in buffer but never written to Local Variables
+
+**Advice installation:**
+```elisp
+(advice-add 'gptel--save-state :around
+            #'jf/gptel--skip-system-message-save-advice
+            '((local)))  ; Buffer-local advice
+```
+
+**Benefits:**
+- System messages work correctly at session creation and resume
+- No duplicate Local Variables blocks regardless of message length
+- System messages stored in preset files (source of truth)
+- Clean separation from gptel's persistence mechanism
+
+### 7. Subagent Module (Simplified)
 
 **Location:** `config/gptel/sessions/subagent.el`
 
@@ -181,10 +214,13 @@ Total sessions: 5 (including subagents)
 **What happens:**
 1. Generate session ID: `my-task-TIMESTAMP`
 2. Create directory with metadata.json
-3. Create preset.json with `gptel-include-tool-results: true`
+3. Create preset.md with `gptel-include-tool-results: true` and system message
 4. Create scope-plan.yml (default: deny-all)
 5. Create session.md buffer with gptel-mode
-6. Apply preset to buffer (sets `gptel-include-tool-results` buffer-locally)
+6. Apply preset to buffer:
+   - Sets `gptel-include-tool-results` buffer-locally
+   - Sets system message with save-prevention advice
+   - Configures backend, model, temperature, tools
 
 ### Creating a Subagent
 
@@ -207,7 +243,7 @@ Can you use VisibleAgent to explore the codebase for API endpoints?
 **What happens:**
 1. Tool creates nested directory: `parent/subagents/explore-TIMESTAMP-find-all-api/`
 2. Tool generates permissive scope-plan.yml
-3. Tool creates preset.json (inherits parent backend/model)
+3. Tool creates preset.md (inherits parent backend/model, includes agent system prompt)
 4. Tool creates visible buffer: `*gptel-agent: explore-TIMESTAMP-find-all-api*`
 5. Buffer initialized with Explore agent system prompt
 6. User sees buffer pop up
@@ -222,8 +258,9 @@ Can you use VisibleAgent to explore the codebase for API endpoints?
 **What happens:**
 1. Load `session.md` into buffer
 2. Enable `gptel-mode` (triggers `gptel--restore-state`)
-3. Apply preset from `preset.json` (includes `gptel-include-tool-results`)
-4. Tool results and conversation history restored automatically
+3. Restore settings from Local Variables (backend, model, tools, etc.)
+4. Load system message from preset file with save-prevention advice
+5. Tool results and conversation history restored automatically
 
 ### Resuming a Subagent
 
@@ -238,8 +275,9 @@ Can you use VisibleAgent to explore the codebase for API endpoints?
 2. Filter to depth > 0
 3. User selects from list
 4. Load subagent's `session.md`
-5. Apply subagent's preset.json
-6. Restore conversation + tool results
+5. Restore settings from Local Variables
+6. Load system message from preset file with save-prevention
+7. Restore conversation + tool results
 
 ## Module Organization
 
@@ -323,13 +361,13 @@ Can you use VisibleAgent to explore the codebase for API endpoints?
 
 **What migration does:**
 1. Removes `tools.org` (no longer generated)
-2. Updates `preset.json` to add `"include-tool-results": true`
+2. Updates `preset.md` to add `"include-tool-results": true`
 3. Preserves all conversation history in `session.md`
 
 ### For New Sessions
 
 All new sessions automatically:
-- Have `gptel-include-tool-results: t` in preset.json
+- Have `gptel-include-tool-results: t` in preset.md
 - Persist tool results via gptel native mechanism
 - Support VisibleAgent tool for subagent creation
 

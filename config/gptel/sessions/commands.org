@@ -21,6 +21,11 @@ User-facing commands for creating and managing gptel persistent sessions.
 ;; ARCHITECTURE NOTE: Preset files are templates used at session creation.
 ;; Once created, gptel's Local Variables are the source of truth for settings.
 ;; Presets are NOT reapplied on resume - they may become stale as sessions evolve.
+;;
+;; SYSTEM MESSAGE HANDLING: System messages are managed via preset files, not
+;; Local Variables. This prevents duplicate Local Variables blocks when system
+;; messages exceed ~4000 characters. Buffer-local advice on gptel--save-state
+;; prevents gptel from persisting system messages to Local Variables.
 
 ;;; Code:
 
@@ -153,6 +158,54 @@ Scans all sessions and removes duplicate blocks without opening buffers."
                     (cl-incf cleaned)
                     (jf/gptel--log 'info "Cleaned duplicates from: %s" session-file)))))))))
     (message "Cleaned %d of %d session files" cleaned total)))
+#+end_src
+
+* System Message Management
+
+Functions for handling system messages in session buffers without triggering
+gptel's Local Variables persistence. System messages are managed via preset
+files to avoid duplicate Local Variables blocks when messages are >4000 chars.
+
+** Advice: Skip System Message Save
+
+#+begin_src emacs-lisp
+(defun jf/gptel--skip-system-message-save-advice (orig-fun)
+  "Prevent gptel from saving system message for session buffers.
+Session system messages are managed via preset files, not Local Variables.
+This advice temporarily removes the buffer-local binding during save,
+preventing gptel from detecting a difference from default value."
+  (if (and (boundp 'jf/gptel--session-dir) jf/gptel--session-dir
+           (boundp 'gptel--system-message)
+           (local-variable-p 'gptel--system-message))
+      ;; Temporarily kill buffer-local binding so gptel won't save it
+      (let ((saved-system-msg gptel--system-message))
+        (kill-local-variable 'gptel--system-message)
+        (unwind-protect
+            (funcall orig-fun)
+          ;; Restore buffer-local binding after save
+          (setq-local gptel--system-message saved-system-msg)))
+    ;; Not a session buffer or no buffer-local system message, use default behavior
+    (funcall orig-fun)))
+#+end_src
+
+** Helper: Set Session System Message
+
+#+begin_src emacs-lisp
+(defun jf/gptel--set-session-system-message (system-message)
+  "Set system message for session buffer without triggering Local Variables save.
+System message is managed via preset files, not gptel's Local Variables persistence.
+Installs buffer-local advice to prevent gptel--save-state from saving it."
+  (when system-message
+    ;; Set the system message in the buffer
+    (setq-local gptel--system-message system-message)
+
+    ;; Install buffer-local advice to prevent gptel from saving it
+    (advice-add 'gptel--save-state :around
+                #'jf/gptel--skip-system-message-save-advice
+                '((local)))
+
+    (jf/gptel--log 'debug "Set session system message (%d chars) with save-prevention"
+                  (length system-message))))
 #+end_src
 
 * Preset Management Helpers
@@ -452,9 +505,9 @@ Includes tools from preset and gptel-include-tool-results for native tool persis
 NOTE: This should only be called ONCE at session creation.
 After the first save, gptel's Local Variables become the source of truth.
 
-IMPORTANT: Does NOT set system message to avoid gptel trying to save it to
-Local Variables (which causes duplication with long messages). System message
-is stored in preset file and restored on resume."
+IMPORTANT: Sets system message with save-prevention advice to prevent gptel
+from saving it to Local Variables (which causes duplicate blocks with long
+messages >4000 chars). System message is managed via preset files."
   (let ((backend (plist-get preset-plist :backend))
         (model (plist-get preset-plist :model))
         (system (plist-get preset-plist :system))
@@ -465,12 +518,9 @@ is stored in preset file and restored on resume."
       (setq-local gptel-backend backend))
     (when model
       (setq-local gptel-model model))
-    ;; DO NOT set system message here - it will be loaded from preset on resume
-    ;; Setting it with setq-local causes gptel to try saving it to Local Variables
-    ;; which triggers a bug with long messages (>2000 chars) that creates duplicate blocks
+    ;; Set system message with save-prevention (so it's active from session start)
     (when system
-      (jf/gptel--log 'debug "System message (%d chars) stored in preset, not applied to buffer"
-                    (length system)))
+      (jf/gptel--set-session-system-message system))
     (when temperature
       (setq-local gptel-temperature temperature))
     (when (not (null include-tool-results))
@@ -485,7 +535,7 @@ is stored in preset file and restored on resume."
         (when resolved-tools
           (setq-local gptel-tools resolved-tools)
           (jf/gptel--log 'info "Applied %d tools from preset" (length resolved-tools)))))
-    (jf/gptel--log 'info "Applied session preset as initial template (system message in preset file)")))
+    (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
 #+end_src
 
 * Create Persistent Session
@@ -695,10 +745,8 @@ The preset file is NOT reapplied - it's just a template that may be stale."
                                     (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
                                     nil)))
                    (system-message (plist-get preset-plist :system)))
-          ;; Set system message from preset (was not saved to Local Variables)
-          (setq-local gptel--system-message system-message)
-          (jf/gptel--log 'debug "Restored system message from preset (%d chars)"
-                        (length system-message)))
+          ;; Set system message from preset with save-prevention
+          (jf/gptel--set-session-system-message system-message))
 
         ;; Set session variables for our tracking
         (setq-local jf/gptel--session-id session-id)
@@ -909,10 +957,8 @@ Settings are restored from gptel's Local Variables, not preset."
                                         (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
                                         nil)))
                        (system-message (plist-get preset-plist :system)))
-              ;; Set system message from preset (was not saved to Local Variables)
-              (setq-local gptel--system-message system-message)
-              (jf/gptel--log 'debug "Restored system message from preset (%d chars)"
-                            (length system-message)))
+              ;; Set system message from preset with save-prevention
+              (jf/gptel--set-session-system-message system-message))
 
             ;; Set session variables
             (setq-local jf/gptel--session-id session-id)
