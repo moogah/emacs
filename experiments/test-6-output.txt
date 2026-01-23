@@ -1,0 +1,24 @@
+=== TEST 6: JSON Building with Backquote ===
+Testing alist building and JSON encoding...
+
+Stored answers:
+  q1: Spring - Fresh beginnings and blooming flowers
+  q2: Because it represents renewal
+
+Building answer list with backquote pattern...
+
+=== Mock Callback Received ===
+JSON string length: 199
+JSON content: [{"id":"q1","answer":"Spring - Fresh beginnings and blooming flowers","comment":"","skipped":null},{"id":"q2","answer":"Because it represents renewal","comment":"Personal preference","skipped":null}]
+✓ JSON decoded successfully
+Decoded structure: [((id . "q1") (answer . "Spring - Fresh beginnings and blooming flowers") (comment . "") (skipped)) ((id . "q2") (answer . "Because it represents renewal") (comment . "Personal preference") (skipped))]
+
+First answer details:
+  ID: q1 (type: string)
+  Answer: Spring - Fresh beginnings and blooming flowers (type: string)
+  Comment:  (type: string)
+  Skipped: nil (type: symbol)
+✓ Answer value matches expected string
+
+✓ TEST 6 PASSED: JSON building completed without errors
+=== TEST 6 COMPLETE ===

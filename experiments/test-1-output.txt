@@ -1,0 +1,6 @@
+=== TEST 1: Basic Transient Menu ===
+Testing basic transient structure definition...
+✓ Transient menu defined successfully
+Value set to: test-string
+✓ TEST 1 PASSED: Value stored correctly: test-string
+=== TEST 1 COMPLETE ===

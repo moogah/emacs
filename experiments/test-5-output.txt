@@ -1,0 +1,15 @@
+=== TEST 5: Custom Infix with Plist Data ===
+Testing plist with :choices property...
+Created infix with question data:
+  ID: q1
+  Question: What is your favorite season?
+  Choices: (Spring - Fresh beginnings and blooming flowers Summer - Warm days and long nights Fall - Colorful leaves and crisp air Winter - Snow and cozy evenings)
+✓ Retrieved question-data from infix
+
+Simulating user selection:
+  Selected: Spring - Fresh beginnings and blooming flowers
+  Stored: q1 = Spring - Fresh beginnings and blooming flowers
+
+Verification:
+✓ TEST 5 PASSED: Answer stored correctly
+=== TEST 5 COMPLETE ===

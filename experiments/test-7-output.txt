@@ -1,0 +1,18 @@
+=== TEST 7: Dynamic Suffix Generation ===
+Testing :setup-children with string arguments...
+Questions prepared: 2
+
+Testing suffix generation...
+✓ Generated 2 suffixes
+
+First suffix entry:
+  Class: test-7-question-infix
+  Plist: (:key "a" :description "" :argument "q1" :command transient:test-7-menu:q1 :question-data (:id "q1" :type "multiple-choice" :prompt "Favorite season?" :choices ("Spring - Fresh beginnings and blooming flowers" "Summer - Warm days and long nights")))
+
+Argument from plist:
+  Value: "q1"
+  Type: string
+✓ Argument is a string (as expected)
+
+✓ TEST 7 PASSED: Suffix generation completed
+=== TEST 7 COMPLETE ===

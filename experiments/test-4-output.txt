@@ -1,0 +1,10 @@
+=== TEST 4: Custom Infix Class ===
+Testing custom infix class mechanics...
+✓ Created custom infix instance
+✓ Retrieved custom-property: test-value-123
+✓ Set value slot
+✓ Retrieved value slot: test-value-123
+
+Verification:
+✓ TEST 4 PASSED: Custom infix stored correct value
+=== TEST 4 COMPLETE ===

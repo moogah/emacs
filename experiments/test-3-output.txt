@@ -1,0 +1,12 @@
+=== TEST 3: Callback Invocation ===
+Testing callback pattern...
+Collected 3 items
+Invoking callback with 3 items...
+
+=== Callback Invoked ===
+Received 3 items:
+  - item-3
+  - item-2
+  - item-1
+✓ TEST 3 PASSED: Callback received correct data
+=== TEST 3 COMPLETE ===
