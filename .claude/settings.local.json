@@ -3,7 +3,12 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(./bin/tangle-org.sh:*)",
-      "Bash(/Applications/Emacs.app/Contents/MacOS/Emacs:*)"
+      "Bash(/Applications/Emacs.app/Contents/MacOS/Emacs:*)",
+      "Skill(architecture-analyzer)",
+      "WebSearch"
+    ],
+    "additionalDirectories": [
+      "/Users/jefffarr/org"
     ]
   }
 }
