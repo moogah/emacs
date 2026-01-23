@@ -161,70 +161,47 @@ Installs buffer-local advice to prevent gptel--save-state from saving it."
     (jf/gptel--log 'debug "Set session system message (%d chars) with save-prevention"
                   (length system-message))))
 
-(defun jf/gptel--write-preset-md (session-dir preset-plist)
-  "Write PRESET-PLIST as preset.md in SESSION-DIR.
-Converts backend/model objects to names, tools to name strings."
-  (let* ((backend (plist-get preset-plist :backend))
-         (backend-name (if (gptel-backend-p backend)
-                          (gptel-backend-name backend)
-                        backend))
-         (model (plist-get preset-plist :model))
-         (model-name (if (symbolp model) (symbol-name model) model))
-         (system (plist-get preset-plist :system))
-         (temperature (plist-get preset-plist :temperature))
-         (include-tool-results (plist-get preset-plist :include-tool-results))
-         (tools (plist-get preset-plist :tools))
-         (preset-file (expand-file-name "preset.md" session-dir)))
-    (with-temp-file preset-file
-      (insert "---\n")
-      (insert (format "description: %s\n" (plist-get preset-plist :description)))
-      (insert (format "backend: %s\n" backend-name))
-      (insert (format "model: %s\n" model-name))
-      (insert (format "temperature: %s\n" temperature))
-      (insert (format "include-tool-results: %s\n" include-tool-results))
-      (when tools
-        (insert "tools:\n")
-        (dolist (tool tools)
-          (let ((tool-name (if (stringp tool) tool
-                            (gptel-tool-name tool))))
-            (insert (format "  - %s\n" tool-name)))))
-      (insert "---\n\n")
-      (when system
-        (insert system)))
-    (jf/gptel--log 'info "Created preset.md: %s" preset-file)))
+(defun jf/gptel--list-preset-templates ()
+  "List available preset template files in jf/gptel-presets-directory.
+Returns list of template names (without extensions)."
+  (let* ((preset-dir (expand-file-name jf/gptel-presets-directory))
+         (files (directory-files preset-dir nil "\\.\\(md\\|org\\)$")))
+    (mapcar (lambda (f) (file-name-sans-extension f)) files)))
 
-(defun jf/gptel--write-preset-org (session-dir preset-plist)
-  "Write PRESET-PLIST as preset.org in SESSION-DIR.
-Converts backend/model objects to names, tools to space-separated string."
-  (let* ((backend (plist-get preset-plist :backend))
-         (backend-name (if (gptel-backend-p backend)
-                          (gptel-backend-name backend)
-                        backend))
-         (model (plist-get preset-plist :model))
-         (model-name (if (symbolp model) (symbol-name model) model))
-         (system (plist-get preset-plist :system))
-         (temperature (plist-get preset-plist :temperature))
-         (include-tool-results (plist-get preset-plist :include-tool-results))
-         (tools (plist-get preset-plist :tools))
-         (preset-file (expand-file-name "preset.org" session-dir)))
-    (with-temp-file preset-file
-      (insert ":PROPERTIES:\n")
-      (insert (format ":description: %s\n" (plist-get preset-plist :description)))
-      (insert (format ":backend: %s\n" backend-name))
-      (insert (format ":model: %s\n" model-name))
-      (insert (format ":temperature: %s\n" temperature))
-      (insert (format ":include-tool-results: %s\n" include-tool-results))
-      (when tools
-        (let ((tools-str (mapconcat
-                         (lambda (tool)
-                           (if (stringp tool) tool
-                             (gptel-tool-name tool)))
-                         tools " ")))
-          (insert (format ":tools: %s\n" tools-str))))
-      (insert ":END:\n\n")
-      (when system
-        (insert system)))
-    (jf/gptel--log 'info "Created preset.org: %s" preset-file)))
+(defun jf/gptel--resolve-preset-template (template-name)
+  "Resolve TEMPLATE-NAME to full path.
+Checks for both .md and .org extensions.
+Returns nil if template doesn't exist."
+  (let* ((preset-dir (expand-file-name jf/gptel-presets-directory))
+         (md-file (expand-file-name (concat template-name ".md") preset-dir))
+         (org-file (expand-file-name (concat template-name ".org") preset-dir)))
+    (cond
+     ((file-exists-p md-file) md-file)
+     ((file-exists-p org-file) org-file)
+     (t nil))))
+
+(defun jf/gptel--select-preset-template ()
+  "Prompt user to select a preset template.
+Returns template name (without extension)."
+  (let ((templates (jf/gptel--list-preset-templates)))
+    (if (null templates)
+        (error "No preset templates found in %s" jf/gptel-presets-directory)
+      (completing-read "Select preset template: " templates nil t nil nil "programming-assistant"))))
+
+(defun jf/gptel--copy-preset-template (template-name session-dir)
+  "Copy preset template TEMPLATE-NAME to SESSION-DIR.
+Copies as preset.md or preset.org depending on source format.
+Signals error if template doesn't exist."
+  (let ((template-path (jf/gptel--resolve-preset-template template-name)))
+    (unless template-path
+      (error "Preset template not found: %s (checked .md and .org)" template-name))
+    (let* ((template-ext (file-name-extension template-path))
+           (dest-file (expand-file-name (concat "preset." template-ext) session-dir)))
+      (when (file-exists-p dest-file)
+        (jf/gptel--log 'warn "Overwriting existing preset file: %s" dest-file))
+      (copy-file template-path dest-file t)
+      (jf/gptel--log 'info "Copied preset template %s to %s" template-name dest-file)
+      dest-file)))
 
 (defun jf/gptel--write-preset-file (session-dir preset-plist &optional format)
   "Write PRESET-PLIST to preset file in SESSION-DIR.
@@ -259,7 +236,8 @@ NOTE: This is a template loader, not used during session resume."
       (error "Unsupported preset file format: %s (expected .md or .org)" ext))
     ;; Load using gptel-agent parser
     (require 'gptel-agent)
-    (let* ((preset-data (gptel-agent-read-file preset-path))
+    ;; Pass non-nil templates to trigger :system extraction (empty list '() is nil in elisp!)
+    (let* ((preset-data (gptel-agent-read-file preset-path '((dummy . dummy))))
            (preset-plist (cdr preset-data))
            ;; Convert tool names to tool objects if needed
            (tools (plist-get preset-plist :tools))
@@ -280,140 +258,6 @@ NOTE: This is a template loader, not used during session resume."
         (plist-put preset-plist :model
                    (if (symbolp model-name) model-name (intern model-name))))
       preset-plist)))
-
-(defun jf/gptel-scope--template-programming-assistant (session-name backend model)
-  "Generate programming assistant preset for SESSION-NAME.
-Uses BACKEND and MODEL (defaults to Claude Opus 4.5).
-Includes scoped filesystem tools, projectile navigation, and detailed system prompt."
-  (let ((backend-obj (or backend (alist-get "Claude" gptel--known-backends nil nil #'equal)))
-        (model-sym (or model 'claude-opus-4-5-20251101))
-        (system-prompt "You are a programming assistant running inside Emacs. Your purpose is to help with software development tasks within the constraints of a scoped permission system.
-
-## Environment
-
-You are running in Emacs via gptel with access to:
-- Scoped filesystem tools (read_file, write_file_in_scope, edit_file_in_scope)
-- Projectile project navigation tools
-- Scope management tools
-
-## Scoped Tools System
-
-All write/edit operations are governed by a scope plan document (scope-plan.yml) that defines:
-- Which tools are enabled (allowed: true/false)
-- What file patterns each tool can access
-- What patterns are explicitly denied
-
-**Key principles**:
-1. **Scope plan is authority**: The scope-plan.yml file determines what operations are permitted
-2. **Tool-level permissions**: Each tool (write_file_in_scope, edit_file_in_scope, etc.) has independent configuration
-3. **Deny patterns override**: Explicit denials take precedence over allows
-4. **Git-safe editing**: edit_file_in_scope only works on git-tracked files (prevents editing node_modules/, build artifacts, etc.)
-
-**When you encounter scope violations**:
-1. Use `inspect_scope_plan()` to see current permissions
-2. Check if alternative paths match existing patterns
-3. If needed, use `request_scope_expansion(tool_name, patterns, justification)` to ask user for approval
-4. Be specific in justification—explain WHAT you're trying to accomplish and WHY
-
-## Projectile Navigation
-
-Projectile provides project-aware navigation. A \"project\" is typically a git repository or directory with project markers.
-
-**Note**: When users refer to \"repo\", \"repository\", \"codebase\", or \"app\", they mean a projectile project.
-
-**Critical workflow**:
-1. **Start with discovery**: `list_known_projects()` shows all available projects
-2. **Get context**: `get_project_info(directory)` shows project type, VCS, etc.
-3. **Navigate**: Use project-specific tools with the project directory path
-
-**Important**: When running in a gptel buffer (not visiting a file), there is NO current project context. Always use `list_known_projects()` first to discover available projects, then pass the project path explicitly to other projectile tools.
-
-**Key tools**:
-- `list_known_projects()`: Discover available projects (use this FIRST)
-- `get_project_info(directory)`: Get project metadata
-- `list_project_files(directory, limit, filter_pattern)`: List files (respects .gitignore)
-- `search_project_content(directory, search_term, file_pattern)`: Find code (more efficient than reading every file)
-- `list_test_files(directory)`: Find all tests
-- `find_related_test(directory, file_path)`: Find test for specific file
-
-**Efficient search patterns**:
-- Use `search_project_content` to find where functions/classes are defined
-- Use filter_pattern with `list_project_files` to find specific file types
-- Use projectile tools instead of reading every file
-
-## Scope and Projectile Integration
-
-When a session is created with projectile projects selected:
-- Scope plan restricts operations to those project directories
-- read_file patterns limit reading to project paths
-- write/edit patterns scope modifications to project paths
-- Git-safe editing prevents modifying ignored files
-
-**Workflow**:
-1. Check scope plan: `inspect_scope_plan()` to see what projects are in scope
-2. Navigate with projectile: Find files, search content, understand structure
-3. Read within scope: Use `read_file` on files within allowed patterns
-4. Modify within scope: Use `edit_file_in_scope` (git-tracked only) or `write_file_in_scope`
-5. Request expansion: Use `request_scope_expansion` if you need access outside current scope
-
-## Best Practices
-
-1. **Inspect before acting**: Call `inspect_scope_plan()` early to understand your permissions
-2. **Use projectile for discovery**: Don't guess at file locations—use search and list tools
-3. **Respect scope boundaries**: Work within approved patterns when possible
-4. **Request thoughtfully**: When requesting scope expansion, explain the specific task
-5. **Git-safe editing**: Remember that `edit_file_in_scope` only works on git-tracked files
-6. **Efficient search**: Use `search_project_content` instead of reading many files
-
-## Error Handling
-
-When a scoped tool returns an error:
-- **scope_violation**: Operation not in allowed patterns → inspect scope, request expansion if needed
-- **file_not_git_tracked**: File not tracked by git → use `write_file_in_scope` instead, or ask user to add file to git
-- **no_scope_plan**: No scope plan exists → notify user to create one
-- **tool_not_configured**: Tool not in scope plan → request scope expansion with specific tool name
-
-Your goal is to assist with programming tasks effectively while respecting the permission boundaries defined by the scope plan.")
-        (tools-list '("read_file"
-                     "write_file_in_scope"
-                     "edit_file_in_scope"
-                     "request_scope_expansion"
-                     "inspect_scope_plan"
-                     "list_known_projects"
-                     "get_project_info"
-                     "list_project_files"
-                     "list_project_directories"
-                     "expand_project_path"
-                     "search_project_content"
-                     "list_test_files"
-                     "find_related_test"
-                     "find_related_files"
-                     "check_ggtags_project"
-                     "find_definition"
-                     "find_references"
-                     "find_symbol"
-                     "create_ggtags_project"
-                     "update_ggtags_project"
-                     "explain_ggtags_indexing"
-                     "get_node_at_position"
-                     "get_node_info"
-                     "get_node_context"
-                     "get_syntax_tree"
-                     "list_functions"
-                     "list_classes"
-                     "list_imports"
-                     "extract_definition"
-                     "query_nodes"
-                     "find_nodes_by_type"
-                     "find_nodes_in_range"
-                     "get_scope_structure")))
-    (list :description (format "Programming assistant preset for %s" session-name)
-          :backend backend-obj
-          :model model-sym
-          :system system-prompt
-          :temperature 1.0
-          :include-tool-results t
-          :tools tools-list)))
 
 (defun jf/gptel--apply-session-preset (preset-plist)
   "Apply PRESET-PLIST to current buffer buffer-locally.
@@ -454,21 +298,28 @@ messages >4000 chars). System message is managed via preset files."
           (jf/gptel--log 'info "Applied %d tools from preset" (length resolved-tools)))))
     (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
 
-(defun jf/gptel-persistent-session (session-name &optional backend model)
-  "Create a new persistent gptel programming session named SESSION-NAME.
-Uses programming assistant preset with scoped tools and projectile integration.
+(defun jf/gptel-persistent-session (session-name &optional backend model preset-template)
+  "Create a new persistent gptel session named SESSION-NAME.
 
 Optional BACKEND and MODEL default to Claude Opus 4.5.
+Optional PRESET-TEMPLATE specifies template name (default: \"programming-assistant\").
+With prefix argument (C-u), prompts to select template interactively.
+
 Prompts user to select projectile projects (0 or more).
 If projects selected, creates project-aware scope plan.
 Otherwise creates deny-all scope plan.
 
-Creates session directory, metadata, preset (as template), scope plan, and opens session buffer.
-The preset is applied ONCE at creation. After first save, gptel's Local Variables
+Creates session directory, copies preset template, creates scope plan, and opens session buffer.
+The preset is loaded and applied ONCE at creation. After first save, gptel's Local Variables
 are the authoritative source for settings.
 
 The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.md"
-  (interactive "sSession name: ")
+  (interactive
+   (let ((name (read-string "Session name: "))
+         (template (if current-prefix-arg
+                       (jf/gptel--select-preset-template)
+                     "programming-assistant")))
+     (list name nil nil template)))
   (let* ((session-id (jf/gptel--generate-session-id session-name))
          (session-dir (jf/gptel--create-session-directory session-id))
          (session-file (jf/gptel--context-file-path session-dir))
@@ -476,6 +327,7 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
          (model (or model 'claude-opus-4-5-20251101))
          (backend-name (gptel-backend-name backend))
          (model-name (if (symbolp model) (symbol-name model) model))
+         (preset-template (or preset-template "programming-assistant"))
          ;; Project selection
          (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
                              (jf/gptel--select-projects)))
@@ -499,9 +351,6 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
     ;; Open session file in buffer
     (let ((buffer (find-file session-file)))
       (with-current-buffer buffer
-        ;; Enable gptel-mode exactly once (with duplicate prevention)
-        (jf/gptel--ensure-mode-once)
-
         ;; Set session variables
         (setq-local jf/gptel--session-id session-id)
         (setq-local jf/gptel--session-dir session-dir)
@@ -522,29 +371,33 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
             (insert scope-yaml))
           (jf/gptel--log 'info "Created scope plan: %s" scope-file))
 
-        ;; Create preset file as template (for reference/future sessions)
-        (let ((preset-plist (jf/gptel-scope--template-programming-assistant
-                            session-name backend model)))
-          ;; Write preset.md as template/reference
-          (jf/gptel--write-preset-file session-dir preset-plist)
+        ;; Copy preset template to session directory
+        (jf/gptel--copy-preset-template preset-template session-dir)
 
+        ;; Load preset and apply to buffer BEFORE enabling gptel-mode
+        ;; This ensures gptel-mode sees the custom settings when it initializes
+        (let ((preset-plist (jf/gptel--load-preset-from-file session-dir)))
           ;; Apply preset settings ONE TIME (initial configuration)
           ;; After first save, gptel's Local Variables are the source of truth
           (jf/gptel--apply-session-preset preset-plist)
+          (jf/gptel--log 'info "Applied preset template: %s" preset-template))
 
-          (jf/gptel--log 'info "Applied initial preset as template"))
+        ;; Enable gptel-mode AFTER applying preset (with duplicate prevention)
+        ;; This way gptel-mode will respect the buffer-local settings we just applied
+        (jf/gptel--ensure-mode-once)
 
-        (jf/gptel--log 'info "Created programming session: %s%s"
+        (jf/gptel--log 'info "Created session: %s%s"
                       session-id
                       (if selected-projects
                           (format " with %d project(s)" (length selected-projects))
                         ""))
-        (message "Created programming session: %s\nDirectory: %s%s\nModel: Claude Opus 4.5\nTools: Scoped filesystem + Projectile navigation\n\nNote: Preset applied once. After first save, gptel's Local Variables are source of truth."
-                session-name
-                session-dir
-                (if project-names
-                    (format "\nProjects: %s" (string-join project-names ", "))
-                  ""))
+        (message "Created session: %s\nDirectory: %s\nTemplate: %s%s\n\nPreset applied once. After first save, gptel's Local Variables are source of truth."
+                 session-name
+                 session-dir
+                 preset-template
+                 (if project-names
+                     (format "\nProjects: %s" (string-join project-names ", "))
+                   ""))
 
         buffer))))
 

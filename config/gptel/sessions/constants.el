@@ -18,6 +18,13 @@ metadata, tool logs, and branching information."
   :type 'directory
   :group 'gptel)
 
+(defcustom jf/gptel-presets-directory
+  (expand-file-name "config/gptel/presets/" jf/emacs-dir)
+  "Directory containing preset template files.
+Users can create custom presets by copying and editing template files."
+  :type 'directory
+  :group 'gptel)
+
 (defconst jf/gptel-session--metadata-file "metadata.json"
   "File name for session metadata.")
 
