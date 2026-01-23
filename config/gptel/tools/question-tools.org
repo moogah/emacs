@@ -48,11 +48,21 @@ The tool uses transient for the UI and stores state in ~transient-scope~. When t
 ;; (:questions (list ...)               ; Original questions from LLM
 ;;  :answers (hash-table)               ; ID → answer value mapping
 ;;  :comments (hash-table)              ; ID → comment string mapping
-;;  :callback (function)                ; Async callback
 ;;  :current-question "question-1")    ; Currently selected (for future nav features)
+;;
+;; NOTE: Callback is NOT stored in scope to avoid serialization issues.
+;;       It's stored in buffer-local variable jf/gptel-questions--callback
 #+end_src
 
 * Helper Functions
+
+** Callback Storage
+
+#+begin_src emacs-lisp
+(defvar-local jf/gptel-questions--callback nil
+  "Buffer-local storage for async tool callback.
+Stored outside transient scope to avoid serialization issues.")
+#+end_src
 
 ** Answer Storage and Retrieval
 
@@ -87,6 +97,104 @@ The tool uses transient for the UI and stores state in ~transient-scope~. When t
     (not (null answer))))
 #+end_src
 
+** Question Normalization
+
+#+begin_src emacs-lisp
+(defun jf/gptel-questions--normalize-question (question)
+  "Normalize QUESTION plist from LLM into expected Emacs format.
+Handles vector-to-list conversion and type coercion.
+Returns normalized question or signals error with clear message."
+  (let* ((id (plist-get question :id))
+         (type (plist-get question :type))
+         (prompt (plist-get question :prompt))
+         (description (plist-get question :description))
+         (required (plist-get question :required))
+         (default (plist-get question :default))
+         (choices-raw (plist-get question :choices))
+         (min (plist-get question :min))
+         (max (plist-get question :max)))
+
+    ;; Validate required fields
+    (unless id
+      (error "Question missing required field: :id"))
+    (unless type
+      (error "Question %s missing required field: :type" id))
+    (unless prompt
+      (error "Question %s missing required field: :prompt" id))
+
+    ;; Validate question type
+    (unless (member type '("multiple-choice" "yes-no" "text" "numeric"))
+      (error "Question %s has invalid type: %s (must be one of: multiple-choice, yes-no, text, numeric)" id type))
+
+    ;; Type-specific validation and normalization
+    (when (string= type "multiple-choice")
+      (unless choices-raw
+        (error "Question %s is multiple-choice but missing :choices field" id))
+
+      ;; Convert vector to list if needed
+      (let ((choices (if (vectorp choices-raw)
+                         (append choices-raw nil)
+                       choices-raw)))
+        (unless (and (listp choices) (> (length choices) 0))
+          (error "Question %s :choices must be non-empty array/list, got: %S" id choices-raw))
+
+        ;; Ensure all choices are strings
+        (setq choices (mapcar (lambda (c)
+                                (if (stringp c)
+                                    c
+                                  (format "%s" c)))
+                              choices))
+
+        ;; Update question with normalized choices
+        (setq question (plist-put question :choices choices))))
+
+    (when (string= type "numeric")
+      ;; Ensure min/max are numbers if provided
+      (when min
+        (unless (numberp min)
+          (error "Question %s :min must be a number, got: %S" id min)))
+      (when max
+        (unless (numberp max)
+          (error "Question %s :max must be a number, got: %S" id max))))
+
+    ;; Normalize required field to boolean
+    ;; Handle JSON false (represented as :json-false)
+    (let ((required-normalized
+           (cond
+            ((eq required :json-false) nil)
+            ((null required) t)  ; default to required
+            (t (not (null required))))))
+      (setq question (plist-put question :required required-normalized)))
+
+    ;; Ensure string fields are strings
+    (when description
+      (unless (stringp description)
+        (setq question (plist-put question :description (format "%s" description)))))
+    (when default
+      (unless (stringp default)
+        (setq question (plist-put question :default (format "%s" default)))))
+
+    question))
+
+(defun jf/gptel-questions--normalize-questions (questions)
+  "Normalize QUESTIONS array from LLM.
+Converts vectors to lists and validates each question.
+Returns list of normalized question plists."
+  ;; Convert top-level array
+  (let ((questions-list (if (vectorp questions)
+                            (append questions nil)
+                          questions)))
+
+    (unless (listp questions-list)
+      (error "Questions must be an array/list, got: %S" questions))
+
+    (when (= (length questions-list) 0)
+      (error "Questions array is empty"))
+
+    ;; Normalize each question
+    (mapcar #'jf/gptel-questions--normalize-question questions-list)))
+#+end_src
+
 ** Validation
 
 #+begin_src emacs-lisp
@@ -116,7 +224,9 @@ Returns (valid-p . error-message)."
 
 #+begin_src emacs-lisp
 (defun jf/gptel-questions--build-answer-list ()
-  "Build answer list from current state for callback."
+  "Build answer list from current state for callback.
+Returns JSON-encoded string for LLM consumption."
+  (require 'json)
   (let* ((scope (transient-scope))
          (questions (plist-get scope :questions))
          (answers-hash (plist-get scope :answers))
@@ -128,13 +238,15 @@ Returns (valid-p . error-message)."
              (answer (gethash id answers-hash))
              (comment (gethash id comments-hash))
              (skipped (null answer)))
-        (push (list :id id
-                   :answer (or answer "")
-                   :comment (or comment "")
-                   :skipped skipped)
+        ;; Use alist format for proper JSON encoding
+        (push `((id . ,id)
+                (answer . ,(or answer ""))
+                (comment . ,(or comment ""))
+                (skipped . ,skipped))
               answer-list)))
 
-    (nreverse answer-list)))
+    ;; Encode as JSON string for gptel tool result serialization
+    (json-encode (nreverse answer-list))))
 #+end_src
 
 ** Comment Management
@@ -217,15 +329,22 @@ Returns (valid-p . error-message)."
   (interactive)
   (let ((validation (jf/gptel-questions--validate-answers)))
     (if (car validation)
-        (let* ((scope (transient-scope))
-               (callback (plist-get scope :callback))
-               (answer-list (jf/gptel-questions--build-answer-list)))
+        ;; Build answer JSON from scope before quitting
+        (let* ((answer-json (jf/gptel-questions--build-answer-list))
+               (callback jf/gptel-questions--callback))
 
-          ;; Invoke callback
-          (funcall callback answer-list)
+          ;; Close transient to clean up scope
+          (transient-quit-one)
 
-          ;; Close transient
-          (transient-quit-one))
+          ;; Invoke callback directly - no delay needed
+          ;; The key fix is storing callback outside transient scope
+          (condition-case err
+              (progn
+                (message "Invoking callback with: %s" answer-json)
+                (funcall callback answer-json))
+            (error
+             (message "Error in callback: %s" (error-message-string err))
+             (message "Answer JSON was: %s" answer-json))))
 
       ;; Validation failed
       (message "%s" (cdr validation)))))
@@ -233,15 +352,22 @@ Returns (valid-p . error-message)."
 (defun jf/gptel-questions--cancel ()
   "Cancel and return partial answers to LLM."
   (interactive)
-  (let* ((scope (transient-scope))
-         (callback (plist-get scope :callback))
-         (answer-list (jf/gptel-questions--build-answer-list)))
+  ;; Build answer JSON from scope before quitting
+  (let* ((answer-json (jf/gptel-questions--build-answer-list))
+         (callback jf/gptel-questions--callback))
 
-    ;; Invoke callback with partial answers
-    (funcall callback answer-list)
+    ;; Close transient to clean up scope
+    (transient-quit-one)
 
-    ;; Close transient
-    (transient-quit-one)))
+    ;; Invoke callback directly - no delay needed
+    ;; The key fix is storing callback outside transient scope
+    (condition-case err
+        (progn
+          (message "Invoking callback (cancel) with: %s" answer-json)
+          (funcall callback answer-json))
+      (error
+       (message "Error in callback: %s" (error-message-string err))
+       (message "Answer JSON was: %s" answer-json)))))
 #+end_src
 
 * Custom Transient Classes
@@ -392,27 +518,49 @@ Uses single letters (a-z) for first 26, then two-letter combinations (aa-zz)."
 #+begin_src emacs-lisp
 (defun jf/gptel-questions--ask (callback questions)
   "Async tool function. Display questions UI and invoke CALLBACK with answers.
-QUESTIONS is array of question plists from LLM."
-  ;; Convert vector to list if needed (JSON arrays come as vectors)
-  (let* ((questions-list (if (vectorp questions)
-                             (append questions nil)
-                           questions))
-         (answers (make-hash-table :test 'equal))
-         (comments (make-hash-table :test 'equal)))
-    ;; Initialize hash tables
-    (dolist (q questions-list)
-      (puthash (plist-get q :id) nil answers)
-      (puthash (plist-get q :id) "" comments))
+QUESTIONS is array of question plists from LLM.
 
-    ;; Launch transient with scope
-    (transient-setup
-     'jf/gptel-questions-menu
-     nil nil
-     :scope (list :questions questions-list
-                  :answers answers
-                  :comments comments
-                  :callback callback
-                  :current-question (plist-get (car questions-list) :id)))))
+Normalizes and validates questions before displaying UI.
+Signals clear errors if questions are malformed."
+  (condition-case err
+      (let* (;; Normalize and validate questions
+             (questions-list (jf/gptel-questions--normalize-questions questions))
+             (answers (make-hash-table :test 'equal))
+             (comments (make-hash-table :test 'equal)))
+
+        ;; Initialize hash tables
+        (dolist (q questions-list)
+          (puthash (plist-get q :id) nil answers)
+          (puthash (plist-get q :id) "" comments))
+
+        ;; Store callback in buffer-local variable (NOT in transient scope)
+        ;; This avoids serialization issues when gptel tries to serialize state
+        (setq-local jf/gptel-questions--callback callback)
+
+        ;; Launch transient with scope (callback NOT included)
+        (transient-setup
+         'jf/gptel-questions-menu
+         nil nil
+         :scope (list :questions questions-list
+                      :answers answers
+                      :comments comments
+                      :current-question (plist-get (car questions-list) :id))))
+
+    ;; Handle errors gracefully - provide structured feedback to LLM
+    (error
+     (require 'json)
+     (let ((error-msg (error-message-string err)))
+       (message "Error in ask_questions tool: %s" error-msg)
+       (message "This is likely due to malformed question structure from LLM")
+       (message "Questions received: %S" questions)
+       ;; Return validation error to LLM as JSON string so it can correct the tool call
+       ;; Use alist format for proper JSON encoding
+       (funcall callback
+                (json-encode
+                 (list `((error . t)
+                        (error_type . "validation_error")
+                        (error_message . ,error-msg)
+                        (hint . "Check that all questions have required fields (:id, :type, :prompt), :type is valid (multiple-choice/yes-no/text/numeric), and multiple-choice questions include :choices array")))))))))
 #+end_src
 
 ** Tool Registration
@@ -481,7 +629,9 @@ These functions can be used to manually test the question tool.
   "Test basic functionality with text, yes-no, and multiple-choice."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Answers: %S" answers))
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json)
+     (message "Parsed: %S" (json-read-from-string answers-json)))
    '((:id "test1" :type "text" :prompt "Your name?" :required t)
      (:id "test2" :type "yes-no" :prompt "Proceed?")
      (:id "test3" :type "multiple-choice"
@@ -492,14 +642,16 @@ These functions can be used to manually test the question tool.
   "Test numeric validation with min/max."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Answers: %S" answers))
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
    '((:id "age" :type "numeric" :prompt "Age?" :min 0 :max 120 :required t))))
 
 (defun jf/gptel-questions-test-optional ()
   "Test optional fields with defaults."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Answers: %S" answers))
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
    '((:id "opt1" :type "text" :prompt "Optional field"
       :required nil :default "Default value"))))
 
@@ -507,7 +659,9 @@ These functions can be used to manually test the question tool.
   "Test with 15 questions to verify scrolling."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Got %d answers" (length answers)))
+   (lambda (answers-json)
+     (let ((answers (json-read-from-string answers-json)))
+       (message "Got %d answers" (length answers))))
    (cl-loop for i from 1 to 15
             collect (list :id (format "q%d" i)
                          :type "text"
@@ -518,15 +672,17 @@ These functions can be used to manually test the question tool.
   "Test with realistic planning scenario questions."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers)
-     (message "Planner received %d answers" (length answers))
-     (dolist (a answers)
-       (message "  %s: %s%s"
-                (plist-get a :id)
-                (plist-get a :answer)
-                (if (string-empty-p (plist-get a :comment))
-                    ""
-                  (format " [%s]" (plist-get a :comment))))))
+   (lambda (answers-json)
+     (let ((answers (json-read-from-string answers-json)))
+       (message "Planner received %d answers" (length answers))
+       (dolist (a answers)
+         (let-alist a
+           (message "  %s: %s%s"
+                    .id
+                    .answer
+                    (if (string-empty-p .comment)
+                        ""
+                      (format " [%s]" .comment)))))))
    '((:id "primary_goal"
       :type "multiple-choice"
       :prompt "What is your primary goal for this feature?"
@@ -550,6 +706,302 @@ These functions can be used to manually test the question tool.
       :max 10
       :default "5"
       :required nil))))
+#+end_src
+
+** Robustness Tests
+
+#+begin_src emacs-lisp
+(defun jf/gptel-questions-test-vector-choices ()
+  "Test that vector choices (from LLM JSON) work correctly."
+  (interactive)
+  (jf/gptel-questions--ask
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
+   ;; Simulate JSON array as vector
+   [(:id "test1" :type "multiple-choice"
+     :prompt "Choose option"
+     :choices ["Option A" "Option B" "Option C"]  ; Vector, not list
+     :required t)]))
+
+(defun jf/gptel-questions-test-json-false ()
+  "Test that :json-false for required field works correctly."
+  (interactive)
+  (jf/gptel-questions--ask
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
+   [(:id "test1" :type "text"
+     :prompt "Optional field"
+     :required :json-false)]))  ; JSON false becomes :json-false
+
+(defun jf/gptel-questions-test-malformed ()
+  "Test error handling for malformed questions."
+  (interactive)
+  ;; Missing :id
+  (condition-case err
+      (jf/gptel-questions--ask
+       (lambda (answers) (message "Should not reach here"))
+       [(:type "text" :prompt "No ID")])
+    (error (message "Correctly caught error: %s" (error-message-string err))))
+
+  ;; Missing :type
+  (condition-case err
+      (jf/gptel-questions--ask
+       (lambda (answers) (message "Should not reach here"))
+       [(:id "test" :prompt "No type")])
+    (error (message "Correctly caught error: %s" (error-message-string err))))
+
+  ;; Multiple-choice without choices
+  (condition-case err
+      (jf/gptel-questions--ask
+       (lambda (answers) (message "Should not reach here"))
+       [(:id "test" :type "multiple-choice" :prompt "No choices")])
+    (error (message "Correctly caught error: %s" (error-message-string err)))))
+
+(defun jf/gptel-questions-test-type-coercion ()
+  "Test that non-string values get coerced to strings."
+  (interactive)
+  (jf/gptel-questions--ask
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
+   [(:id "test1" :type "multiple-choice"
+     :prompt "Choose number"
+     :choices [1 2 3]  ; Numbers, should be coerced to strings
+     :required t)
+    (:id "test2" :type "text"
+     :prompt "Text field"
+     :default 42)]))  ; Number default, should be coerced
+
+(defun jf/gptel-questions-test-error-feedback ()
+  "Test that validation errors are returned to LLM callback in structured format."
+  (interactive)
+  ;; This simulates what the LLM would receive when providing malformed questions
+  (jf/gptel-questions--ask
+   (lambda (result-json)
+     (let ((result (json-read-from-string result-json)))
+       (if (alist-get 'error (elt result 0))
+           (let-alist (elt result 0)
+             (message "LLM received validation error:")
+             (message "  Error type: %s" .error_type)
+             (message "  Error message: %s" .error_message)
+             (message "  Hint: %s" .hint))
+         (message "LLM received valid answers: %S" result))))
+   ;; Invalid question: missing :type field
+   [(:id "test" :prompt "Question without type field")]))
+#+end_src
+
+* Implementation Notes and Known Issues
+
+** Background
+
+This async gptel tool uses transient for UI and must integrate with gptel's FSM (finite state machine) for tool execution. The implementation faced several challenges due to the interaction between transient's scope management and gptel's request serialization.
+
+** Challenge 1: Data Structure Serialization
+
+*** Problem
+When returning tool results to the LLM, gptel serializes the request context (including tool results) to send to the API. Initial implementations encountered errors:
+
+#+begin_example
+(wrong-type-argument symbolp "User documentation (how-to guides, tutorials)")
+#+end_example
+
+*** Root Cause
+Emacs ~json-encode~ doesn't handle plists correctly - it treats them as flat arrays instead of objects:
+
+#+begin_src emacs-lisp
+;; This plist:
+'(:id "test" :answer "foo")
+
+;; Gets encoded as:
+{"id": ["test", "answer", "foo"]}  ; Wrong!
+
+;; Instead of:
+{"id": "test", "answer": "foo"}    ; Correct
+#+end_src
+
+*** Solution
+Convert to alists before JSON encoding:
+
+#+begin_src emacs-lisp
+;; Use alist format for proper JSON encoding
+`((id . ,id)
+  (answer . ,(or answer ""))
+  (comment . ,(or comment ""))
+  (skipped . ,skipped))
+#+end_src
+
+** Challenge 2: Callback in Transient Scope
+
+*** Problem
+Initially stored the callback function in the transient scope:
+
+#+begin_src emacs-lisp
+:scope (list :questions questions-list
+             :answers answers
+             :comments comments
+             :callback callback)  ; PROBLEM: callback in scope
+#+end_src
+
+This caused serialization errors because when gptel tried to serialize the request context after the tool completed, it encountered the transient scope data (including question choices, hash tables, etc.) embedded in the callback's closure.
+
+Error: ~(wrong-type-argument symbolp "Code implementation or refactoring")~
+
+*** Root Cause
+The callback is a closure that captures gptel's request context. When we stored it in the transient scope, we created a circular reference or unexpected data structure that gptel's serialization couldn't handle. Specifically:
+
+1. Callback captures gptel request info (including buffer, position, data)
+2. We stored callback in transient scope
+3. Transient scope contains all our UI data (questions with choice arrays, hash tables)
+4. When tool completes, gptel tries to serialize context to send results back
+5. Serialization encounters transient scope data where it expects simple values
+
+*** Solution
+Store callback in buffer-local variable **outside** transient scope:
+
+#+begin_src emacs-lisp
+;; Store callback separately
+(setq-local jf/gptel-questions--callback callback)
+
+;; Don't include in scope
+:scope (list :questions questions-list
+             :answers answers
+             :comments comments)  ; callback NOT here
+#+end_src
+
+** Challenge 3: Callback Invocation Timing
+
+*** Problem
+After fixing serialization, tool results appeared in buffer but LLM didn't respond:
+
+#+begin_example
+[{"id":"coding_philosophy","answer":"Take a break...","skipped":null}]
+
+# Conversation ends here - no LLM response
+#+end_example
+
+*** Investigation
+Tried multiple approaches to callback invocation timing:
+
+1. **Call immediately after quit** - Current approach, still not working
+2. **Call with timer delay** - Caused variable scoping issues, lost tool output display
+3. **Call with buffer context switching** - Same issues as timer approach
+
+*** Current Status
+The callback is being invoked (we can see tool output in buffer), but gptel's FSM is not continuing to send results back to LLM and get final response.
+
+*** Hypotheses for FSM Not Continuing
+
+**** H1: Transient Command Context
+Callback might need to execute outside the transient command's interactive context. The ~transient-quit-one~ may not be sufficient cleanup before callback invocation.
+
+**** H2: Buffer Context
+Callback might need to execute in the original gptel session buffer context, not from within the transient command's execution context.
+
+**** H3: FSM State Issue
+The FSM might be in an unexpected state after the async tool completes. Comparing with persistent-agent tool (which works), that tool's callback is invoked from within gptel's own callback infrastructure, not from a user command.
+
+**** H4: Missing FSM Signals
+The callback might need to trigger specific FSM transitions or signals that we're not providing. The persistent-agent tool's dual-duty callback both inserts to buffer AND accumulates for return - we might be missing a step.
+
+** Comparison with Working Async Tools
+
+*** persistent-agent Tool (WORKING)
+
+#+begin_src emacs-lisp
+;; In persistent-agent tool:
+(gptel-request nil
+  :callback
+  (lambda (resp info &optional raw)
+    ;; ... process response ...
+    (unless (plist-get info :tool-use)
+      ;; Call main-cb when done
+      (funcall main-cb partial))))
+#+end_src
+
+Key differences:
+- Callback is invoked FROM WITHIN gptel's response handler
+- Not invoked from user command context
+- Buffer context is managed by gptel-request
+
+*** ask_questions Tool (NOT WORKING)
+
+#+begin_src emacs-lisp
+;; In ask_questions tool:
+(defun jf/gptel-questions--submit ()
+  (interactive)  ; <- User command context
+  ;; ... build result ...
+  (transient-quit-one)
+  (funcall callback answer-json))  ; <- Called from user command
+#+end_src
+
+Key differences:
+- Callback invoked from user interactive command
+- After transient UI cleanup
+- Not within gptel's callback infrastructure
+
+** Potential Solutions to Investigate
+
+*** Option 1: Defer Callback to Idle Timer
+Instead of calling immediately after quit, defer to next idle time:
+
+#+begin_src emacs-lisp
+(run-with-idle-timer 0.1 nil
+  (lambda ()
+    (funcall callback answer-json)))
+#+end_src
+
+This ensures we're completely outside transient's command context.
+
+*** Option 2: Use gptel's Callback Infrastructure
+Store the result and have gptel poll/check for completion, similar to how it handles other async operations.
+
+*** Option 3: Invoke from Post-Command Hook
+Register a one-time post-command hook that invokes the callback after the transient command fully completes:
+
+#+begin_src emacs-lisp
+(let ((hook-fn (lambda ()
+                 (funcall callback answer-json)
+                 (remove-hook 'post-command-hook hook-fn))))
+  (add-hook 'post-command-hook hook-fn))
+#+end_src
+
+*** Option 4: Study gptel's Tool Execution Context
+Need to understand exactly what context gptel expects when async tool callback is invoked:
+- What buffer should be current?
+- What FSM state should exist?
+- What info plist fields are needed?
+- Are there specific signals or transitions we need to trigger?
+
+** Questions for Further Investigation
+
+1. Does the callback need to be invoked in the gptel buffer that initiated the tool call?
+2. Is there FSM state that gets corrupted/lost when we invoke from transient command context?
+3. Do we need to manually trigger ~(gptel--fsm-transition fsm)~ or similar?
+4. Should we store the FSM instance itself and interact with it directly?
+5. What does gptel's log buffer show when this happens? (Enable ~gptel-log-level 'debug~)
+
+** Current Workaround
+
+None - feature is not functional. Tool UI works perfectly, JSON encoding works, but conversation doesn't continue after tool results are submitted.
+
+** Files to Study
+
+- =gptel-request.el:1679-1747= - ~gptel--handle-tool-use~ (how gptel executes async tools)
+- =gptel-request.el:1564-1582= - FSM transition table
+- =config/gptel/tools/persistent-agent.el= - Working async tool implementation
+
+** Debug Commands for Next Session
+
+#+begin_src emacs-lisp
+;; Enable gptel debug logging
+(setq gptel-log-level 'debug)
+
+;; Check FSM state in gptel buffer
+;; (examine buffer-local variables after tool completes)
+
+;; Trace callback invocation
+(trace-function 'jf/gptel-questions--callback)
+
+;; Compare working vs non-working tool execution in *gptel-log*
 #+end_src
 
 * Provide Feature

@@ -19,8 +19,14 @@
 ;; (:questions (list ...)               ; Original questions from LLM
 ;;  :answers (hash-table)               ; ID → answer value mapping
 ;;  :comments (hash-table)              ; ID → comment string mapping
-;;  :callback (function)                ; Async callback
 ;;  :current-question "question-1")    ; Currently selected (for future nav features)
+;;
+;; NOTE: Callback is NOT stored in scope to avoid serialization issues.
+;;       It's stored in buffer-local variable jf/gptel-questions--callback
+
+(defvar-local jf/gptel-questions--callback nil
+  "Buffer-local storage for async tool callback.
+Stored outside transient scope to avoid serialization issues.")
 
 (defun jf/gptel-questions--answer-question (question-id answer)
   "Store ANSWER for QUESTION-ID in current scope."
@@ -51,6 +57,100 @@
   (let ((answer (jf/gptel-questions--get-answer question-id)))
     (not (null answer))))
 
+(defun jf/gptel-questions--normalize-question (question)
+  "Normalize QUESTION plist from LLM into expected Emacs format.
+Handles vector-to-list conversion and type coercion.
+Returns normalized question or signals error with clear message."
+  (let* ((id (plist-get question :id))
+         (type (plist-get question :type))
+         (prompt (plist-get question :prompt))
+         (description (plist-get question :description))
+         (required (plist-get question :required))
+         (default (plist-get question :default))
+         (choices-raw (plist-get question :choices))
+         (min (plist-get question :min))
+         (max (plist-get question :max)))
+
+    ;; Validate required fields
+    (unless id
+      (error "Question missing required field: :id"))
+    (unless type
+      (error "Question %s missing required field: :type" id))
+    (unless prompt
+      (error "Question %s missing required field: :prompt" id))
+
+    ;; Validate question type
+    (unless (member type '("multiple-choice" "yes-no" "text" "numeric"))
+      (error "Question %s has invalid type: %s (must be one of: multiple-choice, yes-no, text, numeric)" id type))
+
+    ;; Type-specific validation and normalization
+    (when (string= type "multiple-choice")
+      (unless choices-raw
+        (error "Question %s is multiple-choice but missing :choices field" id))
+
+      ;; Convert vector to list if needed
+      (let ((choices (if (vectorp choices-raw)
+                         (append choices-raw nil)
+                       choices-raw)))
+        (unless (and (listp choices) (> (length choices) 0))
+          (error "Question %s :choices must be non-empty array/list, got: %S" id choices-raw))
+
+        ;; Ensure all choices are strings
+        (setq choices (mapcar (lambda (c)
+                                (if (stringp c)
+                                    c
+                                  (format "%s" c)))
+                              choices))
+
+        ;; Update question with normalized choices
+        (setq question (plist-put question :choices choices))))
+
+    (when (string= type "numeric")
+      ;; Ensure min/max are numbers if provided
+      (when min
+        (unless (numberp min)
+          (error "Question %s :min must be a number, got: %S" id min)))
+      (when max
+        (unless (numberp max)
+          (error "Question %s :max must be a number, got: %S" id max))))
+
+    ;; Normalize required field to boolean
+    ;; Handle JSON false (represented as :json-false)
+    (let ((required-normalized
+           (cond
+            ((eq required :json-false) nil)
+            ((null required) t)  ; default to required
+            (t (not (null required))))))
+      (setq question (plist-put question :required required-normalized)))
+
+    ;; Ensure string fields are strings
+    (when description
+      (unless (stringp description)
+        (setq question (plist-put question :description (format "%s" description)))))
+    (when default
+      (unless (stringp default)
+        (setq question (plist-put question :default (format "%s" default)))))
+
+    question))
+
+(defun jf/gptel-questions--normalize-questions (questions)
+  "Normalize QUESTIONS array from LLM.
+Converts vectors to lists and validates each question.
+Returns list of normalized question plists."
+  ;; Convert top-level array
+  (let ((questions-list (if (vectorp questions)
+                            (append questions nil)
+                          questions)))
+
+    (unless (listp questions-list)
+      (error "Questions must be an array/list, got: %S" questions))
+
+    (when (= (length questions-list) 0)
+      (error "Questions array is empty"))
+
+    ;; Normalize each question
+    (mapcar #'jf/gptel-questions--normalize-question questions-list)))
+
 (defun jf/gptel-questions--validate-answers ()
   "Check if all required questions are answered.
 Returns (valid-p . error-message)."
@@ -73,7 +173,9 @@ Returns (valid-p . error-message)."
       (cons t nil))))
 
 (defun jf/gptel-questions--build-answer-list ()
-  "Build answer list from current state for callback."
+  "Build answer list from current state for callback.
+Returns JSON-encoded string for LLM consumption."
+  (require 'json)
   (let* ((scope (transient-scope))
          (questions (plist-get scope :questions))
          (answers-hash (plist-get scope :answers))
@@ -85,13 +187,15 @@ Returns (valid-p . error-message)."
              (answer (gethash id answers-hash))
              (comment (gethash id comments-hash))
              (skipped (null answer)))
-        (push (list :id id
-                   :answer (or answer "")
-                   :comment (or comment "")
-                   :skipped skipped)
+        ;; Use alist format for proper JSON encoding
+        (push `((id . ,id)
+                (answer . ,(or answer ""))
+                (comment . ,(or comment ""))
+                (skipped . ,skipped))
               answer-list)))
 
-    (nreverse answer-list)))
+    ;; Encode as JSON string for gptel tool result serialization
+    (json-encode (nreverse answer-list))))
 
 (defun jf/gptel-questions--add-or-edit-comment ()
   "Interactively select a question and add/edit its comment."
@@ -162,15 +266,22 @@ Returns (valid-p . error-message)."
   (interactive)
   (let ((validation (jf/gptel-questions--validate-answers)))
     (if (car validation)
-        (let* ((scope (transient-scope))
-               (callback (plist-get scope :callback))
-               (answer-list (jf/gptel-questions--build-answer-list)))
+        ;; Build answer JSON from scope before quitting
+        (let* ((answer-json (jf/gptel-questions--build-answer-list))
+               (callback jf/gptel-questions--callback))
 
-          ;; Invoke callback
-          (funcall callback answer-list)
+          ;; Close transient to clean up scope
+          (transient-quit-one)
 
-          ;; Close transient
-          (transient-quit-one))
+          ;; Invoke callback directly - no delay needed
+          ;; The key fix is storing callback outside transient scope
+          (condition-case err
+              (progn
+                (message "Invoking callback with: %s" answer-json)
+                (funcall callback answer-json))
+            (error
+             (message "Error in callback: %s" (error-message-string err))
+             (message "Answer JSON was: %s" answer-json))))
 
       ;; Validation failed
       (message "%s" (cdr validation)))))
@@ -178,15 +289,22 @@ Returns (valid-p . error-message)."
 (defun jf/gptel-questions--cancel ()
   "Cancel and return partial answers to LLM."
   (interactive)
-  (let* ((scope (transient-scope))
-         (callback (plist-get scope :callback))
-         (answer-list (jf/gptel-questions--build-answer-list)))
+  ;; Build answer JSON from scope before quitting
+  (let* ((answer-json (jf/gptel-questions--build-answer-list))
+         (callback jf/gptel-questions--callback))
 
-    ;; Invoke callback with partial answers
-    (funcall callback answer-list)
+    ;; Close transient to clean up scope
+    (transient-quit-one)
 
-    ;; Close transient
-    (transient-quit-one)))
+    ;; Invoke callback directly - no delay needed
+    ;; The key fix is storing callback outside transient scope
+    (condition-case err
+        (progn
+          (message "Invoking callback (cancel) with: %s" answer-json)
+          (funcall callback answer-json))
+      (error
+       (message "Error in callback: %s" (error-message-string err))
+       (message "Answer JSON was: %s" answer-json)))))
 
 (defclass jf/gptel-question-infix (transient-infix)
   ((question :initarg :question))
@@ -299,27 +417,49 @@ Uses single letters (a-z) for first 26, then two-letter combinations (aa-zz)."
 
 (defun jf/gptel-questions--ask (callback questions)
   "Async tool function. Display questions UI and invoke CALLBACK with answers.
-QUESTIONS is array of question plists from LLM."
-  ;; Convert vector to list if needed (JSON arrays come as vectors)
-  (let* ((questions-list (if (vectorp questions)
-                             (append questions nil)
-                           questions))
-         (answers (make-hash-table :test 'equal))
-         (comments (make-hash-table :test 'equal)))
-    ;; Initialize hash tables
-    (dolist (q questions-list)
-      (puthash (plist-get q :id) nil answers)
-      (puthash (plist-get q :id) "" comments))
+QUESTIONS is array of question plists from LLM.
 
-    ;; Launch transient with scope
-    (transient-setup
-     'jf/gptel-questions-menu
-     nil nil
-     :scope (list :questions questions-list
-                  :answers answers
-                  :comments comments
-                  :callback callback
-                  :current-question (plist-get (car questions-list) :id)))))
+Normalizes and validates questions before displaying UI.
+Signals clear errors if questions are malformed."
+  (condition-case err
+      (let* (;; Normalize and validate questions
+             (questions-list (jf/gptel-questions--normalize-questions questions))
+             (answers (make-hash-table :test 'equal))
+             (comments (make-hash-table :test 'equal)))
+
+        ;; Initialize hash tables
+        (dolist (q questions-list)
+          (puthash (plist-get q :id) nil answers)
+          (puthash (plist-get q :id) "" comments))
+
+        ;; Store callback in buffer-local variable (NOT in transient scope)
+        ;; This avoids serialization issues when gptel tries to serialize state
+        (setq-local jf/gptel-questions--callback callback)
+
+        ;; Launch transient with scope (callback NOT included)
+        (transient-setup
+         'jf/gptel-questions-menu
+         nil nil
+         :scope (list :questions questions-list
+                      :answers answers
+                      :comments comments
+                      :current-question (plist-get (car questions-list) :id))))
+
+    ;; Handle errors gracefully - provide structured feedback to LLM
+    (error
+     (require 'json)
+     (let ((error-msg (error-message-string err)))
+       (message "Error in ask_questions tool: %s" error-msg)
+       (message "This is likely due to malformed question structure from LLM")
+       (message "Questions received: %S" questions)
+       ;; Return validation error to LLM as JSON string so it can correct the tool call
+       ;; Use alist format for proper JSON encoding
+       (funcall callback
+                (json-encode
+                 (list `((error . t)
+                        (error_type . "validation_error")
+                        (error_message . ,error-msg)
+                        (hint . "Check that all questions have required fields (:id, :type, :prompt), :type is valid (multiple-choice/yes-no/text/numeric), and multiple-choice questions include :choices array")))))))))
 
 (gptel-make-tool
  :name "ask_questions"
@@ -376,7 +516,9 @@ For example, ask about goals, constraints, preferences, or technical choices."
   "Test basic functionality with text, yes-no, and multiple-choice."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Answers: %S" answers))
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json)
+     (message "Parsed: %S" (json-read-from-string answers-json)))
    '((:id "test1" :type "text" :prompt "Your name?" :required t)
      (:id "test2" :type "yes-no" :prompt "Proceed?")
      (:id "test3" :type "multiple-choice"
@@ -387,14 +529,16 @@ For example, ask about goals, constraints, preferences, or technical choices."
   "Test numeric validation with min/max."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Answers: %S" answers))
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
    '((:id "age" :type "numeric" :prompt "Age?" :min 0 :max 120 :required t))))
 
 (defun jf/gptel-questions-test-optional ()
   "Test optional fields with defaults."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Answers: %S" answers))
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
    '((:id "opt1" :type "text" :prompt "Optional field"
       :required nil :default "Default value"))))
 
@@ -402,7 +546,9 @@ For example, ask about goals, constraints, preferences, or technical choices."
   "Test with 15 questions to verify scrolling."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers) (message "Got %d answers" (length answers)))
+   (lambda (answers-json)
+     (let ((answers (json-read-from-string answers-json)))
+       (message "Got %d answers" (length answers))))
    (cl-loop for i from 1 to 15
             collect (list :id (format "q%d" i)
                          :type "text"
@@ -413,15 +559,17 @@ For example, ask about goals, constraints, preferences, or technical choices."
   "Test with realistic planning scenario questions."
   (interactive)
   (jf/gptel-questions--ask
-   (lambda (answers)
-     (message "Planner received %d answers" (length answers))
-     (dolist (a answers)
-       (message "  %s: %s%s"
-                (plist-get a :id)
-                (plist-get a :answer)
-                (if (string-empty-p (plist-get a :comment))
-                    ""
-                  (format " [%s]" (plist-get a :comment))))))
+   (lambda (answers-json)
+     (let ((answers (json-read-from-string answers-json)))
+       (message "Planner received %d answers" (length answers))
+       (dolist (a answers)
+         (let-alist a
+           (message "  %s: %s%s"
+                    .id
+                    .answer
+                    (if (string-empty-p .comment)
+                        ""
+                      (format " [%s]" .comment)))))))
    '((:id "primary_goal"
       :type "multiple-choice"
       :prompt "What is your primary goal for this feature?"
@@ -445,5 +593,146 @@ For example, ask about goals, constraints, preferences, or technical choices."
       :max 10
       :default "5"
       :required nil))))
+
+(defun jf/gptel-questions-test-vector-choices ()
+  "Test that vector choices (from LLM JSON) work correctly."
+  (interactive)
+  (jf/gptel-questions--ask
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
+   ;; Simulate JSON array as vector
+   [(:id "test1" :type "multiple-choice"
+     :prompt "Choose option"
+     :choices ["Option A" "Option B" "Option C"]  ; Vector, not list
+     :required t)]))
+
+(defun jf/gptel-questions-test-json-false ()
+  "Test that :json-false for required field works correctly."
+  (interactive)
+  (jf/gptel-questions--ask
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
+   [(:id "test1" :type "text"
+     :prompt "Optional field"
+     :required :json-false)]))  ; JSON false becomes :json-false
+
+(defun jf/gptel-questions-test-malformed ()
+  "Test error handling for malformed questions."
+  (interactive)
+  ;; Missing :id
+  (condition-case err
+      (jf/gptel-questions--ask
+       (lambda (answers) (message "Should not reach here"))
+       [(:type "text" :prompt "No ID")])
+    (error (message "Correctly caught error: %s" (error-message-string err))))
+
+  ;; Missing :type
+  (condition-case err
+      (jf/gptel-questions--ask
+       (lambda (answers) (message "Should not reach here"))
+       [(:id "test" :prompt "No type")])
+    (error (message "Correctly caught error: %s" (error-message-string err))))
+
+  ;; Multiple-choice without choices
+  (condition-case err
+      (jf/gptel-questions--ask
+       (lambda (answers) (message "Should not reach here"))
+       [(:id "test" :type "multiple-choice" :prompt "No choices")])
+    (error (message "Correctly caught error: %s" (error-message-string err)))))
+
+(defun jf/gptel-questions-test-type-coercion ()
+  "Test that non-string values get coerced to strings."
+  (interactive)
+  (jf/gptel-questions--ask
+   (lambda (answers-json)
+     (message "Answers JSON: %s" answers-json))
+   [(:id "test1" :type "multiple-choice"
+     :prompt "Choose number"
+     :choices [1 2 3]  ; Numbers, should be coerced to strings
+     :required t)
+    (:id "test2" :type "text"
+     :prompt "Text field"
+     :default 42)]))  ; Number default, should be coerced
+
+(defun jf/gptel-questions-test-error-feedback ()
+  "Test that validation errors are returned to LLM callback in structured format."
+  (interactive)
+  ;; This simulates what the LLM would receive when providing malformed questions
+  (jf/gptel-questions--ask
+   (lambda (result-json)
+     (let ((result (json-read-from-string result-json)))
+       (if (alist-get 'error (elt result 0))
+           (let-alist (elt result 0)
+             (message "LLM received validation error:")
+             (message "  Error type: %s" .error_type)
+             (message "  Error message: %s" .error_message)
+             (message "  Hint: %s" .hint))
+         (message "LLM received valid answers: %S" result))))
+   ;; Invalid question: missing :type field
+   [(:id "test" :prompt "Question without type field")]))
+
+;; This plist:
+'(:id "test" :answer "foo")
+
+;; Gets encoded as:
+{"id": ["test", "answer", "foo"]}  ; Wrong!
+
+;; Instead of:
+{"id": "test", "answer": "foo"}    ; Correct
+
+;; Use alist format for proper JSON encoding
+`((id . ,id)
+  (answer . ,(or answer ""))
+  (comment . ,(or comment ""))
+  (skipped . ,skipped))
+
+:scope (list :questions questions-list
+             :answers answers
+             :comments comments
+             :callback callback)  ; PROBLEM: callback in scope
+
+;; Store callback separately
+(setq-local jf/gptel-questions--callback callback)
+
+;; Don't include in scope
+:scope (list :questions questions-list
+             :answers answers
+             :comments comments)  ; callback NOT here
+
+;; In persistent-agent tool:
+(gptel-request nil
+  :callback
+  (lambda (resp info &optional raw)
+    ;; ... process response ...
+    (unless (plist-get info :tool-use)
+      ;; Call main-cb when done
+      (funcall main-cb partial))))
+
+;; In ask_questions tool:
+(defun jf/gptel-questions--submit ()
+  (interactive)  ; <- User command context
+  ;; ... build result ...
+  (transient-quit-one)
+  (funcall callback answer-json))  ; <- Called from user command
+
+(run-with-idle-timer 0.1 nil
+  (lambda ()
+    (funcall callback answer-json)))
+
+(let ((hook-fn (lambda ()
+                 (funcall callback answer-json)
+                 (remove-hook 'post-command-hook hook-fn))))
+  (add-hook 'post-command-hook hook-fn))
+
+;; Enable gptel debug logging
+(setq gptel-log-level 'debug)
+
+;; Check FSM state in gptel buffer
+;; (examine buffer-local variables after tool completes)
+
+;; Trace callback invocation
+(trace-function 'jf/gptel-questions--callback)
+
+;; Compare working vs non-working tool execution in *gptel-log*
 
 (provide 'jf/gptel-questions)
