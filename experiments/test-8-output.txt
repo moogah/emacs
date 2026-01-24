@@ -1,0 +1,15 @@
+=== TEST 8: Argument Handling ===
+Testing plain strings (not CLI-style) as infix arguments...
+✓ Created infix with plain string argument
+Argument slot value: "plain-id-1"
+Argument type: string
+✓ Argument stored correctly as string
+
+Testing suffix parsing with plain string arguments...
+✓ Parsed 1 suffix(es)
+
+Parsed suffix argument:
+  Value: "plain-id-1"
+  Type: string
+✓ TEST 8 PASSED: Plain string arguments work correctly
+=== TEST 8 COMPLETE ===
