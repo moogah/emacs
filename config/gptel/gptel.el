@@ -88,6 +88,7 @@
   (jf/load-module (expand-file-name "config/gptel/tools/sql-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
   (jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
+  (jf/load-module (expand-file-name "config/gptel/tools/transient-tools.el" jf/emacs-dir))
   ;; Note: persistent-agent.el loaded later after session modules
 
   ;; Scan and register agents from all configured directories

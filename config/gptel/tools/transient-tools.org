@@ -1,0 +1,177 @@
+#+title: GPTEL Transient Tools
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle transient-tools.el
+#+auto_tangle: y
+
+* Introduction
+
+Demonstration of async gptel tools that use transient menus for user interaction.
+
+This module implements a minimal proof-of-concept showing how to:
+1. Accept async callback from gptel tool system
+2. Open a transient menu (which switches buffer/window context)
+3. Capture user selection from transient suffix commands
+4. Invoke the callback with the result to continue the FSM
+
+** Architecture Notes
+
+Key challenge: Transient menus open in a new buffer (*transient*) with focus switched away
+from the gptel buffer. The async callback must remain accessible when the user makes a
+selection in the transient context.
+
+Solution: Store callback in global variable that suffix commands can access. This works
+because Emacs is single-threaded (no race conditions).
+
+Future enhancements:
+- Use transient :scope for callback storage (cleaner, supports multiple concurrent calls)
+- Add C-g cleanup via transient-exit-hook
+- Support dynamic options passed from LLM
+
+* Basic Configuration
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Callback Storage
+
+Global variable to hold the async callback while transient menu is active.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-transient-choice-callback nil
+  "Callback for the transient choice tool.
+Set when tool is invoked, cleared after selection is made.")
+#+end_src
+
+* Selection Handler
+
+Centralized function to invoke callback and cleanup state.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-transient-choice--handle-selection (choice)
+  "Handle user selection from transient menu.
+CHOICE is the string value to return to the LLM.
+Invokes the stored callback and clears it to prevent double-invocation."
+  (when jf/gptel-transient-choice-callback
+    (funcall jf/gptel-transient-choice-callback choice)
+    (setq jf/gptel-transient-choice-callback nil)))
+#+end_src
+
+* Transient Suffix Commands
+
+Each option in the menu is a suffix command that calls the selection handler.
+
+#+begin_src emacs-lisp
+(transient-define-suffix jf/gptel-transient-choice--select-option-a ()
+  "Select option A."
+  :transient nil  ; Exit menu after execution
+  (interactive)
+  (jf/gptel-transient-choice--handle-selection "Option A"))
+
+(transient-define-suffix jf/gptel-transient-choice--select-option-b ()
+  "Select option B."
+  :transient nil
+  (interactive)
+  (jf/gptel-transient-choice--handle-selection "Option B"))
+
+(transient-define-suffix jf/gptel-transient-choice--cancel ()
+  "Cancel the selection."
+  :transient nil
+  (interactive)
+  (jf/gptel-transient-choice--handle-selection "Cancelled"))
+#+end_src
+
+* Transient Menu Definition
+
+The main transient prefix that displays the menu.
+
+#+begin_src emacs-lisp
+(transient-define-prefix jf/gptel-transient-choice-menu ()
+  "Simple choice menu for gptel tool demonstration."
+  ["Choose an option"
+   ("a" "Option A" jf/gptel-transient-choice--select-option-a)
+   ("b" "Option B" jf/gptel-transient-choice--select-option-b)
+   ("q" "Cancel" jf/gptel-transient-choice--cancel)])
+#+end_src
+
+* Async Tool Function
+
+The function registered with gptel-make-tool. Takes callback as first parameter
+per async tool contract.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-transient-choice-tool (callback)
+  "Async tool that presents a transient menu for user selection.
+CALLBACK is called with the user's choice when they select an option.
+
+This is an async tool - it returns immediately after opening the menu.
+The callback will be invoked later when the user makes a selection."
+  ;; Store callback for suffix commands to access
+  (setq jf/gptel-transient-choice-callback callback)
+  ;; Open transient menu (returns immediately, menu stays open)
+  (jf/gptel-transient-choice-menu))
+#+end_src
+
+* Tool Registration
+
+Register the tool with gptel's tool system.
+
+#+begin_src emacs-lisp
+(gptel-make-tool
+ :name "transient_choice"
+ :function #'jf/gptel-transient-choice-tool
+ :description "Present a simple menu to the user with two options (A or B). This is an interactive tool that requires user input. Returns the user's selection as a string: 'Option A', 'Option B', or 'Cancelled' if they quit."
+ :args nil  ; No arguments for this minimal example
+ :category "demo"
+ :async t
+ :confirm nil)
+#+end_src
+
+* Known Limitations
+
+** No C-g Cleanup
+
+If the user cancels the transient with C-g without selecting an option, the callback
+is never called and the FSM may hang. This can be fixed by adding a cleanup function
+via transient-exit-hook (enhancement for production use).
+
+** Single Concurrent Invocation
+
+The global variable only supports one active tool call at a time. If the LLM calls
+the tool twice before the first completes, the second call will clobber the first
+callback. This can be fixed by using a hash table keyed by unique IDs.
+
+** Static Options
+
+Menu options are hardcoded. Future iterations should accept options as arguments
+from the LLM to make this a practical tool.
+
+* Testing
+
+To test this tool:
+
+1. Enable tools in gptel:
+   #+begin_example
+   (setq gptel-use-tools t)
+   (setq gptel-tools '("transient_choice"))
+   #+end_example
+
+2. Ask the LLM to use it:
+   #+begin_example
+   "Please use the transient_choice tool to ask me which option I prefer."
+   #+end_example
+
+3. Expected behavior:
+   - LLM calls the tool
+   - Transient menu opens with options
+   - User presses 'a', 'b', or 'q'
+   - Menu closes
+   - Result is sent to LLM
+   - LLM responds incorporating the choice
+
+* Provide Statement
+
+#+begin_src emacs-lisp
+(provide 'transient-tools)
+;;; transient-tools.el ends here
+#+end_src
