@@ -141,10 +141,10 @@ Steps to fix:
    hostname
    
    # Create a machine-specific config
-   mkdir -p ~/src/dotfiles/emacs/local
+   mkdir -p ~/emacs/config/local
    #+end_src
    
-   Then create a file in ~/src/dotfiles/emacs/local/[HOSTNAME].el with:
+   Then create a file in ~/emacs/config/local/[HOSTNAME].el with:
    
    For public key encryption:
    #+begin_src emacs-lisp :tangle no

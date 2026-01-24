@@ -86,11 +86,11 @@
 
 ;; Function to refresh agenda files - recursively find all .org files in multiple directories
 (defun jf/refresh-org-agenda-files ()
-  "Refresh org-agenda-files by rescanning jf/org-directory and ~/src/dotfiles/emacs/ for .org files."
+  "Refresh org-agenda-files by rescanning jf/org-directory and ~/emacs/config for .org files."
   (interactive)
   (setq org-agenda-files
         (append (directory-files-recursively jf/org-directory "\\.org$")
-                (directory-files-recursively "~/src/dotfiles/emacs/" "\\.org$")))
+                (directory-files-recursively (expand-file-name "config" jf/emacs-dir) "\\.org$")))
   (when (called-interactively-p 'interactive)
     (message "Refreshed org-agenda-files: found %d files" (length org-agenda-files))))
 
