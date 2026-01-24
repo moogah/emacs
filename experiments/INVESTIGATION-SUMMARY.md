@@ -83,17 +83,23 @@ Need to investigate:
    - The error might be in how gptel-agent processes tool results
    - Need to check if gptel-agent expects tool results in a specific format
 
-### Hypothesis
+### Hypothesis (CONFIRMED)
 
-Based on tests so far, the error is likely NOT in the question-tools code itself, but rather in:
-- How gptel-agent processes the async tool callback result
-- Some interaction between transient state and gptel's FSM
-- Buffer-local variable handling across async boundaries
+**Test 8 completed - Plain string arguments work correctly.**
+
+**CRITICAL DISCOVERY**: The error is NOT in question-tools code. Analysis of transcript reveals:
+
+- User selected: "Summer - Warm weather and long days"
+- Error mentions: "Spring - Fresh beginnings and blooming flowers" (FIRST CHOICE)
+- Error occurs AFTER callback returns JSON result to gptel
+
+**Root cause**: gptel's tool result processing tries to process/intern the original `:choices` array from the tool-use arguments AFTER the async callback completes. Something in gptel expects symbols but receives strings.
 
 The string "Spring - Fresh beginnings and blooming flowers" successfully:
 - Stores in hash table
 - Encodes to JSON
 - Decodes from JSON
 - Passes through backquote pattern
+- Returns to gptel as JSON
 
-But something downstream is trying to treat it as a symbol.
+But gptel's tool infrastructure tries to treat the CHOICES (not the answer) as symbols during post-callback processing.
