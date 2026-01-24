@@ -9,32 +9,37 @@
 
 (setq browser-hist-default-browser 'chrome)
 
-;; PostgreSQL connections - sensitive details stored in ~/.authinfo.gpg
-;; Only connection names and Docker-specific metadata are here.
-;; After updating connections, run: M-x jf/postgres-register-connections
+;; SQL database connections - sensitive details stored in ~/.authinfo.gpg
+;; Only connection names, sql-product, and Docker-specific metadata are here.
+;; After updating connections, run: M-x jf/sql-register-connections
 
-(setq jf/postgres-connections
+(setq jf/sql-connections
       '((pg-local-apollo-container
+         :sql-product postgres
          :docker-name "postgres")
         (pg-devnew-rw
+         :sql-product postgres
          :host "oncall-psql-devnew-20241205190430184400000002.cluster-cto8yse48viq.us-east-2.rds.amazonaws.com"
          :port 5432
          :database "oncall"
          :user "oc_admin_user"
          :auth-key "pg-devnew-rw")
         (pg-bdrkdev-rw
+         :sql-product postgres
          :host "oncall-psql-bdrkdev-20240920163715257100000013.cluster-cto8yse48viq.us-east-2.rds.amazonaws.com"
          :port 5432
          :database "oncall"
          :user "oc_admin_user"
          :auth-key "pg-bdrkdev-rw")
         (pg-schedule-prod-rw
+         :sql-product postgres
          :host "oncall-psql-prod-read-write.endpoint.proxy-cdvuqeybm7mr.us-east-2.rds.amazonaws.com"
          :port 5432
          :database "oncall"
          :user "oc_admin_user"
          :auth-key "pg-schedule-prod-rw")
         (pg-schedule-prod-ro
+         :sql-product postgres
          :host "oncall-psql-prod-20240209204443329600000006.cluster-ro-cdvuqeybm7mr.us-east-2.rds.amazonaws.com"
          :port 5432
          :database "oncall"

@@ -38,6 +38,19 @@ metadata, tool logs, and branching information."
   :group 'gptel)
 #+end_src
 
+* Preset Directory Configuration
+
+Default location for preset template files.
+
+#+begin_src emacs-lisp
+(defcustom jf/gptel-presets-directory
+  (expand-file-name "config/gptel/presets/" jf/emacs-dir)
+  "Directory containing preset template files.
+Users can create custom presets by copying and editing template files."
+  :type 'directory
+  :group 'gptel)
+#+end_src
+
 * File Name Constants
 
 Standard file names used within session directories.

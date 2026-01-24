@@ -31,6 +31,18 @@ tools:
   - get_node_info                 # Detailed node analysis
   - get_node_context              # Node hierarchy context
   - get_scope_structure           # Analyze nesting/complexity
+  - list_sql_connections          # List available databases
+  - test_sql_connection           # Verify database connectivity
+  - list_sql_tables               # List database tables
+  - list_sql_views                # List database views
+  - describe_sql_table            # Get table structure
+  - list_sql_indexes              # List table indexes
+  - list_sql_foreign_keys         # List foreign keys
+  - get_sql_table_stats           # Get table statistics
+  - execute_sql_select            # Execute SELECT queries
+  - explain_sql_query             # Get query execution plans
+  - count_sql_rows                # Count rows in tables
+  - sample_sql_table              # Sample table data
 backend: Claude
 model: claude-sonnet-4-5-20250929
 temperature: 0.5

@@ -15,31 +15,73 @@
 (defun jf/gptel-scope--template-deny-all (session-id)
   "Secure default template - nothing allowed, user must add patterns.
 Recommended for new sessions where you want explicit control."
-  (format "version: \"1.0\"
+  (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write: []
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
-    - \"**/node_modules/**\"
-    - \"**/.env\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write: []
-  link: []
+  write_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
 
-shell:
-  allow_commands: []
-  deny_commands:
-    - \"rm -rf\"
-    - \"sudo\"
-    - \"chmod\"
-    - \"chown\"
+  edit_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
+
+  create_roam_node_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"rm -rf\"
+      - \"sudo\"
+      - \"chmod\"
+      - \"chown\"
+
 "
           session-id
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
@@ -56,42 +98,81 @@ shell:
   "Read-only exploration template.
 Allows safe shell commands for code exploration (ls, find, grep, git log).
 No write operations allowed - LLM must request permission."
-  (format "version: \"1.0\"
+  (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write: []
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
-    - \"**/node_modules/**\"
-    - \"**/.env\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write: []
-  link: []
+  write_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
 
-shell:
-  allow_commands:
-    - \"ls\"
-    - \"find\"
-    - \"grep\"
-    - \"git status\"
-    - \"git log\"
-    - \"git diff\"
-    - \"cat\"
-    - \"head\"
-    - \"tail\"
-  deny_commands:
-    - \"rm\"
-    - \"sudo\"
-    - \"chmod\"
-    - \"chown\"
-    - \"mv\"
-    - \"cp\"
+  edit_file_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
+
+  create_roam_node_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: true
+    patterns:
+      - \"ls\"
+      - \"find\"
+      - \"grep\"
+      - \"git\"
+      - \"cat\"
+      - \"head\"
+      - \"tail\"
+    deny_patterns:
+      - \"rm\"
+      - \"sudo\"
+      - \"chmod\"
+      - \"chown\"
+      - \"mv\"
+      - \"cp\"
+
 "
           session-id
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
@@ -108,38 +189,75 @@ shell:
   "Org-roam safe template.
 Allows creating and linking nodes in gptel/ subdirectory with gptel tag.
 Safe for LLM-generated notes that are clearly separated from personal notes."
-  (format "version: \"1.0\"
+  (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write:
-    - \"%s/gptel/**/*.org\"
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write:
-    - \"subdirectory:gptel/**\"
-    - \"tag:gptel\"
-  link:
-    - \"node_id:*\"
+  write_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/gptel/**/*.org\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
 
-shell:
-  allow_commands:
-    - \"ls\"
-    - \"find\"
-    - \"grep\"
-  deny_commands:
-    - \"rm\"
-    - \"sudo\"
+  edit_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/gptel/**/*.org\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+
+  create_roam_node_in_scope:
+    allowed: true
+    patterns:
+      - \"subdirectory:gptel/**\"
+      - \"tag:gptel\"
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: true
+    patterns:
+      - \"tag:gptel\"
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: true
+    patterns:
+      - \"node_id:*\"
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: true
+    patterns:
+      - \"ls\"
+      - \"find\"
+      - \"grep\"
+    deny_patterns:
+      - \"rm\"
+      - \"sudo\"
+
 "
           session-id
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
           (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+          org-roam-directory
           org-roam-directory))
 ;; Org-Roam Safe Template:1 ends here
 
@@ -154,52 +272,505 @@ shell:
 USE WITH CAUTION: Allows wide filesystem access and many shell commands.
 Only use when you trust the LLM workflow and want minimal restrictions."
   (let ((project-root (or (projectile-project-root) default-directory)))
-    (format "version: \"1.0\"
+    (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 default_policy: deny
 
-filesystem:
-  write:
-    - \"%s/**\"
-    - \"/tmp/**\"
-  deny:
-    - \"**/.git/**\"
-    - \"**/runtime/**\"
-    - \"**/node_modules/**\"
-    - \"**/.env\"
+tools:
+  read_file:
+    allowed: true
+    patterns:
+      - \"/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
 
-org_roam:
-  write:
-    - \"subdirectory:**\"
-    - \"tag:*\"
-  link:
-    - \"node_id:*\"
+  write_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/**\"
+      - \"/tmp/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
 
-shell:
-  allow_commands:
-    - \"ls\"
-    - \"find\"
-    - \"grep\"
-    - \"git status\"
-    - \"git log\"
-    - \"git diff\"
-    - \"cat\"
-    - \"head\"
-    - \"tail\"
-    - \"npm\"
-    - \"node\"
-    - \"python\"
-  deny_commands:
-    - \"rm -rf\"
-    - \"sudo\"
+  edit_file_in_scope:
+    allowed: true
+    patterns:
+      - \"%s/**\"
+      - \"/tmp/**\"
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
+
+  create_roam_node_in_scope:
+    allowed: true
+    patterns:
+      - \"subdirectory:**\"
+      - \"tag:*\"
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: true
+    patterns:
+      - \"tag:*\"
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: true
+    patterns:
+      - \"node_id:*\"
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: true
+    patterns:
+      - \"ls\"
+      - \"find\"
+      - \"grep\"
+      - \"git\"
+      - \"cat\"
+      - \"head\"
+      - \"tail\"
+      - \"npm\"
+      - \"node\"
+      - \"python\"
+    deny_patterns:
+      - \"rm -rf\"
+      - \"sudo\"
+
 "
             session-id
             (format-time-string "%Y-%m-%dT%H:%M:%SZ")
             (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+            project-root
             project-root)))
 ;; Permissive Template:1 ends here
+
+;; Project-Aware Template
+
+;; Allows read/write/edit within selected projectile projects with git-safe defaults.
+
+
+;; [[file:scope-commands.org::*Project-Aware Template][Project-Aware Template:1]]
+(defun jf/gptel-scope--template-project-aware (session-id project-roots)
+  "Project-aware scope template.
+Allows read/write/edit operations within PROJECT-ROOTS only.
+Blocks sensitive paths (.git, .env, runtime, node_modules).
+
+PROJECT-ROOTS is a list of absolute project directory paths.
+This is 'git-safe':
+- READ: Only files within selected project directories
+- WRITE: New files anywhere in project patterns
+- EDIT: Only git-tracked files (enforced by edit_file_in_scope tool)
+
+The git-tracked requirement for editing prevents accidental modification
+of ignored files like node_modules/, build artifacts, etc."
+  (let ((project-patterns (jf/gptel--format-project-patterns project-roots)))
+    (format "version: \"2.0\"
+session_id: \"%s\"
+created: \"%s\"
+updated: \"%s\"
+default_policy: deny
+
+# This scope plan grants access to %d project(s):
+%s
+
+tools:
+  read_file:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  write_file_in_scope:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  edit_file_in_scope:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_project_files:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_project_directories:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  search_project_content:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_test_files:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_related_test:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_related_files:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  check_ggtags_project:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_definition:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_references:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_symbol:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  create_ggtags_project:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  update_ggtags_project:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  explain_ggtags_indexing:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_node_at_position:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_node_info:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_node_context:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_syntax_tree:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_functions:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_classes:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  list_imports:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  extract_definition:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  query_nodes:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_nodes_by_type:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  find_nodes_in_range:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  get_scope_structure:
+    allowed: true
+    patterns:%s
+    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/.env\"
+      - \"**/node_modules/**\"
+
+  create_roam_node_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  add_roam_tags_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  link_roam_nodes_in_scope:
+    allowed: false
+    patterns:
+      []
+    deny_patterns:
+      []
+
+  run_approved_command:
+    allowed: true
+    patterns:
+      - \"ls\"
+      - \"find\"
+      - \"grep\"
+      - \"git\"
+    deny_patterns:
+      - \"rm -rf\"
+      - \"sudo\"
+      - \"chmod\"
+      - \"chown\"
+
+"
+            session-id
+            (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+            (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+            (length project-roots)
+            (mapconcat (lambda (root)
+                        (format "#   - %s (%s)"
+                               root
+                               (jf/gptel--project-display-name root)))
+                      project-roots
+                      "\n")
+            project-patterns  ; read_file patterns
+            project-patterns  ; write_file_in_scope patterns
+            project-patterns  ; edit_file_in_scope patterns
+            project-patterns  ; list_project_files patterns
+            project-patterns  ; list_project_directories patterns
+            project-patterns  ; search_project_content patterns
+            project-patterns  ; list_test_files patterns
+            project-patterns  ; find_related_test patterns
+            project-patterns  ; find_related_files patterns
+            project-patterns  ; check_ggtags_project patterns
+            project-patterns  ; find_definition patterns
+            project-patterns  ; find_references patterns
+            project-patterns  ; find_symbol patterns
+            project-patterns  ; create_ggtags_project patterns
+            project-patterns  ; update_ggtags_project patterns
+            project-patterns  ; explain_ggtags_indexing patterns
+            project-patterns  ; get_node_at_position patterns
+            project-patterns  ; get_node_info patterns
+            project-patterns  ; get_node_context patterns
+            project-patterns  ; get_syntax_tree patterns
+            project-patterns  ; list_functions patterns
+            project-patterns  ; list_classes patterns
+            project-patterns  ; list_imports patterns
+            project-patterns  ; extract_definition patterns
+            project-patterns  ; query_nodes patterns
+            project-patterns  ; find_nodes_by_type patterns
+            project-patterns  ; find_nodes_in_range patterns
+            project-patterns)))  ; get_scope_structure patterns
+;; Project-Aware Template:1 ends here
+
+;; Project Selection
+
+;; Interactive selection of 0 or more projectile projects.
+
+
+;; [[file:scope-commands.org::*Project Selection][Project Selection:1]]
+(defun jf/gptel--select-projects ()
+  "Interactively select 0 or more projectile projects.
+Returns list of absolute project root paths."
+  (let ((projects (projectile-known-projects)))
+    (if (null projects)
+        (progn
+          (message "No known projectile projects found")
+          nil)
+      (let* ((selection (completing-read-multiple
+                        "Select projects (RET when done): "
+                        projects
+                        nil t)))
+        (when selection
+          (mapcar #'expand-file-name selection))))))
+;; Project Selection:1 ends here
+
+;; Project Display Name
+
+;; Extract display name from project root path.
+
+
+;; [[file:scope-commands.org::*Project Display Name][Project Display Name:1]]
+(defun jf/gptel--project-display-name (project-root)
+  "Extract display name from PROJECT-ROOT path.
+Uses projectile-project-name if available, else basename."
+  (condition-case nil
+      (let ((default-directory project-root))
+        (projectile-project-name))
+    (error (file-name-nondirectory (directory-file-name project-root)))))
+;; Project Display Name:1 ends here
+
+;; Format Project Patterns
+
+;; Format project roots as YAML pattern list for scope plans.
+
+
+;; [[file:scope-commands.org::*Format Project Patterns][Format Project Patterns:1]]
+(defun jf/gptel--format-project-patterns (project-roots)
+  "Format PROJECT-ROOTS as YAML pattern list.
+Returns indented YAML list string like:
+      - \"/path/to/project1/**\"
+      - \"/path/to/project2/**\""
+  (if (null project-roots)
+      "[]"
+    (concat "\n"
+            (mapconcat (lambda (root)
+                        (format "      - \"%s/**\""
+                               (directory-file-name root)))
+                      project-roots
+                      "\n"))))
+;; Format Project Patterns:1 ends here
 
 ;; Generate Scope Plan YAML
 
@@ -208,9 +779,10 @@ shell:
 
 
 ;; [[file:scope-commands.org::*Generate Scope Plan YAML][Generate Scope Plan YAML:1]]
-(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template)
+(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template &rest args)
   "Generate scope plan YAML for SESSION-ID using TEMPLATE.
-TEMPLATE can be deny-all, codebase-read, org-roam-safe, or permissive.
+TEMPLATE can be deny-all, codebase-read, org-roam-safe, permissive, or project-aware.
+ARGS are passed to template function (e.g., project-roots for project-aware).
 Defaults to deny-all.
 
 This is an internal helper used for auto-initialization of session scope plans.
@@ -219,7 +791,7 @@ Returns YAML string directly without writing to file."
          (template-fn (intern (format "jf/gptel-scope--template-%s" template))))
     (unless (fboundp template-fn)
       (error "Unknown scope template: %s" template))
-    (funcall template-fn session-id)))
+    (apply template-fn session-id args)))
 ;; Generate Scope Plan YAML:1 ends here
 
 ;; Initialize Scope Plan
@@ -232,11 +804,13 @@ Returns YAML string directly without writing to file."
   "Create scope plan for current gptel session.
 Requires being in gptel buffer, auto-initializes session if needed.
 
-TEMPLATE: Symbol for template to use (deny-all, codebase-read, org-roam-safe, permissive)
+TEMPLATE: Symbol for template to use
+         (deny-all, codebase-read, org-roam-safe, permissive, project-aware)
          If nil, prompts user to select template."
   (interactive
    (list (intern (completing-read "Template: "
-                                  '("deny-all" "codebase-read" "org-roam-safe" "permissive")
+                                  '("deny-all" "codebase-read" "org-roam-safe"
+                                    "permissive" "project-aware")
                                   nil t nil nil "deny-all"))))
   (unless gptel-mode
     (user-error "Not in a gptel buffer. Start one with M-x gptel first"))
@@ -254,7 +828,10 @@ TEMPLATE: Symbol for template to use (deny-all, codebase-read, org-roam-safe, pe
          (session-dir (plist-get session-data :directory))
          (plan-file (expand-file-name "scope-plan.yml" session-dir))
          (template-fn (intern (format "jf/gptel-scope--template-%s" template)))
-         (plan-content (funcall template-fn session-id)))
+         ;; For project-aware, prompt for projects
+         (template-args (when (eq template 'project-aware)
+                         (list (jf/gptel--select-projects))))
+         (plan-content (apply template-fn session-id template-args)))
 
     ;; Check if plan already exists
     (when (file-exists-p plan-file)
@@ -296,11 +873,15 @@ SESSION-ID: Optional session ID. If nil, uses current session or prompts."
 
     (unless (file-exists-p plan-file)
       (if (yes-or-no-p (format "No plan found for session %s. Create one? " session-id))
-          (let ((template (intern (completing-read "Template: "
-                                                  '("deny-all" "codebase-read" "org-roam-safe" "permissive")
-                                                  nil t nil nil "deny-all"))))
+          (let* ((template (intern (completing-read "Template: "
+                                                   '("deny-all" "codebase-read" "org-roam-safe"
+                                                     "permissive" "project-aware")
+                                                   nil t nil nil "deny-all")))
+                 (template-args (when (eq template 'project-aware)
+                                 (list (jf/gptel--select-projects)))))
             (with-temp-file plan-file
-              (insert (funcall (intern (format "jf/gptel-scope--template-%s" template)) session-id)))
+              (insert (apply (intern (format "jf/gptel-scope--template-%s" template))
+                           session-id template-args)))
             (find-file plan-file)
             (message "Scope plan created: %s" plan-file))
         (user-error "Cancelled")))
