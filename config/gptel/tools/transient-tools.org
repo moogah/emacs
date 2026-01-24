@@ -5,137 +5,21 @@
 
 * Introduction
 
-Demonstration of async gptel tools that use transient menus for user interaction.
+This module implements an async gptel tool that allows LLMs to ask users structured
+questions through dynamically-generated transient menus.
 
-This module implements a minimal proof-of-concept showing how to:
-1. Accept async callback from gptel tool system
-2. Open a transient menu (which switches buffer/window context)
-3. Capture user selection from transient suffix commands
-4. Invoke the callback with the result to continue the FSM
+Key features:
+- LLM provides questions in JSON format
+- Tool validates JSON and builds transient menu dynamically
+- User interacts with visual menu (choice selections or text input)
+- Structured answers returned to LLM in JSON format
+- Support for 1-4 questions presented sequentially
+- C-g cancellation handling
 
-** Architecture Notes
+* Architecture: Integrating Transient Menus with Gptel's Async Tool System
 
-Key challenge: Transient menus open in a new buffer (*transient*) with focus switched away
-from the gptel buffer. The async callback must remain accessible when the user makes a
-selection in the transient context.
-
-Solution: Use transient's :scope mechanism to pass callback as a plist. The scope is
-accessible to suffix commands via (transient-scope) and is automatically isolated per
-transient invocation. This supports multiple concurrent gptel sessions without interference.
-
-Benefits of :scope approach:
-- No global state - each transient has its own isolated scope
-- Automatic cleanup when transient exits
-- Supports multiple concurrent sessions
-- Extensible - can pass additional metadata in the plist
-
-Future enhancements:
-- Add C-g cleanup via transient-exit-hook
-- Support dynamic options passed from LLM
-- Pass additional metadata (session-id, buffer) in scope plist
-
-* Basic Configuration
-
-#+begin_src emacs-lisp
-;; -*- lexical-binding: t; -*-
-#+end_src
-
-* Selection Handler
-
-Centralized function to invoke callback from transient scope.
-
-The scope is a plist containing at minimum:
-- :callback - The function to call with the user's selection
-
-Future scope fields could include:
-- :session-id - Track which gptel session initiated the request
-- :buffer - The originating buffer
-
-#+begin_src emacs-lisp
-(defun jf/gptel-transient-choice--handle-selection (choice)
-  "Handle user selection from transient menu.
-CHOICE is the string value to return to the LLM.
-Retrieves callback from transient scope and invokes it."
-  (let* ((scope (transient-scope))
-         (callback (plist-get scope :callback)))
-    (when callback
-      (funcall callback choice))))
-#+end_src
-
-* Transient Suffix Commands
-
-Each option in the menu is a suffix command that calls the selection handler.
-
-#+begin_src emacs-lisp
-(transient-define-suffix jf/gptel-transient-choice--select-option-a ()
-  "Select option A."
-  :transient nil  ; Exit menu after execution
-  (interactive)
-  (jf/gptel-transient-choice--handle-selection "Option A"))
-
-(transient-define-suffix jf/gptel-transient-choice--select-option-b ()
-  "Select option B."
-  :transient nil
-  (interactive)
-  (jf/gptel-transient-choice--handle-selection "Option B"))
-
-(transient-define-suffix jf/gptel-transient-choice--cancel ()
-  "Cancel the selection."
-  :transient nil
-  (interactive)
-  (jf/gptel-transient-choice--handle-selection "Cancelled"))
-#+end_src
-
-* Transient Menu Definition
-
-The main transient prefix that displays the menu.
-
-#+begin_src emacs-lisp
-(transient-define-prefix jf/gptel-transient-choice-menu ()
-  "Simple choice menu for gptel tool demonstration."
-  ["Choose an option"
-   ("a" "Option A" jf/gptel-transient-choice--select-option-a)
-   ("b" "Option B" jf/gptel-transient-choice--select-option-b)
-   ("q" "Cancel" jf/gptel-transient-choice--cancel)])
-#+end_src
-
-* Async Tool Function
-
-The function registered with gptel-make-tool. Takes callback as first parameter
-per async tool contract.
-
-#+begin_src emacs-lisp
-(defun jf/gptel-transient-choice-tool (callback)
-  "Async tool that presents a transient menu for user selection.
-CALLBACK is called with the user's choice when they select an option.
-
-This is an async tool - it returns immediately after opening the menu.
-The callback will be invoked later when the user makes a selection."
-  ;; Pass callback via transient scope (supports multiple concurrent invocations)
-  (transient-setup 'jf/gptel-transient-choice-menu nil nil
-                   :scope (list :callback callback)))
-#+end_src
-
-* Tool Registration
-
-Register the tool with gptel's tool system.
-
-#+begin_src emacs-lisp
-(gptel-make-tool
- :name "transient_choice"
- :function #'jf/gptel-transient-choice-tool
- :description "Present a simple menu to the user with two options (A or B). This is an interactive tool that requires user input. Returns the user's selection as a string: 'Option A', 'Option B', or 'Cancelled' if they quit."
- :args nil  ; No arguments for this minimal example
- :category "demo"
- :async t
- :confirm nil)
-#+end_src
-
-* Implementation Guide: Async Tools with Transient
-
-This section documents the implementation pattern for async gptel tools that use
-transient menus. Understanding these concepts is crucial for building robust
-interactive tools.
+This section documents the patterns for building async gptel tools that use transient
+menus for user interaction. These patterns are valuable for anyone building similar tools.
 
 ** Understanding Gptel's Async Tool Pattern
 
@@ -202,27 +86,6 @@ When a transient menu opens:
 
 This creates a challenge: The callback was passed to the tool in the gptel buffer's
 context, but the user's selection happens in a completely different buffer context.
-
-*** Failed Approach: Global Variables
-
-Initial approach using global variable:
-
-#+begin_example
-(defvar my-callback nil)  ; Global state
-
-(defun my-tool (callback)
-  (setq my-callback callback)  ; Store globally
-  (my-transient-menu))
-
-(transient-define-suffix my-suffix ()
-  (funcall my-callback "result"))  ; Access global
-#+end_example
-
-**Problems**:
-- Only supports ONE active tool call at a time
-- Multiple concurrent gptel sessions interfere with each other
-- Second tool call overwrites first callback
-- No automatic cleanup on transient exit
 
 ** The Scope Solution
 
@@ -385,16 +248,6 @@ If you forget =:async t= in registration:
 
 **Solution**: Design suffixes to call callback exactly once, then exit.
 
-*** Global Variable for Concurrent Sessions
-
-#+begin_example
-;; BAD: Only supports one active call
-(defvar my-callback nil)
-(setq my-callback callback)  ; Overwrites previous!
-#+end_example
-
-**Solution**: Use =:scope= for per-invocation isolation.
-
 *** Not Handling C-g
 
 If user presses =C-g= to cancel:
@@ -402,17 +255,7 @@ If user presses =C-g= to cancel:
 - FSM hangs waiting for callback
 - Gptel buffer becomes unresponsive
 
-**Solution**: Add cleanup via =transient-exit-hook= (future enhancement):
-
-#+begin_example
-(defun my-tool--cleanup ()
-  (let* ((scope (transient-scope))
-         (callback (plist-get scope :callback)))
-    (when callback
-      (funcall callback "Cancelled by user"))))
-
-(add-hook 'transient-exit-hook #'my-tool--cleanup)
-#+end_example
+**Solution**: Add cleanup via =transient-exit-hook= (see implementation below).
 
 *** Buffer Context Assumptions
 
@@ -443,102 +286,17 @@ Don't assume you're in the gptel buffer when suffix executes:
       (insert "text"))))  ; Now inserts in correct buffer
 #+end_example
 
-** Performance Considerations
+* Implementation
 
-*** Transient Startup Time
+** Basic Configuration
 
-Opening a transient menu is fast (<10ms), but not instant. For simple yes/no
-questions, consider if transient is the right UI:
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
 
-- ✅ Complex choices with multiple options
-- ✅ Choices that benefit from visual menu
-- ✅ Choices where user needs to see options
-- ❌ Simple yes/no (use =y-or-n-p= in callback)
-- ❌ Text input (use =read-string= in callback)
+** JSON Validation
 
-*** Memory Cleanup
-
-Scope is automatically garbage collected when transient exits. No manual cleanup
-needed for scope data.
-
-If your tool allocates large resources (buffers, temp files), clean them up in
-the callback or via =transient-exit-hook=.
-
-** Testing Concurrent Sessions
-
-To verify your implementation supports concurrent sessions:
-
-1. Open two gptel buffers (different sessions)
-2. In buffer 1: Ask LLM to call your tool
-3. In buffer 2: Ask LLM to call your tool (before responding to #2)
-4. Verify two transient menus are open simultaneously
-5. Respond to menu in buffer 2
-6. Respond to menu in buffer 1
-7. Verify each callback went to the correct session
-
-If callbacks get mixed up, you're using global state incorrectly.
-
-* Known Limitations
-
-** No C-g Cleanup
-
-If the user cancels the transient with C-g without selecting an option, the callback
-is never called and the FSM may hang. This can be fixed by adding a cleanup function
-via transient-exit-hook (enhancement for production use).
-
-** Static Options
-
-Menu options are hardcoded. Future iterations should accept options as arguments
-from the LLM to make this a practical tool.
-
-* Testing
-
-To test this tool:
-
-1. Enable tools in gptel:
-   #+begin_example
-   (setq gptel-use-tools t)
-   (setq gptel-tools '("transient_choice"))
-   #+end_example
-
-2. Ask the LLM to use it:
-   #+begin_example
-   "Please use the transient_choice tool to ask me which option I prefer."
-   #+end_example
-
-3. Expected behavior:
-   - LLM calls the tool
-   - Transient menu opens with options
-   - User presses 'a', 'b', or 'q'
-   - Menu closes
-   - Result is sent to LLM
-   - LLM responds incorporating the choice
-
-* V2: Dynamic Question System
-
-** Introduction to V2
-
-V2 extends the proof-of-concept to accept structured questions from the LLM via JSON,
-dynamically build transient menus, and return structured answers.
-
-Key enhancements:
-- JSON input format for questions (LLM provides structured data)
-- Schema validation with clear error messages
-- Dynamic suffix generation based on question data
-- Support for multiple question types (choice, text)
-- Structured JSON output format for answers
-- Proper error handling (invalid JSON, cancellation, etc.)
-
-** Phase 1: JSON Validation
-
-*** Validation Function
-
-This function performs three tiers of validation:
-1. JSON parsing (syntax validation)
-2. Schema validation (structure and types)
-3. Semantic validation (constraints and uniqueness)
-
-Returns (success-p . error-message-or-data).
+Three-tier validation: JSON parsing, schema validation, semantic validation.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-validate-questions-json (json-string)
@@ -564,13 +322,7 @@ On failure: (nil . \"Error: description\")"
                        (if (> (length err) 2) (nth 2 err) 0))))
     (error
      (cons nil (format "Validation error: %s" (error-message-string err))))))
-#+end_src
 
-*** Schema Validator
-
-Validates the structure and types of the JSON data.
-
-#+begin_src emacs-lisp
 (defun jf/gptel-validate-questions-schema (data)
   "Validate schema structure and types.
 Returns (success-p . error-message)."
@@ -604,13 +356,7 @@ Returns (success-p . error-message)."
               (throw 'validation-error result)))
           (setq idx (1+ idx)))
         (cons t "Schema valid"))))))
-#+end_src
 
-*** Question Validator
-
-Validates individual question objects.
-
-#+begin_src emacs-lisp
 (defun jf/gptel-validate-question-schema (question idx)
   "Validate a single question's schema.
 QUESTION is the question plist, IDX is its index in the array.
@@ -655,11 +401,7 @@ Returns (success-p . error-message)."
       (jf/gptel-validate-text-question question prefix))
 
      (t (cons t "Valid")))))
-#+end_src
 
-*** Choice Question Validator
-
-#+begin_src emacs-lisp
 (defun jf/gptel-validate-choice-question (question prefix)
   "Validate choice question specific fields.
 Returns (success-p . error-message)."
@@ -689,11 +431,7 @@ Returns (success-p . error-message)."
               (throw 'option-error result)))
           (setq opt-idx (1+ opt-idx)))
         (cons t "Valid"))))))
-#+end_src
 
-*** Option Validator
-
-#+begin_src emacs-lisp
 (defun jf/gptel-validate-option-schema (option prefix idx)
   "Validate a single option's schema.
 Returns (success-p . error-message)."
@@ -720,11 +458,7 @@ Returns (success-p . error-message)."
       (cons nil (concat opt-prefix "Field 'description' must be a string")))
 
      (t (cons t "Valid")))))
-#+end_src
 
-*** Text Question Validator
-
-#+begin_src emacs-lisp
 (defun jf/gptel-validate-text-question (question prefix)
   "Validate text question specific fields.
 Returns (success-p . error-message)."
@@ -740,13 +474,7 @@ Returns (success-p . error-message)."
     (cons nil (concat prefix "Field 'default' must be a string if present")))
 
    (t (cons t "Valid"))))
-#+end_src
 
-*** Semantic Validator
-
-Validates semantic constraints (uniqueness, lengths, etc.).
-
-#+begin_src emacs-lisp
 (defun jf/gptel-validate-questions-semantics (data)
   "Validate semantic constraints.
 Returns (success-p . error-message)."
@@ -778,13 +506,7 @@ Returns (success-p . error-message)."
           (setq idx (1+ idx))))
 
       (cons t "Semantics valid"))))
-#+end_src
 
-*** Choice Keys Validator
-
-Validates option keys are single chars and unique within question.
-
-#+begin_src emacs-lisp
 (defun jf/gptel-validate-choice-keys (question idx)
   "Validate option keys in a choice question.
 Returns (success-p . error-message)."
@@ -815,116 +537,9 @@ Returns (success-p . error-message)."
       (cons t "Keys valid"))))
 #+end_src
 
-** Testing Phase 1
+** State Management
 
-Test cases to validate the JSON validator works correctly.
-
-*** Valid JSON Test Cases
-
-#+begin_example
-;; Test 1: Valid single choice question
-{
-  "questions": [{
-    "id": "q1",
-    "header": "Auth",
-    "question": "Which auth method?",
-    "type": "choice",
-    "options": [
-      {"key": "a", "label": "OAuth", "description": "OAuth 2.0"},
-      {"key": "b", "label": "JWT", "description": "JSON Web Tokens"}
-    ]
-  }]
-}
-
-;; Test 2: Valid text question
-{
-  "questions": [{
-    "id": "q1",
-    "header": "Library",
-    "question": "Preferred library?",
-    "type": "text",
-    "prompt": "Library name: ",
-    "default": "react"
-  }]
-}
-
-;; Test 3: Multiple questions
-{
-  "questions": [
-    {
-      "id": "q1",
-      "header": "Auth",
-      "question": "Auth method?",
-      "type": "choice",
-      "options": [
-        {"key": "a", "label": "OAuth", "description": "OAuth 2.0"},
-        {"key": "b", "label": "JWT", "description": "JSON Web Tokens"}
-      ]
-    },
-    {
-      "id": "q2",
-      "header": "Database",
-      "question": "Database type?",
-      "type": "choice",
-      "options": [
-        {"key": "a", "label": "PostgreSQL", "description": "Relational"},
-        {"key": "b", "label": "MongoDB", "description": "Document"}
-      ]
-    }
-  ]
-}
-#+end_example
-
-*** Invalid JSON Test Cases
-
-#+begin_example
-;; Test 4: Invalid JSON syntax
-{questions: []}  ; Missing quotes
-
-;; Test 5: Missing required field
-{"questions": [{"id": "q1", "type": "choice"}]}  ; Missing header, question, options
-
-;; Test 6: Wrong type for field
-{"questions": [{"id": 123, "header": "Test", "question": "Q?", "type": "choice"}]}  ; id is number
-
-;; Test 7: Too many questions
-{"questions": [{...}, {...}, {...}, {...}, {...}]}  ; 5 questions (max is 4)
-
-;; Test 8: Too few options
-{"questions": [{"id": "q1", "header": "Test", "question": "Q?", "type": "choice",
-                "options": [{"key": "a", "label": "A", "description": "Desc"}]}]}  ; 1 option (min is 2)
-
-;; Test 9: Duplicate question IDs
-{"questions": [
-  {"id": "q1", "header": "Test1", "question": "Q1?", "type": "text"},
-  {"id": "q1", "header": "Test2", "question": "Q2?", "type": "text"}
-]}
-
-;; Test 10: Duplicate option keys
-{"questions": [{"id": "q1", "header": "Test", "question": "Q?", "type": "choice",
-                "options": [
-                  {"key": "a", "label": "A", "description": "First"},
-                  {"key": "a", "label": "B", "description": "Second"}
-                ]}]}
-
-;; Test 11: Multi-character key
-{"questions": [{"id": "q1", "header": "Test", "question": "Q?", "type": "choice",
-                "options": [
-                  {"key": "ab", "label": "A", "description": "Desc"},
-                  {"key": "c", "label": "C", "description": "Desc"}
-                ]}]}
-
-;; Test 12: Header too long
-{"questions": [{"id": "q1", "header": "ThisHeaderIsTooLong", "question": "Q?", "type": "text"}]}
-#+end_example
-
-** Phase 2: Single Choice Question (MVP)
-
-Goal: Get one question working end-to-end with dynamic menu generation.
-
-*** State Management
-
-Buffer-local variable to track user answers during the question flow.
+Buffer-local variables to track answers during question flow.
 
 #+begin_src emacs-lisp
 (defvar-local jf/gptel-ask--answers nil
@@ -958,15 +573,14 @@ Returns 0-based index, or nil if all answered."
      questions)))
 #+end_src
 
-*** Suffix Generation
+** Suffix Generation
 
-Build transient suffix specifications from question data.
+Build transient suffix specifications dynamically from question data.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-ask--build-suffixes (questions callback)
   "Build suffix list for current unanswered question in QUESTIONS.
-CALLBACK is the async callback to invoke when complete.
-Phase 4: Supports both choice and text questions."
+CALLBACK is the async callback to invoke when complete."
   (let* ((current-idx (jf/gptel-ask--current-question-index questions))
          (question (when current-idx (nth current-idx questions))))
     (if question
@@ -1014,9 +628,9 @@ Returns single-item list with suffix specification."
            :description "Press RET to enter text"))))
 #+end_src
 
-*** Handler Functions
+** Handler Functions
 
-Create suffix command closures that record answers and invoke callbacks.
+Create suffix command closures that record answers and manage question flow.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-ask--make-choice-handler (question-id question-text option callback)
@@ -1071,7 +685,7 @@ CALLBACK is the async callback."
           (run-at-time 0.05 nil (lambda () (setq jf/gptel-ask--transitioning nil))))))))
 #+end_src
 
-*** Result Building
+** Result Building
 
 Build JSON result from collected answers and invoke callback.
 
@@ -1118,7 +732,7 @@ Returns JSON string."
            :answers (vconcat answer-list)))))
 #+end_src
 
-*** Dynamic Transient Menu
+** Dynamic Transient Menu
 
 The main transient prefix with dynamic suffix generation.
 
@@ -1147,35 +761,7 @@ The main transient prefix with dynamic suffix generation.
          (jf/gptel-ask--build-suffixes questions callback))))]])
 #+end_src
 
-*** Async Tool Function
-
-The tool function that validates JSON and opens the transient menu.
-
-#+begin_src emacs-lisp
-(defun jf/gptel-ask-user-questions (callback questions-json)
-  "Async tool to ask user structured questions via transient menu.
-CALLBACK is the async callback (called with JSON result).
-QUESTIONS-JSON is the JSON string describing the questions."
-  ;; Validate JSON
-  (let ((validation (jf/gptel-validate-questions-json questions-json)))
-    (if (car validation)
-        ;; Validation passed - open menu
-        (let ((data (cdr validation))
-              (questions (plist-get (cdr validation) :questions)))
-          ;; Clear any previous answers and state
-          (jf/gptel-ask--clear-answers)
-          (setq jf/gptel-ask--transitioning nil)
-          ;; Set active callback for cancellation handling
-          (setq jf/gptel-ask--active-callback callback)
-          ;; Open transient with questions and callback in scope
-          (transient-setup 'jf/gptel-ask-menu nil nil
-                           :scope (list :questions questions
-                                        :callback callback)))
-      ;; Validation failed - return error immediately
-      (funcall callback (cdr validation)))))
-#+end_src
-
-*** Cancellation Handling
+** Cancellation Handling
 
 Track active question flows and handle C-g cancellation.
 
@@ -1213,9 +799,37 @@ This runs on transient-exit-hook to catch C-g cancellations."
 (add-hook 'transient-exit-hook #'jf/gptel-ask--handle-exit)
 #+end_src
 
-*** Tool Registration
+** Async Tool Function
 
-Register the new dynamic question tool with gptel.
+The tool function that validates JSON and opens the transient menu.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-ask-user-questions (callback questions-json)
+  "Async tool to ask user structured questions via transient menu.
+CALLBACK is the async callback (called with JSON result).
+QUESTIONS-JSON is the JSON string describing the questions."
+  ;; Validate JSON
+  (let ((validation (jf/gptel-validate-questions-json questions-json)))
+    (if (car validation)
+        ;; Validation passed - open menu
+        (let ((data (cdr validation))
+              (questions (plist-get (cdr validation) :questions)))
+          ;; Clear any previous answers and state
+          (jf/gptel-ask--clear-answers)
+          (setq jf/gptel-ask--transitioning nil)
+          ;; Set active callback for cancellation handling
+          (setq jf/gptel-ask--active-callback callback)
+          ;; Open transient with questions and callback in scope
+          (transient-setup 'jf/gptel-ask-menu nil nil
+                           :scope (list :questions questions
+                                        :callback callback)))
+      ;; Validation failed - return error immediately
+      (funcall callback (cdr validation)))))
+#+end_src
+
+** Tool Registration
+
+Register the tool with gptel's tool system.
 
 #+begin_src emacs-lisp
 (gptel-make-tool
@@ -1253,12 +867,7 @@ Constraints:
 - 1-4 questions max (fully supported)
 - 2-4 options per choice question
 - Single character keys
-- Headers max 12 characters
-
-Implementation status:
-- Phase 3: Multiple choice questions (sequential) - COMPLETE
-- Phase 4: Text input questions - COMPLETE
-- Phase 5: Error handling (C-g cancellation) - COMPLETE"
+- Headers max 12 characters"
  :args (list '(:name "questions_json"
                :type string
                :description "JSON string containing the questions to ask"))
@@ -1267,280 +876,98 @@ Implementation status:
  :confirm nil)
 #+end_src
 
-** Phase 3: Multiple Choice Questions (Sequential)
+* Usage Guide
 
-Goal: Support 2-4 questions presented sequentially.
+** JSON Schema Reference
 
-Phase 3 extends Phase 2 by:
-- Finding current unanswered question dynamically
-- Re-displaying transient after each answer (except last)
-- Showing progress indicator ("Question 2/3")
-- Only invoking callback when all questions answered
+*** Input Format
 
-Key changes from Phase 2:
-1. Added `jf/gptel-ask--current-question-index` to track progress
-2. Modified handler to re-setup transient instead of exiting (unless all answered)
-3. Updated description to show "Question N/M: question text"
-4. Suffix generation now finds current question instead of using first
-
-*** Testing Phase 3
-
-Test JSON with multiple questions:
-
-#+begin_example
+#+begin_src json
 {
   "questions": [
     {
-      "id": "q1",
-      "header": "Auth",
-      "question": "Authentication method?",
-      "type": "choice",
+      "id": "unique_id",           // Required: Unique identifier
+      "header": "Short",            // Required: Max 12 chars, shown as tag
+      "question": "Full question?", // Required: Full question text
+      "type": "choice",             // Required: "choice" or "text"
+
+      // For choice questions only:
       "options": [
-        {"key": "a", "label": "OAuth", "description": "OAuth 2.0"},
-        {"key": "b", "label": "JWT", "description": "JSON Web Tokens"}
-      ]
-    },
-    {
-      "id": "q2",
-      "header": "Database",
-      "question": "Database type?",
-      "type": "choice",
-      "options": [
-        {"key": "a", "label": "PostgreSQL", "description": "Relational"},
-        {"key": "b", "label": "MongoDB", "description": "Document store"}
-      ]
+        {
+          "key": "a",               // Required: Single character
+          "label": "Option A",      // Required: 1-5 words
+          "description": "Details"  // Required: What this option means
+        }
+      ],
+
+      // For text questions only:
+      "prompt": "Enter value: ",    // Optional: Custom prompt (default: "Header: ")
+      "default": "default value"    // Optional: Pre-filled value
     }
   ]
 }
-#+end_example
+#+end_src
 
-Expected behavior:
-1. First question displays: "Question 1/2: Authentication method?"
-2. User selects an option (e.g., 'a' for OAuth)
-3. Second question displays: "Question 2/2: Database type?"
-4. User selects an option (e.g., 'a' for PostgreSQL)
-5. Menu closes, result JSON returned with both answers
-6. LLM receives: `{"status":"completed","answers":[{...},{...}]}`
+**Constraints:**
+- 1-4 questions per call
+- 2-4 options per choice question
+- Option keys must be single characters and unique within question
+- Question IDs must be unique
 
-** Phase 4: Text Input Questions
+*** Output Format
 
-Goal: Support freeform text input questions.
-
-Phase 4 adds text input support:
-- New suffix type that prompts for text using `read-string`
-- Support for custom prompt text
-- Support for default values
-- Works with mixed question types (choice + text)
-
-Key changes:
-1. Added `jf/gptel-ask--build-text-suffix` to generate text input suffix
-2. Added `jf/gptel-ask--make-text-handler` using `read-string`
-3. Modified `jf/gptel-ask--build-suffixes` to handle "text" type
-4. Text answers recorded without key (nil for key field)
-
-*** Testing Phase 4
-
-**** Test 1: Single text question
-
-#+begin_example
+#+begin_src json
 {
-  "questions": [{
-    "id": "q1",
-    "header": "Library",
-    "question": "Preferred library?",
-    "type": "text",
-    "prompt": "Library name: ",
-    "default": "react"
-  }]
-}
-#+end_example
-
-Expected behavior:
-1. Menu displays: "Question 1/1: Preferred library?"
-2. Single option: "Enter Library" (press RET)
-3. Minibuffer prompts: "Library name: " with "react" as default
-4. User enters text (or accepts default)
-5. Menu closes, result JSON returned with text answer
-
-**** Test 2: Mixed questions (choice + text)
-
-#+begin_example
-{
-  "questions": [
+  "status": "completed",  // or "cancelled" if user pressed C-g
+  "answers": [
     {
       "id": "q1",
-      "header": "Framework",
-      "question": "Which framework?",
-      "type": "choice",
-      "options": [
-        {"key": "a", "label": "React", "description": "Facebook's UI library"},
-        {"key": "b", "label": "Vue", "description": "Progressive framework"}
-      ]
-    },
-    {
-      "id": "q2",
-      "header": "Project",
-      "question": "Project name?",
-      "type": "text",
-      "prompt": "Enter project name: ",
-      "default": "my-app"
+      "question": "Full question text?",
+      "answer": "Option A",  // or user's text input
+      "key": "a"             // Only present for choice questions
     }
   ]
 }
-#+end_example
+#+end_src
 
-Expected behavior:
-1. First question: "Question 1/2: Which framework?" (choice)
-2. User selects option (e.g., 'a' for React)
-3. Second question: "Question 2/2: Project name?" (text)
-4. User presses RET, enters project name
-5. Menu closes, result JSON with both answers returned
+** Example LLM Prompts
 
-**** Test 3: Text without default
+*** Single Choice Question
 
-#+begin_example
-{
-  "questions": [{
-    "id": "q1",
-    "header": "Username",
-    "question": "Enter your username",
-    "type": "text"
-  }]
-}
-#+end_example
+"Please ask me to choose between OAuth 2.0, JWT, or session-based authentication."
 
-Expected behavior:
-- Prompt defaults to "Username: " (from header field)
-- No default value in minibuffer
-- User types username and presses RET
+*** Multiple Questions
 
-** Phase 5: Error Handling and Polish
+"I'm setting up a new project. Please ask me:
+1. Which framework to use (React, Vue, or Angular)
+2. Which database to use (PostgreSQL, MySQL, or MongoDB)
+3. What the project name should be (text input)"
 
-Goal: Production-ready robustness with proper cancellation handling.
+*** Mixed Question Types
 
-Phase 5 adds error handling for user cancellation:
-- Track active question flow with global variable
-- Use transitioning flag to distinguish question transitions from cancellations
-- Detect C-g cancellation via transient-exit-hook
-- Return "cancelled" status to LLM when user quits
-- Clean up state on cancellation
+"Help me configure my development environment. Ask me to choose my preferred
+editor (VSCode, Emacs, Vim) and then ask for my preferred color theme name."
 
-Key changes:
-1. Added `jf/gptel-ask--active-callback` to track active flow
-2. Added `jf/gptel-ask--transitioning` flag to prevent false positives
-3. Added `jf/gptel-ask--handle-exit` hook function
-4. Registered hook on `transient-exit-hook`
-5. Modified handlers to set transitioning flag during question transitions
-6. Use `run-at-time` with 50ms delay to clear transitioning flag (exit hook runs asynchronously)
-7. Modified `jf/gptel-ask--finish` to clear all state (prevent double-invocation)
-8. Modified `jf/gptel-ask-user-questions` to initialize state on start
+** Common Patterns
 
-*** Why the Timer?
+*** Decision Making
+Presenting 2-4 mutually exclusive options for user selection.
 
-The exit hook runs asynchronously after `transient-setup` returns. If we clear the
-transitioning flag immediately, the hook will see it as nil and incorrectly invoke
-the callback. By using a 50ms timer, we ensure the flag stays set long enough for
-the exit hook to check it.
+*** Configuration Collection
+Gathering multiple related settings in sequence (framework, database, hosting, etc.).
 
-*** How Cancellation Works
+### User Preference Collection
+Learning user preferences for customization or personalization.
 
-1. **Normal completion path:**
-   - User answers all questions
-   - `jf/gptel-ask--finish` is called
-   - Clears `jf/gptel-ask--active-callback` and `jf/gptel-ask--transitioning`
-   - Calls callback with "completed" status
-   - Exit hook sees nil callback, does nothing
+*** Project Setup
+Collecting project metadata (name, description, author, license).
 
-2. **Question transition path:**
-   - User answers a question (not the last one)
-   - Handler sets `jf/gptel-ask--transitioning` to t
-   - Calls `transient-setup` for next question (returns immediately)
-   - Schedules timer to clear `jf/gptel-ask--transitioning` after 50ms
-   - Exit hook runs (asynchronously), sees transitioning = t, does nothing
-   - Timer fires later, clears transitioning flag
+** Known Limitations
 
-3. **Cancellation path (C-g):**
-   - User presses C-g in transient menu
-   - Transient exits without calling any suffix
-   - `transient-exit-hook` runs
-   - `jf/gptel-ask--handle-exit` checks: active callback? yes, transitioning? no
-   - Calls callback with "cancelled" status
-   - Clears callback and state
-
-*** Testing Phase 5
-
-**** Test 1: Normal completion (no change expected)
-
-Ask LLM to use tool with any question format. Answer all questions normally.
-Expected: Same behavior as Phase 4, callback receives "completed" status.
-
-**** Test 2: Cancel after first question (multi-question flow)
-
-Ask LLM to use tool with 2-3 questions. Answer first question, then press C-g
-on second question.
-
-Expected:
-- Menu closes immediately
-- LLM receives JSON: `{"status":"cancelled","answers":[]}`
-- gptel conversation continues (FSM doesn't hang)
-- LLM acknowledges cancellation in response
-
-**** Test 3: Cancel before answering any questions
-
-Ask LLM to use tool. Press C-g immediately when menu opens.
-
-Expected:
-- Menu closes
-- LLM receives cancellation status
-- No answers in result array
-- Conversation continues normally
-
-**** Test 4: Concurrent sessions (needs further testing)
-
-**STATUS:** Not tested yet. Known limitation with global variables.
-
-Test scenario: Open two gptel buffers. Ask both to use the tool. Interact with
-questions in different order (answer buffer 2, then buffer 1).
-
-Expected behavior (ideal):
-- Each session's callback goes to correct session
-- No interference between sessions
-- Cancel in one session doesn't affect the other
-
-Current limitation:
-- `jf/gptel-ask--active-callback` and `jf/gptel-ask--transitioning` are global
-- Second call will overwrite first call's cancellation tracking
-- Questions/answers are isolated via :scope (works correctly)
-- Callbacks are isolated via :scope (works correctly)
-- Cancellation tracking is NOT isolated (may cause issues)
-
-Recommendation: Avoid concurrent use until this is fixed with buffer-local variables
-or a session registry.
-
-*** Additional Polish Items
-
-Items already implemented in previous phases:
-
-✅ **Progress indicator:** Shows "Question N/M" (Phase 3)
-✅ **Clear error messages:** JSON validation with detailed errors (Phase 1)
-✅ **Descriptive section headers:** Question text shown in menu description
-✅ **Mixed question types:** Choice and text work together seamlessly (Phase 4)
-✅ **C-g cancellation:** Returns "cancelled" status to LLM (Phase 5)
-
-Items considered but not needed:
-
-- **Key binding conflict validation:** Not needed - LLM-provided keys are single chars,
-  transient handles conflicts automatically. Reserved keys (C-g, C-h) work as expected.
-
-- **Logging for debugging:** Not needed for production use. Error messages from
-  validation are sufficient. Can be added later if issues arise.
-
-Known limitations:
-
-⚠️ **Concurrent session support:** Questions/answers are isolated via :scope (works),
-  but cancellation tracking uses global variables (limitation). Second concurrent call
-  will overwrite first call's cancellation tracking. Avoid concurrent use until fixed
-  with buffer-local variables or session registry. Needs further testing.
+⚠️ **Concurrent Sessions:** Cancellation tracking uses global variables. If two gptel
+buffers call this tool simultaneously, the second call may interfere with the first's
+cancellation handling. Questions, answers, and callbacks are properly isolated via
+:scope, but C-g detection is not. Avoid concurrent use until fixed.
 
 * Provide Statement
 

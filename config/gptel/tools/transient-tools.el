@@ -1,58 +1,5 @@
 ;; -*- lexical-binding: t; -*-
 
-(defun jf/gptel-transient-choice--handle-selection (choice)
-  "Handle user selection from transient menu.
-CHOICE is the string value to return to the LLM.
-Retrieves callback from transient scope and invokes it."
-  (let* ((scope (transient-scope))
-         (callback (plist-get scope :callback)))
-    (when callback
-      (funcall callback choice))))
-
-(transient-define-suffix jf/gptel-transient-choice--select-option-a ()
-  "Select option A."
-  :transient nil  ; Exit menu after execution
-  (interactive)
-  (jf/gptel-transient-choice--handle-selection "Option A"))
-
-(transient-define-suffix jf/gptel-transient-choice--select-option-b ()
-  "Select option B."
-  :transient nil
-  (interactive)
-  (jf/gptel-transient-choice--handle-selection "Option B"))
-
-(transient-define-suffix jf/gptel-transient-choice--cancel ()
-  "Cancel the selection."
-  :transient nil
-  (interactive)
-  (jf/gptel-transient-choice--handle-selection "Cancelled"))
-
-(transient-define-prefix jf/gptel-transient-choice-menu ()
-  "Simple choice menu for gptel tool demonstration."
-  ["Choose an option"
-   ("a" "Option A" jf/gptel-transient-choice--select-option-a)
-   ("b" "Option B" jf/gptel-transient-choice--select-option-b)
-   ("q" "Cancel" jf/gptel-transient-choice--cancel)])
-
-(defun jf/gptel-transient-choice-tool (callback)
-  "Async tool that presents a transient menu for user selection.
-CALLBACK is called with the user's choice when they select an option.
-
-This is an async tool - it returns immediately after opening the menu.
-The callback will be invoked later when the user makes a selection."
-  ;; Pass callback via transient scope (supports multiple concurrent invocations)
-  (transient-setup 'jf/gptel-transient-choice-menu nil nil
-                   :scope (list :callback callback)))
-
-(gptel-make-tool
- :name "transient_choice"
- :function #'jf/gptel-transient-choice-tool
- :description "Present a simple menu to the user with two options (A or B). This is an interactive tool that requires user input. Returns the user's selection as a string: 'Option A', 'Option B', or 'Cancelled' if they quit."
- :args nil  ; No arguments for this minimal example
- :category "demo"
- :async t
- :confirm nil)
-
 (defun jf/gptel-validate-questions-json (json-string)
   "Validate JSON string for question format.
 Returns cons cell: (success-p . error-message-or-data)
@@ -322,8 +269,7 @@ Returns 0-based index, or nil if all answered."
 
 (defun jf/gptel-ask--build-suffixes (questions callback)
   "Build suffix list for current unanswered question in QUESTIONS.
-CALLBACK is the async callback to invoke when complete.
-Phase 4: Supports both choice and text questions."
+CALLBACK is the async callback to invoke when complete."
   (let* ((current-idx (jf/gptel-ask--current-question-index questions))
          (question (when current-idx (nth current-idx questions))))
     (if question
@@ -485,28 +431,6 @@ Returns JSON string."
          'jf/gptel-ask-menu
          (jf/gptel-ask--build-suffixes questions callback))))]])
 
-(defun jf/gptel-ask-user-questions (callback questions-json)
-  "Async tool to ask user structured questions via transient menu.
-CALLBACK is the async callback (called with JSON result).
-QUESTIONS-JSON is the JSON string describing the questions."
-  ;; Validate JSON
-  (let ((validation (jf/gptel-validate-questions-json questions-json)))
-    (if (car validation)
-        ;; Validation passed - open menu
-        (let ((data (cdr validation))
-              (questions (plist-get (cdr validation) :questions)))
-          ;; Clear any previous answers and state
-          (jf/gptel-ask--clear-answers)
-          (setq jf/gptel-ask--transitioning nil)
-          ;; Set active callback for cancellation handling
-          (setq jf/gptel-ask--active-callback callback)
-          ;; Open transient with questions and callback in scope
-          (transient-setup 'jf/gptel-ask-menu nil nil
-                           :scope (list :questions questions
-                                        :callback callback)))
-      ;; Validation failed - return error immediately
-      (funcall callback (cdr validation)))))
-
 (defvar jf/gptel-ask--active-callback nil
   "Global callback for currently active question flow.
 Set when question flow starts, cleared when completed or cancelled.
@@ -530,6 +454,28 @@ This runs on transient-exit-hook to catch C-g cancellations."
 
 ;; Register exit handler
 (add-hook 'transient-exit-hook #'jf/gptel-ask--handle-exit)
+
+(defun jf/gptel-ask-user-questions (callback questions-json)
+  "Async tool to ask user structured questions via transient menu.
+CALLBACK is the async callback (called with JSON result).
+QUESTIONS-JSON is the JSON string describing the questions."
+  ;; Validate JSON
+  (let ((validation (jf/gptel-validate-questions-json questions-json)))
+    (if (car validation)
+        ;; Validation passed - open menu
+        (let ((data (cdr validation))
+              (questions (plist-get (cdr validation) :questions)))
+          ;; Clear any previous answers and state
+          (jf/gptel-ask--clear-answers)
+          (setq jf/gptel-ask--transitioning nil)
+          ;; Set active callback for cancellation handling
+          (setq jf/gptel-ask--active-callback callback)
+          ;; Open transient with questions and callback in scope
+          (transient-setup 'jf/gptel-ask-menu nil nil
+                           :scope (list :questions questions
+                                        :callback callback)))
+      ;; Validation failed - return error immediately
+      (funcall callback (cdr validation)))))
 
 (gptel-make-tool
  :name "ask_user_questions"
@@ -566,12 +512,7 @@ Constraints:
 - 1-4 questions max (fully supported)
 - 2-4 options per choice question
 - Single character keys
-- Headers max 12 characters
-
-Implementation status:
-- Phase 3: Multiple choice questions (sequential) - COMPLETE
-- Phase 4: Text input questions - COMPLETE
-- Phase 5: Error handling (C-g cancellation) - COMPLETE"
+- Headers max 12 characters"
  :args (list '(:name "questions_json"
                :type string
                :description "JSON string containing the questions to ask"))
