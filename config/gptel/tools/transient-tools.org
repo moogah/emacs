@@ -298,6 +298,8 @@ Don't assume you're in the gptel buffer when suffix executes:
 
 Three-tier validation: JSON parsing, schema validation, semantic validation.
 
+*** Main Validation Entry Point
+
 #+begin_src emacs-lisp
 (defun jf/gptel-validate-questions-json (json-string)
   "Validate JSON string for question format.
@@ -322,7 +324,11 @@ On failure: (nil . \"Error: description\")"
                        (if (> (length err) 2) (nth 2 err) 0))))
     (error
      (cons nil (format "Validation error: %s" (error-message-string err))))))
+#+end_src
 
+*** Schema Validation - Questions Array
+
+#+begin_src emacs-lisp
 (defun jf/gptel-validate-questions-schema (data)
   "Validate schema structure and types.
 Returns (success-p . error-message)."
@@ -356,7 +362,11 @@ Returns (success-p . error-message)."
               (throw 'validation-error result)))
           (setq idx (1+ idx)))
         (cons t "Schema valid"))))))
+#+end_src
 
+*** Schema Validation - Single Question
+
+#+begin_src emacs-lisp
 (defun jf/gptel-validate-question-schema (question idx)
   "Validate a single question's schema.
 QUESTION is the question plist, IDX is its index in the array.
@@ -401,7 +411,11 @@ Returns (success-p . error-message)."
       (jf/gptel-validate-text-question question prefix))
 
      (t (cons t "Valid")))))
+#+end_src
 
+*** Schema Validation - Choice Question
+
+#+begin_src emacs-lisp
 (defun jf/gptel-validate-choice-question (question prefix)
   "Validate choice question specific fields.
 Returns (success-p . error-message)."
@@ -431,7 +445,11 @@ Returns (success-p . error-message)."
               (throw 'option-error result)))
           (setq opt-idx (1+ opt-idx)))
         (cons t "Valid"))))))
+#+end_src
 
+*** Schema Validation - Option
+
+#+begin_src emacs-lisp
 (defun jf/gptel-validate-option-schema (option prefix idx)
   "Validate a single option's schema.
 Returns (success-p . error-message)."
@@ -458,7 +476,11 @@ Returns (success-p . error-message)."
       (cons nil (concat opt-prefix "Field 'description' must be a string")))
 
      (t (cons t "Valid")))))
+#+end_src
 
+*** Schema Validation - Text Question
+
+#+begin_src emacs-lisp
 (defun jf/gptel-validate-text-question (question prefix)
   "Validate text question specific fields.
 Returns (success-p . error-message)."
@@ -474,7 +496,11 @@ Returns (success-p . error-message)."
     (cons nil (concat prefix "Field 'default' must be a string if present")))
 
    (t (cons t "Valid"))))
+#+end_src
 
+*** Semantic Validation
+
+#+begin_src emacs-lisp
 (defun jf/gptel-validate-questions-semantics (data)
   "Validate semantic constraints.
 Returns (success-p . error-message)."
@@ -506,7 +532,11 @@ Returns (success-p . error-message)."
           (setq idx (1+ idx))))
 
       (cons t "Semantics valid"))))
+#+end_src
 
+*** Semantic Validation - Choice Keys
+
+#+begin_src emacs-lisp
 (defun jf/gptel-validate-choice-keys (question idx)
   "Validate option keys in a choice question.
 Returns (success-p . error-message)."
@@ -541,11 +571,17 @@ Returns (success-p . error-message)."
 
 Buffer-local variables to track answers during question flow.
 
+*** Buffer-Local State
+
 #+begin_src emacs-lisp
 (defvar-local jf/gptel-ask--answers nil
   "Alist of answers during question flow.
 Each entry is (question-id question-text answer key).")
+#+end_src
 
+*** Record Answer
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--record-answer (question-id question-text answer key)
   "Record user's answer for QUESTION-ID.
 QUESTION-TEXT is the full question, ANSWER is the user's response,
@@ -553,16 +589,28 @@ KEY is the option key (for choice questions, nil for text)."
   (setq jf/gptel-ask--answers
         (cons (list question-id question-text answer key)
               (assoc-delete-all question-id jf/gptel-ask--answers))))
+#+end_src
 
+*** Check All Answered
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--all-answered-p (questions)
   "Check if all QUESTIONS have been answered."
   (= (length jf/gptel-ask--answers)
      (length questions)))
+#+end_src
 
+*** Clear Answers
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--clear-answers ()
   "Clear all recorded answers."
   (setq jf/gptel-ask--answers nil))
+#+end_src
 
+*** Get Current Question Index
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--current-question-index (questions)
   "Get index of current unanswered question.
 Returns 0-based index, or nil if all answered."
@@ -576,6 +624,8 @@ Returns 0-based index, or nil if all answered."
 ** Suffix Generation
 
 Build transient suffix specifications dynamically from question data.
+
+*** Build Suffixes for Current Question
 
 #+begin_src emacs-lisp
 (defun jf/gptel-ask--build-suffixes (questions callback)
@@ -593,7 +643,11 @@ CALLBACK is the async callback to invoke when complete."
           (error "Unknown question type: %s" (plist-get question :type))))
       ;; No unanswered questions - shouldn't happen
       (error "No unanswered questions found"))))
+#+end_src
 
+*** Build Choice Suffixes
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--build-choice-suffixes (question callback)
   "Build suffix specs for a choice QUESTION.
 Returns list of transient suffix specifications."
@@ -612,7 +666,11 @@ Returns list of transient suffix specifications."
                 question-id question-text option callback)
                :description description)))
      options)))
+#+end_src
 
+*** Build Text Suffix
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--build-text-suffix (question callback)
   "Build suffix spec for a text input QUESTION.
 Returns single-item list with suffix specification."
@@ -631,6 +689,8 @@ Returns single-item list with suffix specification."
 ** Handler Functions
 
 Create suffix command closures that record answers and manage question flow.
+
+*** Choice Handler
 
 #+begin_src emacs-lisp
 (defun jf/gptel-ask--make-choice-handler (question-id question-text option callback)
@@ -656,7 +716,11 @@ OPTION is the option plist, CALLBACK is the async callback."
           (transient-setup 'jf/gptel-ask-menu nil nil :scope scope)
           ;; Clear transitioning flag after a brief delay to allow exit hook to run
           (run-at-time 0.05 nil (lambda () (setq jf/gptel-ask--transitioning nil))))))))
+#+end_src
 
+*** Text Input Handler
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--make-text-handler (question-id question-text question callback)
   "Create suffix command for a text input question.
 QUESTION-ID identifies the question, QUESTION-TEXT is the full question,
@@ -689,6 +753,8 @@ CALLBACK is the async callback."
 
 Build JSON result from collected answers and invoke callback.
 
+*** Finish and Invoke Callback
+
 #+begin_src emacs-lisp
 (defun jf/gptel-ask--finish (questions callback)
   "Build result JSON and invoke CALLBACK.
@@ -703,7 +769,11 @@ QUESTIONS is the list of question plists."
     (transient-quit-one)
     ;; Invoke callback with JSON result
     (funcall callback result)))
+#+end_src
 
+*** Build Result JSON
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--build-result-json (questions answers)
   "Build JSON result from ANSWERS.
 QUESTIONS is the list of question plists for context.
@@ -773,6 +843,8 @@ isolation for questions and answers, but cancellation tracking is global.
 Future enhancement: Use buffer-local variables or a session registry to support
 concurrent sessions properly.
 
+*** Cancellation State Variables
+
 #+begin_src emacs-lisp
 (defvar jf/gptel-ask--active-callback nil
   "Global callback for currently active question flow.
@@ -783,7 +855,11 @@ WARNING: Global variable - only one active question flow supported at a time.")
   "Global flag - non-nil when transitioning between questions.
 Used to prevent exit hook from firing during normal transitions.
 WARNING: Global variable - concurrent sessions not supported.")
+#+end_src
 
+*** Exit Handler
+
+#+begin_src emacs-lisp
 (defun jf/gptel-ask--handle-exit ()
   "Handle transient exit - call callback with cancellation if incomplete.
 This runs on transient-exit-hook to catch C-g cancellations."
@@ -794,7 +870,11 @@ This runs on transient-exit-hook to catch C-g cancellations."
              (json-serialize (list :status "cancelled" :answers [])))
     (setq jf/gptel-ask--active-callback nil)
     (jf/gptel-ask--clear-answers)))
+#+end_src
 
+*** Register Exit Hook
+
+#+begin_src emacs-lisp
 ;; Register exit handler
 (add-hook 'transient-exit-hook #'jf/gptel-ask--handle-exit)
 #+end_src

@@ -73,6 +73,98 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 #+auto_tangle: y
 ```
 
+#### Keeping Babel Blocks Focused
+
+**Principle:** Keep org-babel blocks small and focused - typically one function per block.
+
+**Why this matters:**
+- **Easier debugging**: When validation fails, you can immediately identify which specific function has the error
+- **Better bisection**: The org-babel tangle bisection strategy is more effective with smaller blocks
+- **Incremental validation**: You can validate after writing each function without re-tangling large amounts of code
+- **Maintainability**: Changes to one function don't require re-tangling unrelated code
+
+**Guidelines:**
+
+**Good - Single function per block:**
+```org
+*** Record Answer
+#+begin_src emacs-lisp
+(defun jf/gptel-ask--record-answer (question-id question-text answer key)
+  "Record user's answer for QUESTION-ID."
+  (setq jf/gptel-ask--answers
+        (cons (list question-id question-text answer key)
+              (assoc-delete-all question-id jf/gptel-ask--answers))))
+#+end_src
+
+*** Check All Answered
+#+begin_src emacs-lisp
+(defun jf/gptel-ask--all-answered-p (questions)
+  "Check if all QUESTIONS have been answered."
+  (= (length jf/gptel-ask--answers)
+     (length questions)))
+#+end_src
+```
+
+**Acceptable - Small, logically related items grouped:**
+```org
+*** State Variables
+#+begin_src emacs-lisp
+(defvar jf/gptel-ask--active-callback nil
+  "Global callback for currently active question flow.")
+
+(defvar jf/gptel-ask--transitioning nil
+  "Flag indicating transition between questions.")
+#+end_src
+```
+
+**Bad - Multiple unrelated functions in one block:**
+```org
+*** Question Handling
+#+begin_src emacs-lisp
+(defun jf/gptel-ask--record-answer (...)
+  ...)
+
+(defun jf/gptel-ask--all-answered-p (...)
+  ...)
+
+(defun jf/gptel-ask--clear-answers (...)
+  ...)
+
+(defun jf/gptel-ask--current-question-index (...)
+  ...)
+
+(defun jf/gptel-ask--build-suffixes (...)
+  ...)
+
+(defun jf/gptel-ask--build-choice-suffixes (...)
+  ...)
+#+end_src
+```
+
+**When to group items:**
+- Multiple `defvar` declarations that are closely related
+- Short helper macros or constants used by a single function
+- Very simple related functions (< 5 lines each)
+
+**Refactoring large blocks:**
+
+When you encounter large blocks with many functions:
+1. Add subsection headers (*** or ****) for each function or logical group
+2. Move each function to its own `#+begin_src` block
+3. Keep the same tangle target
+4. Validate after refactoring: `./bin/tangle-org.sh file.org`
+5. Verify the tangled `.el` file is identical (no functional changes)
+
+**Benefits for debugging:**
+
+With focused blocks, the org-babel tangle bisection strategy becomes more powerful:
+- Disable tangling at file level
+- Enable tangling per subtree or per block
+- Validate after each addition
+- Quickly isolate the exact function with a syntax error
+
+See [Org-Babel Tangle Bisection Strategy](#org-babel-tangle-bisection-strategy) for details on using this debugging technique.
+
 #### After Tangling
 
 1. **Restart Emacs** or use `jf/reload-module` to load changes
@@ -89,6 +181,7 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 | Missing `#+auto_tangle: y` | Manual tangling required | Add header to `.org` file |
 | Property line not activated | Tangling fails silently | Press `C-c C-c` on `#+PROPERTY` line |
 | Syntax errors in org blocks | Breaks config on load | `./bin/tangle-org.sh` catches these |
+| Large babel blocks with many functions | Hard to debug syntax errors | Keep blocks focused - one function per block |
 
 ### Dual-Launch Support
 
