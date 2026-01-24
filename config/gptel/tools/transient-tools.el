@@ -1,16 +1,13 @@
 ;; -*- lexical-binding: t; -*-
 
-(defvar jf/gptel-transient-choice-callback nil
-  "Callback for the transient choice tool.
-Set when tool is invoked, cleared after selection is made.")
-
 (defun jf/gptel-transient-choice--handle-selection (choice)
   "Handle user selection from transient menu.
 CHOICE is the string value to return to the LLM.
-Invokes the stored callback and clears it to prevent double-invocation."
-  (when jf/gptel-transient-choice-callback
-    (funcall jf/gptel-transient-choice-callback choice)
-    (setq jf/gptel-transient-choice-callback nil)))
+Retrieves callback from transient scope and invokes it."
+  (let* ((scope (transient-scope))
+         (callback (plist-get scope :callback)))
+    (when callback
+      (funcall callback choice))))
 
 (transient-define-suffix jf/gptel-transient-choice--select-option-a ()
   "Select option A."
@@ -43,10 +40,9 @@ CALLBACK is called with the user's choice when they select an option.
 
 This is an async tool - it returns immediately after opening the menu.
 The callback will be invoked later when the user makes a selection."
-  ;; Store callback for suffix commands to access
-  (setq jf/gptel-transient-choice-callback callback)
-  ;; Open transient menu (returns immediately, menu stays open)
-  (jf/gptel-transient-choice-menu))
+  ;; Pass callback via transient scope (supports multiple concurrent invocations)
+  (transient-setup 'jf/gptel-transient-choice-menu nil nil
+                   :scope (list :callback callback)))
 
 (gptel-make-tool
  :name "transient_choice"

@@ -19,13 +19,20 @@ Key challenge: Transient menus open in a new buffer (*transient*) with focus swi
 from the gptel buffer. The async callback must remain accessible when the user makes a
 selection in the transient context.
 
-Solution: Store callback in global variable that suffix commands can access. This works
-because Emacs is single-threaded (no race conditions).
+Solution: Use transient's :scope mechanism to pass callback as a plist. The scope is
+accessible to suffix commands via (transient-scope) and is automatically isolated per
+transient invocation. This supports multiple concurrent gptel sessions without interference.
+
+Benefits of :scope approach:
+- No global state - each transient has its own isolated scope
+- Automatic cleanup when transient exits
+- Supports multiple concurrent sessions
+- Extensible - can pass additional metadata in the plist
 
 Future enhancements:
-- Use transient :scope for callback storage (cleaner, supports multiple concurrent calls)
 - Add C-g cleanup via transient-exit-hook
 - Support dynamic options passed from LLM
+- Pass additional metadata (session-id, buffer) in scope plist
 
 * Basic Configuration
 
@@ -33,28 +40,26 @@ Future enhancements:
 ;; -*- lexical-binding: t; -*-
 #+end_src
 
-* Callback Storage
-
-Global variable to hold the async callback while transient menu is active.
-
-#+begin_src emacs-lisp
-(defvar jf/gptel-transient-choice-callback nil
-  "Callback for the transient choice tool.
-Set when tool is invoked, cleared after selection is made.")
-#+end_src
-
 * Selection Handler
 
-Centralized function to invoke callback and cleanup state.
+Centralized function to invoke callback from transient scope.
+
+The scope is a plist containing at minimum:
+- :callback - The function to call with the user's selection
+
+Future scope fields could include:
+- :session-id - Track which gptel session initiated the request
+- :buffer - The originating buffer
 
 #+begin_src emacs-lisp
 (defun jf/gptel-transient-choice--handle-selection (choice)
   "Handle user selection from transient menu.
 CHOICE is the string value to return to the LLM.
-Invokes the stored callback and clears it to prevent double-invocation."
-  (when jf/gptel-transient-choice-callback
-    (funcall jf/gptel-transient-choice-callback choice)
-    (setq jf/gptel-transient-choice-callback nil)))
+Retrieves callback from transient scope and invokes it."
+  (let* ((scope (transient-scope))
+         (callback (plist-get scope :callback)))
+    (when callback
+      (funcall callback choice))))
 #+end_src
 
 * Transient Suffix Commands
@@ -106,10 +111,9 @@ CALLBACK is called with the user's choice when they select an option.
 
 This is an async tool - it returns immediately after opening the menu.
 The callback will be invoked later when the user makes a selection."
-  ;; Store callback for suffix commands to access
-  (setq jf/gptel-transient-choice-callback callback)
-  ;; Open transient menu (returns immediately, menu stays open)
-  (jf/gptel-transient-choice-menu))
+  ;; Pass callback via transient scope (supports multiple concurrent invocations)
+  (transient-setup 'jf/gptel-transient-choice-menu nil nil
+                   :scope (list :callback callback)))
 #+end_src
 
 * Tool Registration
@@ -127,6 +131,353 @@ Register the tool with gptel's tool system.
  :confirm nil)
 #+end_src
 
+* Implementation Guide: Async Tools with Transient
+
+This section documents the implementation pattern for async gptel tools that use
+transient menus. Understanding these concepts is crucial for building robust
+interactive tools.
+
+** Understanding Gptel's Async Tool Pattern
+
+*** The Async Tool Contract
+
+Async tools in gptel follow a specific contract:
+
+1. **Function signature**: Tool function takes =callback= as the FIRST parameter,
+   followed by any tool-specific arguments from the LLM.
+
+   #+begin_example
+   (defun my-async-tool (callback arg1 arg2)
+     ;; callback must be first parameter
+     ...)
+   #+end_example
+
+2. **Registration**: Tool must be registered with =:async t=
+
+   #+begin_example
+   (gptel-make-tool
+    :name "my_tool"
+    :function #'my-async-tool
+    :async t  ; Required for async tools
+    ...)
+   #+end_example
+
+3. **Return behavior**: Function returns immediately (non-blocking)
+
+4. **Callback invocation**: Tool must call callback exactly once with the result
+   when the async operation completes
+
+   #+begin_example
+   (funcall callback result-string)
+   #+end_example
+
+*** The FSM and Timing
+
+Gptel uses a Finite State Machine (FSM) to coordinate tool execution:
+
+- **INIT** → **WAIT** (waiting for API response)
+- **WAIT** → **TYPE** (LLM decides to call tool)
+- **TYPE** → **TOOL** (tool executes)
+- **TOOL** → **WAIT** (tool callback invoked, result sent back to API)
+- Loop continues until conversation completes
+
+For async tools:
+- Tool function returns immediately (FSM doesn't wait)
+- FSM remains in suspended state until callback is invoked
+- Callback invocation resumes the FSM and sends result to LLM
+
+**Critical timing requirement**: Callback MUST be called eventually, or FSM hangs forever.
+
+** The Context Switching Challenge
+
+*** Why Transient Menus Are Problematic
+
+When a transient menu opens:
+
+1. New buffer created: =*transient*=
+2. New window displayed (side window)
+3. **Focus switches** from gptel buffer to transient buffer
+4. User interacts in the transient context
+5. Suffix commands execute in transient buffer, not gptel buffer
+
+This creates a challenge: The callback was passed to the tool in the gptel buffer's
+context, but the user's selection happens in a completely different buffer context.
+
+*** Failed Approach: Global Variables
+
+Initial approach using global variable:
+
+#+begin_example
+(defvar my-callback nil)  ; Global state
+
+(defun my-tool (callback)
+  (setq my-callback callback)  ; Store globally
+  (my-transient-menu))
+
+(transient-define-suffix my-suffix ()
+  (funcall my-callback "result"))  ; Access global
+#+end_example
+
+**Problems**:
+- Only supports ONE active tool call at a time
+- Multiple concurrent gptel sessions interfere with each other
+- Second tool call overwrites first callback
+- No automatic cleanup on transient exit
+
+** The Scope Solution
+
+*** How Transient Scope Works
+
+Transient provides a =:scope= mechanism specifically for passing data to suffix commands:
+
+1. **Setting scope**: Pass via =transient-setup= call
+
+   #+begin_example
+   (transient-setup 'my-menu nil nil :scope data)
+   #+end_example
+
+2. **Accessing scope**: Call =(transient-scope)= in suffix commands
+
+   #+begin_example
+   (transient-define-suffix my-suffix ()
+     (interactive)
+     (let ((scope (transient-scope)))
+       ;; scope contains the data passed to transient-setup
+       ...))
+   #+end_example
+
+3. **Isolation**: Each transient invocation has its own isolated scope
+
+4. **Lifetime**: Scope exists for the duration of the transient session
+
+*** Using Plist for Structured Scope
+
+Best practice: Use a plist for scope data instead of raw values:
+
+#+begin_example
+;; Good: Structured, extensible
+(transient-setup 'my-menu nil nil
+                :scope (list :callback callback
+                            :session-id id
+                            :buffer (current-buffer)))
+
+;; Acceptable: Simple but less extensible
+(transient-setup 'my-menu nil nil :scope callback)
+#+end_example
+
+Benefits of plist:
+- Self-documenting (=:callback= key makes intent clear)
+- Extensible (can add fields without breaking existing code)
+- Type-safe (can validate plist structure)
+- Multiple values (can pass callback AND metadata)
+
+*** Complete Pattern
+
+The full implementation pattern:
+
+#+begin_example
+;; 1. Define handler that accesses scope
+(defun my-tool--handle-selection (choice)
+  (let* ((scope (transient-scope))
+         (callback (plist-get scope :callback)))
+    (when callback
+      (funcall callback choice))))
+
+;; 2. Define suffixes that call handler
+(transient-define-suffix my-tool--suffix-a ()
+  :transient nil  ; Exit after execution
+  (interactive)
+  (my-tool--handle-selection "Option A"))
+
+;; 3. Define transient menu
+(transient-define-prefix my-tool-menu ()
+  ["Choose an option"
+   ("a" "Option A" my-tool--suffix-a)])
+
+;; 4. Async tool function passes callback via scope
+(defun my-tool (callback)
+  (transient-setup 'my-tool-menu nil nil
+                   :scope (list :callback callback)))
+
+;; 5. Register with :async t
+(gptel-make-tool
+ :name "my_tool"
+ :function #'my-tool
+ :async t
+ ...)
+#+end_example
+
+** Best Practices
+
+*** Always Use :scope for Callback Storage
+
+- ✅ Supports multiple concurrent sessions
+- ✅ No global state
+- ✅ Automatic cleanup
+- ✅ Leverages transient's design
+
+*** Use Plist for Extensibility
+
+#+begin_example
+;; Today: Just callback
+:scope (list :callback callback)
+
+;; Tomorrow: Add session tracking without breaking anything
+:scope (list :callback callback
+            :session-id (gptel-session-id)
+            :buffer (current-buffer))
+#+end_example
+
+*** Set :transient nil on Suffixes
+
+Suffixes that invoke the callback should exit the menu:
+
+#+begin_example
+(transient-define-suffix my-suffix ()
+  :transient nil  ; Exit after calling callback
+  (interactive)
+  (my-handle-selection "result"))
+#+end_example
+
+This ensures:
+- Menu closes after selection
+- User returns to gptel buffer
+- Transient state is cleaned up
+
+*** Validate Callback Exists
+
+Always check callback is present before invoking:
+
+#+begin_example
+(let* ((scope (transient-scope))
+       (callback (plist-get scope :callback)))
+  (when callback  ; Guard against nil
+    (funcall callback result)))
+#+end_example
+
+*** Call Callback Exactly Once
+
+- ✅ One callback invocation per tool call
+- ❌ Never call callback multiple times (FSM breaks)
+- ❌ Never skip calling callback (FSM hangs)
+
+** Common Pitfalls
+
+*** Forgetting :async t
+
+If you forget =:async t= in registration:
+- Gptel expects tool to return result synchronously
+- Tool returns nil (before callback is invoked)
+- FSM sends nil to LLM
+- Your actual callback invocation later does nothing
+
+**Solution**: Always set =:async t= for async tools.
+
+*** Calling Callback Multiple Times
+
+#+begin_example
+;; BAD: Callback called multiple times
+(transient-define-suffix my-suffix ()
+  (interactive)
+  (funcall callback "first")
+  (funcall callback "second"))  ; FSM error!
+#+end_example
+
+**Solution**: Design suffixes to call callback exactly once, then exit.
+
+*** Global Variable for Concurrent Sessions
+
+#+begin_example
+;; BAD: Only supports one active call
+(defvar my-callback nil)
+(setq my-callback callback)  ; Overwrites previous!
+#+end_example
+
+**Solution**: Use =:scope= for per-invocation isolation.
+
+*** Not Handling C-g
+
+If user presses =C-g= to cancel:
+- Transient exits without calling callback
+- FSM hangs waiting for callback
+- Gptel buffer becomes unresponsive
+
+**Solution**: Add cleanup via =transient-exit-hook= (future enhancement):
+
+#+begin_example
+(defun my-tool--cleanup ()
+  (let* ((scope (transient-scope))
+         (callback (plist-get scope :callback)))
+    (when callback
+      (funcall callback "Cancelled by user"))))
+
+(add-hook 'transient-exit-hook #'my-tool--cleanup)
+#+end_example
+
+*** Buffer Context Assumptions
+
+Don't assume you're in the gptel buffer when suffix executes:
+
+#+begin_example
+;; BAD: May not be in gptel buffer
+(transient-define-suffix my-suffix ()
+  (interactive)
+  (insert "text")  ; Inserts in *transient* buffer!
+  ...)
+#+end_example
+
+**Solution**: Pass buffer in scope if you need to access it:
+
+#+begin_example
+;; Tool function
+(transient-setup 'my-menu nil nil
+                :scope (list :callback callback
+                            :buffer (current-buffer)))
+
+;; Suffix
+(transient-define-suffix my-suffix ()
+  (interactive)
+  (let* ((scope (transient-scope))
+         (buffer (plist-get scope :buffer)))
+    (with-current-buffer buffer
+      (insert "text"))))  ; Now inserts in correct buffer
+#+end_example
+
+** Performance Considerations
+
+*** Transient Startup Time
+
+Opening a transient menu is fast (<10ms), but not instant. For simple yes/no
+questions, consider if transient is the right UI:
+
+- ✅ Complex choices with multiple options
+- ✅ Choices that benefit from visual menu
+- ✅ Choices where user needs to see options
+- ❌ Simple yes/no (use =y-or-n-p= in callback)
+- ❌ Text input (use =read-string= in callback)
+
+*** Memory Cleanup
+
+Scope is automatically garbage collected when transient exits. No manual cleanup
+needed for scope data.
+
+If your tool allocates large resources (buffers, temp files), clean them up in
+the callback or via =transient-exit-hook=.
+
+** Testing Concurrent Sessions
+
+To verify your implementation supports concurrent sessions:
+
+1. Open two gptel buffers (different sessions)
+2. In buffer 1: Ask LLM to call your tool
+3. In buffer 2: Ask LLM to call your tool (before responding to #2)
+4. Verify two transient menus are open simultaneously
+5. Respond to menu in buffer 2
+6. Respond to menu in buffer 1
+7. Verify each callback went to the correct session
+
+If callbacks get mixed up, you're using global state incorrectly.
+
 * Known Limitations
 
 ** No C-g Cleanup
@@ -134,12 +485,6 @@ Register the tool with gptel's tool system.
 If the user cancels the transient with C-g without selecting an option, the callback
 is never called and the FSM may hang. This can be fixed by adding a cleanup function
 via transient-exit-hook (enhancement for production use).
-
-** Single Concurrent Invocation
-
-The global variable only supports one active tool call at a time. If the LLM calls
-the tool twice before the first completes, the second call will clobber the first
-callback. This can be fixed by using a hash table keyed by unique IDs.
 
 ** Static Options
 
