@@ -323,13 +323,17 @@ Returns 0-based index, or nil if all answered."
 (defun jf/gptel-ask--build-suffixes (questions callback)
   "Build suffix list for current unanswered question in QUESTIONS.
 CALLBACK is the async callback to invoke when complete.
-Phase 3: Finds current unanswered question and builds suffixes for it."
+Phase 4: Supports both choice and text questions."
   (let* ((current-idx (jf/gptel-ask--current-question-index questions))
          (question (when current-idx (nth current-idx questions))))
     (if question
-        (if (string= (plist-get question :type) "choice")
-            (jf/gptel-ask--build-choice-suffixes question callback)
-          (error "Text questions not yet implemented (Phase 4)"))
+        (cond
+         ((string= (plist-get question :type) "choice")
+          (jf/gptel-ask--build-choice-suffixes question callback))
+         ((string= (plist-get question :type) "text")
+          (jf/gptel-ask--build-text-suffix question callback))
+         (t
+          (error "Unknown question type: %s" (plist-get question :type))))
       ;; No unanswered questions - shouldn't happen
       (error "No unanswered questions found"))))
 
@@ -352,6 +356,20 @@ Returns list of transient suffix specifications."
                :description description)))
      options)))
 
+(defun jf/gptel-ask--build-text-suffix (question callback)
+  "Build suffix spec for a text input QUESTION.
+Returns single-item list with suffix specification."
+  (let ((header (plist-get question :header))
+        (question-id (plist-get question :id))
+        (question-text (plist-get question :question)))
+    ;; Return single suffix with RET key binding
+    (list
+     (list "RET"
+           (format "Enter %s" header)
+           (jf/gptel-ask--make-text-handler
+            question-id question-text question callback)
+           :description "Press RET to enter text"))))
+
 (defun jf/gptel-ask--make-choice-handler (question-id question-text option callback)
   "Create suffix command for a choice option.
 QUESTION-ID identifies the question, QUESTION-TEXT is the full question,
@@ -371,6 +389,29 @@ OPTION is the option plist, CALLBACK is the async callback."
             (jf/gptel-ask--finish questions callback)
           ;; More questions remain - re-setup transient for next question
           ;; Pass same scope to preserve questions and callback
+          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope))))))
+
+(defun jf/gptel-ask--make-text-handler (question-id question-text question callback)
+  "Create suffix command for a text input question.
+QUESTION-ID identifies the question, QUESTION-TEXT is the full question,
+QUESTION is the full question plist (for prompt and default),
+CALLBACK is the async callback."
+  (lambda ()
+    (interactive)
+    (let* ((prompt (or (plist-get question :prompt)
+                       (format "%s: " (plist-get question :header))))
+           (default (plist-get question :default))
+           (answer (read-string prompt default)))
+      ;; Record answer (no key for text input)
+      (jf/gptel-ask--record-answer question-id question-text answer nil)
+
+      ;; Check if more questions remain
+      (let* ((scope (transient-scope))
+             (questions (plist-get scope :questions)))
+        (if (jf/gptel-ask--all-answered-p questions)
+            ;; All answered - finish and invoke callback
+            (jf/gptel-ask--finish questions callback)
+          ;; More questions remain - re-setup transient for next question
           (transient-setup 'jf/gptel-ask-menu nil nil :scope scope))))))
 
 (defun jf/gptel-ask--finish (questions callback)
@@ -492,7 +533,7 @@ Constraints:
 
 Implementation status:
 - Phase 3: Multiple choice questions (sequential) - COMPLETE
-- Phase 4: Text input questions - COMING SOON
+- Phase 4: Text input questions - COMPLETE
 - Phase 5: Error handling (C-g cancellation) - COMING SOON"
  :args (list '(:name "questions_json"
                :type string
