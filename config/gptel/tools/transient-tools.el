@@ -311,14 +311,27 @@ KEY is the option key (for choice questions, nil for text)."
   "Clear all recorded answers."
   (setq jf/gptel-ask--answers nil))
 
+(defun jf/gptel-ask--current-question-index (questions)
+  "Get index of current unanswered question.
+Returns 0-based index, or nil if all answered."
+  (let ((answered-ids (mapcar #'car jf/gptel-ask--answers)))
+    (cl-position-if
+     (lambda (q)
+       (not (member (plist-get q :id) answered-ids)))
+     questions)))
+
 (defun jf/gptel-ask--build-suffixes (questions callback)
-  "Build suffix list for QUESTIONS.
+  "Build suffix list for current unanswered question in QUESTIONS.
 CALLBACK is the async callback to invoke when complete.
-For Phase 2, we only handle the first question (single choice)."
-  (let ((question (car questions)))  ; Phase 2: single question only
-    (if (string= (plist-get question :type) "choice")
-        (jf/gptel-ask--build-choice-suffixes question callback)
-      (error "Text questions not yet implemented (Phase 4)"))))
+Phase 3: Finds current unanswered question and builds suffixes for it."
+  (let* ((current-idx (jf/gptel-ask--current-question-index questions))
+         (question (when current-idx (nth current-idx questions))))
+    (if question
+        (if (string= (plist-get question :type) "choice")
+            (jf/gptel-ask--build-choice-suffixes question callback)
+          (error "Text questions not yet implemented (Phase 4)"))
+      ;; No unanswered questions - shouldn't happen
+      (error "No unanswered questions found"))))
 
 (defun jf/gptel-ask--build-choice-suffixes (question callback)
   "Build suffix specs for a choice QUESTION.
@@ -350,14 +363,15 @@ OPTION is the option plist, CALLBACK is the async callback."
       ;; Record answer
       (jf/gptel-ask--record-answer question-id question-text answer key)
 
-      ;; Phase 2: Single question, so we're done
-      ;; Get questions from scope to check completion
+      ;; Check if more questions remain
       (let* ((scope (transient-scope))
              (questions (plist-get scope :questions)))
         (if (jf/gptel-ask--all-answered-p questions)
+            ;; All answered - finish and invoke callback
             (jf/gptel-ask--finish questions callback)
-          ;; Phase 3 will handle multi-question flow here
-          (error "Multiple questions not yet implemented"))))))
+          ;; More questions remain - re-setup transient for next question
+          ;; Pass same scope to preserve questions and callback
+          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope))))))
 
 (defun jf/gptel-ask--finish (questions callback)
   "Build result JSON and invoke CALLBACK.
@@ -403,8 +417,13 @@ Returns JSON string."
    (lambda ()
      (let* ((scope (transient-scope))
             (questions (plist-get scope :questions))
-            (question (car questions)))  ; Phase 2: single question
-       (plist-get question :question)))
+            (current-idx (jf/gptel-ask--current-question-index questions))
+            (question (when current-idx (nth current-idx questions)))
+            (total (length questions))
+            (progress (1+ current-idx)))
+       ;; Format: "Question 1/3: What is your choice?"
+       (format "Question %d/%d: %s"
+               progress total (plist-get question :question))))
    [:class transient-column
     :setup-children
     (lambda (_)
@@ -466,13 +485,15 @@ Returns: JSON string with answers:
 }
 
 Constraints:
-- 1-4 questions max (Phase 2 supports 1 question only)
+- 1-4 questions max (fully supported)
 - 2-4 options per choice question
 - Single character keys
 - Headers max 12 characters
 
-Phase 2 status: Single choice question only. Text questions and multiple
-questions coming in later phases."
+Implementation status:
+- Phase 3: Multiple choice questions (sequential) - COMPLETE
+- Phase 4: Text input questions - COMING SOON
+- Phase 5: Error handling (C-g cancellation) - COMING SOON"
  :args (list '(:name "questions_json"
                :type string
                :description "JSON string containing the questions to ask"))
