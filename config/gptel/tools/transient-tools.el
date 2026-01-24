@@ -387,9 +387,12 @@ OPTION is the option plist, CALLBACK is the async callback."
         (if (jf/gptel-ask--all-answered-p questions)
             ;; All answered - finish and invoke callback
             (jf/gptel-ask--finish questions callback)
-          ;; More questions remain - re-setup transient for next question
-          ;; Pass same scope to preserve questions and callback
-          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope))))))
+          ;; More questions remain - set transitioning flag
+          (setq jf/gptel-ask--transitioning t)
+          ;; Re-setup transient for next question
+          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope)
+          ;; Clear transitioning flag after a brief delay to allow exit hook to run
+          (run-at-time 0.05 nil (lambda () (setq jf/gptel-ask--transitioning nil))))))))
 
 (defun jf/gptel-ask--make-text-handler (question-id question-text question callback)
   "Create suffix command for a text input question.
@@ -411,13 +414,20 @@ CALLBACK is the async callback."
         (if (jf/gptel-ask--all-answered-p questions)
             ;; All answered - finish and invoke callback
             (jf/gptel-ask--finish questions callback)
-          ;; More questions remain - re-setup transient for next question
-          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope))))))
+          ;; More questions remain - set transitioning flag
+          (setq jf/gptel-ask--transitioning t)
+          ;; Re-setup transient for next question
+          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope)
+          ;; Clear transitioning flag after a brief delay
+          (run-at-time 0.05 nil (lambda () (setq jf/gptel-ask--transitioning nil))))))))
 
 (defun jf/gptel-ask--finish (questions callback)
   "Build result JSON and invoke CALLBACK.
 QUESTIONS is the list of question plists."
   (let ((result (jf/gptel-ask--build-result-json questions jf/gptel-ask--answers)))
+    ;; Clear active callback and transitioning flag (prevents exit hook from triggering)
+    (setq jf/gptel-ask--active-callback nil)
+    (setq jf/gptel-ask--transitioning nil)
     ;; Clean up
     (jf/gptel-ask--clear-answers)
     ;; Exit transient
@@ -485,14 +495,41 @@ QUESTIONS-JSON is the JSON string describing the questions."
         ;; Validation passed - open menu
         (let ((data (cdr validation))
               (questions (plist-get (cdr validation) :questions)))
-          ;; Clear any previous answers
+          ;; Clear any previous answers and state
           (jf/gptel-ask--clear-answers)
+          (setq jf/gptel-ask--transitioning nil)
+          ;; Set active callback for cancellation handling
+          (setq jf/gptel-ask--active-callback callback)
           ;; Open transient with questions and callback in scope
           (transient-setup 'jf/gptel-ask-menu nil nil
                            :scope (list :questions questions
                                         :callback callback)))
-      ;; Validation failed - return error
+      ;; Validation failed - return error immediately
       (funcall callback (cdr validation)))))
+
+(defvar jf/gptel-ask--active-callback nil
+  "Global callback for currently active question flow.
+Set when question flow starts, cleared when completed or cancelled.
+WARNING: Global variable - only one active question flow supported at a time.")
+
+(defvar jf/gptel-ask--transitioning nil
+  "Global flag - non-nil when transitioning between questions.
+Used to prevent exit hook from firing during normal transitions.
+WARNING: Global variable - concurrent sessions not supported.")
+
+(defun jf/gptel-ask--handle-exit ()
+  "Handle transient exit - call callback with cancellation if incomplete.
+This runs on transient-exit-hook to catch C-g cancellations."
+  (when (and jf/gptel-ask--active-callback
+             (not jf/gptel-ask--transitioning))
+    ;; Transient exited but callback still active AND not transitioning - user cancelled
+    (funcall jf/gptel-ask--active-callback
+             (json-serialize (list :status "cancelled" :answers [])))
+    (setq jf/gptel-ask--active-callback nil)
+    (jf/gptel-ask--clear-answers)))
+
+;; Register exit handler
+(add-hook 'transient-exit-hook #'jf/gptel-ask--handle-exit)
 
 (gptel-make-tool
  :name "ask_user_questions"
@@ -534,7 +571,7 @@ Constraints:
 Implementation status:
 - Phase 3: Multiple choice questions (sequential) - COMPLETE
 - Phase 4: Text input questions - COMPLETE
-- Phase 5: Error handling (C-g cancellation) - COMING SOON"
+- Phase 5: Error handling (C-g cancellation) - COMPLETE"
  :args (list '(:name "questions_json"
                :type string
                :description "JSON string containing the questions to ask"))

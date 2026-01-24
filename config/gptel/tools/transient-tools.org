@@ -1036,9 +1036,12 @@ OPTION is the option plist, CALLBACK is the async callback."
         (if (jf/gptel-ask--all-answered-p questions)
             ;; All answered - finish and invoke callback
             (jf/gptel-ask--finish questions callback)
-          ;; More questions remain - re-setup transient for next question
-          ;; Pass same scope to preserve questions and callback
-          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope))))))
+          ;; More questions remain - set transitioning flag
+          (setq jf/gptel-ask--transitioning t)
+          ;; Re-setup transient for next question
+          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope)
+          ;; Clear transitioning flag after a brief delay to allow exit hook to run
+          (run-at-time 0.05 nil (lambda () (setq jf/gptel-ask--transitioning nil))))))))
 
 (defun jf/gptel-ask--make-text-handler (question-id question-text question callback)
   "Create suffix command for a text input question.
@@ -1060,8 +1063,12 @@ CALLBACK is the async callback."
         (if (jf/gptel-ask--all-answered-p questions)
             ;; All answered - finish and invoke callback
             (jf/gptel-ask--finish questions callback)
-          ;; More questions remain - re-setup transient for next question
-          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope))))))
+          ;; More questions remain - set transitioning flag
+          (setq jf/gptel-ask--transitioning t)
+          ;; Re-setup transient for next question
+          (transient-setup 'jf/gptel-ask-menu nil nil :scope scope)
+          ;; Clear transitioning flag after a brief delay
+          (run-at-time 0.05 nil (lambda () (setq jf/gptel-ask--transitioning nil))))))))
 #+end_src
 
 *** Result Building
@@ -1073,6 +1080,9 @@ Build JSON result from collected answers and invoke callback.
   "Build result JSON and invoke CALLBACK.
 QUESTIONS is the list of question plists."
   (let ((result (jf/gptel-ask--build-result-json questions jf/gptel-ask--answers)))
+    ;; Clear active callback and transitioning flag (prevents exit hook from triggering)
+    (setq jf/gptel-ask--active-callback nil)
+    (setq jf/gptel-ask--transitioning nil)
     ;; Clean up
     (jf/gptel-ask--clear-answers)
     ;; Exit transient
@@ -1152,14 +1162,55 @@ QUESTIONS-JSON is the JSON string describing the questions."
         ;; Validation passed - open menu
         (let ((data (cdr validation))
               (questions (plist-get (cdr validation) :questions)))
-          ;; Clear any previous answers
+          ;; Clear any previous answers and state
           (jf/gptel-ask--clear-answers)
+          (setq jf/gptel-ask--transitioning nil)
+          ;; Set active callback for cancellation handling
+          (setq jf/gptel-ask--active-callback callback)
           ;; Open transient with questions and callback in scope
           (transient-setup 'jf/gptel-ask-menu nil nil
                            :scope (list :questions questions
                                         :callback callback)))
-      ;; Validation failed - return error
+      ;; Validation failed - return error immediately
       (funcall callback (cdr validation)))))
+#+end_src
+
+*** Cancellation Handling
+
+Track active question flows and handle C-g cancellation.
+
+**IMPORTANT:** These are global variables, which means concurrent sessions are not
+fully supported. If two gptel buffers call this tool simultaneously, the second
+call will overwrite the first's callback. The :scope mechanism provides per-session
+isolation for questions and answers, but cancellation tracking is global.
+
+Future enhancement: Use buffer-local variables or a session registry to support
+concurrent sessions properly.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-ask--active-callback nil
+  "Global callback for currently active question flow.
+Set when question flow starts, cleared when completed or cancelled.
+WARNING: Global variable - only one active question flow supported at a time.")
+
+(defvar jf/gptel-ask--transitioning nil
+  "Global flag - non-nil when transitioning between questions.
+Used to prevent exit hook from firing during normal transitions.
+WARNING: Global variable - concurrent sessions not supported.")
+
+(defun jf/gptel-ask--handle-exit ()
+  "Handle transient exit - call callback with cancellation if incomplete.
+This runs on transient-exit-hook to catch C-g cancellations."
+  (when (and jf/gptel-ask--active-callback
+             (not jf/gptel-ask--transitioning))
+    ;; Transient exited but callback still active AND not transitioning - user cancelled
+    (funcall jf/gptel-ask--active-callback
+             (json-serialize (list :status "cancelled" :answers [])))
+    (setq jf/gptel-ask--active-callback nil)
+    (jf/gptel-ask--clear-answers)))
+
+;; Register exit handler
+(add-hook 'transient-exit-hook #'jf/gptel-ask--handle-exit)
 #+end_src
 
 *** Tool Registration
@@ -1207,7 +1258,7 @@ Constraints:
 Implementation status:
 - Phase 3: Multiple choice questions (sequential) - COMPLETE
 - Phase 4: Text input questions - COMPLETE
-- Phase 5: Error handling (C-g cancellation) - COMING SOON"
+- Phase 5: Error handling (C-g cancellation) - COMPLETE"
  :args (list '(:name "questions_json"
                :type string
                :description "JSON string containing the questions to ask"))
@@ -1362,6 +1413,134 @@ Expected behavior:
 - Prompt defaults to "Username: " (from header field)
 - No default value in minibuffer
 - User types username and presses RET
+
+** Phase 5: Error Handling and Polish
+
+Goal: Production-ready robustness with proper cancellation handling.
+
+Phase 5 adds error handling for user cancellation:
+- Track active question flow with global variable
+- Use transitioning flag to distinguish question transitions from cancellations
+- Detect C-g cancellation via transient-exit-hook
+- Return "cancelled" status to LLM when user quits
+- Clean up state on cancellation
+
+Key changes:
+1. Added `jf/gptel-ask--active-callback` to track active flow
+2. Added `jf/gptel-ask--transitioning` flag to prevent false positives
+3. Added `jf/gptel-ask--handle-exit` hook function
+4. Registered hook on `transient-exit-hook`
+5. Modified handlers to set transitioning flag during question transitions
+6. Use `run-at-time` with 50ms delay to clear transitioning flag (exit hook runs asynchronously)
+7. Modified `jf/gptel-ask--finish` to clear all state (prevent double-invocation)
+8. Modified `jf/gptel-ask-user-questions` to initialize state on start
+
+*** Why the Timer?
+
+The exit hook runs asynchronously after `transient-setup` returns. If we clear the
+transitioning flag immediately, the hook will see it as nil and incorrectly invoke
+the callback. By using a 50ms timer, we ensure the flag stays set long enough for
+the exit hook to check it.
+
+*** How Cancellation Works
+
+1. **Normal completion path:**
+   - User answers all questions
+   - `jf/gptel-ask--finish` is called
+   - Clears `jf/gptel-ask--active-callback` and `jf/gptel-ask--transitioning`
+   - Calls callback with "completed" status
+   - Exit hook sees nil callback, does nothing
+
+2. **Question transition path:**
+   - User answers a question (not the last one)
+   - Handler sets `jf/gptel-ask--transitioning` to t
+   - Calls `transient-setup` for next question (returns immediately)
+   - Schedules timer to clear `jf/gptel-ask--transitioning` after 50ms
+   - Exit hook runs (asynchronously), sees transitioning = t, does nothing
+   - Timer fires later, clears transitioning flag
+
+3. **Cancellation path (C-g):**
+   - User presses C-g in transient menu
+   - Transient exits without calling any suffix
+   - `transient-exit-hook` runs
+   - `jf/gptel-ask--handle-exit` checks: active callback? yes, transitioning? no
+   - Calls callback with "cancelled" status
+   - Clears callback and state
+
+*** Testing Phase 5
+
+**** Test 1: Normal completion (no change expected)
+
+Ask LLM to use tool with any question format. Answer all questions normally.
+Expected: Same behavior as Phase 4, callback receives "completed" status.
+
+**** Test 2: Cancel after first question (multi-question flow)
+
+Ask LLM to use tool with 2-3 questions. Answer first question, then press C-g
+on second question.
+
+Expected:
+- Menu closes immediately
+- LLM receives JSON: `{"status":"cancelled","answers":[]}`
+- gptel conversation continues (FSM doesn't hang)
+- LLM acknowledges cancellation in response
+
+**** Test 3: Cancel before answering any questions
+
+Ask LLM to use tool. Press C-g immediately when menu opens.
+
+Expected:
+- Menu closes
+- LLM receives cancellation status
+- No answers in result array
+- Conversation continues normally
+
+**** Test 4: Concurrent sessions (needs further testing)
+
+**STATUS:** Not tested yet. Known limitation with global variables.
+
+Test scenario: Open two gptel buffers. Ask both to use the tool. Interact with
+questions in different order (answer buffer 2, then buffer 1).
+
+Expected behavior (ideal):
+- Each session's callback goes to correct session
+- No interference between sessions
+- Cancel in one session doesn't affect the other
+
+Current limitation:
+- `jf/gptel-ask--active-callback` and `jf/gptel-ask--transitioning` are global
+- Second call will overwrite first call's cancellation tracking
+- Questions/answers are isolated via :scope (works correctly)
+- Callbacks are isolated via :scope (works correctly)
+- Cancellation tracking is NOT isolated (may cause issues)
+
+Recommendation: Avoid concurrent use until this is fixed with buffer-local variables
+or a session registry.
+
+*** Additional Polish Items
+
+Items already implemented in previous phases:
+
+✅ **Progress indicator:** Shows "Question N/M" (Phase 3)
+✅ **Clear error messages:** JSON validation with detailed errors (Phase 1)
+✅ **Descriptive section headers:** Question text shown in menu description
+✅ **Mixed question types:** Choice and text work together seamlessly (Phase 4)
+✅ **C-g cancellation:** Returns "cancelled" status to LLM (Phase 5)
+
+Items considered but not needed:
+
+- **Key binding conflict validation:** Not needed - LLM-provided keys are single chars,
+  transient handles conflicts automatically. Reserved keys (C-g, C-h) work as expected.
+
+- **Logging for debugging:** Not needed for production use. Error messages from
+  validation are sufficient. Can be added later if issues arise.
+
+Known limitations:
+
+⚠️ **Concurrent session support:** Questions/answers are isolated via :scope (works),
+  but cancellation tracking uses global variables (limitation). Second concurrent call
+  will overwrite first call's cancellation tracking. Avoid concurrent use until fixed
+  with buffer-local variables or session registry. Needs further testing.
 
 * Provide Statement
 
