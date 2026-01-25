@@ -7,7 +7,7 @@
 ;; Session metadata persistence for gptel.
 ;; Reads metadata from scope-plan.yml and preset.md.
 ;;
-;; - Session fields: session_id, created, type, parent_session_id, agent_type
+;; - Session fields: session_id, created, type, parent_session_id, preset
 ;; - Preset fields: backend, model
 
 ;;; Code:
@@ -20,8 +20,10 @@
 
 (defun jf/gptel--read-session-metadata (session-dir)
   "Read session metadata from scope-plan.yml in SESSION-DIR.
-Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :agent-type.
-Returns nil if file doesn't exist or can't be parsed."
+Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :preset.
+Returns nil if file doesn't exist or can't be parsed.
+
+Supports backward compatibility: reads 'preset' field, falls back to 'agent_type' for old sessions."
   (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
     (when (file-exists-p plan-file)
       (condition-case err
@@ -34,13 +36,15 @@ Returns nil if file doesn't exist or can't be parsed."
                    (updated (plist-get parsed :updated))
                    (type (plist-get parsed :type))
                    (parent-id (plist-get parsed :parent_session_id))
-                   (agent-type (plist-get parsed :agent_type)))
+                   ;; Backward compatibility: try 'preset' first, fall back to 'agent_type'
+                   (preset (or (plist-get parsed :preset)
+                              (plist-get parsed :agent_type))))
               (list :session-id session-id
                     :created created
                     :updated updated
                     :type type
                     :parent-session-id parent-id
-                    :agent-type agent-type)))
+                    :preset preset)))
         (error
          (jf/gptel--log 'error "Failed to parse scope-plan.yml in %s: %s"
                        session-dir (error-message-string err))

@@ -203,33 +203,50 @@ Signals error if template doesn't exist."
       (jf/gptel--log 'info "Copied preset template %s to %s" template-name dest-file)
       dest-file)))
 
-(defun jf/gptel--write-preset-md (session-dir preset-plist)
-  "Write PRESET-PLIST as preset.md in SESSION-DIR.
-Converts backend/model objects to names, tools to name strings."
+(defun jf/gptel--normalize-preset-for-serialization (preset-plist)
+  "Convert PRESET-PLIST to serializable form.
+Backend objects → names, model symbols → strings, tools → names."
   (let* ((backend (plist-get preset-plist :backend))
          (backend-name (if (gptel-backend-p backend)
                           (gptel-backend-name backend)
                         backend))
          (model (plist-get preset-plist :model))
          (model-name (if (symbolp model) (symbol-name model) model))
-         (system (plist-get preset-plist :system))
-         (temperature (plist-get preset-plist :temperature))
-         (include-tool-results (plist-get preset-plist :include-tool-results))
          (tools (plist-get preset-plist :tools))
+         (tool-names (when tools
+                      (mapcar (lambda (tool)
+                               (if (stringp tool) tool (gptel-tool-name tool)))
+                             tools))))
+    (list :backend backend-name
+          :model model-name
+          :tools tool-names
+          :description (plist-get preset-plist :description)
+          :system (plist-get preset-plist :system)
+          :temperature (plist-get preset-plist :temperature)
+          :include-tool-results (plist-get preset-plist :include-tool-results))))
+
+(defun jf/gptel--write-preset-md (session-dir preset-plist)
+  "Write PRESET-PLIST as preset.md in SESSION-DIR.
+Converts backend/model objects to names, tools to name strings."
+  (let* ((normalized (jf/gptel--normalize-preset-for-serialization preset-plist))
+         (backend-name (plist-get normalized :backend))
+         (model-name (plist-get normalized :model))
+         (system (plist-get normalized :system))
+         (temperature (plist-get normalized :temperature))
+         (include-tool-results (plist-get normalized :include-tool-results))
+         (tool-names (plist-get normalized :tools))
          (preset-file (expand-file-name "preset.md" session-dir)))
     (with-temp-file preset-file
       (insert "---\n")
-      (insert (format "description: %s\n" (plist-get preset-plist :description)))
+      (insert (format "description: %s\n" (plist-get normalized :description)))
       (insert (format "backend: %s\n" backend-name))
       (insert (format "model: %s\n" model-name))
       (insert (format "temperature: %s\n" temperature))
       (insert (format "include-tool-results: %s\n" include-tool-results))
-      (when tools
+      (when tool-names
         (insert "tools:\n")
-        (dolist (tool tools)
-          (let ((tool-name (if (stringp tool) tool
-                            (gptel-tool-name tool))))
-            (insert (format "  - %s\n" tool-name)))))
+        (dolist (tool-name tool-names)
+          (insert (format "  - %s\n" tool-name))))
       (insert "---\n\n")
       (when system
         (insert system)))
@@ -238,30 +255,23 @@ Converts backend/model objects to names, tools to name strings."
 (defun jf/gptel--write-preset-org (session-dir preset-plist)
   "Write PRESET-PLIST as preset.org in SESSION-DIR.
 Converts backend/model objects to names, tools to space-separated string."
-  (let* ((backend (plist-get preset-plist :backend))
-         (backend-name (if (gptel-backend-p backend)
-                          (gptel-backend-name backend)
-                        backend))
-         (model (plist-get preset-plist :model))
-         (model-name (if (symbolp model) (symbol-name model) model))
-         (system (plist-get preset-plist :system))
-         (temperature (plist-get preset-plist :temperature))
-         (include-tool-results (plist-get preset-plist :include-tool-results))
-         (tools (plist-get preset-plist :tools))
+  (let* ((normalized (jf/gptel--normalize-preset-for-serialization preset-plist))
+         (backend-name (plist-get normalized :backend))
+         (model-name (plist-get normalized :model))
+         (system (plist-get normalized :system))
+         (temperature (plist-get normalized :temperature))
+         (include-tool-results (plist-get normalized :include-tool-results))
+         (tool-names (plist-get normalized :tools))
          (preset-file (expand-file-name "preset.org" session-dir)))
     (with-temp-file preset-file
       (insert ":PROPERTIES:\n")
-      (insert (format ":description: %s\n" (plist-get preset-plist :description)))
+      (insert (format ":description: %s\n" (plist-get normalized :description)))
       (insert (format ":backend: %s\n" backend-name))
       (insert (format ":model: %s\n" model-name))
       (insert (format ":temperature: %s\n" temperature))
       (insert (format ":include-tool-results: %s\n" include-tool-results))
-      (when tools
-        (let ((tools-str (mapconcat
-                         (lambda (tool)
-                           (if (stringp tool) tool
-                             (gptel-tool-name tool)))
-                         tools " ")))
+      (when tool-names
+        (let ((tools-str (mapconcat #'identity tool-names " ")))
           (insert (format ":tools: %s\n" tools-str))))
       (insert ":END:\n\n")
       (when system
@@ -613,11 +623,11 @@ Settings are restored from gptel's Local Variables, not preset."
                     (let* ((path (plist-get s :path))
                            (metadata (jf/gptel--read-session-metadata path))
                            (parent-id (plist-get metadata :parent-session-id))
-                           (agent-type (plist-get metadata :agent-type)))
+                           (preset (plist-get metadata :preset)))
                       (cons (format "[%s] %s (%s)"
                               parent-id
                               (plist-get s :id)
-                              (or agent-type "unknown"))
+                              (or preset "unknown"))
                            s)))
                   agents)))
     (if (null choices)

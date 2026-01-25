@@ -72,9 +72,9 @@
   :after gptel
   :demand t
   :config
-  ;; Add our custom agent directory to the scan path
+  ;; Add our presets directory to the agent scan path
   (add-to-list 'gptel-agent-dirs
-               (expand-file-name "config/gptel/agents/" jf/emacs-dir))
+               (expand-file-name "config/gptel/presets/" jf/emacs-dir))
 
   ;; Load scope-core FIRST (required by scope-controlled tools)
   (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))

@@ -12,18 +12,18 @@
 
 
 ;; [[file:scope-commands.org::*Deny-All Template (Secure Default)][Deny-All Template (Secure Default):1]]
-(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id agent-type)
+(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id preset)
   "Secure default template - nothing allowed, user must add patterns.
 Recommended for new sessions where you want explicit control.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+Optional TYPE, PARENT-ID, and PRESET for agent sessions."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
         (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
                            (when parent-id
                              (format "parent_session_id: \"%s\"\n" parent-id))
-                           (when agent-type
-                             (format "agent_type: \"%s\"\n" agent-type))))))
+                           (when preset
+                             (format "preset: \"%s\"\n" preset))))))
     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
@@ -104,19 +104,19 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Codebase Read Template][Codebase Read Template:1]]
-(defun jf/gptel-scope--template-codebase-read (session-id &optional type parent-id agent-type)
+(defun jf/gptel-scope--template-codebase-read (session-id &optional type parent-id preset)
   "Read-only exploration template.
 Allows safe shell commands for code exploration (ls, find, grep, git log).
 No write operations allowed - LLM must request permission.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+Optional TYPE, PARENT-ID, and PRESET for agent sessions."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
         (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
                            (when parent-id
                              (format "parent_session_id: \"%s\"\n" parent-id))
-                           (when agent-type
-                             (format "agent_type: \"%s\"\n" agent-type))))))
+                           (when preset
+                             (format "preset: \"%s\"\n" preset))))))
     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
@@ -205,19 +205,19 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Org-Roam Safe Template][Org-Roam Safe Template:1]]
-(defun jf/gptel-scope--template-org-roam-safe (session-id &optional type parent-id agent-type)
+(defun jf/gptel-scope--template-org-roam-safe (session-id &optional type parent-id preset)
   "Org-roam safe template.
 Allows creating and linking nodes in gptel/ subdirectory with gptel tag.
 Safe for LLM-generated notes that are clearly separated from personal notes.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+Optional TYPE, PARENT-ID, and PRESET for agent sessions."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
         (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
                            (when parent-id
                              (format "parent_session_id: \"%s\"\n" parent-id))
-                           (when agent-type
-                             (format "agent_type: \"%s\"\n" agent-type))))))
+                           (when preset
+                             (format "preset: \"%s\"\n" preset))))))
     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
@@ -297,11 +297,11 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Permissive Template][Permissive Template:1]]
-(defun jf/gptel-scope--template-permissive (session-id &optional type parent-id agent-type)
+(defun jf/gptel-scope--template-permissive (session-id &optional type parent-id preset)
   "Permissive template - broad access.
 USE WITH CAUTION: Allows wide filesystem access and many shell commands.
 Only use when you trust the LLM workflow and want minimal restrictions.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+Optional TYPE, PARENT-ID, and PRESET for agent sessions."
   (let ((project-root (or (projectile-project-root) default-directory))
         (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
         (agent-fields (when type
@@ -309,8 +309,8 @@ Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
                            (format "type: \"%s\"\n" type)
                            (when parent-id
                              (format "parent_session_id: \"%s\"\n" parent-id))
-                           (when agent-type
-                             (format "agent_type: \"%s\"\n" agent-type))))))
+                           (when preset
+                             (format "preset: \"%s\"\n" preset))))))
     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
@@ -403,13 +403,13 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Project-Aware Template][Project-Aware Template:1]]
-(defun jf/gptel-scope--template-project-aware (session-id project-roots &optional type parent-id agent-type)
+(defun jf/gptel-scope--template-project-aware (session-id project-roots &optional type parent-id preset)
   "Project-aware scope template.
 Allows read/write/edit operations within PROJECT-ROOTS only.
 Blocks sensitive paths (.git, .env, runtime, node_modules).
 
 PROJECT-ROOTS is a list of absolute project directory paths.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions.
+Optional TYPE, PARENT-ID, and PRESET for agent sessions.
 
 This is 'git-safe':
 - READ: Only files within selected project directories
@@ -425,8 +425,8 @@ of ignored files like node_modules/, build artifacts, etc."
                            (format "type: \"%s\"\n" type)
                            (when parent-id
                              (format "parent_session_id: \"%s\"\n" parent-id))
-                           (when agent-type
-                             (format "agent_type: \"%s\"\n" agent-type))))))
+                           (when preset
+                             (format "preset: \"%s\"\n" preset))))))
     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"

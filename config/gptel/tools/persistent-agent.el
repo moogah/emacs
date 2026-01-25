@@ -31,9 +31,9 @@ Only saves if buffer has associated file and session directory."
     ;; not auto-save
     ))
 
-(defun jf/gptel-persistent-agent--create-overlay (where agent-type description)
+(defun jf/gptel-persistent-agent--create-overlay (where preset description)
   "Create status overlay in parent buffer at WHERE.
-AGENT-TYPE is the type of agent (e.g., \"researcher\").
+PRESET is the preset name (e.g., \"researcher\").
 DESCRIPTION is a short summary of the task.
 Returns overlay to pass as :context to gptel-request."
   (let* ((buffer (if (markerp where) (marker-buffer where) (current-buffer)))
@@ -50,7 +50,7 @@ Returns overlay to pass as :context to gptel-request."
              (msg (concat
                    (unless (eq (char-after (car bounds)) 10) "\n")
                    "\n" jf/gptel-persistent-agent--hrule
-                   (propertize (concat (capitalize agent-type) " Task: ")
+                   (propertize (concat (capitalize preset) " Task: ")
                                'face 'font-lock-escape-face)
                    (propertize description 'face 'font-lock-doc-face) "\n")))
         (overlay-put ov 'gptel-persistent-agent t)
@@ -114,11 +114,11 @@ FSM is the finite state machine managing the request."
   "Custom FSM handlers for persistent agents.
 Each entry is (STATE UI-HANDLER CORE-HANDLER).")
 
-(defun jf/gptel-persistent-agent--task (main-cb agent_type description prompt)
+(defun jf/gptel-persistent-agent--task (main-cb preset description prompt)
   "Launch a persistent agent in a new session buffer.
 
 MAIN-CB is the callback function to invoke with the final result.
-AGENT_TYPE is the type of agent (e.g., \"researcher\").
+PRESET is the preset name (e.g., \"researcher\").
 DESCRIPTION is a short (3-5 word) task summary.
 PROMPT is the detailed task instructions.
 
@@ -137,11 +137,11 @@ with zero inheritance from the parent session."
 
     ;; Create nested agent directory and session ID
     (let* ((session-dir (jf/gptel--create-agent-directory
-                         jf/gptel--session-dir agent_type description))
+                         jf/gptel--session-dir preset description))
            (session-id (jf/gptel--session-id-from-directory session-dir)))
 
       ;; Get agent config to determine backend/model (NO parent inheritance)
-      (let* ((agent-config (cdr (assoc agent_type gptel-agent--agents)))
+      (let* ((agent-config (cdr (assoc preset gptel-agent--agents)))
              (agent-backend-name (or (plist-get agent-config :backend)
                                     (gptel-backend-name gptel-backend)))
              (agent-model (or (plist-get agent-config :model)
@@ -149,7 +149,7 @@ with zero inheritance from the parent session."
 
         ;; Create scope-plan.yml with agent fields (deny-all template)
         (let* ((scope-yaml (jf/gptel-scope--template-deny-all
-                           session-id "agent" jf/gptel--session-id agent_type))
+                           session-id "agent" jf/gptel--session-id preset))
                (scope-file (expand-file-name "scope-plan.yml" session-dir)))
           (with-temp-file scope-file
             (insert scope-yaml))
@@ -158,6 +158,7 @@ with zero inheritance from the parent session."
         ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
 
         ;; Create preset file ONLY from agent definition (NO parent inheritance)
+        ;; Reuse agent-config from above - no need to look up again
         (let* ((preset-plist (copy-sequence agent-config)))
           ;; Override to ensure tool results are included
           (plist-put preset-plist :include-tool-results t)
@@ -169,10 +170,10 @@ with zero inheritance from the parent session."
                            (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)
                                  :type "agent"
                                  :parent-session-id jf/gptel--session-id
-                                 :agent-type agent_type))))
+                                 :preset preset))))
 
           ;; Create agent buffer with session infrastructure
-          (let* ((buffer-name (format "*gptel-agent:%s:%s*" agent_type description))
+          (let* ((buffer-name (format "*gptel-agent:%s:%s*" preset description))
                  (agent-buffer (generate-new-buffer buffer-name)))
 
             ;; Initialize buffer with session tracking and auto-save
@@ -206,15 +207,16 @@ with zero inheritance from the parent session."
 
           ;; Create overlay for parent feedback
           (let ((ov (jf/gptel-persistent-agent--create-overlay
-                     where agent_type description)))
+                     where preset description)))
 
             ;; Execute with preset scope for configuration only
+            ;; Reuse agent-config from outer scope - no need to look up again
             (gptel-with-preset
                 (nconc (list :include-reasoning nil
                              :use-tools t
                              :use-context nil
                              :include-tool-results t)
-                       (cdr (assoc agent_type gptel-agent--agents)))
+                       agent-config)
 
               ;; Accumulator for response (must be inside preset scope)
               (let ((partial ""))
@@ -292,10 +294,10 @@ Use for complex research, open-ended exploration, or iterative tasks."
 
  :function #'jf/gptel-persistent-agent--task
 
- :args '(( :name "agent_type"
+ :args '(( :name "preset"
            :type string
            :enum ["researcher" "executor" "explorer" "planner"]
-           :description "Type of specialized agent")
+           :description "Preset name for specialized agent")
 
          ( :name "description"
            :type string

@@ -129,16 +129,16 @@ Returns list of plists with:
                            (1+ current-depth)))))))))
     (nreverse sessions)))
 
-(defun jf/gptel--create-agent-directory (parent-session-dir agent-type description)
+(defun jf/gptel--create-agent-directory (parent-session-dir preset description)
   "Create agent directory under PARENT-SESSION-DIR.
-AGENT-TYPE is the agent type (e.g., 'researcher', 'executor').
+PRESET is the preset name (e.g., 'researcher', 'executor').
 DESCRIPTION is a brief description for the directory name.
 Returns the absolute path to the created agent directory."
   (let* ((agents-dir (jf/gptel--agents-dir-path parent-session-dir))
          (slug (replace-regexp-in-string "[^a-z0-9-]" "-"
                                         (downcase description)))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
-         (dirname (format "%s-%s-%s" agent-type timestamp slug))
+         (dirname (format "%s-%s-%s" preset timestamp slug))
          (agent-dir (expand-file-name dirname agents-dir)))
     ;; Create agents directory if needed
     (unless (file-directory-p agents-dir)

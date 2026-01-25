@@ -8,7 +8,7 @@
 Session metadata persistence for gptel sessions.
 
 Metadata is read from two sources:
-- Session-level fields (session_id, created, type, parent_session_id, agent_type) from scope-plan.yml
+- Session-level fields (session_id, created, type, parent_session_id, preset) from scope-plan.yml
 - Preset fields (backend, model) from preset.md YAML frontmatter
 
 * Lexical Binding
@@ -23,7 +23,7 @@ Metadata is read from two sources:
 ;; Session metadata persistence for gptel.
 ;; Reads metadata from scope-plan.yml and preset.md.
 ;;
-;; - Session fields: session_id, created, type, parent_session_id, agent_type
+;; - Session fields: session_id, created, type, parent_session_id, preset
 ;; - Preset fields: backend, model
 
 ;;; Code:
@@ -45,14 +45,14 @@ Metadata is stored in two separate files:
 - updated - ISO8601 timestamp of last update
 - type - Session type ("agent" for agent sessions, omitted for regular sessions)
 - parent_session_id - Parent session ID (for agents only)
-- agent_type - Agent type (e.g., "Bash", "Explore" - for agents only)
+- preset - Preset name (e.g., "Bash", "Explore", "programming-assistant")
 
 **preset.md** contains configuration fields in YAML frontmatter:
 - backend - Backend name (e.g., "Claude", "ChatGPT")
 - model - Model name/symbol
 
 Reading functions return plists with kebab-case keywords:
-- :session-id, :created, :updated, :type, :parent-session-id, :agent-type
+- :session-id, :created, :updated, :type, :parent-session-id, :preset
 - :backend, :model
 
 * Metadata Reading Functions
@@ -64,8 +64,10 @@ Functions for reading session metadata from scope-plan.yml and preset.md files.
 #+begin_src emacs-lisp
 (defun jf/gptel--read-session-metadata (session-dir)
   "Read session metadata from scope-plan.yml in SESSION-DIR.
-Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :agent-type.
-Returns nil if file doesn't exist or can't be parsed."
+Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :preset.
+Returns nil if file doesn't exist or can't be parsed.
+
+Supports backward compatibility: reads 'preset' field, falls back to 'agent_type' for old sessions."
   (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
     (when (file-exists-p plan-file)
       (condition-case err
@@ -78,13 +80,15 @@ Returns nil if file doesn't exist or can't be parsed."
                    (updated (plist-get parsed :updated))
                    (type (plist-get parsed :type))
                    (parent-id (plist-get parsed :parent_session_id))
-                   (agent-type (plist-get parsed :agent_type)))
+                   ;; Backward compatibility: try 'preset' first, fall back to 'agent_type'
+                   (preset (or (plist-get parsed :preset)
+                              (plist-get parsed :agent_type))))
               (list :session-id session-id
                     :created created
                     :updated updated
                     :type type
                     :parent-session-id parent-id
-                    :agent-type agent-type)))
+                    :preset preset)))
         (error
          (jf/gptel--log 'error "Failed to parse scope-plan.yml in %s: %s"
                        session-dir (error-message-string err))
