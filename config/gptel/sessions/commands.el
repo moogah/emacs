@@ -423,14 +423,8 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
             (insert scope-yaml))
           (jf/gptel--log 'info "Created scope plan: %s" scope-file))
 
-        ;; Register session (read metadata from scope-plan.yml)
-        (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
-                           ;; Fallback if scope-plan.yml read fails
-                           (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))))
-          (jf/gptel--register-session session-dir metadata buffer session-id))
-
-        ;; Update registry with buffer
-        (jf/gptel--update-session-buffer session-id buffer)
+        ;; Register session with minimal runtime state
+        (jf/gptel--register-session session-dir buffer session-id)
 
         ;; Copy preset template to session directory
         (jf/gptel--copy-preset-template preset-template session-dir)
@@ -473,16 +467,22 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
         (insert "GPTEL Persistent Sessions\n")
         (insert "=========================\n\n")
         (dolist (session sessions)
-          (let ((session-id (plist-get session :session-id))
-                (created (plist-get session :created))
-                (metadata (plist-get session :metadata))
-                (buffer (plist-get session :buffer)))
+          (let* ((session-id (plist-get session :session-id))
+                 (session-dir (plist-get session :directory))
+                 (buffer (plist-get session :buffer))
+                 ;; Read metadata from disk on-demand
+                 (session-meta (jf/gptel--read-session-metadata session-dir))
+                 (preset-meta (jf/gptel--read-preset-metadata session-dir))
+                 (created (when session-meta (plist-get session-meta :created)))
+                 (backend (when preset-meta (plist-get preset-meta :backend)))
+                 (model (when preset-meta (plist-get preset-meta :model))))
             (insert (format "• %s\n" session-id))
             (when created
               (insert (format "  Created: %s\n" created)))
-            (when metadata
-              (insert (format "  Backend: %s\n" (plist-get metadata :backend)))
-              (insert (format "  Model: %s\n" (plist-get metadata :model))))
+            (when backend
+              (insert (format "  Backend: %s\n" backend)))
+            (when model
+              (insert (format "  Model: %s\n" model)))
             (when buffer
               (insert (format "  Active in: %s\n" (buffer-name buffer))))
             (insert "\n")))
@@ -502,8 +502,7 @@ The preset file is NOT reapplied - it's just a template that may be stale."
                          nil t)))
   (let* ((session (jf/gptel-session-find session-id))
          (session-dir (plist-get session :directory))
-         (session-file (jf/gptel--context-file-path session-dir))
-         (metadata (plist-get session :metadata)))
+         (session-file (jf/gptel--context-file-path session-dir)))
 
     (unless (file-exists-p session-file)
       (user-error "Session file not found: %s" session-file))
@@ -654,9 +653,7 @@ Settings are restored from gptel's Local Variables, not preset."
             (setq-local jf/gptel--session-dir session-dir)
 
             ;; Update registry
-            (let ((metadata (jf/gptel--read-metadata session-dir)))
-              (when metadata
-                (jf/gptel--register-session session-dir metadata buffer session-id)))
+            (jf/gptel--register-session session-dir buffer session-id)
 
             ;; Enable auto-save
             (setq-local jf/gptel-autosave-enabled t)

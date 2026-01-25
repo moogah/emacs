@@ -637,8 +637,8 @@ with zero inheritance from the parent session."
               (set-visited-file-name (jf/gptel--context-file-path session-dir))
               (set-buffer-modified-p t))
 
-            ;; Register session globally
-            (jf/gptel--register-session session-dir metadata agent-buffer session-id)
+            ;; Register session globally (metadata no longer needed in registry)
+            (jf/gptel--register-session session-dir agent-buffer session-id)
 
           ;; Create overlay for parent feedback
           (let ((ov (jf/gptel-persistent-agent--create-overlay

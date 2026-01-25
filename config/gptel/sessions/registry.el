@@ -20,42 +20,34 @@ Keys are session-id strings, values are session plists.")
 
 (defun jf/gptel--init-registry ()
   "Initialize the session registry.
-Discovers all session directories and loads metadata from scope-plan.yml."
+Discovers all session directories and populates registry with essential runtime state.
+Metadata is read from disk on-demand when needed."
   (clrhash jf/gptel--session-registry)
   (let ((session-dirs (jf/gptel--list-session-directories)))
     (dolist (dir session-dirs)
       (when (jf/gptel--valid-session-directory-p dir)
-        (let* ((session-id (jf/gptel--session-id-from-directory dir))
-               ;; Read metadata from scope-plan.yml
-               (metadata (jf/gptel--read-session-metadata dir)))
-          (when metadata
-            (puthash session-id
-                    (list :session-id session-id
-                          :directory dir
-                          :buffer nil
-                          :metadata metadata
-                          :created (plist-get metadata :created)
-                          :last-accessed (current-time))
-                    jf/gptel--session-registry)
-            (jf/gptel--log 'debug "Registered session: %s" session-id)))))
+        (let ((session-id (jf/gptel--session-id-from-directory dir)))
+          (puthash session-id
+                  (list :session-id session-id
+                        :directory dir
+                        :buffer nil)
+                  jf/gptel--session-registry)
+          (jf/gptel--log 'debug "Registered session: %s" session-id))))
     (jf/gptel--log 'info "Initialized registry with %d sessions"
                   (hash-table-count jf/gptel--session-registry))))
 
-(defun jf/gptel--register-session (session-dir metadata &optional buffer session-id)
+(defun jf/gptel--register-session (session-dir &optional buffer session-id)
   "Register a session in the global registry.
 SESSION-DIR is the absolute path to the session directory.
-METADATA is the metadata plist.
 BUFFER is the optional buffer visiting this session.
-SESSION-ID is optional; if not provided, extracted from session-dir."
+SESSION-ID is optional; if not provided, extracted from session-dir.
+Metadata is read from disk on-demand when needed."
   (let ((session-id (or session-id
                        (jf/gptel--session-id-from-directory session-dir))))
     (puthash session-id
             (list :session-id session-id
                   :directory session-dir
-                  :buffer buffer
-                  :metadata metadata
-                  :created (plist-get metadata :created)
-                  :last-accessed (current-time))
+                  :buffer buffer)
             jf/gptel--session-registry)
     (jf/gptel--log 'info "Registered session: %s" session-id)
     session-id))
@@ -69,10 +61,6 @@ SESSION-ID is optional; if not provided, extracted from session-dir."
   "Find session by SESSION-ID in registry.
 Returns session plist or nil if not found."
   (gethash session-id jf/gptel--session-registry))
-
-(defun jf/gptel--session-exists-p (session-id)
-  "Return t if SESSION-ID exists in registry."
-  (not (null (jf/gptel-session-find session-id))))
 
 (defun jf/gptel--all-sessions ()
   "Return list of all session plists in registry."
@@ -90,14 +78,6 @@ Returns session plist or nil if not found."
   "Update the buffer associated with SESSION-ID."
   (when-let ((session (jf/gptel-session-find session-id)))
     (plist-put session :buffer buffer)
-    (plist-put session :last-accessed (current-time))
-    (puthash session-id session jf/gptel--session-registry)))
-
-(defun jf/gptel--update-session-metadata (session-id metadata)
-  "Update the metadata for SESSION-ID."
-  (when-let ((session (jf/gptel-session-find session-id)))
-    (plist-put session :metadata metadata)
-    (plist-put session :last-accessed (current-time))
     (puthash session-id session jf/gptel--session-registry)))
 
 (defun jf/gptel--current-session ()

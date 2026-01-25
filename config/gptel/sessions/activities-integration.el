@@ -96,26 +96,22 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
     ;; Create deny-all scope plan (includes session_id and created timestamp)
     (jf/gptel-scope--create-default-plan session-id)
 
-    ;; Build minimal metadata for registry (read from scope-plan.yml)
-    (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
-                       ;; Fallback if scope-plan.yml read fails
-                       (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))))
-      ;; Register in global registry using our pre-generated session-id
-      (jf/gptel--log 'info "Registering session: %s" session-id)
-      (jf/gptel--register-session session-dir metadata (current-buffer) session-id)
+    ;; Register in global registry using our pre-generated session-id
+    (jf/gptel--log 'info "Registering session: %s" session-id)
+    (jf/gptel--register-session session-dir (current-buffer) session-id)
 
-      ;; Create session.org file
-      (jf/gptel-session--create-session-file session-file activity-name
-                                             backend-name model session-id)
-      (jf/gptel--log 'info "Created session file: %s" session-file)
+    ;; Create session.org file
+    (jf/gptel-session--create-session-file session-file activity-name
+                                           backend-name model session-id)
+    (jf/gptel--log 'info "Created session file: %s" session-file)
 
-      ;; Return session info
-      (list :session-id session-id
-            :session-dir session-dir
-            :buffer-name (format "*gptel-%s*" slug)
-            :session-file session-file
-            :backend backend-name
-            :model (if (symbolp model) (symbol-name model) model)))))
+    ;; Return session info
+    (list :session-id session-id
+          :session-dir session-dir
+          :buffer-name (format "*gptel-%s*" slug)
+          :session-file session-file
+          :backend backend-name
+          :model (if (symbolp model) (symbol-name model) model))))
 
 (defun jf/gptel-session--create-buffer (session-info)
   "Create gptel buffer associated with session file.
@@ -182,12 +178,12 @@ Returns the buffer visiting the session file."
                   ;; Force autosave
                   (setq-local jf/gptel-autosave-enabled t)
 
-                  ;; Restore backend/model from metadata
-                  (let ((metadata (plist-get session :metadata)))
-                    (when-let ((backend-name (plist-get metadata :backend)))
+                  ;; Restore backend/model from preset metadata on disk
+                  (let ((preset-meta (jf/gptel--read-preset-metadata (plist-get session :directory))))
+                    (when-let ((backend-name (plist-get preset-meta :backend)))
                       (setq-local gptel-backend (alist-get backend-name gptel--known-backends
                                                            nil nil #'equal)))
-                    (when-let ((model-name (plist-get metadata :model)))
+                    (when-let ((model-name (plist-get preset-meta :model)))
                       (setq-local gptel-model (if (stringp model-name)
                                                  (intern model-name)
                                                model-name))))

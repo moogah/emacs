@@ -55,7 +55,10 @@ Show information about current session or session at point.
                        (when (jf/gptel--valid-session-directory-p session-dir)
                          (let ((session-id (jf/gptel--session-id-from-directory session-dir)))
                            (jf/gptel-session-find session-id)))))))
-         (metadata (when session (plist-get session :metadata))))
+         (session-dir (when session (plist-get session :directory)))
+         ;; Read metadata from disk on-demand
+         (session-meta (when session-dir (jf/gptel--read-session-metadata session-dir)))
+         (preset-meta (when session-dir (jf/gptel--read-preset-metadata session-dir))))
 
     (if (not session)
         (message "No session found")
@@ -65,14 +68,16 @@ Show information about current session or session at point.
           (insert "GPTEL Session Information\n")
           (insert "=========================\n\n")
           (insert (format "Session ID: %s\n" (plist-get session :session-id)))
-          (insert (format "Directory: %s\n" (plist-get session :directory)))
-          (insert (format "Created: %s\n" (plist-get session :created)))
-          (insert (format "Backend: %s\n" (plist-get metadata :backend)))
-          (insert (format "Model: %s\n" (plist-get metadata :model)))
+          (insert (format "Directory: %s\n" session-dir))
+          (when session-meta
+            (insert (format "Created: %s\n" (plist-get session-meta :created))))
+          (when preset-meta
+            (insert (format "Backend: %s\n" (plist-get preset-meta :backend)))
+            (insert (format "Model: %s\n" (plist-get preset-meta :model))))
           (when-let ((buffer (plist-get session :buffer)))
             (insert (format "Active Buffer: %s\n" (buffer-name buffer))))
           (insert "\n")
-          (when-let ((branches (jf/gptel--list-branches (plist-get session :directory))))
+          (when-let ((branches (jf/gptel--list-branches session-dir)))
             (insert "Branches:\n")
             (dolist (branch branches)
               (insert (format "  - %s\n" (car branch))))))
