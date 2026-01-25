@@ -4,6 +4,84 @@
 (defvar jf/gptel--parse-trace nil
   "Trace of tool parsing attempts.")
 
+(defvar jf/gptel--diagnostic-file nil
+  "Current diagnostic log file path. Auto-set to session dir or fallback.")
+
+(defvar jf/gptel--diagnostic-fallback-file
+  (expand-file-name "~/.gptel-diagnostics.log")
+  "Fallback diagnostic file when not in a session.")
+
+(defun jf/gptel--get-diagnostic-file ()
+  "Get the current diagnostic file path.
+Uses session directory if in a gptel session, otherwise fallback."
+  (or jf/gptel--diagnostic-file
+      (setq jf/gptel--diagnostic-file
+            (if (and (boundp 'jf/gptel--current-session-id)
+                     jf/gptel--current-session-id)
+                ;; We're in a session - write to session directory
+                (expand-file-name "diagnostics.log"
+                                 (expand-file-name
+                                  jf/gptel--current-session-id
+                                  jf/gptel-session-root-dir))
+              ;; Not in a session - use fallback
+              jf/gptel--diagnostic-fallback-file))))
+
+(defun jf/gptel--write-diagnostic-entry (entry)
+  "Write diagnostic ENTRY to the auto-log file immediately."
+  (let ((log-file (jf/gptel--get-diagnostic-file))
+        (timestamp (format-time-string "%Y-%m-%d %H:%M:%S.%3N")))
+    (with-temp-buffer
+      (insert (format "\n=== %s | %s ===\n"
+                     timestamp
+                     (plist-get entry :phase)))
+      (insert (format "Buffer: %s\n" (plist-get entry :buffer)))
+      (insert (format "Bounds: %S\n" (plist-get entry :bounds)))
+
+      ;; If tool parses were captured, show them
+      (when-let ((tool-parses (plist-get entry :tool-parses)))
+        (insert "\nTool Parse Results:\n")
+        (dolist (parse tool-parses)
+          (if (plist-get parse :success)
+              (insert (format "  ✓ Position %d: %s\n"
+                             (plist-get parse :position)
+                             (plist-get parse :name)))
+            (insert (format "  ✗ Position %d: ERROR - %s\n"
+                           (plist-get parse :position)
+                           (plist-get parse :error))))))
+
+      (insert "\n")
+
+      ;; Append to file
+      (append-to-file (point-min) (point-max) log-file))))
+
+(defun jf/gptel--write-parse-entry (entry)
+  "Write parse trace ENTRY to the auto-log file immediately."
+  (let ((log-file (jf/gptel--get-diagnostic-file))
+        (timestamp (format-time-string "%Y-%m-%d %H:%M:%S.%3N")))
+    (with-temp-buffer
+      (insert (format "\n=== %s | PARSE-BUFFER ===\n" timestamp))
+      (insert (format "Buffer: %s\n" (plist-get entry :buffer)))
+      (insert (format "API results: %d\n" (plist-get entry :num-results)))
+
+      ;; Show tool scans
+      (when-let ((tool-scans (plist-get entry :tool-scans)))
+        (insert (format "Tool positions found: %d\n\n" (length tool-scans)))
+        (dolist (scan tool-scans)
+          (if (plist-get scan :success)
+              (insert (format "  ✓ Position %d (line %d): %s\n"
+                             (plist-get scan :position)
+                             (plist-get scan :line)
+                             (plist-get scan :name)))
+            (insert (format "  ✗ Position %d (line %d): ERROR - %s\n"
+                           (plist-get scan :position)
+                           (plist-get scan :line)
+                           (plist-get scan :error))))))
+
+      (insert "\n")
+
+      ;; Append to file
+      (append-to-file (point-min) (point-max) log-file))))
+
 (defun jf/gptel--record-bounds (phase &optional extra-info)
   "Record current gptel--bounds value with PHASE label.
 EXTRA-INFO can provide additional context about the recording.
@@ -55,6 +133,10 @@ Also captures what's actually at tool positions and what would be parsed."
         (plist-put entry :tool-parses (nreverse tool-parses)))
 
       (push entry jf/gptel--bounds-history)
+
+      ;; Auto-write to diagnostic file
+      (jf/gptel--write-diagnostic-entry entry)
+
       (message "[BOUNDS] %s: %s (tools: %d)" phase bounds-value (length tool-parses)))))
 
 (defun jf/gptel--inspect-bounds-positions ()
@@ -151,6 +233,9 @@ MAX-ENTRIES limits the number of entries to parse."
                            :num-results (length result)
                            :tool-scans pre-parse-scan)))
     (push parse-entry jf/gptel--parse-trace)
+
+    ;; Auto-write to diagnostic file
+    (jf/gptel--write-parse-entry parse-entry)
 
     ;; Display trace window
     (with-temp-buffer-window "*GPTEL Parse Trace*" nil nil
@@ -340,6 +425,8 @@ MAX-ENTRIES limits the number of entries to parse."
 
 ;; Auto-start diagnostics when this file is loaded
 (jf/gptel--start-diagnostic-session)
-(message "GPTEL diagnostics auto-enabled - diagnostics are now active")
+(message "GPTEL diagnostics auto-enabled - logging to %s"
+         jf/gptel--diagnostic-fallback-file)
+(message "Session diagnostics will write to: <session-dir>/diagnostics.log")
 
 (provide 'jf-gptel-diagnostics)
