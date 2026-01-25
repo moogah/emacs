@@ -600,65 +600,6 @@ Useful if sessions were created outside Emacs or after startup."
     (goto-char (point-min))
     (display-buffer (current-buffer))))
 
-(defun jf/gptel--build-session-tree (sessions)
-  "Build tree structure from flat SESSIONS list.
-SESSIONS is a list of plists from jf/gptel--find-all-sessions-recursive.
-Returns tree with :children property added to each node."
-  (let ((by-parent (make-hash-table :test 'equal))
-        (tree nil))
-    ;; Group sessions by parent-path
-    (dolist (session sessions)
-      (let ((parent-path (plist-get session :parent-path)))
-        (if parent-path
-            (push session (gethash parent-path by-parent))
-          (push session tree))))
-    ;; Attach children to their parents
-    (dolist (session sessions)
-      (let* ((path (plist-get session :path))
-             (children (gethash path by-parent)))
-        (when children
-          (plist-put session :children (nreverse children)))))
-    (nreverse tree)))
-
-(defun jf/gptel--render-session-tree (nodes depth)
-  "Render session tree NODES at DEPTH with indentation.
-Inserts formatted text into current buffer."
-  (dolist (node nodes)
-    (let* ((indent (make-string (* depth 2) ?\s))
-           (prefix (if (zerop depth) "▸ " "└─ "))
-           (session-id (plist-get node :id))
-           (path (plist-get node :path))
-           (metadata-file (jf/gptel--metadata-file-path path))
-           (metadata (when (file-exists-p metadata-file)
-                      (jf/gptel--read-metadata path)))
-           (type-str (if (jf/gptel--metadata-is-subagent-p metadata)
-                        (format " [%s subagent]" (plist-get metadata :agent-type))
-                      ""))
-           (created (when metadata
-                     (plist-get metadata :created))))
-      (insert (format "%s%s%s%s\n" indent prefix session-id type-str))
-      (when created
-        (insert (format "%s   Created: %s\n" indent created)))
-      (when-let ((children (plist-get node :children)))
-        (jf/gptel--render-session-tree children (1+ depth))))))
-
-(defun jf/gptel-browse-sessions-hierarchical ()
-  "Browse sessions in hierarchical tree view showing subagent relationships."
-  (interactive)
-  (let* ((sessions (jf/gptel--find-all-sessions-recursive))
-         (tree (jf/gptel--build-session-tree sessions)))
-    (with-current-buffer (get-buffer-create "*GPTEL Sessions*")
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert "# GPTEL Persistent Sessions\n\n")
-        (if (null tree)
-            (insert "No sessions found.\n\n")
-          (insert (format "Total sessions: %d (including subagents)\n\n" (length sessions)))
-          (jf/gptel--render-session-tree tree 0))
-        (goto-char (point-min))
-        (special-mode))
-      (pop-to-buffer (current-buffer)))))
-
 (defun jf/gptel-resume-subagent ()
   "Resume work in a subagent session buffer.
 Settings are restored from gptel's Local Variables, not preset."

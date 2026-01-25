@@ -60,8 +60,13 @@ Does not check if file exists."
   (jf/gptel--session-file-path session-dir jf/gptel-session--context-file))
 
 (defun jf/gptel--metadata-file-path (session-dir)
-  "Get path to metadata file in SESSION-DIR."
+  "Get path to metadata file in SESSION-DIR.
+DEPRECATED: Use scope-plan.yml instead (see jf/gptel--scope-plan-file-path)."
   (jf/gptel--session-file-path session-dir jf/gptel-session--metadata-file))
+
+(defun jf/gptel--scope-plan-file-path (session-dir)
+  "Get path to scope-plan.yml file in SESSION-DIR."
+  (expand-file-name "scope-plan.yml" session-dir))
 
 (defun jf/gptel--tools-log-path (session-dir)
   "Get path to tools log file in SESSION-DIR."
@@ -159,9 +164,9 @@ Returns list of absolute paths."
 
 (defun jf/gptel--valid-session-directory-p (dir)
   "Return t if DIR is a valid session directory.
-Checks for existence and presence of metadata file."
+Checks for existence and presence of scope-plan.yml file."
   (and (file-directory-p dir)
-       (file-exists-p (jf/gptel--metadata-file-path dir))))
+       (file-exists-p (jf/gptel--scope-plan-file-path dir))))
 
 (provide 'gptel-session-filesystem)
 ;;; filesystem.el ends here

@@ -17,27 +17,6 @@
 (require 'gptel-session-registry)
 (require 'gptel-session-branching)
 
-(transient-define-prefix jf/gptel-session-browser-menu ()
-  "Transient menu for gptel session browser commands."
-  ["GPTEL Session Browser"
-   ["Browse"
-    ("b" "Browse sessions" jf/gptel-browse-sessions)
-    ("o" "Open session" jf/gptel-open-session)
-    ("p" "Show current position" jf/gptel-show-current-position)]
-   ["View"
-    ("v" "View context at point" jf/gptel-view-context-at-point)
-    ("t" "View tools at point" jf/gptel-view-tools-at-point)]
-   ["Actions"
-    ("r" "Resume from context" jf/gptel-resume-from-context)
-    ("B" "Branch from point" jf/gptel-branch-from-point)
-    ("s" "Send from context" jf/gptel-send-from-context)
-    ("S" "Switch branch" jf/gptel-switch-branch)]
-   ["Info"
-    ("i" "Session info" jf/gptel-session-show-info)
-    ("?" "Help" jf/gptel-session-help)]
-   ["Quit"
-    ("q" "Quit" transient-quit-one)]])
-
 (defun jf/gptel-session-show-info ()
   "Show information about the current session or session at point."
   (interactive)

@@ -51,15 +51,14 @@ Keys are session-id strings, values are session plists.")
 #+begin_src emacs-lisp
 (defun jf/gptel--init-registry ()
   "Initialize the session registry.
-Discovers all session directories and loads their metadata."
+Discovers all session directories and loads metadata from scope-plan.yml."
   (clrhash jf/gptel--session-registry)
   (let ((session-dirs (jf/gptel--list-session-directories)))
     (dolist (dir session-dirs)
       (when (jf/gptel--valid-session-directory-p dir)
         (let* ((session-id (jf/gptel--session-id-from-directory dir))
-               (metadata-file (jf/gptel--metadata-file-path dir))
-               (metadata (when (file-exists-p metadata-file)
-                          (jf/gptel--read-metadata-file metadata-file))))
+               ;; Read metadata from scope-plan.yml (not metadata.json)
+               (metadata (jf/gptel--read-session-metadata dir)))
           (when metadata
             (puthash session-id
                     (list :session-id session-id
