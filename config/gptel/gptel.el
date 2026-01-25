@@ -184,12 +184,6 @@ Run this after gptel-agent-update to inject skill content into agents."
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
-;; TODO: Browser, branching, and transient modules commented out temporarily
-;; These were from an older implementation and need integration work
-;; (jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
-;; (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
-;; (jf/load-module (expand-file-name "config/gptel/sessions/transient.el" jf/emacs-dir))
-
 ;; Load remaining scope system modules (scope-core and scope-commands already loaded above)
 ;; Scope-aware tools check approved patterns internally and return
 ;; structured errors to LLM when operations are outside scope

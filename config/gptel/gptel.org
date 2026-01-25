@@ -11,7 +11,7 @@ shells, buffers, and tools for working with these AI assistants.
 
 The gptel configuration is modular:
 - =gptel/= - Main loader (this file)
-- =gptel/sessions/= - Session management (9 modules)
+- =gptel/sessions/= - Session management (8 modules)
 - =gptel/skills/= - Skills system (3 modules)
 - =gptel/tools/= - Tool definitions (10 modules)
 - =gptel/agents/= - Agent definitions (5 files)
@@ -293,12 +293,6 @@ Load session management modules in dependency order:
 
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
-
-;; TODO: Browser, branching, and transient modules commented out temporarily
-;; These were from an older implementation and need integration work
-;; (jf/load-module (expand-file-name "config/gptel/sessions/browser.el" jf/emacs-dir))
-;; (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
-;; (jf/load-module (expand-file-name "config/gptel/sessions/transient.el" jf/emacs-dir))
 
 ;; Load remaining scope system modules (scope-core and scope-commands already loaded above)
 ;; Scope-aware tools check approved patterns internally and return

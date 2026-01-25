@@ -339,7 +339,7 @@ Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
 ```
 gptel/
 ├── gptel.org/el         - Main loader
-├── sessions/            - 9 modules (constants, logging, filesystem, registry, metadata, subagent, commands, transient, activities-integration)
+├── sessions/            - 8 modules (constants, logging, filesystem, registry, metadata, subagent, commands, activities-integration)
 ├── skills/              - 3 modules (skills-core, skills-roam, skills-transient)
 ├── tools/               - 10 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community, persistent-agent, sql, transient)
 └── agents/              - 5 agent definitions (.md files)
@@ -348,7 +348,7 @@ gptel/
 **Load order enforced in gptel.org:**
 1. Skills system (core, roam, transient)
 2. gptel-agent package + tool definitions
-3. Session modules in dependency order (constants → logging → filesystem → registry → metadata → subagent → commands → transient)
+3. Session modules in dependency order (constants → logging → filesystem → registry → metadata → subagent → commands)
 4. Activities integration (if activities package loaded)
 
 **All paths use `config/` prefix:**

@@ -49,7 +49,7 @@ The PersistentAgent tool is part of a larger modular gptel configuration:
 #+begin_example
 config/gptel/
 ├── gptel.org/el           - Main loader
-├── sessions/              - 9 session management modules
+├── sessions/              - 8 session management modules
 │   ├── constants.el       - Path constants
 │   ├── logging.el         - Debug logging
 │   ├── filesystem.el      - Directory structure, path helpers
@@ -57,7 +57,6 @@ config/gptel/
 │   ├── metadata.el        - Read metadata from scope-plan.yml + preset.md
 │   ├── subagent.el        - Parent-child session linking
 │   ├── commands.el        - User-facing session commands
-│   ├── transient.el       - Transient menu UI (currently disabled)
 │   └── activities-integration.el - Activities package integration
 ├── tools/                 - 10 tool definitions
 │   ├── persistent-agent.el  - THIS MODULE
