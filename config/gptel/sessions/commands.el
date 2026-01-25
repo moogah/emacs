@@ -203,6 +203,71 @@ Signals error if template doesn't exist."
       (jf/gptel--log 'info "Copied preset template %s to %s" template-name dest-file)
       dest-file)))
 
+(defun jf/gptel--write-preset-md (session-dir preset-plist)
+  "Write PRESET-PLIST as preset.md in SESSION-DIR.
+Converts backend/model objects to names, tools to name strings."
+  (let* ((backend (plist-get preset-plist :backend))
+         (backend-name (if (gptel-backend-p backend)
+                          (gptel-backend-name backend)
+                        backend))
+         (model (plist-get preset-plist :model))
+         (model-name (if (symbolp model) (symbol-name model) model))
+         (system (plist-get preset-plist :system))
+         (temperature (plist-get preset-plist :temperature))
+         (include-tool-results (plist-get preset-plist :include-tool-results))
+         (tools (plist-get preset-plist :tools))
+         (preset-file (expand-file-name "preset.md" session-dir)))
+    (with-temp-file preset-file
+      (insert "---\n")
+      (insert (format "description: %s\n" (plist-get preset-plist :description)))
+      (insert (format "backend: %s\n" backend-name))
+      (insert (format "model: %s\n" model-name))
+      (insert (format "temperature: %s\n" temperature))
+      (insert (format "include-tool-results: %s\n" include-tool-results))
+      (when tools
+        (insert "tools:\n")
+        (dolist (tool tools)
+          (let ((tool-name (if (stringp tool) tool
+                            (gptel-tool-name tool))))
+            (insert (format "  - %s\n" tool-name)))))
+      (insert "---\n\n")
+      (when system
+        (insert system)))
+    (jf/gptel--log 'info "Created preset.md: %s" preset-file)))
+
+(defun jf/gptel--write-preset-org (session-dir preset-plist)
+  "Write PRESET-PLIST as preset.org in SESSION-DIR.
+Converts backend/model objects to names, tools to space-separated string."
+  (let* ((backend (plist-get preset-plist :backend))
+         (backend-name (if (gptel-backend-p backend)
+                          (gptel-backend-name backend)
+                        backend))
+         (model (plist-get preset-plist :model))
+         (model-name (if (symbolp model) (symbol-name model) model))
+         (system (plist-get preset-plist :system))
+         (temperature (plist-get preset-plist :temperature))
+         (include-tool-results (plist-get preset-plist :include-tool-results))
+         (tools (plist-get preset-plist :tools))
+         (preset-file (expand-file-name "preset.org" session-dir)))
+    (with-temp-file preset-file
+      (insert ":PROPERTIES:\n")
+      (insert (format ":description: %s\n" (plist-get preset-plist :description)))
+      (insert (format ":backend: %s\n" backend-name))
+      (insert (format ":model: %s\n" model-name))
+      (insert (format ":temperature: %s\n" temperature))
+      (insert (format ":include-tool-results: %s\n" include-tool-results))
+      (when tools
+        (let ((tools-str (mapconcat
+                         (lambda (tool)
+                           (if (stringp tool) tool
+                             (gptel-tool-name tool)))
+                         tools " ")))
+          (insert (format ":tools: %s\n" tools-str))))
+      (insert ":END:\n\n")
+      (when system
+        (insert system)))
+    (jf/gptel--log 'info "Created preset.org: %s" preset-file)))
+
 (defun jf/gptel--write-preset-file (session-dir preset-plist &optional format)
   "Write PRESET-PLIST to preset file in SESSION-DIR.
 FORMAT can be 'md (markdown) or 'org (default: 'md).
