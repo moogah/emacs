@@ -403,8 +403,12 @@ Single comprehensive system capturing entire test flow.
 
 ** Starting a Diagnostic Session
 
-1. Load this file: =(load-file "config/gptel/diagnostics.el")=
-2. Start diagnostics: =M-x jf/gptel--start-diagnostic-session=
+Load this file and diagnostics will automatically start:
+=(load-file "config/gptel/diagnostics.el")=
+
+You should see: ="GPTEL diagnostics auto-enabled - diagnostics are now active"=
+
+The diagnostic session is now active and will capture all bounds changes and parse attempts.
 
 ** Running the Test Flow
 
@@ -419,6 +423,17 @@ Single comprehensive system capturing entire test flow.
 ** Cleanup
 
 Stop diagnostics: =M-x jf/gptel--stop-diagnostic-session=
+
+* Auto-Initialization
+
+Automatically start the diagnostic session when this module is loaded.
+This makes it "hot" immediately without requiring manual activation.
+
+#+begin_src emacs-lisp
+;; Auto-start diagnostics when this file is loaded
+(jf/gptel--start-diagnostic-session)
+(message "GPTEL diagnostics auto-enabled - diagnostics are now active")
+#+end_src
 
 * Provide Module
 

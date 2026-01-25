@@ -338,4 +338,8 @@ MAX-ENTRIES limits the number of entries to parse."
 
   (message "Diagnostic session stopped"))
 
+;; Auto-start diagnostics when this file is loaded
+(jf/gptel--start-diagnostic-session)
+(message "GPTEL diagnostics auto-enabled - diagnostics are now active")
+
 (provide 'jf-gptel-diagnostics)
