@@ -11,9 +11,6 @@ Metadata is read from two sources:
 - Session-level fields (session_id, created, type, parent_session_id, agent_type) from scope-plan.yml
 - Preset fields (backend, model) from preset.md YAML frontmatter
 
-This approach avoids data duplication - scope-plan.yml already contains session metadata,
-and preset.md already contains configuration settings.
-
 * Lexical Binding
 
 #+begin_src emacs-lisp
