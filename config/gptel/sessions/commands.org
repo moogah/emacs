@@ -767,8 +767,8 @@ Settings are restored from gptel's Local Variables, not preset."
          (choices (mapcar
                   (lambda (s)
                     (let* ((path (plist-get s :path))
-                           (metadata (jf/gptel--read-metadata path))
-                           (parent-id (jf/gptel--metadata-get-parent-id metadata))
+                           (metadata (jf/gptel--read-session-metadata path))
+                           (parent-id (plist-get metadata :parent-session-id))
                            (agent-type (plist-get metadata :agent-type)))
                       (cons (format "[%s] %s (%s)"
                               parent-id

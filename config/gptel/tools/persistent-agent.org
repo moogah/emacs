@@ -119,9 +119,8 @@ sequenceDiagram
     FS-->>T: session-dir path
 
     T->>FS: Load agent config (NO parent inheritance)
-    T->>FS: Write metadata.json
-    T->>FS: Write preset.json
-    T->>FS: Link to parent session
+    T->>FS: Write scope-plan.yml (includes parent_session_id)
+    T->>FS: Write preset.md
 
     T->>B: Create buffer with session vars
     T->>B: Insert prompt
@@ -152,16 +151,16 @@ Sessions are persisted to disk with the following structure:
 #+begin_example
 ~/gptel-sessions/
 └── parent-session-20260121143022/
-    ├── metadata.json                    # Parent session metadata
-    ├── preset.json                      # Parent configuration
-    ├── context.md                       # Parent conversation
-    ├── tools.md                         # Parent tool calls
-    └── subagents/                       # Subagent sessions
+    ├── scope-plan.yml               # Session metadata and permissions
+    ├── preset.md                    # Backend and model configuration
+    ├── session.md                   # Parent conversation
+    ├── tools.org                    # Parent tool calls
+    └── subagents/                   # Subagent sessions
         └── researcher-20260121143245-analyze-code/
-            ├── metadata.json            # Subagent metadata (includes parent-session-id)
-            ├── preset.json              # Agent-specific config (NO inheritance)
-            ├── context.md               # Subagent conversation (auto-saved)
-            └── tools.md                 # Subagent tool calls
+            ├── scope-plan.yml       # Subagent metadata (includes parent_session_id)
+            ├── preset.md            # Agent-specific config (NO inheritance)
+            ├── session.md           # Subagent conversation (auto-saved)
+            └── tools.org            # Subagent tool calls
 #+end_example
 
 ** FSM State Handler Flow
@@ -361,11 +360,11 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 1. Create parent persistent session
 2. Invoke PersistentAgent tool from parent
 3. Verify subagent directory created under =subagents/=
-4. Check metadata.json includes =:parent-session-id=
+4. Check scope-plan.yml includes =parent_session_id=
 5. Verify overlay appears in parent buffer
 6. Monitor overlay updates during tool calls
 7. Check final result returned to parent
-8. Verify context.md contains full conversation
+8. Verify session.md contains full conversation
 
 *Edge cases:*
 - Parent session doesn't exist → Error (expected)
@@ -446,7 +445,9 @@ Only saves if buffer has associated file and session directory."
   (when (and jf/gptel--session-dir
              (buffer-file-name))
     (save-buffer)
-    (jf/gptel--update-metadata-modified jf/gptel--session-dir)))
+    ;; Note: scope-plan.yml updated timestamp is managed by scope commands,
+    ;; not auto-save
+    ))
 #+end_src
 
 * Overlay System
@@ -590,8 +591,7 @@ with zero inheritance from the parent session."
             (insert scope-yaml))
           (jf/gptel--log 'info "Created subagent scope plan: %s" scope-file))
 
-        ;; Link subagent to parent
-        (jf/gptel--link-subagent-to-parent session-dir jf/gptel--session-id)
+        ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
 
         ;; Create preset file ONLY from agent definition (NO parent inheritance)
         (let* ((preset-plist (copy-sequence agent-config)))

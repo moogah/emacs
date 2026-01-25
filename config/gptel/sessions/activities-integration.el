@@ -61,16 +61,15 @@ Uses jf/gptel-scope--template-deny-all from scope-commands.org."
 
 Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
-- metadata.json with initial tree
-- scope-plan.yml with deny-all default
+- scope-plan.yml with session metadata and deny-all permissions
+- preset.md with backend and model configuration
 - session.org file for buffer to visit
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
 
 Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file ...)"
-  (unless (and (fboundp 'jf/gptel--create-metadata)
-               (fboundp 'jf/gptel--write-metadata)
+  (unless (and (fboundp 'jf/gptel--read-session-metadata)
                (fboundp 'jf/gptel--register-session))
     (error "GPTEL session registry not available"))
 

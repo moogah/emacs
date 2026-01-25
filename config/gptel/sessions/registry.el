@@ -26,7 +26,7 @@ Discovers all session directories and loads metadata from scope-plan.yml."
     (dolist (dir session-dirs)
       (when (jf/gptel--valid-session-directory-p dir)
         (let* ((session-id (jf/gptel--session-id-from-directory dir))
-               ;; Read metadata from scope-plan.yml (not metadata.json)
+               ;; Read metadata from scope-plan.yml
                (metadata (jf/gptel--read-session-metadata dir)))
           (when metadata
             (puthash session-id

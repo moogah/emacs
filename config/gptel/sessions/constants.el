@@ -25,9 +25,6 @@ Users can create custom presets by copying and editing template files."
   :type 'directory
   :group 'gptel)
 
-(defconst jf/gptel-session--metadata-file "metadata.json"
-  "File name for session metadata.")
-
 (defconst jf/gptel-session--context-file "session.md"
   "File name for main conversation context.
 Uses markdown format (gptel's native format).")

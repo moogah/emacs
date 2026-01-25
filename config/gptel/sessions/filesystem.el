@@ -59,11 +59,6 @@ Does not check if file exists."
   "Get path to context file in SESSION-DIR."
   (jf/gptel--session-file-path session-dir jf/gptel-session--context-file))
 
-(defun jf/gptel--metadata-file-path (session-dir)
-  "Get path to metadata file in SESSION-DIR.
-DEPRECATED: Use scope-plan.yml instead (see jf/gptel--scope-plan-file-path)."
-  (jf/gptel--session-file-path session-dir jf/gptel-session--metadata-file))
-
 (defun jf/gptel--scope-plan-file-path (session-dir)
   "Get path to scope-plan.yml file in SESSION-DIR."
   (expand-file-name "scope-plan.yml" session-dir))

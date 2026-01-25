@@ -36,7 +36,7 @@ Session plist structure:
 - :session-id - Unique identifier
 - :directory - Absolute path to session directory
 - :buffer - Buffer visiting the session (or nil if not open)
-- :metadata - Metadata plist (from metadata.json)
+- :metadata - Metadata plist (from scope-plan.yml)
 - :created - Creation timestamp
 - :last-accessed - Last access timestamp
 
@@ -57,7 +57,7 @@ Discovers all session directories and loads metadata from scope-plan.yml."
     (dolist (dir session-dirs)
       (when (jf/gptel--valid-session-directory-p dir)
         (let* ((session-id (jf/gptel--session-id-from-directory dir))
-               ;; Read metadata from scope-plan.yml (not metadata.json)
+               ;; Read metadata from scope-plan.yml
                (metadata (jf/gptel--read-session-metadata dir)))
           (when metadata
             (puthash session-id

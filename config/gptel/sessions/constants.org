@@ -56,9 +56,6 @@ Users can create custom presets by copying and editing template files."
 Standard file names used within session directories.
 
 #+begin_src emacs-lisp
-(defconst jf/gptel-session--metadata-file "metadata.json"
-  "File name for session metadata.")
-
 (defconst jf/gptel-session--context-file "session.md"
   "File name for main conversation context.
 Uses markdown format (gptel's native format).")

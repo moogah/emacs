@@ -27,7 +27,9 @@ Only saves if buffer has associated file and session directory."
   (when (and jf/gptel--session-dir
              (buffer-file-name))
     (save-buffer)
-    (jf/gptel--update-metadata-modified jf/gptel--session-dir)))
+    ;; Note: scope-plan.yml updated timestamp is managed by scope commands,
+    ;; not auto-save
+    ))
 
 (defun jf/gptel-persistent-agent--create-overlay (where agent-type description)
   "Create status overlay in parent buffer at WHERE.
@@ -153,8 +155,7 @@ with zero inheritance from the parent session."
             (insert scope-yaml))
           (jf/gptel--log 'info "Created subagent scope plan: %s" scope-file))
 
-        ;; Link subagent to parent
-        (jf/gptel--link-subagent-to-parent session-dir jf/gptel--session-id)
+        ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
 
         ;; Create preset file ONLY from agent definition (NO parent inheritance)
         (let* ((preset-plist (copy-sequence agent-config)))
