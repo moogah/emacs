@@ -177,6 +177,8 @@ Function that detects and auto-initializes session files when opened via any met
 (defun jf/gptel--auto-init-session-buffer ()
   "Auto-initialize gptel session if current buffer is a session file.
 Detects session files by path pattern and runs initialization inline.
+Handles both new sessions (no Local Variables yet) and existing sessions
+(Local Variables already loaded by Emacs).
 This runs on every file open via find-file-hook, so performance is critical."
   ;; Fast path guards (performance critical - runs on every file open)
   (when (and (buffer-file-name)                      ; Has file? (fast)
@@ -191,26 +193,42 @@ This runs on every file open via find-file-hook, so performance is critical."
                  (jf/gptel--valid-session-directory-p session-dir))
         ;; Initialization (inline - no separate helper function)
         (condition-case err
-            (let ((session-id (jf/gptel--session-id-from-directory session-dir)))
-              ;; 1. Enable gptel-mode (restores Local Variables)
-              (jf/gptel--ensure-mode-once)
+            (let* ((session-id (jf/gptel--session-id-from-directory session-dir))
+                   ;; Detect scenario: check if gptel-backend is buffer-local
+                   ;; If Local Variables exist, Emacs has already loaded them
+                   (has-local-vars (local-variable-p 'gptel-backend)))
 
-              ;; 2. Load system message from preset.md
-              (when-let ((preset-plist (jf/gptel--load-preset-from-file session-dir))
-                         (system-message (plist-get preset-plist :system)))
-                (jf/gptel--set-session-system-message system-message))
+              (if has-local-vars
+                  ;; SCENARIO 2: Existing session with Local Variables
+                  ;; Local Variables were already loaded by Emacs before hook ran
+                  (progn
+                    (jf/gptel--log 'debug "Existing session detected (has Local Variables): %s" session-id)
+                    ;; Enable gptel-mode (gptel--restore-state will use existing vars)
+                    (jf/gptel--ensure-mode-once)
+                    ;; Load system message from preset (not in Local Variables)
+                    (when-let ((preset-plist (jf/gptel--load-preset-from-file session-dir))
+                               (system-message (plist-get preset-plist :system)))
+                      (jf/gptel--set-session-system-message system-message)))
 
-              ;; 3. Set session variables
+                ;; SCENARIO 1: New session without Local Variables
+                ;; Apply preset settings BEFORE enabling gptel-mode
+                (progn
+                  (jf/gptel--log 'debug "New session detected (no Local Variables): %s" session-id)
+                  ;; Load and apply preset settings (includes system message with save-prevention)
+                  (let ((preset-plist (jf/gptel--load-preset-from-file session-dir)))
+                    (jf/gptel--apply-session-preset preset-plist))
+                  ;; Now enable gptel-mode (will see the buffer-local settings we just applied)
+                  (jf/gptel--ensure-mode-once)))
+
+              ;; Common steps for both scenarios
               (setq-local jf/gptel--session-id session-id)
               (setq-local jf/gptel--session-dir session-dir)
-
-              ;; 4. Register in registry
               (jf/gptel--register-session session-dir (current-buffer) session-id)
-
-              ;; 5. Enable auto-save
               (setq-local jf/gptel-autosave-enabled t)
 
-              (jf/gptel--log 'info "Auto-initialized session: %s" session-id)
+              (jf/gptel--log 'info "Auto-initialized %s session: %s"
+                            (if has-local-vars "existing" "new")
+                            session-id)
               (message "Session initialized: %s" session-id))
           (error
            (jf/gptel--log 'error "Failed to auto-initialize session: %s"
