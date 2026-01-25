@@ -339,40 +339,33 @@ Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
 ```
 gptel/
 ├── gptel.org/el         - Main loader
-├── sessions/            - 7 modules (registry, metadata, tracing, hooks, browser, branching, transient)
+├── sessions/            - 9 modules (constants, logging, filesystem, registry, metadata, subagent, commands, transient, activities-integration)
 ├── skills/              - 3 modules (skills-core, skills-roam, skills-transient)
-├── tools/               - 7 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community)
+├── tools/               - 10 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community, persistent-agent, sql, transient)
 └── agents/              - 5 agent definitions (.md files)
 ```
 
 **Load order enforced in gptel.org:**
 1. Skills system (core, roam, transient)
 2. gptel-agent package + tool definitions
-3. Session modules in dependency order (registry → metadata → tracing → hooks → browser → branching → transient)
+3. Session modules in dependency order (constants → logging → filesystem → registry → metadata → subagent → commands → transient)
+4. Activities integration (if activities package loaded)
 
 **All paths use `config/` prefix:**
 ```elisp
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 ```
 
-#### Session Browser Module Details
+#### Session Metadata Storage
 
-**sessions/browser.el** - Core browsing functionality
-- `jf/gptel-browse-sessions` - Open sessions directory in dired
-- `jf/gptel-open-session` - Select specific session with completing-read
-- `jf/gptel-view-context-at-point` - View context.md files
-- `jf/gptel-view-tools-at-point` - View tools.md files
-- `jf/gptel-session-tree-mode` - Minor mode with keybindings (auto-enabled in session directories)
+**Metadata migrated from metadata.json to scope-plan.yml + preset.md:**
+- `scope-plan.yml` - Session fields (session_id, created, updated, type, parent_session_id, agent_type)
+- `preset.md` - Configuration fields in YAML frontmatter (backend, model)
 
-**sessions/transient.el** - Transient menu (press `?` in session browser)
-- Organized command groups: Browse, View, Actions
-- Context-aware info display (current session, node type, session count)
-- Discoverable interface for all session operations
-
-**sessions/branching.el** - Resume and branch operations
-- `jf/gptel-resume-from-context` - Load context into gptel buffer
-- `jf/gptel-branch-from-point` - Copy node to create alternate path
-- `jf/gptel-send-from-context` - Send edited context to API
+**Registry simplified to runtime state only:**
+- Stores: `:session-id`, `:directory`, `:buffer`
+- Reads metadata on-demand from filesystem (single source of truth)
+- Eliminates cache invalidation complexity
 
 ## Common Development Commands
 

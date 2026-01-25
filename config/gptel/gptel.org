@@ -11,9 +11,9 @@ shells, buffers, and tools for working with these AI assistants.
 
 The gptel configuration is modular:
 - =gptel/= - Main loader (this file)
-- =gptel/sessions/= - Session management (8 modules)
+- =gptel/sessions/= - Session management (9 modules)
 - =gptel/skills/= - Skills system (3 modules)
-- =gptel/tools/= - Tool definitions (7 modules)
+- =gptel/tools/= - Tool definitions (10 modules)
 - =gptel/agents/= - Agent definitions (5 files)
 
 * Basic Configuration
