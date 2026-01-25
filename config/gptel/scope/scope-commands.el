@@ -12,14 +12,23 @@
 
 
 ;; [[file:scope-commands.org::*Deny-All Template (Secure Default)][Deny-All Template (Secure Default):1]]
-(defun jf/gptel-scope--template-deny-all (session-id)
+(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id agent-type)
   "Secure default template - nothing allowed, user must add patterns.
-Recommended for new sessions where you want explicit control."
-  (format "version: \"2.0\"
+Recommended for new sessions where you want explicit control.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (subagent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
+    (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 tools:
   read_file:
@@ -83,9 +92,10 @@ tools:
       - \"chown\"
 
 "
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+            session-id
+            timestamp
+            timestamp
+            (or subagent-fields ""))))
 ;; Deny-All Template (Secure Default):1 ends here
 
 ;; Codebase Read Template
@@ -94,15 +104,24 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Codebase Read Template][Codebase Read Template:1]]
-(defun jf/gptel-scope--template-codebase-read (session-id)
+(defun jf/gptel-scope--template-codebase-read (session-id &optional type parent-id agent-type)
   "Read-only exploration template.
 Allows safe shell commands for code exploration (ls, find, grep, git log).
-No write operations allowed - LLM must request permission."
-  (format "version: \"2.0\"
+No write operations allowed - LLM must request permission.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (subagent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
+    (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 tools:
   read_file:
@@ -174,9 +193,10 @@ tools:
       - \"cp\"
 
 "
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+            session-id
+            timestamp
+            timestamp
+            (or subagent-fields ""))))
 ;; Codebase Read Template:1 ends here
 
 ;; Org-Roam Safe Template
@@ -185,15 +205,24 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Org-Roam Safe Template][Org-Roam Safe Template:1]]
-(defun jf/gptel-scope--template-org-roam-safe (session-id)
+(defun jf/gptel-scope--template-org-roam-safe (session-id &optional type parent-id agent-type)
   "Org-roam safe template.
 Allows creating and linking nodes in gptel/ subdirectory with gptel tag.
-Safe for LLM-generated notes that are clearly separated from personal notes."
-  (format "version: \"2.0\"
+Safe for LLM-generated notes that are clearly separated from personal notes.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (subagent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
+    (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 tools:
   read_file:
@@ -254,11 +283,12 @@ tools:
       - \"sudo\"
 
 "
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          org-roam-directory
-          org-roam-directory))
+            session-id
+            timestamp
+            timestamp
+            (or subagent-fields "")
+            org-roam-directory
+            org-roam-directory)))
 ;; Org-Roam Safe Template:1 ends here
 
 ;; Permissive Template
@@ -267,16 +297,25 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Permissive Template][Permissive Template:1]]
-(defun jf/gptel-scope--template-permissive (session-id)
+(defun jf/gptel-scope--template-permissive (session-id &optional type parent-id agent-type)
   "Permissive template - broad access.
 USE WITH CAUTION: Allows wide filesystem access and many shell commands.
-Only use when you trust the LLM workflow and want minimal restrictions."
-  (let ((project-root (or (projectile-project-root) default-directory)))
+Only use when you trust the LLM workflow and want minimal restrictions.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+  (let ((project-root (or (projectile-project-root) default-directory))
+        (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (subagent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 tools:
   read_file:
@@ -351,8 +390,9 @@ tools:
 
 "
             session-id
-            (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-            (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+            timestamp
+            timestamp
+            (or subagent-fields "")
             project-root
             project-root)))
 ;; Permissive Template:1 ends here
@@ -363,12 +403,14 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Project-Aware Template][Project-Aware Template:1]]
-(defun jf/gptel-scope--template-project-aware (session-id project-roots)
+(defun jf/gptel-scope--template-project-aware (session-id project-roots &optional type parent-id agent-type)
   "Project-aware scope template.
 Allows read/write/edit operations within PROJECT-ROOTS only.
 Blocks sensitive paths (.git, .env, runtime, node_modules).
 
 PROJECT-ROOTS is a list of absolute project directory paths.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions.
+
 This is 'git-safe':
 - READ: Only files within selected project directories
 - WRITE: New files anywhere in project patterns
@@ -376,12 +418,20 @@ This is 'git-safe':
 
 The git-tracked requirement for editing prevents accidental modification
 of ignored files like node_modules/, build artifacts, etc."
-  (let ((project-patterns (jf/gptel--format-project-patterns project-roots)))
+  (let ((project-patterns (jf/gptel--format-project-patterns project-roots))
+        (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (subagent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 # This scope plan grants access to %d project(s):
 %s
@@ -675,8 +725,9 @@ tools:
 
 "
             session-id
-            (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-            (format-time-string "%Y-%m-%dT%H:%M:%SZ")
+            timestamp
+            timestamp
+            (or subagent-fields "")
             (length project-roots)
             (mapconcat (lambda (root)
                         (format "#   - %s (%s)"
