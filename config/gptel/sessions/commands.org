@@ -18,6 +18,12 @@ User-facing commands for creating and managing gptel persistent sessions.
 
 ;; Interactive commands for gptel session management.
 ;;
+;; BREAKING CHANGE: Manual resume commands removed as of 2026-01-25
+;; Sessions now auto-initialize when opened via find-file-hook
+;; Users should open session files directly (C-x C-f, dired, recentf, etc.)
+;; The jf/gptel-resume-session, jf/gptel-list-sessions, and jf/gptel-resume-agent
+;; commands have been removed. Use standard Emacs file navigation instead.
+;;
 ;; ARCHITECTURE NOTE: Preset files are templates used at session creation.
 ;; Once created, gptel's Local Variables are the source of truth for settings.
 ;; Presets are NOT reapplied on resume - they may become stale as sessions evolve.
@@ -158,6 +164,58 @@ Scans all sessions and removes duplicate blocks without opening buffers."
                     (cl-incf cleaned)
                     (jf/gptel--log 'info "Cleaned duplicates from: %s" session-file)))))))))
     (message "Cleaned %d of %d session files" cleaned total)))
+#+end_src
+
+* Auto-Initialization Hook
+
+Function that detects and auto-initializes session files when opened via any method
+(find-file, dired, recentf, etc.). This eliminates the need for manual resume commands.
+
+** Auto-Initialize Session Buffer
+
+#+begin_src emacs-lisp
+(defun jf/gptel--auto-init-session-buffer ()
+  "Auto-initialize gptel session if current buffer is a session file.
+Detects session files by path pattern and runs initialization inline.
+This runs on every file open via find-file-hook, so performance is critical."
+  ;; Fast path guards (performance critical - runs on every file open)
+  (when (and (buffer-file-name)                      ; Has file? (fast)
+             (not (bound-and-true-p jf/gptel--session-id)) ; Not already initialized? (fast)
+             (string-suffix-p ".md" (buffer-file-name)))   ; Is .md file? (fast)
+    (let* ((file-path (expand-file-name (buffer-file-name)))
+           (session-dir (file-name-directory file-path))
+           (file-name (file-name-nondirectory file-path)))
+      ;; Session file detection
+      (when (and (string-match-p "/\\.gptel/sessions/" file-path)
+                 (string= file-name "session.md")
+                 (jf/gptel--valid-session-directory-p session-dir))
+        ;; Initialization (inline - no separate helper function)
+        (condition-case err
+            (let ((session-id (jf/gptel--session-id-from-directory session-dir)))
+              ;; 1. Enable gptel-mode (restores Local Variables)
+              (jf/gptel--ensure-mode-once)
+
+              ;; 2. Load system message from preset.md
+              (when-let ((preset-plist (jf/gptel--load-preset-from-file session-dir))
+                         (system-message (plist-get preset-plist :system)))
+                (jf/gptel--set-session-system-message system-message))
+
+              ;; 3. Set session variables
+              (setq-local jf/gptel--session-id session-id)
+              (setq-local jf/gptel--session-dir session-dir)
+
+              ;; 4. Register in registry
+              (jf/gptel--register-session session-dir (current-buffer) session-id)
+
+              ;; 5. Enable auto-save
+              (setq-local jf/gptel-autosave-enabled t)
+
+              (jf/gptel--log 'info "Auto-initialized session: %s" session-id)
+              (message "Session initialized: %s" session-id))
+          (error
+           (jf/gptel--log 'error "Failed to auto-initialize session: %s"
+                          (error-message-string err))
+           (message "Warning: Session auto-init failed. File opened in basic mode.")))))))
 #+end_src
 
 * System Message Management
@@ -510,8 +568,10 @@ If projects selected, creates project-aware scope plan.
 Otherwise creates deny-all scope plan.
 
 Creates session directory, copies preset template, creates scope plan, and opens session buffer.
-The preset is loaded and applied ONCE at creation. After first save, gptel's Local Variables
-are the authoritative source for settings.
+The session auto-initializes when opened (via find-file-hook).
+
+To open existing sessions: Just use find-file (C-x C-f) or dired on ~/.gptel/sessions/
+No special resume command needed - sessions auto-initialize when opened.
 
 The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.md"
   (interactive
@@ -534,163 +594,38 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
          (project-names (when selected-projects
                          (mapcar #'jf/gptel--project-display-name selected-projects))))
 
+    ;; Create project-aware or deny-all scope plan
+    (let ((scope-yaml (if selected-projects
+                         (jf/gptel--generate-scope-plan-yaml
+                          session-id "project-aware" selected-projects)
+                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
+          (scope-file (expand-file-name "scope-plan.yml" session-dir)))
+      (with-temp-file scope-file
+        (insert scope-yaml))
+      (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+
+    ;; Copy preset template to session directory
+    (jf/gptel--copy-preset-template preset-template session-dir)
+
     ;; Create session file with initial content
     (with-temp-file session-file
       (insert "# " session-name "\n\n"))
 
-    ;; Open session file in buffer
+    ;; Open session file - auto-initialization hook will handle the rest
     (let ((buffer (find-file session-file)))
-      (with-current-buffer buffer
-        ;; Set session variables
-        (setq-local jf/gptel--session-id session-id)
-        (setq-local jf/gptel--session-dir session-dir)
-
-        ;; Enable auto-save
-        (setq-local jf/gptel-autosave-enabled t)
-
-        ;; Create project-aware or deny-all scope plan
-        (let ((scope-yaml (if selected-projects
-                             (jf/gptel--generate-scope-plan-yaml
-                              session-id "project-aware" selected-projects)
-                           (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
-              (scope-file (expand-file-name "scope-plan.yml" session-dir)))
-          (with-temp-file scope-file
-            (insert scope-yaml))
-          (jf/gptel--log 'info "Created scope plan: %s" scope-file))
-
-        ;; Register session with minimal runtime state
-        (jf/gptel--register-session session-dir buffer session-id)
-
-        ;; Copy preset template to session directory
-        (jf/gptel--copy-preset-template preset-template session-dir)
-
-        ;; Load preset and apply to buffer BEFORE enabling gptel-mode
-        ;; This ensures gptel-mode sees the custom settings when it initializes
-        (let ((preset-plist (jf/gptel--load-preset-from-file session-dir)))
-          ;; Apply preset settings ONE TIME (initial configuration)
-          ;; After first save, gptel's Local Variables are the source of truth
-          (jf/gptel--apply-session-preset preset-plist)
-          (jf/gptel--log 'info "Applied preset template: %s" preset-template))
-
-        ;; Enable gptel-mode AFTER applying preset (with duplicate prevention)
-        ;; This way gptel-mode will respect the buffer-local settings we just applied
-        (jf/gptel--ensure-mode-once)
-
-        (jf/gptel--log 'info "Created session: %s%s"
-                      session-id
-                      (if selected-projects
-                          (format " with %d project(s)" (length selected-projects))
-                        ""))
-        (message "Created session: %s\nDirectory: %s\nTemplate: %s%s\n\nPreset applied once. After first save, gptel's Local Variables are source of truth."
-                 session-name
-                 session-dir
-                 preset-template
-                 (if project-names
-                     (format "\nProjects: %s" (string-join project-names ", "))
-                   ""))
-
-        buffer))))
-#+end_src
-
-* List Sessions
-
-Show all available persistent sessions.
-
-#+begin_src emacs-lisp
-(defun jf/gptel-list-sessions ()
-  "List all persistent gptel sessions."
-  (interactive)
-  (let ((sessions (jf/gptel--all-sessions)))
-    (if (null sessions)
-        (message "No persistent sessions found")
-      (with-current-buffer (get-buffer-create "*GPTEL Sessions*")
-        (erase-buffer)
-        (insert "GPTEL Persistent Sessions\n")
-        (insert "=========================\n\n")
-        (dolist (session sessions)
-          (let* ((session-id (plist-get session :session-id))
-                 (session-dir (plist-get session :directory))
-                 (buffer (plist-get session :buffer))
-                 ;; Read metadata from disk on-demand
-                 (session-meta (jf/gptel--read-session-metadata session-dir))
-                 (preset-meta (jf/gptel--read-preset-metadata session-dir))
-                 (created (when session-meta (plist-get session-meta :created)))
-                 (backend (when preset-meta (plist-get preset-meta :backend)))
-                 (model (when preset-meta (plist-get preset-meta :model))))
-            (insert (format "• %s\n" session-id))
-            (when created
-              (insert (format "  Created: %s\n" created)))
-            (when backend
-              (insert (format "  Backend: %s\n" backend)))
-            (when model
-              (insert (format "  Model: %s\n" model)))
-            (when buffer
-              (insert (format "  Active in: %s\n" (buffer-name buffer))))
-            (insert "\n")))
-        (goto-char (point-min))
-        (display-buffer (current-buffer))))))
-#+end_src
-
-* Resume Session
-
-Resume an existing session by opening its context file.
-
-Settings are restored from gptel's Local Variables (saved automatically).
-The preset file is NOT reapplied - it's just a template that may be stale.
-
-#+begin_src emacs-lisp
-(defun jf/gptel-resume-session (session-id)
-  "Resume persistent session SESSION-ID.
-Opens the session's context file and restores session state.
-
-Session settings are restored from gptel's Local Variables (saved automatically).
-The preset file is NOT reapplied - it's just a template that may be stale."
-  (interactive
-   (list (completing-read "Resume session: "
-                         (mapcar (lambda (s) (plist-get s :session-id))
-                                (jf/gptel--all-sessions))
-                         nil t)))
-  (let* ((session (jf/gptel-session-find session-id))
-         (session-dir (plist-get session :directory))
-         (session-file (jf/gptel--context-file-path session-dir)))
-
-    (unless (file-exists-p session-file)
-      (user-error "Session file not found: %s" session-file))
-
-    ;; Open session file
-    (let ((buffer (find-file session-file)))
-      (with-current-buffer buffer
-        ;; Emacs has already loaded Local Variables automatically
-        ;; Enable gptel-mode if needed (triggers gptel--restore-state)
-        (jf/gptel--ensure-mode-once)
-
-        ;; gptel--restore-state has now run and restored all settings
-        ;; from Local Variables. DO NOT overwrite with preset!
-
-        ;; EXCEPT: Load system message from preset (not saved to Local Variables)
-        (when-let ((preset-plist (condition-case err
-                                     (jf/gptel--load-preset-from-file session-dir)
-                                   (error
-                                    (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
-                                    nil)))
-                   (system-message (plist-get preset-plist :system)))
-          ;; Set system message from preset with save-prevention
-          (jf/gptel--set-session-system-message system-message))
-
-        ;; Set session variables for our tracking
-        (setq-local jf/gptel--session-id session-id)
-        (setq-local jf/gptel--session-dir session-dir)
-
-        ;; Enable auto-save
-        (setq-local jf/gptel-autosave-enabled t)
-
-        ;; Update registry
-        (jf/gptel--update-session-buffer session-id buffer)
-
-        (jf/gptel--log 'info "Resumed session: %s (settings from Local Variables, system from preset)" session-id)
-        (message "Resumed session: %s\nSettings restored from gptel's Local Variables.\nSystem message from preset file." session-id)
-
-        buffer))))
+      (jf/gptel--log 'info "Created session: %s%s"
+                    session-id
+                    (if selected-projects
+                        (format " with %d project(s)" (length selected-projects))
+                      ""))
+      (message "Created session: %s\nDirectory: %s\nTemplate: %s%s\n\nSession will auto-initialize when opened."
+               session-name
+               session-dir
+               preset-template
+               (if project-names
+                   (format "\nProjects: %s" (string-join project-names ", "))
+                 ""))
+      buffer)))
 #+end_src
 
 * Initialize Registry
@@ -762,76 +697,13 @@ Check session state and advice installation.
     (display-buffer (current-buffer))))
 #+end_src
 
-* Hierarchical Session Browser (REMOVED)
+* Hook Installation
 
-Session browser functionality has been removed.
-Browser commands will be redesigned in the future.
-
-** Resume Agent Command
+Install find-file-hook for automatic session initialization.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-resume-agent ()
-  "Resume work in an agent session buffer.
-Settings are restored from gptel's Local Variables, not preset."
-  (interactive)
-  (let* ((sessions (jf/gptel--find-all-sessions-recursive))
-         (agents (seq-filter
-                    (lambda (s)
-                      (> (plist-get s :depth) 0))
-                    sessions))
-         (choices (mapcar
-                  (lambda (s)
-                    (let* ((path (plist-get s :path))
-                           (metadata (jf/gptel--read-session-metadata path))
-                           (parent-id (plist-get metadata :parent-session-id))
-                           (preset (plist-get metadata :preset)))
-                      (cons (format "[%s] %s (%s)"
-                              parent-id
-                              (plist-get s :id)
-                              (or preset "unknown"))
-                           s)))
-                  agents)))
-    (if (null choices)
-        (message "No agent sessions found")
-      (let* ((choice (completing-read "Resume agent: " choices nil t))
-             (session (alist-get choice choices nil nil #'equal))
-             (session-dir (plist-get session :path))
-             (session-file (jf/gptel--context-file-path session-dir))
-             (session-id (plist-get session :id)))
-        (unless (file-exists-p session-file)
-          (user-error "Session file not found: %s" session-file))
-        ;; Open session file
-        (let ((buffer (find-file session-file)))
-          (with-current-buffer buffer
-            ;; Enable gptel-mode if needed (triggers restore from Local Variables)
-            (jf/gptel--ensure-mode-once)
-
-            ;; gptel has restored settings from Local Variables
-            ;; Do NOT apply preset
-
-            ;; EXCEPT: Load system message from preset (not saved to Local Variables)
-            (when-let ((preset-plist (condition-case err
-                                         (jf/gptel--load-preset-from-file session-dir)
-                                       (error
-                                        (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
-                                        nil)))
-                       (system-message (plist-get preset-plist :system)))
-              ;; Set system message from preset with save-prevention
-              (jf/gptel--set-session-system-message system-message))
-
-            ;; Set session variables
-            (setq-local jf/gptel--session-id session-id)
-            (setq-local jf/gptel--session-dir session-dir)
-
-            ;; Update registry
-            (jf/gptel--register-session session-dir buffer session-id)
-
-            ;; Enable auto-save
-            (setq-local jf/gptel-autosave-enabled t)
-
-            (jf/gptel--log 'info "Resumed agent session: %s (settings from Local Variables, system from preset)" session-id)
-            (message "Resumed agent: %s (settings from Local Variables, system from preset)" session-id)
-            buffer))))))
+;; Auto-initialize sessions when opened via find-file, dired, recentf, etc.
+(add-hook 'find-file-hook #'jf/gptel--auto-init-session-buffer)
 #+end_src
 
 * Provide Feature
