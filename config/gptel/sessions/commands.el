@@ -599,12 +599,12 @@ Useful if sessions were created outside Emacs or after startup."
     (goto-char (point-min))
     (display-buffer (current-buffer))))
 
-(defun jf/gptel-resume-subagent ()
-  "Resume work in a subagent session buffer.
+(defun jf/gptel-resume-agent ()
+  "Resume work in an agent session buffer.
 Settings are restored from gptel's Local Variables, not preset."
   (interactive)
   (let* ((sessions (jf/gptel--find-all-sessions-recursive))
-         (subagents (seq-filter
+         (agents (seq-filter
                     (lambda (s)
                       (> (plist-get s :depth) 0))
                     sessions))
@@ -619,10 +619,10 @@ Settings are restored from gptel's Local Variables, not preset."
                               (plist-get s :id)
                               (or agent-type "unknown"))
                            s)))
-                  subagents)))
+                  agents)))
     (if (null choices)
-        (message "No subagent sessions found")
-      (let* ((choice (completing-read "Resume subagent: " choices nil t))
+        (message "No agent sessions found")
+      (let* ((choice (completing-read "Resume agent: " choices nil t))
              (session (alist-get choice choices nil nil #'equal))
              (session-dir (plist-get session :path))
              (session-file (jf/gptel--context-file-path session-dir))
@@ -658,8 +658,8 @@ Settings are restored from gptel's Local Variables, not preset."
             ;; Enable auto-save
             (setq-local jf/gptel-autosave-enabled t)
 
-            (jf/gptel--log 'info "Resumed subagent session: %s (settings from Local Variables, system from preset)" session-id)
-            (message "Resumed subagent: %s (settings from Local Variables, system from preset)" session-id)
+            (jf/gptel--log 'info "Resumed agent session: %s (settings from Local Variables, system from preset)" session-id)
+            (message "Resumed agent: %s (settings from Local Variables, system from preset)" session-id)
             buffer))))))
 
 (provide 'gptel-session-commands)

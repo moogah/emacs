@@ -151,8 +151,8 @@ Run this after gptel-agent-update to inject skill content into agents."
   (advice-add 'gptel-agent-update :after #'jf/gptel-agent--expand-all-agent-skills))
 
 ;; TEMPORARILY COMMENTED OUT: Testing cursor movement with confirmation enabled
-;; ;; Disable confirmation for Agent tool (subagent invocations)
-;; ;; The Agent tool by default has :confirm t, but we trust our subagents
+;; ;; Disable confirmation for Agent tool (agent invocations)
+;; ;; The Agent tool by default has :confirm t, but we trust our agents
 ;; (with-eval-after-load 'gptel-agent-tools
 ;;   (when-let ((agent-tool (gptel-get-tool "Agent")))
 ;;     (setf (gptel-tool-confirm agent-tool) nil)
@@ -169,8 +169,8 @@ Run this after gptel-agent-update to inject skill content into agents."
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
 
-;; Load subagent integration (simplified - no longer hooks into FSM)
-(jf/load-module (expand-file-name "config/gptel/sessions/subagent.el" jf/emacs-dir))
+;; Load agent integration (simplified - no longer hooks into FSM)
+(jf/load-module (expand-file-name "config/gptel/sessions/agent-integration.el" jf/emacs-dir))
 
 ;; Load scope-core (needed by scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))

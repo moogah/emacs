@@ -122,7 +122,7 @@ AGENT_TYPE is the type of agent (e.g., \"researcher\").
 DESCRIPTION is a short (3-5 word) task summary.
 PROMPT is the detailed task instructions.
 
-Creates a nested subagent session under the current persistent session,
+Creates a nested agent session under the current persistent session,
 launches the agent with tool support, displays progress in parent buffer
 via overlay, and returns the final result to the parent.
 
@@ -135,8 +135,8 @@ with zero inheritance from the parent session."
   ;; Get where to insert result in parent buffer
   (let ((where (point-marker)))
 
-    ;; Create nested subagent directory and session ID
-    (let* ((session-dir (jf/gptel--create-subagent-directory
+    ;; Create nested agent directory and session ID
+    (let* ((session-dir (jf/gptel--create-agent-directory
                          jf/gptel--session-dir agent_type description))
            (session-id (jf/gptel--session-id-from-directory session-dir)))
 
@@ -147,13 +147,13 @@ with zero inheritance from the parent session."
              (agent-model (or (plist-get agent-config :model)
                              gptel-model)))
 
-        ;; Create scope-plan.yml with subagent fields (deny-all template)
+        ;; Create scope-plan.yml with agent fields (deny-all template)
         (let* ((scope-yaml (jf/gptel-scope--template-deny-all
-                           session-id "subagent" jf/gptel--session-id agent_type))
+                           session-id "agent" jf/gptel--session-id agent_type))
                (scope-file (expand-file-name "scope-plan.yml" session-dir)))
           (with-temp-file scope-file
             (insert scope-yaml))
-          (jf/gptel--log 'info "Created subagent scope plan: %s" scope-file))
+          (jf/gptel--log 'info "Created agent scope plan: %s" scope-file))
 
         ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
 
@@ -167,7 +167,7 @@ with zero inheritance from the parent session."
         (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
                            ;; Fallback if scope-plan.yml read fails
                            (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)
-                                 :type "subagent"
+                                 :type "agent"
                                  :parent-session-id jf/gptel--session-id
                                  :agent-type agent_type))))
 

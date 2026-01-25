@@ -274,11 +274,11 @@ Returns t if allowed, nil if denied."
   "Advice around gptel--accept-tool-calls to enforce scope checking.
 RESPONSE is list of (tool-spec arg-values callback).
 OV is overlay showing tool calls."
-  ;; Extract session-id from multiple sources (works for main buffer and subagents)
+  ;; Extract session-id from multiple sources (works for main buffer and agents)
   (let* ((session-id (or
                       ;; 1. Try buffer-local variable (main buffer)
                       jf/gptel--session-id
-                      ;; 2. Try overlay property (subagent context)
+                      ;; 2. Try overlay property (agent context)
                       (when (overlayp ov) (overlay-get ov 'jf/session-id))
                       ;; 3. Try overlay buffer's session-id
                       (when (overlayp ov)
@@ -473,9 +473,9 @@ Extracts patterns from violations and updates plan file by editing YAML text dir
 (defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id agent-type)
   "Create deny-all template for SESSION-ID.
 Secure default - nothing allowed.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
-        (subagent-fields (when type
+        (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
                            (when parent-id
@@ -512,14 +512,14 @@ shell:
             session-id
             timestamp
             timestamp
-            (or subagent-fields ""))))
+            (or agent-fields ""))))
 
 (defun jf/gptel-scope--template-codebase-read (session-id &optional type parent-id agent-type)
   "Create codebase-read template for SESSION-ID.
 Reads always allowed (no scoping), writes require patterns.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
-        (subagent-fields (when type
+        (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
                            (when parent-id
@@ -560,14 +560,14 @@ shell:
             session-id
             timestamp
             timestamp
-            (or subagent-fields ""))))
+            (or agent-fields ""))))
 
 (defun jf/gptel-scope--template-org-roam-safe (session-id &optional type parent-id agent-type)
   "Create org-roam-safe template for SESSION-ID.
 Allows org-roam in gptel/ subdirectory only.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
-        (subagent-fields (when type
+        (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
                            (when parent-id
@@ -607,14 +607,14 @@ shell:
             session-id
             timestamp
             timestamp
-            (or subagent-fields ""))))
+            (or agent-fields ""))))
 
 (defun jf/gptel-scope--template-permissive (session-id &optional type parent-id agent-type)
   "Create permissive template for SESSION-ID.
 Allow most operations, deny only dangerous.
-Optional TYPE, PARENT-ID, and AGENT-TYPE for subagent sessions."
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
-        (subagent-fields (when type
+        (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
                            (when parent-id
@@ -655,7 +655,7 @@ shell:
             session-id
             timestamp
             timestamp
-            (or subagent-fields ""))))
+            (or agent-fields ""))))
 
 (defun jf/gptel--list-all-sessions ()
   "List all session IDs (active + on-disk).

@@ -40,8 +40,8 @@ Uses org-mode format for better structure.")
 (defconst jf/gptel-session--current-link "current"
   "Name of symlink pointing to current conversation position.")
 
-(defconst jf/gptel-session--subagents-dir "subagents"
-  "Directory name for subagent sessions within parent session.")
+(defconst jf/gptel-session--agents-dir "agents"
+  "Directory name for agent sessions within parent session.")
 
 (defcustom jf/gptel-autosave-idle-time 0.5
   "Idle time in seconds before auto-saving session buffer.
@@ -61,7 +61,7 @@ Format: <slug>-<timestamp>, e.g., 'react-refactoring-20260120153042'.")
 All session files (context, metadata, tools log, etc.) are stored here.")
 
 (defvar-local jf/gptel--parent-session-id nil
-  "Session ID of parent session (for subagents only).
+  "Session ID of parent session (for agents only).
 Nil for top-level sessions.")
 
 (provide 'gptel-session-constants)

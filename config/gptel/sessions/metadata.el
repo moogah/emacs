@@ -72,15 +72,15 @@ Returns nil if file doesn't exist or can't be parsed."
                        session-dir (error-message-string err))
          nil)))))
 
-(defun jf/gptel--is-subagent-session-p (session-dir)
-  "Return t if session in SESSION-DIR is a subagent session.
+(defun jf/gptel--is-agent-session-p (session-dir)
+  "Return t if session in SESSION-DIR is an agent session.
 Checks :type field in scope-plan.yml."
   (when-let ((metadata (jf/gptel--read-session-metadata session-dir)))
-    (equal (plist-get metadata :type) "subagent")))
+    (equal (plist-get metadata :type) "agent")))
 
 (defun jf/gptel--get-parent-session-id (session-dir)
   "Get parent session ID from SESSION-DIR's scope-plan.yml.
-Returns nil if not a subagent or no parent specified."
+Returns nil if not an agent or no parent specified."
   (when-let ((metadata (jf/gptel--read-session-metadata session-dir)))
     (plist-get metadata :parent-session-id)))
 

@@ -71,9 +71,9 @@ Does not check if file exists."
   "Get path to system prompts log file in SESSION-DIR."
   (jf/gptel--session-file-path session-dir jf/gptel-session--system-prompts-file))
 
-(defun jf/gptel--subagents-dir-path (session-dir)
-  "Get path to subagents directory in SESSION-DIR."
-  (jf/gptel--session-file-path session-dir jf/gptel-session--subagents-dir))
+(defun jf/gptel--agents-dir-path (session-dir)
+  "Get path to agents directory in SESSION-DIR."
+  (jf/gptel--session-file-path session-dir jf/gptel-session--agents-dir))
 
 (defun jf/gptel--list-session-directories ()
   "List all session directories in jf/gptel-sessions-directory.
@@ -96,14 +96,14 @@ Returns absolute path if found, nil otherwise."
       expected)))
 
 (defun jf/gptel--find-all-sessions-recursive (&optional root-dir depth)
-  "Find all session directories recursively, including subagents.
+  "Find all session directories recursively, including agents.
 ROOT-DIR defaults to jf/gptel-sessions-directory.
 DEPTH is current nesting level (0 for top-level).
 
 Returns list of plists with:
   :path - Full path to session directory
   :id - Session ID (directory name)
-  :depth - Nesting depth (0 for top-level, 1+ for subagents)
+  :depth - Nesting depth (0 for top-level, 1+ for agents)
   :parent-path - Path to parent session (nil for top-level)"
   (let ((root (or root-dir (expand-file-name jf/gptel-sessions-directory)))
         (current-depth (or depth 0))
@@ -119,43 +119,43 @@ Returns list of plists with:
                      :depth current-depth
                      :parent-path (when (> current-depth 0) root))
                sessions)
-          ;; Recursively find subagents
-          (let ((subagents-dir (jf/gptel--subagents-dir-path entry)))
-            (when (file-directory-p subagents-dir)
+          ;; Recursively find agents
+          (let ((agents-dir (jf/gptel--agents-dir-path entry)))
+            (when (file-directory-p agents-dir)
               (setq sessions
                    (append sessions
                           (jf/gptel--find-all-sessions-recursive
-                           subagents-dir
+                           agents-dir
                            (1+ current-depth)))))))))
     (nreverse sessions)))
 
-(defun jf/gptel--create-subagent-directory (parent-session-dir agent-type description)
-  "Create subagent directory under PARENT-SESSION-DIR.
-AGENT-TYPE is the subagent type (e.g., 'researcher', 'executor').
+(defun jf/gptel--create-agent-directory (parent-session-dir agent-type description)
+  "Create agent directory under PARENT-SESSION-DIR.
+AGENT-TYPE is the agent type (e.g., 'researcher', 'executor').
 DESCRIPTION is a brief description for the directory name.
-Returns the absolute path to the created subagent directory."
-  (let* ((subagents-dir (jf/gptel--subagents-dir-path parent-session-dir))
+Returns the absolute path to the created agent directory."
+  (let* ((agents-dir (jf/gptel--agents-dir-path parent-session-dir))
          (slug (replace-regexp-in-string "[^a-z0-9-]" "-"
                                         (downcase description)))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
          (dirname (format "%s-%s-%s" agent-type timestamp slug))
-         (subagent-dir (expand-file-name dirname subagents-dir)))
-    ;; Create subagents directory if needed
-    (unless (file-directory-p subagents-dir)
-      (make-directory subagents-dir t))
-    ;; Create subagent session directory
-    (make-directory subagent-dir t)
-    (jf/gptel--log 'info "Created subagent directory: %s" subagent-dir)
-    subagent-dir))
+         (agent-dir (expand-file-name dirname agents-dir)))
+    ;; Create agents directory if needed
+    (unless (file-directory-p agents-dir)
+      (make-directory agents-dir t))
+    ;; Create agent session directory
+    (make-directory agent-dir t)
+    (jf/gptel--log 'info "Created agent directory: %s" agent-dir)
+    agent-dir))
 
-(defun jf/gptel--list-subagent-directories (parent-session-dir)
-  "List all subagent directories under PARENT-SESSION-DIR.
+(defun jf/gptel--list-agent-directories (parent-session-dir)
+  "List all agent directories under PARENT-SESSION-DIR.
 Returns list of absolute paths."
-  (let ((subagents-dir (jf/gptel--subagents-dir-path parent-session-dir)))
-    (when (file-directory-p subagents-dir)
+  (let ((agents-dir (jf/gptel--agents-dir-path parent-session-dir)))
+    (when (file-directory-p agents-dir)
       (seq-filter
        #'file-directory-p
-       (directory-files subagents-dir t "^[^.]")))))
+       (directory-files agents-dir t "^[^.]")))))
 
 (defun jf/gptel--valid-session-directory-p (dir)
   "Return t if DIR is a valid session directory.

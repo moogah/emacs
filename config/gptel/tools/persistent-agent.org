@@ -55,7 +55,7 @@ config/gptel/
 │   ├── filesystem.el      - Directory structure, path helpers
 │   ├── registry.el        - Global session tracking (runtime state only)
 │   ├── metadata.el        - Read metadata from scope-plan.yml + preset.md
-│   ├── subagent.el        - Parent-child session linking
+│   ├── agent-integration.el - Parent-child session linking
 │   ├── commands.el        - User-facing session commands
 │   └── activities-integration.el - Activities package integration
 ├── tools/                 - 10 tool definitions
@@ -117,7 +117,7 @@ sequenceDiagram
 
     P->>T: Invoke tool(agent_type, description, prompt)
     T->>T: Validate parent session exists
-    T->>FS: Create subagent directory
+    T->>FS: Create agent directory
     FS-->>T: session-dir path
 
     T->>FS: Load agent config (NO parent inheritance)
@@ -157,12 +157,12 @@ Sessions are persisted to disk with the following structure:
     ├── preset.md                    # Backend and model configuration
     ├── session.md                   # Parent conversation
     ├── tools.org                    # Parent tool calls
-    └── subagents/                   # Subagent sessions
+    └── agents/                      # Agent sessions
         └── researcher-20260121143245-analyze-code/
-            ├── scope-plan.yml       # Subagent metadata (includes parent_session_id)
+            ├── scope-plan.yml       # Agent metadata (includes parent_session_id)
             ├── preset.md            # Agent-specific config (NO inheritance)
-            ├── session.md           # Subagent conversation (auto-saved)
-            └── tools.org            # Subagent tool calls
+            ├── session.md           # Agent conversation (auto-saved)
+            └── tools.org            # Agent tool calls
 #+end_example
 
 ** FSM State Handler Flow
@@ -219,7 +219,7 @@ The tool extends gptel's FSM architecture with custom handlers for WAIT and TOOL
 
 Instead of switching buffers or popping up windows, progress is shown via text overlays in the parent buffer.
 
-*Why good:* Non-intrusive UX - user stays in parent context while monitoring subagent progress. Similar to how gptel-agent works.
+*Why good:* Non-intrusive UX - user stays in parent context while monitoring agent progress. Similar to how gptel-agent works.
 
 *** Configuration Isolation via Dynamic Scoping
 
@@ -354,14 +354,14 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 - *gptel-session-filesystem*: Directory creation, path helpers
 - *gptel-session-metadata*: Metadata file read/write
 - *gptel-session-registry*: Global session tracking
-- *gptel-session-subagent*: Parent-child linking
+- *gptel-session-agent-integration*: Parent-child linking
 
 ** Testing Considerations
 
 *How to test:*
 1. Create parent persistent session
 2. Invoke PersistentAgent tool from parent
-3. Verify subagent directory created under =subagents/=
+3. Verify agent directory created under =agents/=
 4. Check scope-plan.yml includes =parent_session_id=
 5. Verify overlay appears in parent buffer
 6. Monitor overlay updates during tool calls
@@ -560,7 +560,7 @@ AGENT_TYPE is the type of agent (e.g., \"researcher\").
 DESCRIPTION is a short (3-5 word) task summary.
 PROMPT is the detailed task instructions.
 
-Creates a nested subagent session under the current persistent session,
+Creates a nested agent session under the current persistent session,
 launches the agent with tool support, displays progress in parent buffer
 via overlay, and returns the final result to the parent.
 
@@ -573,8 +573,8 @@ with zero inheritance from the parent session."
   ;; Get where to insert result in parent buffer
   (let ((where (point-marker)))
 
-    ;; Create nested subagent directory and session ID
-    (let* ((session-dir (jf/gptel--create-subagent-directory
+    ;; Create nested agent directory and session ID
+    (let* ((session-dir (jf/gptel--create-agent-directory
                          jf/gptel--session-dir agent_type description))
            (session-id (jf/gptel--session-id-from-directory session-dir)))
 
@@ -585,13 +585,13 @@ with zero inheritance from the parent session."
              (agent-model (or (plist-get agent-config :model)
                              gptel-model)))
 
-        ;; Create scope-plan.yml with subagent fields (deny-all template)
+        ;; Create scope-plan.yml with agent fields (deny-all template)
         (let* ((scope-yaml (jf/gptel-scope--template-deny-all
-                           session-id "subagent" jf/gptel--session-id agent_type))
+                           session-id "agent" jf/gptel--session-id agent_type))
                (scope-file (expand-file-name "scope-plan.yml" session-dir)))
           (with-temp-file scope-file
             (insert scope-yaml))
-          (jf/gptel--log 'info "Created subagent scope plan: %s" scope-file))
+          (jf/gptel--log 'info "Created agent scope plan: %s" scope-file))
 
         ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
 
@@ -605,7 +605,7 @@ with zero inheritance from the parent session."
         (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
                            ;; Fallback if scope-plan.yml read fails
                            (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)
-                                 :type "subagent"
+                                 :type "agent"
                                  :parent-session-id jf/gptel--session-id
                                  :agent-type agent_type))))
 
