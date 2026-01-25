@@ -399,16 +399,6 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
          (project-names (when selected-projects
                          (mapcar #'jf/gptel--project-display-name selected-projects))))
 
-    ;; Create metadata with project information
-    (let ((metadata (jf/gptel--create-metadata session-dir session-id model backend-name)))
-      ;; Add project fields to metadata if projects selected
-      (when selected-projects
-        (setq metadata (plist-put metadata :projects selected-projects))
-        (setq metadata (plist-put metadata :project-names project-names)))
-
-      (jf/gptel--write-metadata session-dir metadata)
-      (jf/gptel--register-session session-dir metadata nil session-id))
-
     ;; Create session file with initial content
     (with-temp-file session-file
       (insert "# " session-name "\n\n"))
@@ -423,9 +413,6 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
         ;; Enable auto-save
         (setq-local jf/gptel-autosave-enabled t)
 
-        ;; Update registry with buffer
-        (jf/gptel--update-session-buffer session-id buffer)
-
         ;; Create project-aware or deny-all scope plan
         (let ((scope-yaml (if selected-projects
                              (jf/gptel--generate-scope-plan-yaml
@@ -435,6 +422,15 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.m
           (with-temp-file scope-file
             (insert scope-yaml))
           (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+
+        ;; Register session (read metadata from scope-plan.yml)
+        (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
+                           ;; Fallback if scope-plan.yml read fails
+                           (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))))
+          (jf/gptel--register-session session-dir metadata buffer session-id))
+
+        ;; Update registry with buffer
+        (jf/gptel--update-session-buffer session-id buffer)
 
         ;; Copy preset template to session directory
         (jf/gptel--copy-preset-template preset-template session-dir)

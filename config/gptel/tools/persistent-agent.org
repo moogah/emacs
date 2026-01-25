@@ -582,21 +582,30 @@ with zero inheritance from the parent session."
              (agent-model (or (plist-get agent-config :model)
                              gptel-model)))
 
-        ;; Create and write metadata using agent's config, not parent's
-        (let ((metadata (jf/gptel--create-metadata
-                         session-dir session-id agent-model agent-backend-name)))
-          (plist-put metadata :type "subagent")
-          (plist-put metadata :parent-session-id jf/gptel--session-id)
-          (plist-put metadata :agent-type agent_type)
-          (plist-put metadata :description description)
-          (jf/gptel--write-metadata session-dir metadata)
-          (jf/gptel--link-subagent-to-parent session-dir jf/gptel--session-id)
+        ;; Create scope-plan.yml with subagent fields (deny-all template)
+        (let* ((scope-yaml (jf/gptel-scope--template-deny-all
+                           session-id "subagent" jf/gptel--session-id agent_type))
+               (scope-file (expand-file-name "scope-plan.yml" session-dir)))
+          (with-temp-file scope-file
+            (insert scope-yaml))
+          (jf/gptel--log 'info "Created subagent scope plan: %s" scope-file))
 
-          ;; Create preset file ONLY from agent definition (NO parent inheritance)
-          (let* ((preset-plist (copy-sequence agent-config)))
-            ;; Override to ensure tool results are included
-            (plist-put preset-plist :include-tool-results t)
-            (jf/gptel--write-preset-file session-dir preset-plist))
+        ;; Link subagent to parent
+        (jf/gptel--link-subagent-to-parent session-dir jf/gptel--session-id)
+
+        ;; Create preset file ONLY from agent definition (NO parent inheritance)
+        (let* ((preset-plist (copy-sequence agent-config)))
+          ;; Override to ensure tool results are included
+          (plist-put preset-plist :include-tool-results t)
+          (jf/gptel--write-preset-file session-dir preset-plist))
+
+        ;; Read metadata from scope-plan.yml for registry
+        (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
+                           ;; Fallback if scope-plan.yml read fails
+                           (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)
+                                 :type "subagent"
+                                 :parent-session-id jf/gptel--session-id
+                                 :agent-type agent_type))))
 
           ;; Create agent buffer with session infrastructure
           (let* ((buffer-name (format "*gptel-agent:%s:%s*" agent_type description))

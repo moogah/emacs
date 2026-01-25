@@ -13,6 +13,7 @@
 (require 'gptel-session-registry)
 (require 'gptel-session-metadata)
 (require 'jf-gptel-scope-core nil t)
+(require 'jf-gptel-scope-commands nil t)  ; For jf/gptel-scope--template-deny-all
 
 ;; Optional dependency - checked at runtime
 (defvar activities-ext--slugify)
@@ -42,54 +43,18 @@ SESSION-ID is the unique session identifier."
 
 (defun jf/gptel-scope--create-default-plan (session-id)
   "Create default deny-all scope plan for SESSION-ID.
-Only creates plan if jf/gptel-activities-create-scope-plan is non-nil."
+Only creates plan if jf/gptel-activities-create-scope-plan is non-nil.
+Uses jf/gptel-scope--template-deny-all from scope-commands.org."
   (when (and jf/gptel-activities-create-scope-plan
              (fboundp 'jf/gptel-session-find))
     (when-let* ((session (jf/gptel-session-find session-id))
                 (session-dir (plist-get session :directory)))
       (let ((plan-file (expand-file-name "scope-plan.yml" session-dir))
+            ;; Call template without optional params for regular sessions
             (plan-content (jf/gptel-scope--template-deny-all session-id)))
         (with-temp-file plan-file
           (insert plan-content))
         (jf/gptel--log 'info "Created default scope plan: %s" plan-file)))))
-
-(defun jf/gptel-scope--template-deny-all (session-id)
-  "Generate deny-all scope plan template for SESSION-ID."
-  (format "# Scope Plan for Session: %s
-# Created: %s
-#
-# This is a deny-all scope plan. The LLM agent cannot access any
-# files, directories, or tools by default. To grant access:
-#
-# 1. Use the request_scope_expansion tool in the chat
-# 2. Or manually edit this file to add allowed_paths/allowed_tools
-
-version: 1
-session_id: %s
-default_policy: deny
-
-# Example allowed_paths:
-# allowed_paths:
-#   - path: \"/path/to/project\"
-#     mode: read-write
-#     description: \"Project source code\"
-
-# Example allowed_tools:
-# allowed_tools:
-#   - name: \"bash\"
-#     description: \"Shell command execution\"
-
-allowed_paths: []
-allowed_tools: []
-
-# Denied paths (explicit denials take precedence)
-denied_paths:
-  - path: \"/\"
-    description: \"Deny all filesystem access by default\"
-"
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          session-id))
 
 (defun jf/gptel-session-create-persistent (activity-name &optional backend model)
   "Create persistent gptel session immediately for ACTIVITY-NAME.
@@ -129,16 +94,16 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
     (make-directory session-dir t)
     (jf/gptel--log 'info "Created session directory: %s (session-id: %s)" session-dir session-id)
 
-    ;; Create metadata.json with our pre-generated session ID
-    (let ((metadata (jf/gptel--create-metadata session-dir session-id model backend-name)))
-      (jf/gptel--write-metadata session-dir metadata)
+    ;; Create deny-all scope plan (includes session_id and created timestamp)
+    (jf/gptel-scope--create-default-plan session-id)
 
+    ;; Build minimal metadata for registry (read from scope-plan.yml)
+    (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
+                       ;; Fallback if scope-plan.yml read fails
+                       (list :created (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))))
       ;; Register in global registry using our pre-generated session-id
       (jf/gptel--log 'info "Registering session: %s" session-id)
       (jf/gptel--register-session session-dir metadata (current-buffer) session-id)
-
-      ;; Create deny-all scope plan
-      (jf/gptel-scope--create-default-plan session-id)
 
       ;; Create session.org file
       (jf/gptel-session--create-session-file session-file activity-name
