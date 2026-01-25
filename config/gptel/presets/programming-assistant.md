@@ -5,6 +5,7 @@ model: claude-opus-4-5-20251101
 temperature: 1.0
 include-tool-results: true
 tools:
+  - PersistentAgent
   - read_file
   - write_file_in_scope
   - edit_file_in_scope
