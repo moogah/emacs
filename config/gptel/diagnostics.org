@@ -356,8 +356,15 @@ Single comprehensive system capturing entire test flow.
 
   ;; Install all advice
   (advice-add 'gptel--restore-props :before
-              (lambda (&rest _)
-                (jf/gptel--record-bounds "BEFORE-restore-props")))
+              (lambda (bounds-alist)
+                (jf/gptel--record-bounds "BEFORE-restore-props")
+                ;; Log the exact bounds-alist structure
+                (let ((log-file (jf/gptel--get-diagnostic-file)))
+                  (with-temp-buffer
+                    (insert "\n=== BOUNDS-ALIST PASSED TO gptel--restore-props ===\n")
+                    (pp bounds-alist (current-buffer))
+                    (insert "\n")
+                    (append-to-file (point-min) (point-max) log-file)))))
 
   ;; Trace what add-text-properties is called with during restoration
   (advice-add 'add-text-properties :before
