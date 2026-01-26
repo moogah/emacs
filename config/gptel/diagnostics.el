@@ -300,12 +300,14 @@ MAX-ENTRIES limits the number of entries to parse."
   ;; Trace what add-text-properties is called with during restoration
   (advice-add 'add-text-properties :before
               (lambda (beg end props &optional _)
-                (when (and (plist-get props 'gptel)
+                (when (and (listp props)
+                           (memq 'gptel props)
                            (string-match-p "session\\.md" (or (buffer-file-name) "")))
-                  (let ((log-file (jf/gptel--get-diagnostic-file)))
+                  (let ((log-file (jf/gptel--get-diagnostic-file))
+                        (gptel-val (plist-get props 'gptel)))
                     (with-temp-buffer
-                      (insert (format "add-text-properties called: %d-%d props=%S\n"
-                                     beg end (plist-get props 'gptel)))
+                      (insert (format "add-text-properties called: %d-%d gptel=%S\n"
+                                     beg end gptel-val))
                       (append-to-file (point-min) (point-max) log-file)))))
               '((name . gptel-diagnostics)))
   (advice-add 'gptel--restore-props :after
