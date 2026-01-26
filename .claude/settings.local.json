@@ -9,7 +9,8 @@
       "Bash(ls:*)",
       "Bash(tree:*)",
       "Bash(git config:*)",
-      "Bash(du:*)"
+      "Bash(du:*)",
+      "Bash(find:*)"
     ]
   }
 }

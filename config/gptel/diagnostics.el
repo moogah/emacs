@@ -1,8 +1,20 @@
 (defun gptel--restore-props (bounds-alist)
   "Restore text properties from BOUNDS-ALIST."
   (let ((modified (buffer-modified-p))
-        (inhibit-modification-hooks t))  ; <-- Prevent after-change-functions
+        (inhibit-modification-hooks t))  ; <-- Disables ALL modification hooks
     ;; ... existing restoration code ...
+    (set-buffer-modified-p modified)))
+
+(defun gptel--restore-props (bounds-alist)
+  "Restore text properties from BOUNDS-ALIST."
+  (let ((modified (buffer-modified-p))
+        (had-inherit-hook (memq 'gptel--inherit-stickiness after-change-functions)))
+    ;; Temporarily remove gptel--inherit-stickiness to prevent interference
+    (remove-hook 'after-change-functions 'gptel--inherit-stickiness t)
+    ;; ... existing restoration code ...
+    ;; Restore the hook if it was present
+    (when had-inherit-hook
+      (add-hook 'after-change-functions 'gptel--inherit-stickiness nil t))
     (set-buffer-modified-p modified)))
 
 (defvar jf/gptel--bounds-history nil
