@@ -310,10 +310,20 @@ MAX-ENTRIES limits the number of entries to parse."
                       (insert (format "\n=== ACTUAL BUFFER PROPERTIES (after restore) ===\n"))
                       (insert (format "Found %d tool properties in buffer:\n" (length actual-tools)))
                       (dolist (tool actual-tools)
-                        (insert (format "  Position %d (line %d): %s\n"
-                                       (plist-get tool :position)
-                                       (plist-get tool :line)
-                                       (or (plist-get tool :name) "nil"))))
+                        (let* ((pos (plist-get tool :position))
+                               (gptel-prop (save-excursion
+                                            (with-current-buffer (get-buffer "session.md")
+                                              (get-text-property pos 'gptel))))
+                               (text-sample (save-excursion
+                                             (with-current-buffer (get-buffer "session.md")
+                                               (buffer-substring-no-properties
+                                                pos (min (point-max) (+ pos 20)))))))
+                          (insert (format "  Position %d (line %d): name=%s\n"
+                                         pos
+                                         (plist-get tool :line)
+                                         (or (plist-get tool :name) "nil")))
+                          (insert (format "    Property value: %S\n" gptel-prop))
+                          (insert (format "    Text at position: %S\n" text-sample))))
                       (insert "\n")
                       (append-to-file (point-min) (point-max) log-file))
                     (dolist (tool actual-tools)
