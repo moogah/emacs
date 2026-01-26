@@ -302,10 +302,6 @@ Load session management modules in dependency order:
 ;; Enables creating persistent gptel sessions as part of activity creation
 (when (featurep 'activities)
   (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
-
-;; Load diagnostics module for debugging session restoration issues
-;; This module auto-enables diagnostic mode and captures bounds changes
-(jf/load-module (expand-file-name "config/gptel/diagnostics.el" jf/emacs-dir))
 #+end_src
 
 * GPTEL Session Launcher

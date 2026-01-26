@@ -347,37 +347,49 @@ MAX-ENTRIES limits the number of entries to parse."
   (advice-add 'gptel--restore-props :after
               (lambda (&rest _)
                 (jf/gptel--record-bounds "AFTER-restore-props")
-                ;; Also scan actual buffer properties to verify restoration
-                (let* ((actual-tools (jf/gptel--scan-tool-positions))
-                       (log-file (jf/gptel--get-diagnostic-file)))
-                  (when actual-tools
-                    (message "[BOUNDS] ACTUAL buffer properties after restore: %d tools found"
-                             (length actual-tools))
-                    ;; Write to log file
-                    (with-temp-buffer
-                      (insert (format "\n=== ACTUAL BUFFER PROPERTIES (after restore) ===\n"))
-                      (insert (format "Found %d tool properties in buffer:\n" (length actual-tools)))
-                      (dolist (tool actual-tools)
-                        (let* ((pos (plist-get tool :position))
-                               (gptel-prop (save-excursion
-                                            (with-current-buffer (get-buffer "session.md")
-                                              (get-text-property pos 'gptel))))
-                               (text-sample (save-excursion
-                                             (with-current-buffer (get-buffer "session.md")
-                                               (buffer-substring-no-properties
-                                                pos (min (point-max) (+ pos 20)))))))
-                          (insert (format "  Position %d (line %d): name=%s\n"
-                                         pos
-                                         (plist-get tool :line)
-                                         (or (plist-get tool :name) "nil")))
-                          (insert (format "    Property value: %S\n" gptel-prop))
-                          (insert (format "    Text at position: %S\n" text-sample))))
-                      (insert "\n")
-                      (append-to-file (point-min) (point-max) log-file))
-                    (dolist (tool actual-tools)
-                      (message "[BOUNDS]   Position %d: %s"
-                               (plist-get tool :position)
-                               (plist-get tool :name)))))))
+                ;; CRITICAL: Actually check text properties were applied!
+                (let ((log-file (jf/gptel--get-diagnostic-file))
+                      (prop-check-results nil))
+                  ;; Check each position that should have properties
+                  (dolist (entry gptel--bounds)
+                    (let ((prop-type (car entry))
+                          (bounds-list (cdr entry)))
+                      (dolist (bound bounds-list)
+                        (let* ((beg (nth 0 bound))
+                               (end (nth 1 bound))
+                               (expected-val (nth 2 bound))
+                               (actual-prop (get-text-property beg 'gptel))
+                               (success (not (null actual-prop))))
+                          (push (list :position beg
+                                     :prop-type prop-type
+                                     :expected-val expected-val
+                                     :actual-prop actual-prop
+                                     :success success)
+                                prop-check-results)))))
+                  ;; Write to log file
+                  (with-temp-buffer
+                    (insert (format "\n=== TEXT PROPERTY VERIFICATION (after restore) ===\n"))
+                    (insert (format "Checked %d property regions:\n" (length prop-check-results)))
+                    (dolist (result (reverse prop-check-results))
+                      (if (plist-get result :success)
+                          (insert (format "  ✓ Position %d (%s): %S\n"
+                                         (plist-get result :position)
+                                         (plist-get result :prop-type)
+                                         (plist-get result :actual-prop)))
+                        (insert (format "  ✗ Position %d (%s): MISSING! Expected %S\n"
+                                       (plist-get result :position)
+                                       (plist-get result :prop-type)
+                                       (plist-get result :expected-val)))))
+                    (insert "\n")
+                    (append-to-file (point-min) (point-max) log-file))
+                  ;; Message summary
+                  (let ((failed (cl-count-if-not (lambda (r) (plist-get r :success))
+                                                  prop-check-results)))
+                    (if (> failed 0)
+                        (message "[BOUNDS] ✗ PROPERTY RESTORATION FAILED: %d/%d regions missing properties!"
+                                failed (length prop-check-results))
+                      (message "[BOUNDS] ✓ All %d property regions verified"
+                              (length prop-check-results)))))))
   (advice-add 'gptel--get-buffer-bounds :around
               (lambda (orig-fn &rest args)
                 (jf/gptel--record-bounds "BEFORE-get-buffer-bounds")

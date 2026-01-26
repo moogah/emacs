@@ -193,10 +193,6 @@ Run this after gptel-agent-update to inject skill content into agents."
 (when (featurep 'activities)
   (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
 
-;; Load diagnostics module for debugging session restoration issues
-;; This module auto-enables diagnostic mode and captures bounds changes
-(jf/load-module (expand-file-name "config/gptel/diagnostics.el" jf/emacs-dir))
-
 (defun jf/gptel-launcher ()
   "Launch gptel session with a selected backend and model.
 Prompts for display method, then backend:model selection using
