@@ -300,10 +300,22 @@ MAX-ENTRIES limits the number of entries to parse."
               (lambda (&rest _)
                 (jf/gptel--record-bounds "AFTER-restore-props")
                 ;; Also scan actual buffer properties to verify restoration
-                (let ((actual-tools (jf/gptel--scan-tool-positions)))
+                (let* ((actual-tools (jf/gptel--scan-tool-positions))
+                       (log-file (jf/gptel--get-diagnostic-file)))
                   (when actual-tools
                     (message "[BOUNDS] ACTUAL buffer properties after restore: %d tools found"
                              (length actual-tools))
+                    ;; Write to log file
+                    (with-temp-buffer
+                      (insert (format "\n=== ACTUAL BUFFER PROPERTIES (after restore) ===\n"))
+                      (insert (format "Found %d tool properties in buffer:\n" (length actual-tools)))
+                      (dolist (tool actual-tools)
+                        (insert (format "  Position %d (line %d): %s\n"
+                                       (plist-get tool :position)
+                                       (plist-get tool :line)
+                                       (or (plist-get tool :name) "nil"))))
+                      (insert "\n")
+                      (append-to-file (point-min) (point-max) log-file))
                     (dolist (tool actual-tools)
                       (message "[BOUNDS]   Position %d: %s"
                                (plist-get tool :position)
