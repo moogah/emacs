@@ -7,6 +7,21 @@
 This module provides diagnostic tools for debugging GPTEL session restoration issues,
 particularly focusing on tool call serialization problems.
 
+** Problem Statement
+
+*Tool calls are not correctly restored when reopening a gptel session.*
+
+After saving and closing a gptel session that contains tool calls, reopening the
+session.md file and sending a new prompt results in an API error:
+
+#+begin_example
+Claude error: ((HTTP/2 400) invalid_request_error)
+messages.1.content.0.tool_use.name: Input should be a valid string
+#+end_example
+
+The tool data is serialized as ="name": {}= and ="input": {}= instead of the actual
+tool name and arguments, causing the API request to fail.
+
 ** Problem Context
 
 When restoring a gptel session from =session.md=, tool calls fail to serialize correctly:
@@ -14,12 +29,15 @@ When restoring a gptel session from =session.md=, tool calls fail to serialize c
 - The =gptel--bounds= variable changes after sending a prompt
 - Initial bounds: =((tool (81 1347 "toolu_...")) ...)=
 - After send: =((tool (38 1347 "toolu_...")) ...)= ← Position shifted
+- When =gptel--parse-buffer= tries =(read (current-buffer))= at wrong position, it fails to read the tool-call sexp
 
 ** Root Cause Hypothesis
 
-The tool property bound starts at the wrong buffer position (38 instead of 81).
-When =gptel--parse-buffer= tries =(read (current-buffer))= at position 38,
-it reads from blank space instead of the tool call sexp, resulting in empty data.
+Original hypothesis: The tool property bound starts at the wrong buffer position (38 instead of 81),
+causing =gptel--parse-buffer= to read from blank space instead of the tool call sexp.
+
+*Status:* This hypothesis was partially correct about the symptom (wrong position) but the actual
+cause was the diagnostic module itself accumulating advice layers (see Findings below).
 
 ** Findings
 
@@ -27,11 +45,47 @@ Diagnostics revealed that:
 - Saved bounds in file Local Variables were correct: =tool= at position 80, =ignore= at 37-80
 - After restoration, position 37 had =tool= property instead of =ignore= property
 - Multiple =add-text-properties= calls during restoration, including erroneous =(37 80 tool)= call
-- Root cause: Diagnostics module itself was accumulating advice on module reload
+- *Root cause:* Diagnostics module itself was accumulating advice on module reload
 - Each reload added another advice layer, causing =gptel--restore-props= to apply properties multiple times
 - The third/fourth application overwrote the =ignore= property at 37-80 with =tool= property
 
-Fixed by ensuring =jf/gptel--start-diagnostic-session= removes all existing advice before installing new advice.
+*Fix:* Ensure =jf/gptel--start-diagnostic-session= removes all existing advice before installing new advice.
+
+*Next step:* Test with fresh Emacs restart to determine if there's an underlying gptel bug or if
+the issue was entirely caused by diagnostic advice accumulation.
+
+** Testing Methodology
+
+To test session restoration without side effects, we copy an existing session directory to a new location before opening it:
+
+#+begin_example
+cp -r ~/.gptel/sessions/test-20260126142209 ~/.gptel/sessions/test-restore-N
+#+end_example
+
+This allows:
+- Opening the copied session.md multiple times without corrupting the original
+- Testing restoration behavior in isolation
+- Comparing saved bounds vs restored bounds
+
+** Test Session Details
+
+Session =test-20260126142209= used for debugging has these characteristics:
+
+- Tool call: =read_file= with filepath "~/Brewfile"
+- Tool ID: ="toolu_01BUV8b8HrXnk2tVUKdZoBLj"=
+- Saved bounds structure:
+  #+begin_src elisp
+  ((tool (80 1346 "toolu_01BUV8b8HrXnk2tVUKdZoBLj"))
+   (ignore (37 80) (1346 1351))
+   (response (1351 2903) (2917 2971)))
+  #+end_src
+
+- Position 37: Start of markdown code fence =``` tool=
+- Position 80: Start of tool-call sexp =(:name "read_file" ...)=
+- Position 1346: End of tool result
+- Position 1351: End of closing code fence
+
+The bug manifested as position 37 getting the =tool= property instead of =ignore= after restoration.
 
 * Diagnostic Variables
 
