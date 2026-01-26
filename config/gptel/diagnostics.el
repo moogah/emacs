@@ -296,6 +296,18 @@ MAX-ENTRIES limits the number of entries to parse."
   (advice-add 'gptel--restore-props :before
               (lambda (&rest _)
                 (jf/gptel--record-bounds "BEFORE-restore-props")))
+
+  ;; Trace what add-text-properties is called with during restoration
+  (advice-add 'add-text-properties :before
+              (lambda (beg end props &optional _)
+                (when (and (plist-get props 'gptel)
+                           (string-match-p "session\\.md" (or (buffer-file-name) "")))
+                  (let ((log-file (jf/gptel--get-diagnostic-file)))
+                    (with-temp-buffer
+                      (insert (format "add-text-properties called: %d-%d props=%S\n"
+                                     beg end (plist-get props 'gptel)))
+                      (append-to-file (point-min) (point-max) log-file)))))
+              '((name . gptel-diagnostics)))
   (advice-add 'gptel--restore-props :after
               (lambda (&rest _)
                 (jf/gptel--record-bounds "AFTER-restore-props")
@@ -451,6 +463,7 @@ MAX-ENTRIES limits the number of entries to parse."
                  (lambda (&rest _)
                    (jf/gptel--record-bounds "AFTER-auto-init")))
   (advice-remove 'gptel--parse-buffer #'jf/gptel--trace-parse-buffer-advice)
+  (advice-remove 'add-text-properties 'gptel-diagnostics)
 
   (message "Diagnostic session stopped"))
 
