@@ -21,6 +21,18 @@ The tool property bound starts at the wrong buffer position (38 instead of 81).
 When =gptel--parse-buffer= tries =(read (current-buffer))= at position 38,
 it reads from blank space instead of the tool call sexp, resulting in empty data.
 
+** Findings
+
+Diagnostics revealed that:
+- Saved bounds in file Local Variables were correct: =tool= at position 80, =ignore= at 37-80
+- After restoration, position 37 had =tool= property instead of =ignore= property
+- Multiple =add-text-properties= calls during restoration, including erroneous =(37 80 tool)= call
+- Root cause: Diagnostics module itself was accumulating advice on module reload
+- Each reload added another advice layer, causing =gptel--restore-props= to apply properties multiple times
+- The third/fourth application overwrote the =ignore= property at 37-80 with =tool= property
+
+Fixed by ensuring =jf/gptel--start-diagnostic-session= removes all existing advice before installing new advice.
+
 * Diagnostic Variables
 
 #+begin_src emacs-lisp
