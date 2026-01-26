@@ -87,6 +87,21 @@ without considering:
     (set-buffer-modified-p modified)))
 #+end_src
 
+*Status:* Fix has been applied to local gptel installation at
+=runtime/straight/repos/gptel/gptel.el:597=. The patch adds =inhibit-modification-hooks=
+binding to prevent =after-change-functions= from running during restoration.
+
+The change has been committed in the gptel repository with a detailed commit message
+explaining the bug mechanism and fix. The patch will persist until gptel is rebuilt
+or updated via straight.el.
+
+To verify the fix is working:
+1. Copy an uncorrupted session: =cp -r test-20260126142209 test-verify-fix=
+2. Restart Emacs to load patched gptel
+3. Open session.md and send a prompt
+4. Check Local Variables show correct bounds: =(tool (80 1346 ...)) (ignore (37 80) ...)=
+5. Diagnostic logs should show only 5 =add-text-properties= calls, not 6
+
 *** Diagnostic Evidence
 
 Full backtrace from test-restore-2 session shows:
