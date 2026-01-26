@@ -292,6 +292,9 @@ MAX-ENTRIES limits the number of entries to parse."
   (setq jf/gptel--bounds-history nil)
   (setq jf/gptel--parse-trace nil)
 
+  ;; Remove any existing advice first (in case of reload)
+  (jf/gptel--stop-diagnostic-session)
+
   ;; Install all advice
   (advice-add 'gptel--restore-props :before
               (lambda (bounds-alist)
@@ -451,37 +454,23 @@ MAX-ENTRIES limits the number of entries to parse."
     (find-file report-file)))
 
 (defun jf/gptel--stop-diagnostic-session ()
-  "Disable all diagnostics and clean up."
+  "Disable all diagnostics and clean up.
+Removes ALL advice from diagnostic functions, not just specific ones."
   (interactive)
-  (advice-remove 'gptel--restore-props
-                 (lambda (&rest _)
-                   (jf/gptel--record-bounds "BEFORE-restore-props")))
-  (advice-remove 'gptel--restore-props
-                 (lambda (&rest _)
-                   (jf/gptel--record-bounds "AFTER-restore-props")))
-  (advice-remove 'gptel--get-buffer-bounds
-                 (lambda (orig-fn &rest args)
-                   (jf/gptel--record-bounds "BEFORE-get-buffer-bounds")
-                   (let ((result (apply orig-fn args)))
-                     (jf/gptel--record-bounds "AFTER-get-buffer-bounds"
-                                             (list :result result))
-                     result)))
-  (advice-remove 'gptel--save-state
-                 (lambda (&rest _)
-                   (jf/gptel--record-bounds "BEFORE-save-state")))
-  (advice-remove 'gptel--save-state
-                 (lambda (&rest _)
-                   (jf/gptel--record-bounds "AFTER-save-state")))
-  (advice-remove 'jf/gptel--auto-init-session-buffer
-                 (lambda (&rest _)
-                   (jf/gptel--record-bounds "BEFORE-auto-init")))
-  (advice-remove 'jf/gptel--auto-init-session-buffer
-                 (lambda (&rest _)
-                   (jf/gptel--record-bounds "AFTER-auto-init")))
-  (advice-remove 'gptel--parse-buffer #'jf/gptel--trace-parse-buffer-advice)
+  ;; Remove all advice from these functions
+  (dolist (func '(gptel--restore-props
+                  gptel--get-buffer-bounds
+                  gptel--save-state
+                  jf/gptel--auto-init-session-buffer
+                  gptel--parse-buffer))
+    (advice-mapc (lambda (advice props)
+                   (advice-remove func advice))
+                 func))
+
+  ;; Remove named advice from add-text-properties
   (advice-remove 'add-text-properties 'gptel-diagnostics)
 
-  (message "Diagnostic session stopped"))
+  (message "Diagnostic session stopped - all advice removed"))
 
 ;; Auto-start diagnostics when this file is loaded
 (jf/gptel--start-diagnostic-session)
