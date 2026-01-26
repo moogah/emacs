@@ -33,26 +33,74 @@ When restoring a gptel session from =session.md=, tool calls fail to serialize c
 
 ** Root Cause Hypothesis
 
-Original hypothesis: The tool property bound starts at the wrong buffer position (38 instead of 81),
+The tool property bound starts at the wrong buffer position (37 instead of 80),
 causing =gptel--parse-buffer= to read from blank space instead of the tool call sexp.
-
-*Status:* This hypothesis was partially correct about the symptom (wrong position) but the actual
-cause was the diagnostic module itself accumulating advice layers (see Findings below).
 
 ** Findings
 
-Diagnostics revealed that:
-- Saved bounds in file Local Variables were correct: =tool= at position 80, =ignore= at 37-80
-- After restoration, position 37 had =tool= property instead of =ignore= property
-- Multiple =add-text-properties= calls during restoration, including erroneous =(37 80 tool)= call
-- *Root cause:* Diagnostics module itself was accumulating advice on module reload
-- Each reload added another advice layer, causing =gptel--restore-props= to apply properties multiple times
-- The third/fourth application overwrote the =ignore= property at 37-80 with =tool= property
+*** Root Cause: =gptel--inherit-stickiness= Interference
 
-*Fix:* Ensure =jf/gptel--start-diagnostic-session= removes all existing advice before installing new advice.
+The bug is an *upstream gptel issue* in =gptel--inherit-stickiness= (gptel.el:698-706), which interferes
+with property restoration.
 
-*Next step:* Test with fresh Emacs restart to determine if there's an underlying gptel bug or if
-the issue was entirely caused by diagnostic advice accumulation.
+*** How the Bug Happens
+
+During =gptel--restore-props=, properties are restored in this order:
+
+1. ✓ =add-text-properties(80 1346 tool)= - Sets tool property at position 80-1346
+2. =add-text-properties(37 80 ignore)= - Attempts to set ignore property at 37-80
+   - This triggers =after-change-functions= hook
+   - =gptel--inherit-stickiness(37 80 43)= is called
+   - It checks position 80 (END parameter) with =(get-text-property end 'gptel)=
+   - Finds =(tool . "toolu_...")= already there from step 1!
+   - Copies tool property to 37-80: =(add-text-properties beg end `(gptel ,val ...)=
+   - ✗ *This overwrites the ignore property we just set!*
+3. ✓ =add-text-properties(1346 1351 ignore)= - Sets ignore (no adjacent tool property)
+4. ✓ =add-text-properties(1351 2903 response)= - Sets response
+5. ✓ =add-text-properties(2917 2971 response)= - Sets response
+
+Result: Position 37 has =tool= property instead of =ignore=, causing tool call parsing to fail.
+
+*** Why It Happens
+
+=gptel--inherit-stickiness= is designed to make text properties "sticky" during normal editing - when you
+type adjacent to a response region, the new text inherits the same property. However, it should NOT be
+active during restoration.
+
+The function blindly copies whatever =gptel= property exists at position END to the entire BEG-END range,
+without considering:
+- Whether restoration is in progress
+- Whether the adjacent property is compatible (tool vs ignore)
+- Whether this overwrites an intentional property assignment
+
+*** The Fix
+
+*Upstream fix needed in gptel.el:* =gptel--restore-props= should temporarily disable
+=after-change-functions= during restoration:
+
+#+begin_src emacs-lisp
+(defun gptel--restore-props (bounds-alist)
+  "Restore text properties from BOUNDS-ALIST."
+  (let ((modified (buffer-modified-p))
+        (inhibit-modification-hooks t))  ; <-- Prevent after-change-functions
+    ;; ... existing restoration code ...
+    (set-buffer-modified-p modified)))
+#+end_src
+
+*** Diagnostic Evidence
+
+Full backtrace from test-restore-2 session shows:
+
+#+begin_example
+145:  add-text-properties(37 80 (gptel ignore))           ; gptel--restore-props call
+144:  apply(#<subr add-text-properties> (37 80 (gptel ignore)))
+143:  #<subr add-text-properties>(37 80 (gptel ignore) nil)
+142:  gptel--inherit-stickiness(37 80 43)                 ; after-change-functions triggered
+141:  add-text-properties(37 80 (gptel (tool . "toolu_..."))) ; overwrites ignore!
+#+end_example
+
+The backtrace confirms =gptel--inherit-stickiness= is called via =after-change-functions= and
+overwrites the property being restored.
 
 ** Testing Methodology
 
@@ -446,13 +494,11 @@ Single comprehensive system capturing entire test flow.
                     (with-temp-buffer
                       (insert (format "add-text-properties called: %d-%d gptel=%S\n"
                                      beg end gptel-val))
-                      ;; Also capture stack trace to see where this is coming from
-                      (insert "  Backtrace:\n")
-                      (let ((frames (backtrace-frames)))
-                        (dotimes (i (min 5 (length frames)))
-                          (let ((frame (nth i frames)))
-                            (when frame
-                              (insert (format "    %d: %S\n" i (backtrace-frame i)))))))
+                      ;; Capture FULL stack trace to see calling code
+                      (insert "  Full Backtrace:\n")
+                      (let ((standard-output (current-buffer)))
+                        (backtrace))
+                      (insert "\n")
                       (append-to-file (point-min) (point-max) log-file)))))
               '((name . gptel-diagnostics)))
   (advice-add 'gptel--restore-props :after

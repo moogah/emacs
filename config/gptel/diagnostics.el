@@ -1,3 +1,10 @@
+(defun gptel--restore-props (bounds-alist)
+  "Restore text properties from BOUNDS-ALIST."
+  (let ((modified (buffer-modified-p))
+        (inhibit-modification-hooks t))  ; <-- Prevent after-change-functions
+    ;; ... existing restoration code ...
+    (set-buffer-modified-p modified)))
+
 (defvar jf/gptel--bounds-history nil
   "History of gptel--bounds changes for debugging.")
 
@@ -318,13 +325,11 @@ MAX-ENTRIES limits the number of entries to parse."
                     (with-temp-buffer
                       (insert (format "add-text-properties called: %d-%d gptel=%S\n"
                                      beg end gptel-val))
-                      ;; Also capture stack trace to see where this is coming from
-                      (insert "  Backtrace:\n")
-                      (let ((frames (backtrace-frames)))
-                        (dotimes (i (min 5 (length frames)))
-                          (let ((frame (nth i frames)))
-                            (when frame
-                              (insert (format "    %d: %S\n" i (backtrace-frame i)))))))
+                      ;; Capture FULL stack trace to see calling code
+                      (insert "  Full Backtrace:\n")
+                      (let ((standard-output (current-buffer)))
+                        (backtrace))
+                      (insert "\n")
                       (append-to-file (point-min) (point-max) log-file)))))
               '((name . gptel-diagnostics)))
   (advice-add 'gptel--restore-props :after
