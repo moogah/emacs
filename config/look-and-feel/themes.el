@@ -50,5 +50,42 @@
 ;; (enable-theme 'distinguished)
 ;;(set-background-color "black")
 
+;; Apply custom face overrides after theme loads
+(defun jf/apply-theme-customizations ()
+  "Apply custom face overrides to doom-palenight theme."
+  (custom-set-faces
+   ;; Base faces
+   '(default ((t (:background "black"))))
+   '(font-lock-comment-face ((t (:foreground "dark gray"))))
+   '(font-lock-string-face ((t (:foreground "wheat1"))))
+
+   ;; Magit diff faces
+   '(magit-diff-hunk-heading ((t (:background "black" :foreground "dark gray"))))
+   '(magit-diff-hunk-heading-highlight ((t (:background "black" :foreground "wheat1"))))
+   '(magit-diff-context-highlight ((t (:background "black"))))
+   '(magit-diff-removed-highlight ((t (:background "black" :foreground "red"))))
+   '(magit-diff-removed ((t (:background "#292D3E" :foreground "#cc4259"))))
+   '(magit-diff-added-highlight ((t (:background "black" :foreground "green"))))
+   '(magit-diff-added ((t (:background "#292D3E" :foreground "#9cb970"))))
+
+   ;; Org-mode faces
+   '(org-table ((t (:background "#292D3E" :foreground "wheat1"))))
+   '(org-default ((t (:foreground "wheat1"))))
+   '(org-link ((t (:foreground "DodgerBlue1"))))
+   '(org-level-1 ((t (:foreground "white"))))
+   '(org-level-2 ((t (:foreground "white"))))
+   '(org-level-3 ((t (:foreground "white"))))
+   '(org-level-4 ((t (:foreground "white"))))
+   '(org-level-5 ((t (:foreground "white"))))
+
+   ;; Uncomment if using external tree-sitter package (not needed for built-in treesit)
+   ;; '(tree-sitter-hl-face:method.call ((t (:foreground "light blue"))))
+   ;; '(tree-sitter-hl-face:function.call ((t (:foreground "light blue"))))
+   ;; '(tree-sitter-hl-face:type ((t (:foreground "DodgerBlue1"))))
+   ))
+
+;; Apply customizations after theme loads
+(add-hook 'emacs-startup-hook #'jf/apply-theme-customizations)
+
 ;; set font size to 14pt for my aging eyes
 (setq default-frame-alist '((font . "Menlo-14")))

@@ -74,33 +74,51 @@ Set the active theme.
 #+end_src
 
 * Custom Theme Tweaks
-Custom adjustments to the active theme (currently commented out).
+Custom adjustments to the active theme.
 
-#+begin_src emacs-lisp :tangle no
-;; https://emacs.stackexchange.com/questions/48365/custom-theme-set-faces-does-not-work-in-emacs-27
-;; (custom-theme-set-faces
-;;  'doom-palenight
-;;  '(default ((t (:background "black"))))
-;;  '(font-lock-comment-face ((t (:foreground "dark gray"))))
-;;  '(tree-sitter-hl-face:method.call ((t (:foreground "light blue"))))
-;;  '(tree-sitter-hl-face:function.call ((t (:foreground "light blue"))))
-;;  '(tree-sitter-hl-face:type ((t (:foreground "DodgerBlue1"))))
-;;  '(magit-diff-hunk-heading ((t (:background "black" :foreground "dark gray"))))
-;;  '(magit-diff-hunk-heading-highlight ((t (:background "black" :foreground "wheat1"))))
-;;  '(magit-diff-context-highlight ((t (:background "black"))))
-;;  '(magit-diff-removed-highlight ((t (:background "black" :foreground "red"))))
-;;  '(magit-diff-removed ((t (:background "#292D3E" :foreground "#cc4259"))))
-;;  '(magit-diff-added-highlight ((t (:background "black" :foreground "green"))))
-;;  '(magit-diff-added ((t (:background "#292D3E" :foreground "#9cb970"))))
-;;  '(org-table ((t (:background "#292D3E" :foreground "wheat1"))))
-;;  '(org-default ((t (:foreground "wheat1"))))
-;;  '(org-link ((t (:foreground "DodgerBlue1"))))
-;;  '(org-level-1 ((t (:foreground "white"))))
-;;  '(org-level-2 ((t (:foreground "white"))))
-;;  '(org-level-3 ((t (:foreground "white"))))
-;;  '(org-level-4 ((t (:foreground "white"))))
-;;  '(org-level-5 ((t (:foreground "white"))))
-;;  '(font-lock-string-face ((t (:foreground "wheat1")))))
+These customizations are applied after the theme loads to override specific faces.
+Uses `custom-set-faces` which is the recommended approach for Emacs 30+.
+
+Note: Emacs 30 uses built-in treesit, so tree-sitter face customizations are
+commented out. If you're using the external tree-sitter package, uncomment those lines.
+
+#+begin_src emacs-lisp
+;; Apply custom face overrides after theme loads
+(defun jf/apply-theme-customizations ()
+  "Apply custom face overrides to doom-palenight theme."
+  (custom-set-faces
+   ;; Base faces
+   '(default ((t (:background "black"))))
+   '(font-lock-comment-face ((t (:foreground "dark gray"))))
+   '(font-lock-string-face ((t (:foreground "wheat1"))))
+
+   ;; Magit diff faces
+   '(magit-diff-hunk-heading ((t (:background "black" :foreground "dark gray"))))
+   '(magit-diff-hunk-heading-highlight ((t (:background "black" :foreground "wheat1"))))
+   '(magit-diff-context-highlight ((t (:background "black"))))
+   '(magit-diff-removed-highlight ((t (:background "black" :foreground "red"))))
+   '(magit-diff-removed ((t (:background "#292D3E" :foreground "#cc4259"))))
+   '(magit-diff-added-highlight ((t (:background "black" :foreground "green"))))
+   '(magit-diff-added ((t (:background "#292D3E" :foreground "#9cb970"))))
+
+   ;; Org-mode faces
+   '(org-table ((t (:background "#292D3E" :foreground "wheat1"))))
+   '(org-default ((t (:foreground "wheat1"))))
+   '(org-link ((t (:foreground "DodgerBlue1"))))
+   '(org-level-1 ((t (:foreground "white"))))
+   '(org-level-2 ((t (:foreground "white"))))
+   '(org-level-3 ((t (:foreground "white"))))
+   '(org-level-4 ((t (:foreground "white"))))
+   '(org-level-5 ((t (:foreground "white"))))
+
+   ;; Uncomment if using external tree-sitter package (not needed for built-in treesit)
+   ;; '(tree-sitter-hl-face:method.call ((t (:foreground "light blue"))))
+   ;; '(tree-sitter-hl-face:function.call ((t (:foreground "light blue"))))
+   ;; '(tree-sitter-hl-face:type ((t (:foreground "DodgerBlue1"))))
+   ))
+
+;; Apply customizations after theme loads
+(add-hook 'emacs-startup-hook #'jf/apply-theme-customizations)
 #+end_src
 
 * Font Configuration
