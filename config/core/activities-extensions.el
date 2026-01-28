@@ -23,9 +23,13 @@
   :type 'integer
   :group 'activities-extensions)
 
-(defcustom activities-ext-worktree-directory "~/"
-  "Directory where git worktrees are created.
-Worktrees are named as: PROJECT-NAME-BRANCH-NAME"
+(defcustom activities-ext-base-directory "~/emacs-activities"
+  "Base directory for all activity-related files and directories.
+Each activity gets a subdirectory: BASE/ACTIVITY-SLUG-YYYY-MM-DD/
+Within each activity directory:
+  - worktrees/PROJECT-NAME/  (git worktrees)
+  - session/                  (gptel session)
+Date stamp ensures uniqueness for activities created on different days."
   :type 'directory
   :group 'activities-extensions)
 
@@ -86,6 +90,40 @@ Converts to lowercase, replaces spaces and special characters with hyphens."
       (setq slug (replace-regexp-in-string "-+" "-" slug))
       slug)))
 
+(defun activities-ext--activity-directory (activity-name)
+  "Get the dedicated directory for ACTIVITY-NAME.
+Returns path: ~/emacs-activities/ACTIVITY-SLUG-YYYY-MM-DD/
+Creates the directory if it doesn't exist.
+Appends current date to ensure uniqueness."
+  (let* ((slug (activities-ext--slugify activity-name))
+         (date-stamp (format-time-string "%Y-%m-%d"))
+         (dir-name (format "%s-%s" slug date-stamp))
+         (activity-dir (expand-file-name dir-name
+                                        (expand-file-name activities-ext-base-directory))))
+    (unless (file-directory-p activity-dir)
+      (make-directory activity-dir t))
+    activity-dir))
+
+(defun activities-ext--worktrees-directory (activity-name)
+  "Get the worktrees directory for ACTIVITY-NAME.
+Returns path: ~/emacs-activities/ACTIVITY-SLUG-YYYY-MM-DD/worktrees/
+Creates the directory if it doesn't exist."
+  (let ((worktrees-dir (expand-file-name "worktrees"
+                                         (activities-ext--activity-directory activity-name))))
+    (unless (file-directory-p worktrees-dir)
+      (make-directory worktrees-dir t))
+    worktrees-dir))
+
+(defun activities-ext--session-directory (activity-name)
+  "Get the session directory for ACTIVITY-NAME.
+Returns path: ~/emacs-activities/ACTIVITY-SLUG-YYYY-MM-DD/session/
+Creates the directory if it doesn't exist."
+  (let ((session-dir (expand-file-name "session"
+                                       (activities-ext--activity-directory activity-name))))
+    (unless (file-directory-p session-dir)
+      (make-directory session-dir t))
+    session-dir))
+
 (defun activities-ext--validate-project (project-plist)
   "Validate PROJECT-PLIST data.
 Returns plist with :valid t/nil, :exists t/nil, :error string.
@@ -124,11 +162,12 @@ Returns list of project paths (absolute directory paths)."
        t    ; require-match
        ))))
 
-(defun activities-ext--prompt-git-action (project-path branch-name)
-  "Prompt user for git action on PROJECT-PATH using BRANCH-NAME.
+(defun activities-ext--prompt-git-action (project-path branch-name activity-name)
+  "Prompt user for git action on PROJECT-PATH using BRANCH-NAME for ACTIVITY-NAME.
 Returns plist with :action, :branch, :worktree, :created keys.
 :action can be 'branch, 'worktree, or nil.
-BRANCH-NAME is the sanitized activity name to use for branch/worktree."
+BRANCH-NAME is the sanitized activity name to use for branch/worktree.
+ACTIVITY-NAME is used to determine the worktree directory structure."
   (let* ((project-name (file-name-nondirectory
                        (directory-file-name project-path)))
          (action (intern
@@ -153,7 +192,7 @@ BRANCH-NAME is the sanitized activity name to use for branch/worktree."
 
        ((eq action 'worktree)
         (message "DEBUG: Creating worktree for branch %s in %s" branch-name project-path)
-        (let ((worktree-path (activities-ext--create-worktree project-path branch-name)))
+        (let ((worktree-path (activities-ext--create-worktree project-path branch-name activity-name)))
           (when worktree-path
             (plist-put result :worktree worktree-path)
             (plist-put result :created t))))))
@@ -177,17 +216,15 @@ Returns t if created, nil if already exists or on error."
        (message "Error creating branch: %s" (error-message-string err))
        nil))))
 
-(defun activities-ext--create-worktree (project-path branch-name)
-  "Create git worktree for BRANCH-NAME in PROJECT-PATH.
+(defun activities-ext--create-worktree (project-path branch-name activity-name)
+  "Create git worktree for BRANCH-NAME in PROJECT-PATH for ACTIVITY-NAME.
 Returns worktree path or nil on failure.
-Worktree is created in `activities-ext-worktree-directory' with format:
-PROJECT-NAME-BRANCH-NAME"
+Worktree is created in ~/emacs-activities/ACTIVITY-SLUG/worktrees/PROJECT-NAME/"
   (let* ((default-directory project-path)
          (project-name (file-name-nondirectory
                        (directory-file-name project-path)))
-         (worktree-name (format "%s-%s" project-name branch-name))
-         (worktree-path (expand-file-name worktree-name
-                                         activities-ext-worktree-directory)))
+         (worktrees-base (activities-ext--worktrees-directory activity-name))
+         (worktree-path (expand-file-name project-name worktrees-base)))
     (condition-case err
         (progn
           (if (zerop (call-process "git" nil nil nil "worktree" "add"
@@ -230,10 +267,11 @@ Reports missing files but continues opening available ones."
     (when (> missing 0)
       (message "Opened %d files (%d missing)" opened missing))))
 
-(defun activities-ext--create-org-roam-doc (activity-name &optional projects gptel-session)
+(defun activities-ext--create-org-roam-doc (activity-name &optional projects gptel-session activity-directory)
   "Create org-roam document for ACTIVITY-NAME.
 Optional PROJECTS is a list of project plists to include in document.
 Optional GPTEL-SESSION is plist with session info to include in document.
+Optional ACTIVITY-DIRECTORY is the path to the activity's base directory.
 Returns plist with :node-id, :file, :title, :created keys."
   (let* ((slug (format "%s-%s"
                       (format-time-string "%Y%m%d%H%M%S")
@@ -254,6 +292,9 @@ Returns plist with :node-id, :file, :title, :created keys."
     (with-temp-file file-path
       (insert (format "#+title: %s\n" title))
       (insert (format "#+filetags: :activity:%s:\n" (activities-ext--slugify activity-name)))
+      ;; Add activity directory property
+      (when activity-directory
+        (insert (format "#+property: activity_directory %s\n" activity-directory)))
       ;; Add gptel session properties if provided
       (when gptel-session
         (insert (format "#+property: gptel_session_id %s\n"
@@ -486,8 +527,8 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
         (let* ((project-path (string-trim project-path))
                (project-name (file-name-nondirectory
                             (directory-file-name project-path)))
-               ;; Pass sanitized name to git action prompt
-               (git-result (activities-ext--prompt-git-action project-path sanitized-name))
+               ;; Pass sanitized name and activity name to git action prompt
+               (git-result (activities-ext--prompt-git-action project-path sanitized-name activity-name))
                (proj-plist (list :path project-path
                                 :name project-name
                                 :branch (plist-get git-result :branch)
@@ -497,29 +538,36 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
 
     (setq project-metadata (nreverse project-metadata))
 
-    ;; Create gptel session first (if requested) so we can link it in roam doc
-    (when (and create-gptel (fboundp 'jf/gptel-session-create-persistent))
-      (setq gptel-session-data
-            (jf/gptel-session-create-persistent activity-name)))
+    ;; Get activity directory path (creates it if needed)
+    (let ((activity-dir (activities-ext--activity-directory activity-name)))
 
-    ;; Create org-roam document with gptel session info if requested
-    (when create-org-roam
-      (setq org-roam-data
-            (activities-ext--create-org-roam-doc activity-name project-metadata gptel-session-data)))
+      ;; Create gptel session first (if requested) so we can link it in roam doc
+      ;; Temporarily bind jf/gptel-sessions-directory to use activity-specific location
+      (when (and create-gptel (fboundp 'jf/gptel-session-create-persistent))
+        (let ((jf/gptel-sessions-directory (activities-ext--session-directory activity-name)))
+          (setq gptel-session-data
+                (jf/gptel-session-create-persistent activity-name))))
 
-    ;; Create the activity using activities-new
-    (activities-new activity-name)
+      ;; Create org-roam document with gptel session info if requested
+      (when create-org-roam
+        (setq org-roam-data
+              (activities-ext--create-org-roam-doc activity-name project-metadata gptel-session-data activity-dir)))
 
-    ;; Get the newly created activity and store metadata
-    (when-let ((activity (map-elt activities-activities activity-name)))
-      (let ((metadata (activities-ext--create-metadata
-                      project-metadata
-                      org-roam-data
-                      (list :auto-open-recent activities-ext-auto-open-recent))))
-        ;; Add gptel session data if created
-        (when gptel-session-data
-          (plist-put metadata :gptel-session gptel-session-data))
-        (activities-ext--set-metadata activity metadata)))
+      ;; Create the activity using activities-new
+      (activities-new activity-name)
+
+      ;; Get the newly created activity and store metadata
+      (when-let ((activity (map-elt activities-activities activity-name)))
+        (let ((metadata (activities-ext--create-metadata
+                         project-metadata
+                         org-roam-data
+                         (list :auto-open-recent activities-ext-auto-open-recent))))
+          ;; Add activity directory path
+          (plist-put metadata :activity-directory activity-dir)
+          ;; Add gptel session data if created
+          (when gptel-session-data
+            (plist-put metadata :gptel-session gptel-session-data))
+          (activities-ext--set-metadata activity metadata))))
 
     ;; Set up window layout: horizontal split with roam doc (left) and gptel (right)
     (delete-other-windows)  ; Start with single window
@@ -624,8 +672,8 @@ Uses the sanitized activity name for branch/worktree creation."
                                            nil t))
              (project-name (file-name-nondirectory
                            (directory-file-name project-path)))
-             ;; Pass sanitized activity name for branch/worktree
-             (git-result (activities-ext--prompt-git-action project-path sanitized-name))
+             ;; Pass sanitized activity name and full activity name for branch/worktree
+             (git-result (activities-ext--prompt-git-action project-path sanitized-name activity-name))
              (proj-plist (list :path project-path
                              :name project-name
                              :branch (plist-get git-result :branch)
