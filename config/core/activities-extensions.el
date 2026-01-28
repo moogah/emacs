@@ -600,10 +600,12 @@ Supports up to 36 projects (a-z + 0-9)."
     (let ((projects (projectile-relevant-known-projects)))
       (when projects
         (cl-loop for project in projects
-                 ;; Pool of available keys (a-z, 0-9), excluding reserved transient keys
-                 with unused-keys = (delete ?q  ; q is typically quit
-                                           (nconc (number-sequence ?a ?z)
-                                                  (number-sequence ?0 ?9)))
+                 ;; Pool of available keys (a-z, 0-9), excluding reserved keys
+                 ;; Reserved: q (quit), w/b/n (git actions), a/c/r (quick actions)
+                 with unused-keys = (cl-set-difference
+                                    (nconc (number-sequence ?a ?z)
+                                           (number-sequence ?0 ?9))
+                                    '(?q ?w ?b ?n ?a ?c ?r))
                  for name = (file-name-nondirectory (directory-file-name project))
                  ;; Try to find first character of name in unused keys, else take first available
                  for key-char = (seq-find (lambda (k) (member k unused-keys))
@@ -616,13 +618,33 @@ Supports up to 36 projects (a-z + 0-9)."
                  for command = (activities-ext--make-project-infix key-str project name)
                  collect (list key-str name command :transient t))))))
 
-(defun activities-ext--generate-git-action-suffixes ()
-  "Generate suffix list for git action selection.
-These set the default action for newly selected projects."
-  (list
-   (list "w" "Worktree (default)" 'activities-ext--infix-worktree)
-   (list "b" "Branch" 'activities-ext--infix-branch)
-   (list "n" "None" 'activities-ext--infix-none)))
+(defun activities-ext--generate-selected-project-suffixes ()
+  "Generate suffix list for selected projects.
+Shows selected projects with action indicators. Click to configure git action."
+  (let ((projects (activities-ext--scope-projects)))
+    (when projects
+      (cl-loop for (project . action) in projects
+               with unused-keys = (cl-set-difference
+                                  (nconc (number-sequence ?a ?z)
+                                         (number-sequence ?0 ?9))
+                                  '(?q ?w ?b ?n ?a ?c ?r))
+               for name = (file-name-nondirectory (directory-file-name project))
+               for indicator = (pcase action
+                                ('worktree "W")
+                                ('branch "B")
+                                ('none "·"))
+               for display-name = (format "%s [%s]" name indicator)
+               for key-char = (seq-find (lambda (k) (member k unused-keys))
+                                       name
+                                       (seq-first unused-keys))
+               do (setq unused-keys (delete key-char unused-keys))
+               for key-str = (key-description (list key-char))
+               collect (list key-str
+                           display-name
+                           `(lambda ()
+                              (interactive)
+                              (activities-ext--scope-set-selected-project ,project))
+                           :transient t)))))
 
 (defun activities-ext--generate-project-git-action-suffixes ()
   "Generate git action suffixes for currently selected project.
@@ -687,40 +709,20 @@ Returns nil if no project selected for detail view."
                       projects))))
 
 (defun activities-ext--format-status ()
-  "Format status line showing current selection and action breakdown."
+  "Format status line with usage instructions."
   (let* ((projects (activities-ext--scope-projects))
          (count (length projects)))
-    (if (zerop count)
-        (propertize "No projects selected" 'face 'transient-inactive-value)
-      ;; Group projects by action and format counts
-      (let* ((by-action (seq-group-by #'cdr projects))
-             (worktree-count (length (alist-get 'worktree by-action)))
-             (branch-count (length (alist-get 'branch by-action)))
-             (none-count (length (alist-get 'none by-action)))
-             (parts nil))
-        ;; Build parts list for non-zero counts
-        (when (> worktree-count 0)
-          (push (format "%d worktree%s" worktree-count
-                       (if (= worktree-count 1) "" "s"))
-                parts))
-        (when (> branch-count 0)
-          (push (format "%d branch%s" branch-count
-                       (if (= branch-count 1) "" "es"))
-                parts))
-        (when (> none-count 0)
-          (push (format "%d none" none-count) parts))
-
-        (concat
-         (propertize "Selected: " 'face 'transient-heading)
-         (propertize (format "%d project%s"
-                            count
-                            (if (= count 1) "" "s"))
-                    'face 'transient-value)
-         (when parts
-           (concat
-            " ("
-            (mapconcat #'identity (nreverse parts) ", ")
-            ")")))))))
+    (concat
+     (if (zerop count)
+         (propertize "Select projects from the left column"
+                    'face 'transient-inactive-value)
+       (propertize (format "%d project%s selected"
+                          count
+                          (if (= count 1) "" "s"))
+                  'face 'transient-value))
+     (when (> count 0)
+       (propertize " • Click selected project to change git action"
+                  'face 'transient-inactive-value)))))
 
 (defun activities-ext-create ()
   "Create an extended activity with projects and documentation.
@@ -733,7 +735,8 @@ Prompts for activity name first, then opens transient for project selection."
     (activities-ext-create-transient)))
 
 (transient-define-prefix activities-ext-create-transient ()
-  "Create extended activity with visual project and git action selection."
+  "Create extended activity with three-column layout.
+Select projects (left), view/configure selected (middle), change actions (right)."
   :refresh-suffixes t
   [:description
    (lambda () (format "Activities Extensions: Create \"%s\""
@@ -749,15 +752,18 @@ Prompts for activity name first, then opens transient for project selection."
        'activities-ext-create-transient
        (activities-ext--generate-project-suffixes)))]
 
-   ;; Default Git Action Section
+   ;; Selected Projects Section
    [:class transient-column
-    :description "Default Git Action"
+    :description (lambda ()
+                   (let ((count (length (activities-ext--scope-projects))))
+                     (format "Selected Projects (%d)" count)))
+    :if (lambda () (activities-ext--scope-projects))
     :pad-keys t
     :setup-children
     (lambda (_)
       (transient-parse-suffixes
        'activities-ext-create-transient
-       (activities-ext--generate-git-action-suffixes)))]
+       (activities-ext--generate-selected-project-suffixes)))]
 
    ;; Per-Project Git Action Section (conditional)
    [:class transient-column
@@ -787,7 +793,7 @@ Prompts for activity name first, then opens transient for project selection."
    ["Quick Actions"
     ("a" "Select all projects" activities-ext--select-all-projects :transient t)
     ("c" "Clear selection" activities-ext--clear-selection :transient t)
-    ("r" "Reset all to default action" activities-ext--reset-all-actions :transient t)]
+    ("r" "Reset all to worktree" activities-ext--reset-all-actions :transient t)]
 
    ;; Actions
    ["Actions"
