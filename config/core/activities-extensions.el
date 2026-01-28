@@ -772,16 +772,6 @@ Left: toggle selection. Right: cycle git actions (W → B → ·)."
     ("-G" "Skip gptel session" "--no-gptel")
     ("-D" "Skip org-roam document" "--no-org-roam")]
 
-   ;; Status Display
-   [""
-    (:info (lambda () (activities-ext--format-status)))]
-
-   ;; Quick Actions
-   ["Quick Actions"
-    ("a" "Select all projects" activities-ext--select-all-projects :transient t)
-    ("c" "Clear selection" activities-ext--clear-selection :transient t)
-    ("r" "Reset all to worktree" activities-ext--reset-all-actions :transient t)]
-
    ;; Actions
    ["Actions"
     ("RET" "Create Activity" activities-ext--create-action-v2)
