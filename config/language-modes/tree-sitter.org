@@ -159,15 +159,53 @@ gcc --version
 #+end_src
 
 **** Reinstalling Grammars
-To reinstall a grammar (e.g., after version pinning changes):
+
+**When to remove old grammars:**
+- After changing version pins in ~treesit-language-source-alist~
+- When encountering ABI version mismatch errors
+- When grammar files become corrupted
+- After updating Emacs to a new major version
+- To force a fresh download and recompile
+
+**Remove specific grammar:**
 
 #+begin_src bash :tangle no
-# Remove the old grammar file
+# macOS
 rm ~/emacs/runtime/tree-sitter/libtree-sitter-python.dylib
 
-# Then reinstall from Emacs
-(treesit-install-language-grammar 'python)
+# Linux
+rm ~/emacs/runtime/tree-sitter/libtree-sitter-python.so
+
+# Windows
+rm ~/emacs/runtime/tree-sitter/libtree-sitter-python.dll
 #+end_src
+
+**Clean install - remove all grammars:**
+
+#+begin_src bash :tangle no
+# Remove all grammar files
+rm -rf ~/emacs/runtime/tree-sitter/*
+
+# Verify directory is empty
+ls ~/emacs/runtime/tree-sitter/
+#+end_src
+
+**After removing grammars, reinstall:**
+
+#+begin_src emacs-lisp :tangle no
+;; Reinstall a single grammar
+(treesit-install-language-grammar 'python)
+
+;; Or reinstall commonly used grammars
+(dolist (lang '(python javascript typescript yaml json))
+  (treesit-install-language-grammar lang))
+
+;; Or reinstall all configured grammars
+(mapc #'treesit-install-language-grammar
+      (mapcar #'car treesit-language-source-alist))
+#+end_src
+
+**Note:** The ~runtime/tree-sitter/~ directory is gitignored, so grammar files are not tracked in version control. Each worktree needs its own grammar installation.
 
 * Usage Notes
 ** Benefits of Tree-sitter
