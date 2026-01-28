@@ -74,6 +74,8 @@ Empty string means root of org-roam-directory."
 (global-set-key (kbd "C-x C-a d") 'activities-ext-open-document)
 (global-set-key (kbd "C-x C-a v") 'activities-ext-validate)
 (global-set-key (kbd "C-x C-a +") 'activities-ext-add-project)
+(global-set-key (kbd "C-x C-a ?") 'activities-ext-buffer-activity)
+(global-set-key (kbd "C-x C-a C-?") 'activities-ext-buffer-all-activities)
 
 (provide 'activities-extensions)
 ;;; activities.el ends here

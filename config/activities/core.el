@@ -166,6 +166,73 @@ Returns nil if no activity is active."
   (when (bound-and-true-p activities--current)
     activities--current))
 
+(defun activities-ext--buffer-in-current-activity-p (buffer-or-name)
+  "Return non-nil if BUFFER is in current activity.
+Checks frame/tab parameters depending on mode."
+  (when-let ((activity (activities-ext--current-activity)))
+    (cond
+     ((bound-and-true-p activities-tabs-mode)
+      (when-let ((tab (tab-bar--current-tab-find)))
+        (member (get-buffer buffer-or-name)
+                (alist-get 'activities-buffer-list (cdr tab)))))
+     (t
+      ;; Frame mode: check window list
+      (cl-some (lambda (window)
+                 (eq (get-buffer buffer-or-name)
+                     (window-buffer window)))
+               (window-list))))))
+
+(defun activities-ext-buffer-activity ()
+  "Show activity for current buffer.
+Returns activity if buffer is in current activity, otherwise nil."
+  (interactive)
+  (if (activities-ext--buffer-in-current-activity-p (current-buffer))
+      (when-let ((activity (activities-ext--current-activity)))
+        (message "Buffer belongs to activity: %s"
+                 (activities-activity-name activity))
+        activity)
+    (message "Buffer not in current activity")))
+
+(defun activities-ext-buffer-all-activities ()
+  "Show ALL activities that reference current buffer (deep search).
+Scans all activity project paths and org-roam docs."
+  (interactive)
+  (let* ((buffer (current-buffer))
+         (file (buffer-file-name buffer))
+         (matches nil))
+
+    ;; Check current activity first
+    (when (activities-ext--buffer-in-current-activity-p buffer)
+      (push (cons (activities-activity-name (activities-ext--current-activity))
+                  'current)
+            matches))
+
+    ;; Scan all activities for project path matches
+    (when file
+      (dolist (activity-entry activities-activities)
+        (let* ((activity (cdr activity-entry))
+               (ext-data (activities-ext--get-metadata activity))
+               (projects (plist-get ext-data :projects)))
+          (dolist (project projects)
+            (when (activities-ext--file-in-project-p file project)
+              (cl-pushnew (cons (activities-activity-name activity)
+                               'project-path)
+                         matches
+                         :test (lambda (a b) (string= (car a) (car b)))))))))
+
+    ;; Display results
+    (if matches
+        (let ((buf (get-buffer-create "*Buffer Activities*")))
+          (with-current-buffer buf
+            (erase-buffer)
+            (insert (format "Activities for buffer: %s\n\n" (buffer-name)))
+            (dolist (match matches)
+              (insert (format "- %s (%s)\n" (car match) (cdr match))))
+            (goto-char (point-min))
+            (view-mode 1))
+          (pop-to-buffer buf))
+      (message "No activities reference this buffer"))))
+
 (defun activities-ext-show-projects ()
   "Show projects for current activity in *Activities Projects* buffer."
   (interactive)
@@ -208,23 +275,46 @@ Returns nil if no activity is active."
     (message "No org-roam document for current activity")))
 
 (defun activities-ext-validate ()
-  "Validate current activity's projects and files.
+  "Validate current activity's projects, files, and org-roam reference.
 Reports status in minibuffer and creates detailed report buffer."
   (interactive)
-  (if-let* ((activity (activities-ext--current-activity))
-            (ext-data (activities-ext--get-metadata activity))
-            (projects (plist-get ext-data :projects)))
-      (let ((results (mapcar #'activities-ext--validate-project projects))
-            (valid-count 0)
-            (total-count (length projects)))
+  (if-let ((activity (activities-ext--current-activity)))
+      (let* ((ext-data (activities-ext--get-metadata activity))
+             (projects (plist-get ext-data :projects))
+             (org-roam-data (plist-get ext-data :org-roam))
+             ;; Validate projects
+             (results (when projects
+                       (mapcar #'activities-ext--validate-project projects)))
+             (valid-count 0)
+             (total-count (length projects))
+             ;; Sync org-roam metadata
+             (org-roam-status (when org-roam-data
+                               (activities-ext--sync-org-roam-metadata activity))))
+
+        ;; Count valid projects
         (dolist (result results)
           (when (plist-get result :valid)
             (cl-incf valid-count)))
-        (if (= valid-count total-count)
-            (message "All %d projects valid ✓" total-count)
-          (message "Warning: %d/%d projects valid" valid-count total-count)
-          (activities-ext-show-projects)))
-    (message "No projects in current activity")))
+
+        ;; Build status message
+        (let ((project-status (if (= valid-count total-count)
+                                 (format "All %d projects valid ✓" total-count)
+                               (format "Warning: %d/%d projects valid" valid-count total-count)))
+              (org-roam-status-msg (pcase org-roam-status
+                                    ('synced "Org-roam doc: ✓ synced")
+                                    ('missing "Org-roam doc: ✗ missing")
+                                    ('unavailable "Org-roam doc: ? unavailable")
+                                    ('no-metadata "Org-roam doc: none")
+                                    (_ "Org-roam doc: unknown"))))
+
+          ;; Report combined status
+          (message "%s | %s" project-status org-roam-status-msg)
+
+          ;; Show detailed report if there are issues
+          (when (or (< valid-count total-count)
+                   (eq org-roam-status 'missing))
+            (activities-ext-show-projects))))
+    (message "No active activity")))
 
 (defun activities-ext-add-project ()
   "Add a project to the current activity.

@@ -63,6 +63,17 @@ GIT-ACTION is one of: worktree, branch, or none."
 
     result))
 
+(defun activities-ext--file-in-project-p (file project-plist)
+  "Return non-nil if FILE belongs to PROJECT-PLIST.
+Checks both :path and :worktree locations."
+  (let* ((file-expanded (expand-file-name file))
+         (path (plist-get project-plist :path))
+         (worktree (plist-get project-plist :worktree))
+         (effective-path (or worktree path)))
+    (when effective-path
+      (string-prefix-p (file-truename (expand-file-name effective-path))
+                      (file-truename file-expanded)))))
+
 (defun activities-ext--get-recent-project-files (project-path limit)
   "Get recent files from recentf for PROJECT-PATH.
 Returns list of up to LIMIT file paths that belong to the project."

@@ -91,6 +91,23 @@ GIT-ACTION is one of: worktree, branch, or none."
     result))
 #+end_src
 
+* Project Membership
+
+** File in Project Check
+
+#+begin_src emacs-lisp
+(defun activities-ext--file-in-project-p (file project-plist)
+  "Return non-nil if FILE belongs to PROJECT-PLIST.
+Checks both :path and :worktree locations."
+  (let* ((file-expanded (expand-file-name file))
+         (path (plist-get project-plist :path))
+         (worktree (plist-get project-plist :worktree))
+         (effective-path (or worktree path)))
+    (when effective-path
+      (string-prefix-p (file-truename (expand-file-name effective-path))
+                      (file-truename file-expanded)))))
+#+end_src
+
 * Recent Files Tracking
 
 ** Get Recent Files
