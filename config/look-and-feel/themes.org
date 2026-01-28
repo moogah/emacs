@@ -82,43 +82,54 @@ Uses `custom-set-faces` which is the recommended approach for Emacs 30+.
 Note: Emacs 30 uses built-in treesit, so tree-sitter face customizations are
 commented out. If you're using the external tree-sitter package, uncomment those lines.
 
+Add org-verbatim to not be green (blue?)
+org-table background to be darker
+org babel background to be darker
+ffap is the current buffer substring and it's pink background with black text.
+cursor color is pink with white text
+
 #+begin_src emacs-lisp
-;; Apply custom face overrides after theme loads
-(defun jf/apply-theme-customizations ()
-  "Apply custom face overrides to doom-palenight theme."
-  (custom-set-faces
-   ;; Base faces
-   '(default ((t (:background "black"))))
-   '(font-lock-comment-face ((t (:foreground "dark gray"))))
-   '(font-lock-string-face ((t (:foreground "wheat1"))))
+  ;; Apply custom face overrides after theme loads
+  (defun jf/apply-theme-customizations ()
+    "Apply custom face overrides to doom-palenight theme."
+    (custom-set-faces
+     ;; Base faces
+     '(default ((t (:background "black"))))
+     '(font-lock-comment-face ((t (:foreground "dark gray"))))
+     '(font-lock-string-face ((t (:foreground "wheat1"))))
 
-   ;; Magit diff faces
-   '(magit-diff-hunk-heading ((t (:background "black" :foreground "dark gray"))))
-   '(magit-diff-hunk-heading-highlight ((t (:background "black" :foreground "wheat1"))))
-   '(magit-diff-context-highlight ((t (:background "black"))))
-   '(magit-diff-removed-highlight ((t (:background "black" :foreground "red"))))
-   '(magit-diff-removed ((t (:background "#292D3E" :foreground "#cc4259"))))
-   '(magit-diff-added-highlight ((t (:background "black" :foreground "green"))))
-   '(magit-diff-added ((t (:background "#292D3E" :foreground "#9cb970"))))
+     ;; Magit diff faces
+     '(magit-diff-hunk-heading ((t (:background "black" :foreground "dark gray"))))
+     '(magit-diff-hunk-heading-highlight ((t (:background "black" :foreground "wheat1"))))
+     '(magit-diff-context-highlight ((t (:background "black"))))
+     '(magit-diff-removed-highlight ((t (:background "black" :foreground "red"))))
+     '(magit-diff-removed ((t (:background "#292D3E" :foreground "#cc4259"))))
+     '(magit-diff-added-highlight ((t (:background "black" :foreground "green"))))
+     '(magit-diff-added ((t (:background "#292D3E" :foreground "#9cb970"))))
 
-   ;; Org-mode faces
-   '(org-table ((t (:background "#292D3E" :foreground "wheat1"))))
-   '(org-default ((t (:foreground "wheat1"))))
-   '(org-link ((t (:foreground "DodgerBlue1"))))
-   '(org-level-1 ((t (:foreground "white"))))
-   '(org-level-2 ((t (:foreground "white"))))
-   '(org-level-3 ((t (:foreground "white"))))
-   '(org-level-4 ((t (:foreground "white"))))
-   '(org-level-5 ((t (:foreground "white"))))
+     ;; Org-mode faces
+     '(org-table ((t (:background "#111111" :foreground "wheat1"))))
+     '(org-block ((t (:background "#111111"))))
+     '(org-block-begin-line ((t (:background "#111111"))))
+     '(org-block-end-line ((t (:background "#111111"))))
+     '(org-default ((t (:foreground "wheat1"))))
+     '(org-verbatim ((t (:foreground "light sky blue"))))
+     '(org-list-dt ((t (:foreground "SlateGray1"))))
+     '(org-link ((t (:foreground "DodgerBlue1"))))
+     '(org-level-1 ((t (:foreground "white"))))
+     '(org-level-2 ((t (:foreground "white"))))
+     '(org-level-3 ((t (:foreground "white"))))
+     '(org-level-4 ((t (:foreground "white"))))
+     '(org-level-5 ((t (:foreground "white"))))
 
-   ;; Uncomment if using external tree-sitter package (not needed for built-in treesit)
-   ;; '(tree-sitter-hl-face:method.call ((t (:foreground "light blue"))))
-   ;; '(tree-sitter-hl-face:function.call ((t (:foreground "light blue"))))
-   ;; '(tree-sitter-hl-face:type ((t (:foreground "DodgerBlue1"))))
-   ))
+     ;; Uncomment if using external tree-sitter package (not needed for built-in treesit)
+     ;; '(tree-sitter-hl-face:method.call ((t (:foreground "light blue"))))
+     ;; '(tree-sitter-hl-face:function.call ((t (:foreground "light blue"))))
+     ;; '(tree-sitter-hl-face:type ((t (:foreground "DodgerBlue1"))))
+     ))
 
-;; Apply customizations after theme loads
-(add-hook 'emacs-startup-hook #'jf/apply-theme-customizations)
+  ;; Apply customizations after theme loads
+  (add-hook 'emacs-startup-hook #'jf/apply-theme-customizations)
 #+end_src
 
 * Font Configuration

@@ -69,8 +69,13 @@
    '(magit-diff-added ((t (:background "#292D3E" :foreground "#9cb970"))))
 
    ;; Org-mode faces
-   '(org-table ((t (:background "#292D3E" :foreground "wheat1"))))
+   '(org-table ((t (:background "#111111" :foreground "wheat1"))))
+   '(org-block ((t (:background "#111111"))))
+   '(org-block-begin-line ((t (:background "#111111"))))
+   '(org-block-end-line ((t (:background "#111111"))))
    '(org-default ((t (:foreground "wheat1"))))
+   '(org-verbatim ((t (:foreground "light sky blue"))))
+   '(org-list-dt ((t (:foreground "SlateGray1"))))
    '(org-link ((t (:foreground "DodgerBlue1"))))
    '(org-level-1 ((t (:foreground "white"))))
    '(org-level-2 ((t (:foreground "white"))))
