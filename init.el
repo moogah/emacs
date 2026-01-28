@@ -112,7 +112,7 @@ Handles both 'dir/name' format and 'name' format."
     ("transient" "Transient menu system (newer than built-in)")
 
     ;; Activities extensions - requires new transient, so loads after it
-    ("core/activities-extensions" "Extended activity management with projects and docs")
+    ("activities/activities" "Extended activity management with projects and docs")
 
     ;; Language mode modules (docker.el requires transient, so load transient first)
     ("language-modes/language-modes" "Programming language modes")
