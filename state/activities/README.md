@@ -4,7 +4,22 @@ This directory contains git-controlled activities data from the `activities.el` 
 
 ## Files
 
-- `activities-activities` - Serialized activities data (window configurations, buffer states, project associations)
+- `activities-activities` - Default/template activities file
+- `{machine-role}-activities` - Machine-specific activities (e.g., `apploi-mac-activities`)
+
+## Machine-Specific Configuration
+
+**Default behavior**: Each machine uses its own activities file.
+
+In `config/local/{machine-role}.el`, set the machine-specific activities file:
+
+```elisp
+;; Use machine-specific activities file (recommended)
+(put 'activities-activities 'persist-location
+     (expand-file-name "state/activities/apploi-mac-activities" jf/emacs-dir))
+```
+
+This allows each machine to have different activities while keeping them in git.
 
 ## Why Git-Controlled?
 
@@ -15,16 +30,12 @@ Unlike most runtime state (in `runtime/`), activities are valuable configuration
 
 Keeping this under version control allows:
 - Backup and restore of workspace configurations
-- Sharing workspace setups across machines
+- Machine-specific activities (work vs personal machines)
 - History tracking of workspace evolution
 
 ## Configuration
 
-This location is configured in `config/activities/activities.org`:
-```elisp
-(put 'activities-activities 'persist-location
-     (expand-file-name "state/activities/" jf/emacs-dir))
-```
+The default location is configured in `config/activities/activities.org`. Machine-specific overrides go in `config/local/{machine-role}.el`.
 
 ## Format
 

@@ -14,6 +14,11 @@
 (setq bookmark-default-file
       (expand-file-name "state/bookmarks/apploi-mac-bookmarks" jf/emacs-dir))
 
+;; Activities: Use machine-specific activities file
+;; This overrides the default state/activities/activities-activities
+(put 'activities-activities 'persist-location
+     (expand-file-name "state/activities/apploi-mac-activities" jf/emacs-dir))
+
 (setq browser-hist-db-paths
       '((chrome . "/Users/jefffarr/Library/Application Support/Google/Chrome/Profile 1/History")))
 
