@@ -94,6 +94,18 @@ Empty string means root of org-roam-directory."
   "Default git action for new activities: worktree, branch, or none.")
 #+end_src
 
+** Persist Location
+
+Configure activities to store its data in a git-controlled location
+instead of the gitignored runtime directory.
+
+#+begin_src emacs-lisp
+;; Set custom persist location for activities-activities
+;; This moves the data from runtime/persist/ to state/activities/ (git-controlled)
+(put 'activities-activities 'persist-location
+     (expand-file-name "state/activities/" jf/emacs-dir))
+#+end_src
+
 * Load Submodules
 
 Load the submodules in proper dependency order.

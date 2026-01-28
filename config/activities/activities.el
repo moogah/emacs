@@ -51,6 +51,11 @@ Empty string means root of org-roam-directory."
 (defvar activities-ext--default-git-action 'worktree
   "Default git action for new activities: worktree, branch, or none.")
 
+;; Set custom persist location for activities-activities
+;; This moves the data from runtime/persist/ to state/activities/ (git-controlled)
+(put 'activities-activities 'persist-location
+     (expand-file-name "state/activities/" jf/emacs-dir))
+
 ;; Load core (no dependencies)
 (jf/load-module (expand-file-name "config/activities/core.el" jf/emacs-dir))
 
