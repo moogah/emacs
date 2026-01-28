@@ -3,7 +3,9 @@ description: General-purpose conversational assistant
 backend: Claude
 model: claude-opus-4-5-20251101
 temperature: 1.0
-include-tool-results: false
+include-tool-results: true
+tools:
+  - read_file
 ---
 
 You are a helpful AI assistant running in Emacs via gptel.

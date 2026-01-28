@@ -6,6 +6,13 @@
       "Bash(/Applications/Emacs.app/Contents/MacOS/Emacs:*)",
       "Bash(git add:*)",
       "Skill(architecture-analyzer)"
+      "WebSearch",
+      "Bash(git worktree:*)",
+      "Bash(ls:*)",
+      "Bash(tree:*)",
+      "Bash(git config:*)",
+      "Bash(du:*)",
+      "Bash(find:*)"
     ]
   }
 }

@@ -97,8 +97,9 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
     (jf/gptel-scope--create-default-plan session-id)
 
     ;; Register in global registry using our pre-generated session-id
+    ;; Activities integration creates simple sessions without branching - use "main" as default branch
     (jf/gptel--log 'info "Registering session: %s" session-id)
-    (jf/gptel--register-session session-dir (current-buffer) session-id)
+    (jf/gptel--register-session session-dir (current-buffer) session-id "main" session-dir)
 
     ;; Create session.org file
     (jf/gptel-session--create-session-file session-file activity-name

@@ -262,10 +262,8 @@ Load session management modules in dependency order:
 3. Filesystem - Filesystem utilities for directory-based persistence
 4. Registry - Global session registry and initialization
 5. Metadata - Metadata persistence (simplified for filesystem format)
-6. Tracing - Agent execution tracing
-7. Hooks - Advice functions and auto-save (uses filesystem persistence)
-8. Browser - Session browsing and reconstruction
-9. Branching - Branch creation and management
+6. Branching - Branch creation and management (requires metadata, filesystem)
+7. Commands - User-facing commands (requires branching)
 
 #+begin_src emacs-lisp
 ;; Load foundational modules first (used by all other session modules)
@@ -278,9 +276,7 @@ Load session management modules in dependency order:
 ;;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
-
-;; Load agent integration (simplified - no longer hooks into FSM)
-(jf/load-module (expand-file-name "config/gptel/sessions/agent-integration.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
 
 ;; Load scope-core (needed by scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))

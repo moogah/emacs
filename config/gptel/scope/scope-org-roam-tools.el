@@ -49,8 +49,7 @@ Use request_scope_expansion to ask user for approval if needed."
    (when (vectorp aliases)
      (setq aliases (append aliases nil)))
 
-   (let* ((session-id (jf/gptel-scope--get-session-id))
-          (plan (jf/gptel-scope--load-plan session-id)))
+   (let* ((plan (jf/gptel-scope--load-plan)))
 
      (unless plan
        (cl-return-from nil
@@ -127,8 +126,7 @@ Returns scope violation if link operation not approved."
  :category "org-roam"
  :function
  (lambda (source-id target-id &optional description)
-   (let* ((session-id (jf/gptel-scope--get-session-id))
-          (plan (jf/gptel-scope--load-plan session-id)))
+   (let* ((plan (jf/gptel-scope--load-plan)))
 
      (unless plan
        (cl-return-from nil
@@ -220,8 +218,7 @@ Returns scope violation if tags not approved."
    (when (vectorp tags)
      (setq tags (append tags nil)))
 
-   (let* ((session-id (jf/gptel-scope--get-session-id))
-          (plan (jf/gptel-scope--load-plan session-id)))
+   (let* ((plan (jf/gptel-scope--load-plan)))
 
      (unless plan
        (cl-return-from nil
