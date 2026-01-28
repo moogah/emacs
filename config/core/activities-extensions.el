@@ -655,12 +655,43 @@ Returns nil if no project selected for detail view."
                 (activities-ext--scope-set-project-action ,proj-path 'none))
              :transient t)))))
 
+(defun activities-ext--select-all-projects ()
+  "Select all known projects with current default git action."
+  (interactive)
+  (when (fboundp 'projectile-relevant-known-projects)
+    (let* ((scope (transient-scope))
+           (projects (plist-get scope :projects))
+           (default-action (plist-get scope :git-action))
+           (all-projects (projectile-relevant-known-projects)))
+      (dolist (proj all-projects)
+        (unless (assoc proj projects)
+          (push (cons proj default-action) projects)))
+      (plist-put scope :projects projects))))
+
+(defun activities-ext--clear-selection ()
+  "Clear all selected projects."
+  (interactive)
+  (let ((scope (transient-scope)))
+    (plist-put scope :projects nil)
+    (plist-put scope :selected-project nil)))
+
+(defun activities-ext--reset-all-actions ()
+  "Reset all selected projects to current default action."
+  (interactive)
+  (let* ((scope (transient-scope))
+         (projects (plist-get scope :projects))
+         (default-action (plist-get scope :git-action)))
+    (plist-put scope :projects
+               (mapcar (lambda (entry)
+                        (cons (car entry) default-action))
+                      projects))))
+
 (defun activities-ext--format-status ()
   "Format status line showing current selection and action breakdown."
   (let* ((projects (activities-ext--scope-projects))
          (count (length projects)))
     (if (zerop count)
-        "No projects selected"
+        (propertize "No projects selected" 'face 'transient-inactive-value)
       ;; Group projects by action and format counts
       (let* ((by-action (seq-group-by #'cdr projects))
              (worktree-count (length (alist-get 'worktree by-action)))
@@ -679,10 +710,17 @@ Returns nil if no project selected for detail view."
         (when (> none-count 0)
           (push (format "%d none" none-count) parts))
 
-        (format "Selected: %d project%s (%s)"
-                count
-                (if (= count 1) "" "s")
-                (mapconcat #'identity (nreverse parts) ", "))))))
+        (concat
+         (propertize "Selected: " 'face 'transient-heading)
+         (propertize (format "%d project%s"
+                            count
+                            (if (= count 1) "" "s"))
+                    'face 'transient-value)
+         (when parts
+           (concat
+            " ("
+            (mapconcat #'identity (nreverse parts) ", ")
+            ")")))))))
 
 (defun activities-ext-create ()
   "Create an extended activity with projects and documentation.
@@ -704,6 +742,7 @@ Prompts for activity name first, then opens transient for project selection."
    ;; Project Selection Section
    [:class transient-column
     :description "Project Selection"
+    :pad-keys t
     :setup-children
     (lambda (_)
       (transient-parse-suffixes
@@ -713,6 +752,7 @@ Prompts for activity name first, then opens transient for project selection."
    ;; Default Git Action Section
    [:class transient-column
     :description "Default Git Action"
+    :pad-keys t
     :setup-children
     (lambda (_)
       (transient-parse-suffixes
@@ -727,6 +767,7 @@ Prompts for activity name first, then opens transient for project selection."
                               (file-name-nondirectory (directory-file-name proj)))
                      "Git Action: (select project)"))
     :if (lambda () (activities-ext--scope-get-selected-project))
+    :pad-keys t
     :setup-children
     (lambda (_)
       (transient-parse-suffixes
@@ -741,6 +782,12 @@ Prompts for activity name first, then opens transient for project selection."
    ;; Status Display
    [""
     (:info (lambda () (activities-ext--format-status)))]
+
+   ;; Quick Actions
+   ["Quick Actions"
+    ("a" "Select all projects" activities-ext--select-all-projects :transient t)
+    ("c" "Clear selection" activities-ext--clear-selection :transient t)
+    ("r" "Reset all to default action" activities-ext--reset-all-actions :transient t)]
 
    ;; Actions
    ["Actions"
