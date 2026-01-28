@@ -521,14 +521,28 @@ Uses the activity name stored in `activities-ext--current-activity-name'."
           (plist-put metadata :gptel-session gptel-session-data))
         (activities-ext--set-metadata activity metadata)))
 
-    ;; Open gptel session buffer if created
-    (when (and gptel-session-data (fboundp 'jf/gptel-session--create-buffer))
-      (let ((buffer (jf/gptel-session--create-buffer gptel-session-data)))
-        (pop-to-buffer buffer)))
+    ;; Set up window layout: horizontal split with roam doc (left) and gptel (right)
+    (delete-other-windows)  ; Start with single window
 
-    ;; Open org-roam document if created
-    (when org-roam-data
-      (activities-ext--open-org-roam-doc org-roam-data))
+    (let ((left-window (selected-window))
+          (right-window nil))
+
+      ;; Open org-roam document in left window
+      (when org-roam-data
+        (activities-ext--open-org-roam-doc org-roam-data))
+
+      ;; Create horizontal split and open gptel buffer in right window
+      (when (and gptel-session-data (fboundp 'jf/gptel-session--create-buffer))
+        (setq right-window (split-window-right))
+        (select-window right-window)
+        (let ((buffer (jf/gptel-session--create-buffer gptel-session-data)))
+          (switch-to-buffer buffer))
+        ;; Return focus to left window (roam document)
+        (select-window left-window)))
+
+    ;; Save current state (with documents open) as the new default
+    (when-let ((activity (map-elt activities-activities activity-name)))
+      (activities-save activity :defaultp t :lastp t))
 
     (message "Created extended activity: %s" activity-name)))
 
