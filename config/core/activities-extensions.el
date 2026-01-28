@@ -434,18 +434,16 @@ Updates recent files list for all projects."
 
 (defun activities-ext--scope-toggle-project (project-path)
   "Toggle PROJECT-PATH selection in scope."
-  (let ((scope (transient-scope))
-        (projects (plist-get (transient-scope) :projects)))
+  (let* ((scope (transient-scope))
+         (projects (plist-get scope :projects)))
     (if (assoc project-path projects)
         (plist-put scope :projects (assoc-delete-all project-path projects))
-      (plist-put scope :projects (cons (cons project-path t) projects)))
-    (oset transient--prefix scope scope)))
+      (plist-put scope :projects (cons (cons project-path t) projects)))))
 
 (defun activities-ext--scope-set-git-action (action)
   "Set git ACTION in scope."
   (let ((scope (transient-scope)))
-    (plist-put scope :git-action action)
-    (oset transient--prefix scope scope)))
+    (plist-put scope :git-action action)))
 
 (defclass activities-ext--switch-project (transient-infix)
   ((project-path :initarg :project-path)
@@ -549,14 +547,15 @@ Updates recent files list for all projects."
 
 (defun activities-ext--generate-project-suffixes ()
   "Generate suffix list for all known projects."
-  (when (bound-and-true-p projectile-known-projects)
-    (let ((projects (projectile-known-projects))
-          (keys '("a" "b" "c" "d" "e" "f" "g" "h" "i" "j")))
-      (cl-loop for project in projects
-               for key in keys
-               for name = (file-name-nondirectory (directory-file-name project))
-               for command = (activities-ext--make-project-infix key project name)
-               collect (list key name command)))))
+  (when (fboundp 'projectile-relevant-known-projects)
+    (let ((projects (projectile-relevant-known-projects))
+          (keys '("1" "2" "3" "4" "5" "6" "7" "8" "9" "0")))
+      (when projects
+        (cl-loop for project in projects
+                 for key in keys
+                 for name = (file-name-nondirectory (directory-file-name project))
+                 for command = (activities-ext--make-project-infix key project name)
+                 collect (list key name command :transient t))))))
 
 (defun activities-ext--generate-git-action-suffixes ()
   "Generate suffix list for git action selection."
