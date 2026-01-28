@@ -72,33 +72,125 @@ Returns the directory name (last path component)."
   (file-name-nondirectory (directory-file-name session-dir)))
 #+end_src
 
-* Path Resolution
+* Branch Structure Functions
+
+Functions for navigating the new branch-inside-session architecture.
+
+** Branch Directory Paths
 
 #+begin_src emacs-lisp
-(defun jf/gptel--session-file-path (session-dir filename)
-  "Get absolute path to FILENAME in SESSION-DIR.
+(defun jf/gptel--branches-dir-path (session-dir)
+  "Get path to branches directory in SESSION-DIR."
+  (expand-file-name "branches" session-dir))
+
+(defun jf/gptel--branch-dir-path (session-dir branch-name)
+  "Get path to specific BRANCH-NAME directory in SESSION-DIR."
+  (expand-file-name branch-name (jf/gptel--branches-dir-path session-dir)))
+
+(defun jf/gptel--current-symlink-path (session-dir)
+  "Get path to current symlink in SESSION-DIR."
+  (expand-file-name "current" session-dir))
+
+(defun jf/gptel--get-current-branch-name (session-dir)
+  "Get name of current branch in SESSION-DIR by following symlink.
+Returns branch name (e.g., \"main\" or \"20260128153042-feature\") or nil if symlink doesn't exist."
+  (let ((symlink (jf/gptel--current-symlink-path session-dir)))
+    (when (file-symlink-p symlink)
+      (file-name-nondirectory (file-truename symlink)))))
+
+(defun jf/gptel--get-current-branch-dir (session-dir)
+  "Get path to current branch directory in SESSION-DIR by following symlink.
+Returns absolute path or nil if symlink doesn't exist."
+  (let ((symlink (jf/gptel--current-symlink-path session-dir)))
+    (when (file-symlink-p symlink)
+      (file-truename symlink))))
+#+end_src
+
+** Create Branch Directory
+
+#+begin_src emacs-lisp
+(defun jf/gptel--create-branch-directory (session-dir branch-name)
+  "Create branch directory for BRANCH-NAME in SESSION-DIR.
+Returns absolute path to created branch directory."
+  (let* ((branches-dir (jf/gptel--branches-dir-path session-dir))
+         (branch-dir (expand-file-name branch-name branches-dir)))
+    (unless (file-directory-p branches-dir)
+      (make-directory branches-dir t))
+    (unless (file-directory-p branch-dir)
+      (make-directory branch-dir t)
+      (jf/gptel--log 'info "Created branch directory: %s" branch-dir))
+    branch-dir))
+#+end_src
+
+** Update Current Symlink
+
+#+begin_src emacs-lisp
+(defun jf/gptel--update-current-symlink (session-dir branch-name)
+  "Update current symlink in SESSION-DIR to point to BRANCH-NAME.
+Creates or updates the symlink. Returns path to symlink."
+  (let* ((symlink (jf/gptel--current-symlink-path session-dir))
+         (target (concat "branches/" branch-name)))
+    ;; Remove existing symlink if present
+    (when (file-exists-p symlink)
+      (delete-file symlink))
+    ;; Create new symlink (relative path)
+    (make-symbolic-link target symlink)
+    (jf/gptel--log 'debug "Updated current symlink to: %s" branch-name)
+    symlink))
+#+end_src
+
+** List Branches
+
+#+begin_src emacs-lisp
+(defun jf/gptel--list-branches (session-dir)
+  "List all branch names in SESSION-DIR.
+Returns list of branch names (e.g., (\"main\" \"20260128153042-feature\"))."
+  (let ((branches-dir (jf/gptel--branches-dir-path session-dir)))
+    (when (file-directory-p branches-dir)
+      (seq-filter
+       (lambda (name)
+         (and (not (string-prefix-p "." name))
+              (file-directory-p (expand-file-name name branches-dir))))
+       (directory-files branches-dir nil "^[^.]")))))
+#+end_src
+
+* Path Resolution
+
+Branch-aware path resolution functions. All paths now require a branch directory.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--branch-file-path (branch-dir filename)
+  "Get absolute path to FILENAME in BRANCH-DIR.
 Does not check if file exists."
-  (expand-file-name filename session-dir))
+  (expand-file-name filename branch-dir))
 
-(defun jf/gptel--context-file-path (session-dir)
-  "Get path to context file in SESSION-DIR."
-  (jf/gptel--session-file-path session-dir jf/gptel-session--context-file))
+(defun jf/gptel--context-file-path (branch-dir)
+  "Get path to context file in BRANCH-DIR."
+  (jf/gptel--branch-file-path branch-dir jf/gptel-session--context-file))
 
-(defun jf/gptel--scope-plan-file-path (session-dir)
-  "Get path to scope-plan.yml file in SESSION-DIR."
-  (expand-file-name "scope-plan.yml" session-dir))
+(defun jf/gptel--scope-plan-file-path (branch-dir)
+  "Get path to scope-plan.yml file in BRANCH-DIR."
+  (expand-file-name "scope-plan.yml" branch-dir))
 
-(defun jf/gptel--tools-log-path (session-dir)
-  "Get path to tools log file in SESSION-DIR."
-  (jf/gptel--session-file-path session-dir jf/gptel-session--tools-log-file))
+(defun jf/gptel--preset-file-path (branch-dir)
+  "Get path to preset.md file in BRANCH-DIR."
+  (expand-file-name "preset.md" branch-dir))
 
-(defun jf/gptel--system-prompts-log-path (session-dir)
-  "Get path to system prompts log file in SESSION-DIR."
-  (jf/gptel--session-file-path session-dir jf/gptel-session--system-prompts-file))
+(defun jf/gptel--branch-metadata-file-path (branch-dir)
+  "Get path to branch-metadata.yml file in BRANCH-DIR."
+  (expand-file-name "branch-metadata.yml" branch-dir))
 
-(defun jf/gptel--agents-dir-path (session-dir)
-  "Get path to agents directory in SESSION-DIR."
-  (jf/gptel--session-file-path session-dir jf/gptel-session--agents-dir))
+(defun jf/gptel--tools-log-path (branch-dir)
+  "Get path to tools log file in BRANCH-DIR."
+  (jf/gptel--branch-file-path branch-dir jf/gptel-session--tools-log-file))
+
+(defun jf/gptel--system-prompts-log-path (branch-dir)
+  "Get path to system prompts log file in BRANCH-DIR."
+  (jf/gptel--branch-file-path branch-dir jf/gptel-session--system-prompts-file))
+
+(defun jf/gptel--agents-dir-path (branch-dir)
+  "Get path to agents directory in BRANCH-DIR."
+  (jf/gptel--branch-file-path branch-dir jf/gptel-session--agents-dir))
 #+end_src
 
 * Session Discovery
@@ -125,55 +217,54 @@ Returns absolute path if found, nil otherwise."
       expected)))
 #+end_src
 
-* Recursive Session Discovery
+* Branch and Agent Discovery
 
-Discover all sessions recursively, including nested agents.
+Discover all branches and agents in the new branch-inside-session architecture.
 
 #+begin_src emacs-lisp
-(defun jf/gptel--find-all-sessions-recursive (&optional root-dir depth)
-  "Find all session directories recursively, including agents.
-ROOT-DIR defaults to jf/gptel-sessions-directory.
-DEPTH is current nesting level (0 for top-level).
+(defun jf/gptel--find-all-branches-with-agents ()
+  "Find all branches across all sessions, including their agents.
 
 Returns list of plists with:
-  :path - Full path to session directory
-  :id - Session ID (directory name)
-  :depth - Nesting depth (0 for top-level, 1+ for agents)
-  :parent-path - Path to parent session (nil for top-level)"
-  (let ((root (or root-dir (expand-file-name jf/gptel-sessions-directory)))
-        (current-depth (or depth 0))
-        (sessions nil))
-    (when (file-directory-p root)
-      ;; Find direct subdirectories
-      (dolist (entry (directory-files root t "^[^.]"))
-        (when (and (file-directory-p entry)
-                  (jf/gptel--valid-session-directory-p entry))
-          ;; Add this session
-          (push (list :path entry
-                     :id (jf/gptel--session-id-from-directory entry)
-                     :depth current-depth
-                     :parent-path (when (> current-depth 0) root))
-               sessions)
-          ;; Recursively find agents
-          (let ((agents-dir (jf/gptel--agents-dir-path entry)))
-            (when (file-directory-p agents-dir)
-              (setq sessions
-                   (append sessions
-                          (jf/gptel--find-all-sessions-recursive
-                           agents-dir
-                           (1+ current-depth)))))))))
-    (nreverse sessions)))
+  :session-dir - Path to session directory
+  :session-id - Session ID
+  :branch-dir - Path to branch directory
+  :branch-name - Branch name (e.g., \"main\" or \"20260128153042-feature\")
+  :agent-dirs - List of agent directory paths in this branch"
+  (let ((sessions-root (expand-file-name jf/gptel-sessions-directory))
+        (results nil))
+    (when (file-directory-p sessions-root)
+      ;; Iterate over all session directories
+      (dolist (session-dir (directory-files sessions-root t "^[^.]"))
+        (when (jf/gptel--valid-session-directory-p session-dir)
+          (let ((session-id (jf/gptel--session-id-from-directory session-dir))
+                (branches (jf/gptel--list-branches session-dir)))
+            ;; Iterate over branches in this session
+            (dolist (branch-name branches)
+              (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name))
+                     (agents-dir (jf/gptel--agents-dir-path branch-dir))
+                     (agent-dirs (when (file-directory-p agents-dir)
+                                  (jf/gptel--list-agent-directories branch-dir))))
+                (push (list :session-dir session-dir
+                           :session-id session-id
+                           :branch-dir branch-dir
+                           :branch-name branch-name
+                           :agent-dirs (or agent-dirs nil))
+                     results)))))))
+    (nreverse results)))
 #+end_src
 
 * Agent Directories
 
+Agent directories are now per-branch, not per-session.
+
 #+begin_src emacs-lisp
-(defun jf/gptel--create-agent-directory (parent-session-dir preset description)
-  "Create agent directory under PARENT-SESSION-DIR.
+(defun jf/gptel--create-agent-directory (parent-branch-dir preset description)
+  "Create agent directory under PARENT-BRANCH-DIR.
 PRESET is the preset name (e.g., 'researcher', 'executor').
 DESCRIPTION is a brief description for the directory name.
 Returns the absolute path to the created agent directory."
-  (let* ((agents-dir (jf/gptel--agents-dir-path parent-session-dir))
+  (let* ((agents-dir (jf/gptel--agents-dir-path parent-branch-dir))
          (slug (replace-regexp-in-string "[^a-z0-9-]" "-"
                                         (downcase description)))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
@@ -187,10 +278,10 @@ Returns the absolute path to the created agent directory."
     (jf/gptel--log 'info "Created agent directory: %s" agent-dir)
     agent-dir))
 
-(defun jf/gptel--list-agent-directories (parent-session-dir)
-  "List all agent directories under PARENT-SESSION-DIR.
+(defun jf/gptel--list-agent-directories (parent-branch-dir)
+  "List all agent directories under PARENT-BRANCH-DIR.
 Returns list of absolute paths."
-  (let ((agents-dir (jf/gptel--agents-dir-path parent-session-dir)))
+  (let ((agents-dir (jf/gptel--agents-dir-path parent-branch-dir)))
     (when (file-directory-p agents-dir)
       (seq-filter
        #'file-directory-p
@@ -202,9 +293,15 @@ Returns list of absolute paths."
 #+begin_src emacs-lisp
 (defun jf/gptel--valid-session-directory-p (dir)
   "Return t if DIR is a valid session directory.
-Checks for existence and presence of scope-plan.yml file."
+Checks for existence of branches directory."
   (and (file-directory-p dir)
-       (file-exists-p (jf/gptel--scope-plan-file-path dir))))
+       (file-directory-p (jf/gptel--branches-dir-path dir))))
+
+(defun jf/gptel--valid-branch-directory-p (dir)
+  "Return t if DIR is a valid branch directory.
+Checks for existence and presence of session.md file."
+  (and (file-directory-p dir)
+       (file-exists-p (jf/gptel--context-file-path dir))))
 #+end_src
 
 * Provide Feature
