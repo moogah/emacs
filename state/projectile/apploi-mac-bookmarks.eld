@@ -1,0 +1,1 @@
+("~/emacs-activities-extensions/" "~/org/" "~/src/oncall_amplify/" "~/src/monorepo/")

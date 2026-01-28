@@ -4,6 +4,11 @@
 ;; Configure machine-specific daily journal directory
 (setq org-roam-dailies-directory "dailies/apploi-mac/")
 
+;; Projectile: Use machine-specific bookmarks file
+;; This overrides the default state/projectile/projectile-bookmarks.eld
+(setq projectile-known-projects-file
+      (expand-file-name "state/projectile/apploi-mac-bookmarks.eld" jf/emacs-dir))
+
 (setq browser-hist-db-paths
       '((chrome . "/Users/jefffarr/Library/Application Support/Google/Chrome/Profile 1/History")))
 
