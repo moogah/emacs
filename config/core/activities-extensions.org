@@ -1069,18 +1069,33 @@ Functions to generate suffix lists dynamically.
 
 *** Project List Generator
 
+Dynamic key assignment using gptel pattern: tries to use first letter of project
+name, falls back to first available key. Supports all projects (up to 36 with a-z, 0-9).
+
 #+begin_src emacs-lisp
 (defun activities-ext--generate-project-suffixes ()
-  "Generate suffix list for all known projects."
+  "Generate suffix list for all known projects with smart key assignment.
+Uses first letter of project name when available, otherwise assigns next free key.
+Supports up to 36 projects (a-z + 0-9)."
   (when (fboundp 'projectile-relevant-known-projects)
-    (let ((projects (projectile-relevant-known-projects))
-          (keys '("1" "2" "3" "4" "5" "6" "7" "8" "9" "0")))
+    (let ((projects (projectile-relevant-known-projects)))
       (when projects
         (cl-loop for project in projects
-                 for key in keys
+                 ;; Pool of available keys (a-z, 0-9), excluding reserved transient keys
+                 with unused-keys = (delete ?q  ; q is typically quit
+                                           (nconc (number-sequence ?a ?z)
+                                                  (number-sequence ?0 ?9)))
                  for name = (file-name-nondirectory (directory-file-name project))
-                 for command = (activities-ext--make-project-infix key project name)
-                 collect (list key name command :transient t))))))
+                 ;; Try to find first character of name in unused keys, else take first available
+                 for key-char = (seq-find (lambda (k) (member k unused-keys))
+                                         name
+                                         (seq-first unused-keys))
+                 ;; Remove assigned key from pool to prevent collisions
+                 do (setq unused-keys (delete key-char unused-keys))
+                 ;; Convert character to key description string
+                 for key-str = (key-description (list key-char))
+                 for command = (activities-ext--make-project-infix key-str project name)
+                 collect (list key-str name command :transient t))))))
 #+end_src
 
 *** Git Action List Generator
