@@ -39,15 +39,16 @@ Returns project path or nil."
 
 (defun activities-ext--scope-toggle-project (project-path)
   "Toggle PROJECT-PATH selection in scope.
-Adds with worktree action if not selected, removes if already selected."
+Adds with default git action if not selected, removes if already selected."
   (let* ((scope (transient-scope))
          (projects (plist-get scope :projects))
          (entry (assoc project-path projects)))
     (if entry
         ;; Already selected - remove from list
         (plist-put scope :projects (assoc-delete-all project-path projects))
-      ;; Not selected - add with worktree
-      (plist-put scope :projects (cons (cons project-path 'worktree) projects)))))
+      ;; Not selected - add with default git action from scope
+      (let ((default-action (plist-get scope :git-action)))
+        (plist-put scope :projects (cons (cons project-path default-action) projects))))))
 
 (defun activities-ext--scope-cycle-selected-project-action (project-path)
   "Cycle git action for already-selected PROJECT-PATH: worktree → branch → none → worktree.
@@ -109,29 +110,7 @@ Project must already be selected."
          (projects (activities-ext--scope-projects)))
     (oset obj value (not (null (assoc path projects))))))
 
-(defclass activities-ext--switch-git-action (transient-infix)
-  ((action :initarg :action))
-  "Radio button for git action selection.")
-
-(cl-defmethod transient-infix-read ((obj activities-ext--switch-git-action))
-  "Select this git action."
-  (let ((action (oref obj action)))
-    (activities-ext--scope-set-git-action action)
-    action))
-
-(cl-defmethod transient-format-value ((obj activities-ext--switch-git-action))
-  "Format git action radio button."
-  (let ((action (oref obj action))
-        (current (activities-ext--scope-git-action)))
-    (if (eq action current)
-        (propertize "(✓)" 'face 'transient-value)
-      (propertize "( )" 'face 'transient-inactive-value))))
-
-(cl-defmethod transient-init-value ((obj activities-ext--switch-git-action))
-  "Initialize value from scope."
-  (let ((action (oref obj action))
-        (current (activities-ext--scope-git-action)))
-    (oset obj value (eq action current))))
+;; Git action radio class removed - no longer needed
 
 (defun activities-ext--make-project-infix (key project-path project-name)
   "Create a project toggle infix for KEY, PROJECT-PATH, and PROJECT-NAME."
@@ -154,47 +133,21 @@ Project must already be selected."
 
     command-name))
 
-(transient-define-infix activities-ext--infix-worktree ()
-  "Select worktree git action."
-  :class 'activities-ext--switch-git-action
-  :action 'worktree
-  :argument ""
-  :key "w"
-  :description "Worktree (default)"
-  :transient t)
-
-(transient-define-infix activities-ext--infix-branch ()
-  "Select branch git action."
-  :class 'activities-ext--switch-git-action
-  :action 'branch
-  :argument ""
-  :key "b"
-  :description "Branch"
-  :transient t)
-
-(transient-define-infix activities-ext--infix-none ()
-  "Select none git action."
-  :class 'activities-ext--switch-git-action
-  :action 'none
-  :argument ""
-  :key "n"
-  :description "None"
-  :transient t)
+;; Git action infixes removed - now handled by Selected Projects column cycling
 
 (defun activities-ext--generate-project-suffixes ()
   "Generate suffix list for all known projects with smart key assignment.
 Uses first letter of project name when available, otherwise assigns next free key.
-Supports up to 36 projects (a-z + 0-9)."
+Supports up to 26 projects (a-z only, numbers reserved for Selected Projects)."
   (when (fboundp 'projectile-relevant-known-projects)
     (let ((projects (projectile-relevant-known-projects)))
       (when projects
         (cl-loop for project in projects
-                 ;; Pool of available keys (a-z, 0-9), excluding reserved keys
-                 ;; Reserved: q (quit), w/b/n (git actions), a/c/r (quick actions)
+                 ;; Pool of available keys (a-z only)
+                 ;; Reserved: q (quit), number keys 0-9 (used by Selected Projects column)
                  with unused-keys = (cl-set-difference
-                                    (nconc (number-sequence ?a ?z)
-                                           (number-sequence ?0 ?9))
-                                    '(?q ?w ?b ?n ?a ?c ?r))
+                                    (number-sequence ?a ?z)
+                                    '(?q))
                  for name = (file-name-nondirectory (directory-file-name project))
                  ;; Try to find first character of name in unused keys, else take first available
                  for key-char = (seq-find (lambda (k) (member k unused-keys))
@@ -202,10 +155,12 @@ Supports up to 36 projects (a-z + 0-9)."
                                          (seq-first unused-keys))
                  ;; Remove assigned key from pool to prevent collisions
                  do (setq unused-keys (delete key-char unused-keys))
-                 ;; Convert character to key description string
-                 for key-str = (key-description (list key-char))
-                 for command = (activities-ext--make-project-infix key-str project name)
-                 collect (list key-str name command :transient t))))))
+                 ;; Skip projects that don't get a key (>26 projects)
+                 when key-char
+                 collect (let ((key-str (key-description (list key-char)))
+                              (command (activities-ext--make-project-infix
+                                       (key-description (list key-char)) project name)))
+                          (list key-str name command :transient t)))))))
 
 (defun activities-ext--generate-selected-project-suffixes ()
   "Generate suffix list for selected projects with cycling keys.
