@@ -2,21 +2,29 @@
 
 This directory contains git-controlled activities data from the `activities.el` package.
 
-## Files
+## Directory Structure
 
-- `activities-activities` - Default/template activities file
-- `{machine-role}-activities` - Machine-specific activities (e.g., `apploi-mac-activities`)
+```
+state/activities/
+├── default/
+│   └── activities-activities      (default/template)
+└── {machine-role}/
+    └── activities-activities      (e.g., apploi-mac/activities-activities)
+```
+
+Each machine has its own subdirectory containing the `activities-activities` file.
 
 ## Machine-Specific Configuration
 
 **Default behavior**: Each machine uses its own activities file.
 
-In `config/local/{machine-role}.el`, set the machine-specific activities file:
+In `config/local/{machine-role}.el`, set the machine-specific activities directory:
 
 ```elisp
-;; Use machine-specific activities file (recommended)
+;; Use machine-specific activities directory (recommended)
+;; Note: persist.el automatically appends the symbol name to create the file
 (put 'activities-activities 'persist-location
-     (expand-file-name "state/activities/apploi-mac-activities" jf/emacs-dir))
+     (expand-file-name "state/activities/apploi-mac/" jf/emacs-dir))
 ```
 
 This allows each machine to have different activities while keeping them in git.
@@ -35,7 +43,15 @@ Keeping this under version control allows:
 
 ## Configuration
 
-The default location is configured in `config/activities/activities.org`. Machine-specific overrides go in `config/local/{machine-role}.el`.
+The default location is configured in `config/activities/activities.org`:
+```elisp
+(put 'activities-activities 'persist-location
+     (expand-file-name "state/activities/default/" jf/emacs-dir))
+```
+
+Machine-specific overrides go in `config/local/{machine-role}.el`.
+
+**Important**: `persist-location` must be a *directory*, not a file path. The persist.el system automatically appends the symbol name (`activities-activities`) to create the full file path.
 
 ## Format
 

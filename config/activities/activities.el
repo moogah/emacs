@@ -54,8 +54,9 @@ Empty string means root of org-roam-directory."
 ;; Set custom persist location for activities-activities
 ;; This moves the data from runtime/persist/ to state/activities/ (git-controlled)
 ;; Default location - can be overridden per-machine in config/local/{machine-role}.el
+;; Note: persist-location must be a directory; symbol name is appended automatically
 (put 'activities-activities 'persist-location
-     (expand-file-name "state/activities/activities-activities" jf/emacs-dir))
+     (expand-file-name "state/activities/default/" jf/emacs-dir))
 
 ;; Load core (no dependencies)
 (jf/load-module (expand-file-name "config/activities/core.el" jf/emacs-dir))
