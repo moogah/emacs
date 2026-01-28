@@ -456,21 +456,28 @@ Returns project path or nil."
 
 (defun activities-ext--scope-toggle-project (project-path)
   "Toggle PROJECT-PATH selection in scope.
-When adding, uses current default git action from scope.
-Also sets project as selected for detail view."
+Adds with worktree action if not selected, removes if already selected."
   (let* ((scope (transient-scope))
          (projects (plist-get scope :projects))
-         (default-action (plist-get scope :git-action)))
-    (if (assoc project-path projects)
-        ;; Remove if already selected
-        (progn
-          (plist-put scope :projects (assoc-delete-all project-path projects))
-          ;; Clear selected-project if we just deselected it
-          (when (equal project-path (plist-get scope :selected-project))
-            (plist-put scope :selected-project nil)))
-      ;; Add with default action and set as selected
-      (plist-put scope :projects (cons (cons project-path default-action) projects))
-      (plist-put scope :selected-project project-path))))
+         (entry (assoc project-path projects)))
+    (if entry
+        ;; Already selected - remove from list
+        (plist-put scope :projects (assoc-delete-all project-path projects))
+      ;; Not selected - add with worktree
+      (plist-put scope :projects (cons (cons project-path 'worktree) projects)))))
+
+(defun activities-ext--scope-cycle-selected-project-action (project-path)
+  "Cycle git action for already-selected PROJECT-PATH: worktree → branch → none → worktree.
+Project must already be in selected projects list."
+  (let* ((scope (transient-scope))
+         (projects (plist-get scope :projects))
+         (entry (assoc project-path projects)))
+    (when entry
+      (let ((current-action (cdr entry)))
+        (pcase current-action
+          ('worktree (setcdr entry 'branch))
+          ('branch (setcdr entry 'none))
+          ('none (setcdr entry 'worktree)))))))
 
 (defun activities-ext--scope-set-git-action (action)
   "Set default git ACTION in scope.
@@ -493,12 +500,11 @@ Project must already be selected."
   "Infix for toggling individual project selection.")
 
 (cl-defmethod transient-infix-read ((obj activities-ext--switch-project))
-  "Toggle project selection."
-  (let* ((path (oref obj project-path))
-         (projects (activities-ext--scope-projects))
-         (currently-selected (assoc path projects)))
+  "Toggle project selection on/off."
+  (let* ((path (oref obj project-path)))
     (activities-ext--scope-toggle-project path)
-    (not currently-selected)))
+    ;; Return current selection state for value storage
+    (not (null (assoc path (activities-ext--scope-projects))))))
 
 (cl-defmethod transient-format-value ((obj activities-ext--switch-project))
   "Format project toggle value display with action indicator."
@@ -619,31 +625,27 @@ Supports up to 36 projects (a-z + 0-9)."
                  collect (list key-str name command :transient t))))))
 
 (defun activities-ext--generate-selected-project-suffixes ()
-  "Generate suffix list for selected projects.
-Shows selected projects with action indicators. Click to configure git action."
+  "Generate suffix list for selected projects with cycling keys.
+Each selected project gets a numbered key to cycle through git actions."
   (let ((projects (activities-ext--scope-projects)))
     (when projects
       (cl-loop for (project . action) in projects
-               with unused-keys = (cl-set-difference
-                                  (nconc (number-sequence ?a ?z)
-                                         (number-sequence ?0 ?9))
-                                  '(?q ?w ?b ?n ?a ?c ?r))
+               for idx from 1
+               for key = (if (<= idx 9)
+                            (number-to-string idx)
+                          (if (= idx 10) "0" nil))
+               while key  ; Stop after 10 projects (1-9, 0)
                for name = (file-name-nondirectory (directory-file-name project))
                for indicator = (pcase action
                                 ('worktree "W")
                                 ('branch "B")
                                 ('none "·"))
                for display-name = (format "%s [%s]" name indicator)
-               for key-char = (seq-find (lambda (k) (member k unused-keys))
-                                       name
-                                       (seq-first unused-keys))
-               do (setq unused-keys (delete key-char unused-keys))
-               for key-str = (key-description (list key-char))
-               collect (list key-str
+               collect (list key
                            display-name
                            `(lambda ()
                               (interactive)
-                              (activities-ext--scope-set-selected-project ,project))
+                              (activities-ext--scope-cycle-selected-project-action ,project))
                            :transient t)))))
 
 (defun activities-ext--generate-project-git-action-suffixes ()
@@ -714,14 +716,14 @@ Returns nil if no project selected for detail view."
          (count (length projects)))
     (concat
      (if (zerop count)
-         (propertize "Select projects from the left column"
+         (propertize "Press project key (left) to select with worktree"
                     'face 'transient-inactive-value)
        (propertize (format "%d project%s selected"
                           count
                           (if (= count 1) "" "s"))
                   'face 'transient-value))
      (when (> count 0)
-       (propertize " • Click selected project to change git action"
+       (propertize " • Press number key (right) to cycle: W → B → ·"
                   'face 'transient-inactive-value)))))
 
 (defun activities-ext-create ()
@@ -735,8 +737,8 @@ Prompts for activity name first, then opens transient for project selection."
     (activities-ext-create-transient)))
 
 (transient-define-prefix activities-ext-create-transient ()
-  "Create extended activity with three-column layout.
-Select projects (left), view/configure selected (middle), change actions (right)."
+  "Create extended activity with two-column selection and cycling.
+Left: toggle selection. Right: cycle git actions (W → B → ·)."
   :refresh-suffixes t
   [:description
    (lambda () (format "Activities Extensions: Create \"%s\""
@@ -752,7 +754,7 @@ Select projects (left), view/configure selected (middle), change actions (right)
        'activities-ext-create-transient
        (activities-ext--generate-project-suffixes)))]
 
-   ;; Selected Projects Section
+   ;; Selected Projects Section (with numbered keys for cycling)
    [:class transient-column
     :description (lambda ()
                    (let ((count (length (activities-ext--scope-projects))))
@@ -764,21 +766,6 @@ Select projects (left), view/configure selected (middle), change actions (right)
       (transient-parse-suffixes
        'activities-ext-create-transient
        (activities-ext--generate-selected-project-suffixes)))]
-
-   ;; Per-Project Git Action Section (conditional)
-   [:class transient-column
-    :description (lambda ()
-                   (if-let ((proj (activities-ext--scope-get-selected-project)))
-                       (format "Git Action: %s"
-                              (file-name-nondirectory (directory-file-name proj)))
-                     "Git Action: (select project)"))
-    :if (lambda () (activities-ext--scope-get-selected-project))
-    :pad-keys t
-    :setup-children
-    (lambda (_)
-      (transient-parse-suffixes
-       'activities-ext-create-transient
-       (activities-ext--generate-project-git-action-suffixes)))]
 
    ;; Creation Options
    ["Creation Options"
