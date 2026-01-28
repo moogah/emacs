@@ -5,6 +5,99 @@
 (require 'cl-lib)
 ;; Dependencies:1 ends here
 
+;; Argument Normalization
+
+;; Tool functions receive arguments as vectors (from JSON), but we need to work with lists internally.
+
+
+;; [[file:scope-core.org::*Argument Normalization][Argument Normalization:1]]
+(defun jf/gptel-scope--normalize-args (args)
+  "Convert ARGS from vector to list if needed.
+Tool functions receive vectors from JSON serialization."
+  (if (vectorp args)
+      (append args nil)
+    args))
+;; Argument Normalization:1 ends here
+
+;; Generic Scoped Tool Macro
+
+;; This macro wraps the common pattern used by all scope-aware tools:
+;; 1. Get session ID
+;; 2. Load scope plan
+;; 3. Check plan exists
+;; 4. Validate tool permission
+;; 5. Execute tool body if allowed
+;; 6. Return formatted error if denied
+
+
+;; [[file:scope-core.org::*Generic Scoped Tool Macro][Generic Scoped Tool Macro:1]]
+(defmacro gptel-make-scoped-tool (name description args category &rest body)
+  "Create a scope-aware gptel tool with automatic validation.
+
+NAME: Tool name string (e.g., \"write_file_in_scope\")
+DESCRIPTION: Tool description for LLM
+ARGS: List of argument specs (same format as gptel-make-tool :args)
+CATEGORY: Resource category (\"filesystem\", \"org_roam\", \"shell\")
+BODY: Tool implementation - executed only if scope check passes
+
+The macro automatically:
+- Retrieves session ID
+- Loads scope plan
+- Checks tool permission
+- Normalizes arguments (vector->list)
+- Formats errors on scope violation
+- Handles exceptions
+
+BODY is executed with tool arguments available as variables and should
+return the success result plist. The first argument in ARGS should be
+the primary resource identifier (filepath, node-id, command, etc.)."
+  (let* ((arg-names (mapcar (lambda (arg-spec)
+                             (intern (plist-get arg-spec :name)))
+                           (eval args)))
+         (lambda-list arg-names))
+    `(gptel-make-tool
+      :name ,name
+      :description ,description
+      :args ,args
+      :category ,category
+      :function
+      (lambda (&rest raw-args)
+        (condition-case err
+            (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
+                   ,@(cl-mapcar (lambda (name idx)
+                                 `(,name (nth ,idx normalized-args)))
+                               arg-names
+                               (number-sequence 0 (1- (length arg-names))))
+                   (session-id (jf/gptel-scope--get-session-id))
+                   (plan (jf/gptel-scope--load-plan session-id)))
+
+              ;; Check plan exists
+              (unless plan
+                (cl-return-from nil
+                  (list :success nil
+                        :error "no_scope_plan"
+                        :message "No scope plan found for this session. Create one with M-x jf/gptel-scope-init-plan or ask user to create one.")))
+
+              ;; Check tool permission
+              (let ((check-result (jf/gptel-scope--check-tool-permission
+                                  plan ,name normalized-args)))
+                (if (plist-get check-result :allowed)
+                    ;; Execute tool body
+                    (progn ,@body)
+
+                  ;; Format and return error
+                  (jf/gptel-scope--format-tool-error
+                   ,name
+                   (nth 0 normalized-args)  ; Primary resource (first arg)
+                   check-result))))
+
+          ;; Handle unexpected errors
+          (error
+           (list :success nil
+                 :error "tool_exception"
+                 :message (format "Tool error: %s" (error-message-string err)))))))))
+;; Generic Scoped Tool Macro:1 ends here
+
 ;; Global State
 
 ;; Tools need access to the current session ID, but =jf/gptel--session-id= is buffer-local. We use a dynamically-scoped global variable that gets set during request execution.
@@ -85,107 +178,596 @@ Updates timestamp and writes formatted YAML."
 
 ;; Parse YAML to Plist
 
-;; Simple YAML parser for scope plans. Handles basic YAML structure with indentation.
+;; YAML parser for v2.0 scope plans with tool-level permissions.
 
 
 ;; [[file:scope-core.org::*Parse YAML to Plist][Parse YAML to Plist:1]]
 (defun jf/gptel-scope--parse-yaml (yaml-string)
   "Parse YAML-STRING into nested plist structure.
-Handles basic YAML with indentation for nested sections."
+Supports v2.0 tool-based format with nested sections up to 4 levels deep."
   (let ((lines (split-string yaml-string "\n"))
         (result nil)
-        (current-section nil)
-        (current-subsection nil))
+        (current-section nil)       ;; Level 1 (e.g., :tools)
+        (current-subsection nil)    ;; Level 2 (e.g., tool name like :write_file_in_scope)
+        (current-subsubsection nil));; Level 3 (e.g., :patterns, :deny_patterns)
+
     (dolist (line lines)
+      ;; Top-level key (no indentation)
       (when (string-match "^\\([a-z_]+\\):\\s-*\\(.*\\)$" line)
-        ;; Top-level key
         (let* ((key (intern (concat ":" (match-string 1 line))))
                (raw-value (match-string 2 line))
-               ;; Strip quotes from values
                (value (if (string-match "^\"\\(.*\\)\"$" raw-value)
                          (match-string 1 raw-value)
                        raw-value)))
+          (setq current-section key)
+          (setq current-subsection nil)
+          (setq current-subsubsection nil)
           (if (or (string-empty-p raw-value) (string= value "[]"))
-              (progn
-                (setq current-section key)
-                (setq result (plist-put result key nil)))
+              (setq result (plist-put result key nil))
             (setq result (plist-put result key value)))))
+
+      ;; Second-level key (2 spaces) - tool names
       (when (string-match "^  \\([a-z_]+\\):\\s-*\\(.*\\)$" line)
-        ;; Second-level key (indented 2 spaces)
         (let* ((key (intern (concat ":" (match-string 1 line))))
                (raw-value (match-string 2 line))
-               ;; Strip quotes from values
                (value (if (string-match "^\"\\(.*\\)\"$" raw-value)
                          (match-string 1 raw-value)
-                       raw-value)))
+                       raw-value))
+               (section-data (or (plist-get result current-section) nil)))
+          (setq current-subsection key)
+          (setq current-subsubsection nil)
           (if (or (string-empty-p raw-value) (string= value "[]"))
               (progn
-                (setq current-subsection key)
-                (let ((section-data (or (plist-get result current-section) nil)))
-                  (setq section-data (plist-put section-data key nil))
-                  (setq result (plist-put result current-section section-data))))
-            (let ((section-data (or (plist-get result current-section) nil)))
-              (setq section-data (plist-put section-data key value))
-              (setq result (plist-put result current-section section-data))))))
-      (when (string-match "^    - \"?\\([^\"]+\\)\"?$" line)
-        ;; List item (indented 4 spaces)
+                (setq section-data (plist-put section-data key nil))
+                (setq result (plist-put result current-section section-data)))
+            (setq section-data (plist-put section-data key value))
+            (setq result (plist-put result current-section section-data)))))
+
+      ;; Third-level key (4 spaces) - tool properties (allowed, patterns, deny_patterns)
+      (when (string-match "^    \\([a-z_]+\\):\\s-*\\(.*\\)$" line)
+        (let* ((key (intern (concat ":" (match-string 1 line))))
+               (raw-value (match-string 2 line))
+               (value (cond
+                      ((string-match "^\"\\(.*\\)\"$" raw-value)
+                       (match-string 1 raw-value))
+                      ((string= raw-value "true") t)
+                      ((string= raw-value "false") nil)
+                      (t raw-value)))
+               (section-data (plist-get result current-section))
+               (subsection-data (or (plist-get section-data current-subsection) nil)))
+          (setq current-subsubsection key)
+          (if (or (string-empty-p raw-value) (string= value "[]"))
+              (progn
+                (setq subsection-data (plist-put subsection-data key nil))
+                (setq section-data (plist-put section-data current-subsection subsection-data))
+                (setq result (plist-put result current-section section-data)))
+            (setq subsection-data (plist-put subsection-data key value))
+            (setq section-data (plist-put section-data current-subsection subsection-data))
+            (setq result (plist-put result current-section section-data)))))
+
+      ;; List items (6-space indent) - pattern lists
+      (when (and current-subsubsection
+                (string-match "^      - \"?\\([^\"]+\\)\"?$" line))
         (let* ((item (match-string 1 line))
                (section-data (plist-get result current-section))
-               (subsection-data (or (plist-get section-data current-subsection) nil))
-               (updated-list (append subsection-data (list item))))
-          (setq section-data (plist-put section-data current-subsection updated-list))
+               (subsection-data (plist-get section-data current-subsection))
+               (subsubsection-data (or (plist-get subsection-data current-subsubsection) nil))
+               (updated-list (append subsubsection-data (list item))))
+          (setq subsection-data (plist-put subsection-data current-subsubsection updated-list))
+          (setq section-data (plist-put section-data current-subsection subsection-data))
           (setq result (plist-put result current-section section-data)))))
+
     result))
 ;; Parse YAML to Plist:1 ends here
 
 ;; Format Plist to YAML
 
-;; Convert plist back to YAML format for writing.
+;; Convert plist back to v2.0 YAML format for writing.
 
 
 ;; [[file:scope-core.org::*Format Plist to YAML][Format Plist to YAML:1]]
 (defun jf/gptel-scope--format-yaml (plan)
-  "Format PLAN plist as YAML string."
+  "Format PLAN plist as v2.0 YAML string with tool-level permissions."
   (with-temp-buffer
-    ;; Top-level scalars
-    (insert (format "version: \"%s\"\n" (plist-get plan :version)))
+    ;; Top-level metadata
+    (insert "version: \"2.0\"\n")
     (insert (format "session_id: \"%s\"\n" (plist-get plan :session_id)))
     (insert (format "created: \"%s\"\n" (plist-get plan :created)))
     (insert (format "updated: \"%s\"\n" (plist-get plan :updated)))
     (insert (format "default_policy: %s\n\n" (plist-get plan :default_policy)))
 
-    ;; Filesystem section
-    (insert "filesystem:\n")
-    (let ((fs-data (plist-get plan :filesystem)))
-      (insert "  write:\n")
-      (dolist (pattern (plist-get fs-data :write))
-        (insert (format "    - \"%s\"\n" pattern)))
-      (insert "  deny:\n")
-      (dolist (pattern (plist-get fs-data :deny))
-        (insert (format "    - \"%s\"\n" pattern))))
+    ;; Tools section
+    (let ((tools-data (plist-get plan :tools)))
+      (insert "tools:\n")
+      (when tools-data
+        ;; Iterate through tools
+        (let ((keys (cl-loop for (k v) on tools-data by #'cddr
+                            when (keywordp k) collect k)))
+          (dolist (tool-key keys)
+            (let* ((tool-name (substring (symbol-name tool-key) 1))
+                   (tool-config (plist-get tools-data tool-key)))
+              (insert (format "  %s:\n" tool-name))
+              (insert (format "    allowed: %s\n"
+                            (if (plist-get tool-config :allowed) "true" "false")))
 
-    ;; Org-roam section
-    (insert "\norg_roam:\n")
-    (let ((roam-data (plist-get plan :org_roam)))
-      (insert "  write:\n")
-      (dolist (pattern (plist-get roam-data :write))
-        (insert (format "    - \"%s\"\n" pattern)))
-      (insert "  link:\n")
-      (dolist (pattern (plist-get roam-data :link))
-        (insert (format "    - \"%s\"\n" pattern))))
+              ;; Patterns list
+              (let ((patterns (plist-get tool-config :patterns)))
+                (insert "    patterns:\n")
+                (if patterns
+                    (dolist (pattern patterns)
+                      (insert (format "      - \"%s\"\n" pattern)))
+                  (insert "      []\n")))
 
-    ;; Shell section
-    (insert "\nshell:\n")
-    (let ((shell-data (plist-get plan :shell)))
-      (insert "  allow_commands:\n")
-      (dolist (cmd (plist-get shell-data :allow_commands))
-        (insert (format "    - \"%s\"\n" cmd)))
-      (insert "  deny_commands:\n")
-      (dolist (cmd (plist-get shell-data :deny_commands))
-        (insert (format "    - \"%s\"\n" cmd))))
+              ;; Deny patterns list
+              (let ((deny-patterns (plist-get tool-config :deny_patterns)))
+                (insert "    deny_patterns:\n")
+                (if deny-patterns
+                    (dolist (pattern deny-patterns)
+                      (insert (format "      - \"%s\"\n" pattern)))
+                  (insert "      []\n")))
+
+              (insert "\n"))))))
 
     (buffer-string)))
 ;; Format Plist to YAML:1 ends here
+
+;; Pattern Matching Helper
+
+;; Check if a path matches any pattern in a list.
+
+
+;; [[file:scope-core.org::*Pattern Matching Helper][Pattern Matching Helper:1]]
+(defun jf/gptel-scope--matches-any-pattern (path patterns)
+  "Check if PATH matches any pattern in PATTERNS list.
+Returns t if any pattern matches, nil otherwise."
+  (when patterns
+    (cl-some (lambda (pattern)
+              (jf/gptel-scope--matches-pattern path pattern))
+            patterns)))
+;; Pattern Matching Helper:1 ends here
+
+;; Tool Permission Dispatch
+
+;; Central dispatcher that routes permission checks to tool-specific validators.
+
+
+;; [[file:scope-core.org::*Tool Permission Dispatch][Tool Permission Dispatch:1]]
+(defun jf/gptel-scope--check-tool-permission (plan tool-name tool-args)
+  "Check if TOOL-NAME is allowed in PLAN with TOOL-ARGS.
+Routes to appropriate validator based on tool name.
+Returns plist with :allowed t/nil and relevant patterns/config."
+  (let* ((tools-config (plist-get plan :tools))
+         (tool-config (when tools-config
+                       (plist-get tools-config
+                                 (intern (concat ":" tool-name))))))
+
+    ;; Route to appropriate validator
+    (pcase tool-name
+      ("read_file"
+       (jf/gptel-scope--validate-read-file tool-config tool-args))
+      ("write_file_in_scope"
+       (jf/gptel-scope--validate-write-file tool-config tool-args))
+      ("edit_file_in_scope"
+       (jf/gptel-scope--validate-edit-file tool-config tool-args))
+      ("create_roam_node_in_scope"
+       (jf/gptel-scope--validate-create-node tool-config tool-args))
+      ("add_roam_tags_in_scope"
+       (jf/gptel-scope--validate-add-tags tool-config tool-args))
+      ("link_roam_nodes_in_scope"
+       (jf/gptel-scope--validate-link-nodes tool-config tool-args))
+      ("run_approved_command"
+       (jf/gptel-scope--validate-shell-command tool-config tool-args))
+      ("list_project_files"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("list_project_directories"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("search_project_content"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("list_test_files"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_related_test"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_related_files"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("check_ggtags_project"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_definition"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_references"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("find_symbol"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("create_ggtags_project"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("update_ggtags_project"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("explain_ggtags_indexing"
+       (jf/gptel-scope--validate-projectile tool-config tool-args))
+      ("get_node_at_position"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_node_info"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_syntax_tree"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("list_functions"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("list_classes"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("list_imports"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("extract_definition"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("query_nodes"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("find_nodes_by_type"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("find_nodes_in_range"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_node_context"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      ("get_scope_structure"
+       (jf/gptel-scope--validate-treesitter tool-config tool-args))
+      (_
+       ;; Unknown tool - deny by default
+       (list :allowed nil
+             :error "unknown_tool"
+             :message (format "Unknown tool: %s" tool-name))))))
+;; Tool Permission Dispatch:1 ends here
+
+;; Filesystem Tools
+
+;; Validate read_file, write_file, and edit_file operations.
+
+
+;; [[file:scope-core.org::*Filesystem Tools][Filesystem Tools:1]]
+(defun jf/gptel-scope--validate-read-file (config args)
+  "Validate read_file operation against CONFIG with ARGS.
+Args: (filepath) - filepath is first argument."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-read-file
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "read_file not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-read-file
+      (list :allowed nil
+            :message "read_file explicitly disabled in scope plan")))
+
+  (let* ((filepath (nth 0 args))
+         (full-path (expand-file-name filepath))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns)))
+
+    ;; Check deny patterns first
+    (when (and deny-patterns
+               (jf/gptel-scope--matches-any-pattern full-path deny-patterns))
+      (cl-return-from jf/gptel-scope--validate-read-file
+        (list :allowed nil
+              :patterns patterns
+              :deny_patterns deny-patterns
+              :resource full-path)))
+
+    ;; Check allow patterns
+    (if (and patterns
+             (jf/gptel-scope--matches-any-pattern full-path patterns))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource full-path))))
+
+(defun jf/gptel-scope--validate-write-file (config args)
+  "Validate write_file operation against CONFIG with ARGS.
+Args: (filepath content) - filepath is first argument."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-write-file
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "write_file_in_scope not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-write-file
+      (list :allowed nil
+            :message "write_file_in_scope explicitly disabled in scope plan")))
+
+  (let* ((filepath (nth 0 args))
+         (full-path (expand-file-name filepath))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns)))
+
+    ;; Check deny patterns first
+    (when (and deny-patterns
+               (jf/gptel-scope--matches-any-pattern full-path deny-patterns))
+      (cl-return-from jf/gptel-scope--validate-write-file
+        (list :allowed nil
+              :patterns patterns
+              :deny_patterns deny-patterns
+              :resource full-path)))
+
+    ;; Check allow patterns
+    (if (and patterns
+             (jf/gptel-scope--matches-any-pattern full-path patterns))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource full-path))))
+
+(defun jf/gptel-scope--validate-edit-file (config args)
+  "Validate edit_file operation against CONFIG with ARGS.
+Args: (filepath old-string new-string) - filepath is first argument."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-edit-file
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "edit_file_in_scope not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-edit-file
+      (list :allowed nil
+            :message "edit_file_in_scope explicitly disabled in scope plan")))
+
+  (let* ((filepath (nth 0 args))
+         (full-path (expand-file-name filepath))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns)))
+
+    ;; Check deny patterns first
+    (when (and deny-patterns
+               (jf/gptel-scope--matches-any-pattern full-path deny-patterns))
+      (cl-return-from jf/gptel-scope--validate-edit-file
+        (list :allowed nil
+              :patterns patterns
+              :deny_patterns deny-patterns
+              :resource full-path)))
+
+    ;; Check allow patterns
+    (if (and patterns
+             (jf/gptel-scope--matches-any-pattern full-path patterns))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource full-path))))
+;; Filesystem Tools:1 ends here
+
+;; Org-Roam Tools
+
+;; Validate org-roam node operations.
+
+
+;; [[file:scope-core.org::*Org-Roam Tools][Org-Roam Tools:1]]
+(defun jf/gptel-scope--validate-create-node (config args)
+  "Validate create_roam_node operation against CONFIG with ARGS.
+Args: (title subdirectory tags) - subdirectory and tags used for validation."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-create-node
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "create_roam_node_in_scope not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-create-node
+      (list :allowed nil
+            :message "create_roam_node_in_scope explicitly disabled in scope plan")))
+
+  (let* ((subdirectory (nth 1 args))
+         (tags (nth 2 args))
+         (patterns (plist-get config :patterns))
+         (allowed nil))
+
+    ;; Check subdirectory patterns (format: "subdirectory:path")
+    (when (and subdirectory patterns)
+      (dolist (pattern patterns)
+        (when (string-prefix-p "subdirectory:" pattern)
+          (let ((subdir-pattern (substring pattern 13)))
+            (when (string-match-p (jf/gptel-scope--glob-to-regex subdir-pattern)
+                                subdirectory)
+              (setq allowed t))))))
+
+    ;; Check tag patterns (format: "tag:tagname")
+    (when (and tags patterns)
+      (dolist (tag tags)
+        (dolist (pattern patterns)
+          (when (string= pattern (concat "tag:" tag))
+            (setq allowed t)))))
+
+    (if allowed
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :resource (format "subdirectory:%s tags:%s"
+                            (or subdirectory "none")
+                            (or (mapconcat #'identity tags ",") "none"))))))
+
+(defun jf/gptel-scope--validate-add-tags (config args)
+  "Validate add_roam_tags operation against CONFIG with ARGS.
+Args: (node-id tags) - tags used for validation."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-add-tags
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "add_roam_tags_in_scope not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-add-tags
+      (list :allowed nil
+            :message "add_roam_tags_in_scope explicitly disabled in scope plan")))
+
+  (let* ((tags (nth 1 args))
+         (patterns (plist-get config :patterns))
+         (allowed nil))
+
+    ;; Check tag patterns (format: "tag:tagname")
+    (when (and tags patterns)
+      (dolist (tag tags)
+        (dolist (pattern patterns)
+          (when (string= pattern (concat "tag:" tag))
+            (setq allowed t)))))
+
+    (if allowed
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :resource (format "tags:%s"
+                            (mapconcat #'identity tags ","))))))
+
+(defun jf/gptel-scope--validate-link-nodes (config args)
+  "Validate link_roam_nodes operation against CONFIG with ARGS.
+Args: (source-id target-id) - both node IDs used for validation."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-link-nodes
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "link_roam_nodes_in_scope not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-link-nodes
+      (list :allowed nil
+            :message "link_roam_nodes_in_scope explicitly disabled in scope plan")))
+
+  ;; For now, if tool is allowed, all linking is allowed
+  ;; Could be extended to check node subdirectories/tags
+  (list :allowed t))
+;; Org-Roam Tools:1 ends here
+
+;; Projectile Tools
+
+;; Validate projectile operations based on directory path.
+
+
+;; [[file:scope-core.org::*Projectile Tools][Projectile Tools:1]]
+(defun jf/gptel-scope--validate-projectile (config args)
+  "Validate projectile operation against CONFIG with ARGS.
+Args: (directory ...) - directory is first argument.
+All projectile tools validate based on directory path."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-projectile
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "Projectile tool not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-projectile
+      (list :allowed nil
+            :message "Projectile tool explicitly disabled in scope plan")))
+
+  (let* ((directory (nth 0 args))
+         (full-path (expand-file-name directory))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns)))
+
+    ;; Check deny patterns first
+    (when (and deny-patterns
+               (jf/gptel-scope--matches-any-pattern full-path deny-patterns))
+      (cl-return-from jf/gptel-scope--validate-projectile
+        (list :allowed nil
+              :patterns patterns
+              :deny_patterns deny-patterns
+              :resource full-path)))
+
+    ;; Check allow patterns
+    (if (and patterns
+             (jf/gptel-scope--matches-any-pattern full-path patterns))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource full-path))))
+;; Projectile Tools:1 ends here
+
+;; Shell Tools
+
+;; Validate shell command execution.
+
+
+;; [[file:scope-core.org::*Shell Tools][Shell Tools:1]]
+(defun jf/gptel-scope--validate-shell-command (config args)
+  "Validate shell command execution against CONFIG with ARGS.
+Args: (command) - command string is first argument."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-shell-command
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "run_approved_command not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-shell-command
+      (list :allowed nil
+            :message "run_approved_command explicitly disabled in scope plan")))
+
+  (let* ((command (nth 0 args))
+         (cmd-name (car (split-string command)))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns))
+         (allowed nil)
+         (denied nil))
+
+    ;; Check deny patterns (substring matching)
+    (when deny-patterns
+      (dolist (deny-pattern deny-patterns)
+        (when (string-match-p (regexp-quote deny-pattern) command)
+          (setq denied t))))
+
+    ;; Check allow patterns (exact command name match)
+    (when patterns
+      (dolist (pattern patterns)
+        (when (string= cmd-name pattern)
+          (setq allowed t))))
+
+    (if (and allowed (not denied))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource command))))
+;; Shell Tools:1 ends here
+
+;; Tree-sitter Tools
+
+;; Validate tree-sitter operations based on file path.
+
+
+;; [[file:scope-core.org::*Tree-sitter Tools][Tree-sitter Tools:1]]
+(defun jf/gptel-scope--validate-treesitter (config args)
+  "Validate tree-sitter operation against CONFIG with ARGS.
+Args: (filepath ...) - filepath is first argument.
+All tree-sitter file operations validate based on filepath."
+  (unless config
+    (cl-return-from jf/gptel-scope--validate-treesitter
+      (list :allowed nil
+            :error "tool_not_configured"
+            :message "Tree-sitter tool not configured in scope plan")))
+
+  (unless (plist-get config :allowed)
+    (cl-return-from jf/gptel-scope--validate-treesitter
+      (list :allowed nil
+            :message "Tree-sitter tool explicitly disabled in scope plan")))
+
+  (let* ((filepath (nth 0 args))
+         (full-path (expand-file-name filepath))
+         (patterns (plist-get config :patterns))
+         (deny-patterns (plist-get config :deny_patterns)))
+
+    ;; Check deny patterns first
+    (when (and deny-patterns
+               (jf/gptel-scope--matches-any-pattern full-path deny-patterns))
+      (cl-return-from jf/gptel-scope--validate-treesitter
+        (list :allowed nil
+              :patterns patterns
+              :deny_patterns deny-patterns
+              :resource full-path)))
+
+    ;; Check allow patterns
+    (if (and patterns
+             (jf/gptel-scope--matches-any-pattern full-path patterns))
+        (list :allowed t)
+      (list :allowed nil
+            :patterns patterns
+            :deny_patterns deny-patterns
+            :resource full-path))))
+;; Tree-sitter Tools:1 ends here
 
 ;; Convert Glob to Regex
 
@@ -228,137 +810,32 @@ Expands relative paths to absolute, resolves symlinks."
         (string-match-p regex abs-path))))
 ;; Test Path Against Pattern:1 ends here
 
-;; Check Filesystem Write Scope
+;; Format Tool Error
 
-;; Validate filesystem write operation against scope plan.
-
-
-;; [[file:scope-core.org::*Check Filesystem Write Scope][Check Filesystem Write Scope:1]]
-(defun jf/gptel-scope--check-filesystem-write (plan path)
-  "Check if PATH is allowed for write operations in PLAN.
-Returns plist with :allowed t/nil and relevant patterns."
-  (let* ((fs-data (plist-get plan :filesystem))
-         (write-patterns (plist-get fs-data :write))
-         (deny-patterns (plist-get fs-data :deny))
-         (allowed-by-write nil)
-         (denied-explicitly nil))
-
-    ;; Check deny patterns first (they override)
-    (dolist (pattern deny-patterns)
-      (when (jf/gptel-scope--matches-pattern path pattern)
-        (setq denied-explicitly t)))
-
-    ;; Check write patterns
-    (dolist (pattern write-patterns)
-      (when (jf/gptel-scope--matches-pattern path pattern)
-        (setq allowed-by-write t)))
-
-    ;; Return result
-    (if (and allowed-by-write (not denied-explicitly))
-        (list :allowed t)
-      (list :allowed nil
-            :allowed_patterns write-patterns
-            :deny_patterns deny-patterns))))
-;; Check Filesystem Write Scope:1 ends here
-
-;; Check Org-Roam Write Scope
-
-;; Validate org-roam write operation against scope plan.
+;; Create standardized error response for tool-level permission violations.
 
 
-;; [[file:scope-core.org::*Check Org-Roam Write Scope][Check Org-Roam Write Scope:1]]
-(defun jf/gptel-scope--check-org-roam-write (plan subdirectory tags)
-  "Check if org-roam write with SUBDIRECTORY and TAGS is allowed in PLAN.
-Returns plist with :allowed t/nil and relevant patterns."
-  (let* ((roam-data (plist-get plan :org_roam))
-         (write-patterns (plist-get roam-data :write))
-         (allowed nil))
-
-    ;; Check subdirectory patterns (format: "subdirectory:path/**")
-    (when subdirectory
-      (dolist (pattern write-patterns)
-        (when (string-prefix-p "subdirectory:" pattern)
-          (let ((subdir-pattern (substring pattern 13)))  ; Strip "subdirectory:" prefix
-            (when (string-match-p (jf/gptel-scope--glob-to-regex subdir-pattern) subdirectory)
-              (setq allowed t))))))
-
-    ;; Check tag patterns (format: "tag:tagname")
-    (when tags
-      (dolist (tag tags)
-        (dolist (pattern write-patterns)
-          (when (string= pattern (concat "tag:" tag))
-            (setq allowed t)))))
-
-    ;; Return result
-    (if allowed
-        (list :allowed t)
-      (list :allowed nil
-            :allowed_patterns write-patterns))))
-;; Check Org-Roam Write Scope:1 ends here
-
-;; Check Shell Command Scope
-
-;; Validate shell command against scope plan.
-
-
-;; [[file:scope-core.org::*Check Shell Command Scope][Check Shell Command Scope:1]]
-(defun jf/gptel-scope--check-shell-command (plan command)
-  "Check if COMMAND is allowed in PLAN.
-Returns plist with :allowed t/nil and relevant patterns."
-  (let* ((shell-data (plist-get plan :shell))
-         (allow-commands (plist-get shell-data :allow_commands))
-         (deny-commands (plist-get shell-data :deny_commands))
-         (cmd-name (car (split-string command)))
-         (allowed nil)
-         (denied nil))
-
-    ;; Check deny patterns (substring matching)
-    (dolist (deny-pattern deny-commands)
-      (when (string-match-p (regexp-quote deny-pattern) command)
-        (setq denied t)))
-
-    ;; Check allow patterns (exact command name)
-    (dolist (allow-pattern allow-commands)
-      (when (string= cmd-name allow-pattern)
-        (setq allowed t)))
-
-    ;; Return result
-    (if (and allowed (not denied))
-        (list :allowed t)
-      (list :allowed nil
-            :allowed_commands allow-commands
-            :deny_commands deny-commands))))
-;; Check Shell Command Scope:1 ends here
-
-;; Format Scope Violation Error
-
-;; Create standardized error response for scope violations.
-
-
-;; [[file:scope-core.org::*Format Scope Violation Error][Format Scope Violation Error:1]]
-(defun jf/gptel-scope--format-error (resource-type operation resource check-result)
-  "Format scope violation error for LLM.
-RESOURCE-TYPE: filesystem, org_roam, or shell
-OPERATION: write, link, exec, etc.
-RESOURCE: The path/node/command that was denied
-CHECK-RESULT: Plist from scope check function"
-  (let ((allowed-patterns (plist-get check-result :allowed_patterns))
+;; [[file:scope-core.org::*Format Tool Error][Format Tool Error:1]]
+(defun jf/gptel-scope--format-tool-error (tool-name resource check-result)
+  "Format tool permission error for LLM.
+TOOL-NAME: Name of the tool that was denied
+RESOURCE: The resource that was denied (path, node-id, command, etc.)
+CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny_patterns"
+  (let ((patterns (plist-get check-result :patterns))
         (deny-patterns (plist-get check-result :deny_patterns))
-        (allowed-commands (plist-get check-result :allowed_commands))
-        (deny-commands (plist-get check-result :deny_commands)))
+        (error-type (or (plist-get check-result :error) "scope_violation"))
+        (custom-message (plist-get check-result :message)))
     (list :success nil
-          :error "scope_violation"
+          :error error-type
+          :tool tool-name
           :resource resource
-          :resource_type resource-type
-          :operation operation
-          :allowed_patterns allowed-patterns
+          :allowed_patterns patterns
           :deny_patterns deny-patterns
-          :allowed_commands allowed-commands
-          :deny_commands deny-commands
-          :message (format "%s operation to '%s' denied by scope plan. Use request_scope_expansion tool to ask user for approval."
-                          (capitalize operation)
-                          resource))))
-;; Format Scope Violation Error:1 ends here
+          :message (or custom-message
+                      (format "Tool '%s' denied for resource '%s'. Use request_scope_expansion to ask user for approval."
+                             tool-name
+                             resource)))))
+;; Format Tool Error:1 ends here
 
 ;; Provide Feature
 

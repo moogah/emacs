@@ -73,6 +73,98 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 #+auto_tangle: y
 ```
 
+#### Keeping Babel Blocks Focused
+
+**Principle:** Keep org-babel blocks small and focused - typically one function per block.
+
+**Why this matters:**
+- **Easier debugging**: When validation fails, you can immediately identify which specific function has the error
+- **Better bisection**: The org-babel tangle bisection strategy is more effective with smaller blocks
+- **Incremental validation**: You can validate after writing each function without re-tangling large amounts of code
+- **Maintainability**: Changes to one function don't require re-tangling unrelated code
+
+**Guidelines:**
+
+**Good - Single function per block:**
+```org
+*** Record Answer
+#+begin_src emacs-lisp
+(defun jf/gptel-ask--record-answer (question-id question-text answer key)
+  "Record user's answer for QUESTION-ID."
+  (setq jf/gptel-ask--answers
+        (cons (list question-id question-text answer key)
+              (assoc-delete-all question-id jf/gptel-ask--answers))))
+#+end_src
+
+*** Check All Answered
+#+begin_src emacs-lisp
+(defun jf/gptel-ask--all-answered-p (questions)
+  "Check if all QUESTIONS have been answered."
+  (= (length jf/gptel-ask--answers)
+     (length questions)))
+#+end_src
+```
+
+**Acceptable - Small, logically related items grouped:**
+```org
+*** State Variables
+#+begin_src emacs-lisp
+(defvar jf/gptel-ask--active-callback nil
+  "Global callback for currently active question flow.")
+
+(defvar jf/gptel-ask--transitioning nil
+  "Flag indicating transition between questions.")
+#+end_src
+```
+
+**Bad - Multiple unrelated functions in one block:**
+```org
+*** Question Handling
+#+begin_src emacs-lisp
+(defun jf/gptel-ask--record-answer (...)
+  ...)
+
+(defun jf/gptel-ask--all-answered-p (...)
+  ...)
+
+(defun jf/gptel-ask--clear-answers (...)
+  ...)
+
+(defun jf/gptel-ask--current-question-index (...)
+  ...)
+
+(defun jf/gptel-ask--build-suffixes (...)
+  ...)
+
+(defun jf/gptel-ask--build-choice-suffixes (...)
+  ...)
+#+end_src
+```
+
+**When to group items:**
+- Multiple `defvar` declarations that are closely related
+- Short helper macros or constants used by a single function
+- Very simple related functions (< 5 lines each)
+
+**Refactoring large blocks:**
+
+When you encounter large blocks with many functions:
+1. Add subsection headers (*** or ****) for each function or logical group
+2. Move each function to its own `#+begin_src` block
+3. Keep the same tangle target
+4. Validate after refactoring: `./bin/tangle-org.sh file.org`
+5. Verify the tangled `.el` file is identical (no functional changes)
+
+**Benefits for debugging:**
+
+With focused blocks, the org-babel tangle bisection strategy becomes more powerful:
+- Disable tangling at file level
+- Enable tangling per subtree or per block
+- Validate after each addition
+- Quickly isolate the exact function with a syntax error
+
+See [Org-Babel Tangle Bisection Strategy](#org-babel-tangle-bisection-strategy) for details on using this debugging technique.
+
 #### After Tangling
 
 1. **Restart Emacs** or use `jf/reload-module` to load changes
@@ -89,6 +181,7 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 | Missing `#+auto_tangle: y` | Manual tangling required | Add header to `.org` file |
 | Property line not activated | Tangling fails silently | Press `C-c C-c` on `#+PROPERTY` line |
 | Syntax errors in org blocks | Breaks config on load | `./bin/tangle-org.sh` catches these |
+| Large babel blocks with many functions | Hard to debug syntax errors | Keep blocks focused - one function per block |
 
 ### Dual-Launch Support
 
@@ -246,40 +339,33 @@ Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
 ```
 gptel/
 ├── gptel.org/el         - Main loader
-├── sessions/            - 7 modules (registry, metadata, tracing, hooks, browser, branching, transient)
+├── sessions/            - 8 modules (constants, logging, filesystem, registry, metadata, subagent, commands, activities-integration)
 ├── skills/              - 3 modules (skills-core, skills-roam, skills-transient)
-├── tools/               - 7 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community)
+├── tools/               - 10 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community, persistent-agent, sql, transient)
 └── agents/              - 5 agent definitions (.md files)
 ```
 
 **Load order enforced in gptel.org:**
 1. Skills system (core, roam, transient)
 2. gptel-agent package + tool definitions
-3. Session modules in dependency order (registry → metadata → tracing → hooks → browser → branching → transient)
+3. Session modules in dependency order (constants → logging → filesystem → registry → metadata → subagent → commands)
+4. Activities integration (if activities package loaded)
 
 **All paths use `config/` prefix:**
 ```elisp
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 ```
 
-#### Session Browser Module Details
+#### Session Metadata Storage
 
-**sessions/browser.el** - Core browsing functionality
-- `jf/gptel-browse-sessions` - Open sessions directory in dired
-- `jf/gptel-open-session` - Select specific session with completing-read
-- `jf/gptel-view-context-at-point` - View context.md files
-- `jf/gptel-view-tools-at-point` - View tools.md files
-- `jf/gptel-session-tree-mode` - Minor mode with keybindings (auto-enabled in session directories)
+**Metadata migrated from metadata.json to scope-plan.yml + preset.md:**
+- `scope-plan.yml` - Session fields (session_id, created, updated, type, parent_session_id, agent_type)
+- `preset.md` - Configuration fields in YAML frontmatter (backend, model)
 
-**sessions/transient.el** - Transient menu (press `?` in session browser)
-- Organized command groups: Browse, View, Actions
-- Context-aware info display (current session, node type, session count)
-- Discoverable interface for all session operations
-
-**sessions/branching.el** - Resume and branch operations
-- `jf/gptel-resume-from-context` - Load context into gptel buffer
-- `jf/gptel-branch-from-point` - Copy node to create alternate path
-- `jf/gptel-send-from-context` - Send edited context to API
+**Registry simplified to runtime state only:**
+- Stores: `:session-id`, `:directory`, `:buffer`
+- Reads metadata on-demand from filesystem (single source of truth)
+- Eliminates cache invalidation complexity
 
 ## Common Development Commands
 

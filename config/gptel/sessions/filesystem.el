@@ -1,240 +1,167 @@
-;; -*- lexical-binding: t; -*-
+;;; filesystem.el --- GPTEL Session Filesystem Utilities -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Filesystem utilities for gptel session management.
+;; Handles directory creation, file path resolution, and session discovery.
+
+;;; Code:
+
 (require 'cl-lib)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
 
-(defvar-local jf/gptel--current-node-path nil
-  "Current path in the conversation tree.
-List of node names from root to current position.
-Example: '(\"msg-1\" \"response-1\" \"msg-2\" \"response-2\")")
+(defun jf/gptel--ensure-sessions-root ()
+  "Ensure the root sessions directory exists.
+Creates jf/gptel-sessions-directory if it doesn't exist.
+Returns the absolute path to the sessions directory."
+  (let ((dir (expand-file-name jf/gptel-sessions-directory)))
+    (unless (file-directory-p dir)
+      (make-directory dir t)
+      (jf/gptel--log 'info "Created sessions directory: %s" dir))
+    dir))
 
-(defun jf/gptel--find-max-node-id (session-dir pattern extract-number-fn)
-  "Recursively find maximum node ID in SESSION-DIR matching PATTERN.
-EXTRACT-NUMBER-FN is a function that extracts the number from a node name.
-Returns the maximum number found, or 0 if none found."
-  (let ((max-num 0))
-    (cl-labels ((scan-dir (dir)
-                  (when (file-directory-p dir)
-                    (dolist (entry (directory-files dir nil "^[^.]"))
-                      (let ((full-path (expand-file-name entry dir)))
-                        (when (file-directory-p full-path)
-                          (when (string-match pattern entry)
-                            (let ((num (funcall extract-number-fn entry)))
-                              (when (> num max-num)
-                                (setq max-num num))))
-                          ;; Recurse into subdirectories
-                          (scan-dir full-path)))))))
-      (scan-dir session-dir))
-    max-num))
+(defun jf/gptel--create-session-directory (session-id)
+  "Create directory for SESSION-ID.
+Returns the absolute path to the created directory."
+  (let* ((root (jf/gptel--ensure-sessions-root))
+         (session-dir (expand-file-name session-id root)))
+    (if (file-directory-p session-dir)
+        (progn
+          (jf/gptel--log 'warn "Session directory already exists: %s" session-dir)
+          session-dir)
+      (make-directory session-dir t)
+      (jf/gptel--log 'info "Created session directory: %s" session-dir)
+      session-dir)))
 
-(defun jf/gptel--next-message-id (session-dir)
-  "Generate next message ID by scanning entire SESSION-DIR tree.
-Finds highest msg-N across all levels and returns next sequential ID."
-  (let ((max-num (jf/gptel--find-max-node-id
-                  session-dir
-                  "^msg-\\([0-9]+\\)\\(-alt[0-9]+\\)?$"
-                  (lambda (name)
-                    (if (string-match "^msg-\\([0-9]+\\)" name)
-                        (string-to-number (match-string 1 name))
-                      0)))))
-    (format "msg-%d" (1+ max-num))))
+(defun jf/gptel--generate-session-id (base-name)
+  "Generate unique session ID from BASE-NAME.
+Format: <slugified-base-name>-<timestamp>
+Example: 'react-refactoring-20260120153042'"
+  (let* ((slug (replace-regexp-in-string "[^a-z0-9-]" "-"
+                                        (downcase base-name)))
+         (timestamp (format-time-string "%Y%m%d%H%M%S")))
+    (format "%s-%s" slug timestamp)))
 
-(defun jf/gptel--next-response-id (session-dir)
-  "Generate next response ID by scanning entire SESSION-DIR tree.
-Finds highest response-N across all levels and returns next sequential ID."
-  (let ((max-num (jf/gptel--find-max-node-id
-                  session-dir
-                  "^response-\\([0-9]+\\)\\(-alt[0-9]+\\)?$"
-                  (lambda (name)
-                    (if (string-match "^response-\\([0-9]+\\)" name)
-                        (string-to-number (match-string 1 name))
-                      0)))))
-    (format "response-%d" (1+ max-num))))
+(defun jf/gptel--session-id-from-directory (session-dir)
+  "Extract session ID from SESSION-DIR path.
+Returns the directory name (last path component)."
+  (file-name-nondirectory (directory-file-name session-dir)))
 
-(defun jf/gptel--next-branch-id (parent-dir base-name)
-  "Generate next branch ID for BASE-NAME in PARENT-DIR.
-BASE-NAME is like 'msg-2', returns 'msg-2-alt1', 'msg-2-alt2', etc."
-  (let* ((pattern (format "^%s-alt\\([0-9]+\\)$" (regexp-quote base-name)))
-         (existing (directory-files parent-dir nil pattern))
-         (alt-numbers (mapcar (lambda (name)
-                               (if (string-match pattern name)
-                                   (string-to-number (match-string 1 name))
-                                 0))
-                             existing))
-         (max-alt (if alt-numbers (apply 'max alt-numbers) 0)))
-    (format "%s-alt%d" base-name (1+ max-alt))))
+(defun jf/gptel--session-file-path (session-dir filename)
+  "Get absolute path to FILENAME in SESSION-DIR.
+Does not check if file exists."
+  (expand-file-name filename session-dir))
 
-(defun jf/gptel--build-context-from-history (history)
-  "Build markdown context from HISTORY.
-HISTORY is a list of plists with :role and :content.
-Returns markdown string suitable for context.md file."
-  (with-temp-buffer
-    (dolist (entry history)
-      (let ((role (plist-get entry :role))
-            (content (plist-get entry :content)))
-        ;; Add markdown heading for role
-        (insert (format "# %s\n\n" (capitalize (symbol-name role))))
-        ;; Add content
-        (insert content)
-        ;; Ensure content ends with newline
-        (unless (string-suffix-p "\n" content)
-          (insert "\n"))
-        ;; Add blank line between messages
-        (insert "\n")))
-    (buffer-string)))
+(defun jf/gptel--context-file-path (session-dir)
+  "Get path to context file in SESSION-DIR."
+  (jf/gptel--session-file-path session-dir jf/gptel-session--context-file))
 
-(defun jf/gptel--extract-conversation-history (&optional end-pos)
-  "Extract conversation history from current gptel buffer.
-If END-POS is provided, only extract history up to that position.
-Returns list of plists: (:role user|assistant :content string)."
-  (let ((history nil)
-        (scan-pt (point-min))
-        (end-point (or end-pos (point-max))))
-    (save-excursion
-      (while (< scan-pt end-point)
-        (goto-char scan-pt)
-        (let ((next-change (next-single-property-change scan-pt 'gptel nil end-point)))
-          (when next-change
-            (let* ((prop (get-char-property scan-pt 'gptel))
-                   (content (buffer-substring-no-properties scan-pt next-change))
-                   ;; Trim gptel's prefix markers
-                   (trimmed (gptel--trim-prefixes content))
-                   (role (if (eq prop 'response) 'assistant 'user)))
-              (when (and trimmed (not (string-empty-p trimmed)))
-                (push (list :role role :content trimmed) history)))
-            (setq scan-pt next-change))
-          (unless next-change
-            (setq scan-pt end-point)))))
-    (nreverse history)))
+(defun jf/gptel--scope-plan-file-path (session-dir)
+  "Get path to scope-plan.yml file in SESSION-DIR."
+  (expand-file-name "scope-plan.yml" session-dir))
 
-(defun jf/gptel--create-message-node (session-dir node-path response-start)
-  "Create message node in conversation tree.
-SESSION-DIR is the session root directory.
-NODE-PATH is list of parent node names (e.g., '(\"msg-1\" \"response-1\")).
-RESPONSE-START marks where the response begins (extract message before this point).
-Returns the new node ID."
-  (let* ((parent-path (jf/gptel--resolve-node-path session-dir node-path))
-         (node-id (jf/gptel--next-message-id session-dir))
-         (node-dir (expand-file-name node-id parent-path))
-         ;; Extract conversation history UP TO (but not including) the response
-         (history (jf/gptel--extract-conversation-history response-start)))
-    ;; Create node directory
-    (make-directory node-dir t)
-    ;; Write context.md with conversation up to this message
-    (let ((context-file (expand-file-name "context.md" node-dir))
-          (context-md (jf/gptel--build-context-from-history history)))
-      (with-temp-file context-file
-        (insert context-md)))
-    node-id))
+(defun jf/gptel--tools-log-path (session-dir)
+  "Get path to tools log file in SESSION-DIR."
+  (jf/gptel--session-file-path session-dir jf/gptel-session--tools-log-file))
 
-(defun jf/gptel--create-response-node (session-dir node-path)
-  "Create response node in conversation tree.
-SESSION-DIR is the session root directory.
-NODE-PATH is list of parent node names (e.g., '(\"msg-1\")).
-Returns the new node ID."
-  (let* ((parent-path (jf/gptel--resolve-node-path session-dir node-path))
-         (node-id (jf/gptel--next-response-id session-dir))
-         (node-dir (expand-file-name node-id parent-path))
-         ;; Extract complete conversation history including the response
-         (history (jf/gptel--extract-conversation-history)))
-    ;; Create node directory
-    (make-directory node-dir t)
-    ;; Write context.md with full conversation
-    (let ((context-file (expand-file-name "context.md" node-dir))
-          (context-md (jf/gptel--build-context-from-history history)))
-      (with-temp-file context-file
-        (insert context-md)))
-    node-id))
+(defun jf/gptel--system-prompts-log-path (session-dir)
+  "Get path to system prompts log file in SESSION-DIR."
+  (jf/gptel--session-file-path session-dir jf/gptel-session--system-prompts-file))
 
-(defun jf/gptel--resolve-node-path (session-dir node-path)
-  "Resolve NODE-PATH to absolute directory path.
-SESSION-DIR is the session root.
-NODE-PATH is list of node names.
-Returns absolute path to the deepest node."
-  (if (null node-path)
-      session-dir
-    (cl-reduce (lambda (parent node)
-                (expand-file-name node parent))
-              node-path
-              :initial-value session-dir)))
+(defun jf/gptel--agents-dir-path (session-dir)
+  "Get path to agents directory in SESSION-DIR."
+  (jf/gptel--session-file-path session-dir jf/gptel-session--agents-dir))
 
-(defun jf/gptel--save-tools-file (node-dir tool-calls)
-  "Save TOOL-CALLS to tools.md in NODE-DIR.
-TOOL-CALLS is a list of tool call plists with :name, :input, :result, etc."
-  (when tool-calls
-    (let ((tools-file (expand-file-name "tools.md" node-dir)))
-      (with-temp-file tools-file
-        (insert "## Tool Calls\n\n")
-        (dolist (tool-call tool-calls)
-          (let ((name (plist-get tool-call :name))
-                (id (plist-get tool-call :id))
-                (input (plist-get tool-call :input))
-                (result (plist-get tool-call :result)))
-            ;; Tool header
-            (insert (format "### %s\n" name))
-            (when id
-              (insert (format "**ID**: %s\n\n" id)))
-            ;; Input
-            (when input
-              (insert "**Input**:\n")
-              (insert "```json\n")
-              (insert (json-encode input))
-              (insert "\n```\n\n"))
-            ;; Result
-            (when result
-              (insert "**Result**:\n")
-              (insert "```\n")
-              (insert (if (stringp result)
-                         result
-                       (format "%S" result)))
-              (insert "\n```\n\n"))))))))
+(defun jf/gptel--list-session-directories ()
+  "List all session directories in jf/gptel-sessions-directory.
+Returns list of absolute paths to session directories."
+  (let ((root (expand-file-name jf/gptel-sessions-directory)))
+    (when (file-directory-p root)
+      (seq-filter
+       (lambda (path)
+         (and (file-directory-p path)
+              (not (string-prefix-p "." (file-name-nondirectory path)))))
+       (directory-files root t "^[^.]")))))
 
-(defun jf/gptel--update-current-symlink (session-dir node-path)
-  "Update current symlink to point to context.md at NODE-PATH.
-SESSION-DIR is the session root directory.
-NODE-PATH is list of node names."
-  (let* ((symlink-path (expand-file-name "current" session-dir))
-         (target-dir (jf/gptel--resolve-node-path session-dir node-path))
-         (target-file (expand-file-name "context.md" target-dir))
-         ;; Make relative path for more robust symlinks
-         (relative-target (file-relative-name target-file session-dir)))
-    ;; Remove old symlink if exists
-    (when (file-symlink-p symlink-path)
-      (delete-file symlink-path))
-    ;; Create new symlink
-    (make-symbolic-link relative-target symlink-path)))
+(defun jf/gptel--find-session-directory (session-id)
+  "Find session directory for SESSION-ID.
+Returns absolute path if found, nil otherwise."
+  (let ((root (expand-file-name jf/gptel-sessions-directory))
+        (expected (expand-file-name session-id
+                                   (expand-file-name jf/gptel-sessions-directory))))
+    (when (file-directory-p expected)
+      expected)))
 
-(defun jf/gptel--create-session-directory (session-id metadata)
-  "Create session directory with METADATA.
-SESSION-ID is the session identifier.
-METADATA is a plist with :model, :backend, :created.
-Returns the session directory path."
-  (let* ((sessions-base (expand-file-name jf/gptel-sessions-directory))
-         (session-dir (expand-file-name session-id sessions-base)))
-    ;; Create session directory
-    (make-directory session-dir t)
-    ;; Write metadata.json
-    (let ((metadata-file (expand-file-name "metadata.json" session-dir))
-          (json-data (list :session_id session-id
-                          :model (plist-get metadata :model)
-                          :backend (plist-get metadata :backend)
-                          :created (plist-get metadata :created))))
-      (with-temp-file metadata-file
-        (insert (json-encode json-data))))
-    session-dir))
+(defun jf/gptel--find-all-sessions-recursive (&optional root-dir depth)
+  "Find all session directories recursively, including agents.
+ROOT-DIR defaults to jf/gptel-sessions-directory.
+DEPTH is current nesting level (0 for top-level).
 
-(defun jf/gptel--read-context-file (context-path)
-  "Read and return contents of context.md at CONTEXT-PATH."
-  (when (file-exists-p context-path)
-    (with-temp-buffer
-      (insert-file-contents context-path)
-      (buffer-string))))
+Returns list of plists with:
+  :path - Full path to session directory
+  :id - Session ID (directory name)
+  :depth - Nesting depth (0 for top-level, 1+ for agents)
+  :parent-path - Path to parent session (nil for top-level)"
+  (let ((root (or root-dir (expand-file-name jf/gptel-sessions-directory)))
+        (current-depth (or depth 0))
+        (sessions nil))
+    (when (file-directory-p root)
+      ;; Find direct subdirectories
+      (dolist (entry (directory-files root t "^[^.]"))
+        (when (and (file-directory-p entry)
+                  (jf/gptel--valid-session-directory-p entry))
+          ;; Add this session
+          (push (list :path entry
+                     :id (jf/gptel--session-id-from-directory entry)
+                     :depth current-depth
+                     :parent-path (when (> current-depth 0) root))
+               sessions)
+          ;; Recursively find agents
+          (let ((agents-dir (jf/gptel--agents-dir-path entry)))
+            (when (file-directory-p agents-dir)
+              (setq sessions
+                   (append sessions
+                          (jf/gptel--find-all-sessions-recursive
+                           agents-dir
+                           (1+ current-depth)))))))))
+    (nreverse sessions)))
 
-(defun jf/gptel--list-child-nodes (parent-dir)
-  "List child node directories in PARENT-DIR.
-Returns list of node names (e.g., '(\"msg-1\" \"response-1\"))."
-  (when (file-directory-p parent-dir)
-    (let ((entries (directory-files parent-dir nil "^\\(msg\\|response\\)-[0-9]+")))
-      (cl-remove-if-not (lambda (name)
-                         (file-directory-p (expand-file-name name parent-dir)))
-                       entries))))
+(defun jf/gptel--create-agent-directory (parent-session-dir preset description)
+  "Create agent directory under PARENT-SESSION-DIR.
+PRESET is the preset name (e.g., 'researcher', 'executor').
+DESCRIPTION is a brief description for the directory name.
+Returns the absolute path to the created agent directory."
+  (let* ((agents-dir (jf/gptel--agents-dir-path parent-session-dir))
+         (slug (replace-regexp-in-string "[^a-z0-9-]" "-"
+                                        (downcase description)))
+         (timestamp (format-time-string "%Y%m%d%H%M%S"))
+         (dirname (format "%s-%s-%s" preset timestamp slug))
+         (agent-dir (expand-file-name dirname agents-dir)))
+    ;; Create agents directory if needed
+    (unless (file-directory-p agents-dir)
+      (make-directory agents-dir t))
+    ;; Create agent session directory
+    (make-directory agent-dir t)
+    (jf/gptel--log 'info "Created agent directory: %s" agent-dir)
+    agent-dir))
 
-(provide 'jf/gptel-session-filesystem)
+(defun jf/gptel--list-agent-directories (parent-session-dir)
+  "List all agent directories under PARENT-SESSION-DIR.
+Returns list of absolute paths."
+  (let ((agents-dir (jf/gptel--agents-dir-path parent-session-dir)))
+    (when (file-directory-p agents-dir)
+      (seq-filter
+       #'file-directory-p
+       (directory-files agents-dir t "^[^.]")))))
+
+(defun jf/gptel--valid-session-directory-p (dir)
+  "Return t if DIR is a valid session directory.
+Checks for existence and presence of scope-plan.yml file."
+  (and (file-directory-p dir)
+       (file-exists-p (jf/gptel--scope-plan-file-path dir))))
+
+(provide 'gptel-session-filesystem)
+;;; filesystem.el ends here

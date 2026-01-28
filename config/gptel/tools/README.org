@@ -209,26 +209,80 @@ For long-running operations, mark the tool as =:async t=. The function should:
  :async t)  ; Mark as async
 #+end_src
 
-* Subagent System
+** Async Tools with Transient Menus
+
+For interactive tools that require user input through transient menus, see
+=transient-tools.org= for a complete implementation guide.
+
+Key challenges with transient-based async tools:
+- Context switching: Transient opens in different buffer than gptel
+- Callback storage: Must remain accessible across buffer contexts
+- Concurrent sessions: Multiple gptel sessions may invoke tool simultaneously
+- Timing: Callback must be called exactly once when user makes selection
+
+**Solution**: Use transient's =:scope= mechanism to pass callback as a plist:
+
+#+begin_src emacs-lisp
+;; Example: Async tool with transient menu
+(defun my-choice-tool (callback)
+  "Async tool that presents transient menu for user selection."
+  ;; Pass callback via scope (supports concurrent sessions)
+  (transient-setup 'my-choice-menu nil nil
+                   :scope (list :callback callback)))
+
+(transient-define-suffix my-choice--select-a ()
+  "Handle option A selection."
+  :transient nil
+  (interactive)
+  (let* ((scope (transient-scope))
+         (callback (plist-get scope :callback)))
+    (funcall callback "Option A")))
+
+(transient-define-prefix my-choice-menu ()
+  "Choice menu."
+  ["Choose an option"
+   ("a" "Option A" my-choice--select-a)])
+
+(gptel-make-tool
+ :name "my_choice"
+ :function #'my-choice-tool
+ :description "Present menu for user selection"
+ :args nil
+ :async t)
+#+end_src
+
+**Why =:scope= is best**:
+- ✅ No global state (supports multiple concurrent sessions)
+- ✅ Automatic cleanup when transient exits
+- ✅ Leverages transient's built-in design
+- ✅ Extensible with plist structure
+
+See =transient-tools.org= for comprehensive documentation including:
+- Detailed explanation of gptel's FSM and timing requirements
+- Context switching challenges and solutions
+- Best practices and common pitfalls
+- Testing concurrent sessions
+
+* Agent System
 
 ** Overview
 
-The subagent system enables LLM agents to delegate specialized tasks to isolated subagents
+The agent system enables LLM agents to delegate specialized tasks to isolated agents
 that run with dedicated tool sets, models, and configurations. This preserves the primary
 agent's context window by offloading complex subtasks to specialized agents that return
 concise summaries.
 
-Built on [[https://github.com/karthink/gptel-agent][gptel-agent]] infrastructure for robust, battle-tested subagent execution.
+Built on [[https://github.com/karthink/gptel-agent][gptel-agent]] infrastructure for robust, battle-tested agent execution.
 
 ** Architecture
 
 *File-Based Agent Definitions*: Agents are defined in markdown/org files with YAML frontmatter
 
-*Invisible Execution*: Subagents run in the background without creating visible buffers
+*Invisible Execution*: Agents run in the background without creating visible buffers
 
-*Standard Tool*: Use the =Agent= tool (from gptel-agent) to invoke subagents
+*Standard Tool*: Use the =Agent= tool (from gptel-agent) to invoke agents
 
-*Complete Isolation*: Each subagent gets its own:
+*Complete Isolation*: Each agent gets its own:
 - FSM (finite state machine) instance for state management
 - Tool set (defined in agent file)
 - Backend and model configuration
@@ -344,7 +398,7 @@ The planner agent automatically has access to the =Agent= tool for delegation.
 
 *** Result Format
 
-Subagents return only their final response (not full conversation history):
+Agents return only their final response (not full conversation history):
 
 #+begin_example
 [executor] result for task: Create authentication module
@@ -504,9 +558,9 @@ This is only used when =confirm-tool-calls= is ='auto= at the global or agent le
 ** Comparison to Legacy Implementation
 
 Previous custom implementation (now deprecated):
-- Created visible buffers (=*gptel-subagent-*=)
+- Created visible buffers (=*gptel-agent-*=)
 - Hardcoded presets in elisp
-- Custom =invoke_subagent= tool
+- Custom =invoke_agent= tool
 - Manual FSM and callback management
 
 Current gptel-agent implementation:
@@ -537,7 +591,7 @@ Agent definitions:
 
 Deprecated files:
 
-- =subagent-tools.org= :: Legacy subagent implementation (superseded by gptel-agent integration)
+- =subagent-tools.org= :: Legacy agent implementation (superseded by gptel-agent integration)
 
 Each =.org= file tangles to a =.el= file that is loaded by =major-modes/gpt.org=.
 

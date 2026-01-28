@@ -1,61 +1,68 @@
+;;; constants.el --- GPTEL Session Constants -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Centralized constants for gptel session management.
+;; Defines directory paths, file names, and configuration variables.
+
+;;; Code:
+
 (require 'cl-lib)
 
-(defconst jf/gptel-session-tree-root-id "root"
-  "The ID of the root node in the session conversation tree.
-All conversation paths start from this node.")
+(defcustom jf/gptel-sessions-directory "~/.gptel/sessions/"
+  "Directory where gptel sessions are stored.
+Each session is a subdirectory containing conversation history,
+metadata, tool logs, and branching information."
+  :type 'directory
+  :group 'gptel)
 
-(defconst jf/gptel-session-node-prefix-message "message-"
-  "Prefix for user message node IDs.
-Format: message-N or message-N-altM for branches.")
+(defcustom jf/gptel-presets-directory
+  (expand-file-name "config/gptel/presets/" jf/emacs-dir)
+  "Directory containing preset template files.
+Users can create custom presets by copying and editing template files."
+  :type 'directory
+  :group 'gptel)
 
-(defconst jf/gptel-session-node-prefix-response "response-"
-  "Prefix for assistant response node IDs.
-Format: response-N or response-N-altM for branches.")
+(defconst jf/gptel-session--context-file "session.md"
+  "File name for main conversation context.
+Uses markdown format (gptel's native format).")
 
-(defconst jf/gptel-session-node-prefix-trace "trace-"
-  "Prefix for agent execution trace node IDs.
-Format: trace-N")
+(defconst jf/gptel-session--tools-log-file "tools.org"
+  "File name for tool call log.
+Uses org-mode format for better structure and linking.")
 
-(defconst jf/gptel-session-metadata-filename "metadata.json"
-  "Name of the session metadata file stored in each session directory.")
+(defconst jf/gptel-session--system-prompts-file "system-prompts.org"
+  "File name for system prompt change log.
+Uses org-mode format for better structure.")
 
-(defconst jf/gptel-session-traces-dirname "traces"
-  "Name of the subdirectory containing agent execution traces.")
+(defconst jf/gptel-session--current-link "current"
+  "Name of symlink pointing to current conversation position.")
 
-(defconst jf/gptel-session-trace-metadata-filename "metadata.json"
-  "Name of the trace metadata file within each trace directory.")
+(defconst jf/gptel-session--agents-dir "agents"
+  "Directory name for agent sessions within parent session.")
 
-(defconst jf/gptel-session-trace-tool-results-dirname "tool-results"
-  "Name of the subdirectory containing large tool result outputs.")
+(defcustom jf/gptel-autosave-idle-time 0.5
+  "Idle time in seconds before auto-saving session buffer.
+Set to 0 to disable auto-save."
+  :type 'number
+  :group 'gptel)
 
-(defconst jf/gptel-session-node-patterns
-  '((:message . "^message-\\([0-9]+\\)\\(?:-alt\\([0-9]+\\)\\)?$")
-    (:response . "^response-\\([0-9]+\\)\\(?:-alt\\([0-9]+\\)\\)?$")
-    (:trace . "^trace-\\([0-9]+\\)$"))
-  "Regular expression patterns for parsing node IDs.
-Each pattern captures the sequence number and optional alternate number.")
+(defvar-local jf/gptel-autosave-enabled nil
+  "Buffer-local flag controlling auto-save for this session.")
 
-(defun jf/gptel--node-id-parse (node-id)
-  "Parse NODE-ID and return its components.
-Returns a plist (:type TYPE :number N :alt M) or nil if invalid.
-TYPE is one of :message, :response, or :trace.
-N is the sequence number (integer).
-M is the alternate/branch number (integer or nil for main path)."
-  (let ((result nil))
-    (cl-loop for (type . pattern) in jf/gptel-session-node-patterns
-             when (string-match pattern node-id)
-             do (setq result
-                      (list :type type
-                            :number (string-to-number (match-string 1 node-id))
-                            :alt (when (match-string 2 node-id)
-                                   (string-to-number (match-string 2 node-id)))))
-             and return t)
-    result))
+(defvar-local jf/gptel--session-id nil
+  "Unique identifier for the current gptel session.
+Format: <slug>-<timestamp>, e.g., 'react-refactoring-20260120153042'.")
 
-(defconst jf/gptel-session-overlay-properties
-  '((jf/session-id . "Session ID for cross-buffer context tracking"))
-  "Documented overlay properties used by the session system.
-This defines the contract for overlay properties that components
-may inspect or modify.")
+(defvar-local jf/gptel--session-dir nil
+  "Absolute path to the directory for the current session.
+All session files (context, metadata, tools log, etc.) are stored here.")
 
-(provide 'jf/gptel-session-constants)
+(defvar-local jf/gptel--parent-session-id nil
+  "Session ID of parent session (for agents only).
+Nil for top-level sessions.")
+
+(provide 'gptel-session-constants)
+;;; constants.el ends here

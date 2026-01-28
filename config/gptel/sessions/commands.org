@@ -1,0 +1,842 @@
+#+title: GPTEL Session Commands
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle commands.el
+#+auto_tangle: y
+
+* Introduction
+
+User-facing commands for creating and managing gptel persistent sessions.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
+;;; commands.el --- GPTEL Session Commands -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Interactive commands for gptel session management.
+;;
+;; ARCHITECTURE NOTE: Preset files are templates used at session creation.
+;; Once created, gptel's Local Variables are the source of truth for settings.
+;; Presets are NOT reapplied on resume - they may become stale as sessions evolve.
+;;
+;; SYSTEM MESSAGE HANDLING: System messages are managed via preset files, not
+;; Local Variables. This prevents duplicate Local Variables blocks when system
+;; messages exceed ~4000 characters. Buffer-local advice on gptel--save-state
+;; prevents gptel from persisting system messages to Local Variables.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'gptel)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-metadata)
+(require 'jf-gptel-scope-commands)
+#+end_src
+
+* Diagnostic and Maintenance Functions
+
+Functions for debugging persistence issues and maintaining session health.
+
+** Check for Duplicate Save Hooks
+
+#+begin_src emacs-lisp
+(defun jf/gptel--check-duplicate-hooks ()
+  "Check if before-save-hook has duplicate gptel--save-state entries.
+Returns the count of gptel--save-state hooks found."
+  (interactive)
+  (let* ((hooks (buffer-local-value 'before-save-hook (current-buffer)))
+         (save-state-count (cl-count 'gptel--save-state hooks)))
+    (message "before-save-hook has %d entries, %d are gptel--save-state"
+             (length hooks) save-state-count)
+    (when (> save-state-count 1)
+      (warn "DUPLICATE HOOK DETECTED: gptel--save-state appears %d times!"
+            save-state-count)
+      (with-current-buffer (get-buffer-create "*Hook Duplicates*")
+        (erase-buffer)
+        (insert (format "Duplicate hooks detected in buffer: %s\n\n"
+                        (buffer-name)))
+        (insert (format "before-save-hook entries (%d total):\n" (length hooks)))
+        (dolist (hook hooks)
+          (insert (format "  - %s\n" hook)))
+        (display-buffer (current-buffer))))
+    save-state-count))
+#+end_src
+
+** Ensure gptel-mode Enabled Once
+
+#+begin_src emacs-lisp
+(defun jf/gptel--ensure-mode-once ()
+  "Ensure gptel-mode is enabled exactly once with correct hooks.
+Prevents duplicate before-save-hook entries that cause duplicate Local Variables."
+  (unless gptel-mode
+    (gptel-mode 1))
+
+  ;; Defensive: Remove any duplicate hooks that might have accumulated
+  (let ((hooks (buffer-local-value 'before-save-hook (current-buffer)))
+        (count (cl-count 'gptel--save-state
+                        (buffer-local-value 'before-save-hook (current-buffer)))))
+    (when (> count 1)
+      (jf/gptel--log 'warn "Removing %d duplicate gptel--save-state hooks" (1- count))
+      ;; Remove all instances and re-add once
+      (remove-hook 'before-save-hook #'gptel--save-state t)
+      (add-hook 'before-save-hook #'gptel--save-state nil t))))
+#+end_src
+
+** Clean Duplicate Local Variables
+
+#+begin_src emacs-lisp
+(defun jf/gptel--clean-duplicate-local-vars ()
+  "Remove all but the last Local Variables block in current buffer.
+Useful for cleaning up files with duplicate blocks from previous bugs."
+  (interactive)
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let ((blocks nil)
+            (changes 0))
+        ;; Find all Local Variables blocks
+        (while (re-search-forward "^<!-- Local Variables: -->$" nil t)
+          (let ((start (match-beginning 0)))
+            (when (re-search-forward "^<!-- End: -->$" nil t)
+              (push (cons start (match-end 0)) blocks))))
+
+        ;; If more than one block, delete all but the last
+        (when (> (length blocks) 1)
+          (setq blocks (nreverse blocks))  ; oldest first
+          (dolist (block (butlast blocks))  ; all except last
+            (delete-region (car block) (cdr block))
+            (delete-blank-lines)
+            (cl-incf changes))
+          (message "Removed %d duplicate Local Variables block(s)" changes)
+          (set-buffer-modified-p t)
+          changes)))))
+#+end_src
+
+** Batch Clean All Session Files
+
+#+begin_src emacs-lisp
+(defun jf/gptel--batch-clean-sessions ()
+  "Clean duplicate Local Variables from all session files.
+Scans all sessions and removes duplicate blocks without opening buffers."
+  (interactive)
+  (let ((sessions (jf/gptel--find-all-sessions-recursive))
+        (cleaned 0)
+        (total 0))
+    (dolist (session sessions)
+      (let* ((session-dir (plist-get session :path))
+             (session-file (jf/gptel--context-file-path session-dir)))
+        (when (file-exists-p session-file)
+          (cl-incf total)
+          (with-temp-buffer
+            (insert-file-contents session-file)
+            (goto-char (point-min))
+            (let ((block-count 0))
+              (while (re-search-forward "^<!-- Local Variables: -->$" nil t)
+                (cl-incf block-count))
+              (when (> block-count 1)
+                (erase-buffer)
+                (insert-file-contents session-file)
+                (goto-char (point-min))
+                (let ((blocks nil))
+                  (while (re-search-forward "^<!-- Local Variables: -->$" nil t)
+                    (let ((start (match-beginning 0)))
+                      (when (re-search-forward "^<!-- End: -->$" nil t)
+                        (push (cons start (match-end 0)) blocks))))
+                  (when (> (length blocks) 1)
+                    (setq blocks (nreverse blocks))
+                    (dolist (block (butlast blocks))
+                      (delete-region (car block) (cdr block))
+                      (delete-blank-lines))
+                    (write-region (point-min) (point-max) session-file)
+                    (cl-incf cleaned)
+                    (jf/gptel--log 'info "Cleaned duplicates from: %s" session-file)))))))))
+    (message "Cleaned %d of %d session files" cleaned total)))
+#+end_src
+
+* System Message Management
+
+Functions for handling system messages in session buffers without triggering
+gptel's Local Variables persistence. System messages are managed via preset
+files to avoid duplicate Local Variables blocks when messages are >4000 chars.
+
+** Advice: Skip System Message Save
+
+#+begin_src emacs-lisp
+(defun jf/gptel--skip-system-message-save-advice (orig-fun)
+  "Prevent gptel from saving system message for session buffers.
+Session system messages are managed via preset files, not Local Variables.
+This advice temporarily removes the buffer-local binding during save,
+preventing gptel from detecting a difference from default value."
+  (if (and (boundp 'jf/gptel--session-dir) jf/gptel--session-dir
+           (boundp 'gptel--system-message)
+           (local-variable-p 'gptel--system-message))
+      ;; Temporarily kill buffer-local binding so gptel won't save it
+      (let ((saved-system-msg gptel--system-message))
+        (kill-local-variable 'gptel--system-message)
+        (unwind-protect
+            (funcall orig-fun)
+          ;; Restore buffer-local binding after save
+          (setq-local gptel--system-message saved-system-msg)))
+    ;; Not a session buffer or no buffer-local system message, use default behavior
+    (funcall orig-fun)))
+#+end_src
+
+** Helper: Set Session System Message
+
+#+begin_src emacs-lisp
+(defun jf/gptel--set-session-system-message (system-message)
+  "Set system message for session buffer without triggering Local Variables save.
+System message is managed via preset files, not gptel's Local Variables persistence.
+Installs buffer-local advice to prevent gptel--save-state from saving it."
+  (when system-message
+    ;; Set the system message in the buffer
+    (setq-local gptel--system-message system-message)
+
+    ;; Install buffer-local advice to prevent gptel from saving it
+    (advice-add 'gptel--save-state :around
+                #'jf/gptel--skip-system-message-save-advice
+                '((local)))
+
+    (jf/gptel--log 'debug "Set session system message (%d chars) with save-prevention"
+                  (length system-message))))
+#+end_src
+
+* Preset Management Helpers
+
+Helper functions for creating, loading, and applying session presets.
+
+NOTE: Preset files are templates used at session creation. Once a session
+is created and saved, gptel's Local Variables become the authoritative
+source for settings. Presets are NOT reapplied on resume.
+
+** Template Discovery and Selection
+
+Helper functions for discovering and copying preset templates.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--list-preset-templates ()
+  "List available preset template files in jf/gptel-presets-directory.
+Returns list of template names (without extensions)."
+  (let* ((preset-dir (expand-file-name jf/gptel-presets-directory))
+         (files (directory-files preset-dir nil "\\.\\(md\\|org\\)$")))
+    (mapcar (lambda (f) (file-name-sans-extension f)) files)))
+
+(defun jf/gptel--resolve-preset-template (template-name)
+  "Resolve TEMPLATE-NAME to full path.
+Checks for both .md and .org extensions.
+Returns nil if template doesn't exist."
+  (let* ((preset-dir (expand-file-name jf/gptel-presets-directory))
+         (md-file (expand-file-name (concat template-name ".md") preset-dir))
+         (org-file (expand-file-name (concat template-name ".org") preset-dir)))
+    (cond
+     ((file-exists-p md-file) md-file)
+     ((file-exists-p org-file) org-file)
+     (t nil))))
+
+(defun jf/gptel--select-preset-template ()
+  "Prompt user to select a preset template.
+Returns template name (without extension)."
+  (let ((templates (jf/gptel--list-preset-templates)))
+    (if (null templates)
+        (error "No preset templates found in %s" jf/gptel-presets-directory)
+      (completing-read "Select preset template: " templates nil t nil nil "programming-assistant"))))
+
+(defun jf/gptel--copy-preset-template (template-name session-dir)
+  "Copy preset template TEMPLATE-NAME to SESSION-DIR.
+Copies as preset.md or preset.org depending on source format.
+Signals error if template doesn't exist."
+  (let ((template-path (jf/gptel--resolve-preset-template template-name)))
+    (unless template-path
+      (error "Preset template not found: %s (checked .md and .org)" template-name))
+    (let* ((template-ext (file-name-extension template-path))
+           (dest-file (expand-file-name (concat "preset." template-ext) session-dir)))
+      (when (file-exists-p dest-file)
+        (jf/gptel--log 'warn "Overwriting existing preset file: %s" dest-file))
+      (copy-file template-path dest-file t)
+      (jf/gptel--log 'info "Copied preset template %s to %s" template-name dest-file)
+      dest-file)))
+#+end_src
+
+** Normalize Preset for Serialization
+
+Helper function to convert preset plist to serializable form.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--normalize-preset-for-serialization (preset-plist)
+  "Convert PRESET-PLIST to serializable form.
+Backend objects → names, model symbols → strings, tools → names."
+  (let* ((backend (plist-get preset-plist :backend))
+         (backend-name (if (gptel-backend-p backend)
+                          (gptel-backend-name backend)
+                        backend))
+         (model (plist-get preset-plist :model))
+         (model-name (if (symbolp model) (symbol-name model) model))
+         (tools (plist-get preset-plist :tools))
+         (tool-names (when tools
+                      (mapcar (lambda (tool)
+                               (if (stringp tool) tool (gptel-tool-name tool)))
+                             tools))))
+    (list :backend backend-name
+          :model model-name
+          :tools tool-names
+          :description (plist-get preset-plist :description)
+          :system (plist-get preset-plist :system)
+          :temperature (plist-get preset-plist :temperature)
+          :include-tool-results (plist-get preset-plist :include-tool-results))))
+#+end_src
+
+** Write Preset to Markdown File
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-preset-md (session-dir preset-plist)
+  "Write PRESET-PLIST as preset.md in SESSION-DIR.
+Converts backend/model objects to names, tools to name strings."
+  (let* ((normalized (jf/gptel--normalize-preset-for-serialization preset-plist))
+         (backend-name (plist-get normalized :backend))
+         (model-name (plist-get normalized :model))
+         (system (plist-get normalized :system))
+         (temperature (plist-get normalized :temperature))
+         (include-tool-results (plist-get normalized :include-tool-results))
+         (tool-names (plist-get normalized :tools))
+         (preset-file (expand-file-name "preset.md" session-dir)))
+    (with-temp-file preset-file
+      (insert "---\n")
+      (insert (format "description: %s\n" (plist-get normalized :description)))
+      (insert (format "backend: %s\n" backend-name))
+      (insert (format "model: %s\n" model-name))
+      (insert (format "temperature: %s\n" temperature))
+      (insert (format "include-tool-results: %s\n" include-tool-results))
+      (when tool-names
+        (insert "tools:\n")
+        (dolist (tool-name tool-names)
+          (insert (format "  - %s\n" tool-name))))
+      (insert "---\n\n")
+      (when system
+        (insert system)))
+    (jf/gptel--log 'info "Created preset.md: %s" preset-file)))
+#+end_src
+
+** Write Preset to Org File
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-preset-org (session-dir preset-plist)
+  "Write PRESET-PLIST as preset.org in SESSION-DIR.
+Converts backend/model objects to names, tools to space-separated string."
+  (let* ((normalized (jf/gptel--normalize-preset-for-serialization preset-plist))
+         (backend-name (plist-get normalized :backend))
+         (model-name (plist-get normalized :model))
+         (system (plist-get normalized :system))
+         (temperature (plist-get normalized :temperature))
+         (include-tool-results (plist-get normalized :include-tool-results))
+         (tool-names (plist-get normalized :tools))
+         (preset-file (expand-file-name "preset.org" session-dir)))
+    (with-temp-file preset-file
+      (insert ":PROPERTIES:\n")
+      (insert (format ":description: %s\n" (plist-get normalized :description)))
+      (insert (format ":backend: %s\n" backend-name))
+      (insert (format ":model: %s\n" model-name))
+      (insert (format ":temperature: %s\n" temperature))
+      (insert (format ":include-tool-results: %s\n" include-tool-results))
+      (when tool-names
+        (let ((tools-str (mapconcat #'identity tool-names " ")))
+          (insert (format ":tools: %s\n" tools-str))))
+      (insert ":END:\n\n")
+      (when system
+        (insert system)))
+    (jf/gptel--log 'info "Created preset.org: %s" preset-file)))
+#+end_src
+
+** Write Preset File (Dispatcher)
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-preset-file (session-dir preset-plist &optional format)
+  "Write PRESET-PLIST to preset file in SESSION-DIR.
+FORMAT can be 'md (markdown) or 'org (default: 'md).
+Converts backend objects to names, tools to name strings."
+  (let ((format (or format 'md)))
+    (pcase format
+      ('md (jf/gptel--write-preset-md session-dir preset-plist))
+      ('org (jf/gptel--write-preset-org session-dir preset-plist))
+      (_ (error "Unsupported preset format: %s (expected 'md or 'org)" format)))))
+#+end_src
+
+** Load Preset from File
+
+NOTE: This function is kept for potential future use (e.g., creating new
+sessions from existing presets), but is NOT used during session resume.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--load-preset-from-file (session-dir)
+  "Load preset for session in SESSION-DIR.
+Supports .md and .org formats only.
+
+Priority order:
+1. session-dir/preset.md
+2. session-dir/preset.org
+
+Returns preset plist with keys :description, :backend, :model, :system,
+:temperature, :include-tool-results, :tools.
+
+NOTE: This is a template loader, not used during session resume."
+  (let* ((md-file (expand-file-name "preset.md" session-dir))
+         (org-file (expand-file-name "preset.org" session-dir))
+         (preset-path (cond
+                       ((file-exists-p md-file) md-file)
+                       ((file-exists-p org-file) org-file)
+                       (t (error "No preset file found in %s (expected preset.md or preset.org)" session-dir))))
+         (ext (file-name-extension preset-path)))
+    (unless (member ext '("md" "org"))
+      (error "Unsupported preset file format: %s (expected .md or .org)" ext))
+    ;; Load using gptel-agent parser
+    (require 'gptel-agent)
+    ;; Pass non-nil templates to trigger :system extraction (empty list '() is nil in elisp!)
+    (let* ((preset-data (gptel-agent-read-file preset-path '((dummy . dummy))))
+           (preset-plist (cdr preset-data))
+           ;; Convert tool names to tool objects if needed
+           (tools (plist-get preset-plist :tools))
+           (resolved-tools
+            (when tools
+              (if (listp tools)
+                  tools  ; Already a list
+                (split-string tools)))))  ; Space-separated string from org
+      ;; Update tools in plist
+      (when resolved-tools
+        (plist-put preset-plist :tools resolved-tools))
+      ;; Convert backend name to object
+      (when-let ((backend-name (plist-get preset-plist :backend)))
+        (plist-put preset-plist :backend
+                   (alist-get backend-name gptel--known-backends nil nil #'equal)))
+      ;; Convert model name to symbol
+      (when-let ((model-name (plist-get preset-plist :model)))
+        (plist-put preset-plist :model
+                   (if (symbolp model-name) model-name (intern model-name))))
+      preset-plist)))
+#+end_src
+
+** Apply Session Preset
+
+#+begin_src emacs-lisp
+(defun jf/gptel--apply-session-preset (preset-plist)
+  "Apply PRESET-PLIST to current buffer buffer-locally.
+Includes tools from preset and gptel-include-tool-results for native tool persistence.
+
+NOTE: This should only be called ONCE at session creation.
+After the first save, gptel's Local Variables become the source of truth.
+
+IMPORTANT: Sets system message with save-prevention advice to prevent gptel
+from saving it to Local Variables (which causes duplicate blocks with long
+messages >4000 chars). System message is managed via preset files."
+  (let ((backend (plist-get preset-plist :backend))
+        (model (plist-get preset-plist :model))
+        (system (plist-get preset-plist :system))
+        (temperature (plist-get preset-plist :temperature))
+        (include-tool-results (plist-get preset-plist :include-tool-results))
+        (tools (plist-get preset-plist :tools)))
+    (when backend
+      (setq-local gptel-backend backend))
+    (when model
+      (setq-local gptel-model model))
+    ;; Set system message with save-prevention (so it's active from session start)
+    (when system
+      (jf/gptel--set-session-system-message system))
+    (when temperature
+      (setq-local gptel-temperature temperature))
+    (when (not (null include-tool-results))
+      (setq-local gptel-include-tool-results include-tool-results))
+    ;; Apply tools from preset
+    (when tools
+      (let ((resolved-tools
+             (cl-loop for tool-name in tools
+                      for tool = (gptel-get-tool tool-name)
+                      when tool collect tool
+                      else do (jf/gptel--log 'warn "Tool not found: %s" tool-name))))
+        (when resolved-tools
+          (setq-local gptel-tools resolved-tools)
+          (jf/gptel--log 'info "Applied %d tools from preset" (length resolved-tools)))))
+    (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
+#+end_src
+
+* Create Persistent Session
+
+Interactive command to create a new persistent programming session with scoped tools and projectile integration.
+
+Uses programming assistant preset template which includes:
+- Claude Opus 4.5 model
+- Scoped filesystem tools (read, write, edit)
+- Projectile navigation tools
+- Scope management tools (inspect, request expansion)
+- Detailed system prompt for programming assistance
+
+** Workflow
+
+1. Prompts for session name
+2. Optionally prompts to select projectile projects (y-or-n-p)
+3. If projects selected: Multi-select from =projectile-known-projects=
+4. Creates session directory structure
+5. Stores selected projects in metadata (=:projects=, =:project-names= fields)
+6. Creates scope plan:
+   - *With projects*: project-aware template (scoped read/write/edit to selected projects)
+   - *Without projects*: deny-all template (secure default)
+7. Creates preset.md as template (ONE TIME USE)
+8. Applies preset settings to buffer (ONE TIME)
+9. Opens session buffer
+10. After first save, gptel's Local Variables become source of truth
+
+** Projectile Integration
+
+When projects are selected:
+- Session metadata includes =:projects= (full paths) and =:project-names= (display names)
+- Scope plan restricts all operations to selected project directories
+- Git-safe editing enforced: =edit_file_in_scope= only allows git-tracked files
+- Prevents accidental modification of ignored files (node_modules/, build artifacts, etc.)
+
+#+begin_src emacs-lisp
+(defun jf/gptel-persistent-session (session-name &optional backend model preset-template)
+  "Create a new persistent gptel session named SESSION-NAME.
+
+Optional BACKEND and MODEL default to Claude Opus 4.5.
+Optional PRESET-TEMPLATE specifies template name (default: \"programming-assistant\").
+With prefix argument (C-u), prompts to select template interactively.
+
+Prompts user to select projectile projects (0 or more).
+If projects selected, creates project-aware scope plan.
+Otherwise creates deny-all scope plan.
+
+Creates session directory, copies preset template, creates scope plan, and opens session buffer.
+The preset is loaded and applied ONCE at creation. After first save, gptel's Local Variables
+are the authoritative source for settings.
+
+The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/session.md"
+  (interactive
+   (let ((name (read-string "Session name: "))
+         (template (if current-prefix-arg
+                       (jf/gptel--select-preset-template)
+                     "programming-assistant")))
+     (list name nil nil template)))
+  (let* ((session-id (jf/gptel--generate-session-id session-name))
+         (session-dir (jf/gptel--create-session-directory session-id))
+         (session-file (jf/gptel--context-file-path session-dir))
+         (backend (or backend (alist-get "Claude" gptel--known-backends nil nil #'equal)))
+         (model (or model 'claude-opus-4-5-20251101))
+         (backend-name (gptel-backend-name backend))
+         (model-name (if (symbolp model) (symbol-name model) model))
+         (preset-template (or preset-template "programming-assistant"))
+         ;; Project selection
+         (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
+                             (jf/gptel--select-projects)))
+         (project-names (when selected-projects
+                         (mapcar #'jf/gptel--project-display-name selected-projects))))
+
+    ;; Create session file with initial content
+    (with-temp-file session-file
+      (insert "# " session-name "\n\n"))
+
+    ;; Open session file in buffer
+    (let ((buffer (find-file session-file)))
+      (with-current-buffer buffer
+        ;; Set session variables
+        (setq-local jf/gptel--session-id session-id)
+        (setq-local jf/gptel--session-dir session-dir)
+
+        ;; Enable auto-save
+        (setq-local jf/gptel-autosave-enabled t)
+
+        ;; Create project-aware or deny-all scope plan
+        (let ((scope-yaml (if selected-projects
+                             (jf/gptel--generate-scope-plan-yaml
+                              session-id "project-aware" selected-projects)
+                           (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
+              (scope-file (expand-file-name "scope-plan.yml" session-dir)))
+          (with-temp-file scope-file
+            (insert scope-yaml))
+          (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+
+        ;; Register session with minimal runtime state
+        (jf/gptel--register-session session-dir buffer session-id)
+
+        ;; Copy preset template to session directory
+        (jf/gptel--copy-preset-template preset-template session-dir)
+
+        ;; Load preset and apply to buffer BEFORE enabling gptel-mode
+        ;; This ensures gptel-mode sees the custom settings when it initializes
+        (let ((preset-plist (jf/gptel--load-preset-from-file session-dir)))
+          ;; Apply preset settings ONE TIME (initial configuration)
+          ;; After first save, gptel's Local Variables are the source of truth
+          (jf/gptel--apply-session-preset preset-plist)
+          (jf/gptel--log 'info "Applied preset template: %s" preset-template))
+
+        ;; Enable gptel-mode AFTER applying preset (with duplicate prevention)
+        ;; This way gptel-mode will respect the buffer-local settings we just applied
+        (jf/gptel--ensure-mode-once)
+
+        (jf/gptel--log 'info "Created session: %s%s"
+                      session-id
+                      (if selected-projects
+                          (format " with %d project(s)" (length selected-projects))
+                        ""))
+        (message "Created session: %s\nDirectory: %s\nTemplate: %s%s\n\nPreset applied once. After first save, gptel's Local Variables are source of truth."
+                 session-name
+                 session-dir
+                 preset-template
+                 (if project-names
+                     (format "\nProjects: %s" (string-join project-names ", "))
+                   ""))
+
+        buffer))))
+#+end_src
+
+* List Sessions
+
+Show all available persistent sessions.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-list-sessions ()
+  "List all persistent gptel sessions."
+  (interactive)
+  (let ((sessions (jf/gptel--all-sessions)))
+    (if (null sessions)
+        (message "No persistent sessions found")
+      (with-current-buffer (get-buffer-create "*GPTEL Sessions*")
+        (erase-buffer)
+        (insert "GPTEL Persistent Sessions\n")
+        (insert "=========================\n\n")
+        (dolist (session sessions)
+          (let* ((session-id (plist-get session :session-id))
+                 (session-dir (plist-get session :directory))
+                 (buffer (plist-get session :buffer))
+                 ;; Read metadata from disk on-demand
+                 (session-meta (jf/gptel--read-session-metadata session-dir))
+                 (preset-meta (jf/gptel--read-preset-metadata session-dir))
+                 (created (when session-meta (plist-get session-meta :created)))
+                 (backend (when preset-meta (plist-get preset-meta :backend)))
+                 (model (when preset-meta (plist-get preset-meta :model))))
+            (insert (format "• %s\n" session-id))
+            (when created
+              (insert (format "  Created: %s\n" created)))
+            (when backend
+              (insert (format "  Backend: %s\n" backend)))
+            (when model
+              (insert (format "  Model: %s\n" model)))
+            (when buffer
+              (insert (format "  Active in: %s\n" (buffer-name buffer))))
+            (insert "\n")))
+        (goto-char (point-min))
+        (display-buffer (current-buffer))))))
+#+end_src
+
+* Resume Session
+
+Resume an existing session by opening its context file.
+
+Settings are restored from gptel's Local Variables (saved automatically).
+The preset file is NOT reapplied - it's just a template that may be stale.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-resume-session (session-id)
+  "Resume persistent session SESSION-ID.
+Opens the session's context file and restores session state.
+
+Session settings are restored from gptel's Local Variables (saved automatically).
+The preset file is NOT reapplied - it's just a template that may be stale."
+  (interactive
+   (list (completing-read "Resume session: "
+                         (mapcar (lambda (s) (plist-get s :session-id))
+                                (jf/gptel--all-sessions))
+                         nil t)))
+  (let* ((session (jf/gptel-session-find session-id))
+         (session-dir (plist-get session :directory))
+         (session-file (jf/gptel--context-file-path session-dir)))
+
+    (unless (file-exists-p session-file)
+      (user-error "Session file not found: %s" session-file))
+
+    ;; Open session file
+    (let ((buffer (find-file session-file)))
+      (with-current-buffer buffer
+        ;; Emacs has already loaded Local Variables automatically
+        ;; Enable gptel-mode if needed (triggers gptel--restore-state)
+        (jf/gptel--ensure-mode-once)
+
+        ;; gptel--restore-state has now run and restored all settings
+        ;; from Local Variables. DO NOT overwrite with preset!
+
+        ;; EXCEPT: Load system message from preset (not saved to Local Variables)
+        (when-let ((preset-plist (condition-case err
+                                     (jf/gptel--load-preset-from-file session-dir)
+                                   (error
+                                    (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
+                                    nil)))
+                   (system-message (plist-get preset-plist :system)))
+          ;; Set system message from preset with save-prevention
+          (jf/gptel--set-session-system-message system-message))
+
+        ;; Set session variables for our tracking
+        (setq-local jf/gptel--session-id session-id)
+        (setq-local jf/gptel--session-dir session-dir)
+
+        ;; Enable auto-save
+        (setq-local jf/gptel-autosave-enabled t)
+
+        ;; Update registry
+        (jf/gptel--update-session-buffer session-id buffer)
+
+        (jf/gptel--log 'info "Resumed session: %s (settings from Local Variables, system from preset)" session-id)
+        (message "Resumed session: %s\nSettings restored from gptel's Local Variables.\nSystem message from preset file." session-id)
+
+        buffer))))
+#+end_src
+
+* Initialize Registry
+
+Command to initialize/refresh the session registry.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-refresh-sessions ()
+  "Refresh the session registry by scanning session directories.
+Useful if sessions were created outside Emacs or after startup."
+  (interactive)
+  (jf/gptel--init-registry)
+  (message "Refreshed session registry: %d sessions found"
+          (jf/gptel--session-count)))
+#+end_src
+
+* Session Diagnostics
+
+Check session state and advice installation.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-session-diagnostics ()
+  "Show diagnostic information about current session and advice installation."
+  (interactive)
+  (with-current-buffer (get-buffer-create "*GPTEL Session Diagnostics*")
+    (erase-buffer)
+    (insert "GPTEL Session Diagnostics\n")
+    (insert "=========================\n\n")
+
+    ;; Current buffer info
+    (insert "Current Buffer:\n")
+    (insert (format "  Name: %s\n" (buffer-name)))
+    (insert (format "  Session ID: %s\n" (or jf/gptel--session-id "NOT SET")))
+    (insert (format "  Session Dir: %s\n" (or jf/gptel--session-dir "NOT SET")))
+    (insert (format "  GPTel Mode: %s\n" (if (bound-and-true-p gptel-mode) "enabled" "disabled")))
+    (insert (format "  Auto-save: %s\n" (if jf/gptel-autosave-enabled "enabled" "disabled")))
+    (insert "\n")
+
+    ;; Hook diagnostics
+    (insert "Save Hook Status:\n")
+    (let* ((hooks (buffer-local-value 'before-save-hook (current-buffer)))
+           (count (cl-count 'gptel--save-state hooks)))
+      (insert (format "  Total before-save-hook entries: %d\n" (length hooks)))
+      (insert (format "  gptel--save-state hooks: %d\n" count))
+      (when (> count 1)
+        (insert (format "  WARNING: Duplicate hooks detected!\n"))))
+    (insert "\n")
+
+    ;; Advice installation
+    (insert "Advice Installation:\n")
+    (insert (format "  gptel--fsm-transition (tool logging): %s\n"
+                    (if (advice-member-p #'jf/gptel--advice-log-fsm-transition 'gptel--fsm-transition)
+                        "INSTALLED"
+                      "NOT INSTALLED")))
+    (insert (format "  gptel--set-with-scope (system prompt): %s\n"
+                    (if (and (fboundp 'gptel--set-with-scope)
+                            (advice-member-p #'jf/gptel--advice-track-system-prompt 'gptel--set-with-scope))
+                        "INSTALLED"
+                      "NOT INSTALLED")))
+    (insert "\n")
+
+    ;; Log level
+    (insert "Configuration:\n")
+    (insert (format "  Log Level: %s\n" jf/gptel-log-level))
+    (insert (format "  Sessions Directory: %s\n" jf/gptel-sessions-directory))
+    (insert (format "  Registry Count: %d\n" (jf/gptel--session-count)))
+
+    (goto-char (point-min))
+    (display-buffer (current-buffer))))
+#+end_src
+
+* Hierarchical Session Browser (REMOVED)
+
+Session browser functionality has been removed.
+Browser commands will be redesigned in the future.
+
+** Resume Agent Command
+
+#+begin_src emacs-lisp
+(defun jf/gptel-resume-agent ()
+  "Resume work in an agent session buffer.
+Settings are restored from gptel's Local Variables, not preset."
+  (interactive)
+  (let* ((sessions (jf/gptel--find-all-sessions-recursive))
+         (agents (seq-filter
+                    (lambda (s)
+                      (> (plist-get s :depth) 0))
+                    sessions))
+         (choices (mapcar
+                  (lambda (s)
+                    (let* ((path (plist-get s :path))
+                           (metadata (jf/gptel--read-session-metadata path))
+                           (parent-id (plist-get metadata :parent-session-id))
+                           (preset (plist-get metadata :preset)))
+                      (cons (format "[%s] %s (%s)"
+                              parent-id
+                              (plist-get s :id)
+                              (or preset "unknown"))
+                           s)))
+                  agents)))
+    (if (null choices)
+        (message "No agent sessions found")
+      (let* ((choice (completing-read "Resume agent: " choices nil t))
+             (session (alist-get choice choices nil nil #'equal))
+             (session-dir (plist-get session :path))
+             (session-file (jf/gptel--context-file-path session-dir))
+             (session-id (plist-get session :id)))
+        (unless (file-exists-p session-file)
+          (user-error "Session file not found: %s" session-file))
+        ;; Open session file
+        (let ((buffer (find-file session-file)))
+          (with-current-buffer buffer
+            ;; Enable gptel-mode if needed (triggers restore from Local Variables)
+            (jf/gptel--ensure-mode-once)
+
+            ;; gptel has restored settings from Local Variables
+            ;; Do NOT apply preset
+
+            ;; EXCEPT: Load system message from preset (not saved to Local Variables)
+            (when-let ((preset-plist (condition-case err
+                                         (jf/gptel--load-preset-from-file session-dir)
+                                       (error
+                                        (jf/gptel--log 'warn "Failed to load preset: %s" (error-message-string err))
+                                        nil)))
+                       (system-message (plist-get preset-plist :system)))
+              ;; Set system message from preset with save-prevention
+              (jf/gptel--set-session-system-message system-message))
+
+            ;; Set session variables
+            (setq-local jf/gptel--session-id session-id)
+            (setq-local jf/gptel--session-dir session-dir)
+
+            ;; Update registry
+            (jf/gptel--register-session session-dir buffer session-id)
+
+            ;; Enable auto-save
+            (setq-local jf/gptel-autosave-enabled t)
+
+            (jf/gptel--log 'info "Resumed agent session: %s (settings from Local Variables, system from preset)" session-id)
+            (message "Resumed agent: %s (settings from Local Variables, system from preset)" session-id)
+            buffer))))))
+#+end_src
+
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'gptel-session-commands)
+;;; commands.el ends here
+#+end_src
