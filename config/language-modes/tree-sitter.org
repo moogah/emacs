@@ -51,6 +51,8 @@ Provides the language grammar binaries for various programming languages.
 * Grammar Sources for Built-in Tree-sitter
 Configure the sources for downloading and installing built-in Tree-sitter grammar libraries (for Emacs 29+).
 
+**Version Pinning**: Python and JavaScript are pinned to specific versions (v0.21.0 and v0.21.4 respectively) to maintain ABI version 14 compatibility with Emacs 30.1. The master branches of these grammars have moved to ABI version 15, which causes version-mismatch errors.
+
 #+begin_src emacs-lisp
 (setq treesit-language-source-alist
    '((bash "https://github.com/tree-sitter/tree-sitter-bash")
@@ -59,11 +61,11 @@ Configure the sources for downloading and installing built-in Tree-sitter gramma
      (elisp "https://github.com/Wilfred/tree-sitter-elisp")
      (go "https://github.com/tree-sitter/tree-sitter-go")
      (html "https://github.com/tree-sitter/tree-sitter-html")
-     (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
+     (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "v0.21.4" "src")
      (json "https://github.com/tree-sitter/tree-sitter-json")
      (make "https://github.com/alemuller/tree-sitter-make")
      (markdown "https://github.com/ikatyang/tree-sitter-markdown")
-     (python "https://github.com/tree-sitter/tree-sitter-python")
+     (python "https://github.com/tree-sitter/tree-sitter-python" "v0.21.0")
      (toml "https://github.com/tree-sitter/tree-sitter-toml")
      (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
      (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
@@ -99,10 +101,72 @@ Provides structural editing and navigation capabilities using Tree-sitter.
 The language grammars should be automatically installed by the package.
 
 ** For Built-in Tree-sitter (Emacs 29+)
-To install the configured Tree-sitter grammars, use the following Emacs command:
+
+*** Installing All Grammars
+To install all configured Tree-sitter grammars at once:
 
 #+begin_src emacs-lisp :tangle no
 (mapc #'treesit-install-language-grammar (mapcar #'car treesit-language-source-alist))
+#+end_src
+
+*** Installing Specific Grammars
+To install only the most commonly used grammars (python, javascript, typescript, yaml, json):
+
+#+begin_src emacs-lisp :tangle no
+(dolist (lang '(python javascript typescript yaml json))
+  (treesit-install-language-grammar lang))
+#+end_src
+
+Or install a single grammar:
+
+#+begin_src emacs-lisp :tangle no
+(treesit-install-language-grammar 'python)
+#+end_src
+
+*** Installation Location
+Grammars are compiled and installed to ~runtime/tree-sitter/~ as ~.dylib~ files (macOS), ~.so~ files (Linux), or ~.dll~ files (Windows).
+
+*** Verifying Installation
+Check if a grammar is available:
+
+#+begin_src emacs-lisp :tangle no
+(treesit-language-available-p 'python)  ; Should return t
+#+end_src
+
+Check all configured grammars:
+
+#+begin_src emacs-lisp :tangle no
+(dolist (lang '(python javascript typescript yaml json))
+  (message "%s: %s" lang (treesit-language-available-p lang)))
+#+end_src
+
+*** Troubleshooting
+
+**** ABI Version Mismatch
+If you see warnings like "version-mismatch: 15", the grammar ABI version doesn't match Emacs's expected version. This happens when grammar repositories update to newer tree-sitter versions.
+
+Solution: Pin the grammar to a compatible version in ~treesit-language-source-alist~ (see version pinning notes above).
+
+**** Missing C Compiler
+Grammar installation requires a C compiler. Verify you have one:
+
+#+begin_src bash :tangle no
+# macOS
+clang --version
+
+# Linux
+gcc --version
+#+end_src
+
+**** Reinstalling Grammars
+To reinstall a grammar (e.g., after version pinning changes):
+
+#+begin_src bash :tangle no
+# Remove the old grammar file
+rm ~/emacs/runtime/tree-sitter/libtree-sitter-python.dylib
+
+# Then reinstall from Emacs
+(treesit-install-language-grammar 'python)
 #+end_src
 
 * Usage Notes
