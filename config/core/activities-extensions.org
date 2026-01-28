@@ -443,6 +443,9 @@ Set by `activities-ext-create' and used by transient actions.")
 Empty string means root of org-roam-directory."
   :type 'string
   :group 'activities-extensions)
+
+(defvar activities-ext--default-git-action 'worktree
+  "Default git action for new activities: worktree, branch, or none.")
 #+end_src
 
 * Data Management
@@ -577,67 +580,8 @@ PROJECT-PLIST should have :path key at minimum."
 
 * Project Integration
 
-** Project Selection
-
-Multi-select projects using completing-read-multiple.
-
-#+begin_src emacs-lisp
-(defun activities-ext--select-projects ()
-  "Select multiple projects using completing-read-multiple.
-Returns list of project paths (absolute directory paths)."
-  (let ((projects (projectile-known-projects)))
-    (when projects
-      (completing-read-multiple
-       "Select projects (comma-separated): "
-       projects
-       nil  ; predicate
-       t    ; require-match
-       ))))
-#+end_src
 
 ** Git Operations
-
-*** Prompt for Git Action
-
-#+begin_src emacs-lisp
-(defun activities-ext--prompt-git-action (project-path branch-name activity-name)
-  "Prompt user for git action on PROJECT-PATH using BRANCH-NAME for ACTIVITY-NAME.
-Returns plist with :action, :branch, :worktree, :created keys.
-:action can be 'branch, 'worktree, or nil.
-BRANCH-NAME is the sanitized activity name to use for branch/worktree.
-ACTIVITY-NAME is used to determine the worktree directory structure."
-  (let* ((project-name (file-name-nondirectory
-                       (directory-file-name project-path)))
-         (action (intern
-                  (completing-read
-                   (format "Git action for %s (will use: %s): " project-name branch-name)
-                   '("nothing" "branch" "worktree")
-                   nil t nil nil "nothing")))
-         (action (if (eq action 'nothing) nil action))
-         (result (list :action action :branch nil :worktree nil :created nil)))
-
-    (message "DEBUG: action=%S for project=%s with branch=%s" action project-name branch-name)
-
-    (when action
-      ;; Use the provided branch-name instead of prompting
-      (plist-put result :branch branch-name)
-
-      (cond
-       ((eq action 'branch)
-        (message "DEBUG: Creating branch %s in %s" branch-name project-path)
-        (let ((created (activities-ext--create-branch project-path branch-name)))
-          (plist-put result :created created)))
-
-       ((eq action 'worktree)
-        (message "DEBUG: Creating worktree for branch %s in %s" branch-name project-path)
-        (let ((worktree-path (activities-ext--create-worktree project-path branch-name activity-name)))
-          (when worktree-path
-            (plist-put result :worktree worktree-path)
-            (plist-put result :created t))))))
-
-    (message "DEBUG: git result=%S" result)
-    result))
-#+end_src
 
 *** Create Branch
 
@@ -683,6 +627,35 @@ Worktree is created in ~/emacs-activities/ACTIVITY-SLUG/worktrees/PROJECT-NAME/"
       (error
        (message "Error creating worktree: %s" (error-message-string err))
        nil))))
+#+end_src
+
+*** Unified Git Action Applicator
+
+#+begin_src emacs-lisp
+(defun activities-ext--apply-git-action (project-path branch-name activity-name git-action)
+  "Apply GIT-ACTION to PROJECT-PATH using BRANCH-NAME and ACTIVITY-NAME.
+Returns plist with :action, :branch, :worktree, :created keys.
+GIT-ACTION is one of: worktree, branch, or none."
+  (let ((result (list :action git-action :branch nil :worktree nil :created nil)))
+    (pcase git-action
+      ('branch
+       (plist-put result :branch branch-name)
+       (let ((created (activities-ext--create-branch project-path branch-name)))
+         (plist-put result :created created)))
+
+      ('worktree
+       (plist-put result :branch branch-name)
+       (let ((worktree-path
+              (activities-ext--create-worktree project-path branch-name activity-name)))
+         (when worktree-path
+           (plist-put result :worktree worktree-path)
+           (plist-put result :created t))))
+
+      ('none
+       ;; No git operations
+       nil))
+
+    result))
 #+end_src
 
 ** Recent Files Tracking
@@ -932,51 +905,212 @@ Register hooks with activities package.
 
 * Transient UI
 
-** Transient State
+** Scope Management
 
-State storage for the transient menu.
+Functions for managing transient scope state.
 
 #+begin_src emacs-lisp
-(defvar activities-ext--transient-state nil
-  "State for the activities extensions transient menu.
-Plist with keys: :name, :projects, :create-org-roam.")
+(defun activities-ext--init-scope (activity-name)
+  "Initialize scope for transient menu with ACTIVITY-NAME."
+  (list :projects nil
+        :git-action activities-ext--default-git-action
+        :activity-name activity-name
+        :sanitized-name (activities-ext--slugify activity-name)))
+
+(defun activities-ext--scope-projects ()
+  "Get selected projects from current transient scope."
+  (plist-get (transient-scope) :projects))
+
+(defun activities-ext--scope-git-action ()
+  "Get git action from current transient scope."
+  (plist-get (transient-scope) :git-action))
+
+(defun activities-ext--scope-toggle-project (project-path)
+  "Toggle PROJECT-PATH selection in scope."
+  (let ((scope (transient-scope))
+        (projects (plist-get (transient-scope) :projects)))
+    (if (assoc project-path projects)
+        (plist-put scope :projects (assoc-delete-all project-path projects))
+      (plist-put scope :projects (cons (cons project-path t) projects)))
+    (oset transient--prefix scope scope)))
+
+(defun activities-ext--scope-set-git-action (action)
+  "Set git ACTION in scope."
+  (let ((scope (transient-scope)))
+    (plist-put scope :git-action action)
+    (oset transient--prefix scope scope)))
 #+end_src
 
-** Custom Infix Class
+** Custom Infix Classes
 
-Custom transient infix class for project selection.
+Custom transient infix classes for project toggles and git action selection.
+
+*** Project Toggle Class
 
 #+begin_src emacs-lisp
-(defclass activities-ext--infix-projects (transient-infix)
-  ((projects :initarg :projects :initform nil))
-  "Transient infix for multi-selecting projects.")
+(defclass activities-ext--switch-project (transient-infix)
+  ((project-path :initarg :project-path)
+   (project-name :initarg :project-name))
+  "Infix for toggling individual project selection.")
+
+(cl-defmethod transient-infix-read ((obj activities-ext--switch-project))
+  "Toggle project selection."
+  (let* ((path (oref obj project-path))
+         (projects (activities-ext--scope-projects))
+         (currently-selected (assoc path projects)))
+    (activities-ext--scope-toggle-project path)
+    (not currently-selected)))
+
+(cl-defmethod transient-format-value ((obj activities-ext--switch-project))
+  "Format project toggle value display."
+  (let* ((path (oref obj project-path))
+         (projects (activities-ext--scope-projects))
+         (selected (assoc path projects)))
+    (if selected
+        (propertize "(✓)" 'face 'transient-value)
+      (propertize "( )" 'face 'transient-inactive-value))))
+
+(cl-defmethod transient-init-value ((obj activities-ext--switch-project))
+  "Initialize value from scope."
+  (let* ((path (oref obj project-path))
+         (projects (activities-ext--scope-projects)))
+    (oset obj value (not (null (assoc path projects))))))
 #+end_src
 
-** Infix Methods
-
-*** Read Projects
+*** Git Action Radio Class
 
 #+begin_src emacs-lisp
-(cl-defmethod transient-infix-read ((obj activities-ext--infix-projects))
-  "Read projects using multi-select completion."
-  (let ((selected (activities-ext--select-projects)))
-    (oset obj projects selected)
-    ;; Return the list - it will be added to transient args
-    selected))
+(defclass activities-ext--switch-git-action (transient-infix)
+  ((action :initarg :action))
+  "Radio button for git action selection.")
+
+(cl-defmethod transient-infix-read ((obj activities-ext--switch-git-action))
+  "Select this git action."
+  (let ((action (oref obj action)))
+    (activities-ext--scope-set-git-action action)
+    action))
+
+(cl-defmethod transient-format-value ((obj activities-ext--switch-git-action))
+  "Format git action radio button."
+  (let ((action (oref obj action))
+        (current (activities-ext--scope-git-action)))
+    (if (eq action current)
+        (propertize "(✓)" 'face 'transient-value)
+      (propertize "( )" 'face 'transient-inactive-value))))
+
+(cl-defmethod transient-init-value ((obj activities-ext--switch-git-action))
+  "Initialize value from scope."
+  (let ((action (oref obj action))
+        (current (activities-ext--scope-git-action)))
+    (oset obj value (eq action current))))
 #+end_src
 
-*** Format Projects Display
+** Infix Definitions
+
+Define individual infix commands for dynamic generation.
+
+*** Project Toggle Infix Factory
 
 #+begin_src emacs-lisp
-(cl-defmethod transient-format-value ((obj activities-ext--infix-projects))
-  "Format projects for display in transient menu."
-  (let ((projects (oref obj projects)))
-    (if projects
-        (propertize (format "%d project%s selected"
-                           (length projects)
-                           (if (> (length projects) 1) "s" ""))
-                   'face 'transient-value)
-      (propertize "none" 'face 'transient-inactive-value))))
+(defun activities-ext--make-project-infix (key project-path project-name)
+  "Create a project toggle infix for KEY, PROJECT-PATH, and PROJECT-NAME."
+  (let ((command-name (intern (format "activities-ext--toggle-project-%s" key))))
+    (defalias command-name
+      (lambda ()
+        (interactive)
+        (let* ((projects (activities-ext--scope-projects))
+               (currently-selected (assoc project-path projects)))
+          (activities-ext--scope-toggle-project project-path)
+          (not currently-selected))))
+
+    (put command-name 'transient-format-value
+         (lambda ()
+           (let* ((projects (activities-ext--scope-projects))
+                  (selected (assoc project-path projects)))
+             (if selected
+                 (propertize "(✓)" 'face 'transient-value)
+               (propertize "( )" 'face 'transient-inactive-value)))))
+
+    command-name))
+#+end_src
+
+*** Git Action Infix Definitions
+
+#+begin_src emacs-lisp
+(transient-define-infix activities-ext--infix-worktree ()
+  "Select worktree git action."
+  :class 'activities-ext--switch-git-action
+  :action 'worktree
+  :argument ""
+  :key "w"
+  :description "Worktree (default)"
+  :transient t)
+
+(transient-define-infix activities-ext--infix-branch ()
+  "Select branch git action."
+  :class 'activities-ext--switch-git-action
+  :action 'branch
+  :argument ""
+  :key "b"
+  :description "Branch"
+  :transient t)
+
+(transient-define-infix activities-ext--infix-none ()
+  "Select none git action."
+  :class 'activities-ext--switch-git-action
+  :action 'none
+  :argument ""
+  :key "n"
+  :description "None"
+  :transient t)
+#+end_src
+
+** Dynamic Suffix Generation
+
+Functions to generate suffix lists dynamically.
+
+*** Project List Generator
+
+#+begin_src emacs-lisp
+(defun activities-ext--generate-project-suffixes ()
+  "Generate suffix list for all known projects."
+  (when (bound-and-true-p projectile-known-projects)
+    (let ((projects (projectile-known-projects))
+          (keys '("a" "b" "c" "d" "e" "f" "g" "h" "i" "j")))
+      (cl-loop for project in projects
+               for key in keys
+               for name = (file-name-nondirectory (directory-file-name project))
+               for command = (activities-ext--make-project-infix key project name)
+               collect (list key name command)))))
+#+end_src
+
+*** Git Action List Generator
+
+#+begin_src emacs-lisp
+(defun activities-ext--generate-git-action-suffixes ()
+  "Generate suffix list for git action selection."
+  (list
+   (list "w" "Worktree (default)" 'activities-ext--infix-worktree)
+   (list "b" "Branch" 'activities-ext--infix-branch)
+   (list "n" "None" 'activities-ext--infix-none)))
+#+end_src
+
+*** Status Info Generator
+
+#+begin_src emacs-lisp
+(defun activities-ext--format-status ()
+  "Format status line showing current selection."
+  (let* ((projects (activities-ext--scope-projects))
+         (count (length projects))
+         (git-action (activities-ext--scope-git-action))
+         (action-str (pcase git-action
+                      ('worktree "worktrees")
+                      ('branch "branches")
+                      ('none "no git operations"))))
+    (format "Selected: %d project%s, will create %s"
+            count
+            (if (= count 1) "" "s")
+            action-str)))
 #+end_src
 
 ** Entry Function
@@ -997,141 +1131,148 @@ Prompts for activity name first, then opens transient for project selection."
 
 ** Main Transient Prefix
 
-Interactive menu for creating extended activities.
-The activity name has already been captured by the entry function.
+Interactive menu for creating extended activities with visual project and git action selection.
 
 #+begin_src emacs-lisp
 (transient-define-prefix activities-ext-create-transient ()
-  "Select projects and options for new activity.
-Activity name has already been captured.
-By default, creates both org-roam document and gptel session."
-  ["Configuration"
-   ("-p" "Select projects" activities-ext--select-projects-infix)]
-  ["Skip (optional)"
-   ("-G" "Skip gptel session" "--no-gptel")
-   ("-D" "Skip org-roam document" "--no-org-roam")]
-  ["Actions"
-   ("RET" "Create Activity" activities-ext--create-action)
-   ("q" "Cancel" transient-quit-one)])
-#+end_src
+  "Create extended activity with visual project and git action selection."
+  :refresh-suffixes t
+  [:description
+   (lambda () (format "Activities Extensions: Create \"%s\""
+                     (plist-get (transient-scope) :activity-name)))
 
-** Infix Definitions
+   ;; Project Selection Section
+   [:class transient-column
+    :description "Project Selection"
+    :setup-children
+    (lambda (_)
+      (transient-parse-suffixes
+       'activities-ext-create-transient
+       (activities-ext--generate-project-suffixes)))]
 
-Define the project selection infix.
+   ;; Git Configuration Section
+   [:class transient-column
+    :description "Git Configuration"
+    :setup-children
+    (lambda (_)
+      (transient-parse-suffixes
+       'activities-ext-create-transient
+       (activities-ext--generate-git-action-suffixes)))]
 
-#+begin_src emacs-lisp
-(transient-define-infix activities-ext--select-projects-infix ()
-  "Infix for selecting multiple projects."
-  :class 'activities-ext--infix-projects
-  :key "-p"
-  :description "Select projects"
-  :argument "--projects=")
+   ;; Creation Options
+   ["Creation Options"
+    ("-G" "Skip gptel session" "--no-gptel")
+    ("-D" "Skip org-roam document" "--no-org-roam")]
+
+   ;; Status Display
+   [""
+    (:info (lambda () (activities-ext--format-status)))]
+
+   ;; Actions
+   ["Actions"
+    ("RET" "Create Activity" activities-ext--create-action-v2)
+    ("q" "Cancel" transient-quit-one)]]
+
+  (interactive)
+  (unless activities-ext--current-activity-name
+    (user-error "No activity name set. Call activities-ext-create first."))
+  (transient-setup
+   'activities-ext-create-transient nil nil
+   :scope (activities-ext--init-scope activities-ext--current-activity-name)))
 #+end_src
 
 ** Create Action
 
-Main action function that creates the extended activity.
+Main action function that creates the extended activity using transient scope state.
 
 #+begin_src emacs-lisp
-(defun activities-ext--create-action (&optional args)
-  "Create activity with transient ARGS.
-Main action function called from transient menu.
-Uses the activity name stored in `activities-ext--current-activity-name'."
+(defun activities-ext--create-action-v2 (&optional args)
+  "Create activity using state from transient scope.
+ARGS are the transient arguments (skip flags only)."
   (interactive (list (transient-args 'activities-ext-create-transient)))
 
-  ;; Get activity name from stored variable
-  (let* ((activity-name activities-ext--current-activity-name)
-         (sanitized-name (activities-ext--slugify activity-name))
-         ;; Find the list element in args (that's the projects)
-         (project-paths (cl-find-if #'listp args))
-         ;; Default to creating both org-roam and gptel unless explicitly skipped
+  (let* ((scope (transient-scope))
+         (activity-name (plist-get scope :activity-name))
+         (sanitized-name (plist-get scope :sanitized-name))
+         (selected-projects (plist-get scope :projects))
+         (git-action (plist-get scope :git-action))
          (create-org-roam (not (member "--no-org-roam" args)))
          (create-gptel (not (member "--no-gptel" args)))
          (project-metadata nil)
          (org-roam-data nil)
          (gptel-session-data nil))
 
-    ;; Debug output
-    (message "DEBUG: args=%S" args)
-    (message "DEBUG: activity-name=%s sanitized=%s" activity-name sanitized-name)
-    (message "DEBUG: project-paths=%S" project-paths)
-    (message "DEBUG: create-gptel=%S" create-gptel)
-
+    ;; Validate we have an activity name
     (unless activity-name
       (user-error "No activity name provided"))
 
-    ;; Process projects if selected
-    (when project-paths
-      (dolist (project-path project-paths)
-        (let* ((project-path (string-trim project-path))
-               (project-name (file-name-nondirectory
-                            (directory-file-name project-path)))
-               ;; Pass sanitized name and activity name to git action prompt
-               (git-result (activities-ext--prompt-git-action project-path sanitized-name activity-name))
-               (proj-plist (list :path project-path
-                                :name project-name
-                                :branch (plist-get git-result :branch)
-                                :worktree (plist-get git-result :worktree)
-                                :recent-files nil)))
-          (push proj-plist project-metadata))))
+    ;; Process selected projects with uniform git action
+    (dolist (project-entry selected-projects)
+      (let* ((project-path (car project-entry))
+             (project-name (file-name-nondirectory
+                           (directory-file-name project-path)))
+             (git-result (activities-ext--apply-git-action
+                         project-path sanitized-name activity-name git-action))
+             (proj-plist (list :path project-path
+                             :name project-name
+                             :branch (plist-get git-result :branch)
+                             :worktree (plist-get git-result :worktree)
+                             :recent-files nil)))
+        (push proj-plist project-metadata)))
 
     (setq project-metadata (nreverse project-metadata))
 
-    ;; Get activity directory path (creates it if needed)
+    ;; Get activity directory
     (let ((activity-dir (activities-ext--activity-directory activity-name)))
 
-      ;; Create gptel session first (if requested) so we can link it in roam doc
-      ;; Temporarily bind jf/gptel-sessions-directory to use activity-specific location
+      ;; Create gptel session if requested
       (when (and create-gptel (fboundp 'jf/gptel-session-create-persistent))
-        (let ((jf/gptel-sessions-directory (activities-ext--session-directory activity-name)))
+        (let ((jf/gptel-sessions-directory
+               (activities-ext--session-directory activity-name)))
           (setq gptel-session-data
                 (jf/gptel-session-create-persistent activity-name))))
 
-      ;; Create org-roam document with gptel session info if requested
+      ;; Create org-roam document if requested
       (when create-org-roam
         (setq org-roam-data
-              (activities-ext--create-org-roam-doc activity-name project-metadata gptel-session-data activity-dir)))
+              (activities-ext--create-org-roam-doc
+               activity-name project-metadata gptel-session-data activity-dir)))
 
-      ;; Create the activity using activities-new
+      ;; Create the activity
       (activities-new activity-name)
 
-      ;; Get the newly created activity and store metadata
+      ;; Store metadata
       (when-let ((activity (map-elt activities-activities activity-name)))
         (let ((metadata (activities-ext--create-metadata
-                         project-metadata
-                         org-roam-data
-                         (list :auto-open-recent activities-ext-auto-open-recent))))
-          ;; Add activity directory path
+                        project-metadata
+                        org-roam-data
+                        (list :auto-open-recent activities-ext-auto-open-recent))))
           (plist-put metadata :activity-directory activity-dir)
-          ;; Add gptel session data if created
           (when gptel-session-data
             (plist-put metadata :gptel-session gptel-session-data))
-          (activities-ext--set-metadata activity metadata))))
+          (activities-ext--set-metadata activity metadata)))
 
-    ;; Set up window layout: horizontal split with roam doc (left) and gptel (right)
-    (delete-other-windows)  ; Start with single window
+      ;; Set up window layout
+      (delete-other-windows)
+      (let ((left-window (selected-window))
+            (right-window nil))
 
-    (let ((left-window (selected-window))
-          (right-window nil))
+        (when org-roam-data
+          (activities-ext--open-org-roam-doc org-roam-data))
 
-      ;; Open org-roam document in left window
-      (when org-roam-data
-        (activities-ext--open-org-roam-doc org-roam-data))
+        (when (and gptel-session-data
+                   (fboundp 'jf/gptel-session--create-buffer))
+          (setq right-window (split-window-right))
+          (select-window right-window)
+          (let ((buffer (jf/gptel-session--create-buffer gptel-session-data)))
+            (switch-to-buffer buffer))
+          (select-window left-window)))
 
-      ;; Create horizontal split and open gptel buffer in right window
-      (when (and gptel-session-data (fboundp 'jf/gptel-session--create-buffer))
-        (setq right-window (split-window-right))
-        (select-window right-window)
-        (let ((buffer (jf/gptel-session--create-buffer gptel-session-data)))
-          (switch-to-buffer buffer))
-        ;; Return focus to left window (roam document)
-        (select-window left-window)))
+      ;; Save current state as default
+      (when-let ((activity (map-elt activities-activities activity-name)))
+        (activities-save activity :defaultp t :lastp t))
 
-    ;; Save current state (with documents open) as the new default
-    (when-let ((activity (map-elt activities-activities activity-name)))
-      (activities-save activity :defaultp t :lastp t))
-
-    (message "Created extended activity: %s" activity-name)))
+      (message "Created extended activity: %s" activity-name))))
 #+end_src
 
 * Utility Commands
