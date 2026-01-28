@@ -188,15 +188,11 @@ Returns t on success, signals error on failure."
       (unless bounds
         (error "No bounds found in source file: %s" source-file))
 
-      (jf/gptel--log 'info "DEBUG: Read bounds from file: %S" bounds)
-      (jf/gptel--log 'info "DEBUG: Branch position: %d" branch-position)
-
       ;; Validate original bounds
       (jf/gptel--validate-bounds bounds)
 
       ;; Filter bounds to only include regions before branch point
       (let ((filtered-bounds (jf/gptel--filter-bounds-before-position bounds branch-position)))
-        (jf/gptel--log 'info "DEBUG: Filtered bounds: %S" filtered-bounds)
 
         ;; Validate filtered bounds
         (jf/gptel--validate-bounds filtered-bounds)
