@@ -30,8 +30,7 @@ Use request_scope_expansion to ask user to add command to allowed list."
  :category "shell"
  :function
  (lambda (command)
-   (let* ((session-id (jf/gptel-scope--get-session-id))
-          (plan (jf/gptel-scope--load-plan session-id)))
+   (let* ((plan (jf/gptel-scope--load-plan)))
 
      (unless plan
        (cl-return-from nil
@@ -121,8 +120,7 @@ Available tool names:
    (when (vectorp patterns)
      (setq patterns (append patterns nil)))
 
-   (let* ((session-id (jf/gptel-scope--get-session-id))
-          (plan (jf/gptel-scope--load-plan session-id)))
+   (let* ((plan (jf/gptel-scope--load-plan)))
 
      (unless plan
        (cl-return-from nil
@@ -172,7 +170,7 @@ Approve this scope expansion? "
                (setq plan (plist-put plan :tools tools-data)))
 
              ;; Save updated plan
-             (jf/gptel-scope--save-plan session-id plan)
+             (jf/gptel-scope--save-plan plan)
 
              (list :success t
                    :patterns_added patterns
@@ -210,8 +208,7 @@ Use this BEFORE requesting scope expansion to:
  :category "scope"
  :function
  (lambda ()
-   (let* ((session-id (jf/gptel-scope--get-session-id))
-          (plan (jf/gptel-scope--load-plan session-id)))
+   (let* ((plan (jf/gptel-scope--load-plan)))
      (if (not plan)
          (list :success nil
                :error "no_scope_plan"

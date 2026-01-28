@@ -41,8 +41,7 @@ CATEGORY: Resource category (\"filesystem\", \"org_roam\", \"shell\")
 BODY: Tool implementation - executed only if scope check passes
 
 The macro automatically:
-- Retrieves session ID
-- Loads scope plan
+- Loads scope plan from current buffer's directory
 - Checks tool permission
 - Normalizes arguments (vector->list)
 - Formats errors on scope violation
@@ -68,8 +67,7 @@ the primary resource identifier (filepath, node-id, command, etc.)."
                                  `(,name (nth ,idx normalized-args)))
                                arg-names
                                (number-sequence 0 (1- (length arg-names))))
-                   (session-id (jf/gptel-scope--get-session-id))
-                   (plan (jf/gptel-scope--load-plan session-id)))
+                   (plan (jf/gptel-scope--load-plan)))
 
               ;; Check plan exists
               (unless plan
@@ -98,59 +96,30 @@ the primary resource identifier (filepath, node-id, command, etc.)."
                  :message (format "Tool error: %s" (error-message-string err)))))))))
 ;; Generic Scoped Tool Macro:1 ends here
 
-;; Global State
-
-;; Tools need access to the current session ID, but =jf/gptel--session-id= is buffer-local. We use a dynamically-scoped global variable that gets set during request execution.
-
-
-;; [[file:scope-core.org::*Global State][Global State:1]]
-(defvar jf/gptel-scope--current-session-id nil
-  "Dynamically-bound session ID for tool execution.
-Set by advice on gptel-request before tools execute.")
-
-(defun jf/gptel-scope--get-session-id ()
-  "Get current session ID for tool execution.
-Tries multiple sources in order:
-1. Dynamic variable (set during tool execution)
-2. Buffer-local variable (if in gptel buffer)
-3. Returns nil if no session found"
-  (or jf/gptel-scope--current-session-id
-      (and (boundp 'jf/gptel--session-id) jf/gptel--session-id)))
-
-(defun jf/gptel-scope--set-session-context (orig-fn &rest args)
-  "Advice to set session ID from context before tool execution."
-  (let* ((context (plist-get args :context))
-         (session-id (cond
-                      ((null context) nil)
-                      ((overlayp context) (overlay-get context 'jf/session-id))
-                      ((and (listp context) (keywordp (car context)))
-                       (plist-get context :session-id))
-                      (t nil)))
-         (jf/gptel-scope--current-session-id session-id))
-    (apply orig-fn args)))
-
-(advice-add 'gptel-request :around #'jf/gptel-scope--set-session-context)
-;; Global State:1 ends here
-
 ;; Load Scope Plan
 
-;; Load and parse the YAML scope plan for a session.
+;; Load and parse the YAML scope plan from the same directory as the context file.
 
-;; Note: Session directory lookups work differently depending on whether the session is in the in-memory registry or needs to be found on disk.
+;; Convention: scope-plan.yml is always in the same directory as session.md.
 
 
 ;; [[file:scope-core.org::*Load Scope Plan][Load Scope Plan:1]]
-(defun jf/gptel-scope--load-plan (session-id)
-  "Load scope plan for SESSION-ID from session directory.
-Returns parsed plan as plist or nil if not found."
+(defun jf/gptel-scope--load-plan ()
+  "Load scope plan from same directory as current buffer's file.
+Returns parsed plan as plist or nil if not found.
+
+Uses buffer-local jf/gptel--branch-dir if available (set during session init),
+otherwise falls back to buffer-file-name directory."
   (condition-case err
-      (when-let* ((session (jf/gptel-session-find session-id))
-                  (session-dir (plist-get session :directory)))
-        (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
-          (when (file-exists-p plan-file)
-            (with-temp-buffer
-              (insert-file-contents plan-file)
-              (jf/gptel-scope--parse-yaml (buffer-string))))))
+      (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                             (and (buffer-file-name)
+                                  (file-name-directory (buffer-file-name))))))
+        (when context-dir
+          (let ((plan-file (expand-file-name "scope-plan.yml" context-dir)))
+            (when (file-exists-p plan-file)
+              (with-temp-buffer
+                (insert-file-contents plan-file)
+                (jf/gptel-scope--parse-yaml (buffer-string)))))))
     (error
      (message "Error loading scope plan: %s" (error-message-string err))
      nil)))
@@ -162,18 +131,23 @@ Returns parsed plan as plist or nil if not found."
 
 
 ;; [[file:scope-core.org::*Save Scope Plan][Save Scope Plan:1]]
-(defun jf/gptel-scope--save-plan (session-id plan)
-  "Save PLAN for SESSION-ID to session directory.
-Updates timestamp and writes formatted YAML."
-  (when-let* ((session (jf/gptel-session-find session-id))
-              (session-dir (plist-get session :directory)))
-    (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
-      ;; Update timestamp
-      (plist-put plan :updated (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
-      ;; Write YAML
-      (with-temp-file plan-file
-        (insert (jf/gptel-scope--format-yaml plan)))
-      t)))
+(defun jf/gptel-scope--save-plan (plan)
+  "Save PLAN to same directory as current buffer's file.
+Updates timestamp and writes formatted YAML.
+
+Uses buffer-local jf/gptel--branch-dir if available (set during session init),
+otherwise falls back to buffer-file-name directory."
+  (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                         (and (buffer-file-name)
+                              (file-name-directory (buffer-file-name))))))
+    (when context-dir
+      (let ((plan-file (expand-file-name "scope-plan.yml" context-dir)))
+        ;; Update timestamp
+        (plist-put plan :updated (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        ;; Write YAML
+        (with-temp-file plan-file
+          (insert (jf/gptel-scope--format-yaml plan)))
+        t))))
 ;; Save Scope Plan:1 ends here
 
 ;; Parse YAML to Plist

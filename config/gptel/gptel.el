@@ -168,9 +168,7 @@ Run this after gptel-agent-update to inject skill content into agents."
 ;;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
-
-;; Load agent integration (simplified - no longer hooks into FSM)
-(jf/load-module (expand-file-name "config/gptel/sessions/agent-integration.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
 
 ;; Load scope-core (needed by scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))

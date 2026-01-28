@@ -622,6 +622,9 @@ with zero inheritance from the parent session."
               ;; Set persistent session vars BEFORE preset scope
               (setq-local jf/gptel--session-id session-id)
               (setq-local jf/gptel--session-dir session-dir)
+              ;; Agents are simple sessions without branching - use "main" as default branch
+              (setq-local jf/gptel--branch-name "main")
+              (setq-local jf/gptel--branch-dir session-dir)  ; For non-branching sessions, branch-dir = session-dir
               (setq-local gptel-tools nil)  ; Prevent inheritance EXPLICITLY
               (setq-local gptel-include-tool-results t)  ; Enable tool result persistence
 
@@ -640,8 +643,9 @@ with zero inheritance from the parent session."
               (set-visited-file-name (jf/gptel--context-file-path session-dir))
               (set-buffer-modified-p t))
 
-            ;; Register session globally (metadata no longer needed in registry)
-            (jf/gptel--register-session session-dir agent-buffer session-id)
+            ;; Register session globally with branch info
+            ;; Agents don't support branching, so use "main" as default branch and session-dir as branch-dir
+            (jf/gptel--register-session session-dir agent-buffer session-id "main" session-dir)
 
           ;; Create overlay for parent feedback
           (let ((ov (jf/gptel-persistent-agent--create-overlay
