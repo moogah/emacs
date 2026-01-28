@@ -3,7 +3,11 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(./bin/tangle-org.sh:*)",
-      "Bash(/Applications/Emacs.app/Contents/MacOS/Emacs:*)"
+      "Bash(/Applications/Emacs.app/Contents/MacOS/Emacs:*)",
+      "Bash(git add:*)",
+      "Skill(architecture-analyzer)",
+      "Bash(wc:*)",
+      "Bash(find:*)"
     ]
   }
 }
