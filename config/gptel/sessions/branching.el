@@ -115,23 +115,38 @@ Returns t on success, signals error on failure."
     ;; Read source file
     (insert-file-contents source-file)
 
-    ;; Extract bounds from Local Variables without enabling gptel-mode
-    ;; (Enabling gptel-mode would restore properties, which we don't need)
-    (let ((bounds nil))
+    ;; Extract bounds and gptel settings from Local Variables FIRST
+    ;; (before we start modifying the buffer)
+    (let ((bounds nil)
+          (gptel-model nil)
+          (gptel-backend nil)
+          (gptel-tools nil))
       (save-excursion
         (goto-char (point-min))
         (when (re-search-forward "^<!-- gptel--bounds: \\(.*\\) -->$" nil t)
-          (let ((bounds-str (match-string 1)))
-            (setq bounds (read bounds-str)))))
+          (setq bounds (read (match-string 1))))
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- gptel-model: \\(.*\\) -->$" nil t)
+          (setq gptel-model (match-string 1)))
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- gptel--backend-name: \\(.*\\) -->$" nil t)
+          (setq gptel-backend (match-string 1)))
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- gptel--tool-names: \\(.*\\) -->$" nil t)
+          (setq gptel-tools (match-string 1))))
 
       (unless bounds
         (error "No bounds found in source file: %s" source-file))
+
+      (jf/gptel--log 'info "DEBUG: Read bounds from file: %S" bounds)
+      (jf/gptel--log 'info "DEBUG: Branch position: %d" branch-position)
 
       ;; Validate original bounds
       (jf/gptel--validate-bounds bounds)
 
       ;; Filter bounds to only include regions before branch point
       (let ((filtered-bounds (jf/gptel--filter-bounds-before-position bounds branch-position)))
+        (jf/gptel--log 'info "DEBUG: Filtered bounds: %S" filtered-bounds)
 
         ;; Validate filtered bounds
         (jf/gptel--validate-bounds filtered-bounds)
@@ -149,44 +164,26 @@ Returns t on success, signals error on failure."
               (when (looking-at "\n+")
                 (delete-region (match-beginning 0) (match-end 0))))))
 
-        ;; Write truncated text to dest file
+        ;; Build Local Variables block in this temp buffer (before writing)
+        (goto-char (point-max))
+        (unless (looking-back "\n\n" nil)
+          (insert "\n"))
+        (insert "\n<!-- Local Variables: -->\n")
+
+        ;; Add gptel settings to Local Variables block
+        (when gptel-model
+          (insert (format "<!-- gptel-model: %s -->\n" gptel-model)))
+        (when gptel-backend
+          (insert (format "<!-- gptel--backend-name: %s -->\n" gptel-backend)))
+        (when gptel-tools
+          (insert (format "<!-- gptel--tool-names: %s -->\n" gptel-tools)))
+
+        ;; Add filtered bounds
+        (insert (format "<!-- gptel--bounds: %S -->\n" filtered-bounds))
+        (insert "<!-- End: -->\n")
+
+        ;; Write complete file (with Local Variables) in one operation
         (write-region (point-min) (point-max) dest-file nil 'silent)
-
-        ;; Now add filtered bounds to dest file using add-file-local-variable
-        (with-current-buffer (find-file-noselect dest-file)
-          (goto-char (point-max))
-
-          ;; Build Local Variables block manually to ensure correct format
-          (unless (looking-back "\n\n" nil)
-            (insert "\n"))
-          (insert "\n<!-- Local Variables: -->\n")
-
-          ;; Add gptel settings (read from source)
-          (with-temp-buffer
-            (insert-file-contents source-file)
-            (goto-char (point-min))
-            (when (re-search-forward "^<!-- gptel-model: \\(.*\\) -->$" nil t)
-              (with-current-buffer (find-file-noselect dest-file)
-                (goto-char (point-max))
-                (insert (format "<!-- gptel-model: %s -->\n" (match-string 1)))))
-            (goto-char (point-min))
-            (when (re-search-forward "^<!-- gptel--backend-name: \\(.*\\) -->$" nil t)
-              (with-current-buffer (find-file-noselect dest-file)
-                (goto-char (point-max))
-                (insert (format "<!-- gptel--backend-name: %s -->\n" (match-string 1)))))
-            (goto-char (point-min))
-            (when (re-search-forward "^<!-- gptel--tool-names: \\(.*\\) -->$" nil t)
-              (with-current-buffer (find-file-noselect dest-file)
-                (goto-char (point-max))
-                (insert (format "<!-- gptel--tool-names: %s -->\n" (match-string 1))))))
-
-          ;; Add filtered bounds
-          (goto-char (point-max))
-          (insert (format "<!-- gptel--bounds: %S -->\n" filtered-bounds))
-          (insert "<!-- End: -->\n")
-
-          (save-buffer)
-          (kill-buffer))
 
         (jf/gptel--log 'info "Copied truncated context: %d -> %d chars, bounds: %d types"
                       (with-temp-buffer
