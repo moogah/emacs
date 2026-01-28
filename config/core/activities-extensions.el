@@ -425,23 +425,39 @@ Updates recent files list for all projects."
         :sanitized-name (activities-ext--slugify activity-name)))
 
 (defun activities-ext--scope-projects ()
-  "Get selected projects from current transient scope."
+  "Get selected projects from current transient scope.
+Returns alist of (project-path . git-action)."
   (plist-get (transient-scope) :projects))
 
 (defun activities-ext--scope-git-action ()
-  "Get git action from current transient scope."
+  "Get default git action from current transient scope.
+This is used as default for newly selected projects."
   (plist-get (transient-scope) :git-action))
 
+(defun activities-ext--scope-project-selected-p (project-path)
+  "Check if PROJECT-PATH is selected in scope."
+  (not (null (assoc project-path (activities-ext--scope-projects)))))
+
+(defun activities-ext--scope-get-project-action (project-path)
+  "Get git action for PROJECT-PATH from scope.
+Returns nil if project not selected."
+  (cdr (assoc project-path (activities-ext--scope-projects))))
+
 (defun activities-ext--scope-toggle-project (project-path)
-  "Toggle PROJECT-PATH selection in scope."
+  "Toggle PROJECT-PATH selection in scope.
+When adding, uses current default git action from scope."
   (let* ((scope (transient-scope))
-         (projects (plist-get scope :projects)))
+         (projects (plist-get scope :projects))
+         (default-action (plist-get scope :git-action)))
     (if (assoc project-path projects)
+        ;; Remove if already selected
         (plist-put scope :projects (assoc-delete-all project-path projects))
-      (plist-put scope :projects (cons (cons project-path t) projects)))))
+      ;; Add with default action
+      (plist-put scope :projects (cons (cons project-path default-action) projects)))))
 
 (defun activities-ext--scope-set-git-action (action)
-  "Set git ACTION in scope."
+  "Set default git ACTION in scope.
+This will be used for newly selected projects."
   (let ((scope (transient-scope)))
     (plist-put scope :git-action action)))
 
@@ -577,18 +593,33 @@ Supports up to 36 projects (a-z + 0-9)."
    (list "n" "None" 'activities-ext--infix-none)))
 
 (defun activities-ext--format-status ()
-  "Format status line showing current selection."
+  "Format status line showing current selection and action breakdown."
   (let* ((projects (activities-ext--scope-projects))
-         (count (length projects))
-         (git-action (activities-ext--scope-git-action))
-         (action-str (pcase git-action
-                      ('worktree "worktrees")
-                      ('branch "branches")
-                      ('none "no git operations"))))
-    (format "Selected: %d project%s, will create %s"
-            count
-            (if (= count 1) "" "s")
-            action-str)))
+         (count (length projects)))
+    (if (zerop count)
+        "No projects selected"
+      ;; Group projects by action and format counts
+      (let* ((by-action (seq-group-by #'cdr projects))
+             (worktree-count (length (alist-get 'worktree by-action)))
+             (branch-count (length (alist-get 'branch by-action)))
+             (none-count (length (alist-get 'none by-action)))
+             (parts nil))
+        ;; Build parts list for non-zero counts
+        (when (> worktree-count 0)
+          (push (format "%d worktree%s" worktree-count
+                       (if (= worktree-count 1) "" "s"))
+                parts))
+        (when (> branch-count 0)
+          (push (format "%d branch%s" branch-count
+                       (if (= branch-count 1) "" "es"))
+                parts))
+        (when (> none-count 0)
+          (push (format "%d none" none-count) parts))
+
+        (format "Selected: %d project%s (%s)"
+                count
+                (if (= count 1) "" "s")
+                (mapconcat #'identity (nreverse parts) ", "))))))
 
 (defun activities-ext-create ()
   "Create an extended activity with projects and documentation.
@@ -655,7 +686,6 @@ ARGS are the transient arguments (skip flags only)."
          (activity-name (plist-get scope :activity-name))
          (sanitized-name (plist-get scope :sanitized-name))
          (selected-projects (plist-get scope :projects))
-         (git-action (plist-get scope :git-action))
          (create-org-roam (not (member "--no-org-roam" args)))
          (create-gptel (not (member "--no-gptel" args)))
          (project-metadata nil)
@@ -666,9 +696,10 @@ ARGS are the transient arguments (skip flags only)."
     (unless activity-name
       (user-error "No activity name provided"))
 
-    ;; Process selected projects with uniform git action
+    ;; Process selected projects with their individual git actions
     (dolist (project-entry selected-projects)
       (let* ((project-path (car project-entry))
+             (git-action (cdr project-entry))  ; Read action from project entry
              (project-name (file-name-nondirectory
                            (directory-file-name project-path)))
              (git-result (activities-ext--apply-git-action
