@@ -912,6 +912,7 @@ Functions for managing transient scope state.
 Scope structure:
   :projects - alist of (project-path . git-action)
   :git-action - default action for newly selected projects
+  :selected-project - currently selected project for detail view (or nil)
   :activity-name - user-provided name
   :sanitized-name - slugified name for git operations
 
@@ -920,6 +921,7 @@ Scope structure:
   "Initialize scope for transient menu with ACTIVITY-NAME."
   (list :projects nil
         :git-action activities-ext--default-git-action
+        :selected-project nil
         :activity-name activity-name
         :sanitized-name (activities-ext--slugify activity-name)))
 
@@ -942,23 +944,48 @@ This is used as default for newly selected projects."
 Returns nil if project not selected."
   (cdr (assoc project-path (activities-ext--scope-projects))))
 
+(defun activities-ext--scope-get-selected-project ()
+  "Get currently selected project from scope for detail view.
+Returns project path or nil."
+  (plist-get (transient-scope) :selected-project))
+
+(defun activities-ext--scope-set-selected-project (project-path)
+  "Set PROJECT-PATH as currently selected project for detail view."
+  (let ((scope (transient-scope)))
+    (plist-put scope :selected-project project-path)))
+
 (defun activities-ext--scope-toggle-project (project-path)
   "Toggle PROJECT-PATH selection in scope.
-When adding, uses current default git action from scope."
+When adding, uses current default git action from scope.
+Also sets project as selected for detail view."
   (let* ((scope (transient-scope))
          (projects (plist-get scope :projects))
          (default-action (plist-get scope :git-action)))
     (if (assoc project-path projects)
         ;; Remove if already selected
-        (plist-put scope :projects (assoc-delete-all project-path projects))
-      ;; Add with default action
-      (plist-put scope :projects (cons (cons project-path default-action) projects)))))
+        (progn
+          (plist-put scope :projects (assoc-delete-all project-path projects))
+          ;; Clear selected-project if we just deselected it
+          (when (equal project-path (plist-get scope :selected-project))
+            (plist-put scope :selected-project nil)))
+      ;; Add with default action and set as selected
+      (plist-put scope :projects (cons (cons project-path default-action) projects))
+      (plist-put scope :selected-project project-path))))
 
 (defun activities-ext--scope-set-git-action (action)
   "Set default git ACTION in scope.
 This will be used for newly selected projects."
   (let ((scope (transient-scope)))
     (plist-put scope :git-action action)))
+
+(defun activities-ext--scope-set-project-action (project-path action)
+  "Set git ACTION for specific PROJECT-PATH in scope.
+Project must already be selected."
+  (let* ((scope (transient-scope))
+         (projects (plist-get scope :projects))
+         (entry (assoc project-path projects)))
+    (when entry
+      (setcdr entry action))))
 #+end_src
 
 ** Custom Infix Classes
@@ -982,12 +1009,17 @@ Custom transient infix classes for project toggles and git action selection.
     (not currently-selected)))
 
 (cl-defmethod transient-format-value ((obj activities-ext--switch-project))
-  "Format project toggle value display."
+  "Format project toggle value display with action indicator."
   (let* ((path (oref obj project-path))
          (projects (activities-ext--scope-projects))
          (selected (assoc path projects)))
     (if selected
-        (propertize "(✓)" 'face 'transient-value)
+        (let* ((action (cdr selected))
+               (indicator (pcase action
+                           ('worktree "W")
+                           ('branch "B")
+                           ('none "·"))))
+          (propertize (format "(✓ %s)" indicator) 'face 'transient-value))
       (propertize "( )" 'face 'transient-inactive-value))))
 
 (cl-defmethod transient-init-value ((obj activities-ext--switch-project))
@@ -1124,11 +1156,49 @@ Supports up to 36 projects (a-z + 0-9)."
 
 #+begin_src emacs-lisp
 (defun activities-ext--generate-git-action-suffixes ()
-  "Generate suffix list for git action selection."
+  "Generate suffix list for git action selection.
+These set the default action for newly selected projects."
   (list
    (list "w" "Worktree (default)" 'activities-ext--infix-worktree)
    (list "b" "Branch" 'activities-ext--infix-branch)
    (list "n" "None" 'activities-ext--infix-none)))
+#+end_src
+
+*** Per-Project Git Action Generator
+
+Generates git action options for the currently selected project.
+
+#+begin_src emacs-lisp
+(defun activities-ext--generate-project-git-action-suffixes ()
+  "Generate git action suffixes for currently selected project.
+Returns nil if no project selected for detail view."
+  (when-let ((proj-path (activities-ext--scope-get-selected-project)))
+    (let ((current-action (activities-ext--scope-get-project-action proj-path)))
+      (list
+       (list "w"
+             (if (eq current-action 'worktree)
+                 "Worktree (active)"
+               "Worktree")
+             `(lambda ()
+                (interactive)
+                (activities-ext--scope-set-project-action ,proj-path 'worktree))
+             :transient t)
+       (list "b"
+             (if (eq current-action 'branch)
+                 "Branch (active)"
+               "Branch")
+             `(lambda ()
+                (interactive)
+                (activities-ext--scope-set-project-action ,proj-path 'branch))
+             :transient t)
+       (list "n"
+             (if (eq current-action 'none)
+                 "None (active)"
+               "None")
+             `(lambda ()
+                (interactive)
+                (activities-ext--scope-set-project-action ,proj-path 'none))
+             :transient t)))))
 #+end_src
 
 *** Status Info Generator
@@ -1203,14 +1273,28 @@ Interactive menu for creating extended activities with visual project and git ac
        'activities-ext-create-transient
        (activities-ext--generate-project-suffixes)))]
 
-   ;; Git Configuration Section
+   ;; Default Git Action Section
    [:class transient-column
-    :description "Git Configuration"
+    :description "Default Git Action"
     :setup-children
     (lambda (_)
       (transient-parse-suffixes
        'activities-ext-create-transient
        (activities-ext--generate-git-action-suffixes)))]
+
+   ;; Per-Project Git Action Section (conditional)
+   [:class transient-column
+    :description (lambda ()
+                   (if-let ((proj (activities-ext--scope-get-selected-project)))
+                       (format "Git Action: %s"
+                              (file-name-nondirectory (directory-file-name proj)))
+                     "Git Action: (select project)"))
+    :if (lambda () (activities-ext--scope-get-selected-project))
+    :setup-children
+    (lambda (_)
+      (transient-parse-suffixes
+       'activities-ext-create-transient
+       (activities-ext--generate-project-git-action-suffixes)))]
 
    ;; Creation Options
    ["Creation Options"
