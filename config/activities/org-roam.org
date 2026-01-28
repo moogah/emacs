@@ -82,12 +82,20 @@ Each project is stored as an org heading with properties for programmatic access
   (concat
    "* Overview\n\n"
    (format "Activity: %s\n\n" activity-name)
-   ;; Add gptel session link if provided
+   "* Gptel Sessions\n\n"
    (if gptel-session
-       (format "GPTEL Session: [[file:%s][%s]]\n\n"
-               (plist-get gptel-session :session-file)
-               (plist-get gptel-session :session-id))
-     "")
+       (let ((session-id (plist-get gptel-session :session-id))
+             (session-file (plist-get gptel-session :session-file))
+             (session-dir (plist-get gptel-session :session-dir)))
+         (concat
+          (format "** Session: %s\n" session-id)
+          ":PROPERTIES:\n"
+          (format ":GPTEL_SESSION_ID: %s\n" session-id)
+          (format ":GPTEL_SESSION_FILE: %s\n" session-file)
+          (format ":GPTEL_SESSION_DIR: %s\n" session-dir)
+          ":END:\n\n"
+          (format "[[file:%s][Open %s]]\n\n" session-file session-id)))
+     "No gptel sessions associated.\n\n")
    "* Projects\n\n"
    (if projects
        (mapconcat
