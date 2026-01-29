@@ -145,13 +145,16 @@ This runs on every file open via find-file-hook, so performance is critical."
              (string-suffix-p ".md" (buffer-file-name)))   ; Is .md file? (fast)
     (let* ((file-path (expand-file-name (buffer-file-name)))
            (file-name (file-name-nondirectory file-path)))
-      ;; Branch session file detection: path must match sessions/<id>/branches/<branch>/session.md
+      ;; Branch session file detection: path must match */branches/*/session.md
+      ;; Works for both ~/.gptel/sessions/<id>/branches/<branch>/session.md
+      ;; and ~/emacs-activities/<name>/session/branches/<branch>/session.md
       (when (and (string= file-name "session.md")
-                 (string-match "/\\.gptel/sessions/\\([^/]+\\)/branches/\\([^/]+\\)/session\\.md$" file-path))
-        (let* ((session-id (match-string 1 file-path))
-               (branch-name (match-string 2 file-path))
+                 (string-match "/branches/\\([^/]+\\)/session\\.md$" file-path))
+        (let* ((branch-name (match-string 1 file-path))
                (branch-dir (file-name-directory file-path))
-               (session-dir (expand-file-name "../.." branch-dir)))
+               (session-dir (expand-file-name "../.." branch-dir))
+               ;; Extract session-id from session-dir
+               (session-id (jf/gptel--session-id-from-directory session-dir)))
           ;; Validate session and branch directories
           (when (and (jf/gptel--valid-session-directory-p session-dir)
                     (jf/gptel--valid-branch-directory-p branch-dir))
