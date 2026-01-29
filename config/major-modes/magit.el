@@ -21,6 +21,16 @@
                           'magit-insert-stashes
                           'append))
 
+;; ===============================================================================
+;; Magit WIP (Work-in-Progress) Mode
+;; ===============================================================================
+
+;; Enable WIP mode to automatically save working tree state
+;; Modern Magit (2.90+) uses a unified magit-wip-mode instead of separate modes
+(with-eval-after-load 'magit
+  (require 'magit-wip)
+  (magit-wip-mode 1))
+
 (use-package magit-pre-commit
   :straight (:host github :repo "DamianB-BitFlipper/magit-pre-commit.el")
   :after magit)
