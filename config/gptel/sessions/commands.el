@@ -145,13 +145,16 @@ This runs on every file open via find-file-hook, so performance is critical."
              (string-suffix-p ".md" (buffer-file-name)))   ; Is .md file? (fast)
     (let* ((file-path (expand-file-name (buffer-file-name)))
            (file-name (file-name-nondirectory file-path)))
-      ;; Branch session file detection: path must match sessions/<id>/branches/<branch>/session.md
+      ;; Branch session file detection: path must match */branches/*/session.md
+      ;; Works for both ~/.gptel/sessions/<id>/branches/<branch>/session.md
+      ;; and ~/emacs-activities/<name>/session/branches/<branch>/session.md
       (when (and (string= file-name "session.md")
-                 (string-match "/\\.gptel/sessions/\\([^/]+\\)/branches/\\([^/]+\\)/session\\.md$" file-path))
-        (let* ((session-id (match-string 1 file-path))
-               (branch-name (match-string 2 file-path))
+                 (string-match "/branches/\\([^/]+\\)/session\\.md$" file-path))
+        (let* ((branch-name (match-string 1 file-path))
                (branch-dir (file-name-directory file-path))
-               (session-dir (expand-file-name "../.." branch-dir)))
+               (session-dir (expand-file-name "../.." branch-dir))
+               ;; Extract session-id from session-dir
+               (session-id (jf/gptel--session-id-from-directory session-dir)))
           ;; Validate session and branch directories
           (when (and (jf/gptel--valid-session-directory-p session-dir)
                     (jf/gptel--valid-branch-directory-p branch-dir))
@@ -451,6 +454,63 @@ messages >4000 chars). System message is managed via preset files."
           (jf/gptel--log 'info "Applied %d tools from preset" (length resolved-tools)))))
     (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
 
+(defun jf/gptel--create-session-core (session-id session-dir preset-template scope-type &optional projects initial-content)
+  "Create session directory structure with branching support.
+
+SESSION-ID - unique session identifier
+SESSION-DIR - parent directory for session (will contain branches/)
+PRESET-TEMPLATE - name of preset template to copy
+SCOPE-TYPE - symbol 'project-aware or 'deny-all
+PROJECTS - optional list for project-aware scope plans
+INITIAL-CONTENT - optional initial content for session.md (default: \"###\\n\")
+
+Creates:
+- SESSION-DIR/branches/main/ directory structure
+- preset.md (copied from template)
+- scope-plan.yml (project-aware or deny-all)
+- session.md (with initial content)
+- current symlink pointing to main branch
+
+Returns plist with:
+  :session-id - session identifier
+  :session-dir - session directory path
+  :branch-dir - main branch directory path
+  :branch-name - \"main\"
+  :session-file - path to session.md"
+
+  (let* (;; Create branches/main/ directory
+         (main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
+         (session-file (jf/gptel--context-file-path main-branch-dir))
+         (initial-content (or initial-content "###\n")))
+
+    ;; Create scope plan in main branch
+    (let ((scope-yaml (if (eq scope-type 'project-aware)
+                         (jf/gptel--generate-scope-plan-yaml
+                          session-id "project-aware" projects)
+                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
+          (scope-file (jf/gptel--scope-plan-file-path main-branch-dir)))
+      (with-temp-file scope-file
+        (insert scope-yaml))
+      (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+
+    ;; Copy preset template to main branch directory
+    (jf/gptel--copy-preset-template preset-template main-branch-dir)
+
+    ;; Create current symlink pointing to main
+    (jf/gptel--update-current-symlink session-dir "main")
+
+    ;; Create session file with initial content
+    (with-temp-file session-file
+      (insert initial-content))
+    (jf/gptel--log 'info "Created session file: %s" session-file)
+
+    ;; Return paths as plist
+    (list :session-id session-id
+          :session-dir session-dir
+          :branch-dir main-branch-dir
+          :branch-name "main"
+          :session-file session-file)))
+
 (defun jf/gptel-persistent-session (session-name &optional backend model preset-template)
   "Create a new persistent gptel session named SESSION-NAME.
 
@@ -477,55 +537,40 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/branches/
      (list name nil nil template)))
   (let* ((session-id (jf/gptel--generate-session-id session-name))
          (session-dir (jf/gptel--create-session-directory session-id))
-         ;; Create branches/main/ directory
-         (main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
-         (session-file (jf/gptel--context-file-path main-branch-dir))
-         (backend (or backend (alist-get "Claude" gptel--known-backends nil nil #'equal)))
-         (model (or model 'claude-opus-4-5-20251101))
-         (backend-name (gptel-backend-name backend))
-         (model-name (if (symbolp model) (symbol-name model) model))
          (preset-template (or preset-template "programming-assistant"))
          ;; Project selection
          (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
                              (jf/gptel--select-projects)))
          (project-names (when selected-projects
-                         (mapcar #'jf/gptel--project-display-name selected-projects))))
+                         (mapcar #'jf/gptel--project-display-name selected-projects)))
+         (scope-type (if selected-projects 'project-aware 'deny-all))
+         (initial-content (format "# %s\n\n" session-name)))
 
-    ;; Create project-aware or deny-all scope plan in main branch
-    (let ((scope-yaml (if selected-projects
-                         (jf/gptel--generate-scope-plan-yaml
-                          session-id "project-aware" selected-projects)
-                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
-          (scope-file (jf/gptel--scope-plan-file-path main-branch-dir)))
-      (with-temp-file scope-file
-        (insert scope-yaml))
-      (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+    ;; Create session structure using core helper
+    (let* ((session-info (jf/gptel--create-session-core
+                         session-id
+                         session-dir
+                         preset-template
+                         scope-type
+                         selected-projects
+                         initial-content))
+           (session-file (plist-get session-info :session-file)))
 
-    ;; Copy preset template to main branch directory
-    (jf/gptel--copy-preset-template preset-template main-branch-dir)
-
-    ;; Create current symlink pointing to main
-    (jf/gptel--update-current-symlink session-dir "main")
-
-    ;; Create session file with initial content
-    (with-temp-file session-file
-      (insert "# " session-name "\n\n"))
-
-    ;; Open session file - auto-initialization hook will handle the rest
-    (let ((buffer (find-file session-file)))
-      (jf/gptel--log 'info "Created session: %s%s"
-                    session-id
-                    (if selected-projects
-                        (format " with %d project(s)" (length selected-projects))
-                      ""))
-      (message "Created session: %s\nDirectory: %s\nBranch: main\nTemplate: %s%s\n\nSession will auto-initialize when opened."
-               session-name
-               session-dir
-               preset-template
-               (if project-names
-                   (format "\nProjects: %s" (string-join project-names ", "))
-                 ""))
-      buffer)))
+      ;; Open session file - auto-initialization hook will handle the rest
+      (let ((buffer (find-file session-file)))
+        (jf/gptel--log 'info "Created session: %s%s"
+                      session-id
+                      (if selected-projects
+                          (format " with %d project(s)" (length selected-projects))
+                        ""))
+        (message "Created session: %s\nDirectory: %s\nBranch: main\nTemplate: %s%s\n\nSession will auto-initialize when opened."
+                 session-name
+                 session-dir
+                 preset-template
+                 (if project-names
+                     (format "\nProjects: %s" (string-join project-names ", "))
+                   ""))
+        buffer))))
 
 (defun jf/gptel-refresh-sessions ()
   "Refresh the session registry by scanning session directories.
