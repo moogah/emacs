@@ -26,6 +26,13 @@ chatgpt/
 dall-e/
 day1perspective
 
+# Org-roam database (machine-specific)
+org-roam.db
+
+# Tree-sitter grammars (machine-specific)
+tree-sitter/
+tree-sitter-*/
+
 # Keep structure files
 !data/.gitkeep
 !cache/.gitkeep
