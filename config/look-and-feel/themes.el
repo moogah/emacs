@@ -55,7 +55,7 @@
   "Apply custom face overrides to doom-palenight theme."
   (custom-set-faces
    ;; Base faces
-   '(default ((t (:background "black"))))
+   '(default ((t (:background "black" :foreground "#F1F1F1"))))
    '(font-lock-comment-face ((t (:foreground "dark gray"))))
    '(font-lock-string-face ((t (:foreground "wheat1"))))
 
@@ -77,11 +77,11 @@
    '(org-verbatim ((t (:foreground "light sky blue"))))
    '(org-list-dt ((t (:foreground "SlateGray1"))))
    '(org-link ((t (:foreground "DodgerBlue1"))))
-   '(org-level-1 ((t (:foreground "white"))))
-   '(org-level-2 ((t (:foreground "white"))))
-   '(org-level-3 ((t (:foreground "white"))))
-   '(org-level-4 ((t (:foreground "white"))))
-   '(org-level-5 ((t (:foreground "white"))))
+   '(org-level-1 ((t (:inherit outline-1 :height 2.0 :foreground "#F1F1FF"))))
+   '(org-level-2 ((t (:inherit outline-1 :height 1.5 :foreground "#F1F1FF"))))
+   '(org-level-3 ((t (:inherit outline-1 :height 1.5 :foreground "#F1F1FF"))))
+   '(org-level-4 ((t (:inherit outline-1 :height 1.0 :foreground "#F1F1FF"))))
+   '(org-level-5 ((t (:inherit outline-1 :height 1.0 :foreground "#F1F1FF"))))
 
    ;; Markdown-mode faces
    '(markdown-header-delimiter-face ((t (:foreground "SlateGray4"))))
