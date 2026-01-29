@@ -1,9 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep:*)",
       "Bash(./bin/tangle-org.sh:*)",
       "Bash(/Applications/Emacs.app/Contents/MacOS/Emacs:*)",
+      "Bash(du:*)",
+      "Bash(find:*)",
+      "Bash(git add:*)",
+      "Bash(git config:*)",
+      "Bash(git worktree:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(tree:*)",
+      "Skill(architecture-analyzer)",
       "WebSearch"
     ]
   }

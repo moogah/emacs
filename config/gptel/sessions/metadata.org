@@ -5,242 +5,210 @@
 
 * Introduction
 
-Session metadata provides persistent storage of conversation structure and state.
-The metadata is stored as JSON on disk and includes:
-- Session identification (session_id, model, backend, timestamps)
-- Conversation tree structure (supporting branching conversations)
-- Current conversation path
-- Agent execution traces
+Session metadata persistence for gptel sessions.
 
-This module provides:
-- Metadata creation, reading, and writing (CRUD operations)
-- Tree structure manipulation (add nodes, find leaves, navigate paths)
-- Metadata validation
+Metadata is read from two sources:
+- Session-level fields (session_id, created, type, parent_session_id, preset) from scope-plan.yml
+- Preset fields (backend, model) from preset.md YAML frontmatter
 
 * Lexical Binding
 
 #+begin_src emacs-lisp
-;; -*- lexical-binding: t; -*-
+;;; metadata.el --- GPTEL Session Metadata -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Session metadata persistence for gptel.
+;; Reads metadata from scope-plan.yml and preset.md.
+;;
+;; - Session fields: session_id, created, type, parent_session_id, preset
+;; - Preset fields: backend, model
+
+;;; Code:
+
 (require 'cl-lib)
-(require 'json)
+(require 'yaml)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
 #+end_src
 
-* Metadata Creation
+* Metadata Structure
+
+Metadata is stored in two separate files:
+
+**scope-plan.yml** contains session-level fields:
+- session_id - Unique session identifier
+- created - ISO8601 timestamp of creation
+- updated - ISO8601 timestamp of last update
+- type - Session type ("agent" for agent sessions, "branch" for branch sessions, omitted for regular sessions)
+- parent_session_id - Parent session ID (for agents and branches)
+- preset - Preset name (e.g., "Bash", "Explore", "programming-assistant")
+
+**preset.md** contains configuration fields in YAML frontmatter:
+- backend - Backend name (e.g., "Claude", "ChatGPT")
+- model - Model name/symbol
+
+Reading functions return plists with kebab-case keywords:
+- :session-id, :created, :updated, :type, :parent-session-id, :preset
+- :backend, :model
+
+* Metadata Reading Functions
+
+Functions for reading session metadata from scope-plan.yml and preset.md files.
+
+** Read Session Metadata from scope-plan.yml
 
 #+begin_src emacs-lisp
-(defun jf/gptel--create-metadata (session-dir session-id model backend)
-  "Create initial metadata structure for a new session.
-SESSION-DIR is the directory path, SESSION-ID is the session identifier,
-MODEL is the model symbol, BACKEND is the backend name.
-Returns simplified metadata plist for filesystem-based persistence.
-Tree structure is now represented by filesystem directories, not metadata."
-  (list :session_id session-id
-        :model (symbol-name model)
-        :backend backend
-        :created (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+(defun jf/gptel--read-session-metadata (session-dir)
+  "Read session metadata from scope-plan.yml in SESSION-DIR.
+Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :preset.
+Returns nil if file doesn't exist or can't be parsed.
 
-(defun jf/gptel--create-metadata-legacy (session-dir session-id model backend)
-  "DEPRECATED: Create metadata with tree structure (old format).
-Use jf/gptel--create-metadata instead, which creates simplified metadata
-for filesystem-based persistence."
-  (list :session_id session-id
-        :model (symbol-name model)
-        :backend backend
-        :created (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-        :tree (list :id jf/gptel-session-tree-root-id
-                    :children [])
-        :current_path (vector jf/gptel-session-tree-root-id)
-        :agent_traces []))
+Supports backward compatibility: reads 'preset' field, falls back to 'agent_type' for old sessions."
+  (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
+    (when (file-exists-p plan-file)
+      (condition-case err
+          (with-temp-buffer
+            (insert-file-contents plan-file)
+            (let* ((parsed (yaml-parse-string (buffer-string) :object-type 'plist))
+                   ;; Convert snake_case to kebab-case keywords
+                   (session-id (plist-get parsed :session_id))
+                   (created (plist-get parsed :created))
+                   (updated (plist-get parsed :updated))
+                   (type (plist-get parsed :type))
+                   (parent-id (plist-get parsed :parent_session_id))
+                   ;; Backward compatibility: try 'preset' first, fall back to 'agent_type'
+                   (preset (or (plist-get parsed :preset)
+                              (plist-get parsed :agent_type))))
+              (list :session-id session-id
+                    :created created
+                    :updated updated
+                    :type type
+                    :parent-session-id parent-id
+                    :preset preset)))
+        (error
+         (jf/gptel--log 'error "Failed to parse scope-plan.yml in %s: %s"
+                       session-dir (error-message-string err))
+         nil)))))
 #+end_src
 
-* Metadata Reading
+** Read Preset Metadata from preset.md
 
 #+begin_src emacs-lisp
-(defun jf/gptel--read-metadata (session-dir)
-  "Read metadata.json from SESSION-DIR.
-Returns metadata plist or nil if file doesn't exist."
-  (let ((metadata-file (expand-file-name jf/gptel-session-metadata-filename session-dir)))
+(defun jf/gptel--read-preset-metadata (session-dir)
+  "Read backend and model from preset.md YAML frontmatter in SESSION-DIR.
+Returns plist with :backend and :model.
+Returns nil if file doesn't exist or can't be parsed."
+  (let ((preset-file (expand-file-name "preset.md" session-dir)))
+    (when (file-exists-p preset-file)
+      (condition-case err
+          (with-temp-buffer
+            (insert-file-contents preset-file)
+            (goto-char (point-min))
+            ;; Look for YAML frontmatter (between --- markers)
+            (when (re-search-forward "^---\n" nil t)
+              (let ((yaml-start (point)))
+                (when (re-search-forward "^---\n" nil t)
+                  (let* ((yaml-end (match-beginning 0))
+                         (yaml-content (buffer-substring yaml-start yaml-end))
+                         (parsed (yaml-parse-string yaml-content :object-type 'plist))
+                         (backend (plist-get parsed :backend))
+                         (model (plist-get parsed :model)))
+                    (list :backend backend
+                          :model model))))))
+        (error
+         (jf/gptel--log 'error "Failed to parse preset.md in %s: %s"
+                       session-dir (error-message-string err))
+         nil)))))
+#+end_src
+
+** Check if Session is Agent
+
+#+begin_src emacs-lisp
+(defun jf/gptel--is-agent-session-p (session-dir)
+  "Return t if session in SESSION-DIR is an agent session.
+Checks :type field in scope-plan.yml."
+  (when-let ((metadata (jf/gptel--read-session-metadata session-dir)))
+    (equal (plist-get metadata :type) "agent")))
+#+end_src
+
+** Check if Session is Branch
+
+#+begin_src emacs-lisp
+(defun jf/gptel--is-branch-session-p (session-dir)
+  "Return t if session in SESSION-DIR is a branch session.
+Checks :type field in scope-plan.yml."
+  (when-let ((metadata (jf/gptel--read-session-metadata session-dir)))
+    (equal (plist-get metadata :type) "branch")))
+#+end_src
+
+** Get Parent Session ID
+
+#+begin_src emacs-lisp
+(defun jf/gptel--get-parent-session-id (session-dir)
+  "Get parent session ID from SESSION-DIR's scope-plan.yml.
+Returns nil if not an agent/branch or no parent specified."
+  (when-let ((metadata (jf/gptel--read-session-metadata session-dir)))
+    (plist-get metadata :parent-session-id)))
+#+end_src
+
+* Branch Metadata Functions
+
+Functions for reading and writing branch-metadata.yml files.
+
+Branch metadata tracks:
+- parent_branch - Name of parent branch (e.g., "main")
+- created - ISO8601 timestamp of branch creation
+- branch_point_position - Position in parent where branch was created (optional, for reference)
+
+** Read Branch Metadata
+
+#+begin_src emacs-lisp
+(defun jf/gptel--read-branch-metadata (branch-dir)
+  "Read branch metadata from branch-metadata.yml in BRANCH-DIR.
+Returns plist with :parent-branch, :created, :branch-point-position.
+Returns nil if file doesn't exist or can't be parsed."
+  (let ((metadata-file (jf/gptel--branch-metadata-file-path branch-dir)))
     (when (file-exists-p metadata-file)
-      (condition-case nil
-          (let ((json-object-type 'plist)
-                (json-array-type 'vector)
-                (json-key-type 'keyword))
-            (json-read-file metadata-file))
-        (error nil)))))
+      (condition-case err
+          (with-temp-buffer
+            (insert-file-contents metadata-file)
+            (let* ((parsed (yaml-parse-string (buffer-string) :object-type 'plist))
+                   (parent-branch (plist-get parsed :parent_branch))
+                   (created (plist-get parsed :created))
+                   (branch-point (plist-get parsed :branch_point_position)))
+              (list :parent-branch parent-branch
+                    :created created
+                    :branch-point-position branch-point)))
+        (error
+         (jf/gptel--log 'error "Failed to parse branch-metadata.yml in %s: %s"
+                       branch-dir (error-message-string err))
+         nil)))))
 #+end_src
 
-* Metadata Writing
+** Write Branch Metadata
 
 #+begin_src emacs-lisp
-(defun jf/gptel--write-metadata (session-dir metadata)
-  "Write METADATA plist to metadata.json in SESSION-DIR."
-  (let ((metadata-file (expand-file-name jf/gptel-session-metadata-filename session-dir))
-        (json-encoding-pretty-print t))
+(defun jf/gptel--write-branch-metadata (branch-dir parent-branch-name &optional branch-point-position)
+  "Write branch metadata to BRANCH-DIR.
+PARENT-BRANCH-NAME is the name of the parent branch (e.g., \"main\").
+BRANCH-POINT-POSITION is optional position in parent where branch was created."
+  (let ((metadata-file (jf/gptel--branch-metadata-file-path branch-dir))
+        (timestamp (format-time-string "%Y-%m-%dT%H:%M:%S%z")))
     (with-temp-file metadata-file
-      (insert (json-encode metadata)))))
+      (insert "parent_branch: " parent-branch-name "\n")
+      (insert "created: " timestamp "\n")
+      (when branch-point-position
+        (insert "branch_point_position: " (number-to-string branch-point-position) "\n")))
+    (jf/gptel--log 'info "Created branch-metadata.yml with parent: %s" parent-branch-name)))
 #+end_src
 
-* Metadata Validation
+* Provide Feature
 
 #+begin_src emacs-lisp
-(defun jf/gptel--validate-metadata (metadata)
-  "Validate metadata structure. Returns t if valid, nil otherwise.
-Works with both simplified (filesystem-based) and legacy (tree-based) formats."
-  (and (plist-get metadata :session_id)
-       (plist-get metadata :model)
-       (plist-get metadata :backend)
-       (plist-get metadata :created)))
-#+end_src
-
-* Tree Operations
-
-** Add Tree Node
-
-#+begin_src emacs-lisp
-(defun jf/gptel--add-tree-node (tree parent-path node-id node-type filename preview)
-  "Add a new node to TREE at PARENT-PATH.
-NODE-ID is the node identifier, NODE-TYPE is 'message' or 'response',
-FILENAME is the file containing this node's content,
-PREVIEW is a short preview of the content.
-Returns the updated tree."
-  (let ((new-node (list :id node-id
-                        :type (symbol-name node-type)
-                        :file filename
-                        :timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-                        :preview preview
-                        :children [])))
-    (if (equal parent-path (vector jf/gptel-session-tree-root-id))
-        ;; Add to root's children
-        (let ((children (plist-get tree :children)))
-          (plist-put tree :children
-                     (vconcat children (vector new-node)))
-          tree)
-      ;; Navigate to parent and add
-      (jf/gptel--add-node-at-path tree (cl-coerce parent-path 'list) new-node 1)
-      tree)))
-#+end_src
-
-** Add Node at Path
-
-#+begin_src emacs-lisp
-(defun jf/gptel--add-node-at-path (node path new-child depth)
-  "Navigate to parent node in TREE following PATH and add NEW-CHILD.
-DEPTH tracks current position in path (skipping 'root').
-Mutates tree in place."
-  (if (>= depth (length path))
-      ;; At parent, add child
-      (let ((children (plist-get node :children)))
-        (plist-put node :children
-                   (vconcat children (vector new-child))))
-    ;; Navigate deeper
-    (let* ((target-id (nth depth path))
-           (children (plist-get node :children))
-           (found nil))
-      (cl-dotimes (i (length children))
-        (unless found
-          (let ((child (aref children i)))
-            (when (equal (plist-get child :id) target-id)
-              (jf/gptel--add-node-at-path child path new-child (1+ depth))
-              (setq found t))))))))
-#+end_src
-
-** Find Leaf Nodes
-
-#+begin_src emacs-lisp
-(defun jf/gptel--find-leaf-nodes (tree &optional path)
-  "Find all leaf nodes in TREE.
-Returns list of (path . node) pairs where path is vector of node IDs."
-  (let* ((current-path (or path (vector jf/gptel-session-tree-root-id)))
-         (children (plist-get tree :children)))
-    (if (or (null children)
-            (and (vectorp children) (zerop (length children))))
-        ;; This is a leaf - only return if not the root with no children
-        (if (equal current-path (vector jf/gptel-session-tree-root-id))
-            nil  ; Empty tree, return empty list
-          (list (cons current-path tree)))
-      ;; Recurse into children
-      (apply #'append
-             (mapcar
-              (lambda (child)
-                (jf/gptel--find-leaf-nodes
-                 child
-                 (vconcat current-path (vector (plist-get child :id)))))
-              (append children nil))))))
-#+end_src
-
-** Get Conversation Path
-
-#+begin_src emacs-lisp
-(defun jf/gptel--get-conversation-path (metadata)
-  "Get the current conversation path from METADATA.
-Returns vector of node IDs representing the current branch."
-  (plist-get metadata :current_path))
-#+end_src
-
-** Get Next Message ID
-
-#+begin_src emacs-lisp
-(defun jf/gptel--get-next-message-id (metadata)
-  "Get the next message ID from METADATA.
-Returns format 'message-N' or 'message-N-altM' for forks."
-  (let* ((current-path (plist-get metadata :current_path))
-         (last-node-id (when (> (length current-path) 1)
-                         (aref current-path (1- (length current-path)))))
-         ;; Extract number from last node (e.g., "response-2" -> 2)
-         (last-num (when last-node-id
-                     (if (string-match "\\([0-9]+\\)" (format "%s" last-node-id))
-                         (string-to-number (match-string 1 (format "%s" last-node-id)))
-                       0)))
-         (next-num (if last-num (1+ last-num) 1)))
-    (format "message-%d" next-num)))
-#+end_src
-
-** Find Node by Path
-
-#+begin_src emacs-lisp
-(defun jf/gptel--find-node-by-path (tree path)
-  "Find node in TREE by following PATH (vector of node IDs)."
-  (if (or (null path) (equal path (vector jf/gptel-session-tree-root-id)))
-      tree
-    (jf/gptel--find-node-recursive tree (cl-coerce path 'list) 1)))
-#+end_src
-
-** Find Node Recursive Helper
-
-#+begin_src emacs-lisp
-(defun jf/gptel--find-node-recursive (tree path depth)
-  "Recursively find node in TREE following PATH at DEPTH."
-  (if (>= depth (length path))
-      tree
-    (let* ((target-id (nth depth path))
-           (children (plist-get tree :children))
-           (found nil))
-      (seq-doseq (child children)
-        (when (equal (plist-get child :id) (format "%s" target-id))
-          (setq found (jf/gptel--find-node-recursive child path (1+ depth)))))
-      found)))
-#+end_src
-
-* Update Metadata Tree
-
-#+begin_src emacs-lisp
-(defun jf/gptel--update-metadata-tree (msg-id msg-file msg-preview resp-id resp-file resp-preview)
-  "Update metadata tree with new message and response nodes."
-  (let* ((tree (plist-get jf/gptel--session-metadata :tree))
-         (current-path (plist-get jf/gptel--session-metadata :current_path)))
-
-    (jf/gptel--log 'debug "update-tree: msg-id=%s, current-path=%S" msg-id current-path)
-
-    ;; Add message node
-    (jf/gptel--add-tree-node tree current-path msg-id 'message msg-file msg-preview)
-    ;; Add response node (child of message)
-    (let* ((new-msg-path (vconcat current-path (vector msg-id))))
-      (jf/gptel--add-tree-node tree new-msg-path resp-id 'response resp-file resp-preview)
-      ;; Update current path
-      (let ((new-path (vconcat new-msg-path (vector resp-id))))
-        (plist-put jf/gptel--session-metadata :current_path new-path)
-        (jf/gptel--log 'debug "update-tree: new current-path=%S" new-path)))
-
-    ;; Write to disk
-    (jf/gptel--write-metadata jf/gptel--session-dir jf/gptel--session-metadata)))
+(provide 'gptel-session-metadata)
+;;; metadata.el ends here
 #+end_src

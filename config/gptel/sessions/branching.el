@@ -1,151 +1,326 @@
-;; -*- lexical-binding: t; -*-
+;;; branching.el --- GPTEL Session Branching -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Session branching support for gptel persistent sessions.
+;; Enables creating divergent conversation paths from any user prompt.
+
+;;; Code:
+
 (require 'cl-lib)
+(require 'gptel)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-metadata)
 
-(defun jf/gptel-resume-from-context (&optional context-file)
-  "Resume gptel session from CONTEXT-FILE.
-If called interactively in dired, uses context.md at point.
-If CONTEXT-FILE is nil, prompts for file selection.
-Creates a gptel buffer with the conversation loaded and ready to continue."
-  (interactive)
-  (let* ((context-path (or context-file
-                          (when (derived-mode-p 'dired-mode)
-                            (let ((file-at-point (dired-get-filename nil t)))
-                              (if (and file-at-point (file-directory-p file-at-point))
-                                  (expand-file-name "context.md" file-at-point)
-                                (when (and file-at-point
-                                          (string= (file-name-nondirectory file-at-point)
-                                                  "context.md"))
-                                  file-at-point))))
-                          (read-file-name "Context file: " nil nil t nil
-                                         (lambda (f) (string= (file-name-nondirectory f)
-                                                            "context.md")))))
-         (session-dir (jf/gptel--find-session-root context-path))
-         (node-path (jf/gptel--determine-node-path session-dir context-path))
-         (metadata (jf/gptel--read-metadata session-dir)))
+(defun jf/gptel--find-user-prompts ()
+  "Find all user prompt positions in current buffer.
+Returns list of (POSITION . PROMPT-TEXT) where POSITION is start of prompt.
+User prompts are text regions without a gptel text property."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (let ((prompts nil)
+            (pos (point-min)))
+        ;; Scan for regions without gptel property
+        (while (< pos (point-max))
+          (let* ((next-change (or (next-single-property-change pos 'gptel)
+                                  (point-max)))
+                 (has-property (get-text-property pos 'gptel)))
+            (unless has-property
+              ;; This region has no gptel property - might be a user prompt
+              (let* ((region-text (buffer-substring-no-properties pos next-change))
+                     (trimmed (string-trim region-text)))
+                ;; Only include non-empty, non-whitespace regions
+                (when (and (not (string-empty-p trimmed))
+                          ;; Skip if it's just newlines or whitespace
+                          (not (string-match-p "^[\s\n]*$" trimmed)))
+                  ;; Get preview text (first line, up to 60 chars)
+                  (let* ((first-line (car (split-string trimmed "\n")))
+                         (preview (if (> (length first-line) 60)
+                                     (concat (substring first-line 0 57) "...")
+                                   first-line)))
+                    (push (cons pos preview) prompts)))))
+            (setq pos next-change)))
+        (nreverse prompts)))))
 
-    (unless (file-exists-p context-path)
-      (user-error "Context file not found: %s" context-path))
+(defun jf/gptel--select-branch-point ()
+  "Interactively select a branch point from user prompts.
+Returns (POSITION . INCLUDE-P) where:
+  POSITION - buffer position of selected prompt
+  INCLUDE-P - t to include prompt in branch, nil to exclude"
+  (let ((prompts (jf/gptel--find-user-prompts)))
+    (if (null prompts)
+        (error "No user prompts found in current session")
+      ;; Build numbered list for completing-read
+      (let* ((choices (cl-loop for (pos . text) in prompts
+                              for i from 1
+                              collect (cons (format "%d. %s" i text) pos)))
+             (selected (completing-read "Select branch point: "
+                                       (mapcar #'car choices)
+                                       nil t))
+             (position (cdr (assoc selected choices)))
+             (include-p (y-or-n-p "Include this prompt in the branch? ")))
+        (cons position include-p)))))
 
-    (unless session-dir
-      (user-error "Could not find session root for: %s" context-path))
+(defun jf/gptel--filter-bounds-before-position (bounds-alist position)
+  "Filter BOUNDS-ALIST to only include complete regions before POSITION.
+Returns new bounds alist with only regions that START before POSITION.
+Regions that start before but end after POSITION are EXCLUDED (partial overlap)."
+  (let ((filtered nil))
+    (dolist (bounds-entry bounds-alist)
+      (let* ((type (car bounds-entry))
+             (regions (cdr bounds-entry))
+             (filtered-regions
+              (seq-filter
+               (lambda (region)
+                 ;; region is (BEG END) or (BEG END ID)
+                 ;; Only include if the region starts before the branch point
+                 (< (car region) position))
+               regions)))
+        ;; Only include this type if it has regions after filtering
+        (when filtered-regions
+          (push (cons type filtered-regions) filtered))))
+    (nreverse filtered)))
 
-    (unless metadata
-      (user-error "Could not read session metadata from: %s" session-dir))
+(defun jf/gptel--validate-bounds (bounds-alist)
+  "Validate that BOUNDS-ALIST is well-formed.
+Returns t if valid, signals error with helpful message if not."
+  (dolist (bounds-entry bounds-alist)
+    (let ((type (car bounds-entry))
+          (regions (cdr bounds-entry)))
+      (unless (symbolp type)
+        (error "Invalid bounds type (expected symbol): %S" type))
+      (dolist (region regions)
+        (unless (and (listp region)
+                    (>= (length region) 2)
+                    (<= (length region) 3))
+          (error "Invalid region format (expected (BEG END) or (BEG END ID)): %S" region))
+        (let ((beg (car region))
+              (end (cadr region)))
+          (unless (and (integerp beg) (integerp end))
+            (error "Region positions must be integers: %S" region))
+          (unless (< beg end)
+            (error "Region start must be before end: %S" region))))))
+  t)
 
-    ;; Create buffer and load context
-    (let* ((session-id (file-name-nondirectory session-dir))
-           (buffer-name (format "*gptel-%s*" session-id))
-           (buf (get-buffer-create buffer-name)))
+(defun jf/gptel--copy-truncated-context (source-file dest-file branch-position)
+  "Copy SOURCE-FILE to DEST-FILE, truncating at BRANCH-POSITION.
+Filters gptel--bounds in Local Variables to only include regions before branch point.
+Returns t on success, signals error on failure."
+  (with-temp-buffer
+    ;; Read source file
+    (insert-file-contents source-file)
 
-      (with-current-buffer buf
-        ;; Set up mode
-        (markdown-mode)
-        (gptel-mode 1)
-        (erase-buffer)
+    ;; Extract bounds and gptel settings from Local Variables FIRST
+    ;; (before we start modifying the buffer)
+    (let ((bounds nil)
+          (gptel-model nil)
+          (gptel-backend nil)
+          (gptel-tools nil))
+      (save-excursion
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- gptel--bounds: \\(.*\\) -->$" nil t)
+          (setq bounds (read (match-string 1))))
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- gptel-model: \\(.*\\) -->$" nil t)
+          (setq gptel-model (match-string 1)))
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- gptel--backend-name: \\(.*\\) -->$" nil t)
+          (setq gptel-backend (match-string 1)))
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- gptel--tool-names: \\(.*\\) -->$" nil t)
+          (setq gptel-tools (match-string 1))))
 
-        ;; Insert context from file
-        (insert-file-contents context-path)
+      (unless bounds
+        (error "No bounds found in source file: %s" source-file))
 
-        ;; Set up session state
-        (setq jf/gptel--session-dir session-dir)
-        (setq jf/gptel--session-id (file-name-nondirectory session-dir))
-        (setq jf/gptel--session-metadata metadata)
-        (setq jf/gptel--current-node-path node-path)
+      ;; Validate original bounds
+      (jf/gptel--validate-bounds bounds)
 
-        ;; Restore backend/model from metadata
-        (jf/gptel--restore-backend-model metadata)
+      ;; Filter bounds to only include regions before branch point
+      (let ((filtered-bounds (jf/gptel--filter-bounds-before-position bounds branch-position)))
 
+        ;; Validate filtered bounds
+        (jf/gptel--validate-bounds filtered-bounds)
+
+        ;; Truncate text at branch position
+        (delete-region (min branch-position (point-max)) (point-max))
+
+        ;; Remove old Local Variables block
+        (goto-char (point-min))
+        (when (re-search-forward "^<!-- Local Variables: -->$" nil t)
+          (let ((start (match-beginning 0)))
+            (when (re-search-forward "^<!-- End: -->$" nil t)
+              (delete-region start (match-end 0))
+              ;; Clean up trailing whitespace
+              (when (looking-at "\n+")
+                (delete-region (match-beginning 0) (match-end 0))))))
+
+        ;; Build Local Variables block in this temp buffer (before writing)
         (goto-char (point-max))
-        (message "Resumed session %s at %s"
-                 session-id
-                 (string-join node-path "/")))
+        (unless (looking-back "\n\n" nil)
+          (insert "\n"))
+        (insert "\n<!-- Local Variables: -->\n")
 
-      (switch-to-buffer buf))))
+        ;; Add gptel settings to Local Variables block
+        (when gptel-model
+          (insert (format "<!-- gptel-model: %s -->\n" gptel-model)))
+        (when gptel-backend
+          (insert (format "<!-- gptel--backend-name: %s -->\n" gptel-backend)))
+        (when gptel-tools
+          (insert (format "<!-- gptel--tool-names: %s -->\n" gptel-tools)))
 
-(defun jf/gptel-send-from-context ()
-  "Send current buffer (context.md) to API to get response.
-Buffer should contain markdown-formatted conversation history.
-Creates response node in session directory tree."
+        ;; Add filtered bounds
+        (insert (format "<!-- gptel--bounds: %S -->\n" filtered-bounds))
+        (insert "<!-- End: -->\n")
+
+        ;; Write complete file (with Local Variables) in one operation
+        (write-region (point-min) (point-max) dest-file nil 'silent)
+
+        (jf/gptel--log 'info "Copied truncated context: %d -> %d chars, bounds: %d types"
+                      (with-temp-buffer
+                        (insert-file-contents source-file)
+                        (buffer-size))
+                      branch-position
+                      (length filtered-bounds))
+        t))))
+
+(defun jf/gptel--copy-branch-agents (parent-branch-dir branch-dir)
+  "Copy agent subdirectories from PARENT-BRANCH-DIR/agents to BRANCH-DIR/agents.
+For MVP, copies ALL agent directories.
+Future enhancement: Only copy agents invoked before branch point."
+  (let ((parent-agents-dir (jf/gptel--agents-dir-path parent-branch-dir))
+        (branch-agents-dir (jf/gptel--agents-dir-path branch-dir)))
+    (when (file-directory-p parent-agents-dir)
+      ;; Create agents directory in branch
+      (make-directory branch-agents-dir t)
+
+      ;; Copy each agent directory
+      (dolist (agent-dir (directory-files parent-agents-dir t "^[^.]"))
+        (when (file-directory-p agent-dir)
+          (let* ((agent-name (file-name-nondirectory agent-dir))
+                 (dest-dir (expand-file-name agent-name branch-agents-dir)))
+            (copy-directory agent-dir dest-dir t t t)
+            (jf/gptel--log 'debug "Copied agent directory: %s" agent-name))))
+
+      (jf/gptel--log 'info "Copied %d agent directories to branch"
+                    (length (directory-files parent-agents-dir nil "^[^.]"))))))
+
+(defun jf/gptel--create-branch-session (session-dir parent-branch-name branch-name branch-position include-prompt-p)
+  "Create new branch inside SESSION-DIR.
+SESSION-DIR - session directory containing branches
+PARENT-BRANCH-NAME - name of parent branch (e.g., \"main\")
+BRANCH-NAME - user-provided name for branch
+BRANCH-POSITION - buffer position of branch point
+INCLUDE-PROMPT-P - whether to include the branch point prompt
+
+Returns new branch directory path."
+  (let* ((parent-branch-dir (jf/gptel--branch-dir-path session-dir parent-branch-name))
+         ;; Create timestamped branch name
+         (timestamp (format-time-string "%Y%m%d%H%M%S"))
+         (new-branch-name (format "%s-%s" timestamp branch-name))
+         ;; Create new branch directory
+         (branch-dir (jf/gptel--create-branch-directory session-dir new-branch-name))
+         (parent-context (jf/gptel--context-file-path parent-branch-dir))
+         (branch-context (jf/gptel--context-file-path branch-dir))
+         ;; Adjust position based on include-prompt-p
+         (truncate-position (if include-prompt-p
+                               ;; Find the next property change after branch-position
+                               ;; (this skips the user prompt to just after it)
+                               (with-current-buffer (current-buffer)
+                                 (or (next-single-property-change branch-position 'gptel)
+                                     (point-max)))
+                             ;; Exclude: truncate exactly at the prompt
+                             branch-position)))
+
+    (jf/gptel--log 'info "Creating branch: %s from parent: %s" new-branch-name parent-branch-name)
+
+    ;; Copy scope-plan.yml from parent branch
+    (let ((parent-scope (jf/gptel--scope-plan-file-path parent-branch-dir))
+          (branch-scope (jf/gptel--scope-plan-file-path branch-dir)))
+      (when (file-exists-p parent-scope)
+        (copy-file parent-scope branch-scope t)
+        (jf/gptel--log 'info "Copied scope-plan.yml to branch")))
+
+    ;; Copy preset.md from parent branch
+    (let ((parent-preset (jf/gptel--preset-file-path parent-branch-dir))
+          (branch-preset (jf/gptel--preset-file-path branch-dir)))
+      (when (file-exists-p parent-preset)
+        (copy-file parent-preset branch-preset t)
+        (jf/gptel--log 'info "Copied preset.md to branch")))
+
+    ;; Create branch-metadata.yml
+    (jf/gptel--write-branch-metadata branch-dir parent-branch-name branch-position)
+
+    ;; Copy agent directories from parent branch
+    (jf/gptel--copy-branch-agents parent-branch-dir branch-dir)
+
+    ;; Copy and truncate context file
+    (jf/gptel--copy-truncated-context parent-context branch-context truncate-position)
+
+    ;; Update current symlink to point to new branch
+    (jf/gptel--update-current-symlink session-dir new-branch-name)
+
+    (jf/gptel--log 'info "Branch created successfully: %s" new-branch-name)
+    branch-dir))
+
+(defun jf/gptel-branch-session (&optional branch-name)
+  "Create a branch from current branch at a selected user prompt.
+
+Interactively:
+1. Prompts user to select a branch point (numbered list of user prompts)
+2. Asks whether to include or exclude the selected prompt
+3. Prompts for branch name
+4. Creates new branch directory with copied metadata and truncated context
+5. Opens new branch session buffer
+
+The new branch is created in the same session with:
+- Timestamped branch name: <timestamp>-<user-name>
+- Copied preset.md and scope-plan.yml from parent branch
+- branch-metadata.yml tracking parent branch name
+- Copied agent subdirectories from parent branch
+- session.md truncated at branch point with filtered bounds
+- Current symlink updated to point to new branch
+
+After creation, the branch can evolve independently from parent."
   (interactive)
-  (unless (and jf/gptel--session-dir jf/gptel--current-node-path)
-    (user-error "No active session state. Use jf/gptel-resume-from-context first"))
 
-  ;; Use gptel's normal send mechanism
-  ;; The autosave hook will create the appropriate response node
-  (gptel-send))
+  ;; Verify current buffer is a branch session
+  (unless (and (boundp 'jf/gptel--session-dir) jf/gptel--session-dir
+              (boundp 'jf/gptel--branch-name) jf/gptel--branch-name)
+    (error "Current buffer is not a gptel branch session"))
 
-(defun jf/gptel-branch-from-point ()
-  "Create a branch by copying the node at point.
-If point is on a msg-N or response-N directory, copies it to create an alt branch.
-The copied directory can then be edited before resuming."
-  (interactive)
-  (unless (derived-mode-p 'dired-mode)
-    (user-error "Must be in dired/dirvish to create branches"))
+  (unless gptel-mode
+    (error "Current buffer is not in gptel-mode"))
 
-  (let* ((node-dir (dired-get-filename nil t))
-         (node-name (file-name-nondirectory node-dir)))
+  ;; Select branch point
+  (let* ((branch-point-data (jf/gptel--select-branch-point))
+         (branch-position (car branch-point-data))
+         (include-prompt-p (cdr branch-point-data))
+         ;; Prompt for branch name
+         (user-branch-name (or branch-name
+                              (read-string "Branch name: ")))
+         ;; Create branch
+         (new-branch-dir (jf/gptel--create-branch-session
+                         jf/gptel--session-dir
+                         jf/gptel--branch-name  ; parent branch name
+                         user-branch-name        ; user-provided name
+                         branch-position
+                         include-prompt-p))
+         (new-branch-file (jf/gptel--context-file-path new-branch-dir))
+         (new-branch-name (file-name-nondirectory new-branch-dir)))
 
-    (unless (and node-dir (file-directory-p node-dir))
-      (user-error "Point must be on a directory"))
+    ;; Open new branch session buffer (auto-initializes via find-file-hook)
+    (find-file new-branch-file)
 
-    (unless (string-match "^\\(msg\\|response\\)-\\([0-9]+\\)$" node-name)
-      (user-error "Directory must be a msg-N or response-N node"))
+    (message "Created branch: %s\nFrom parent: %s\nSession: %s"
+             new-branch-name
+             jf/gptel--branch-name
+             jf/gptel--session-id)))
 
-    (let* ((parent-dir (file-name-directory (directory-file-name node-dir)))
-           (branch-name (jf/gptel--next-branch-id parent-dir node-name))
-           (branch-dir (expand-file-name branch-name parent-dir)))
-
-      ;; Copy directory
-      (copy-directory node-dir branch-dir)
-
-      ;; Refresh dired
-      (revert-buffer)
-
-      ;; Navigate to new branch
-      (goto-char (point-min))
-      (search-forward branch-name nil t)
-      (beginning-of-line)
-
-      (message "Created branch: %s (edit context.md and resume)" branch-name))))
-
-(defun jf/gptel--find-session-root (path)
-  "Find session root directory by walking up from PATH.
-Returns directory containing metadata.json or nil if not found."
-  (let ((current-dir (if (file-directory-p path)
-                        path
-                      (file-name-directory path))))
-    (while (and current-dir
-                (not (file-exists-p (expand-file-name "metadata.json" current-dir)))
-                (not (string= current-dir "/")))
-      (setq current-dir (file-name-directory (directory-file-name current-dir))))
-    (when (file-exists-p (expand-file-name "metadata.json" current-dir))
-      current-dir)))
-
-(defun jf/gptel--determine-node-path (session-dir context-file)
-  "Determine node path from SESSION-DIR to CONTEXT-FILE.
-Returns list of node names representing the path.
-Example: '(\"msg-1\" \"response-1\" \"msg-2\")"
-  (let* ((context-dir (file-name-directory context-file))
-         (rel-path (file-relative-name context-dir session-dir))
-         (path-parts (split-string rel-path "/" t)))
-    ;; Filter out current directory marker
-    (seq-filter (lambda (part) (not (string= part "."))) path-parts)))
-
-(defun jf/gptel--restore-backend-model (metadata)
-  "Restore gptel backend and model from METADATA.
-Sets buffer-local gptel-backend and gptel-model variables."
-  (let* ((backend-name (plist-get metadata :backend))
-         (model-name (plist-get metadata :model))
-         (backend (cdr (assoc backend-name gptel--known-backends)))
-         (model (when backend
-                 (seq-find (lambda (m)
-                            (string= (gptel--model-name m) model-name))
-                          (gptel-backend-models backend)))))
-    (when backend
-      (setq-local gptel-backend backend))
-    (when model
-      (setq-local gptel-model model))
-    (when (or backend model)
-      (message "Restored: %s / %s" backend-name model-name))))
-
-(provide 'jf/gptel-session-branching)
+(provide 'gptel-session-branching)
+;;; branching.el ends here

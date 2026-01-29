@@ -1,0 +1,886 @@
+;; -*- lexical-binding: t; -*-
+
+(require 'gptel)
+(require 'gptel-agent)
+
+(defun gptel-sql--get-cli-command (sql-product)
+  "Get CLI command for SQL-PRODUCT.
+Returns command string or signals error if tool not installed.
+SQL-PRODUCT should be one of: postgres, mysql, sqlite, oracle, sqlserver."
+  (let ((tool-map '((postgres . "psql")
+                    (mysql . "mysql")
+                    (sqlite . "sqlite3")
+                    (oracle . "sqlplus")
+                    (sqlserver . "sqlcmd"))))
+    (let* ((cmd (cdr (assoc sql-product tool-map))))
+      (unless cmd
+        (error "Unknown sql-product: %s. Must be one of: postgres, mysql, sqlite, oracle, sqlserver" sql-product))
+      (unless (executable-find cmd)
+        (error "CLI tool '%s' not found for %s. Please install it first." cmd sql-product))
+      cmd)))
+
+(defun gptel-sql--validate-connection (connection-name)
+  "Validate CONNECTION-NAME exists in jf/sql-connections.
+Returns connection parameters plist or signals error with helpful message."
+  (let ((conn-name (if (stringp connection-name)
+                       (intern connection-name)
+                     connection-name)))
+    (unless (assoc conn-name jf/sql-connections)
+      (error "Connection '%s' not found. Available connections: %s"
+             connection-name
+             (mapconcat (lambda (c) (symbol-name (car c)))
+                       jf/sql-connections
+                       ", ")))
+    (condition-case err
+        (jf/sql-get-connection-params conn-name)
+      (error
+       (error "Failed to resolve connection '%s': %s" connection-name (error-message-string err))))))
+
+(defun gptel-sql--execute-query (connection-name query)
+  "Execute QUERY against CONNECTION-NAME.
+Returns query output as string or error message.
+Handles all supported database products with appropriate CLI tools."
+  (let* ((params (gptel-sql--validate-connection connection-name))
+         (sql-product (plist-get params :sql-product))
+         (host (plist-get params :host))
+         (port (plist-get params :port))
+         (database (plist-get params :database))
+         (user (plist-get params :user))
+         (password (plist-get params :password))
+         (cli-cmd (gptel-sql--get-cli-command sql-product)))
+
+    ;; Dispatch to product-specific execution
+    (pcase sql-product
+      ('postgres
+       (let* ((pgpassword-env (if password (format "PGPASSWORD=%s" password) ""))
+              (cmd (format "%s %s -h %s -p %d -U %s -d %s -c %s 2>&1"
+                          pgpassword-env
+                          cli-cmd
+                          host port user database
+                          (shell-quote-argument query))))
+         (shell-command-to-string cmd)))
+
+      ('mysql
+       (let* ((cmd (format "%s -h %s -P %d -u %s -p%s -D %s -e %s 2>&1"
+                          cli-cmd
+                          host port user password database
+                          (shell-quote-argument query))))
+         (shell-command-to-string cmd)))
+
+      ('sqlite
+       (let* ((cmd (format "%s %s %s 2>&1"
+                          cli-cmd
+                          (shell-quote-argument database)
+                          (shell-quote-argument query))))
+         (shell-command-to-string cmd)))
+
+      ('oracle
+       (let* ((conn-str (format "%s/%s@%s:%d/%s"
+                               user password host port database))
+              (cmd (format "echo %s | %s %s 2>&1"
+                          (shell-quote-argument query)
+                          cli-cmd
+                          (shell-quote-argument conn-str))))
+         (shell-command-to-string cmd)))
+
+      ('sqlserver
+       (let* ((cmd (format "%s -S %s -U %s -P %s -d %s -Q %s 2>&1"
+                          cli-cmd
+                          host user password database
+                          (shell-quote-argument query))))
+         (shell-command-to-string cmd)))
+
+      (_ (error "Unsupported sql-product: %s" sql-product)))))
+
+(defun gptel-sql--result-limit (result)
+  "Limit RESULT string to maximum size.
+Truncates at 40,000 characters with informative warning if exceeded.
+This prevents context window overflow when returning large result sets."
+  (let ((max-chars 40000))
+    (if (<= (length result) max-chars)
+        result
+      (concat (substring result 0 max-chars)
+              (format "\n\n[... Result truncated at %d characters. Original size: %d characters ...]"
+                     max-chars (length result))))))
+
+(defun gptel-sql--validate-query-type (query expected-types)
+  "Validate QUERY starts with one of EXPECTED-TYPES.
+QUERY is the SQL query string.
+EXPECTED-TYPES is a list of strings (e.g., '("SELECT" "WITH")).
+Returns t if valid, signals error otherwise."
+  (let ((query-upper (upcase (string-trim query))))
+    (unless (cl-some (lambda (type)
+                       (string-prefix-p type query-upper))
+                     expected-types)
+      (error "Query must start with one of: %s. Got: %s"
+             (mapconcat #'identity expected-types ", ")
+             (car (split-string query-upper))))
+    t))
+
+(defun gptel-sql--has-where-clause (query)
+  "Check if QUERY contains a WHERE clause.
+Returns t if WHERE is present, nil otherwise.
+Used to prevent accidental full-table DELETE/UPDATE operations."
+  (string-match-p "\\bWHERE\\b" (upcase query)))
+
+(defun gptel-sql--format-error (error-output sql-product)
+  "Format ERROR-OUTPUT from SQL-PRODUCT into user-friendly message.
+Parses product-specific error patterns and provides troubleshooting guidance."
+  (let ((error-msg (string-trim error-output)))
+    (cond
+     ;; PostgreSQL errors
+     ((and (eq sql-product 'postgres)
+           (string-match "ERROR:\\s-*\\(.*\\)" error-msg))
+      (format "PostgreSQL Error: %s" (match-string 1 error-msg)))
+
+     ;; MySQL errors
+     ((and (eq sql-product 'mysql)
+           (string-match "ERROR \\([0-9]+\\) (\\([^)]+\\)): \\(.*\\)" error-msg))
+      (format "MySQL Error %s (%s): %s"
+              (match-string 1 error-msg)
+              (match-string 2 error-msg)
+              (match-string 3 error-msg)))
+
+     ;; SQLite errors
+     ((and (eq sql-product 'sqlite)
+           (string-match "Error: \\(.*\\)" error-msg))
+      (format "SQLite Error: %s" (match-string 1 error-msg)))
+
+     ;; Oracle errors
+     ((and (eq sql-product 'oracle)
+           (string-match "ORA-\\([0-9]+\\): \\(.*\\)" error-msg))
+      (format "Oracle Error ORA-%s: %s"
+              (match-string 1 error-msg)
+              (match-string 2 error-msg)))
+
+     ;; SQL Server errors
+     ((and (eq sql-product 'sqlserver)
+           (string-match "Msg \\([0-9]+\\).*\n\\(.*\\)" error-msg))
+      (format "SQL Server Error %s: %s"
+              (match-string 1 error-msg)
+              (match-string 2 error-msg)))
+
+     ;; Generic error (no specific pattern matched)
+     (t error-msg))))
+
+(defun gptel-sql--apply-limit (query limit sql-product)
+  "Apply LIMIT to QUERY using SQL-PRODUCT specific syntax.
+LIMIT is the maximum number of rows to return.
+Returns modified query with appropriate LIMIT clause."
+  (let ((query-trim (string-trim query)))
+    ;; Only apply if query doesn't already have LIMIT/TOP/FETCH
+    (unless (string-match-p "\\b\\(LIMIT\\|TOP\\|FETCH\\)\\b" (upcase query-trim))
+      (pcase sql-product
+        ((or 'postgres 'mysql 'sqlite)
+         ;; PostgreSQL, MySQL, SQLite: LIMIT N
+         (format "%s LIMIT %d" query-trim limit))
+
+        ('oracle
+         ;; Oracle: FETCH FIRST N ROWS ONLY (SQL:2008 syntax)
+         (format "%s FETCH FIRST %d ROWS ONLY" query-trim limit))
+
+        ('sqlserver
+         ;; SQL Server: Requires ORDER BY for OFFSET/FETCH, use TOP instead
+         ;; Note: This is a simple implementation. For complex queries,
+         ;; TOP might need to be inserted after SELECT keyword.
+         (if (string-match-p "^SELECT\\b" (upcase query-trim))
+             (replace-regexp-in-string "^SELECT\\b" (format "SELECT TOP %d" limit) query-trim t t)
+           query-trim))
+
+        (_ query-trim)))
+    query-trim))
+
+(defun gptel-sql--get-introspection-query (query-type sql-product &optional params)
+  "Get product-specific introspection query for QUERY-TYPE.
+SQL-PRODUCT specifies the database product.
+PARAMS is an optional plist with query parameters (e.g., :table-name, :schema).
+
+Supported QUERY-TYPEs:
+- list-tables: List all tables
+- list-views: List all views
+- describe-table: Get table structure
+- list-indexes: List indexes
+- list-foreign-keys: List foreign key relationships
+- table-stats: Get table statistics
+
+Returns SQL query string appropriate for the database product."
+  (let ((table-name (plist-get params :table-name))
+        (schema (plist-get params :schema)))
+
+    (pcase (cons query-type sql-product)
+      ;; PostgreSQL queries
+      (`(list-tables . postgres)
+       (format "SELECT schemaname, tablename, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+                FROM pg_tables
+                WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                %s
+                ORDER BY schemaname, tablename;"
+               (if schema (format "AND schemaname = '%s'" schema) "")))
+
+      (`(list-views . postgres)
+       (format "SELECT schemaname, viewname
+                FROM pg_views
+                WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                %s
+                ORDER BY schemaname, viewname;"
+               (if schema (format "AND schemaname = '%s'" schema) "")))
+
+      (`(describe-table . postgres)
+       (format "SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_name = '%s' %s
+                ORDER BY ordinal_position;"
+               table-name
+               (if schema (format "AND table_schema = '%s'" schema) "")))
+
+      ;; MySQL queries
+      (`(list-tables . mysql)
+       (format "SELECT table_schema, table_name,
+                       ROUND(((data_length + index_length) / 1024 / 1024), 2) AS size_mb
+                FROM information_schema.tables
+                WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                %s
+                ORDER BY table_schema, table_name;"
+               (if schema (format "AND table_schema = '%s'" schema) "")))
+
+      (`(describe-table . mysql)
+       (format "SELECT column_name, column_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_name = '%s' %s
+                ORDER BY ordinal_position;"
+               table-name
+               (if schema (format "AND table_schema = '%s'" schema) "")))
+
+      ;; SQLite queries
+      (`(list-tables . sqlite)
+       "SELECT name, type FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")
+
+      (`(list-views . sqlite)
+       "SELECT name FROM sqlite_master WHERE type='view' ORDER BY name;")
+
+      (`(describe-table . sqlite)
+       (format "PRAGMA table_info(%s);" table-name))
+
+      ;; Default error for unsupported combinations
+      (_ (error "Introspection query type '%s' not implemented for %s" query-type sql-product)))))
+
+(gptel-make-tool
+ :name "list_sql_connections"
+ :function (lambda ()
+   "List all available SQL database connections.
+Returns connection names with their database product, host, and database name."
+   (if (not jf/sql-connections)
+       "No SQL connections defined. Please configure jf/sql-connections."
+     (let ((result "Available SQL Connections:\n\n"))
+       (dolist (conn jf/sql-connections)
+         (let* ((name (car conn))
+                (plist (cdr conn))
+                (sql-product (plist-get plist :sql-product))
+                (database (plist-get plist :database)))
+           (setq result
+                 (concat result
+                         (format "- %s (%s)\n" name sql-product)))
+           (if (eq sql-product 'sqlite)
+               (setq result (concat result (format "  Database: %s\n" database)))
+             (let* ((host (plist-get plist :host))
+                    (port (plist-get plist :port)))
+               (setq result
+                     (concat result
+                             (if (eq host 'docker)
+                                 (format "  Docker: %s\n" (plist-get plist :docker-name))
+                               (format "  Host: %s%s\n"
+                                      host
+                                      (if port (format ":%s" port) "")))
+                             (format "  Database: %s\n" database)))))
+           (setq result (concat result "\n"))))
+       result)))
+ :description "List all available database connections with metadata (product, host, database)"
+ :confirm nil)
+
+(gptel-make-tool
+ :name "test_sql_connection"
+ :function (lambda (connection-name)
+   "Test connectivity to CONNECTION-NAME.
+Executes a simple version query to verify the connection works.
+Returns success with version information or error details."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              (version-query (pcase sql-product
+                              ('postgres "SELECT version();")
+                              ('mysql "SELECT version();")
+                              ('sqlite "SELECT sqlite_version();")
+                              ('oracle "SELECT * FROM v$version WHERE rownum = 1;")
+                              ('sqlserver "SELECT @@VERSION;")))
+              (output (gptel-sql--execute-query connection-name version-query)))
+
+         ;; Check for errors in output
+         (if (or (string-match-p "ERROR" output)
+                 (string-match-p "Error" output)
+                 (string-match-p "error" output))
+             (format "Connection test FAILED for %s (%s):\n%s"
+                    connection-name sql-product
+                    (gptel-sql--format-error output sql-product))
+           (format "Connection test SUCCESSFUL for %s (%s)\n%s"
+                  connection-name sql-product output)))
+     (error
+      (format "Connection test FAILED for %s: %s" connection-name (error-message-string err)))))
+ :description "Test connectivity to a database connection by executing a version query"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Name of the connection to test (from list_sql_connections)"))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "list_sql_tables"
+ :function (lambda (connection-name &optional schema)
+   "List all tables in CONNECTION-NAME database.
+Returns table names with sizes (where supported by the database product).
+Optional SCHEMA parameter filters to specific schema (PostgreSQL/MySQL)."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              (query (gptel-sql--get-introspection-query
+                     'list-tables
+                     sql-product
+                     (list :schema schema)))
+              (output (gptel-sql--execute-query connection-name query)))
+
+         (if (or (string-match-p "ERROR" output)
+                 (string-match-p "Error" output))
+             (gptel-sql--format-error output sql-product)
+           (gptel-sql--result-limit output)))
+     (error
+      (format "Failed to list tables: %s" (error-message-string err)))))
+ :description "List all tables in a database with size information (product-specific)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "schema"
+               :type string
+               :description "Optional schema name to filter (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "list_sql_views"
+ :function (lambda (connection-name &optional schema)
+   "List all views in CONNECTION-NAME database.
+Returns view names and definitions (where supported).
+Optional SCHEMA parameter filters to specific schema (PostgreSQL/MySQL)."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              (query (gptel-sql--get-introspection-query
+                     'list-views
+                     sql-product
+                     (list :schema schema)))
+              (output (gptel-sql--execute-query connection-name query)))
+
+         (if (or (string-match-p "ERROR" output)
+                 (string-match-p "Error" output))
+             (gptel-sql--format-error output sql-product)
+           (gptel-sql--result-limit output)))
+     (error
+      (format "Failed to list views: %s" (error-message-string err)))))
+ :description "List all views in a database"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "schema"
+               :type string
+               :description "Optional schema name to filter (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "describe_sql_table"
+ :function (lambda (connection-name table-name &optional schema)
+   "Describe the structure of TABLE-NAME in CONNECTION-NAME database.
+Returns column definitions with types, nullability, and defaults.
+Optional SCHEMA parameter specifies schema (PostgreSQL/MySQL)."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              (query (gptel-sql--get-introspection-query
+                     'describe-table
+                     sql-product
+                     (list :table-name table-name :schema schema)))
+              (output (gptel-sql--execute-query connection-name query)))
+
+         (if (or (string-match-p "ERROR" output)
+                 (string-match-p "Error" output))
+             (gptel-sql--format-error output sql-product)
+           (gptel-sql--result-limit output)))
+     (error
+      (format "Failed to describe table: %s" (error-message-string err)))))
+ :description "Get table structure with columns, types, nullability, and defaults"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "table_name"
+               :type string
+               :description "Name of the table to describe")
+             '(:name "schema"
+               :type string
+               :description "Optional schema name (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "list_sql_indexes"
+ :function (lambda (connection-name &optional table-name schema)
+   "List indexes in CONNECTION-NAME database.
+If TABLE-NAME is provided, lists only indexes for that table.
+Returns index definitions with types and sizes (product-specific)."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              ;; For now, return a message indicating partial implementation
+              (message (if table-name
+                          (format "Indexes for table %s will be shown (feature in development)"
+                                 table-name)
+                        "Schema-wide index listing (feature in development)")))
+         ;; TODO: Implement product-specific index queries
+         message)
+     (error
+      (format "Failed to list indexes: %s" (error-message-string err)))))
+ :description "List indexes for a table or schema (feature in development)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "table_name"
+               :type string
+               :description "Optional table name to filter indexes"
+               :optional t)
+             '(:name "schema"
+               :type string
+               :description "Optional schema name (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "list_sql_foreign_keys"
+ :function (lambda (connection-name &optional table-name schema)
+   "List foreign key relationships in CONNECTION-NAME database.
+If TABLE-NAME is provided, lists only FKs for that table.
+Returns FK definitions with source and target tables."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              ;; For now, return a message indicating partial implementation
+              (message (if table-name
+                          (format "Foreign keys for table %s will be shown (feature in development)"
+                                 table-name)
+                        "Schema-wide foreign key listing (feature in development)")))
+         ;; TODO: Implement product-specific FK queries
+         message)
+     (error
+      (format "Failed to list foreign keys: %s" (error-message-string err)))))
+ :description "List foreign key relationships (feature in development)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "table_name"
+               :type string
+               :description "Optional table name to filter foreign keys"
+               :optional t)
+             '(:name "schema"
+               :type string
+               :description "Optional schema name (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "get_sql_table_stats"
+ :function (lambda (connection-name table-name &optional schema)
+   "Get statistics for TABLE-NAME in CONNECTION-NAME database.
+Returns row count and disk size (product-specific metrics)."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              ;; For now, return a message indicating partial implementation
+              (message (format "Statistics for table %s will be shown (feature in development)"
+                              table-name)))
+         ;; TODO: Implement product-specific stats queries
+         message)
+     (error
+      (format "Failed to get table stats: %s" (error-message-string err)))))
+ :description "Get table statistics (row count, size) - feature in development"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "table_name"
+               :type string
+               :description "Name of the table")
+             '(:name "schema"
+               :type string
+               :description "Optional schema name (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "execute_sql_select"
+ :function (lambda (connection-name query &optional limit)
+   "Execute SELECT QUERY against CONNECTION-NAME database.
+Automatically applies LIMIT if not present to prevent large result sets.
+Default limit: 100 rows, maximum: 1000 rows.
+Returns query results formatted as table."
+   (condition-case err
+       (progn
+         ;; Validate query type
+         (gptel-sql--validate-query-type query '("SELECT" "WITH"))
+
+         (let* ((params (gptel-sql--validate-connection connection-name))
+                (sql-product (plist-get params :sql-product))
+                (row-limit (min (or limit 100) 1000))
+                (limited-query (gptel-sql--apply-limit query row-limit sql-product))
+                (output (gptel-sql--execute-query connection-name limited-query)))
+
+           (if (or (string-match-p "ERROR" output)
+                   (string-match-p "Error" output))
+               (gptel-sql--format-error output sql-product)
+             (gptel-sql--result-limit output))))
+     (error
+      (format "Failed to execute SELECT: %s" (error-message-string err)))))
+ :description "Execute SELECT query with automatic LIMIT (default 100, max 1000 rows)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "SELECT query to execute (must start with SELECT or WITH)")
+             '(:name "limit"
+               :type integer
+               :description "Optional row limit (default 100, max 1000)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "explain_sql_query"
+ :function (lambda (connection-name query &optional analyze format)
+   "Get execution plan for QUERY on CONNECTION-NAME database.
+Uses product-specific EXPLAIN syntax.
+ANALYZE (boolean): whether to actually execute query for real stats.
+FORMAT: output format (text or json, product-specific support)."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              (explain-query
+               (pcase sql-product
+                 ('postgres
+                  (format "EXPLAIN %s%s %s"
+                         (if analyze "ANALYZE" "")
+                         (if (equal format "json") "FORMAT JSON" "")
+                         query))
+                 ('mysql
+                  (format "EXPLAIN %s%s"
+                         (if (equal format "json") "FORMAT=JSON " "")
+                         query))
+                 ('sqlite
+                  (format "EXPLAIN QUERY PLAN %s" query))
+                 ('oracle
+                  (format "EXPLAIN PLAN FOR %s" query))
+                 ('sqlserver
+                  ;; SQL Server requires SET SHOWPLAN before query
+                  (format "SET SHOWPLAN_TEXT ON; %s; SET SHOWPLAN_TEXT OFF;" query))
+                 (_ (error "EXPLAIN not implemented for %s" sql-product))))
+              (output (gptel-sql--execute-query connection-name explain-query)))
+
+         (if (or (string-match-p "ERROR" output)
+                 (string-match-p "Error" output))
+             (gptel-sql--format-error output sql-product)
+           (gptel-sql--result-limit output)))
+     (error
+      (format "Failed to explain query: %s" (error-message-string err)))))
+ :description "Get query execution plan with cost estimates (product-specific EXPLAIN)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "Query to explain")
+             '(:name "analyze"
+               :type boolean
+               :description "Whether to execute query for real stats (default false)"
+               :optional t)
+             '(:name "format"
+               :type string
+               :description "Output format: text or json (product-specific)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "count_sql_rows"
+ :function (lambda (connection-name table-name &optional where-clause schema)
+   "Count rows in TABLE-NAME on CONNECTION-NAME database.
+Optional WHERE-CLAUSE filters the count.
+Returns total row count."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              (full-table (if schema
+                             (format "%s.%s" schema table-name)
+                           table-name))
+              (query (if where-clause
+                        (format "SELECT COUNT(*) FROM %s WHERE %s" full-table where-clause)
+                      (format "SELECT COUNT(*) FROM %s" full-table)))
+              (output (gptel-sql--execute-query connection-name query)))
+
+         (if (or (string-match-p "ERROR" output)
+                 (string-match-p "Error" output))
+             (gptel-sql--format-error output sql-product)
+           output))
+     (error
+      (format "Failed to count rows: %s" (error-message-string err)))))
+ :description "Count rows in a table with optional WHERE condition"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "table_name"
+               :type string
+               :description "Name of the table to count")
+             '(:name "where_clause"
+               :type string
+               :description "Optional WHERE clause (without the WHERE keyword)"
+               :optional t)
+             '(:name "schema"
+               :type string
+               :description "Optional schema name (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "sample_sql_table"
+ :function (lambda (connection-name table-name &optional limit schema)
+   "Get sample rows from TABLE-NAME on CONNECTION-NAME database.
+Returns sample rows with all columns.
+Default limit: 10 rows, maximum: 100 rows."
+   (condition-case err
+       (let* ((params (gptel-sql--validate-connection connection-name))
+              (sql-product (plist-get params :sql-product))
+              (row-limit (min (or limit 10) 100))
+              (full-table (if schema
+                             (format "%s.%s" schema table-name)
+                           table-name))
+              (query (format "SELECT * FROM %s" full-table))
+              (limited-query (gptel-sql--apply-limit query row-limit sql-product))
+              (output (gptel-sql--execute-query connection-name limited-query)))
+
+         (if (or (string-match-p "ERROR" output)
+                 (string-match-p "Error" output))
+             (gptel-sql--format-error output sql-product)
+           (gptel-sql--result-limit output)))
+     (error
+      (format "Failed to sample table: %s" (error-message-string err)))))
+ :description "Get sample rows from a table (default 10, max 100 rows)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "table_name"
+               :type string
+               :description "Name of the table to sample")
+             '(:name "limit"
+               :type integer
+               :description "Optional row limit (default 10, max 100)"
+               :optional t)
+             '(:name "schema"
+               :type string
+               :description "Optional schema name (PostgreSQL/MySQL only)"
+               :optional t))
+ :confirm nil)
+
+(gptel-make-tool
+ :name "execute_sql_insert"
+ :function (lambda (connection-name query)
+   "Execute INSERT QUERY against CONNECTION-NAME database.
+ALWAYS requires user confirmation before execution.
+Returns affected row count (product-specific parsing)."
+   (condition-case err
+       (progn
+         ;; Validate query type
+         (gptel-sql--validate-query-type query '("INSERT"))
+
+         (let* ((params (gptel-sql--validate-connection connection-name))
+                (sql-product (plist-get params :sql-product))
+                (output (gptel-sql--execute-query connection-name query)))
+
+           (if (or (string-match-p "ERROR" output)
+                   (string-match-p "Error" output))
+               (gptel-sql--format-error output sql-product)
+             (format "INSERT successful:\n%s" output))))
+     (error
+      (format "Failed to execute INSERT: %s" (error-message-string err)))))
+ :description "Execute INSERT statement (REQUIRES confirmation)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "INSERT query to execute (must start with INSERT)"))
+ :confirm t)
+
+(gptel-make-tool
+ :name "execute_sql_update"
+ :function (lambda (connection-name query)
+   "Execute UPDATE QUERY against CONNECTION-NAME database.
+ALWAYS requires user confirmation before execution.
+Warns if no WHERE clause is detected (potential full-table update).
+Returns affected row count (product-specific parsing)."
+   (condition-case err
+       (progn
+         ;; Validate query type
+         (gptel-sql--validate-query-type query '("UPDATE"))
+
+         ;; Warn if no WHERE clause
+         (unless (gptel-sql--has-where-clause query)
+           (message "WARNING: UPDATE query has no WHERE clause - will affect all rows!"))
+
+         (let* ((params (gptel-sql--validate-connection connection-name))
+                (sql-product (plist-get params :sql-product))
+                (output (gptel-sql--execute-query connection-name query)))
+
+           (if (or (string-match-p "ERROR" output)
+                   (string-match-p "Error" output))
+               (gptel-sql--format-error output sql-product)
+             (format "UPDATE successful:\n%s" output))))
+     (error
+      (format "Failed to execute UPDATE: %s" (error-message-string err)))))
+ :description "Execute UPDATE statement (REQUIRES confirmation, warns if no WHERE)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "UPDATE query to execute (must start with UPDATE)"))
+ :confirm t)
+
+(gptel-make-tool
+ :name "execute_sql_delete"
+ :function (lambda (connection-name query)
+   "Execute DELETE QUERY against CONNECTION-NAME database.
+ALWAYS requires user confirmation before execution.
+REQUIRES WHERE clause to prevent accidental full-table deletion.
+Returns deleted row count (product-specific parsing)."
+   (condition-case err
+       (progn
+         ;; Validate query type
+         (gptel-sql--validate-query-type query '("DELETE"))
+
+         ;; REQUIRE WHERE clause for DELETE
+         (unless (gptel-sql--has-where-clause query)
+           (error "DELETE requires WHERE clause to prevent accidental full-table deletion. Use execute_sql_drop for TRUNCATE."))
+
+         (let* ((params (gptel-sql--validate-connection connection-name))
+                (sql-product (plist-get params :sql-product))
+                (output (gptel-sql--execute-query connection-name query)))
+
+           (if (or (string-match-p "ERROR" output)
+                   (string-match-p "Error" output))
+               (gptel-sql--format-error output sql-product)
+             (format "DELETE successful:\n%s" output))))
+     (error
+      (format "Failed to execute DELETE: %s" (error-message-string err)))))
+ :description "Execute DELETE statement (REQUIRES confirmation and WHERE clause)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "DELETE query to execute (must start with DELETE and include WHERE)"))
+ :confirm t)
+
+(gptel-make-tool
+ :name "execute_sql_create"
+ :function (lambda (connection-name query)
+   "Execute CREATE QUERY against CONNECTION-NAME database.
+ALWAYS requires user confirmation before execution.
+Used for creating tables, indexes, views, schemas, etc.
+Returns success message."
+   (condition-case err
+       (progn
+         ;; Validate query type
+         (gptel-sql--validate-query-type query '("CREATE"))
+
+         (let* ((params (gptel-sql--validate-connection connection-name))
+                (sql-product (plist-get params :sql-product))
+                (output (gptel-sql--execute-query connection-name query)))
+
+           (if (or (string-match-p "ERROR" output)
+                   (string-match-p "Error" output))
+               (gptel-sql--format-error output sql-product)
+             (format "CREATE successful:\n%s" output))))
+     (error
+      (format "Failed to execute CREATE: %s" (error-message-string err)))))
+ :description "Execute CREATE statement for tables, indexes, views, etc. (REQUIRES confirmation)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "CREATE query to execute (must start with CREATE)"))
+ :confirm t)
+
+(gptel-make-tool
+ :name "execute_sql_alter"
+ :function (lambda (connection-name query)
+   "Execute ALTER QUERY against CONNECTION-NAME database.
+ALWAYS requires user confirmation before execution.
+Used for altering tables, columns, constraints, etc.
+Returns success message."
+   (condition-case err
+       (progn
+         ;; Validate query type
+         (gptel-sql--validate-query-type query '("ALTER"))
+
+         (let* ((params (gptel-sql--validate-connection connection-name))
+                (sql-product (plist-get params :sql-product))
+                (output (gptel-sql--execute-query connection-name query)))
+
+           (if (or (string-match-p "ERROR" output)
+                   (string-match-p "Error" output))
+               (gptel-sql--format-error output sql-product)
+             (format "ALTER successful:\n%s" output))))
+     (error
+      (format "Failed to execute ALTER: %s" (error-message-string err)))))
+ :description "Execute ALTER statement to modify schema objects (REQUIRES confirmation)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "ALTER query to execute (must start with ALTER)"))
+ :confirm t)
+
+(gptel-make-tool
+ :name "execute_sql_drop"
+ :function (lambda (connection-name query)
+   "Execute DROP or TRUNCATE QUERY against CONNECTION-NAME database.
+ALWAYS requires user confirmation before execution.
+Used for dropping tables, indexes, views, or truncating tables.
+Returns success message.
+
+CRITICAL: This is a DESTRUCTIVE operation. Data cannot be recovered."
+   (condition-case err
+       (progn
+         ;; Validate query type
+         (gptel-sql--validate-query-type query '("DROP" "TRUNCATE"))
+
+         (let* ((params (gptel-sql--validate-connection connection-name))
+                (sql-product (plist-get params :sql-product))
+                (output (gptel-sql--execute-query connection-name query)))
+
+           (if (or (string-match-p "ERROR" output)
+                   (string-match-p "Error" output))
+               (gptel-sql--format-error output sql-product)
+             (format "DROP/TRUNCATE successful:\n%s" output))))
+     (error
+      (format "Failed to execute DROP/TRUNCATE: %s" (error-message-string err)))))
+ :description "Execute DROP or TRUNCATE statement (REQUIRES confirmation - DESTRUCTIVE)"
+ :args (list '(:name "connection_name"
+               :type string
+               :description "Database connection name")
+             '(:name "query"
+               :type string
+               :description "DROP or TRUNCATE query (must start with DROP or TRUNCATE)"))
+ :confirm t)

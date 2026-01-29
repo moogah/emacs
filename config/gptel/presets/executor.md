@@ -23,6 +23,24 @@ tools:
   - get_project_info
   - list_project_files
   - search_project_content
+  - list_sql_connections
+  - test_sql_connection
+  - list_sql_tables
+  - list_sql_views
+  - describe_sql_table
+  - list_sql_indexes
+  - list_sql_foreign_keys
+  - get_sql_table_stats
+  - execute_sql_select
+  - explain_sql_query
+  - count_sql_rows
+  - sample_sql_table
+  - execute_sql_insert
+  - execute_sql_update
+  - execute_sql_delete
+  - execute_sql_create
+  - execute_sql_alter
+  - execute_sql_drop
 backend: Claude
 model: claude-3-7-sonnet-20250219
 temperature: 0.3

@@ -54,16 +54,10 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 
 #### Manual Validation
 
-**Only needed if you're debugging or testing `.el` files directly (rare):**
+Rarely needed - `./bin/tangle-org.sh` auto-validates. For manual checks:
 ```bash
-# Validate single file - use full Emacs path
 /Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
-
-# Byte-compile check (more thorough, slower)
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (byte-compile-file \"file.el\"))"
 ```
-
-**IMPORTANT:** Always use `/Applications/Emacs.app/Contents/MacOS/Emacs` (not `emacs` or `/usr/local/bin/emacs`)
 
 #### Required File Headers
 
@@ -72,6 +66,17 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 #+property: header-args:emacs-lisp :tangle module-name.el
 #+auto_tangle: y
 ```
+
+#### Keeping Babel Blocks Focused
+
+**Principle:** Keep org-babel blocks small - typically one function per block. This enables effective bisection debugging and incremental validation.
+
+**Group only when closely related:**
+- Multiple `defvar` declarations
+- Short helper macros/constants used by a single function
+- Very simple related functions (< 5 lines each)
+
+**Avoid:** Multiple unrelated functions in one block - makes debugging syntax errors difficult.
 
 #### After Tangling
 
@@ -89,6 +94,7 @@ find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
 | Missing `#+auto_tangle: y` | Manual tangling required | Add header to `.org` file |
 | Property line not activated | Tangling fails silently | Press `C-c C-c` on `#+PROPERTY` line |
 | Syntax errors in org blocks | Breaks config on load | `./bin/tangle-org.sh` catches these |
+| Large babel blocks with many functions | Hard to debug syntax errors | Keep blocks focused - one function per block |
 
 ### Dual-Launch Support
 
@@ -246,40 +252,33 @@ Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
 ```
 gptel/
 ├── gptel.org/el         - Main loader
-├── sessions/            - 7 modules (registry, metadata, tracing, hooks, browser, branching, transient)
+├── sessions/            - 8 modules (constants, logging, filesystem, registry, metadata, subagent, commands, activities-integration)
 ├── skills/              - 3 modules (skills-core, skills-roam, skills-transient)
-├── tools/               - 7 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community)
+├── tools/               - 10 modules (filesystem, projectile, ggtags, treesitter, org-roam, meta, community, persistent-agent, sql, transient)
 └── agents/              - 5 agent definitions (.md files)
 ```
 
 **Load order enforced in gptel.org:**
 1. Skills system (core, roam, transient)
 2. gptel-agent package + tool definitions
-3. Session modules in dependency order (registry → metadata → tracing → hooks → browser → branching → transient)
+3. Session modules in dependency order (constants → logging → filesystem → registry → metadata → subagent → commands)
+4. Activities integration (if activities package loaded)
 
 **All paths use `config/` prefix:**
 ```elisp
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 ```
 
-#### Session Browser Module Details
+#### Session Metadata Storage
 
-**sessions/browser.el** - Core browsing functionality
-- `jf/gptel-browse-sessions` - Open sessions directory in dired
-- `jf/gptel-open-session` - Select specific session with completing-read
-- `jf/gptel-view-context-at-point` - View context.md files
-- `jf/gptel-view-tools-at-point` - View tools.md files
-- `jf/gptel-session-tree-mode` - Minor mode with keybindings (auto-enabled in session directories)
+**Metadata migrated from metadata.json to scope-plan.yml + preset.md:**
+- `scope-plan.yml` - Session fields (session_id, created, updated, type, parent_session_id, agent_type)
+- `preset.md` - Configuration fields in YAML frontmatter (backend, model)
 
-**sessions/transient.el** - Transient menu (press `?` in session browser)
-- Organized command groups: Browse, View, Actions
-- Context-aware info display (current session, node type, session count)
-- Discoverable interface for all session operations
-
-**sessions/branching.el** - Resume and branch operations
-- `jf/gptel-resume-from-context` - Load context into gptel buffer
-- `jf/gptel-branch-from-point` - Copy node to create alternate path
-- `jf/gptel-send-from-context` - Send edited context to API
+**Registry simplified to runtime state only:**
+- Stores: `:session-id`, `:directory`, `:buffer`
+- Reads metadata on-demand from filesystem (single source of truth)
+- Eliminates cache invalidation complexity
 
 ## Common Development Commands
 
@@ -531,78 +530,11 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ### Milestone Granularity
 
-**Development milestones should be relatively granular** - not necessarily a complete feature, but a module or component tested to perform as expected in isolation.
-
-**Good milestone examples:**
-```
-✓ "Add metadata tracking to gptel sessions"
-  - Core data structure implemented and working
-  - Tested: metadata correctly stored and retrieved
-
-✓ "Implement session registry lookup functions"
-  - Registry functions working with sample data
-  - Tested: lookup by ID, list all sessions
-
-✓ "Wire up session UI to display metadata"
-  - UI renders metadata correctly
-  - Tested: UI updates when session changes
-```
-
-**Too coarse (complete feature):**
-```
-✗ "Complete gptel session management feature"
-✗ "Finish entire refactoring of module system"
-✗ "Implement full authentication system"
-```
-
-**Too fine (not worth separate commit):**
-```
-✗ "Fix typo in comment"
-✗ "Rename single variable"
-✗ "Adjust indentation"
-```
+Milestones should be granular - a module/component tested in isolation, not a complete feature. Good: "Add metadata tracking to gptel sessions" (core structure working). Too coarse: "Complete gptel session management feature" (entire system). Too fine: "Fix typo in comment" (trivial change).
 
 ### Example Development Cycle
 
-**Complete workflow from start to first milestone:**
-
-```bash
-# 1. Start clean
-cd ~/emacs
-git status  # Should be clean
-git checkout -b add-session-metadata
-
-# 2. User requests: "Add metadata tracking to gptel sessions"
-
-# 3. Claude implements changes to .org files
-# 4. Claude tangles (auto-validates):
-./bin/tangle-org.sh config/gptel/sessions/metadata.org
-
-# 5. Claude stages files:
-git add config/gptel/sessions/metadata.org config/gptel/sessions/metadata.el
-
-# 6. User tests:
-./bin/emacs-isolated.sh
-# User opens gptel session, creates metadata, verifies storage
-# User checks *Messages* buffer for errors
-
-# 7. Issue found: "Metadata not persisting across sessions"
-
-# 8. User provides feedback, Claude adjusts, repeats steps 3-6
-
-# 9. Testing passes - milestone reached!
-
-# 10. User commits:
-git commit -m "Add metadata tracking to gptel sessions
-
-Implements core data structure for session metadata.
-Functions: jf/gptel-session-set-metadata, jf/gptel-session-get-metadata
-Tested: metadata correctly stored, retrieved, and persists across sessions
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
-
-# 11. Continue to next milestone (e.g., "Display metadata in session browser")
-```
+Standard flow: Claude edits `.org` → tangles/validates → stages files → User tests in Emacs → provides feedback → iterate until milestone reached → User commits. Repeat for next milestone.
 
 ### Integration with Existing Workflows
 
@@ -702,15 +634,9 @@ Template: `.emacs-secrets.el.example` in repository root.
 
 ## Writing and Validating Elisp
 
-This section provides proactive guidance for writing syntactically valid Emacs Lisp code, with emphasis on incremental validation to catch errors early. LLMs frequently produce parenthesis errors in complex nested elisp - these practices help prevent those issues through automated validation.
+Incremental validation prevents parenthesis errors. LLMs frequently produce paren errors in complex nested elisp.
 
-### When to Use Extra Care
-
-- Before writing any elisp function >20 lines
-- When writing complex nested forms (cl-loop, multiple let*, lambdas)
-- When modifying existing elisp in literate org files
-- After generating elisp code with an LLM
-- When working with deeply nested expressions (3+ levels)
+**Extra care needed:** Functions >20 lines, complex nested forms (cl-loop, multiple let*, lambdas), deeply nested expressions (3+ levels).
 
 ### Incremental Validation Workflow
 
@@ -722,79 +648,16 @@ The key principle: **validate after each function, before moving to the next**.
 4. **Test in isolation** - Extract to temp file if needed for testing
 5. **Fix before continuing** - Don't accumulate errors
 
-### Validation Commands
+### Validation and Complexity
 
-**Use `./bin/tangle-org.sh file.org` - validation is automatic.** See [Literate Programming Workflow](#literate-programming-workflow) for details.
+**Validation:** Use `./bin/tangle-org.sh file.org` after each function - it auto-validates.
 
-For manual validation or debugging, see the "Manual Validation" section in [Literate Programming Workflow](#literate-programming-workflow).
+**Complexity-based validation frequency:**
+- Simple nesting (2 levels): validate after 5-10 functions
+- Medium nesting (3 levels): validate after 2-3 functions
+- Deep nesting (4+ levels): validate after EACH function, or break into helpers
 
-### Complexity Thresholds
-
-**Low Risk (2 nesting levels)**
-```elisp
-(let ((x 1))
-  (+ x 2))
-```
-
-**Action**: Validate after 5-10 functions
-
-**Medium Risk (3 nesting levels)**
-```elisp
-(let ((x (foo)))
-  (when x
-    (bar x)))
-```
-
-**Action**: Validate after each 2-3 functions
-
-**High Risk (4+ nesting levels)**
-```elisp
-(cl-loop for i from 1 below (length path)
-         for target-id = (aref path i)
-         do
-         (let ((children (plist-get node :children)))
-           (when node
-             (let* ((file (plist-get node :file))
-                    (content (when (file-exists-p full-path)
-                              (with-temp-buffer
-                                (insert-file-contents full-path)
-                                (buffer-string)))))
-               (push (list :type type :content content) context)))))
-```
-
-**Action**: Validate after EACH high-risk function
-**Consider**: Breaking into smaller helper functions
-
-### Integration with Literate Programming
-
-After writing each elisp block in your `.org` file, tangle immediately:
-```bash
-./bin/tangle-org.sh file.org  # Automatic validation included
-```
-
-This validates syntax early, preventing error accumulation.
-
-### Example Workflow
-
-**Task:** "Add a function to load context from a tree path"
-
-1. Write function in org-mode code block
-2. `./bin/tangle-org.sh file.org` (automatic validation)
-3. Fix errors in .org file if needed, repeat step 2
-4. Continue to next function
-
-### Common LLM Failure Patterns
-
-LLMs frequently produce paren errors in:
-- cl-loop with nested let* and lambdas
-- Functions >50 lines
-- Complex backquote/unquote expressions
-- Multiple nested when/if/cond forms
-
-**Prevention Strategy:**
-- Write these in 10-20 line chunks
-- Validate after each chunk
-- Use helper functions to reduce nesting
+**LLM-prone error patterns:** cl-loop with nested let*/lambdas, functions >50 lines, complex backquote expressions, deeply nested conditionals. Write these incrementally in 10-20 line chunks.
 
 ### Tips for Writing Elisp
 
@@ -810,303 +673,59 @@ Systematic debugging strategies for Emacs Lisp development, focusing on common e
 
 ### Org-Babel Tangle Bisection Strategy
 
-**Best approach for debugging syntax errors in .org files with elisp code blocks.**
+For syntax errors in tangled .el files, use binary search:
 
-When you encounter "Unmatched bracket or quote" or similar syntax errors in tangled .el files, use this binary search approach to quickly isolate the problem.
+1. Set file-level `:tangle no` and `#+auto_tangle: nil`
+2. Enable tangling per subtree using PROPERTIES drawers: `:header-args:emacs-lisp: :tangle file.el`
+3. Run `./bin/tangle-org.sh file.org` after enabling each subtree
+4. When a subtree fails, narrow down to individual blocks with `:tangle file.el` on specific blocks
 
-#### Step 1: Disable All Tangling
-
-Set file-level default to not tangle:
-```org
-#+property: header-args:emacs-lisp :tangle no
-#+auto_tangle: nil
-```
-
-Tangle and verify empty/minimal output:
-```bash
-./bin/tangle-org.sh file.org
-# Should tangle 0 blocks or only explicitly enabled ones
-```
-
-#### Step 2: Enable Subtrees Incrementally
-
-Use PROPERTIES drawers at subtree level to enable tangling. Start with foundational code:
-
-```org
-* Helper Functions
-:PROPERTIES:
-:header-args:emacs-lisp: :tangle filename.el
-:END:
-
-** function-1
-#+begin_src emacs-lisp
-(defun function-1 () ...)
-#+end_src
-
-** function-2
-#+begin_src emacs-lisp
-(defun function-2 () ...)
-#+end_src
-```
-
-All code blocks under "Helper Functions" will now tangle.
-
-#### Step 3: Validate After Each Addition
-
-After enabling each subtree:
-```bash
-./bin/tangle-org.sh file.org  # Auto-validates
-```
-
-If it exits successfully, continue to next subtree. If it fails, the error is in the subtree you just enabled.
-
-#### Step 4: Narrow Down Within Subtree
-
-Once you've identified the problematic subtree, you can either:
-- **Binary search within subtree**: Add PROPERTIES drawer to sub-sections
-- **Move to individual blocks**: Add `:tangle filename.el` to specific code blocks
-
-Example of narrowing to individual blocks:
-```org
-* Problematic Section
-:PROPERTIES:
-:header-args:emacs-lisp: :tangle no
-:END:
-
-** tool-1
-#+begin_src emacs-lisp :tangle filename.el
-(gptel-make-tool ...)
-#+end_src
-
-** tool-2
-#+begin_src emacs-lisp
-(gptel-make-tool ...)  ; Not tangling yet
-#+end_src
-```
-
-#### Why This Works Better Than Manual Inspection
-
-- **Binary search efficiency**: O(log n) instead of O(n) for checking each block
-- **Immediate validation**: Catch errors right after introducing them
-- **No manual counting**: Eliminates human error in paren matching
-- **Maintainable**: Easy to track which sections are enabled
-- **Reproducible**: Clear state at each validation step
-
-#### PROPERTIES Drawer Syntax
-
-Key formats to remember:
-```org
-* Subtree
-:PROPERTIES:
-:header-args:emacs-lisp: :tangle no          # Disable tangling
-:header-args:emacs-lisp: :tangle file.el     # Enable tangling
-:header-args: :tangle file.el                # Works for all languages
-:END:
-```
-
-**Inheritance:** Settings apply to current subtree and all children.
-**Precedence:** Block-level > Subtree PROPERTIES > File-level #+PROPERTY
+This O(log n) approach beats manual inspection. Settings inherit down subtrees; precedence: block > subtree > file level.
 
 ### Recognizing Common Error Patterns
 
-#### Symbol appearing as value = missing closing parenthesis
+**Symbol appearing as value** (`Wrong type argument: sequencep, some-function-name`) = missing closing paren. Function definition incomplete, next defun name read as return value.
 
-```
-ERROR: Wrong type argument: sequencep, some-function-name
-DEBUG output: candidates=some-function-name
-DEBUG output: candidates type=symbol
-```
-
-This pattern means a function definition is missing a closing `)`, causing Emacs to read past the function boundary and interpret the next `defun` name as the return value.
-
-#### Containing expression ends prematurely = extra closing parenthesis
-
-```
-ERROR: (scan-error Containing expression ends prematurely 33145 33146)
-```
-
-This means there are more closing parens than opening parens somewhere earlier in the file. The position shown is where the scan stops, but the actual error is usually in a previous function.
+**Containing expression ends prematurely** (`scan-error`) = extra closing paren earlier in file. Position shown is where scan stops, actual error in previous function.
 
 ### Debugging Strategy for Paren Errors
 
-When you suspect missing parentheses but can't spot them:
+Preferred approach: **Org-babel tangle bisection** (see above) - most efficient for literate elisp files.
 
-1. **Org-babel tangle bisection** (for .org files) - Use the binary search method described above. This is the most efficient way to isolate syntax errors in literate elisp files.
-
-2. **Isolate with org-babel** (for testing individual functions):
-   - Create a test block with `:tangle no`
-   - Copy the suspicious function
-   - Add inline comments marking nesting levels
-   - Evaluate with `C-c C-c` to test in isolation
-
-3. **Use Emacs built-in checks**:
-   ```elisp
-   M-x check-parens  ; in the buffer
-   ; or batch mode:
-   /Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
-   ```
-
-4. **Manual paren counting** (last resort for non-org files):
-```elisp
-(defun example ()
-  (let (var1)                    ; open 1
-    (dolist (item items)         ; open 2
-      (when condition            ; open 3
-        (something)))            ; close 3,2 - MISSING close for 1!
-  (return result)))              ; this closes defun but not let!
-```
-
-**Tips for manual counting:**
-- Add inline comments marking nesting depth
-- Work from the innermost form outward
-- Use editor commands like `show-paren-mode` and `forward-sexp`
-- Consider using automated validation instead
+Alternative strategies:
+- Isolate function in test block with `:tangle no`, evaluate with `C-c C-c`
+- Use `M-x check-parens` in buffer or `./bin/tangle-org.sh` in batch mode
+- Manual counting with nesting comments (last resort) - use `show-paren-mode` and `forward-sexp`
 
 ### Common Lisp vs Emacs Lisp Gotchas
 
 **Always add `(require 'cl-lib)` at the top of your elisp files.**
 
-Common incompatibilities:
-
-| Common Lisp | Emacs Lisp | Note |
-|-------------|------------|------|
-| `coerce` | `cl-coerce` | Type conversion |
-| `dotimes` with `(return)` | `cl-dotimes` with `(cl-return)` | Early loop exit |
-| `return` | `cl-return` | Must be in `cl-` block form |
-| `loop` | `cl-loop` | Full loop macro |
-
-**Quick fix checklist:**
-- [ ] Added `(require 'cl-lib)` at top?
-- [ ] Changed `coerce` to `cl-coerce`?
-- [ ] Using `cl-dotimes` with `cl-return`?
-- [ ] Or using manual flag instead of `cl-return`?
-
-**Alternative to cl-return:**
-```elisp
-;; Instead of:
-(dotimes (i n)
-  (when condition
-    (cl-return)))  ; ERROR: no catch for tag
-
-;; Use manual flag:
-(let ((found nil))
-  (cl-dotimes (i n)
-    (unless found
-      (when condition
-        (setq found t)))))
-```
+Common incompatibilities: `coerce` → `cl-coerce`, `return` → `cl-return`, `loop` → `cl-loop`. For early loop exit, use `cl-dotimes` with `cl-return`, or use manual flag pattern instead of return.
 
 ### Git-Based Debugging Strategy
 
-When a file was recently working, use git to isolate what changed rather than examining the entire file.
+When a file was recently working, isolate changes via git:
 
-**Find Last Working Commit**
 ```bash
+# Find last working commit
 git log --oneline -- path/to/file.el
-```
 
-Look for commits where the file loaded successfully (before the error appeared).
-
-**Test Specific Commit**
-```bash
+# Test that commit
 git show <commit-hash>:path/to/file.el > /tmp/working.el
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval \
-  "(progn (find-file \"/tmp/working.el\") (check-parens))"
-```
+/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"/tmp/working.el\") (check-parens))"
 
-If this passes, you know the error was introduced after this commit.
-
-**Diff Against Working Version**
-```bash
+# Diff to find what changed
 git diff <working-commit> HEAD -- path/to/file.el
 ```
 
-This shows exactly what changed. The paren error is likely in one of the modified functions.
-
-**Example Workflow:**
-```
-1. File worked at commit 6f7aa22
-2. File fails at current HEAD
-3. Run: git diff 6f7aa22 HEAD -- file.el
-4. See ~700 lines added in session auto-save functions
-5. Extract one of the new functions to test in isolation
-6. Run check-parens on extracted function
-7. Find the function with the paren error
-```
-
-This approach is much faster than examining the entire file, especially when hundreds of lines were added.
+The error is likely in one of the modified functions. Much faster than examining the entire file.
 
 ### Automated Validation Tools
 
-**flyparens** - Minor mode that checks for unbalanced parens on the fly:
-```elisp
-(use-package flyparens
-  :straight t
-  :hook (emacs-lisp-mode . flyparens-mode))
-```
+Available tools for real-time validation:
+- **flyparens**: Highlights mismatched parens as you type
+- **Flycheck**: Byte-compiler checks (usually already configured)
+- **Save hooks**: Add `check-parens` to `before-save-hook` (blocks save until fixed)
+- **forward-sexp**: Programmatically scan for exact error position
 
-Highlights the first mismatched paren as you type, whether at point or not.
-
-**Flycheck** - Already checks elisp with byte compiler automatically:
-```elisp
-;; Usually already configured
-(use-package flycheck
-  :straight t
-  :hook (emacs-lisp-mode . flycheck-mode))
-```
-
-**Save Hooks** - Add check-parens to save hook so you can't save invalid code:
-```elisp
-(add-hook 'emacs-lisp-mode-hook
-  (lambda ()
-    (add-hook 'before-save-hook #'check-parens nil t)))
-```
-
-Warning: This blocks saving until you fix the error.
-
-**Forward-Sexp Scanning** - Programmatically find exact position of paren mismatches:
-```bash
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "
-(condition-case err
-    (with-temp-buffer
-      (insert-file-contents \"file.el\")
-      (goto-char (point-min))
-      (condition-case scan-err
-          (while (not (eobp)) (forward-sexp 1))
-        (scan-error
-         (message \"Scan error at position %d: %s\" (point) scan-err))))
-  (error (message \"Error: %s\" err)))
-"
-```
-
-Shows the exact character position where scanning fails.
-
-### LLM Elisp Limitations
-
-LLMs frequently produce parenthesis errors in these patterns:
-
-**High-Risk Constructs:**
-- **Deeply nested forms** (3+ levels): cl-loop with nested let* and lambdas
-- **Long functions** (>50 lines): Easy to lose track of nesting
-- **Complex backquote expressions**: Multiple levels of `,` and `,@`
-- **Multiple nested conditionals**: when/if/cond with let forms inside
-
-**Common Failure Example:**
-```elisp
-(cl-loop for i from 1 below (length path)
-         do
-         (let ((children ...))
-           (when node
-             (let* ((file ...)
-                    (content ...))
-               (push ... context))))))  ; Extra paren here!
-```
-
-The extra paren typically appears at the end of the most deeply nested form.
-
-**Mitigation Strategies:**
-1. **Write incrementally** - One function at a time, validate after each
-2. **Break down complexity** - Extract helper functions to reduce nesting
-3. **Never manually count parens** - Use automated tools (check-parens, forward-sexp)
-4. **Test in isolation** - Extract complex functions to temp files for testing
-5. **Use git frequently** - Commit working code so you can diff against last-good version

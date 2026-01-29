@@ -96,6 +96,18 @@
       `((".*" ,(expand-file-name "auto-save-list/" user-emacs-directory) t)))
 
 ;; ===============================================================================
+;; State Persistence Settings
+;; ===============================================================================
+
+;; Store bookmarks in git-controlled location
+;; Default location - can be overridden per-machine in config/local/{machine-role}.el
+(setq bookmark-default-file
+      (expand-file-name "state/bookmarks/bookmarks" jf/emacs-dir))
+
+;; Save bookmarks whenever bookmark list is modified (auto-save)
+(setq bookmark-save-flag 1)
+
+;; ===============================================================================
 ;; Path Configuration
 ;; ===============================================================================
 

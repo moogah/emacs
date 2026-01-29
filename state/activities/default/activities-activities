@@ -1,0 +1,6 @@
+;; Default/template activities file
+;; Each machine should use its own activities file: {machine-role}-activities
+;; Configure in config/local/{machine-role}.el with:
+;;   (put 'activities-activities 'persist-location
+;;        (expand-file-name "state/activities/{machine-role}-activities" jf/emacs-dir))
+()

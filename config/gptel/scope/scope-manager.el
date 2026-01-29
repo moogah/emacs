@@ -274,11 +274,11 @@ Returns t if allowed, nil if denied."
   "Advice around gptel--accept-tool-calls to enforce scope checking.
 RESPONSE is list of (tool-spec arg-values callback).
 OV is overlay showing tool calls."
-  ;; Extract session-id from multiple sources (works for main buffer and subagents)
+  ;; Extract session-id from multiple sources (works for main buffer and agents)
   (let* ((session-id (or
                       ;; 1. Try buffer-local variable (main buffer)
                       jf/gptel--session-id
-                      ;; 2. Try overlay property (subagent context)
+                      ;; 2. Try overlay property (agent context)
                       (when (overlayp ov) (overlay-get ov 'jf/session-id))
                       ;; 3. Try overlay buffer's session-id
                       (when (overlayp ov)
@@ -470,14 +470,23 @@ Extracts patterns from violations and updates plan file by editing YAML text dir
 
     (message "Added %d pattern(s) to scope plan" (length violations))))
 
-(defun jf/gptel-scope--template-deny-all (session-id)
+(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id agent-type)
   "Create deny-all template for SESSION-ID.
-Secure default - nothing allowed."
-  (format "version: \"1.0\"
+Secure default - nothing allowed.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (agent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
+    (format "version: \"1.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 # Filesystem write patterns (reads always allowed)
 filesystem:
@@ -500,18 +509,28 @@ shell:
     - \"chmod\"
     - \"chown\"
 "
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+            session-id
+            timestamp
+            timestamp
+            (or agent-fields ""))))
 
-(defun jf/gptel-scope--template-codebase-read (session-id)
+(defun jf/gptel-scope--template-codebase-read (session-id &optional type parent-id agent-type)
   "Create codebase-read template for SESSION-ID.
-Reads always allowed (no scoping), writes require patterns."
-  (format "version: \"1.0\"
+Reads always allowed (no scoping), writes require patterns.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (agent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
+    (format "version: \"1.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 # Filesystem write patterns (reads always allowed)
 filesystem:
@@ -538,18 +557,28 @@ shell:
     - \"rm -rf\"
     - \"sudo\"
 "
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+            session-id
+            timestamp
+            timestamp
+            (or agent-fields ""))))
 
-(defun jf/gptel-scope--template-org-roam-safe (session-id)
+(defun jf/gptel-scope--template-org-roam-safe (session-id &optional type parent-id agent-type)
   "Create org-roam-safe template for SESSION-ID.
-Allows org-roam in gptel/ subdirectory only."
-  (format "version: \"1.0\"
+Allows org-roam in gptel/ subdirectory only.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (agent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
+    (format "version: \"1.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: deny
+%sdefault_policy: deny
 
 # Filesystem write patterns (gptel subdirectory only)
 filesystem:
@@ -575,18 +604,28 @@ shell:
     - \"rm -rf\"
     - \"sudo\"
 "
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+            session-id
+            timestamp
+            timestamp
+            (or agent-fields ""))))
 
-(defun jf/gptel-scope--template-permissive (session-id)
+(defun jf/gptel-scope--template-permissive (session-id &optional type parent-id agent-type)
   "Create permissive template for SESSION-ID.
-Allow most operations, deny only dangerous."
-  (format "version: \"1.0\"
+Allow most operations, deny only dangerous.
+Optional TYPE, PARENT-ID, and AGENT-TYPE for agent sessions."
+  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (agent-fields (when type
+                          (concat
+                           (format "type: \"%s\"\n" type)
+                           (when parent-id
+                             (format "parent_session_id: \"%s\"\n" parent-id))
+                           (when agent-type
+                             (format "agent_type: \"%s\"\n" agent-type))))))
+    (format "version: \"1.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-default_policy: allow
+%sdefault_policy: allow
 
 # Filesystem - deny only sensitive directories
 filesystem:
@@ -613,9 +652,10 @@ shell:
     - \"chmod 777\"
     - \"chown\"
 "
-          session-id
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")
-          (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+            session-id
+            timestamp
+            timestamp
+            (or agent-fields ""))))
 
 (defun jf/gptel--list-all-sessions ()
   "List all session IDs (active + on-disk).

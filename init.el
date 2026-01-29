@@ -112,7 +112,7 @@ Handles both 'dir/name' format and 'name' format."
     ("transient" "Transient menu system (newer than built-in)")
 
     ;; Activities extensions - requires new transient, so loads after it
-    ("core/activities-extensions" "Extended activity management with projects and docs")
+    ("activities/activities" "Extended activity management with projects and docs")
 
     ;; Language mode modules (docker.el requires transient, so load transient first)
     ("language-modes/language-modes" "Programming language modes")
@@ -173,7 +173,7 @@ This ensures stable machine role identification even when hostname changes."
     (load secrets-file nil 'nomessage)))
 
 ;; Load machine-specific configuration if it exists
-(let ((machine-config (expand-file-name (concat "local/" jf/machine-role ".el") jf/emacs-dir)))
+(let ((machine-config (expand-file-name (concat "config/local/" jf/machine-role ".el") jf/emacs-dir)))
   (when (file-exists-p machine-config)
     (jf/load-module machine-config)))
 

@@ -5,379 +5,154 @@
 
 * Introduction
 
-The session registry provides a global store for session state that solves the buffer boundary problem.
-When subagents run in separate hidden buffers, they cannot access buffer-local variables from the parent.
-Instead, we store all session state in a global hash table indexed by session-id, which is passed through
-the =:context= parameter in =gptel-request=.
-
-This module provides:
-- Global session registry (hash table)
-- Session ID generation
-- Session registration and lookup
-- Session initialization
+Global registry for tracking active gptel sessions.
+Maintains in-memory index of sessions for quick lookup and management.
 
 * Lexical Binding
 
 #+begin_src emacs-lisp
-;; -*- lexical-binding: t; -*-
+;;; registry.el --- GPTEL Session Registry -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Global registry for gptel sessions.
+;; Tracks active sessions and provides lookup functions.
+
+;;; Code:
+
 (require 'cl-lib)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'gptel-session-filesystem)
 #+end_src
 
-* Configuration Variables
+* Registry Data Structure
 
-#+begin_src emacs-lisp
-;; Configuration for gptel session auto-save
-(defcustom jf/gptel-autosave-enabled t
-  "Whether to automatically save gptel sessions after each response."
-  :type 'boolean
-  :group 'gptel)
+The registry is a hash table mapping a composite key (session-id + branch-name) to session plist.
 
-(defcustom jf/gptel-sessions-directory "~/gptel-sessions/"
-  "Directory for storing gptel sessions.
-Will be created if it doesn't exist."
-  :type 'directory
-  :group 'gptel)
+Session plist structure (minimal runtime state only):
+- :session-id - Unique session identifier
+- :session-dir - Absolute path to session directory
+- :branch-name - Branch name (e.g., "main" or "20260128153042-feature")
+- :branch-dir - Absolute path to branch directory
+- :buffer - Buffer visiting the session (or nil if not open)
 
-(defcustom jf/gptel-session-filename-format "%Y%m%d-%H%M%S"
-  "Format string for timestamp portion of gptel session filenames.
-Uses `format-time-string' syntax."
-  :type 'string
-  :group 'gptel)
-#+end_src
-
-* Global Session Registry
-
-The registry maps session-id to session data plist containing:
-- =:directory= - Session directory path
-- =:metadata= - Session metadata plist
-- =:parent-buffer= - Buffer where session was created
-- =:trace-stack= - Stack of active trace IDs
-- =:trace-counter= - Counter for generating trace IDs
-- =:created= - Creation timestamp
+Metadata is read from disk on-demand using jf/gptel--read-session-metadata
+and jf/gptel--read-preset-metadata. The filesystem is the source of truth.
 
 #+begin_src emacs-lisp
 (defvar jf/gptel--session-registry (make-hash-table :test 'equal)
-  "Global registry mapping session-id to session data plist.
-Each entry: session-id -> (:directory path
-                           :metadata plist
-                           :parent-buffer buffer
-                           :trace-stack list
-                           :trace-counter int
-                           :created time)
+  "Global registry of active gptel branch sessions.
+Keys are \"session-id/branch-name\" strings, values are session plists.")
 
-This allows subagents running in separate buffers to access
-session context via session-id lookup.")
+(defun jf/gptel--registry-key (session-id branch-name)
+  "Create registry key from SESSION-ID and BRANCH-NAME."
+  (concat session-id "/" branch-name))
 #+end_src
 
-* Session ID Generation
+* Registry Initialization
 
 #+begin_src emacs-lisp
-(defun jf/gptel--generate-session-id ()
-  "Generate unique session ID using timestamp and random component."
-  (format "%s-%04x" (format-time-string "%Y%m%d%H%M%S") (random 65536)))
+(defun jf/gptel--init-registry ()
+  "Initialize the session registry.
+Discovers all sessions and branches, populates registry with essential runtime state.
+Metadata is read from disk on-demand when needed."
+  (clrhash jf/gptel--session-registry)
+  (let ((session-dirs (jf/gptel--list-session-directories)))
+    (dolist (session-dir session-dirs)
+      (when (jf/gptel--valid-session-directory-p session-dir)
+        (let* ((session-id (jf/gptel--session-id-from-directory session-dir))
+               (branches (jf/gptel--list-branches session-dir)))
+          (dolist (branch-name branches)
+            (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name))
+                   (key (jf/gptel--registry-key session-id branch-name)))
+              (puthash key
+                      (list :session-id session-id
+                            :session-dir session-dir
+                            :branch-name branch-name
+                            :branch-dir branch-dir
+                            :buffer nil)
+                      jf/gptel--session-registry)
+              (jf/gptel--log 'debug "Registered branch: %s/%s" session-id branch-name))))))
+    (jf/gptel--log 'info "Initialized registry with %d branches"
+                  (hash-table-count jf/gptel--session-registry))))
 #+end_src
 
-* Registry Operations
-
-** Register Session
+* Branch Registration
 
 #+begin_src emacs-lisp
-(defun jf/gptel--register-session (session-dir session-metadata parent-buffer &optional session-id)
-  "Register new session in global registry. Returns session-id.
-If SESSION-ID is provided, use it; otherwise generate a new one.
-This allows callers to provide their own session IDs (e.g., activity-based sessions)."
-  (let ((session-id (or session-id (jf/gptel--generate-session-id))))
-    (puthash session-id
-             (list :directory session-dir
-                   :metadata session-metadata
-                   :parent-buffer parent-buffer
-                   :trace-stack nil
-                   :trace-counter 0
-                   :created (current-time))
-             jf/gptel--session-registry)
-    session-id))
+(defun jf/gptel--register-session (session-dir buffer session-id branch-name branch-dir)
+  "Register a branch session in the global registry.
+SESSION-DIR is the absolute path to the session directory.
+BUFFER is the buffer visiting this branch session.
+SESSION-ID is the session identifier.
+BRANCH-NAME is the branch name (e.g., \"main\").
+BRANCH-DIR is the absolute path to the branch directory.
+Metadata is read from disk on-demand when needed."
+  (let ((key (jf/gptel--registry-key session-id branch-name)))
+    (puthash key
+            (list :session-id session-id
+                  :session-dir session-dir
+                  :branch-name branch-name
+                  :branch-dir branch-dir
+                  :buffer buffer)
+            jf/gptel--session-registry)
+    (jf/gptel--log 'info "Registered branch: %s/%s" session-id branch-name)
+    key))
+
+(defun jf/gptel--unregister-session (session-id branch-name)
+  "Remove SESSION-ID/BRANCH-NAME from the registry."
+  (let ((key (jf/gptel--registry-key session-id branch-name)))
+    (remhash key jf/gptel--session-registry)
+    (jf/gptel--log 'info "Unregistered branch: %s/%s" session-id branch-name)))
 #+end_src
 
-** Unregister Session
+* Branch Lookup
 
 #+begin_src emacs-lisp
-(defun jf/gptel--unregister-session (session-id)
-  "Remove session from registry (manual cleanup)."
-  (remhash session-id jf/gptel--session-registry))
+(defun jf/gptel-session-find (session-id branch-name)
+  "Find branch session by SESSION-ID and BRANCH-NAME in registry.
+Returns session plist or nil if not found."
+  (gethash (jf/gptel--registry-key session-id branch-name) jf/gptel--session-registry))
+
+(defun jf/gptel--all-sessions ()
+  "Return list of all branch session plists in registry."
+  (let (sessions)
+    (maphash (lambda (_key session)
+               (push session sessions))
+            jf/gptel--session-registry)
+    sessions))
+
+(defun jf/gptel--session-count ()
+  "Return number of branch sessions in registry."
+  (hash-table-count jf/gptel--session-registry))
 #+end_src
 
-** Get Session Data
+* Branch Updates
 
 #+begin_src emacs-lisp
-(defun jf/gptel--get-session-data (session-id)
-  "Lookup session data from registry. Returns plist or nil."
-  (gethash session-id jf/gptel--session-registry))
+(defun jf/gptel--update-session-buffer (session-id branch-name buffer)
+  "Update the buffer associated with SESSION-ID/BRANCH-NAME."
+  (when-let ((session (jf/gptel-session-find session-id branch-name)))
+    (plist-put session :buffer buffer)
+    (puthash (jf/gptel--registry-key session-id branch-name) session jf/gptel--session-registry)))
 #+end_src
 
-** Update Session Data
+* Current Session Detection
 
 #+begin_src emacs-lisp
-(defun jf/gptel--update-session-data (session-id key value)
-  "Update specific key in session data."
-  (when-let ((session-data (gethash session-id jf/gptel--session-registry)))
-    (plist-put session-data key value)
-    (puthash session-id session-data jf/gptel--session-registry)))
+(defun jf/gptel--current-session ()
+  "Get session plist for current buffer.
+Returns nil if current buffer is not a gptel session."
+  (when (and jf/gptel--session-id jf/gptel--branch-name)
+    (jf/gptel-session-find jf/gptel--session-id jf/gptel--branch-name)))
 #+end_src
 
-* Path Builder Functions
-
-These functions centralize path construction for session-related files and directories,
-replacing repeated =(expand-file-name ...)= calls throughout the codebase.
-
-** Session Directory Path
+* Provide Feature
 
 #+begin_src emacs-lisp
-(defun jf/gptel-session-directory (session-id-or-dirname)
-  "Get full path to session directory.
-SESSION-ID-OR-DIRNAME can be either:
-- A session ID (looks up directory from registry)
-- A directory name (expands relative to sessions base directory)
-- An absolute path (returned as-is)"
-  (cond
-   ;; If it's an absolute path, return it
-   ((file-name-absolute-p session-id-or-dirname)
-    session-id-or-dirname)
-   ;; Try lookup in registry first (if it looks like a session ID)
-   ((and (stringp session-id-or-dirname)
-         (string-match-p "^[0-9]\\{14\\}-[0-9a-f]\\{4\\}$" session-id-or-dirname))
-    (when-let ((session-data (jf/gptel--get-session-data session-id-or-dirname)))
-      (plist-get session-data :directory)))
-   ;; Otherwise treat as directory name
-   (t
-    (expand-file-name session-id-or-dirname
-                      (expand-file-name jf/gptel-sessions-directory)))))
-#+end_src
-
-** Trace Directory Path
-
-#+begin_src emacs-lisp
-(defun jf/gptel-session-trace-directory (session-id trace-id)
-  "Get full path to trace directory within session.
-SESSION-ID identifies the session (looked up in registry).
-TRACE-ID is the trace identifier (e.g., \"trace-1\")."
-  (when-let* ((session-data (jf/gptel--get-session-data session-id))
-              (session-dir (plist-get session-data :directory)))
-    (expand-file-name trace-id
-                      (expand-file-name "traces" session-dir))))
-#+end_src
-
-** Tool Results Directory Path
-
-#+begin_src emacs-lisp
-(defun jf/gptel-session-trace-tool-results-directory (session-id trace-id)
-  "Get full path to tool results directory within trace.
-SESSION-ID identifies the session (looked up in registry).
-TRACE-ID is the trace identifier (e.g., \"trace-1\")."
-  (when-let* ((trace-dir (jf/gptel-session-trace-directory session-id trace-id)))
-    (expand-file-name "tool-results" trace-dir)))
-#+end_src
-
-* Overlay Property Accessors
-
-These functions provide named accessors for overlay properties, documenting the
-contract for cross-buffer context tracking.
-
-** Get Session ID from Overlay
-
-#+begin_src emacs-lisp
-(defun jf/gptel--overlay-get-session-id (overlay)
-  "Get session ID from OVERLAY.
-Returns the session ID string or nil if not set.
-This property is used to track session context across buffers,
-particularly for subagents that run in separate buffers."
-  (overlay-get overlay 'jf/session-id))
-#+end_src
-
-** Set Session ID on Overlay
-
-#+begin_src emacs-lisp
-(defun jf/gptel--overlay-set-session-id (overlay session-id)
-  "Set SESSION-ID on OVERLAY.
-SESSION-ID should be a string returned by `jf/gptel--generate-session-id'.
-This property enables subagents running in separate buffers to access
-the parent session's context via registry lookup."
-  (overlay-put overlay 'jf/session-id session-id))
-#+end_src
-
-* Tier 1 Public API
-
-These functions provide the stable public API for accessing session data.
-They are safe for external modules (like the scope system) to use.
-
-** Find Session
-
-#+begin_src emacs-lisp
-(defun jf/gptel-session-find (id-or-dirname)
-  "Find session by ID or directory name.
-Returns plist with :id, :directory, and :metadata on success, nil otherwise.
-
-ID-OR-DIRNAME can be:
-- Registry session ID (e.g., \"20260119114629-aaed\")
-- Directory name (e.g., \"20260119-114629-claude-opus-4-5-20251101\")
-- Absolute directory path
-
-Lookup strategy:
-1. Check in-memory registry (fast, works for current sessions)
-2. Try as direct directory path
-3. Search all session directories and match by session_id in metadata
-
-This handles sessions that exist on disk but not in registry
-(e.g., after Emacs restart)."
-  (or
-   ;; Strategy 1: Try registry first (fast, works for current session)
-   (when-let ((session-data (jf/gptel--get-session-data id-or-dirname)))
-     (list :id id-or-dirname
-           :directory (plist-get session-data :directory)
-           :metadata (plist-get session-data :metadata)))
-
-   ;; Strategy 2: Try as direct directory path
-   (let ((dir-path (if (file-name-absolute-p id-or-dirname)
-                       id-or-dirname
-                     (expand-file-name id-or-dirname
-                                       (expand-file-name jf/gptel-sessions-directory)))))
-     (when (file-directory-p dir-path)
-       (when-let ((metadata (jf/gptel--read-metadata dir-path)))
-         (list :id (plist-get metadata :session_id)
-               :directory dir-path
-               :metadata metadata))))
-
-   ;; Strategy 3: Search all session directories
-   (let ((sessions-base (expand-file-name jf/gptel-sessions-directory))
-         (found nil))
-     (when (file-directory-p sessions-base)
-       ;; Match directories like: 20260119-114629-claude-opus-4-5-20251101
-       (dolist (dirname (directory-files sessions-base nil "^[0-9]\\{8\\}-[0-9]\\{6\\}-"))
-         (unless found
-           (let ((dir-path (expand-file-name dirname sessions-base)))
-             (when-let ((metadata (jf/gptel--read-metadata dir-path)))
-               (let ((meta-session-id (plist-get metadata :session_id)))
-                 ;; Match against metadata session_id
-                 ;; Handle two ID formats:
-                 ;; - Registry format: "20260119114629-aaed" (YYYYMMDDHHmmss-RRRR)
-                 ;; - Directory format: "20260119-114629-..." (YYYYMMDD-HHmmss-model)
-                 (when (or (string= meta-session-id id-or-dirname)
-                           ;; If id-or-dirname is registry format, convert to directory prefix
-                           (and (string-match "^\\([0-9]\\{8\\}\\)\\([0-9]\\{6\\}\\)-[0-9a-f]\\{4\\}$" id-or-dirname)
-                                (let ((dir-prefix (concat (match-string 1 id-or-dirname)
-                                                         "-"
-                                                         (match-string 2 id-or-dirname))))
-                                  (string-prefix-p dir-prefix meta-session-id))))
-                   (setq found (list :id meta-session-id
-                                     :directory dir-path
-                                     :metadata metadata)))))))))
-     found)))
-#+end_src
-
-* Session Initialization
-
-** Sanitize Model Name
-
-#+begin_src emacs-lisp
-(defun jf/gptel--sanitize-model-name (model)
-  "Sanitize MODEL symbol for use in filename.
-Converts to lowercase, replaces special chars with hyphens."
-  (let ((name (symbol-name model)))
-    (replace-regexp-in-string
-     "-+" "-"  ; collapse multiple hyphens
-     (replace-regexp-in-string
-      "[^a-z0-9-]" "-"  ; replace special chars
-      (downcase name)))))
-#+end_src
-
-** Generate Session Directory Name
-
-#+begin_src emacs-lisp
-(defun jf/gptel--generate-session-dirname ()
-  "Generate directory name for current gptel session.
-Format: TIMESTAMP-MODELNAME"
-  (let* ((timestamp (format-time-string jf/gptel-session-filename-format))
-         (model-name (jf/gptel--sanitize-model-name gptel-model)))
-    (format "%s-%s" timestamp model-name)))
-#+end_src
-
-** Get File Extension
-
-#+begin_src emacs-lisp
-(defun jf/gptel--get-file-extension ()
-  "Get file extension based on current major-mode."
-  (cond
-   ((derived-mode-p 'org-mode) "org")
-   ((derived-mode-p 'markdown-mode) "md")
-   (t "txt")))
-#+end_src
-
-** Initialize Session
-
-#+begin_src emacs-lisp
-(defun jf/gptel--initialize-session ()
-  "Initialize a new session directory, metadata, and register in global registry.
-Session ID is generated first and used as directory name for consistency."
-  (let* ((session-id (jf/gptel--generate-session-id))
-         (backend-name (gptel-backend-name gptel-backend))
-         ;; Create simplified metadata for filesystem format
-         (metadata (list :model gptel-model
-                        :backend backend-name
-                        :created (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
-         ;; Create session directory using new filesystem function
-         (session-dir (jf/gptel--create-session-directory session-id metadata)))
-
-    ;; Store metadata in buffer-local variable for compatibility
-    (setq jf/gptel--session-metadata metadata)
-
-    ;; Register in global registry with pre-generated session-id
-    (jf/gptel--register-session session-dir metadata
-                                (current-buffer) session-id)
-
-    ;; Store session-id as buffer-local variable
-    (setq jf/gptel--session-id session-id)
-    ;; Keep old vars for backwards compatibility
-    (setq jf/gptel--session-dir session-dir)
-
-    ;; Initialize node path tracking (empty at session start)
-    (setq jf/gptel--current-node-path nil)
-
-    (message "Created session: %s" session-id)))
-#+end_src
-
-* Buffer-Local State Variables
-
-These variables track session state in the current buffer.
-
-#+begin_src emacs-lisp
-;; Buffer-local variables to track session state
-;; NOTE: Only session-id is buffer-local now. All other state lives in global registry.
-(defvar-local jf/gptel--session-id nil
-  "Session ID for this buffer. Used to lookup data from global registry.
-All other session state (directory, metadata, traces) stored in registry.")
-
-(defvar-local jf/gptel--session-dir nil
-  "Directory where current session is stored.
-DEPRECATED: Kept for backwards compatibility. Use registry lookup instead.")
-
-(defvar-local jf/gptel--session-metadata nil
-  "Metadata plist for current session.")
-
-(defvar-local jf/gptel--message-counter 0
-  "Counter for message/response pairs in current session.")
-
-(defvar-local jf/gptel--branching-next nil
-  "Flag indicating next message should be a branch.")
-
-(defvar-local jf/gptel--branch-id nil
-  "Branch ID to use for next message when branching.")
-
-(defvar-local jf/gptel--agent-name nil
-  "Name of the agent currently active in this buffer.
-Set when delegating to a subagent via gptel-agent.")
-
-(defvar-local jf/gptel--current-node-path nil
-  "Current path in the conversation tree.
-List of node names from root to current position.
-Example: '(\"msg-1\" \"response-1\" \"msg-2\" \"response-2\")
-This tracks the active branch for filesystem-based persistence.")
+(provide 'gptel-session-registry)
+;;; registry.el ends here
 #+end_src
