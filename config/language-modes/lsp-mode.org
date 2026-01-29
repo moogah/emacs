@@ -1,108 +1,314 @@
-#+TITLE: LSP Mode Configuration
-#+AUTHOR: Jeff Farr
+#+title: LSP Mode Configuration
+#+author: Jeff Farr
 #+auto_tangle: y
-#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+property: header-args:emacs-lisp :tangle lsp-mode.el
 
-* LSP Mode
-Language Server Protocol (LSP) provides IDE-like features for various programming languages.
+* Introduction
 
-** Base Configuration
+This file configures Language Server Protocol (LSP) support for Emacs using lsp-mode. LSP provides IDE-like features for programming languages including intelligent code completion, jump to definition, find references, on-the-fly error checking, and refactoring support.
+
+** What LSP Provides vs Tree-sitter
+
+- *Tree-sitter*: Fast, incremental parsing for syntax highlighting and basic structural navigation. Operates purely on syntax without semantic understanding.
+
+- *LSP*: Deep semantic understanding of code through dedicated language servers. Provides type-aware completion, cross-file navigation, refactoring, diagnostics based on compilation/type checking, and hover documentation.
+
+These two systems complement each other - tree-sitter handles fast visual feedback, while LSP provides intelligent code understanding.
+
+** Why lsp-mode over eglot
+
+While Emacs 29+ includes eglot as the built-in LSP client, this configuration uses lsp-mode for several reasons:
+
+1. *Richer UI integration* - lsp-ui provides sideline diagnostics, breadcrumbs, and peek definitions
+2. *Better multi-server support* - Needed for Python (basedpyright + ruff running simultaneously)
+3. *More language server clients* - Pre-configured support for many languages out of the box
+4. *Extensive documentation* - Large community and comprehensive configuration examples
+
+* Basic Configuration
+
+Setup lexical binding for better closures and variable scoping.
+
 #+begin_src emacs-lisp
-  (use-package lsp-mode
-    :straight t
-    :init
-    ;; Set prefix for lsp-command-keymap
-    (setq lsp-keymap-prefix "C-c l")
-    :hook
-    (python-mode . lsp)
-    (typescript-mode . lsp)
-    (js2-mode . lsp)
-    (js-mode . lsp)
-    ;; If you want lsp on org babel src blocks
-    ;; (org-mode . lsp-deferred)
-    :commands lsp)
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+** Base LSP Mode Configuration
+
+Core lsp-mode setup with common hooks and settings. Language-specific hooks are added in their respective sections below.
+
+#+begin_src emacs-lisp
+(use-package lsp-mode
+  :straight t
+  :init
+  ;; Set prefix for lsp-command-keymap (default: C-c l)
+  (setq lsp-keymap-prefix "C-c l")
+  :commands (lsp lsp-deferred))
 #+end_src
 
 ** LSP UI
-LSP UI provides UI enhancements for lsp-mode
+
+LSP UI provides enhanced UI features for lsp-mode including sideline diagnostics, documentation popups, and peek definitions.
+
+[[https://github.com/emacs-lsp/lsp-ui][Documentation]]
+
 #+begin_src emacs-lisp
-  (use-package lsp-ui
-    :straight t
-    :commands lsp-ui-mode
-    :config
-    (setq lsp-ui-doc-enable t)
-    (setq lsp-ui-doc-position 'at-point)
-    (setq lsp-ui-sideline-enable t)
-    (setq lsp-ui-sideline-show-diagnostics t)
-    ;; Enable breadcrumbs in header line
-    (setq lsp-headerline-breadcrumb-enable t)
-    (setq lsp-headerline-breadcrumb-segments '(path-up-to-project file symbols))
-    ;; Configure lsp-ui-peek
-    (setq lsp-ui-peek-enable t))
+(use-package lsp-ui
+  :straight t
+  :commands lsp-ui-mode
+  :config
+  ;; Documentation popup
+  (setq lsp-ui-doc-enable t)
+  (setq lsp-ui-doc-position 'at-point)
+
+  ;; Sideline diagnostics and code actions
+  (setq lsp-ui-sideline-enable t)
+  (setq lsp-ui-sideline-show-diagnostics t)
+
+  ;; Breadcrumb navigation in header line
+  (setq lsp-headerline-breadcrumb-enable t)
+  (setq lsp-headerline-breadcrumb-segments '(path-up-to-project file symbols))
+
+  ;; Peek definitions and references
+  (setq lsp-ui-peek-enable t))
 #+end_src
 
 ** Flycheck Integration
+
+Configure lsp-mode to use flycheck for displaying diagnostics instead of flymake.
+
 #+begin_src emacs-lisp
-  ;; Ensure LSP uses flycheck
-  (use-package lsp-mode
-    :config
-    (setq lsp-prefer-flymake nil))
+(use-package lsp-mode
+  :config
+  ;; Use flycheck instead of flymake for diagnostics
+  (setq lsp-prefer-flymake nil))
+#+end_src
+
+* Performance Tuning
+
+LSP can be resource-intensive, especially in large projects. These settings optimize performance while maintaining functionality.
+
+#+begin_src emacs-lisp
+;; Increase garbage collection threshold during LSP operations
+(setq gc-cons-threshold 100000000)  ; 100MB
+
+;; Increase data read from processes (LSP servers send lots of data)
+(setq read-process-output-max (* 1024 1024))  ; 1MB
+
+;; Delay before LSP actions trigger (prevents constant rechecks while typing)
+(setq lsp-idle-delay 0.500)  ; 500ms
+
+;; Disable I/O logging (significant performance impact when enabled)
+(setq lsp-log-io nil)
+
+;; Use completion-at-point-functions (CAPF) for completion
+;; This integrates with Company via company-capf backend
+(setq lsp-completion-provider :capf)
+
+;; Disable file watchers for better performance in large projects
+;; Re-enable per-project if needed with .dir-locals.el
+(setq lsp-enable-file-watchers nil)
+
+;; Disable features that may impact performance
+(setq lsp-enable-folding nil)              ; Folding regions
+(setq lsp-enable-on-type-formatting nil)   ; Format-on-type
+(setq lsp-enable-snippet nil)              ; Snippet support
 #+end_src
 
 * Language Server Configuration
 
-** Python
-#+begin_src emacs-lisp
-  ;; Python - pyright (Microsoft's Python Language Server)
-  (use-package lsp-pyright
-    :straight t
-    :hook (python-mode . (lambda ()
-                           (require 'lsp-pyright)
-                           (lsp))))
-#+end_src
+Language-specific LSP configurations. Each language section documents the required language server installation and configuration.
 
 ** TypeScript & JavaScript
-#+begin_src emacs-lisp
-  ;; TypeScript and JavaScript setup via typescript-language-server
-  (use-package lsp-mode
-    :config
-    ;; TypeScript specific settings
-    (setq lsp-typescript-suggest-complete-function-calls t)
-    (setq lsp-typescript-format-enable t)
-    ;; JavaScript specific settings
-    (setq lsp-javascript-suggest-complete-function-calls t)
-    (setq lsp-javascript-format-enable t))
+
+TypeScript and JavaScript support via typescript-language-server, which wraps TypeScript's official tsserver with LSP protocol support.
+
+*** Why typescript-language-server
+
+- Most mature LSP wrapper for TypeScript's official compiler (410k weekly npm downloads)
+- Provides semantic understanding: type-aware completion, cross-file navigation, type inference
+- Reads project configuration from tsconfig.json automatically
+- Works alongside Prettier (formatting) and ESLint (linting) without conflict
+
+*** Installation
+
+Install typescript and typescript-language-server globally with npm:
+
+#+begin_src bash :tangle no
+# Install TypeScript and its language server
+npm install -g typescript typescript-language-server
+
+# Verify installation
+typescript-language-server --version
+tsc --version
 #+end_src
 
-* Performance Tuning
+*** Configuration
+
 #+begin_src emacs-lisp
-  ;; Performance adjustments for LSP
-  (setq gc-cons-threshold 100000000)          ;; 100mb
-  (setq read-process-output-max (* 1024 1024)) ;; 1mb
-  (setq lsp-idle-delay 0.500)                 ;; 500ms
-  (setq lsp-log-io nil)                       ;; Disable logging for better performance
-  (setq lsp-completion-provider :capf)        ;; Use capf for completion
-  
-  ;; Optional performance settings
-  (setq lsp-enable-file-watchers nil)         ;; Disable file watchers for large projects
-  (setq lsp-enable-folding nil)               ;; Disable folding
-  (setq lsp-enable-on-type-formatting nil)    ;; Disable on-type formatting
-  (setq lsp-enable-snippet nil)               ;; Disable snippets (if you don't use them)
+(use-package lsp-mode
+  :config
+  ;; Disable LSP formatting - delegate to Prettier instead
+  ;; LSP formatting uses TypeScript's built-in formatter which is less configurable
+  (setq lsp-typescript-format-enable nil)
+  (setq lsp-javascript-format-enable nil)
+
+  ;; Enable function signature help during completion
+  ;; Shows parameter types and documentation while typing function calls
+  (setq lsp-typescript-suggest-complete-function-calls t)
+  (setq lsp-javascript-suggest-complete-function-calls t))
+
+;; Enable LSP for TypeScript and JavaScript modes
+;; Use lsp-deferred instead of lsp for better startup performance
+(add-hook 'typescript-mode-hook #'lsp-deferred)
+(add-hook 'js-mode-hook #'lsp-deferred)
+(add-hook 'js2-mode-hook #'lsp-deferred)
 #+end_src
 
-* Extra Packages (Optional)
+*** Integration Notes
+
+- *tsconfig.json*: The language server automatically discovers and respects TypeScript project configuration
+- *Formatting*: Handled by Prettier (configured in javascript.org), not LSP
+- *Linting*: ESLint diagnostics appear via flycheck alongside LSP type errors
+- *Completion*: LSP provides semantic completions through CAPF → Company integration
+
+** Python
+
+Python support via dual language servers: basedpyright for type intelligence and ruff for linting/formatting. This replaces the older black + isort + pylint toolchain.
+
+*** Why basedpyright + ruff
+
+*basedpyright*:
+- Community-maintained fork of pyright with stricter type checking
+- Includes Pylance features without VSCode dependency
+- Best-in-class Python type inference and checking
+- Fast, incremental type analysis
+
+*ruff*:
+- Rust-based linter and formatter (extremely fast)
+- Built-in LSP server support (v0.4.5+)
+- Replaces black (formatting) + isort (imports) + pylint (linting)
+- Compatible with Black and isort configurations
+
+*Two servers simultaneously*: basedpyright focuses on types/intelligence, ruff handles code quality/style. They complement rather than conflict.
+
+*** Installation
+
+Install both tools globally using UV (recommended) or pipx. **Do not use system pip** - modern macOS Python (PEP 668) prevents this.
+
+**** Option 1: UV (Recommended for 2026)
+
+UV is the modern Python tool manager from the same team that makes ruff. It's 10-100x faster than traditional tools.
+
+#+begin_src bash :tangle no
+# Install UV (if not already installed)
+brew install uv
+
+# Install language servers globally
+uv tool install basedpyright
+uv tool install ruff@latest
+
+# Verify installation
+basedpyright --version
+ruff --version
+#+end_src
+
+**** Option 2: pipx (Established Alternative)
+
+pipx isolates each tool in its own environment while making them available system-wide.
+
+#+begin_src bash :tangle no
+# Install pipx (if not already installed)
+brew install pipx
+pipx ensurepath
+
+# Install language servers
+pipx install basedpyright
+pipx install ruff
+
+# Verify installation
+basedpyright --version
+ruff --version
+#+end_src
+
+**** Why Not System Pip?
+
+Modern macOS Python implements PEP 668 which prevents system-level package installation to avoid dependency conflicts. Language servers should be installed globally (available to all projects) but isolated from each other - exactly what UV and pipx provide.
+
+*** basedpyright Configuration
+
 #+begin_src emacs-lisp
-  ;; DAP Mode for debugging capabilities
-  ;; (use-package dap-mode
-  ;;   :straight t
-  ;;   :after lsp-mode
-  ;;   :config
-  ;;   (dap-auto-configure-mode))
-  
-  ;; LSP Treemacs integration for project symbols view
-  ;; (use-package lsp-treemacs
-  ;;   :straight t
-  ;;   :commands lsp-treemacs-errors-list
-  ;;   :config
-  ;;   (lsp-treemacs-sync-mode 1))
+(use-package lsp-pyright
+  :straight t
+  :hook (python-mode . (lambda ()
+                         (require 'lsp-pyright)
+                         (lsp-deferred)))
+  :config
+  ;; Use basedpyright instead of standard pyright
+  (setq lsp-pyright-langserver-command "basedpyright")
+
+  ;; Type checking mode: "off", "basic", "standard", "strict"
+  ;; "basic" - Good balance of strictness vs. usability
+  ;; "strict" - Maximum type safety (may require many annotations)
+  (setq lsp-pyright-typechecking-mode "basic")
+
+  ;; Enable auto-import completions
+  (setq lsp-pyright-auto-import-completions t)
+
+  ;; Auto-search for virtual environments and library paths
+  (setq lsp-pyright-auto-search-paths t)
+
+  ;; Use project's Python interpreter from virtual environment
+  (setq lsp-pyright-venv-path nil))  ; Auto-detect, or set explicitly
+#+end_src
+
+*** ruff LSP Configuration
+
+#+begin_src emacs-lisp
+(use-package lsp-mode
+  :config
+  ;; Register ruff as an LSP server
+  ;; Ruff v0.4.5+ includes built-in LSP support via 'ruff server' command
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection '("ruff" "server"))
+    :activation-fn (lsp-activate-on "python")
+    :server-id 'ruff-lsp
+    :priority -1))  ; Lower priority than basedpyright
+
+  ;; Enable ruff for Python files
+  ;; Both basedpyright and ruff will run simultaneously
+  (add-hook 'python-mode-hook
+            (lambda ()
+              (lsp-deferred))))
+#+end_src
+
+*** Integration Notes
+
+- *Multi-server setup*: Both basedpyright and ruff run concurrently - check `M-x lsp-describe-session` to verify both are active
+- *Type checking*: basedpyright provides type errors and intelligent completion
+- *Linting/Formatting*: ruff handles code style, unused imports, and formatting on save
+- *Configuration files*: basedpyright reads `pyrightconfig.json` or `pyproject.toml`, ruff reads `ruff.toml` or `pyproject.toml`
+- *Virtual environments*: Both servers auto-detect activated virtual environments
+- *Replaces*: This configuration eliminates the need for separate black, isort, and pylint configurations
+
+* Optional Packages
+
+Additional LSP-related packages that can be enabled when needed.
+
+#+begin_src emacs-lisp
+;; DAP Mode for debugging capabilities
+;; Uncomment to enable debugging support through Debug Adapter Protocol
+;; (use-package dap-mode
+;;   :straight t
+;;   :after lsp-mode
+;;   :config
+;;   (dap-auto-configure-mode))
+
+;; LSP Treemacs integration for project symbols view
+;; Uncomment to enable treemacs integration for browsing symbols
+;; (use-package lsp-treemacs
+;;   :straight t
+;;   :commands lsp-treemacs-errors-list
+;;   :config
+;;   (lsp-treemacs-sync-mode 1))
 #+end_src

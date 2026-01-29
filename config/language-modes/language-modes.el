@@ -10,6 +10,11 @@
 ;; Syntax highlighting and parsing
 (jf/load-module (expand-file-name "config/language-modes/tree-sitter.el" jf/emacs-dir))
 
+;; Language Server Protocol support
+;; Provides IDE-like features: intelligent completion, jump to definition,
+;; find references, type checking, and refactoring
+(jf/load-module (expand-file-name "config/language-modes/lsp-mode.el" jf/emacs-dir))
+
 ;; Project management
 (jf/load-module (expand-file-name "config/language-modes/projectile.el" jf/emacs-dir))
 

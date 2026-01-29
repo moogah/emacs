@@ -19,37 +19,12 @@ Flycheck provides on-the-fly syntax checking for many programming languages incl
 
 [[https://www.flycheck.org/en/latest/][Documentation]]
 
+*Note*: LSP provides Python diagnostics via ruff language server. Flycheck is kept installed globally for other languages and can be used alongside LSP diagnostics.
+
 #+begin_src emacs-lisp
 (use-package flycheck
   :straight t
   :init (global-flycheck-mode))
-#+end_src
-
-* Code Formatting
-** Blacken
-Blacken is an interface to the Black code formatter for Python.
-
-[[https://github.com/pythonic-emacs/blacken][Documentation]]
-
-Black is an opinionated Python code formatter that enforces a consistent style without requiring configuration.
-
-#+begin_src emacs-lisp
-(use-package blacken
-  :straight t
-  :config
-  (add-hook 'python-mode-hook 'blacken-mode))
-#+end_src
-
-** Python-isort
-Python-isort provides integration with isort, which sorts and formats Python imports.
-
-[[https://github.com/wyuenho/emacs-python-isort][Documentation]]
-
-#+begin_src emacs-lisp
-(use-package python-isort
-  :straight (:host github :repo "wyuenho/emacs-python-isort")
-  :config
-  (add-hook 'python-mode-hook 'python-isort-on-save-mode))
 #+end_src
 
 * Syntax Highlighting
@@ -59,49 +34,33 @@ Enable Tree-sitter for improved syntax highlighting in Python mode.
 (add-hook 'python-mode-hook 'tree-sitter-hl-mode)
 #+end_src
 
-* External Dependencies
+* LSP Integration
 
-** Installing pylint
-Pylint is a static code analysis tool for Python that checks for errors and enforces coding standards.
+Language Server Protocol support for Python is configured in [[file:lsp-mode.org][lsp-mode.org]]. The configuration uses two complementary language servers:
 
-Flycheck's docs suggest installing pylint with pip, but it's better to use your system package manager:
+- *basedpyright* - Type checking, intelligent completion, and semantic understanding
+- *ruff* - Fast linting, import sorting, and code formatting (replaces black + isort + pylint)
 
-#+begin_src bash :dir ~/ :prologue exec 2>&1 :epilogue "true" :results output :tangle no
-brew install pylint
-#+end_src
+This dual-server setup provides comprehensive Python development support:
+- Type-aware code completion
+- Jump to definition (including standard library and installed packages)
+- Find all references across the project
+- Automatic import management
+- Code formatting on save
+- Real-time linting with hundreds of rules
 
-Verify installation:
-#+begin_src sh :dir ~/ :prologue exec 2>&1 :epilogue "true" :results output :tangle no
-which pylint
-#+end_src
+See [[file:lsp-mode.org::*Python][Python LSP Configuration]] for installation and setup details.
 
-#+RESULTS:
-: /opt/homebrew/bin/pylint
+** Replaced Tools
 
-* Configuration Notes
+The LSP configuration with ruff replaces the following tools that were previously configured:
+- *black* - Formatting now handled by ruff
+- *isort* - Import sorting now handled by ruff
+- *pylint* - Linting now handled by ruff (with compatible rules)
 
-** Flycheck Configuration
-If Flycheck doesn't automatically detect pylint, you may need the following configuration:
-
-#+begin_src emacs-lisp
-;; Set the path to pylint executable if needed
-;; (setq flycheck-python-pylint-executable "pylint")
-#+end_src
-
-* Troubleshooting
-
-If you encounter this error with Elpy:
-```
-Debugger entered--Lisp error: (process-sentinel "exited abnormally with code 1")
-  signal(process-sentinel ("exited abnormally with code 1"))
-```
-
-Run:
-```
-M-x elpy-rpc-reinstall-virtualenv
-```
+The ruff configuration is compatible with existing black and isort settings in pyproject.toml.
 
 * TODO Improvements
-- Consider adding support for Python virtual environments with pyvenv or similar packages
-- Add LSP configuration for Python (either through lsp-mode or eglot)
+- Consider adding support for Python virtual environments with pyvenv or similar packages (LSP servers auto-detect venvs currently)
 - Add pytest integration for running tests directly from Emacs
+- Consider adding DAP mode for Python debugging support
