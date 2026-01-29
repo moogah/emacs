@@ -22,51 +22,168 @@ The markdown-mode package provides syntax highlighting and editing features for 
 #+begin_src emacs-lisp
 (use-package markdown-mode
   :straight t
-  :mode ("README\\.md\\'" . gfm-mode)
-  :init (setq markdown-command "multimarkdown"))
+  :mode (("README\\.md\\'" . gfm-mode)
+         ("\\.md\\'" . markdown-mode)
+         ("\\.markdown\\'" . markdown-mode))
+  :init
+  (setq markdown-command "pandoc -f markdown -t html"
+        markdown-enable-math t
+        markdown-enable-wiki-links t
+        markdown-italic-underscore t
+        markdown-asymmetric-header t
+        markdown-fontify-code-blocks-natively t
+        markdown-gfm-additional-languages '("sh" "bash" "python" "elisp" "javascript")))
+#+end_src
+
+** Tree-sitter Mode (Optional - Currently Basic)
+Note: As of 2026, markdown-ts-mode provides only BASIC syntax highlighting.
+The standard markdown-mode above is more feature-complete and recommended for most users.
+
+Only enable this if you specifically need tree-sitter integration for .mdx files or
+structural editing with combobulate/tree-sitter tools.
+
+#+begin_src emacs-lisp :tangle no
+;; Commented out by default - markdown-mode is more feature-complete
+;; Uncomment if you need tree-sitter integration
+;;
+;; (use-package markdown-ts-mode
+;;   :straight (markdown-ts-mode
+;;              :type git
+;;              :host github
+;;              :repo "LionyxML/markdown-ts-mode")
+;;   :mode ("\\.mdx\\'" . markdown-ts-mode))
+;;
+;; Note: Requires both markdown and markdown-inline grammars:
+;; M-x treesit-install-language-grammar RET markdown RET
+;; M-x treesit-install-language-grammar RET markdown-inline RET
+#+end_src
+
+** Live Preview
+Grip-mode provides authentic GitHub-style rendering of markdown in your browser.
+
+#+begin_src emacs-lisp
+(use-package grip-mode
+  :straight t
+  :bind (:map markdown-mode-command-map
+         ("g" . grip-mode))
+  :config
+  (setq grip-preview-use-webkit t))
+#+end_src
+
+** Table of Contents
+Automatically generate and update table of contents in markdown files.
+
+#+begin_src emacs-lisp
+(use-package markdown-toc
+  :straight t
+  :bind (:map markdown-mode-command-map
+         ("t" . markdown-toc-generate-or-refresh-toc)))
+#+end_src
+
+** Code Block Editing
+Edit code blocks in their native major mode with proper syntax highlighting and features.
+
+#+begin_src emacs-lisp
+(use-package edit-indirect
+  :straight t
+  :bind (:map markdown-mode-map
+         ("C-c '" . edit-indirect-region)))
 #+end_src
 
 * Usage Notes
 ** Markdown Mode Variants
 This configuration includes two main modes:
-- `markdown-mode`: For standard Markdown files
-- `gfm-mode`: For GitHub Flavored Markdown (used for README.md files)
+- `markdown-mode`: For standard Markdown files (.md, .markdown)
+- `gfm-mode`: For GitHub Flavored Markdown (README.md files)
+
+Note: `markdown-ts-mode` is available but disabled by default as it's still basic.
+The standard `markdown-mode` is more feature-complete and recommended.
 
 ** Basic Commands
-- `C-c C-c p`: Preview the rendered HTML
-- `C-c C-c m`: Run markdown command on buffer
-- `C-c C-c l`: Toggle live preview
+*** Editing
 - `C-c C-s b`: Insert bold text
 - `C-c C-s i`: Insert italic text
 - `C-c C-s c`: Insert code
 - `C-c C-s k`: Insert link
+- `C-c '`: Edit code block at point in native major mode
 - `TAB`: Cycle visibility of headings
 
-** Multimarkdown
-The configuration uses `multimarkdown` as the renderer. This provides additional features like:
-- Tables
+*** Preview and Export
+- `C-c C-c p`: Preview the rendered HTML
+- `C-c C-c m`: Run markdown command on buffer
+- `C-c C-c l`: Toggle live preview
+- `C-c C-c g`: Toggle grip-mode (GitHub-style live preview in browser)
+
+*** Table of Contents
+- `C-c C-c t`: Generate or refresh table of contents
+
+** Pandoc Renderer
+The configuration uses `pandoc` as the renderer, which provides:
+- Multiple output formats (HTML, PDF, LaTeX, DOCX, etc.)
+- Tables and table extensions
 - Definition lists
 - Footnotes
-- Citations
-- Math support
+- Citations and bibliographies
+- Math support (LaTeX, MathML)
+- Syntax highlighting in code blocks
+- Smart typography
+
+** Grip Mode
+Grip provides authentic GitHub Markdown rendering:
+- Real-time preview in browser
+- Uses GitHub's actual rendering API
+- Shows exactly how markdown will appear on GitHub
+- Requires internet connection
+- Optional: Set GITHUB_TOKEN environment variable for higher rate limits
+
+** Code Block Editing
+Use `C-c '` when point is in a code block to:
+- Edit the code in a separate buffer with full language support
+- Get proper syntax highlighting and completion
+- Use language-specific features (LSP, etc.)
+- Save changes back to the markdown buffer with `C-c C-c`
 
 * External Dependencies
-For full functionality, install the multimarkdown processor:
+For full functionality, install these tools:
 
 #+begin_src sh :tangle no
 # macOS with Homebrew
-brew install multimarkdown
+brew install pandoc
 
-# Ubuntu/Debian
-sudo apt-get install multimarkdown
+# Grip for GitHub-style live preview (optional)
+pip install grip
 
-# Verify installation
-multimarkdown --version
+# Markdownlint for syntax checking (optional)
+npm install -g markdownlint-cli
+
+# Verify installations
+pandoc --version
+grip --version
+markdownlint --version
 #+end_src
 
-* TODO Improvements
-- Add prettier or other markdown formatters
-- Configure syntax checking for markdown
-- Add pandoc integration for document conversion
-- Consider markdown-toc for automatic table of contents
-- Add ox-hugo integration for blog writing
+** GitHub Token for Grip (Optional)
+To avoid GitHub API rate limits when using grip-mode, set up a personal access token:
+
+1. Create token at: https://github.com/settings/tokens
+2. Add to your shell profile (~/.zshrc or ~/.bash_profile):
+   #+begin_src sh :tangle no
+   export GITHUB_TOKEN=your_token_here
+   #+end_src
+
+* Tree-sitter Grammar Installation (Optional)
+The markdown and markdown-inline grammars are defined in your tree-sitter.org configuration.
+If you enable markdown-ts-mode, manually install both grammars with:
+
+#+begin_src emacs-lisp :tangle no
+M-x treesit-install-language-grammar RET markdown RET
+M-x treesit-install-language-grammar RET markdown-inline RET
+#+end_src
+
+Note: markdown-ts-mode is disabled by default in this configuration because it's still
+basic compared to the standard markdown-mode.
+
+* Future Improvements
+- Add ox-hugo integration for blog writing with Hugo
+- Consider prettier integration via apheleia for auto-formatting
+- Add markdownlint integration with flycheck for linting
