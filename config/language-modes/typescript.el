@@ -2,7 +2,7 @@
 
 (use-package typescript-mode
   :straight t
-  :after tree-sitter
+  :after (tree-sitter tree-sitter-langs)
   :config
   ;; we choose this instead of tsx-mode so that eglot can automatically figure out language for server
   ;; see https://github.com/joaotavora/eglot/issues/624 and https://github.com/joaotavora/eglot#handling-quirky-servers
@@ -21,7 +21,10 @@
   ;; define autoload definitions which when actually invoked will cause package to be loaded
   :commands (tsi-typescript-mode tsi-json-mode tsi-css-mode)
   :init
-  (add-hook 'typescript-mode-hook (lambda () (tsi-typescript-mode 1)))
+  ;; NOTE: tsi-typescript-mode disabled because it requires elisp-tree-sitter
+  ;; which conflicts with built-in tree-sitter. Built-in tree-sitter provides
+  ;; adequate indentation without tsi.
+  ;; (add-hook 'typescript-mode-hook (lambda () (tsi-typescript-mode 1)))
   (add-hook 'json-mode-hook (lambda () (tsi-json-mode 1)))
   (add-hook 'css-mode-hook (lambda () (tsi-css-mode 1)))
   (add-hook 'scss-mode-hook (lambda () (tsi-scss-mode 1))))

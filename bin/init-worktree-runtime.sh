@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# init-worktree-runtime.sh - Copy straight.el artifacts from main worktree to new worktree
+# init-worktree-runtime.sh - Copy runtime artifacts from main worktree to new worktree
 #
-# This script copies the runtime/straight/ directory from the main worktree (or specified
-# source) to a target worktree. This avoids re-downloading and rebuilding 142 packages
-# (~922MB) when creating new worktrees.
+# This script copies the runtime/straight/ and runtime/tree-sitter/ directories from the
+# main worktree (or specified source) to a target worktree. This avoids re-downloading and
+# rebuilding 142 packages (~922MB) and recompiling tree-sitter grammars (~10MB) when
+# creating new worktrees.
 #
 # Usage:
 #   ./bin/init-worktree-runtime.sh TARGET_WORKTREE [--source SOURCE_WORKTREE]
@@ -16,6 +17,7 @@
 #   - runtime/straight/repos/  (746MB) - Git clones of all packages
 #   - runtime/straight/build/  (175MB) - Built/compiled packages
 #   - runtime/straight/build-cache.el (529KB) - Build cache metadata
+#   - runtime/tree-sitter/     (~10MB) - Compiled tree-sitter grammars
 #
 # What does NOT get copied (worktree-specific state):
 #   - custom.el, org-roam.db, history, bookmarks, recentf
@@ -73,6 +75,7 @@ fi
 
 SOURCE_RUNTIME="$SOURCE_WORKTREE/runtime"
 SOURCE_STRAIGHT="$SOURCE_RUNTIME/straight"
+SOURCE_TREESITTER="$SOURCE_RUNTIME/tree-sitter"
 
 if [[ ! -d "$SOURCE_STRAIGHT" ]]; then
     echo "ERROR: Source straight.el directory not found: $SOURCE_STRAIGHT" >&2
@@ -96,37 +99,59 @@ if [[ ! -d "$TARGET_RUNTIME" ]]; then
 fi
 
 TARGET_STRAIGHT="$TARGET_RUNTIME/straight"
+TARGET_TREESITTER="$TARGET_RUNTIME/tree-sitter"
 
 # Check if target already has straight.el installed
+OVERWRITE_NEEDED=false
 if [[ -d "$TARGET_STRAIGHT" ]]; then
-    echo "WARNING: Target worktree already has straight.el packages installed"
-    echo "         Target: $TARGET_STRAIGHT"
+    OVERWRITE_NEEDED=true
+fi
+if [[ -d "$TARGET_TREESITTER" ]]; then
+    OVERWRITE_NEEDED=true
+fi
+
+if [[ "$OVERWRITE_NEEDED" = true ]]; then
+    echo "WARNING: Target worktree already has runtime artifacts installed"
+    [[ -d "$TARGET_STRAIGHT" ]] && echo "         - straight.el: $TARGET_STRAIGHT"
+    [[ -d "$TARGET_TREESITTER" ]] && echo "         - tree-sitter: $TARGET_TREESITTER"
     echo ""
-    read -p "Overwrite existing packages? (y/N) " -n 1 -r
+    read -p "Overwrite existing artifacts? (y/N) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "Aborted."
         exit 0
     fi
-    echo "Removing existing straight.el directory..."
-    rm -rf "$TARGET_STRAIGHT"
+    echo "Removing existing directories..."
+    [[ -d "$TARGET_STRAIGHT" ]] && rm -rf "$TARGET_STRAIGHT"
+    [[ -d "$TARGET_TREESITTER" ]] && rm -rf "$TARGET_TREESITTER"
 fi
 
 # Show what we're about to copy
-echo "Copying straight.el artifacts:"
-echo "  From: $SOURCE_STRAIGHT"
-echo "  To:   $TARGET_STRAIGHT"
+echo "Copying runtime artifacts:"
+echo "  straight.el:"
+echo "    From: $SOURCE_STRAIGHT"
+echo "    To:   $TARGET_STRAIGHT"
+if [[ -d "$SOURCE_TREESITTER" ]]; then
+    echo "  tree-sitter:"
+    echo "    From: $SOURCE_TREESITTER"
+    echo "    To:   $TARGET_TREESITTER"
+fi
 echo ""
 
 # Calculate source size (skip in non-TTY to avoid pipe issues)
 if [[ -t 1 ]]; then
     SOURCE_SIZE=$(du -sh "$SOURCE_STRAIGHT" 2>/dev/null | cut -f1)
-    echo "Source size: $SOURCE_SIZE"
+    echo "Source sizes:"
+    echo "  straight.el: $SOURCE_SIZE"
+    if [[ -d "$SOURCE_TREESITTER" ]]; then
+        TREESITTER_SIZE=$(du -sh "$SOURCE_TREESITTER" 2>/dev/null | cut -f1)
+        echo "  tree-sitter: $TREESITTER_SIZE"
+    fi
     echo ""
 fi
 
 # Copy straight.el directory
-echo "Copying (this may take a minute)..."
+echo "Copying straight.el (this may take a minute)..."
 START_TIME=$(date +%s)
 
 # Create target directory
@@ -164,23 +189,71 @@ END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
 
 echo ""
-echo "✓ Copy complete!"
+echo "✓ straight.el copy complete! (${ELAPSED}s)"
+
+# Copy tree-sitter grammars if they exist
+if [[ -d "$SOURCE_TREESITTER" ]]; then
+    echo ""
+    echo "Copying tree-sitter grammars..."
+    TS_START_TIME=$(date +%s)
+
+    # Create target directory
+    mkdir -p "$TARGET_TREESITTER"
+
+    # Copy tree-sitter grammars (.dylib on macOS, .so on Linux, .dll on Windows)
+    if command -v rsync &> /dev/null; then
+        if [[ -t 1 ]]; then
+            rsync -a --progress "$SOURCE_TREESITTER/" "$TARGET_TREESITTER/"
+        else
+            rsync -a "$SOURCE_TREESITTER/" "$TARGET_TREESITTER/"
+        fi
+    else
+        cp -R "$SOURCE_TREESITTER"/* "$TARGET_TREESITTER/"
+    fi
+
+    TS_END_TIME=$(date +%s)
+    TS_ELAPSED=$((TS_END_TIME - TS_START_TIME))
+
+    echo ""
+    echo "✓ tree-sitter copy complete! (${TS_ELAPSED}s)"
+else
+    echo ""
+    echo "NOTE: No tree-sitter grammars found in source worktree"
+    echo "      Grammars will be installed on first Emacs launch"
+fi
+
+echo ""
+echo "✓ All runtime artifacts copied!"
 
 # Show detailed stats only in TTY mode
 if [[ -t 1 ]]; then
-    # Calculate target size
-    TARGET_SIZE=$(du -sh "$TARGET_STRAIGHT" 2>/dev/null | cut -f1)
-    echo "  Copied: $TARGET_SIZE"
-    echo "  Time: ${ELAPSED}s"
+    # Calculate target sizes
+    echo ""
+    echo "Summary:"
+    TARGET_STRAIGHT_SIZE=$(du -sh "$TARGET_STRAIGHT" 2>/dev/null | cut -f1)
+    echo "  straight.el: $TARGET_STRAIGHT_SIZE"
+    if [[ -d "$TARGET_TREESITTER" ]]; then
+        TARGET_TS_SIZE=$(du -sh "$TARGET_TREESITTER" 2>/dev/null | cut -f1)
+        echo "  tree-sitter: $TARGET_TS_SIZE"
+    fi
+    TOTAL_ELAPSED=$((END_TIME - START_TIME))
+    if [[ -d "$SOURCE_TREESITTER" ]]; then
+        TOTAL_ELAPSED=$((TS_END_TIME - START_TIME))
+    fi
+    echo "  Total time: ${TOTAL_ELAPSED}s"
     echo ""
     echo "Next steps:"
     echo "  1. Initialize submodules: cd $TARGET_WORKTREE && git submodule update --init"
     echo "  2. Launch Emacs: cd $TARGET_WORKTREE && ./bin/emacs-isolated.sh"
     echo ""
-    echo "Note: Packages are now shared. To force rebuild, use:"
+    echo "Note: Runtime artifacts are now shared. To force rebuild, use:"
     echo "      ./bin/invalidate-runtime.sh --worktree $TARGET_WORKTREE"
 else
     # Simpler output for non-TTY
-    echo "  Time: ${ELAPSED}s"
-    echo "  Target: $TARGET_WORKTREE/runtime/straight"
+    TOTAL_ELAPSED=$((END_TIME - START_TIME))
+    if [[ -d "$SOURCE_TREESITTER" ]]; then
+        TOTAL_ELAPSED=$((TS_END_TIME - START_TIME))
+    fi
+    echo "  Total time: ${TOTAL_ELAPSED}s"
+    echo "  Target: $TARGET_WORKTREE/runtime/"
 fi

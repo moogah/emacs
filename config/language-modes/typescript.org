@@ -22,7 +22,7 @@ The typescript-mode package provides syntax highlighting and basic editing featu
 #+begin_src emacs-lisp
 (use-package typescript-mode
   :straight t
-  :after tree-sitter
+  :after (tree-sitter tree-sitter-langs)
   :config
   ;; we choose this instead of tsx-mode so that eglot can automatically figure out language for server
   ;; see https://github.com/joaotavora/eglot/issues/624 and https://github.com/joaotavora/eglot#handling-quirky-servers
@@ -48,7 +48,10 @@ TSI provides improved tree-sitter-based indentation for TypeScript/TSX, CSS, and
   ;; define autoload definitions which when actually invoked will cause package to be loaded
   :commands (tsi-typescript-mode tsi-json-mode tsi-css-mode)
   :init
-  (add-hook 'typescript-mode-hook (lambda () (tsi-typescript-mode 1)))
+  ;; NOTE: tsi-typescript-mode disabled because it requires elisp-tree-sitter
+  ;; which conflicts with built-in tree-sitter. Built-in tree-sitter provides
+  ;; adequate indentation without tsi.
+  ;; (add-hook 'typescript-mode-hook (lambda () (tsi-typescript-mode 1)))
   (add-hook 'json-mode-hook (lambda () (tsi-json-mode 1)))
   (add-hook 'css-mode-hook (lambda () (tsi-css-mode 1)))
   (add-hook 'scss-mode-hook (lambda () (tsi-scss-mode 1))))
@@ -61,9 +64,21 @@ TypeScript React (TSX) files are configured to use the custom `typescriptreact-m
 ** Indentation with TSI
 TSI provides better indentation for TypeScript code than the default. It's especially helpful for JSX/TSX syntax where proper indentation can be challenging with traditional indentation engines.
 
+* LSP Integration
+
+Language Server Protocol support for TypeScript is configured in [[file:lsp-mode.org][lsp-mode.org]]. The configuration uses typescript-language-server to provide:
+
+- Semantic code completion with type information
+- Jump to definition across files and into node_modules
+- Find all references
+- Type-aware refactoring and renaming
+- Hover documentation and type hints
+- Real-time type checking diagnostics
+
+See [[file:lsp-mode.org::*TypeScript & JavaScript][TypeScript & JavaScript LSP Configuration]] for installation and setup details.
+
 * TODO Improvements
-- Add TypeScript LSP configuration (either through lsp-mode or eglot)
-- Configure formatters like prettier for TypeScript
+- Configure formatters like prettier for TypeScript (currently handled in javascript.org)
 - Add TypeScript testing framework integration
 - Consider adding TypeScript-specific snippets for common patterns
 

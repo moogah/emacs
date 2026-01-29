@@ -8,6 +8,8 @@
          (js-mode . tree-sitter-hl-mode)
          (javascript-mode . tree-sitter-mode)
          (javascript-mode . tree-sitter-hl-mode)
+         ;; NOTE: typescript-mode uses built-in tree-sitter, not elisp-tree-sitter
+         ;; so we don't add hooks here
          (sh-mode . tree-sitter-mode)
          (sh-mode . tree-sitter-hl-mode)
          (php-mode . tree-sitter-mode)
