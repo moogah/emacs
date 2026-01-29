@@ -196,17 +196,43 @@ Each selected project gets a numbered key to cycle through git actions."
                               (activities-ext--scope-cycle-selected-project-action ,project))
                            :transient t)))))
 
+(defun activities-ext--get-project-keys ()
+  "Get list of keys that would be used by project selection.
+Returns list of character codes."
+  (when (fboundp 'projectile-relevant-known-projects)
+    (let ((projects (projectile-relevant-known-projects)))
+      (when projects
+        (cl-loop for project in projects
+                 with unused-keys = (cl-set-difference
+                                    (number-sequence ?a ?z)
+                                    '(?q))
+                 for name = (file-name-nondirectory (directory-file-name project))
+                 for key-char = (seq-find (lambda (k) (member k unused-keys))
+                                         name
+                                         (seq-first unused-keys))
+                 do (setq unused-keys (delete key-char unused-keys))
+                 when key-char
+                 collect key-char)))))
+
 (defun activities-ext--generate-gptel-preset-suffixes ()
   "Generate suffix list for available gptel presets.
-Each preset gets a letter key for quick selection."
+Each preset gets a letter key, excluding keys used by projects."
   (when (fboundp 'jf/gptel--list-preset-templates)
     (let ((presets (jf/gptel--list-preset-templates))
-          (current-preset (activities-ext--scope-gptel-preset)))
+          (current-preset (activities-ext--scope-gptel-preset))
+          (project-keys (activities-ext--get-project-keys)))
       (when presets
         (cl-loop for preset in presets
-                 for idx from 0
-                 for key-char = (+ ?a idx)
-                 while (< key-char (+ ?a 26))  ; Limit to a-z
+                 ;; Start with all keys except q (quit) and project keys
+                 with unused-keys = (cl-set-difference
+                                    (number-sequence ?a ?z)
+                                    (cons ?q project-keys))
+                 ;; Try to use first letter of preset name, else first available
+                 for key-char = (seq-find (lambda (k) (member k unused-keys))
+                                         preset
+                                         (seq-first unused-keys))
+                 do (setq unused-keys (delete key-char unused-keys))
+                 when key-char
                  for key-str = (key-description (list key-char))
                  for is-selected = (string= preset current-preset)
                  for display = (if is-selected
