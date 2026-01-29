@@ -6,7 +6,8 @@
         :git-action activities-ext--default-git-action
         :selected-project nil
         :activity-name activity-name
-        :sanitized-name (activities-ext--slugify activity-name)))
+        :sanitized-name (activities-ext--slugify activity-name)
+        :gptel-preset "programming-assistant"))
 
 (defun activities-ext--scope-projects ()
   "Get selected projects from current transient scope.
@@ -77,6 +78,15 @@ Project must already be selected."
          (entry (assoc project-path projects)))
     (when entry
       (setcdr entry action))))
+
+(defun activities-ext--scope-gptel-preset ()
+  "Get selected gptel preset from current transient scope."
+  (plist-get (transient-scope) :gptel-preset))
+
+(defun activities-ext--scope-set-gptel-preset (preset-name)
+  "Set PRESET-NAME as selected gptel preset in scope."
+  (let ((scope (transient-scope)))
+    (plist-put scope :gptel-preset preset-name)))
 
 (defclass activities-ext--switch-project (transient-infix)
   ((project-path :initarg :project-path)
@@ -185,6 +195,30 @@ Each selected project gets a numbered key to cycle through git actions."
                               (interactive)
                               (activities-ext--scope-cycle-selected-project-action ,project))
                            :transient t)))))
+
+(defun activities-ext--generate-gptel-preset-suffixes ()
+  "Generate suffix list for available gptel presets.
+Each preset gets a letter key for quick selection."
+  (when (fboundp 'jf/gptel--list-preset-templates)
+    (let ((presets (jf/gptel--list-preset-templates))
+          (current-preset (activities-ext--scope-gptel-preset)))
+      (when presets
+        (cl-loop for preset in presets
+                 for idx from 0
+                 for key-char = (+ ?a idx)
+                 while (< key-char (+ ?a 26))  ; Limit to a-z
+                 for key-str = (key-description (list key-char))
+                 for is-selected = (string= preset current-preset)
+                 for display = (if is-selected
+                                  (propertize (format "%s (selected)" preset)
+                                            'face 'transient-value)
+                                preset)
+                 collect (list key-str
+                             display
+                             `(lambda ()
+                                (interactive)
+                                (activities-ext--scope-set-gptel-preset ,preset))
+                             :transient t))))))
 
 (defun activities-ext--generate-project-git-action-suffixes ()
   "Generate git action suffixes for currently selected project.
@@ -305,6 +339,20 @@ Left: toggle selection. Right: cycle git actions (W → B → ·)."
        'activities-ext-create-transient
        (activities-ext--generate-selected-project-suffixes)))]
 
+   ;; Gptel Preset Selection
+   [:class transient-column
+    :description (lambda ()
+                   (let ((preset (activities-ext--scope-gptel-preset)))
+                     (format "Gptel Preset: %s"
+                            (propertize preset 'face 'transient-value))))
+    :if (lambda () (fboundp 'jf/gptel--list-preset-templates))
+    :pad-keys t
+    :setup-children
+    (lambda (_)
+      (transient-parse-suffixes
+       'activities-ext-create-transient
+       (activities-ext--generate-gptel-preset-suffixes)))]
+
    ;; Creation Options
    ["Creation Options"
     ("-G" "Skip gptel session" "--no-gptel")
@@ -331,6 +379,7 @@ ARGS are the transient arguments (skip flags only)."
          (activity-name (plist-get scope :activity-name))
          (sanitized-name (plist-get scope :sanitized-name))
          (selected-projects (plist-get scope :projects))
+         (gptel-preset (plist-get scope :gptel-preset))
          (create-org-roam (not (member "--no-org-roam" args)))
          (create-gptel (not (member "--no-gptel" args)))
          (project-metadata nil)
@@ -366,7 +415,7 @@ ARGS are the transient arguments (skip flags only)."
         (let ((jf/gptel-sessions-directory
                (activities-ext--session-directory activity-name)))
           (setq gptel-session-data
-                (jf/gptel-session-create-persistent activity-name))))
+                (jf/gptel-session-create-persistent activity-name nil nil gptel-preset))))
 
       ;; Create org-roam document if requested
       (when create-org-roam
