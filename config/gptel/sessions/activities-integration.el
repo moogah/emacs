@@ -83,7 +83,8 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
 
       ;; Return session info for buffer creation
       (list :session-id session-id
-            :session-dir branch-dir    ; Use branch directory for consistency
+            :session-dir session-dir   ; Session directory (parent of branches/)
+            :branch-dir branch-dir     ; Branch directory (branches/main/)
             :branch-name "main"        ; Activities integration uses main branch
             :buffer-name (format "*gptel-%s*" slug)
             :session-file session-file
@@ -119,7 +120,8 @@ SESSION-INFO is plist from jf/gptel-session-create-persistent."
         (when (fboundp 'jf/gptel--load-preset-from-file)
           (condition-case err
               (let ((preset-plist (jf/gptel--load-preset-from-file
-                                  (plist-get session-info :session-dir))))
+                                  (or (plist-get session-info :branch-dir)
+                                      (plist-get session-info :session-dir)))))
                 (when (and preset-plist (fboundp 'jf/gptel--apply-session-preset))
                   (jf/gptel--apply-session-preset preset-plist)
                   (jf/gptel--log 'info "Applied preset to buffer: %s" buffer-name)))
