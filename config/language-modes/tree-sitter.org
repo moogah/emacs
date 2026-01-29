@@ -35,7 +35,9 @@ The main Tree-sitter package provides the core functionality for incremental par
          (hcl-mode . tree-sitter-mode)
          (hcl-mode . tree-sitter-hl-mode)
          (terraform-mode . tree-sitter-mode)
-         (terraform-mode . tree-sitter-hl-mode)))
+         (terraform-mode . tree-sitter-hl-mode)
+         (sql-mode . tree-sitter-mode)
+         (sql-mode . tree-sitter-hl-mode)))
 #+end_src
 
 ** Tree-sitter Language Grammars
@@ -51,21 +53,27 @@ Provides the language grammar binaries for various programming languages.
 * Grammar Sources for Built-in Tree-sitter
 Configure the sources for downloading and installing built-in Tree-sitter grammar libraries (for Emacs 29+).
 
-**Version Pinning**: Python and JavaScript are pinned to specific versions (v0.21.0 and v0.21.4 respectively) to maintain ABI version 14 compatibility with Emacs 30.1. The master branches of these grammars have moved to ABI version 15, which causes version-mismatch errors.
+**Version Pinning**: Several grammars are pinned to specific versions to maintain ABI version 14 compatibility with Emacs 30.1. The master branches of these grammars have moved to ABI version 15, which causes version-mismatch errors.
+
+**Pinned grammars:**
+- bash (v0.21.0), css (v0.21.0), elisp (1.3.0), go (v0.21.1)
+- javascript (v0.21.4), python (v0.21.0)
+- markdown-inline (v0.2.3 for ABI 14 compatibility)
+- sql (requires manual ABI 14 generation - see SQL Grammar section below)
 
 #+begin_src emacs-lisp
 (setq treesit-language-source-alist
-   '((bash "https://github.com/tree-sitter/tree-sitter-bash")
+   '((bash "https://github.com/tree-sitter/tree-sitter-bash" "v0.21.0")
      (cmake "https://github.com/uyha/tree-sitter-cmake")
-     (css "https://github.com/tree-sitter/tree-sitter-css")
-     (elisp "https://github.com/Wilfred/tree-sitter-elisp")
-     (go "https://github.com/tree-sitter/tree-sitter-go")
+     (css "https://github.com/tree-sitter/tree-sitter-css" "v0.21.0")
+     (elisp "https://github.com/Wilfred/tree-sitter-elisp" "1.3.0")
+     (go "https://github.com/tree-sitter/tree-sitter-go" "v0.21.1")
      (html "https://github.com/tree-sitter/tree-sitter-html")
      (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "v0.21.4" "src")
      (json "https://github.com/tree-sitter/tree-sitter-json")
      (make "https://github.com/alemuller/tree-sitter-make")
      (markdown "https://github.com/ikatyang/tree-sitter-markdown")
-     (markdown-inline "https://github.com/tree-sitter-grammars/tree-sitter-markdown" "split_parser" "tree-sitter-markdown-inline/src")
+     (markdown-inline "https://github.com/tree-sitter-grammars/tree-sitter-markdown" "v0.2.3" "tree-sitter-markdown-inline/src")
      (python "https://github.com/tree-sitter/tree-sitter-python" "v0.21.0")
      (toml "https://github.com/tree-sitter/tree-sitter-toml")
      (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
@@ -103,56 +111,101 @@ The language grammars should be automatically installed by the package.
 
 ** For Built-in Tree-sitter (Emacs 29+)
 
-*** Installing All Grammars
-To install all configured Tree-sitter grammars at once:
+*** Quick Start: Install and Verify All Grammars
+
+**From command line** (automated install + verification):
+
+#+begin_src bash :tangle no
+./bin/emacs-isolated.sh --batch --eval "(progn \
+  (mapc #'treesit-install-language-grammar (mapcar #'car treesit-language-source-alist)) \
+  (message \"Verification:\") \
+  (dolist (lang (mapcar #'car treesit-language-source-alist)) \
+    (message \"  %s %s\" (if (treesit-language-available-p lang) \"✓\" \"✗\") lang)))"
+#+end_src
+
+**From Emacs** (interactive):
 
 #+begin_src emacs-lisp :tangle no
+;; Install all grammars
 (mapc #'treesit-install-language-grammar (mapcar #'car treesit-language-source-alist))
-#+end_src
 
-*** Installing Specific Grammars
-To install only the most commonly used grammars (python, javascript, typescript, yaml, json):
-
-#+begin_src emacs-lisp :tangle no
-(dolist (lang '(python javascript typescript yaml json))
-  (treesit-install-language-grammar lang))
-#+end_src
-
-Or install a single grammar:
-
-#+begin_src emacs-lisp :tangle no
-(treesit-install-language-grammar 'python)
+;; Verify all grammars
+(dolist (lang (mapcar #'car treesit-language-source-alist))
+  (message "%s: %s" lang (if (treesit-language-available-p lang) "available" "NOT available")))
 #+end_src
 
 *** Installation Location
 Grammars are compiled and installed to ~runtime/tree-sitter/~ as ~.dylib~ files (macOS), ~.so~ files (Linux), or ~.dll~ files (Windows).
 
-*** Verifying Installation
-Check if a grammar is available:
+*** Installing Specific Grammars
+
+Most commonly used:
 
 #+begin_src emacs-lisp :tangle no
-(treesit-language-available-p 'python)  ; Should return t
+(dolist (lang '(python javascript typescript yaml json bash))
+  (treesit-install-language-grammar lang))
 #+end_src
 
-Check all configured grammars:
+Single grammar:
 
 #+begin_src emacs-lisp :tangle no
-(dolist (lang '(python javascript typescript yaml json))
-  (message "%s: %s" lang (treesit-language-available-p lang)))
+(treesit-install-language-grammar 'python)
 #+end_src
 
 *** Troubleshooting
 
 **** ABI Version Mismatch
-If you see warnings like "version-mismatch: 15", the grammar ABI version doesn't match Emacs's expected version. This happens when grammar repositories update to newer tree-sitter versions.
+**Symptom:** Warnings like "version-mismatch: 15" or grammar installs but shows as unavailable.
 
-Solution: Pin the grammar to a compatible version in ~treesit-language-source-alist~ (see version pinning notes above).
+**Cause:** Emacs 30.1 requires ABI version 14, but grammar's master branch is version 15.
 
-**** Missing C Compiler
-Grammar installation requires a C compiler. Verify you have one:
+**Solution:** Pin the grammar to a compatible version tag in ~treesit-language-source-alist~.
+
+**Finding compatible version tags:**
 
 #+begin_src bash :tangle no
-# macOS
+# List available version tags for a grammar
+git ls-remote --tags https://github.com/tree-sitter/tree-sitter-bash | grep -E 'v[0-9]'
+
+# Test which version works (replace bash/v0.21.0 as needed)
+./bin/emacs-isolated.sh --batch --eval "(progn \
+  (setq treesit-language-source-alist '((bash \"https://github.com/tree-sitter/tree-sitter-bash\" \"v0.21.0\"))) \
+  (treesit-install-language-grammar 'bash) \
+  (message \"Available: %s\" (treesit-language-available-p 'bash)))"
+#+end_src
+
+**Current known working versions** (ABI 14 for Emacs 30.1):
+- bash: v0.21.0, css: v0.21.0, elisp: 1.3.0, go: v0.21.1
+- javascript: v0.21.4, python: v0.21.0, markdown-inline: v0.2.3
+
+**** C++ Compilation Errors (macOS)
+**Symptom:** Errors like ~'cassert' file not found~ or ~'vector' file not found~ when installing markdown or yaml.
+
+**Cause:** C++ compiler can't find standard library headers.
+
+**Solution:** Set SDK path before installation:
+
+#+begin_src bash :tangle no
+# From command line
+export SDKROOT=$(xcrun --show-sdk-path)
+export CPATH="$SDKROOT/usr/include/c++/v1"
+./bin/emacs-isolated.sh --batch --eval "(treesit-install-language-grammar 'markdown)"
+#+end_src
+
+Or from Emacs:
+
+#+begin_src emacs-lisp :tangle no
+(setenv "SDKROOT" (string-trim (shell-command-to-string "xcrun --show-sdk-path")))
+(setenv "CPATH" (concat (getenv "SDKROOT") "/usr/include/c++/v1"))
+(treesit-install-language-grammar 'markdown)
+#+end_src
+
+**** Missing C Compiler
+Grammar installation requires a C/C++ compiler.
+
+#+begin_src bash :tangle no
+# macOS - install Xcode Command Line Tools
+xcode-select --install
 clang --version
 
 # Linux
@@ -161,52 +214,78 @@ gcc --version
 
 **** Reinstalling Grammars
 
-**When to remove old grammars:**
+**When to reinstall:**
 - After changing version pins in ~treesit-language-source-alist~
-- When encountering ABI version mismatch errors
-- When grammar files become corrupted
-- After updating Emacs to a new major version
-- To force a fresh download and recompile
+- ABI version mismatch errors
+- Grammar files corrupted
+- After Emacs major version update
 
-**Remove specific grammar:**
-
-#+begin_src bash :tangle no
-# macOS
-rm ~/emacs/runtime/tree-sitter/libtree-sitter-python.dylib
-
-# Linux
-rm ~/emacs/runtime/tree-sitter/libtree-sitter-python.so
-
-# Windows
-rm ~/emacs/runtime/tree-sitter/libtree-sitter-python.dll
-#+end_src
-
-**Clean install - remove all grammars:**
+**Remove and reinstall specific grammar:**
 
 #+begin_src bash :tangle no
-# Remove all grammar files
-rm -rf ~/emacs/runtime/tree-sitter/*
+# Remove grammar (adjust extension: .dylib macOS, .so Linux, .dll Windows)
+rm runtime/tree-sitter/libtree-sitter-python.dylib
 
-# Verify directory is empty
-ls ~/emacs/runtime/tree-sitter/
+# Reinstall
+./bin/emacs-isolated.sh --batch --eval "(treesit-install-language-grammar 'python)"
 #+end_src
 
-**After removing grammars, reinstall:**
+**Clean install (all grammars):**
 
-#+begin_src emacs-lisp :tangle no
-;; Reinstall a single grammar
-(treesit-install-language-grammar 'python)
+#+begin_src bash :tangle no
+# Remove all grammars
+rm -rf runtime/tree-sitter/*
 
-;; Or reinstall commonly used grammars
-(dolist (lang '(python javascript typescript yaml json))
-  (treesit-install-language-grammar lang))
-
-;; Or reinstall all configured grammars
-(mapc #'treesit-install-language-grammar
-      (mapcar #'car treesit-language-source-alist))
+# Reinstall all (includes verification)
+./bin/emacs-isolated.sh --batch --eval "(progn \
+  (mapc #'treesit-install-language-grammar (mapcar #'car treesit-language-source-alist)) \
+  (dolist (lang (mapcar #'car treesit-language-source-alist)) \
+    (message \"%s %s\" (if (treesit-language-available-p lang) \"✓\" \"✗\") lang)))"
 #+end_src
 
-**Note:** The ~runtime/tree-sitter/~ directory is gitignored, so grammar files are not tracked in version control. Each worktree needs its own grammar installation.
+**Important:** The ~runtime/tree-sitter/~ directory is gitignored. Each worktree needs its own grammar installation (not shared between worktrees).
+
+*** Installing SQL Grammar (Special Case)
+
+The DerekStride/tree-sitter-sql grammar only provides ABI version 15 pre-built parsers, which are incompatible with Emacs 30.1 (requires ABI 14). You must manually generate ABI 14 parser files.
+
+**Prerequisites:**
+- tree-sitter CLI: ~npm install -g tree-sitter-cli~
+- C compiler (already required for other grammars)
+
+**Installation steps:**
+
+#+begin_src bash :tangle no
+# 1. Install tree-sitter CLI if not already installed
+npm install -g tree-sitter-cli
+
+# 2. Clone and generate ABI 14 parser
+cd /tmp
+git clone --depth 1 --branch v0.3.11 https://github.com/DerekStride/tree-sitter-sql.git
+cd tree-sitter-sql
+tree-sitter generate --abi=14
+
+# 3. Copy parser files to local directory
+mkdir -p ~/emacs/runtime/tree-sitter-sql-local
+cp -r src/*.c src/tree_sitter ~/emacs/runtime/tree-sitter-sql-local/
+
+# 4. Compile to dylib (macOS), .so (Linux), or .dll (Windows)
+cd ~/emacs/runtime/tree-sitter-sql-local
+cc -fPIC -c -I. parser.c
+cc -fPIC -c -I. scanner.c
+cc -fPIC -shared parser.o scanner.o -o ../tree-sitter/libtree-sitter-sql.dylib
+
+# 5. Verify in Emacs
+# Should return t:
+# (treesit-language-available-p 'sql)
+#+end_src
+
+**Why this is needed:**
+- tree-sitter-sql stores pre-built parsers on ~gh-pages~ branch (not version tags)
+- ~gh-pages~ branch uses ABI version 15 (incompatible with Emacs 30.1)
+- Using ~tree-sitter generate --abi=14~ creates compatible parsers from grammar source
+
+**Future:** This workaround won't be needed when Emacs supports ABI version 15 or when tree-sitter-sql provides ABI 14 builds.
 
 * Usage Notes
 ** Benefits of Tree-sitter

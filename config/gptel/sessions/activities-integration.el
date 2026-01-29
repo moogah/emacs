@@ -33,40 +33,18 @@
   :type 'boolean
   :group 'jf-gptel-activities)
 
-(defun jf/gptel-session--create-session-file (file-path activity-name backend model session-id)
-  "Create session.md file at FILE-PATH with initial prompt.
-ACTIVITY-NAME is the human-readable activity name.
-BACKEND and MODEL are the gptel backend and model names.
-SESSION-ID is the unique session identifier."
-  (with-temp-file file-path
-    (insert "###")))
-
-(defun jf/gptel-scope--create-default-plan (session-id)
-  "Create default deny-all scope plan for SESSION-ID.
-Only creates plan if jf/gptel-activities-create-scope-plan is non-nil.
-Uses jf/gptel-scope--template-deny-all from scope-commands.org."
-  (when (and jf/gptel-activities-create-scope-plan
-             (fboundp 'jf/gptel-session-find))
-    (when-let* ((session (jf/gptel-session-find session-id))
-                (session-dir (plist-get session :directory)))
-      (let ((plan-file (expand-file-name "scope-plan.yml" session-dir))
-            ;; Call template without optional params for regular sessions
-            (plan-content (jf/gptel-scope--template-deny-all session-id)))
-        (with-temp-file plan-file
-          (insert plan-content))
-        (jf/gptel--log 'info "Created default scope plan: %s" plan-file)))))
-
-(defun jf/gptel-session-create-persistent (activity-name &optional backend model)
+(defun jf/gptel-session-create-persistent (activity-name &optional backend model preset-template)
   "Create persistent gptel session immediately for ACTIVITY-NAME.
 
 Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
 - scope-plan.yml with session metadata and deny-all permissions
-- preset.md with backend and model configuration
+- preset.md with backend and model configuration (from template)
 - session.org file for buffer to visit
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
+PRESET-TEMPLATE specifies template name (default: \"programming-assistant\").
 
 Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file ...)"
   (unless (and (fboundp 'jf/gptel--read-session-metadata)
@@ -78,41 +56,40 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                  (replace-regexp-in-string "[^a-z0-9-]" "-"
                                           (downcase activity-name))))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
-         ;; Session ID is activity slug + timestamp (no hyphens for consistency)
+         ;; Session ID is activity slug + timestamp
          (session-id (format "%s-%s" slug timestamp))
-         ;; Directory name is the same as session ID
-         (dirname session-id)
-         (session-dir (expand-file-name dirname
-                                       (expand-file-name jf/gptel-sessions-directory)))
-         (session-file (expand-file-name "session.md" session-dir))
+         ;; Use the provided directory directly (caller has already set it up)
+         (session-dir (expand-file-name jf/gptel-sessions-directory))
          (backend (or backend gptel-backend))
          (model (or model gptel-model))
-         (backend-name (gptel-backend-name backend)))
+         (backend-name (gptel-backend-name backend))
+         (preset-template (or preset-template "programming-assistant")))
 
-    ;; Create session directory
-    (make-directory session-dir t)
-    (jf/gptel--log 'info "Created session directory: %s (session-id: %s)" session-dir session-id)
+    ;; Create session directory structure using core helper
+    ;; This creates branches/main/, preset.md, scope-plan.yml, session.md, and current symlink
+    (let* ((session-info (jf/gptel--create-session-core
+                          session-id
+                          session-dir
+                          preset-template
+                          'deny-all    ; Activities integration uses deny-all scope by default
+                          nil          ; No projects
+                          "###\n"))    ; Minimal initial content
+           (branch-dir (plist-get session-info :branch-dir))
+           (session-file (plist-get session-info :session-file)))
 
-    ;; Create deny-all scope plan (includes session_id and created timestamp)
-    (jf/gptel-scope--create-default-plan session-id)
+      ;; Register in global registry
+      (jf/gptel--log 'info "Registering session: %s" session-id)
+      (jf/gptel--register-session session-dir (current-buffer) session-id "main" branch-dir)
 
-    ;; Register in global registry using our pre-generated session-id
-    ;; Activities integration creates simple sessions without branching - use "main" as default branch
-    (jf/gptel--log 'info "Registering session: %s" session-id)
-    (jf/gptel--register-session session-dir (current-buffer) session-id "main" session-dir)
-
-    ;; Create session.org file
-    (jf/gptel-session--create-session-file session-file activity-name
-                                           backend-name model session-id)
-    (jf/gptel--log 'info "Created session file: %s" session-file)
-
-    ;; Return session info
-    (list :session-id session-id
-          :session-dir session-dir
-          :buffer-name (format "*gptel-%s*" slug)
-          :session-file session-file
-          :backend backend-name
-          :model (if (symbolp model) (symbol-name model) model))))
+      ;; Return session info for buffer creation
+      (list :session-id session-id
+            :session-dir session-dir   ; Session directory (parent of branches/)
+            :branch-dir branch-dir     ; Branch directory (branches/main/)
+            :branch-name "main"        ; Activities integration uses main branch
+            :buffer-name (format "*gptel-%s*" slug)
+            :session-file session-file
+            :backend backend-name
+            :model (if (symbolp model) (symbol-name model) model)))))
 
 (defun jf/gptel-session--create-buffer (session-info)
   "Create gptel buffer associated with session file.
@@ -134,12 +111,27 @@ SESSION-INFO is plist from jf/gptel-session-create-persistent."
         (unless gptel-mode
           (gptel-mode 1))
 
-        ;; Set buffer-local variables
+        ;; Set buffer-local session variables
         (setq-local jf/gptel--session-id session-id)
         (setq-local jf/gptel--session-dir (plist-get session-info :session-dir))
-        (setq-local gptel-backend (alist-get backend-name gptel--known-backends
-                                             nil nil #'equal))
-        (setq-local gptel-model model)
+        (setq-local jf/gptel--branch-name (or (plist-get session-info :branch-name) "main"))
+
+        ;; Load and apply preset from file (includes backend, model, system, tools, etc.)
+        (when (fboundp 'jf/gptel--load-preset-from-file)
+          (condition-case err
+              (let ((preset-plist (jf/gptel--load-preset-from-file
+                                  (or (plist-get session-info :branch-dir)
+                                      (plist-get session-info :session-dir)))))
+                (when (and preset-plist (fboundp 'jf/gptel--apply-session-preset))
+                  (jf/gptel--apply-session-preset preset-plist)
+                  (jf/gptel--log 'info "Applied preset to buffer: %s" buffer-name)))
+            (error
+             (jf/gptel--log 'warn "Failed to load preset, falling back to basic config: %s"
+                           (error-message-string err))
+             ;; Fallback: Set basic backend and model
+             (setq-local gptel-backend (alist-get backend-name gptel--known-backends
+                                                  nil nil #'equal))
+             (setq-local gptel-model model))))
 
         ;; Force autosave enabled for this buffer
         (setq-local jf/gptel-autosave-enabled t)
@@ -166,11 +158,12 @@ Returns the buffer visiting the session file."
 
             ;; Find session in registry or disk
             (if-let ((session (and (fboundp 'jf/gptel-session-find)
-                                  (jf/gptel-session-find session-id))))
+                                  (jf/gptel-session-find session-id "main"))))
                 (progn
                   ;; Set buffer-local variables
                   (setq-local jf/gptel--session-id session-id)
-                  (setq-local jf/gptel--session-dir (plist-get session :directory))
+                  (setq-local jf/gptel--session-dir (plist-get session :session-dir))
+                  (setq-local jf/gptel--branch-name (plist-get session :branch-name))
 
                   ;; Enable gptel-mode if not already
                   (unless gptel-mode
@@ -180,7 +173,7 @@ Returns the buffer visiting the session file."
                   (setq-local jf/gptel-autosave-enabled t)
 
                   ;; Restore backend/model from preset metadata on disk
-                  (let ((preset-meta (jf/gptel--read-preset-metadata (plist-get session :directory))))
+                  (let ((preset-meta (jf/gptel--read-preset-metadata (plist-get session :session-dir))))
                     (when-let ((backend-name (plist-get preset-meta :backend)))
                       (setq-local gptel-backend (alist-get backend-name gptel--known-backends
                                                            nil nil #'equal)))

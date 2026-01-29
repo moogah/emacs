@@ -36,6 +36,111 @@ Setup lexical binding and core Magit functionality.
                           'append))
 #+end_src
 
+* Work-in-Progress (WIP) Mode
+Magit's WIP mode automatically saves snapshots of your work to special git refs,
+providing fine-grained version history between commits without cluttering your main history.
+
+** Overview
+WIP mode creates automatic commits to special refs under =refs/wip/= that don't appear in
+your normal git history. This provides a safety net and recovery mechanism for all saved changes.
+
+Benefits:
+- Recover any previously saved state, even if you didn't commit
+- Time-travel through your development history with fine granularity
+- No clutter in your main git history (WIP refs are separate)
+- Works automatically - just save files as normal
+- Native git refs (can be viewed with standard git tools)
+
+** Configuration
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Magit WIP (Work-in-Progress) Mode
+;; ===============================================================================
+
+;; Enable WIP mode to automatically save working tree state
+;; Modern Magit (2.90+) uses a unified magit-wip-mode instead of separate modes
+(with-eval-after-load 'magit
+  (require 'magit-wip)
+  (magit-wip-mode 1))
+#+end_src
+
+** Usage Guide
+
+*** WIP Refs Structure
+WIP commits are stored in special refs that parallel your branch structure:
+- =refs/wip/wtree/refs/heads/<branch>= - Working tree state (unsaved + uncommitted)
+- =refs/wip/index/refs/heads/<branch>= - Staging area state (staged changes)
+
+*** Viewing WIP History
+1. =M-x magit-wip-log= - View WIP commits for current branch
+2. =M-x magit-wip-log-current= - View WIP log starting from current ref
+3. In Magit log view, press =Y= to toggle showing WIP commits
+4. WIP commits appear with "wip" prefix in commit messages
+
+*** Recovering from WIP Commits
+WIP commits are just regular git commits in special refs. To recover:
+
+**** Option 1: Via Magit Log
+1. =M-x magit-log-all= or =l a= in Magit status
+2. Navigate to the WIP commit you want
+3. Press =RET= to view the commit
+4. Use =a= to apply changes or cherry-pick the commit
+
+**** Option 2: Via Git Command Line
+#+begin_example
+# List WIP commits for current branch
+git log refs/wip/wtree/refs/heads/$(git branch --show-current)
+
+# Show a specific WIP commit
+git show <wip-commit-sha>
+
+# Cherry-pick a WIP commit
+git cherry-pick <wip-commit-sha>
+
+# Create a new branch from a WIP commit
+git branch recovery-branch <wip-commit-sha>
+#+end_example
+
+*** When WIP Commits Are Created
+=magit-wip-mode= automatically creates WIP commits in these situations:
+- *After save*: Every time you save a buffer visiting a tracked file
+- *Before changes*: Before checking out branches, resetting, or other destructive operations
+- *After apply*: After applying, staging, unstaging, or discarding changes
+
+Note: Modern Magit (2.90+) uses a unified =magit-wip-mode= that handles all scenarios.
+Legacy users may have separate modes (=magit-wip-after-save-mode=, etc.), but the
+unified mode is recommended.
+
+*** Maintenance
+WIP refs accumulate over time but don't interfere with normal git operations:
+- They're local only (not pushed to remotes by default)
+- Can be cleaned up with =git reflog expire= or by deleting refs
+- Typically small storage overhead (just diffs between saves)
+
+*** Keybindings in Magit
+- =Y= in log view - Toggle WIP commit visibility
+- =l a= - Log all refs (includes WIP)
+- =l o= - Log other refs (can select WIP refs)
+
+** Troubleshooting
+
+*** WIP commits not appearing
+- Check that WIP modes are enabled: =M-x magit-wip-mode= (should show as enabled)
+- Verify the file is in a git repository
+- Check =*Messages*= buffer for errors
+
+*** Too many WIP commits
+This is normal for active development. To clean up old WIP refs:
+#+begin_example
+# Remove WIP refs older than 30 days
+git reflog expire --expire=30.days refs/wip/
+
+# Or delete all WIP refs for current branch
+git update-ref -d refs/wip/wtree/refs/heads/$(git branch --show-current)
+git update-ref -d refs/wip/index/refs/heads/$(git branch --show-current)
+#+end_example
+
 * Better support for pre-commit hooks
 
 #+begin_src emacs-lisp

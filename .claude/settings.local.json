@@ -12,7 +12,8 @@
       "Bash(ls:*)",
       "Bash(tree:*)",
       "Skill(architecture-analyzer)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

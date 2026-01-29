@@ -301,13 +301,16 @@ After creation, the branch can evolve independently from parent."
   (let* ((branch-point-data (jf/gptel--select-branch-point))
          (branch-position (car branch-point-data))
          (include-prompt-p (cdr branch-point-data))
+         ;; Save parent info before switching buffers
+         (parent-branch-name jf/gptel--branch-name)
+         (parent-session-id jf/gptel--session-id)
          ;; Prompt for branch name
          (user-branch-name (or branch-name
                               (read-string "Branch name: ")))
          ;; Create branch
          (new-branch-dir (jf/gptel--create-branch-session
                          jf/gptel--session-dir
-                         jf/gptel--branch-name  ; parent branch name
+                         parent-branch-name      ; parent branch name
                          user-branch-name        ; user-provided name
                          branch-position
                          include-prompt-p))
@@ -319,8 +322,8 @@ After creation, the branch can evolve independently from parent."
 
     (message "Created branch: %s\nFrom parent: %s\nSession: %s"
              new-branch-name
-             jf/gptel--branch-name
-             jf/gptel--session-id)))
+             parent-branch-name
+             parent-session-id)))
 
 (provide 'gptel-session-branching)
 ;;; branching.el ends here

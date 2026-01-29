@@ -1,1 +1,1 @@
-("~/emacs-activities-extensions/" "~/org/" "~/src/oncall_amplify/" "~/src/monorepo/")
+("~/emacs/" "~/org/" "~/src/oncall_amplify/" "~/src/python-base/" "~/src/lambda_functions/" "~/src/integrations/" "~/src/monorepo/" "~/src/dotfiles/" "~/src/skills/" "~/src/stadium/" "~/src/python_api/" "~/emacs-activities-extensions/")
