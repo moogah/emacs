@@ -84,12 +84,12 @@
    '(org-level-5 ((t (:foreground "white"))))
 
    ;; Markdown-mode faces
-   '(markdown-header-delimiter-face ((t (:foreground "DodgerBlue1"))))
-   '(markdown-header-face-1 ((t (:foreground "SlateGray1"))))
-   '(markdown-header-face-2 ((t (:foreground "SlateGray1"))))
-   '(markdown-header-face-3 ((t (:foreground "SlateGray1"))))
-   '(markdown-header-face-4 ((t (:foreground "SlateGray1"))))
-   '(markdown-header-face-5 ((t (:foreground "SlateGray1"))))
+   '(markdown-header-delimiter-face ((t (:foreground "SlateGray4"))))
+   '(markdown-header-face-1 ((t (:foreground "SlateGrey1"))))
+   '(markdown-header-face-2 ((t (:foreground "SlateGrey1"))))
+   '(markdown-header-face-3 ((t (:foreground "SlateGrey1"))))
+   '(markdown-header-face-4 ((t (:foreground "SlateGrey1"))))
+   '(markdown-header-face-5 ((t (:foreground "SlateGrey1"))))
    '(markdown-list-face ((t (:foreground "SlateGray4"))))
    '(markdown-code-face ((t (:background "#111111"))))
    '(markdown-language-keyword-face ((t (:foreground "DodgerBlue3"))))
