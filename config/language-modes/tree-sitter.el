@@ -15,7 +15,9 @@
          (hcl-mode . tree-sitter-mode)
          (hcl-mode . tree-sitter-hl-mode)
          (terraform-mode . tree-sitter-mode)
-         (terraform-mode . tree-sitter-hl-mode)))
+         (terraform-mode . tree-sitter-hl-mode)
+         (sql-mode . tree-sitter-mode)
+         (sql-mode . tree-sitter-hl-mode)))
 
 (use-package tree-sitter-langs
   :straight t)

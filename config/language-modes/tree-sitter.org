@@ -35,7 +35,9 @@ The main Tree-sitter package provides the core functionality for incremental par
          (hcl-mode . tree-sitter-mode)
          (hcl-mode . tree-sitter-hl-mode)
          (terraform-mode . tree-sitter-mode)
-         (terraform-mode . tree-sitter-hl-mode)))
+         (terraform-mode . tree-sitter-hl-mode)
+         (sql-mode . tree-sitter-mode)
+         (sql-mode . tree-sitter-hl-mode)))
 #+end_src
 
 ** Tree-sitter Language Grammars
@@ -57,6 +59,7 @@ Configure the sources for downloading and installing built-in Tree-sitter gramma
 - bash (v0.21.0), css (v0.21.0), elisp (1.3.0), go (v0.21.1)
 - javascript (v0.21.4), python (v0.21.0)
 - markdown-inline (v0.2.3 for ABI 14 compatibility)
+- sql (requires manual ABI 14 generation - see SQL Grammar section below)
 
 #+begin_src emacs-lisp
 (setq treesit-language-source-alist
@@ -241,6 +244,48 @@ rm -rf runtime/tree-sitter/*
 #+end_src
 
 **Important:** The ~runtime/tree-sitter/~ directory is gitignored. Each worktree needs its own grammar installation (not shared between worktrees).
+
+*** Installing SQL Grammar (Special Case)
+
+The DerekStride/tree-sitter-sql grammar only provides ABI version 15 pre-built parsers, which are incompatible with Emacs 30.1 (requires ABI 14). You must manually generate ABI 14 parser files.
+
+**Prerequisites:**
+- tree-sitter CLI: ~npm install -g tree-sitter-cli~
+- C compiler (already required for other grammars)
+
+**Installation steps:**
+
+#+begin_src bash :tangle no
+# 1. Install tree-sitter CLI if not already installed
+npm install -g tree-sitter-cli
+
+# 2. Clone and generate ABI 14 parser
+cd /tmp
+git clone --depth 1 --branch v0.3.11 https://github.com/DerekStride/tree-sitter-sql.git
+cd tree-sitter-sql
+tree-sitter generate --abi=14
+
+# 3. Copy parser files to local directory
+mkdir -p ~/emacs/runtime/tree-sitter-sql-local
+cp -r src/*.c src/tree_sitter ~/emacs/runtime/tree-sitter-sql-local/
+
+# 4. Compile to dylib (macOS), .so (Linux), or .dll (Windows)
+cd ~/emacs/runtime/tree-sitter-sql-local
+cc -fPIC -c -I. parser.c
+cc -fPIC -c -I. scanner.c
+cc -fPIC -shared parser.o scanner.o -o ../tree-sitter/libtree-sitter-sql.dylib
+
+# 5. Verify in Emacs
+# Should return t:
+# (treesit-language-available-p 'sql)
+#+end_src
+
+**Why this is needed:**
+- tree-sitter-sql stores pre-built parsers on ~gh-pages~ branch (not version tags)
+- ~gh-pages~ branch uses ABI version 15 (incompatible with Emacs 30.1)
+- Using ~tree-sitter generate --abi=14~ creates compatible parsers from grammar source
+
+**Future:** This workaround won't be needed when Emacs supports ABI version 15 or when tree-sitter-sql provides ABI 14 builds.
 
 * Usage Notes
 ** Benefits of Tree-sitter
