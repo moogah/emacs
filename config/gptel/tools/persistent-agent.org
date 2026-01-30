@@ -405,7 +405,7 @@ The architecture is *sound and fit for purpose*. The complexity is justified by 
 
 * Lexical Binding
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle persistent-agent.el
 ;;; persistent-agent.el --- GPTEL Persistent Agent Tool -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -551,7 +551,7 @@ Each entry is (STATE UI-HANDLER CORE-HANDLER).")
 
 The core function that creates the agent session and launches the request.
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle persistent-agent.el
 (defun jf/gptel-persistent-agent--task (main-cb preset description prompt)
   "Launch a persistent agent in a new session buffer.
 
@@ -578,29 +578,40 @@ with zero inheritance from the parent session."
                          jf/gptel--session-dir preset description))
            (session-id (jf/gptel--session-id-from-directory session-dir)))
 
-      ;; Get agent config to determine backend/model (NO parent inheritance)
-      (let* ((agent-config (cdr (assoc preset gptel-agent--agents)))
-             (agent-backend-name (or (plist-get agent-config :backend)
-                                    (gptel-backend-name gptel-backend)))
-             (agent-model (or (plist-get agent-config :model)
-                             gptel-model)))
+      ;; Copy preset template directly (file-first approach)
+      (jf/gptel--copy-preset-template preset session-dir)
 
-        ;; Create scope-plan.yml with agent fields (deny-all template)
-        (let* ((scope-yaml (jf/gptel-scope--template-deny-all
-                           session-id "agent" jf/gptel--session-id preset))
+      ;; Load preset from copied file (like regular sessions)
+      (let* ((preset-plist (jf/gptel--load-preset-from-file session-dir)))
+        (unless preset-plist
+          (error "Failed to load preset from %s" session-dir))
+
+        ;; Get activity org-file from parent's scope-plan.yml
+        ;; Parse worktrees from authoritative source (activity org-roam document)
+        (let* ((parent-scope-file (jf/gptel--scope-plan-file-path jf/gptel--session-dir))
+               (activity-org-file (when (file-exists-p parent-scope-file)
+                                   (jf/gptel-scope--get-activity-org-file parent-scope-file)))
+               (worktree-paths (when activity-org-file
+                                (jf/gptel-activities--parse-worktree-paths
+                                 nil  ; activity-name not needed when org-file provided
+                                 activity-org-file)))
+               ;; Generate scope plan using preset tools + worktree paths from activity
+               (scope-yaml (jf/gptel--generate-scope-plan-yaml
+                           session-id
+                           "deny-all"        ; Template type
+                           nil               ; No projects (agents use worktrees only)
+                           session-dir       ; Branch dir (for parsing preset tools)
+                           worktree-paths))  ; From activity org-roam document
                (scope-file (expand-file-name "scope-plan.yml" session-dir)))
           (with-temp-file scope-file
             (insert scope-yaml))
-          (jf/gptel--log 'info "Created agent scope plan: %s" scope-file))
+          (jf/gptel--log 'info "Created agent scope plan: %s%s"
+                        scope-file
+                        (if worktree-paths
+                            (format " with %d worktree(s) from activity" (length worktree-paths))
+                          "")))
 
         ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
-
-        ;; Create preset file ONLY from agent definition (NO parent inheritance)
-        ;; Reuse agent-config from above - no need to look up again
-        (let* ((preset-plist (copy-sequence agent-config)))
-          ;; Override to ensure tool results are included
-          (plist-put preset-plist :include-tool-results t)
-          (jf/gptel--write-preset-file session-dir preset-plist))
 
         ;; Read metadata from scope-plan.yml for registry
         (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
@@ -614,32 +625,32 @@ with zero inheritance from the parent session."
           (let* ((buffer-name (format "*gptel-agent:%s:%s*" preset description))
                  (agent-buffer (generate-new-buffer buffer-name)))
 
-            ;; Initialize buffer with session tracking and auto-save
+            ;; Initialize buffer with session tracking and preset configuration
             (with-current-buffer agent-buffer
               (markdown-mode)
               (gptel-mode 1)
 
-              ;; Set persistent session vars BEFORE preset scope
+              ;; Set persistent session vars BEFORE preset application
               (setq-local jf/gptel--session-id session-id)
               (setq-local jf/gptel--session-dir session-dir)
-              ;; Agents are simple sessions without branching - use "main" as default branch
               (setq-local jf/gptel--branch-name "main")
-              (setq-local jf/gptel--branch-dir session-dir)  ; For non-branching sessions, branch-dir = session-dir
-              (setq-local gptel-tools nil)  ; Prevent inheritance EXPLICITLY
-              (setq-local gptel-include-tool-results t)  ; Enable tool result persistence
+              (setq-local jf/gptel--branch-dir session-dir)
+
+              ;; Apply preset from file (sets backend, model, tools, system message, etc.)
+              ;; This replaces manual setting of gptel-tools and gptel-include-tool-results
+              (jf/gptel--apply-session-preset preset-plist)
+              (jf/gptel--log 'info "Applied preset to agent buffer from file")
 
               ;; Add auto-save via gptel's post-response hook
               (add-hook 'gptel-post-response-functions
                         #'jf/gptel--auto-save-session-buffer
-                        nil t)  ; buffer-local hook
+                        nil t)
 
               ;; Insert prompt into buffer
-              ;; This allows gptel-request with PROMPT=nil to read from buffer
               (insert prompt)
-              (insert "\n\n")  ; Separator for response
+              (insert "\n\n")
 
-              ;; Associate buffer with file but don't write yet
-              ;; Let auto-save handle first write (ensures Local Variables at end)
+              ;; Associate buffer with file
               (set-visited-file-name (jf/gptel--context-file-path session-dir))
               (set-buffer-modified-p t))
 
@@ -647,83 +658,82 @@ with zero inheritance from the parent session."
             ;; Agents don't support branching, so use "main" as default branch and session-dir as branch-dir
             (jf/gptel--register-session session-dir agent-buffer session-id "main" session-dir)
 
-          ;; Create overlay for parent feedback
-          (let ((ov (jf/gptel-persistent-agent--create-overlay
-                     where preset description)))
+            ;; Create overlay for parent feedback
+            (let ((ov (jf/gptel-persistent-agent--create-overlay
+                       where preset description)))
 
-            ;; Execute with preset scope for configuration only
-            ;; Reuse agent-config from outer scope - no need to look up again
-            (gptel-with-preset
-                (nconc (list :include-reasoning nil
-                             :use-tools t
-                             :use-context nil
-                             :include-tool-results t)
-                       agent-config)
+              ;; Execute with request-specific overrides only
+              ;; Preset configuration already applied to buffer via jf/gptel--apply-session-preset
+              (gptel-with-preset
+                  (list :include-reasoning nil
+                        :use-tools t
+                        :use-context nil
+                        :include-tool-results t)
 
-              ;; Accumulator for response (must be inside preset scope)
-              (let ((partial ""))
+                ;; Accumulator for response (must be inside preset scope)
+                (let ((partial ""))
 
-                ;; Launch the agent request
-                ;; PROMPT=nil reads from agent-buffer (which now contains prompt)
-                (gptel-request nil
-                  :buffer agent-buffer
-                  :position (point-max)  ; Insert response at end of buffer
-                  :context ov  ; Parent buffer overlay
-                  :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
+                  ;; Launch the agent request
+                  ;; PROMPT=nil reads from agent-buffer (which now contains prompt)
+                  (gptel-request nil
+                    :buffer agent-buffer
+                    :position (point-max)  ; Insert response at end of buffer
+                    :context ov  ; Parent buffer overlay
+                    :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
 
-                  :callback
-                  (lambda (resp info &optional raw)
-                    (let ((ov (plist-get info :context))
-                          (buf (plist-get info :buffer)))
-                      (pcase resp
-                        ;; Network/API error
-                        ('nil
-                         (delete-overlay ov)
-                         (funcall main-cb
-                                  (format "Error: Network failure\n%S"
-                                          (plist-get info :error))))
+                    :callback
+                    (lambda (resp info &optional raw)
+                      (let ((ov (plist-get info :context))
+                            (buf (plist-get info :buffer)))
+                        (pcase resp
+                          ;; Network/API error
+                          ('nil
+                           (delete-overlay ov)
+                           (funcall main-cb
+                                    (format "Error: Network failure\n%S"
+                                            (plist-get info :error))))
 
-                        ;; User aborted tool confirmation
-                        ('abort
-                         (delete-overlay ov)
-                         (funcall main-cb "Error: User aborted agent"))
+                          ;; User aborted tool confirmation
+                          ('abort
+                           (delete-overlay ov)
+                           (funcall main-cb "Error: User aborted agent"))
 
-                        ;; Tool calls pending - wait for completion
-                        (`(tool-call . ,calls)
-                         (gptel--display-tool-calls calls info))
+                          ;; Tool calls pending - wait for completion
+                          (`(tool-call . ,calls)
+                           (gptel--display-tool-calls calls info))
 
-                        ;; Tool results ready - display in agent buffer
-                        (`(tool-result . ,tool-results)
-                         (gptel--display-tool-results tool-results info))
+                          ;; Tool results ready - display in agent buffer
+                          (`(tool-result . ,tool-results)
+                           (gptel--display-tool-results tool-results info))
 
-                        ;; String response - DUAL DUTY: insert to buffer AND accumulate
-                        ((pred stringp)
-                         ;; 1. Insert into agent-buffer for persistence
-                         (with-current-buffer buf
-                           (save-excursion
-                             (goto-char (point-max))
-                             (if raw
-                                 ;; Raw (tool results): properties already set
-                                 (insert resp)
-                               ;; Regular response: add properties
-                               (let ((start (point)))
-                                 (insert resp)
-                                 (when gptel-mode
-                                   (put-text-property start (point)
-                                                     'gptel 'response))))))
+                          ;; String response - DUAL DUTY: insert to buffer AND accumulate
+                          ((pred stringp)
+                           ;; 1. Insert into agent-buffer for persistence
+                           (with-current-buffer buf
+                             (save-excursion
+                               (goto-char (point-max))
+                               (if raw
+                                   ;; Raw (tool results): properties already set
+                                   (insert resp)
+                                 ;; Regular response: add properties
+                                 (let ((start (point)))
+                                   (insert resp)
+                                   (when gptel-mode
+                                     (put-text-property start (point)
+                                                       'gptel 'response))))))
 
-                         ;; 2-3. Accumulate and callback only for non-raw responses
-                         (unless raw
-                           ;; 2. Accumulate for parent callback
-                           (setq partial (concat partial resp))
+                           ;; 2-3. Accumulate and callback only for non-raw responses
+                           (unless raw
+                             ;; 2. Accumulate for parent callback
+                             (setq partial (concat partial resp))
 
-                           ;; 3. Return to parent when done (not in tool-use)
-                           (unless (plist-get info :tool-use)
-                             (delete-overlay ov)
-                             ;; Apply transformer if present
-                             (when-let ((transform (plist-get info :transformer)))
-                               (setq partial (funcall transform partial)))
-                             (funcall main-cb partial)))))))))))))))))
+                             ;; 3. Return to parent when done (not in tool-use)
+                             (unless (plist-get info :tool-use)
+                               (delete-overlay ov)
+                               ;; Apply transformer if present
+                               (when-let ((transform (plist-get info :transformer)))
+                                 (setq partial (funcall transform partial)))
+                               (funcall main-cb partial)))))))))))))))))
 #+end_src
 
 * Tool Registration
@@ -763,7 +773,7 @@ Use for complex research, open-ended exploration, or iterative tasks."
 
 * Footer
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle persistent-agent.el
 (provide 'gptel-persistent-agent)
 ;;; persistent-agent.el ends here
 #+end_src

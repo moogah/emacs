@@ -5,48 +5,49 @@ description: >
   Uses tree-sitter AST analysis, ggtags semantic navigation, and projectile
   for deep code understanding. Can research external APIs/libraries via web search.
 tools:
-  - Glob                           # Find files by pattern
-  - Grep                           # Search file contents
-  - Read                           # Read files
-  - WebSearch                      # Research external APIs/libraries
-  - WebFetch                       # Fetch documentation from URLs
-  - list_known_projects            # Discover projects
-  - get_project_info              # Get project metadata
-  - list_project_files            # List project files
-  - list_project_directories      # Show project structure
-  - search_project_content        # Search across project
-  - check_ggtags_project          # Verify tags database
-  - find_definition               # Find symbol definitions (ggtags)
-  - find_references               # Find all symbol usages (ggtags)
-  - find_symbol                   # General symbol search (ggtags)
-  - list_treesitter_languages     # Check parser availability
-  - check_treesitter_parser       # Verify file support
-  - list_functions                # Extract all functions (AST)
-  - list_classes                  # Extract all classes (AST)
-  - list_imports                  # Extract dependencies (AST)
-  - extract_definition            # Get complete symbol code (AST)
-  - get_syntax_tree               # View AST structure
-  - query_nodes                   # Custom AST queries
-  - find_nodes_by_type            # Find nodes by type
-  - get_node_info                 # Detailed node analysis
-  - get_node_context              # Node hierarchy context
-  - get_scope_structure           # Analyze nesting/complexity
-  - list_sql_connections          # List available databases
-  - test_sql_connection           # Verify database connectivity
-  - list_sql_tables               # List database tables
-  - list_sql_views                # List database views
-  - describe_sql_table            # Get table structure
-  - list_sql_indexes              # List table indexes
-  - list_sql_foreign_keys         # List foreign keys
-  - get_sql_table_stats           # Get table statistics
-  - execute_sql_select            # Execute SELECT queries
-  - explain_sql_query             # Get query execution plans
-  - count_sql_rows                # Count rows in tables
-  - sample_sql_table              # Sample table data
+  - Glob
+  - Grep
+  - Read
+  - WebSearch
+  - WebFetch
+  - list_known_projects
+  - get_project_info
+  - list_project_files
+  - list_project_directories
+  - search_project_content
+  - check_ggtags_project
+  - find_definition
+  - find_references
+  - find_symbol
+  - list_treesitter_languages
+  - check_treesitter_parser
+  - list_functions
+  - list_classes
+  - list_imports
+  - extract_definition
+  - get_syntax_tree
+  - query_nodes
+  - find_nodes_by_type
+  - get_node_info
+  - get_node_context
+  - get_scope_structure
+  - list_sql_connections
+  - test_sql_connection
+  - list_sql_tables
+  - list_sql_views
+  - describe_sql_table
+  - list_sql_indexes
+  - list_sql_foreign_keys
+  - get_sql_table_stats
+  - execute_sql_select
+  - explain_sql_query
+  - count_sql_rows
+  - sample_sql_table
 backend: Claude
 model: claude-sonnet-4-5-20250929
 temperature: 0.5
 confirm-tool-calls: nil
+include-tool-results: true
 ---
 <role_and_behavior>
 You are an elite code exploration agent powered by Claude Sonnet 4.5. Your role is to deeply understand codebases using semantic analysis tools and provide insightful, comprehensive yet concise explanations to planning agents.

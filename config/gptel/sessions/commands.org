@@ -435,9 +435,21 @@ Backend objects → names, model symbols → strings, tools → names."
          (model-name (if (symbolp model) (symbol-name model) model))
          (tools (plist-get preset-plist :tools))
          (tool-names (when tools
-                      (mapcar (lambda (tool)
-                               (if (stringp tool) tool (gptel-tool-name tool)))
-                             tools))))
+                      (cond
+                       ;; New map format: (:Glob (:allowed t) :Grep (:allowed t) ...)
+                       ;; Extract keywords and convert to strings
+                       ((and (listp tools) (keywordp (car tools)))
+                        (let ((result nil))
+                          (while tools
+                            (let ((tool-key (pop tools))
+                                  (tool-props (pop tools)))
+                              (push (substring (symbol-name tool-key) 1) result)))
+                          (nreverse result)))
+                       ;; Legacy list format: ("tool1" "tool2") or (gptel-tool-struct ...)
+                       (t
+                        (mapcar (lambda (tool)
+                                 (if (stringp tool) tool (gptel-tool-name tool)))
+                               tools))))))
     (list :backend backend-name
           :model model-name
           :tools tool-names

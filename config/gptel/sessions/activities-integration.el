@@ -100,6 +100,21 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
           (jf/gptel--log 'info "Stored %d worktree path(s) in session metadata"
                         (length worktree-paths))))
 
+      ;; Store activity org-file path in scope-plan.yml for agent access
+      ;; This enables agents to parse worktrees from authoritative source
+      (when org-file
+        (let ((scope-file (expand-file-name "scope-plan.yml" branch-dir)))
+          (when (file-exists-p scope-file)
+            (with-temp-buffer
+              (insert-file-contents scope-file)
+              ;; Add activity_org_file field after preset field
+              (goto-char (point-min))
+              (when (re-search-forward "^preset: " nil t)
+                (end-of-line)
+                (insert (format "\nactivity_org_file: %S" org-file))
+                (write-region (point-min) (point-max) scope-file nil 'silent)
+                (jf/gptel--log 'info "Stored activity org-file reference in scope plan"))))))
+
       ;; Register in global registry
       (jf/gptel--log 'info "Registering session: %s" session-id)
       (jf/gptel--register-session session-dir (current-buffer) session-id "main" branch-dir)
