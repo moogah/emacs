@@ -40,16 +40,20 @@ Returns YAML string with tool configuration."
 
 
 ;; [[file:scope-commands.org::*Deny-All Template (Secure Default)][Deny-All Template (Secure Default):1]]
-(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id preset-tools worktree-paths)
+(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id preset-tools worktree-paths activity-org-file)
   "Generate scope plan from preset tools with worktree isolation.
 Uses PRESET-TOOLS as single source of truth - only tools listed in preset are included.
 PRESET-TOOLS is alist of (tool-name . allowed-bool) from preset file.
 Each tool uses its allowed setting from preset and is scoped to WORKTREE-PATHS if provided.
+ACTIVITY-ORG-FILE is optional path to activity org-roam document for agent access.
 Note: run_approved_command is skipped (not yet implemented)."
   (unless preset-tools
     (error "No preset-tools provided to deny-all template"))
 
   (let* ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+         ;; Add activity_org_file field if provided
+         (activity-field (when activity-org-file
+                          (format "activity_org_file: \"%s\"\n" activity-org-file)))
          (agent-fields (when type
                          (concat
                           (format "type: \"%s\"\n" type)
@@ -67,13 +71,14 @@ Note: run_approved_command is skipped (not yet implemented)."
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-%sdefault_policy: deny
+%s%sdefault_policy: deny
 
 tools:
 "
              session-id
              timestamp
              timestamp
+             (or activity-field "")
              (or agent-fields ""))
      ;; Generate definitions for all tools from preset (except run_approved_command)
      ;; preset-tools is alist: ((tool-name . allowed) ...)
@@ -92,12 +97,15 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Codebase Read Template][Codebase Read Template:1]]
-(defun jf/gptel-scope--template-codebase-read (session-id &optional type parent-id preset)
+(defun jf/gptel-scope--template-codebase-read (session-id &optional type parent-id preset activity-org-file)
   "Read-only exploration template.
 Allows safe shell commands for code exploration (ls, find, grep, git log).
 No write operations allowed - LLM must request permission.
-Optional TYPE, PARENT-ID, and PRESET for agent sessions."
+Optional TYPE, PARENT-ID, PRESET for agent sessions.
+Optional ACTIVITY-ORG-FILE path to activity org-roam document for agent access."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (activity-field (when activity-org-file
+                         (format "activity_org_file: \"%s\"\n" activity-org-file)))
         (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
@@ -109,7 +117,7 @@ Optional TYPE, PARENT-ID, and PRESET for agent sessions."
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-%sdefault_policy: deny
+%s%sdefault_policy: deny
 
 tools:
   read_file:
@@ -184,6 +192,7 @@ tools:
             session-id
             timestamp
             timestamp
+            (or activity-field "")
             (or agent-fields ""))))
 ;; Codebase Read Template:1 ends here
 
@@ -193,12 +202,15 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Org-Roam Safe Template][Org-Roam Safe Template:1]]
-(defun jf/gptel-scope--template-org-roam-safe (session-id &optional type parent-id preset)
+(defun jf/gptel-scope--template-org-roam-safe (session-id &optional type parent-id preset activity-org-file)
   "Org-roam safe template.
 Allows creating and linking nodes in gptel/ subdirectory with gptel tag.
 Safe for LLM-generated notes that are clearly separated from personal notes.
-Optional TYPE, PARENT-ID, and PRESET for agent sessions."
+Optional TYPE, PARENT-ID, PRESET for agent sessions.
+Optional ACTIVITY-ORG-FILE path to activity org-roam document for agent access."
   (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (activity-field (when activity-org-file
+                         (format "activity_org_file: \"%s\"\n" activity-org-file)))
         (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
@@ -210,7 +222,7 @@ Optional TYPE, PARENT-ID, and PRESET for agent sessions."
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-%sdefault_policy: deny
+%s%sdefault_policy: deny
 
 tools:
   read_file:
@@ -274,6 +286,7 @@ tools:
             session-id
             timestamp
             timestamp
+            (or activity-field "")
             (or agent-fields "")
             org-roam-directory
             org-roam-directory)))
@@ -285,13 +298,16 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Permissive Template][Permissive Template:1]]
-(defun jf/gptel-scope--template-permissive (session-id &optional type parent-id preset)
+(defun jf/gptel-scope--template-permissive (session-id &optional type parent-id preset activity-org-file)
   "Permissive template - broad access.
 USE WITH CAUTION: Allows wide filesystem access and many shell commands.
 Only use when you trust the LLM workflow and want minimal restrictions.
-Optional TYPE, PARENT-ID, and PRESET for agent sessions."
+Optional TYPE, PARENT-ID, PRESET for agent sessions.
+Optional ACTIVITY-ORG-FILE path to activity org-roam document for agent access."
   (let ((project-root (or (projectile-project-root) default-directory))
         (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (activity-field (when activity-org-file
+                         (format "activity_org_file: \"%s\"\n" activity-org-file)))
         (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
@@ -303,7 +319,7 @@ Optional TYPE, PARENT-ID, and PRESET for agent sessions."
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-%sdefault_policy: deny
+%s%sdefault_policy: deny
 
 tools:
   read_file:
@@ -380,6 +396,7 @@ tools:
             session-id
             timestamp
             timestamp
+            (or activity-field "")
             (or agent-fields "")
             project-root
             project-root)))
@@ -391,13 +408,14 @@ tools:
 
 
 ;; [[file:scope-commands.org::*Project-Aware Template][Project-Aware Template:1]]
-(defun jf/gptel-scope--template-project-aware (session-id project-roots &optional type parent-id preset)
+(defun jf/gptel-scope--template-project-aware (session-id project-roots &optional type parent-id preset activity-org-file)
   "Project-aware scope template.
 Allows read/write/edit operations within PROJECT-ROOTS only.
 Blocks sensitive paths (.git, .env, runtime, node_modules).
 
 PROJECT-ROOTS is a list of absolute project directory paths.
-Optional TYPE, PARENT-ID, and PRESET for agent sessions.
+Optional TYPE, PARENT-ID, PRESET for agent sessions.
+Optional ACTIVITY-ORG-FILE path to activity org-roam document for agent access.
 
 This is 'git-safe':
 - READ: Only files within selected project directories
@@ -408,6 +426,8 @@ The git-tracked requirement for editing prevents accidental modification
 of ignored files like node_modules/, build artifacts, etc."
   (let ((project-patterns (jf/gptel--format-project-patterns project-roots))
         (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+        (activity-field (when activity-org-file
+                         (format "activity_org_file: \"%s\"\n" activity-org-file)))
         (agent-fields (when type
                           (concat
                            (format "type: \"%s\"\n" type)
@@ -419,7 +439,7 @@ of ignored files like node_modules/, build artifacts, etc."
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
-%sdefault_policy: deny
+%s%sdefault_policy: deny
 
 # This scope plan grants access to %d project(s):
 %s
@@ -715,6 +735,7 @@ tools:
             session-id
             timestamp
             timestamp
+            (or activity-field "")
             (or agent-fields "")
             (length project-roots)
             (mapconcat (lambda (root)
@@ -906,12 +927,13 @@ Supports formats:
 
 
 ;; [[file:scope-commands.org::*Generate Scope Plan YAML][Generate Scope Plan YAML:1]]
-(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template projects branch-dir worktree-paths)
+(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template projects branch-dir worktree-paths activity-org-file)
   "Generate scope plan YAML for SESSION-ID using TEMPLATE.
 TEMPLATE can be deny-all, codebase-read, org-roam-safe, permissive, or project-aware.
 PROJECTS are passed to project-aware template.
 BRANCH-DIR is path to branch directory for reading preset file.
 WORKTREE-PATHS is list of worktree paths for activity isolation.
+ACTIVITY-ORG-FILE is optional path to activity org-roam document for agent access.
 Defaults to deny-all.
 
 This is an internal helper used for auto-initialization of session scope plans.
@@ -924,8 +946,8 @@ Returns YAML string directly without writing to file."
     (unless (fboundp template-fn)
       (error "Unknown scope template: %s" template))
     (if (eq (intern template) 'project-aware)
-        (funcall template-fn session-id projects nil nil preset-tools worktree-paths)
-      (funcall template-fn session-id nil nil preset-tools worktree-paths))))
+        (funcall template-fn session-id projects nil nil nil activity-org-file)
+      (funcall template-fn session-id nil nil preset-tools worktree-paths activity-org-file))))
 ;; Generate Scope Plan YAML:1 ends here
 
 ;; Initialize Scope Plan

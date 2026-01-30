@@ -552,13 +552,19 @@ Each entry is (STATE UI-HANDLER CORE-HANDLER).")
 The core function that creates the agent session and launches the request.
 
 #+begin_src emacs-lisp :tangle persistent-agent.el
-(defun jf/gptel-persistent-agent--task (main-cb preset description prompt)
+(defun jf/gptel-persistent-agent--task (main-cb preset description prompt &optional allowed-paths denied-paths)
   "Launch a persistent agent in a new session buffer.
 
 MAIN-CB is the callback function to invoke with the final result.
 PRESET is the preset name (e.g., \"researcher\").
 DESCRIPTION is a short (3-5 word) task summary.
 PROMPT is the detailed task instructions.
+ALLOWED-PATHS is optional array of file paths the agent can access.
+DENIED-PATHS is optional array of file paths the agent cannot access.
+
+If ALLOWED-PATHS is not specified, the agent inherits allowed paths from
+the parent session's scope plan. If specified as empty array [], agent has
+no path restrictions (reads from anywhere).
 
 Creates a nested agent session under the current persistent session,
 launches the agent with tool support, displays progress in parent buffer
@@ -586,30 +592,43 @@ with zero inheritance from the parent session."
         (unless preset-plist
           (error "Failed to load preset from %s" session-dir))
 
-        ;; Get activity org-file from parent's scope-plan.yml
-        ;; Parse worktrees from authoritative source (activity org-roam document)
-        (let* ((parent-scope-file (jf/gptel--scope-plan-file-path jf/gptel--session-dir))
-               (activity-org-file (when (file-exists-p parent-scope-file)
-                                   (jf/gptel-scope--get-activity-org-file parent-scope-file)))
-               (worktree-paths (when activity-org-file
-                                (jf/gptel-activities--parse-worktree-paths
-                                 nil  ; activity-name not needed when org-file provided
-                                 activity-org-file)))
-               ;; Generate scope plan using preset tools + worktree paths from activity
+        ;; Handle allowed/denied paths
+        ;; Convert from vectors (JSON arrays) to lists if needed
+        (let* ((allowed-paths-list (if (vectorp allowed-paths)
+                                      (append allowed-paths nil)
+                                    allowed-paths))
+               (denied-paths-list (if (vectorp denied-paths)
+                                     (append denied-paths nil)
+                                   denied-paths))
+               ;; If allowed-paths not specified, inherit from parent scope plan
+               (effective-allowed-paths
+                (or allowed-paths-list
+                    ;; Inherit: read parent's scope plan and extract allowed patterns
+                    (let ((parent-scope-file (jf/gptel--scope-plan-file-path jf/gptel--session-dir)))
+                      (when (file-exists-p parent-scope-file)
+                        (let ((parent-plan (with-temp-buffer
+                                            (insert-file-contents parent-scope-file)
+                                            (jf/gptel-scope--parse-yaml (buffer-string)))))
+                          ;; Extract patterns from first tool (they should all be the same)
+                          (when-let* ((tools (plist-get parent-plan :tools))
+                                     (first-tool-key (car (cl-loop for (k v) on tools by #'cddr
+                                                                  when (keywordp k) return k)))
+                                     (first-tool (plist-get tools first-tool-key)))
+                            (plist-get first-tool :patterns)))))))
+               ;; Generate scope plan using preset tools + explicit paths
                (scope-yaml (jf/gptel--generate-scope-plan-yaml
                            session-id
                            "deny-all"        ; Template type
                            nil               ; No projects (agents use worktrees only)
                            session-dir       ; Branch dir (for parsing preset tools)
-                           worktree-paths))  ; From activity org-roam document
+                           effective-allowed-paths  ; Explicit or inherited paths
+                           nil))             ; No activity-org-file needed
                (scope-file (expand-file-name "scope-plan.yml" session-dir)))
           (with-temp-file scope-file
             (insert scope-yaml))
-          (jf/gptel--log 'info "Created agent scope plan: %s%s"
+          (jf/gptel--log 'info "Created agent scope plan: %s with %d allowed path(s)"
                         scope-file
-                        (if worktree-paths
-                            (format " with %d worktree(s) from activity" (length worktree-paths))
-                          "")))
+                        (length effective-allowed-paths)))
 
         ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
 
@@ -756,7 +775,18 @@ Register the PersistentAgent tool with gptel.
 Agents run autonomously and return results in one message.
 Sessions persist to disk with full conversation history.
 
-Use for complex research, open-ended exploration, or iterative tasks."
+Use for complex research, open-ended exploration, or iterative tasks.
+
+IMPORTANT: You should typically pass allowed_paths to control the agent's file access.
+Use the inspect_scope_plan tool to get your current allowed paths, then pass them
+to the agent. Example:
+  allowed_paths: [\"/path/to/project/**\", \"/another/path/**\"]
+
+If allowed_paths is omitted, the agent inherits your paths automatically.
+If you want to restrict the agent to a subset of your paths, specify only those paths.
+
+Note: denied_paths parameter is reserved for future use. Agents always deny
+access to .git, runtime, node_modules, and .env paths."
 
  :function #'jf/gptel-persistent-agent--task
 
@@ -771,7 +801,17 @@ Use for complex research, open-ended exploration, or iterative tasks."
 
          ( :name "prompt"
            :type string
-           :description "Detailed task instructions"))
+           :description "Detailed task instructions")
+
+         ( :name "allowed_paths"
+           :type array
+           :items (:type string)
+           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, inherits from parent session. Use inspect_scope_plan to see your current paths.")
+
+         ( :name "denied_paths"
+           :type array
+           :items (:type string)
+           :description "Array of glob patterns for paths the agent cannot access (reserved for future use)"))
 
  :category "gptel-persistent"
  :async t      ; Runs asynchronously

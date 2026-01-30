@@ -496,7 +496,7 @@ messages >4000 chars). System message is managed via preset files."
                     (if resolved-tools (length resolved-tools) 0)))
     (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
 
-(defun jf/gptel--create-session-core (session-id session-dir preset-template scope-type &optional projects initial-content worktree-paths)
+(defun jf/gptel--create-session-core (session-id session-dir preset-template scope-type &optional projects initial-content worktree-paths activity-org-file)
   "Create session directory structure with branching support.
 
 SESSION-ID - unique session identifier
@@ -506,11 +506,12 @@ SCOPE-TYPE - symbol 'project-aware or 'deny-all
 PROJECTS - optional list for project-aware scope plans
 INITIAL-CONTENT - optional initial content for session.md (default: \"###\\n\")
 WORKTREE-PATHS - optional list of worktree paths for activity isolation
+ACTIVITY-ORG-FILE - optional path to activity org-roam document for agent access
 
 Creates:
 - SESSION-DIR/branches/main/ directory structure
 - preset.md (copied from template)
-- scope-plan.yml (project-aware or deny-all, optionally with worktree paths)
+- scope-plan.yml (project-aware or deny-all, optionally with worktree paths and activity org file)
 - session.md (with initial content)
 - current symlink pointing to main branch
 
@@ -533,8 +534,8 @@ Returns plist with:
     ;; Create scope plan in main branch
     (let ((scope-yaml (if (eq scope-type 'project-aware)
                          (jf/gptel--generate-scope-plan-yaml
-                          session-id "project-aware" projects main-branch-dir worktree-paths)
-                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all" nil main-branch-dir worktree-paths)))
+                          session-id "project-aware" projects main-branch-dir worktree-paths activity-org-file)
+                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all" nil main-branch-dir worktree-paths activity-org-file)))
           (scope-file (jf/gptel--scope-plan-file-path main-branch-dir)))
       (with-temp-file scope-file
         (insert scope-yaml))
