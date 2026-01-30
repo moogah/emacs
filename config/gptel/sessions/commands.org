@@ -640,16 +640,17 @@ messages >4000 chars). System message is managed via preset files."
       (setq-local gptel-temperature temperature))
     (when (not (null include-tool-results))
       (setq-local gptel-include-tool-results include-tool-results))
-    ;; Apply tools from preset
-    (when tools
-      (let ((resolved-tools
+    ;; Apply tools from preset - ALWAYS set gptel-tools for isolation
+    ;; If preset has no tools or tools don't resolve, explicitly set to nil
+    (let ((resolved-tools
+           (when tools
              (cl-loop for tool-name in tools
                       for tool = (gptel-get-tool tool-name)
                       when tool collect tool
-                      else do (jf/gptel--log 'warn "Tool not found: %s" tool-name))))
-        (when resolved-tools
-          (setq-local gptel-tools resolved-tools)
-          (jf/gptel--log 'info "Applied %d tools from preset" (length resolved-tools)))))
+                      else do (jf/gptel--log 'warn "Tool not found: %s" tool-name)))))
+      (setq-local gptel-tools resolved-tools)  ; ALWAYS set, even if nil
+      (jf/gptel--log 'info "Applied %d tools from preset (isolation ensured)"
+                    (if resolved-tools (length resolved-tools) 0)))
     (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
 #+end_src
 
