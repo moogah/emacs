@@ -5,21 +5,36 @@ model: claude-opus-4-5-20251101
 temperature: 1.0
 include-tool-results: true
 tools:
-  - PersistentAgent
-  - ask_user_questions
-  - read_file
-  - write_file_in_scope
-  - edit_file_in_scope
-  - request_scope_expansion
-  - inspect_scope_plan
-  - list_activity_worktrees
-  - list_known_projects
-  - get_project_info
-  - list_project_files
-  - list_project_directories
-  - expand_project_path
-  - search_project_content
-  - get_scope_structure
+  PersistentAgent:
+    allowed: true
+  ask_user_questions:
+    allowed: true
+  read_file:
+    allowed: true
+  write_file_in_scope:
+    allowed: true
+  edit_file_in_scope:
+    allowed: true
+  request_scope_expansion:
+    allowed: true
+  inspect_scope_plan:
+    allowed: true
+  list_activity_worktrees:
+    allowed: true
+  list_known_projects:
+    allowed: true
+  get_project_info:
+    allowed: true
+  list_project_files:
+    allowed: true
+  list_project_directories:
+    allowed: true
+  expand_project_path:
+    allowed: true
+  search_project_content:
+    allowed: true
+  get_scope_structure:
+    allowed: true
 ---
 
 # Software Development Planning Guidelines

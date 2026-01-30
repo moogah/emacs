@@ -12,12 +12,13 @@
 
 
 ;; [[file:scope-commands.org::*Tool Definition Helper][Tool Definition Helper:1]]
-(defun jf/gptel-scope--tool-yaml (tool-name worktree-patterns)
-  "Generate tool definition for TOOL-NAME with WORKTREE-PATTERNS.
-All tools from preset are allowed and scoped to worktree paths.
-Returns YAML string with tool enabled and patterns set."
+(defun jf/gptel-scope--tool-yaml (tool-name allowed worktree-patterns)
+  "Generate tool definition for TOOL-NAME with ALLOWED setting and WORKTREE-PATTERNS.
+ALLOWED is boolean from preset - whether tool is enabled by default.
+WORKTREE-PATTERNS restricts file access to specific directories.
+Returns YAML string with tool configuration."
   (format "  %s:
-    allowed: true
+    allowed: %s
     patterns:
 %s    deny_patterns:
       - \"**/.git/**\"
@@ -27,6 +28,7 @@ Returns YAML string with tool enabled and patterns set."
 
 "
           tool-name
+          (if allowed "true" "false")
           (if worktree-patterns
               (concat worktree-patterns "\n")
             "      []\n")))
@@ -41,7 +43,8 @@ Returns YAML string with tool enabled and patterns set."
 (defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id preset-tools worktree-paths)
   "Generate scope plan from preset tools with worktree isolation.
 Uses PRESET-TOOLS as single source of truth - only tools listed in preset are included.
-All tools are allowed and scoped to WORKTREE-PATHS if provided.
+PRESET-TOOLS is alist of (tool-name . allowed-bool) from preset file.
+Each tool uses its allowed setting from preset and is scoped to WORKTREE-PATHS if provided.
 Note: run_approved_command is skipped (not yet implemented)."
   (unless preset-tools
     (error "No preset-tools provided to deny-all template"))
@@ -73,9 +76,12 @@ tools:
              timestamp
              (or agent-fields ""))
      ;; Generate definitions for all tools from preset (except run_approved_command)
-     (mapconcat (lambda (tool-name)
-                  (unless (equal tool-name "run_approved_command")
-                    (jf/gptel-scope--tool-yaml tool-name worktree-patterns)))
+     ;; preset-tools is alist: ((tool-name . allowed) ...)
+     (mapconcat (lambda (tool-entry)
+                  (let ((tool-name (car tool-entry))
+                        (allowed (cdr tool-entry)))
+                    (unless (equal tool-name "run_approved_command")
+                      (jf/gptel-scope--tool-yaml tool-name allowed worktree-patterns))))
                 preset-tools
                 ""))))
 ;; Deny-All Template (Secure Default):1 ends here
@@ -807,22 +813,24 @@ Returns indented YAML list string like:
 
 ;; Parse Preset Tools
 
-;; Extract tool list from preset file for scope plan filtering.
+;; Extract tool list and settings from preset file.
 
 
 ;; [[file:scope-commands.org::*Parse Preset Tools][Parse Preset Tools:1]]
 (defun jf/gptel-scope--parse-preset-tools (branch-dir)
-  "Extract enabled tools from preset file in BRANCH-DIR.
+  "Extract tools and their settings from preset file in BRANCH-DIR.
 
 Reads preset.md or preset.org from BRANCH-DIR, parses YAML frontmatter
 or org properties to extract :tools field.
 
-Returns list of tool name strings, or nil if:
+Returns alist of (tool-name . allowed-bool), or nil if:
 - Preset file doesn't exist
 - File has no tools field
 - Error parsing file
 
-Used for filtering scope plans to only include tools from preset."
+Supports formats:
+- Map: {tool1: {allowed: true}, tool2: {allowed: false}}
+- List (legacy): [\"tool1\", \"tool2\"] - defaults to allowed: true"
   (when branch-dir
     (let* ((md-file (expand-file-name "preset.md" branch-dir))
            (org-file (expand-file-name "preset.org" branch-dir))
@@ -839,12 +847,28 @@ Used for filtering scope plans to only include tools from preset."
                        (preset-plist (cdr preset-data))
                        (tools (plist-get preset-plist :tools)))
                   (cond
-                   ;; List of strings - return as-is
+                   ;; Map format: {tool1: {allowed: true}, tool2: {allowed: false}}
+                   ;; Parsed as plist: (:tool1 (:allowed t) :tool2 (:allowed nil))
+                   ((and (listp tools) (keywordp (car tools)))
+                    (let ((result nil))
+                      (while tools
+                        (let* ((tool-key (pop tools))
+                               (tool-props (pop tools))
+                               (tool-name (substring (symbol-name tool-key) 1)) ; Remove leading :
+                               (allowed (if (listp tool-props)
+                                           (plist-get tool-props :allowed)
+                                         t))) ; Default to true if no props
+                          (push (cons tool-name allowed) result)))
+                      (nreverse result)))
+
+                   ;; List of strings (legacy) - default all to allowed: true
                    ((and (listp tools) (stringp (car tools)))
-                    tools)
-                   ;; Space-separated string (from org properties) - split
+                    (mapcar (lambda (tool) (cons tool t)) tools))
+
+                   ;; Space-separated string (from org properties) - default to allowed: true
                    ((stringp tools)
-                    (split-string tools))
+                    (mapcar (lambda (tool) (cons tool t)) (split-string tools)))
+
                    ;; Nil or unknown format
                    (t nil)))))
           (error

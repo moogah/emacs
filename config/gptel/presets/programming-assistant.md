@@ -5,40 +5,74 @@ model: claude-opus-4-5-20251101
 temperature: 1.0
 include-tool-results: true
 tools:
-  - PersistentAgent
-  - read_file
-  - write_file_in_scope
-  - edit_file_in_scope
-  - request_scope_expansion
-  - inspect_scope_plan
-  - list_known_projects
-  - get_project_info
-  - list_project_files
-  - list_project_directories
-  - expand_project_path
-  - search_project_content
-  - list_test_files
-  - find_related_test
-  - find_related_files
-  - check_ggtags_project
-  - find_definition
-  - find_references
-  - find_symbol
-  - create_ggtags_project
-  - update_ggtags_project
-  - explain_ggtags_indexing
-  - get_node_at_position
-  - get_node_info
-  - get_node_context
-  - get_syntax_tree
-  - list_functions
-  - list_classes
-  - list_imports
-  - extract_definition
-  - query_nodes
-  - find_nodes_by_type
-  - find_nodes_in_range
-  - get_scope_structure
+  PersistentAgent:
+    allowed: true
+  read_file:
+    allowed: true
+  write_file_in_scope:
+    allowed: true
+  edit_file_in_scope:
+    allowed: true
+  request_scope_expansion:
+    allowed: true
+  inspect_scope_plan:
+    allowed: true
+  list_known_projects:
+    allowed: true
+  get_project_info:
+    allowed: true
+  list_project_files:
+    allowed: true
+  list_project_directories:
+    allowed: true
+  expand_project_path:
+    allowed: true
+  search_project_content:
+    allowed: true
+  list_test_files:
+    allowed: true
+  find_related_test:
+    allowed: true
+  find_related_files:
+    allowed: true
+  check_ggtags_project:
+    allowed: true
+  find_definition:
+    allowed: true
+  find_references:
+    allowed: true
+  find_symbol:
+    allowed: true
+  create_ggtags_project:
+    allowed: true
+  update_ggtags_project:
+    allowed: true
+  explain_ggtags_indexing:
+    allowed: true
+  get_node_at_position:
+    allowed: true
+  get_node_info:
+    allowed: true
+  get_node_context:
+    allowed: true
+  get_syntax_tree:
+    allowed: true
+  list_functions:
+    allowed: true
+  list_classes:
+    allowed: true
+  list_imports:
+    allowed: true
+  extract_definition:
+    allowed: true
+  query_nodes:
+    allowed: true
+  find_nodes_by_type:
+    allowed: true
+  find_nodes_in_range:
+    allowed: true
+  get_scope_structure:
+    allowed: true
 ---
 
 You are a programming assistant running inside Emacs. Your purpose is to help with software development tasks within the constraints of a scoped permission system.
