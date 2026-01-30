@@ -7,6 +7,65 @@
 
 User-facing commands for creating and managing gptel persistent sessions.
 
+** Primary Workflow: Activities Integration
+
+The *recommended workflow* for creating persistent gptel sessions is through the
+=activities-extensions= package. When you create a new activity using the transient
+UI (=M-x activities-ext-create=), you can optionally create a persistent gptel session
+that is automatically integrated with the activity.
+
+*** Creating an Activity with gptel Session
+
+1. Run =M-x activities-ext-create= (or =C-x C-a C-e=)
+2. Enter an activity name when prompted
+3. In the transient menu:
+   - Select projectile projects (optional)
+   - Choose a gptel preset template (defaults to =programming-assistant=)
+   - Ensure "Skip gptel session" (=-G=) is *not* toggled (gptel session created by default)
+   - Press =RET= to create the activity
+
+The gptel session will be:
+- Created at =~/emacs-activities/<activity-slug-date>/session/=
+- Configured with branch-based structure (=branches/main/= by default)
+- Protected with deny-all scope plan for security
+- Automatically opened in a split window alongside your org-roam document
+- Stored in activity metadata for automatic resume
+
+*** Resuming Activities with gptel Sessions
+
+When you resume an activity (=M-x activities-resume=), the gptel session buffer is
+automatically opened if one exists. The session state is restored from disk with
+all conversation history preserved.
+
+*** Session Directory Structure (Activities)
+
+#+begin_example
+~/emacs-activities/
+└── my-feature-20260130/
+    ├── session/
+    │   ├── branches/
+    │   │   └── main/
+    │   │       ├── session.md        # Conversation history
+    │   │       ├── preset.md         # Model/backend configuration
+    │   │       └── scope-plan.yml    # File access permissions
+    │   ├── current -> branches/main
+    │   └── gptel-logs.txt
+    └── worktrees/
+        └── project-name/             # Git worktrees (if using projectile)
+#+end_example
+
+** Alternative: Standalone Sessions
+
+For sessions *outside* of activities, use =M-x jf/gptel-persistent-session=.
+This is useful when you:
+- Want a quick session without activity overhead
+- Need a session not tied to a specific activity context
+- Are working on ad-hoc tasks or experiments
+
+Standalone sessions are stored in =~/.gptel/sessions/= by default.
+
+See [[*Create Persistent Session][Create Persistent Session]] section below for details.
+
 * Lexical Binding
 
 #+begin_src emacs-lisp
@@ -617,9 +676,15 @@ Returns plist with:
           :session-file session-file)))
 #+end_src
 
-* Create Persistent Session
+* Create Persistent Session (Standalone)
 
-Interactive command to create a new persistent programming session with scoped tools and projectile integration.
+Interactive command to create a new *standalone* persistent programming session with scoped tools
+and projectile integration. This is an alternative to the activities-based workflow described above.
+
+Use this command when:
+- You need a quick session without activity overhead
+- The session is not tied to a specific activity context
+- You're working on ad-hoc tasks or experiments
 
 Uses programming assistant preset template which includes:
 - Claude Opus 4.5 model
@@ -627,6 +692,8 @@ Uses programming assistant preset template which includes:
 - Projectile navigation tools
 - Scope management tools (inspect, request expansion)
 - Detailed system prompt for programming assistance
+
+Standalone sessions are stored in =~/.gptel/sessions/= by default.
 
 ** Workflow
 

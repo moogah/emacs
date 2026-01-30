@@ -1,3 +1,8 @@
+;; In init.org or config/local/machine.el
+(setq activities-ext-create-gptel-by-default nil)
+
+(setq activities-ext-default-gptel-preset "programming-assistant")
+
 ;;; activities-integration.el --- GPTEL Sessions Activities Integration -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr

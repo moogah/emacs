@@ -16,6 +16,25 @@ The gptel configuration is modular:
 - =gptel/tools/= - Tool definitions (10 modules)
 - =gptel/agents/= - Agent definitions (5 files)
 
+** Primary Workflow: Activities Integration
+
+The *recommended workflow* for creating persistent gptel sessions is through the
+=activities-extensions= package. When you create a new activity, a persistent gptel
+session is automatically created with:
+
+- Directory structure under =~/emacs-activities/<activity-name>/session/=
+- Branch-based session management (=branches/main/= by default)
+- Scoped file access via =scope-plan.yml= (default: deny-all for security)
+- Preset configuration for model, backend, and tools
+- Auto-initialization when you open session files
+- Integration with activity suspend/resume workflow
+
+To create an activity with an integrated gptel session, use the activities package
+commands (typically =M-x activities-new= or similar). The session will be created
+automatically and available immediately.
+
+For standalone sessions outside of activities, use =M-x jf/gptel-persistent-session=.
+
 * Basic Configuration
 
 Setup lexical binding for better closures and variable scoping.
@@ -256,6 +275,30 @@ Run this after gptel-agent-update to inject skill content into agents."
 
 * GPTEL Session Management
 
+Persistent gptel sessions provide file-backed, auto-saving conversation buffers with:
+- Branch-based versioning for experimental conversation threads
+- Scope-based file access controls (via =scope-plan.yml=)
+- Preset-based configuration (backend, model, tools, system prompts)
+- Auto-initialization when opening session files (no manual resume needed)
+- Integration with activities package for activity-scoped sessions
+
+** Primary Usage: Via Activities Package
+
+The recommended way to create persistent gptel sessions is through the =activities-extensions=
+package. Sessions are created automatically when you create a new activity, with the session
+directory located at =~/emacs-activities/<activity-name>/session/=.
+
+See =config/gptel/sessions/activities-integration.org= for implementation details.
+
+** Alternative Usage: Standalone Sessions
+
+For sessions outside of activities, use =M-x jf/gptel-persistent-session=.
+Standalone sessions are stored in =~/.gptel/sessions/= by default.
+
+See =config/gptel/sessions/commands.org= for complete documentation.
+
+** Module Loading
+
 Load session management modules in dependency order:
 1. Constants - Centralized constants for magic strings
 2. Logging - Leveled logging system (replaces 54+ debug messages)
@@ -264,6 +307,7 @@ Load session management modules in dependency order:
 5. Metadata - Metadata persistence (simplified for filesystem format)
 6. Branching - Branch creation and management (requires metadata, filesystem)
 7. Commands - User-facing commands (requires branching)
+8. Activities Integration - Auto-creation and resume for activities (optional)
 
 #+begin_src emacs-lisp
 ;; Load foundational modules first (used by all other session modules)

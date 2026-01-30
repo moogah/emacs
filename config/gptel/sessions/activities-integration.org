@@ -4,14 +4,82 @@
 
 * Overview
 
-This module integrates persistent gptel sessions with the activities-extensions package.
+This module integrates persistent gptel sessions with the activities-extensions package,
+providing the *primary workflow* for creating and managing persistent gptel sessions.
+
+** Why Activities Integration?
+
+Activities integration provides the best experience for persistent gptel sessions:
+- *Automatic organization*: Sessions stored alongside activity resources (worktrees, docs)
+- *Lifecycle management*: Sessions open automatically on resume, saved on suspend
+- *Context preservation*: Activity metadata links sessions to projects and documentation
+- *Directory isolation*: Each activity gets its own =session/= directory
+- *Zero friction*: Create session and activity in one transient UI flow
 
 ** Features
 - Activity-aware persistent sessions
 - Immediate resource creation (directories, files, scope plans)
 - File-backed buffers from creation
-- Default deny-all scope plans
-- Resume/suspend integration
+- Default deny-all scope plans for security
+- Resume/suspend integration with automatic buffer management
+- Optional preset template selection via transient UI
+- Integration with org-roam documentation and projectile worktrees
+
+** User Workflow
+
+*** Creating an Activity with gptel Session
+
+1. Run =M-x activities-ext-create= (or =C-x C-a C-e=)
+2. Enter an activity name (e.g., "implement-auth-system")
+3. In the transient menu:
+   - *Select projects* (optional): Toggle projects with letter keys (a-z)
+   - *Choose gptel preset*: Select template with number keys (1-9)
+   - *Toggle options*: Use =-G= to skip gptel session (on by default)
+   - Press *RET* to create
+
+Result:
+- Activity created at =~/emacs-activities/<activity-slug-date>/=
+- gptel session in =session/branches/main/session.md=
+- Session buffer opened in split window (right side)
+- Org-roam doc opened in left window (if not skipped)
+
+*** Resuming Activities
+
+When you resume an activity (=M-x activities-resume=):
+- gptel session buffer opens automatically if one exists
+- Conversation history fully restored from =session.md=
+- Backend, model, and tool configuration preserved
+- Scope plan remains active for file access controls
+
+*** Session Directory Structure
+
+#+begin_example
+~/emacs-activities/
+└── implement-auth-20260130/
+    ├── session/
+    │   ├── branches/
+    │   │   └── main/
+    │   │       ├── session.md        # Your conversation
+    │   │       ├── preset.md         # Model/backend config
+    │   │       └── scope-plan.yml    # File access permissions
+    │   ├── current -> branches/main  # Symlink to active branch
+    │   └── gptel-logs.txt            # Debug logs
+    └── worktrees/
+        └── my-project/               # Git worktrees (if using projectile)
+#+end_example
+
+*** Customization
+
+*Disable gptel session creation by default*:
+#+begin_src emacs-lisp
+;; In init.org or config/local/machine.el
+(setq activities-ext-create-gptel-by-default nil)
+#+end_src
+
+*Default preset template*:
+#+begin_src emacs-lisp
+(setq activities-ext-default-gptel-preset "programming-assistant")
+#+end_src
 
 ** Dependencies
 - activities-extensions (optional - checked at runtime)
