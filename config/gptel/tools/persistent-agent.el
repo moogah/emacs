@@ -166,6 +166,7 @@ with zero inheritance from the parent session."
                (effective-allowed-paths
                 (or allowed-paths-list
                     ;; Inherit: read parent's scope plan and extract allowed patterns
+                    ;; Patterns already have /** suffix (full glob patterns)
                     (let ((parent-scope-file (jf/gptel--scope-plan-file-path jf/gptel--session-dir)))
                       (when (file-exists-p parent-scope-file)
                         (let ((parent-plan (with-temp-buffer

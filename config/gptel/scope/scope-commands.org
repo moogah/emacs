@@ -84,9 +84,10 @@ Note: run_approved_command is skipped (not yet implemented)."
                           (when parent-id
                             (format "parent_session_id: \"%s\"\n" parent-id)))))
          ;; Format worktree paths for patterns
+         ;; Note: worktree-paths should already have /** suffix (full glob patterns)
          (worktree-patterns (when worktree-paths
                              (mapconcat (lambda (path)
-                                         (format "      - \"%s/**\"" path))
+                                         (format "      - \"%s\"" path))
                                        worktree-paths
                                        "\n"))))
 

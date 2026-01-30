@@ -176,7 +176,8 @@ following documentation-first architecture. Uses only standard org-mode function
                        (when-let ((worktree (org-entry-get nil "PROJECT_WORKTREE")))
                          (let ((expanded (expand-file-name worktree)))
                            (jf/gptel--log 'debug "Found PROJECT_WORKTREE: %s" expanded)
-                           (push expanded worktree-paths))))
+                           ;; Always append /** suffix for full glob pattern
+                           (push (concat expanded "/**") worktree-paths))))
                      nil 'file)
                     (jf/gptel--log 'debug "Scanned %d org entries, found %d worktree(s)"
                                   entry-count (length worktree-paths))
