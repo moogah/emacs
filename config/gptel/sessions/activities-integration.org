@@ -183,13 +183,8 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
            (branch-dir (plist-get session-info :branch-dir))
            (session-file (plist-get session-info :session-file)))
 
-      ;; Register worktrees with projectile for tool visibility
+      ;; Store worktree paths in session file as file-local variable
       (when worktree-paths
-        (dolist (worktree worktree-paths)
-          (when (file-directory-p worktree)
-            (projectile-add-known-project worktree)
-            (jf/gptel--log 'info "Registered worktree with projectile: %s" worktree)))
-        ;; Store worktree paths in session file as file-local variable
         (with-temp-buffer
           (insert-file-contents session-file)
           (goto-char (point-max))
