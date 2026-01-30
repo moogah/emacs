@@ -134,7 +134,7 @@ When you resume an activity (=M-x activities-resume=):
 Create persistent session immediately with all resources.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-session-create-persistent (activity-name &optional backend model preset-template)
+(defun jf/gptel-session-create-persistent (activity-name &optional backend model preset-template org-file)
   "Create persistent gptel session immediately for ACTIVITY-NAME.
 
 Unlike lazy initialization, this creates all resources upfront:
@@ -146,6 +146,7 @@ Unlike lazy initialization, this creates all resources upfront:
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
 PRESET-TEMPLATE specifies template name (default: \"programming-assistant\").
+ORG-FILE is optional path to activity org file (for worktree parsing).
 
 Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file ...)"
   (unless (and (fboundp 'jf/gptel--read-session-metadata)
@@ -164,7 +165,10 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
          (backend (or backend gptel-backend))
          (model (or model gptel-model))
          (backend-name (gptel-backend-name backend))
-         (preset-template (or preset-template "programming-assistant")))
+         (preset-template (or preset-template "programming-assistant"))
+         ;; Parse worktree paths from org-roam documentation
+         ;; Ensure file is saved before parsing
+         (worktree-paths (jf/gptel-activities--parse-worktree-paths activity-name org-file)))
 
     ;; Create session directory structure using core helper
     ;; This creates branches/main/, preset.md, scope-plan.yml, session.md, and current symlink
@@ -174,9 +178,28 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                           preset-template
                           'deny-all    ; Activities integration uses deny-all scope by default
                           nil          ; No projects
-                          "###\n"))    ; Minimal initial content
+                          "###\n"      ; Minimal initial content
+                          worktree-paths)) ; Pass worktree paths for scope generation
            (branch-dir (plist-get session-info :branch-dir))
            (session-file (plist-get session-info :session-file)))
+
+      ;; Register worktrees with projectile for tool visibility
+      (when worktree-paths
+        (dolist (worktree worktree-paths)
+          (when (file-directory-p worktree)
+            (projectile-add-known-project worktree)
+            (jf/gptel--log 'info "Registered worktree with projectile: %s" worktree)))
+        ;; Store worktree paths in session file as file-local variable
+        (with-temp-buffer
+          (insert-file-contents session-file)
+          (goto-char (point-max))
+          ;; Add file-local variable block if not already present
+          (unless (search-backward "<!-- gptel-activity-worktrees:" nil t)
+            (insert (format "\n<!-- gptel-activity-worktrees: %S -->\n"
+                           worktree-paths))
+            (write-region (point-min) (point-max) session-file nil 'silent))
+          (jf/gptel--log 'info "Stored %d worktree path(s) in session metadata"
+                        (length worktree-paths))))
 
       ;; Register in global registry
       (jf/gptel--log 'info "Registering session: %s" session-id)
@@ -191,6 +214,82 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
             :session-file session-file
             :backend backend-name
             :model (if (symbolp model) (symbol-name model) model)))))
+#+end_src
+
+* Worktree Path Discovery
+
+Parse org-roam documentation to discover project worktree paths.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-activities--parse-worktree-paths (activity-name &optional org-file)
+  "Parse worktree paths from org document for ACTIVITY-NAME.
+
+If ORG-FILE is provided, uses that path directly (preferred approach).
+Otherwise searches for saved org file with title \"Activity: ACTIVITY-NAME\" in org-roam-directory.
+
+Convention: The org file MUST exist on disk before calling this function.
+
+Returns list of absolute, expanded worktree paths.
+Returns nil if org document not found or no worktrees defined.
+
+This uses the org documentation as source of truth for activity configuration,
+following documentation-first architecture. Uses only standard org-mode functions."
+  (condition-case err
+      (let* ((activity-file
+              (if org-file
+                  ;; Explicit file path provided - use it directly
+                  (progn
+                    (jf/gptel--log 'debug "Using provided org file: %s" org-file)
+                    (expand-file-name org-file))
+                ;; No file provided - search for it on disk
+                (let* ((org-dir (if (boundp 'org-roam-directory)
+                                   org-roam-directory
+                                 "~/org/roam"))
+                       (org-dir-expanded (expand-file-name org-dir))
+                       (expected-title (format "Activity: %s" activity-name))
+                       (org-files (directory-files org-dir-expanded t "\\.org$"))
+                       (found-file nil))
+                  (jf/gptel--log 'debug "Searching for activity '%s' in %s (%d .org files)"
+                                activity-name org-dir-expanded (length org-files))
+                  (dolist (file org-files)
+                    (when (and (file-regular-p file) (not found-file))
+                      (with-temp-buffer
+                        (insert-file-contents file nil 0 500)
+                        (goto-char (point-min))
+                        (when (re-search-forward (concat "^#\\+title: " (regexp-quote expected-title)) nil t)
+                          (jf/gptel--log 'debug "Found activity file: %s" file)
+                          (setq found-file file)))))
+                  found-file))))
+
+        (if (not (and activity-file (file-exists-p activity-file)))
+            (progn
+              (jf/gptel--log 'warn "No org document found for activity: %s (file must exist on disk)" activity-name)
+              nil)
+          ;; Parse the org file for PROJECT_WORKTREE properties
+          (jf/gptel--log 'debug "Parsing PROJECT_WORKTREE properties from: %s" activity-file)
+          (with-temp-buffer
+            (insert-file-contents activity-file)
+            (org-mode)
+            (let ((worktree-paths '())
+                  (entry-count 0))
+              (org-map-entries
+               (lambda ()
+                 (cl-incf entry-count)
+                 (when-let ((worktree (org-entry-get nil "PROJECT_WORKTREE")))
+                   (let ((expanded (expand-file-name worktree)))
+                     (jf/gptel--log 'debug "Found PROJECT_WORKTREE: %s" expanded)
+                     (push expanded worktree-paths))))
+               nil 'file)
+              (jf/gptel--log 'debug "Scanned %d org entries, found %d worktree(s)"
+                            entry-count (length worktree-paths))
+              (when worktree-paths
+                (jf/gptel--log 'info "Found %d worktree path(s) for activity %s"
+                              (length worktree-paths) activity-name))
+              (nreverse worktree-paths)))))
+    (error
+     (jf/gptel--log 'error "Error parsing worktree paths for %s: %s"
+                   activity-name (error-message-string err))
+     nil)))
 #+end_src
 
 * Buffer Creation and Association

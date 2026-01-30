@@ -436,18 +436,23 @@ ARGS are the transient arguments (skip flags only)."
     ;; Get activity directory
     (let ((activity-dir (activities-ext--activity-directory activity-name)))
 
-      ;; Create gptel session if requested
-      (when (and create-gptel (fboundp 'jf/gptel-session-create-persistent))
-        (let ((jf/gptel-sessions-directory
-               (activities-ext--session-directory activity-name)))
-          (setq gptel-session-data
-                (jf/gptel-session-create-persistent activity-name nil nil gptel-preset))))
-
-      ;; Create org-roam document if requested
+      ;; Create org-roam document FIRST (if requested) so file exists for parsing
       (when create-org-roam
         (setq org-roam-data
               (activities-ext--create-org-roam-doc
-               activity-name project-metadata gptel-session-data activity-dir)))
+               activity-name project-metadata nil activity-dir)))
+
+      ;; Create gptel session SECOND (if requested) so it can parse saved org file
+      (when (and create-gptel (fboundp 'jf/gptel-session-create-persistent))
+        (let ((jf/gptel-sessions-directory
+               (activities-ext--session-directory activity-name))
+              (org-file (when org-roam-data (plist-get org-roam-data :file))))
+          (setq gptel-session-data
+                (jf/gptel-session-create-persistent activity-name nil nil gptel-preset org-file))))
+
+      ;; Update org-roam doc with gptel session info if both were created
+      (when (and org-roam-data gptel-session-data)
+        (activities-ext--add-gptel-session-to-org-doc org-roam-data gptel-session-data))
 
       ;; Create the activity
       (activities-new activity-name)

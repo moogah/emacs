@@ -1,5 +1,38 @@
 ;; -*- lexical-binding: t; -*-
 
+(defun activities-ext--add-gptel-session-to-org-doc (org-roam-data gptel-session-data)
+  "Add GPTEL-SESSION-DATA to existing org-roam document specified by ORG-ROAM-DATA.
+Updates the Gptel Sessions section with session information."
+  (when-let ((file (plist-get org-roam-data :file)))
+    (with-current-buffer (find-file-noselect file)
+      (save-excursion
+        (goto-char (point-min))
+        ;; Find the Gptel Sessions section
+        (if (re-search-forward "^\\* Gptel Sessions$" nil t)
+            (progn
+              ;; Found it - go to end of heading and add session
+              (forward-line 1)
+              (when (looking-at "^No gptel sessions associated")
+                ;; Remove the "No sessions" message
+                (delete-region (point) (progn (forward-line 1) (point))))
+              (insert
+               (format "** Session: %s\n"
+                      (plist-get gptel-session-data :session-id))
+               ":PROPERTIES:\n"
+               (format ":GPTEL_SESSION_ID: %s\n"
+                      (plist-get gptel-session-data :session-id))
+               (format ":GPTEL_SESSION_FILE: %s\n"
+                      (plist-get gptel-session-data :session-file))
+               (format ":GPTEL_SESSION_DIR: %s\n"
+                      (plist-get gptel-session-data :session-dir))
+               ":END:\n\n"
+               (format "[[file:%s][Open %s]]\n\n"
+                      (plist-get gptel-session-data :session-file)
+                      (plist-get gptel-session-data :session-id))))
+          ;; Gptel Sessions section not found - this shouldn't happen
+          (message "Warning: Could not find Gptel Sessions section in %s" file)))
+      (save-buffer))))
+
 (defun activities-ext--create-org-roam-doc (activity-name &optional projects gptel-session activity-directory)
   "Create org-roam document for ACTIVITY-NAME.
 Optional PROJECTS is a list of project plists to include in document.

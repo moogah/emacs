@@ -14,6 +14,36 @@ If exceeded, return a warning message instead."
     result))
 
 (gptel-make-tool
+ :name "list_activity_worktrees"
+ :function (lambda ()
+             (if (bound-and-true-p gptel-activity-worktrees)
+                 (if (null gptel-activity-worktrees)
+                     "No worktrees associated with this activity."
+                   (format "Activity worktrees (%d):\n\n%s\n\nUse these paths with other projectile tools like get_project_info or list_project_files.\n\nIMPORTANT: These are isolated worktree directories for this activity.\nDo NOT use base repository paths (e.g., ~/runtime/straight/repos/*)."
+                           (length gptel-activity-worktrees)
+                           (mapconcat #'identity gptel-activity-worktrees "\n")))
+               "Not in an activity context. Use list_known_projects for all projects."))
+ :description "List worktrees associated with current activity.
+
+Returns the isolated worktree directories created for this activity,
+NOT the base repository locations. This ensures you work only within
+the activity's isolated environment.
+
+CRITICAL: Use this tool FIRST in activity sessions to see available projects.
+This tool provides activity-scoped project isolation - you'll only see the
+worktrees created specifically for this activity, not all projects on the system.
+
+The worktrees are isolated git working directories that allow you to work on
+different branches without affecting the main repository or other activities.
+
+In non-activity contexts (standalone gptel sessions), this returns a message
+directing you to use list_known_projects instead.
+
+No arguments needed - returns worktrees for the current activity context."
+ :args (list)
+ :category "projectile")
+
+(gptel-make-tool
  :name "list_known_projects"
  :function (lambda ()
              (let ((projects (projectile-known-projects)))

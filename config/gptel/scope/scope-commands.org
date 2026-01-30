@@ -37,76 +37,121 @@ Most templates grant read_file permissive =/**= access to any file (except .env,
 Nothing allowed by default. User must explicitly add patterns.
 
 #+begin_src elisp
-(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id preset)
+(defun jf/gptel-scope--template-deny-all (session-id &optional type parent-id preset-tools worktree-paths)
   "Secure default template - nothing allowed, user must add patterns.
 Recommended for new sessions where you want explicit control.
-Optional TYPE, PARENT-ID, and PRESET for agent sessions."
-  (let ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
-        (agent-fields (when type
-                          (concat
-                           (format "type: \"%s\"\n" type)
-                           (when parent-id
-                             (format "parent_session_id: \"%s\"\n" parent-id))
-                           (when preset
-                             (format "preset: \"%s\"\n" preset))))))
-    (format "version: \"2.0\"
+Optional TYPE, PARENT-ID for agent sessions.
+Optional PRESET-TOOLS filters which tools are included.
+Optional WORKTREE-PATHS adds activity worktree isolation."
+  (let* ((timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ"))
+         (agent-fields (when type
+                         (concat
+                          (format "type: \"%s\"\n" type)
+                          (when parent-id
+                            (format "parent_session_id: \"%s\"\n" parent-id)))))
+         ;; Format worktree paths for read_file patterns
+         (worktree-patterns (when worktree-paths
+                             (mapconcat (lambda (path)
+                                         (format "      - \"%s/**\"" path))
+                                       worktree-paths
+                                       "\n")))
+         ;; Base repo deny pattern to block access to straight.el repos
+         (base-repo-deny "      - \"**/runtime/straight/repos/**\"\n")
+         ;; Decide if we should include each tool based on preset
+         (include-tool-p (lambda (tool-name)
+                          (or (null preset-tools)
+                              (member tool-name preset-tools)))))
+    (concat
+     (format "version: \"2.0\"
 session_id: \"%s\"
 created: \"%s\"
 updated: \"%s\"
 %sdefault_policy: deny
 
 tools:
-  read_file:
+"
+             session-id
+             timestamp
+             timestamp
+             (or agent-fields ""))
+     ;; read_file - always include if in preset (or no preset filtering)
+     (when (funcall include-tool-p "read_file")
+       (format "  read_file:
     allowed: true
     patterns:
-      - \"/**\"
-    deny_patterns:
+%s    deny_patterns:
       - \"**/.git/**\"
       - \"**/runtime/**\"
-      - \"**/.env\"
+%s      - \"**/.env\"
 
-  write_file_in_scope:
-    allowed: false
+"
+               (if worktree-patterns
+                   (concat worktree-patterns "\n")
+                 "      - \"/**\"\n")
+               (if worktree-paths base-repo-deny "")))
+     ;; write_file_in_scope
+     (when (funcall include-tool-p "write_file_in_scope")
+       (format "  write_file_in_scope:
+    allowed: %s
     patterns:
-      []
-    deny_patterns:
-      - \"**/.git/**\"
-      - \"**/runtime/**\"
-      - \"**/node_modules/**\"
-      - \"**/.env\"
-
-  edit_file_in_scope:
-    allowed: false
-    patterns:
-      []
-    deny_patterns:
+%s    deny_patterns:
       - \"**/.git/**\"
       - \"**/runtime/**\"
       - \"**/node_modules/**\"
       - \"**/.env\"
 
-  create_roam_node_in_scope:
+"
+               (if worktree-paths "true" "false")
+               (if worktree-patterns
+                   (concat worktree-patterns "\n")
+                 "      []\n")))
+     ;; edit_file_in_scope
+     (when (funcall include-tool-p "edit_file_in_scope")
+       (format "  edit_file_in_scope:
+    allowed: %s
+    patterns:
+%s    deny_patterns:
+      - \"**/.git/**\"
+      - \"**/runtime/**\"
+      - \"**/node_modules/**\"
+      - \"**/.env\"
+
+"
+               (if worktree-paths "true" "false")
+               (if worktree-patterns
+                   (concat worktree-patterns "\n")
+                 "      []\n")))
+     ;; Roam tools (if in preset)
+     (when (funcall include-tool-p "create_roam_node_in_scope")
+       "  create_roam_node_in_scope:
     allowed: false
     patterns:
       []
     deny_patterns:
       []
 
-  add_roam_tags_in_scope:
+")
+     (when (funcall include-tool-p "add_roam_tags_in_scope")
+       "  add_roam_tags_in_scope:
     allowed: false
     patterns:
       []
     deny_patterns:
       []
 
-  link_roam_nodes_in_scope:
+")
+     (when (funcall include-tool-p "link_roam_nodes_in_scope")
+       "  link_roam_nodes_in_scope:
     allowed: false
     patterns:
       []
     deny_patterns:
       []
 
-  run_approved_command:
+")
+     ;; run_approved_command (if in preset)
+     (when (funcall include-tool-p "run_approved_command")
+       "  run_approved_command:
     allowed: false
     patterns:
       []
@@ -116,11 +161,7 @@ tools:
       - \"chmod\"
       - \"chown\"
 
-"
-            session-id
-            timestamp
-            timestamp
-            (or agent-fields ""))))
+"))))
 #+end_src
 
 ** Codebase Read Template
@@ -843,25 +884,79 @@ Returns indented YAML list string like:
                       "\n"))))
 #+end_src
 
+** Parse Preset Tools
+
+Extract tool list from preset file for scope plan filtering.
+
+#+begin_src elisp
+(defun jf/gptel-scope--parse-preset-tools (branch-dir)
+  "Extract enabled tools from preset file in BRANCH-DIR.
+
+Reads preset.md or preset.org from BRANCH-DIR, parses YAML frontmatter
+or org properties to extract :tools field.
+
+Returns list of tool name strings, or nil if:
+- Preset file doesn't exist
+- File has no tools field
+- Error parsing file
+
+Used for filtering scope plans to only include tools from preset."
+  (when branch-dir
+    (let* ((md-file (expand-file-name "preset.md" branch-dir))
+           (org-file (expand-file-name "preset.org" branch-dir))
+           (preset-file (cond
+                         ((file-exists-p md-file) md-file)
+                         ((file-exists-p org-file) org-file)
+                         (t nil))))
+      (when preset-file
+        (condition-case err
+            (progn
+              (require 'gptel-agent nil t)
+              (when (fboundp 'gptel-agent-read-file)
+                (let* ((preset-data (gptel-agent-read-file preset-file '((dummy . dummy))))
+                       (preset-plist (cdr preset-data))
+                       (tools (plist-get preset-plist :tools)))
+                  (cond
+                   ;; List of strings - return as-is
+                   ((and (listp tools) (stringp (car tools)))
+                    tools)
+                   ;; Space-separated string (from org properties) - split
+                   ((stringp tools)
+                    (split-string tools))
+                   ;; Nil or unknown format
+                   (t nil)))))
+          (error
+           (message "Warning: Failed to parse preset tools from %s: %s"
+                    preset-file (error-message-string err))
+           nil))))))
+#+end_src
+
 ** Generate Scope Plan YAML
 
 Helper function to generate scope plan YAML string without user interaction.
 Used for auto-initialization and programmatic plan creation.
 
 #+begin_src elisp
-(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template &rest args)
+(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template projects branch-dir worktree-paths)
   "Generate scope plan YAML for SESSION-ID using TEMPLATE.
 TEMPLATE can be deny-all, codebase-read, org-roam-safe, permissive, or project-aware.
-ARGS are passed to template function (e.g., project-roots for project-aware).
+PROJECTS are passed to project-aware template.
+BRANCH-DIR is path to branch directory for reading preset file.
+WORKTREE-PATHS is list of worktree paths for activity isolation.
 Defaults to deny-all.
 
 This is an internal helper used for auto-initialization of session scope plans.
 Returns YAML string directly without writing to file."
   (let* ((template (or template "deny-all"))
-         (template-fn (intern (format "jf/gptel-scope--template-%s" template))))
+         (template-fn (intern (format "jf/gptel-scope--template-%s" template)))
+         ;; Parse preset tools if branch-dir provided
+         (preset-tools (when branch-dir
+                        (jf/gptel-scope--parse-preset-tools branch-dir))))
     (unless (fboundp template-fn)
       (error "Unknown scope template: %s" template))
-    (apply template-fn session-id args)))
+    (if (eq (intern template) 'project-aware)
+        (funcall template-fn session-id projects nil nil preset-tools worktree-paths)
+      (funcall template-fn session-id nil nil preset-tools worktree-paths))))
 #+end_src
 
 * Interactive Commands

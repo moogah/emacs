@@ -196,6 +196,12 @@ This runs on every file open via find-file-hook, so performance is critical."
                   (jf/gptel--register-session session-dir (current-buffer) session-id branch-name branch-dir)
                   (setq-local jf/gptel-autosave-enabled t)
 
+                  ;; Load activity worktree paths if present (for activity-scoped sessions)
+                  ;; This makes worktree paths available to tools like list_activity_worktrees
+                  (when (local-variable-p 'gptel-activity-worktrees)
+                    (jf/gptel--log 'debug "Loaded %d activity worktree path(s)"
+                                  (length gptel-activity-worktrees)))
+
                   ;; Update current symlink to point to this branch
                   (jf/gptel--update-current-symlink session-dir branch-name)
 
@@ -454,7 +460,7 @@ messages >4000 chars). System message is managed via preset files."
           (jf/gptel--log 'info "Applied %d tools from preset" (length resolved-tools)))))
     (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
 
-(defun jf/gptel--create-session-core (session-id session-dir preset-template scope-type &optional projects initial-content)
+(defun jf/gptel--create-session-core (session-id session-dir preset-template scope-type &optional projects initial-content worktree-paths)
   "Create session directory structure with branching support.
 
 SESSION-ID - unique session identifier
@@ -463,11 +469,12 @@ PRESET-TEMPLATE - name of preset template to copy
 SCOPE-TYPE - symbol 'project-aware or 'deny-all
 PROJECTS - optional list for project-aware scope plans
 INITIAL-CONTENT - optional initial content for session.md (default: \"###\\n\")
+WORKTREE-PATHS - optional list of worktree paths for activity isolation
 
 Creates:
 - SESSION-DIR/branches/main/ directory structure
 - preset.md (copied from template)
-- scope-plan.yml (project-aware or deny-all)
+- scope-plan.yml (project-aware or deny-all, optionally with worktree paths)
 - session.md (with initial content)
 - current symlink pointing to main branch
 
@@ -486,8 +493,8 @@ Returns plist with:
     ;; Create scope plan in main branch
     (let ((scope-yaml (if (eq scope-type 'project-aware)
                          (jf/gptel--generate-scope-plan-yaml
-                          session-id "project-aware" projects)
-                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all")))
+                          session-id "project-aware" projects main-branch-dir worktree-paths)
+                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all" nil main-branch-dir worktree-paths)))
           (scope-file (jf/gptel--scope-plan-file-path main-branch-dir)))
       (with-temp-file scope-file
         (insert scope-yaml))
