@@ -224,13 +224,15 @@ with zero inheritance from the parent session."
             (let ((ov (jf/gptel-persistent-agent--create-overlay
                        where preset description)))
 
-              ;; Execute with request-specific overrides only
-              ;; Preset configuration already applied to buffer via jf/gptel--apply-session-preset
+              ;; Execute with request-specific overrides
+              ;; CRITICAL: Must explicitly pass tools to ensure isolation in dynamic scope
+              ;; Buffer-local gptel-tools alone isn't enough - gptel-with-preset needs :tools key
               (gptel-with-preset
                   (list :include-reasoning nil
                         :use-tools t
                         :use-context nil
-                        :include-tool-results t)
+                        :include-tool-results t
+                        :tools gptel-tools)  ; Pass buffer-local tools explicitly for isolation
 
                 ;; Accumulator for response (must be inside preset scope)
                 (let ((partial ""))
