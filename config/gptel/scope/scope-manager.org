@@ -3,18 +3,24 @@
 
 * Overview
 
-The scope manager enforces fine-grained access control for gptel tools using glob-pattern-based allowlists. When LLM agents attempt to modify resources (files, org-roam nodes, shell commands) outside approved scope, the system intercepts execution and prompts for user approval.
+**STATUS: This module implements an ALTERNATE approach (advice-based interception) that is NOT actively used in v2.0.**
 
-** Design Principles
+The preferred v2.0 approach uses tool-internal validation via =gptel-make-scoped-tool= macro (see scope-*-tools.el files). This alternate implementation is preserved for reference and potential future use.
+
+This scope manager enforces fine-grained access control for gptel tools using glob-pattern-based allowlists. When LLM agents attempt to modify resources (files, org-roam nodes, shell commands) outside approved scope, the system intercepts execution and prompts for user approval.
+
+** Design Principles (v1.0 - Legacy)
 
 - *Deny by default*: Secure by default, requires explicit approval
-- *Write-only scoping*: Read operations always allowed, only writes require approval
+- *Write-only scoping*: Read operations always allowed, only writes require approval (NOTE: v2.0 uses scope-controlled reads)
 - *Defense in depth*: Works alongside gptel's existing confirmation system
 - *Session-based*: Each session has independent scope plan
 
-** Architecture
+** Architecture (v1.0 Format)
 
-Scope plans are stored as YAML files in ~~/gptel-sessions/SESSION_ID/scope-plan.yml~.
+This implementation uses v1.0 YAML format with category-based permissions (filesystem, org_roam, shell) rather than v2.0 tool-level format.
+
+Scope plans are stored as YAML files. The path structure depends on session implementation (may be ~~/gptel-sessions/SESSION_ID/scope-plan.yml~ or in branch directories).
 
 The system intercepts tool execution via advice on ~gptel--accept-tool-calls~ (after confirmation UI, before tool execution).
 

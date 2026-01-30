@@ -8,6 +8,7 @@ This module provides scope-aware shell execution and meta tools for v2.0 tool-le
 
 1. *Shell tool*: =run_approved_command= - Execute shell commands with pattern checking
 2. *Meta tool*: =request_scope_expansion= - LLM requests user approval to expand specific tool permissions
+3. *Meta tool*: =inspect_scope_plan= - LLM inspects current scope plan to understand existing permissions before requesting expansion
 
 ** Shell Command Scoping (v2.0)
 

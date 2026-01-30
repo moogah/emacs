@@ -5,7 +5,7 @@
 * Overview
 
 This module provides scope-aware filesystem tools for gptel sessions. All tools use the =gptel-make-scoped-tool= macro which automatically handles:
-- Session ID retrieval and plan loading
+- Plan loading from buffer's directory context (no session ID needed)
 - Tool-specific permission validation
 - Structured error formatting
 - Exception handling
