@@ -654,6 +654,10 @@ Returns plist with:
          (session-file (jf/gptel--context-file-path main-branch-dir))
          (initial-content (or initial-content "###\n")))
 
+    ;; Copy preset template to main branch directory FIRST
+    ;; (must happen before scope plan generation so preset tools can be parsed)
+    (jf/gptel--copy-preset-template preset-template main-branch-dir)
+
     ;; Create scope plan in main branch
     (let ((scope-yaml (if (eq scope-type 'project-aware)
                          (jf/gptel--generate-scope-plan-yaml
@@ -663,9 +667,6 @@ Returns plist with:
       (with-temp-file scope-file
         (insert scope-yaml))
       (jf/gptel--log 'info "Created scope plan: %s" scope-file))
-
-    ;; Copy preset template to main branch directory
-    (jf/gptel--copy-preset-template preset-template main-branch-dir)
 
     ;; Create current symlink pointing to main
     (jf/gptel--update-current-symlink session-dir "main")
