@@ -185,7 +185,9 @@ with zero inheritance from the parent session."
 
           ;; Create agent buffer with session infrastructure
           (let* ((buffer-name (format "*gptel-agent:%s:%s*" preset description))
-                 (agent-buffer (generate-new-buffer buffer-name)))
+                 (agent-buffer (generate-new-buffer buffer-name))
+                 ;; Capture agent tools AFTER buffer initialization
+                 (agent-tools nil))
 
             ;; Initialize buffer with session tracking and preset configuration
             (with-current-buffer agent-buffer
@@ -214,7 +216,11 @@ with zero inheritance from the parent session."
 
               ;; Associate buffer with file
               (set-visited-file-name (jf/gptel--context-file-path session-dir))
-              (set-buffer-modified-p t))
+              (set-buffer-modified-p t)
+
+              ;; CRITICAL: Capture agent's buffer-local tools before leaving buffer context
+              ;; This must be INSIDE with-current-buffer, otherwise we get parent's tools
+              (setq agent-tools gptel-tools))
 
             ;; Register session globally with branch info
             ;; Agents don't support branching, so use "main" as default branch and session-dir as branch-dir
@@ -225,14 +231,14 @@ with zero inheritance from the parent session."
                        where preset description)))
 
               ;; Execute with request-specific overrides
-              ;; CRITICAL: Must explicitly pass tools to ensure isolation in dynamic scope
-              ;; Buffer-local gptel-tools alone isn't enough - gptel-with-preset needs :tools key
+              ;; CRITICAL: Use captured agent-tools, not current buffer's gptel-tools
+              ;; We're in parent buffer context here, so gptel-tools would be parent's tools
               (gptel-with-preset
                   (list :include-reasoning nil
                         :use-tools t
                         :use-context nil
                         :include-tool-results t
-                        :tools gptel-tools)  ; Pass buffer-local tools explicitly for isolation
+                        :tools agent-tools)  ; Use captured tools from agent buffer for isolation
 
                 ;; Accumulator for response (must be inside preset scope)
                 (let ((partial ""))
