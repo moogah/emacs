@@ -165,25 +165,30 @@ following documentation-first architecture. Uses only standard org-mode function
               nil)
           ;; Parse the org file for PROJECT_WORKTREE properties
           (jf/gptel--log 'debug "Parsing PROJECT_WORKTREE properties from: %s" activity-file)
-          (with-temp-buffer
-            (insert-file-contents activity-file)
-            (org-mode)
-            (let ((worktree-paths '())
-                  (entry-count 0))
-              (org-map-entries
-               (lambda ()
-                 (cl-incf entry-count)
-                 (when-let ((worktree (org-entry-get nil "PROJECT_WORKTREE")))
-                   (let ((expanded (expand-file-name worktree)))
-                     (jf/gptel--log 'debug "Found PROJECT_WORKTREE: %s" expanded)
-                     (push expanded worktree-paths))))
-               nil 'file)
-              (jf/gptel--log 'debug "Scanned %d org entries, found %d worktree(s)"
-                            entry-count (length worktree-paths))
-              (when worktree-paths
-                (jf/gptel--log 'info "Found %d worktree path(s) for activity %s"
-                              (length worktree-paths) activity-name))
-              (nreverse worktree-paths)))))
+          ;; Use existing buffer if file is already open, otherwise open temporarily
+          (let* ((existing-buf (get-file-buffer activity-file))
+                 (buf (or existing-buf (find-file-noselect activity-file t))))
+            (unwind-protect
+                (with-current-buffer buf
+                  (let ((worktree-paths '())
+                        (entry-count 0))
+                    (org-map-entries
+                     (lambda ()
+                       (cl-incf entry-count)
+                       (when-let ((worktree (org-entry-get nil "PROJECT_WORKTREE")))
+                         (let ((expanded (expand-file-name worktree)))
+                           (jf/gptel--log 'debug "Found PROJECT_WORKTREE: %s" expanded)
+                           (push expanded worktree-paths))))
+                     nil 'file)
+                    (jf/gptel--log 'debug "Scanned %d org entries, found %d worktree(s)"
+                                  entry-count (length worktree-paths))
+                    (when worktree-paths
+                      (jf/gptel--log 'info "Found %d worktree path(s) for activity %s"
+                                    (length worktree-paths) activity-name))
+                    (nreverse worktree-paths)))
+              ;; Only kill buffer if we opened it ourselves
+              (unless existing-buf
+                (kill-buffer buf))))))
     (error
      (jf/gptel--log 'error "Error parsing worktree paths for %s: %s"
                    activity-name (error-message-string err))

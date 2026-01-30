@@ -218,7 +218,57 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
 
 * Worktree Path Discovery
 
-Parse org-roam documentation to discover project worktree paths.
+** Overview
+
+When creating an activity with gptel session, worktree paths must be discovered and passed downstream to configure the session's scope plan. The org-roam document is the **source of truth** for activity configuration.
+
+** Data Flow
+
+1. Activity creation writes org-roam document with =PROJECT_WORKTREE= properties
+2. Org file path passed to =jf/gptel-session-create-persistent= as =org-file= parameter
+3. Parser function =jf/gptel-activities--parse-worktree-paths= called with org file path
+4. Worktree paths extracted from org properties using =org-map-entries=
+5. Paths returned as list and passed to =jf/gptel--create-session-core=
+6. Scope plan generated with worktree paths in allowed patterns
+
+** Org Document Structure
+
+Worktree information stored in project headline property drawers:
+
+#+begin_example
+* Projects
+** Project: my-repository
+:PROPERTIES:
+:PROJECT_PATH: ~/code/my-repository/
+:PROJECT_NAME: my-repository
+:PROJECT_BRANCH: feature-branch
+:PROJECT_WORKTREE: /Users/user/emacs-activities/activity-name/worktrees/my-repository
+:END:
+#+end_example
+
+The =:PROJECT_WORKTREE:= property contains the absolute path to the git worktree created for this activity.
+
+** Parsing Strategy
+
+The parser uses an efficient buffer-reuse strategy:
+
+1. *Check for existing buffer*: Uses =get-file-buffer= to see if org file already open
+2. *Reuse if available*: If activity creation just opened the org document, use that buffer
+3. *Open temporarily if needed*: Falls back to =find-file-noselect= with NOWARN flag
+4. *Parse with org-map-entries*: Iterate headlines and extract =PROJECT_WORKTREE= properties
+5. *Clean up conditionally*: Only kill buffer if we opened it (preserves user's open buffers)
+
+** Why =find-file-noselect= instead of =with-temp-buffer=?
+
+The =org-map-entries= function requires =buffer-file-name= to be set to work correctly. Using =find-file-noselect=:
+- Automatically sets =buffer-file-name= to the file path
+- Properly initializes org-mode with file-visiting semantics
+- Enables org-mode's element cache and parsing
+- Avoids buffer modification prompts (file loaded, not modified)
+
+Using =with-temp-buffer= + =insert-file-contents= would require manual =buffer-file-name= setup and =set-buffer-modified-p= workarounds.
+
+** Implementation
 
 #+begin_src emacs-lisp
 (defun jf/gptel-activities--parse-worktree-paths (activity-name &optional org-file)
@@ -267,25 +317,30 @@ following documentation-first architecture. Uses only standard org-mode function
               nil)
           ;; Parse the org file for PROJECT_WORKTREE properties
           (jf/gptel--log 'debug "Parsing PROJECT_WORKTREE properties from: %s" activity-file)
-          (with-temp-buffer
-            (insert-file-contents activity-file)
-            (org-mode)
-            (let ((worktree-paths '())
-                  (entry-count 0))
-              (org-map-entries
-               (lambda ()
-                 (cl-incf entry-count)
-                 (when-let ((worktree (org-entry-get nil "PROJECT_WORKTREE")))
-                   (let ((expanded (expand-file-name worktree)))
-                     (jf/gptel--log 'debug "Found PROJECT_WORKTREE: %s" expanded)
-                     (push expanded worktree-paths))))
-               nil 'file)
-              (jf/gptel--log 'debug "Scanned %d org entries, found %d worktree(s)"
-                            entry-count (length worktree-paths))
-              (when worktree-paths
-                (jf/gptel--log 'info "Found %d worktree path(s) for activity %s"
-                              (length worktree-paths) activity-name))
-              (nreverse worktree-paths)))))
+          ;; Use existing buffer if file is already open, otherwise open temporarily
+          (let* ((existing-buf (get-file-buffer activity-file))
+                 (buf (or existing-buf (find-file-noselect activity-file t))))
+            (unwind-protect
+                (with-current-buffer buf
+                  (let ((worktree-paths '())
+                        (entry-count 0))
+                    (org-map-entries
+                     (lambda ()
+                       (cl-incf entry-count)
+                       (when-let ((worktree (org-entry-get nil "PROJECT_WORKTREE")))
+                         (let ((expanded (expand-file-name worktree)))
+                           (jf/gptel--log 'debug "Found PROJECT_WORKTREE: %s" expanded)
+                           (push expanded worktree-paths))))
+                     nil 'file)
+                    (jf/gptel--log 'debug "Scanned %d org entries, found %d worktree(s)"
+                                  entry-count (length worktree-paths))
+                    (when worktree-paths
+                      (jf/gptel--log 'info "Found %d worktree path(s) for activity %s"
+                                    (length worktree-paths) activity-name))
+                    (nreverse worktree-paths)))
+              ;; Only kill buffer if we opened it ourselves
+              (unless existing-buf
+                (kill-buffer buf))))))
     (error
      (jf/gptel--log 'error "Error parsing worktree paths for %s: %s"
                    activity-name (error-message-string err))
