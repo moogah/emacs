@@ -402,61 +402,38 @@ NOTE: This is a template loader, not used during session resume."
     (let* ((preset-data (gptel-agent-read-file preset-path '((dummy . dummy))))
            (preset-plist (cdr preset-data))
            ;; Convert tool names to tool objects if needed
-           (tools (plist-get preset-plist :tools)))
-
-      ;; DEBUG: Log what we got from the parser
-      (jf/gptel--log 'debug "Raw tools from parser: %S" tools)
-      (when tools
-        (jf/gptel--log 'debug "Tools type: %s, first element: %S"
-                       (type-of tools)
-                       (car-safe tools)))
-
-      (let ((resolved-tools
-             (when tools
-               (cond
-                ;; New format: tools is a plist (:tool-name (:allowed t) :tool2 (:allowed t) ...)
-                ;; Check if first element is a keyword (indicates plist format)
-                ((and (listp tools)
-                      (keywordp (car tools)))
-                 (jf/gptel--log 'debug "Detected plist format")
-                 (cl-loop for (tool-name props) on tools by #'cddr
-                          do (jf/gptel--log 'debug "Processing tool: %S with props: %S" tool-name props)
-                          when (and (listp props)
-                                    (plist-get props :allowed))
-                          collect (let ((result (substring (symbol-name tool-name) 1)))
-                                    (jf/gptel--log 'debug "Converted keyword %S to string %S" tool-name result)
-                                    result)))
-                ;; Alist format: ((tool-name . props) ...)
-                ((and (listp tools)
-                      (consp (car tools))
-                      (not (stringp (car tools))))
-                 (jf/gptel--log 'debug "Detected alist format")
-                 (cl-loop for (tool-name . props) in tools
-                          do (jf/gptel--log 'debug "Processing tool: %S with props: %S" tool-name props)
-                          when (and (listp props)
-                                    (cdr (assq 'allowed props)))
-                          collect (cond
-                                   ((keywordp tool-name)
-                                    (substring (symbol-name tool-name) 1))
-                                   ((symbolp tool-name)
-                                    (symbol-name tool-name))
-                                   (t tool-name))))
-                ;; Old format: simple list of tool names
-                ((listp tools)
-                 (jf/gptel--log 'debug "Detected old list format")
-                 tools)
-                ;; Space-separated string from org
-                (t
-                 (jf/gptel--log 'debug "Detected space-separated string format")
-                 (split-string tools))))))
-        ;; DEBUG: Log resolved tools
-        (jf/gptel--log 'debug "Resolved tools (%d total): %S"
-                       (length resolved-tools)
-                       resolved-tools)
-
-        ;; Update tools in plist
-        (when resolved-tools
-          (plist-put preset-plist :tools resolved-tools)))
+           (tools (plist-get preset-plist :tools))
+           (resolved-tools
+            (when tools
+              (cond
+               ;; New format: tools is a plist (:tool-name (:allowed t) :tool2 (:allowed t) ...)
+               ;; Check if first element is a keyword (indicates plist format)
+               ((and (listp tools)
+                     (keywordp (car tools)))
+                (cl-loop for (tool-name props) on tools by #'cddr
+                         when (and (listp props)
+                                   (plist-get props :allowed))
+                         collect (substring (symbol-name tool-name) 1)))
+               ;; Alist format: ((tool-name . props) ...)
+               ((and (listp tools)
+                     (consp (car tools))
+                     (not (stringp (car tools))))
+                (cl-loop for (tool-name . props) in tools
+                         when (and (listp props)
+                                   (cdr (assq 'allowed props)))
+                         collect (cond
+                                  ((keywordp tool-name)
+                                   (substring (symbol-name tool-name) 1))
+                                  ((symbolp tool-name)
+                                   (symbol-name tool-name))
+                                  (t tool-name))))
+               ;; Old format: simple list of tool names
+               ((listp tools) tools)
+               ;; Space-separated string from org
+               (t (split-string tools))))))
+      ;; Update tools in plist
+      (when resolved-tools
+        (plist-put preset-plist :tools resolved-tools))
       ;; Convert backend name to object
       (when-let ((backend-name (plist-get preset-plist :backend)))
         (plist-put preset-plist :backend
