@@ -73,6 +73,37 @@ tools:
     allowed: true
   get_scope_structure:
     allowed: true
+
+paths:
+  read:
+    - "/**"
+  write:
+    - "/tmp/**"
+  deny:
+    - "**/.git/**"
+    - "**/runtime/**"
+    - "**/.ssh/**"
+    - "**/.gnupg/**"
+    - "**/.env"
+    - "**/node_modules/**"
+
+org_roam_patterns:
+  subdirectory:
+    - "gptel/**"
+  tags:
+    - "gptel"
+  node_ids:
+    - "*"
+
+shell_commands:
+  allow:
+    - "ls"
+    - "grep"
+    - "git"
+    - "find"
+  deny:
+    - "rm -rf"
+    - "sudo"
 ---
 
 You are a programming assistant running inside Emacs. Your purpose is to help with software development tasks within the constraints of a scoped permission system.

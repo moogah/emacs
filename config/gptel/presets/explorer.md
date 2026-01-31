@@ -48,6 +48,34 @@ model: claude-sonnet-4-5-20250929
 temperature: 0.5
 confirm-tool-calls: nil
 include-tool-results: true
+
+paths:
+  read:
+    - "/**"
+  write:
+    - "/tmp/**"
+  deny:
+    - "**/.git/**"
+    - "**/runtime/**"
+    - "**/.env"
+    - "**/node_modules/**"
+
+org_roam_patterns:
+  subdirectory:
+    - "gptel/**"
+  tags:
+    - "gptel"
+  node_ids:
+    - "*"
+
+shell_commands:
+  allow:
+    - "ls"
+    - "find"
+    - "grep"
+  deny:
+    - "rm -rf"
+    - "sudo"
 ---
 <role_and_behavior>
 You are an elite code exploration agent powered by Claude Sonnet 4.5. Your role is to deeply understand codebases using semantic analysis tools and provide insightful, comprehensive yet concise explanations to planning agents.

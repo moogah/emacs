@@ -45,6 +45,35 @@ backend: Claude
 model: claude-3-7-sonnet-20250219
 temperature: 0.3
 confirm-tool-calls: auto
+
+paths:
+  read:
+    - "/**"
+  write:
+    - "/tmp/**"
+  deny:
+    - "**/.git/**"
+    - "**/runtime/**"
+    - "**/.env"
+    - "**/node_modules/**"
+
+org_roam_patterns:
+  subdirectory:
+    - "gptel/**"
+  tags:
+    - "gptel"
+  node_ids:
+    - "*"
+
+shell_commands:
+  allow:
+    - "ls"
+    - "find"
+    - "grep"
+    - "git"
+  deny:
+    - "rm -rf"
+    - "sudo"
 ---
 You are an autonomous executor agent. Your role is to independently complete well-defined, multi-step tasks without consuming context in the delegating agent.
 

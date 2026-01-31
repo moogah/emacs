@@ -921,36 +921,6 @@ Supports formats:
            nil))))))
 ;; Parse Preset Tools:1 ends here
 
-;; Generate Scope Plan YAML
-
-;; Helper function to generate scope plan YAML string without user interaction.
-;; Used for auto-initialization and programmatic plan creation.
-
-
-;; [[file:scope-commands.org::*Generate Scope Plan YAML][Generate Scope Plan YAML:1]]
-(defun jf/gptel--generate-scope-plan-yaml (session-id &optional template projects branch-dir worktree-paths activity-org-file)
-  "Generate scope plan YAML for SESSION-ID using TEMPLATE.
-TEMPLATE can be deny-all, codebase-read, org-roam-safe, permissive, or project-aware.
-PROJECTS are passed to project-aware template.
-BRANCH-DIR is path to branch directory for reading preset file.
-WORKTREE-PATHS is list of worktree paths for activity isolation.
-ACTIVITY-ORG-FILE is optional path to activity org-roam document for agent access.
-Defaults to deny-all.
-
-This is an internal helper used for auto-initialization of session scope plans.
-Returns YAML string directly without writing to file."
-  (let* ((template (or template "deny-all"))
-         (template-fn (intern (format "jf/gptel-scope--template-%s" template)))
-         ;; Parse preset tools if branch-dir provided
-         (preset-tools (when branch-dir
-                        (jf/gptel-scope--parse-preset-tools branch-dir))))
-    (unless (fboundp template-fn)
-      (error "Unknown scope template: %s" template))
-    (if (eq (intern template) 'project-aware)
-        (funcall template-fn session-id projects nil nil nil activity-org-file)
-      (funcall template-fn session-id nil nil preset-tools worktree-paths activity-org-file))))
-;; Generate Scope Plan YAML:1 ends here
-
 ;; Initialize Scope Plan
 
 ;; Create new scope plan for current gptel session.
