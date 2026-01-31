@@ -692,18 +692,37 @@ Returns plist with:
          (initial-content (or initial-content "###\n")))
 
     ;; Copy preset template to main branch directory FIRST
-    ;; (must happen before scope plan generation so preset tools can be parsed)
     (jf/gptel--copy-preset-template preset-template main-branch-dir)
 
-    ;; Create scope plan in main branch
-    (let ((scope-yaml (if (eq scope-type 'project-aware)
-                         (jf/gptel--generate-scope-plan-yaml
-                          session-id "project-aware" projects main-branch-dir worktree-paths activity-org-file)
-                       (jf/gptel--generate-scope-plan-yaml session-id "deny-all" nil main-branch-dir worktree-paths activity-org-file)))
-          (scope-file (jf/gptel--scope-plan-file-path main-branch-dir)))
+    ;; Update preset.md with paths if needed (v3.0 architecture)
+    (let ((preset-file (expand-file-name "preset.md" main-branch-dir))
+          (allowed-paths (cond
+                          ;; Project-aware: use project paths
+                          ((eq scope-type 'project-aware)
+                           (mapcar (lambda (proj)
+                                    (concat (directory-file-name proj) "/**"))
+                                  projects))
+                          ;; Worktree isolation: use worktree paths
+                          (worktree-paths worktree-paths)
+                          ;; Deny-all: empty paths (will use defaults from template)
+                          (t nil))))
+
+      (when allowed-paths
+        (jf/gptel-scope--update-preset-paths preset-file allowed-paths nil)
+        (jf/gptel--log 'info "Updated preset.md with %d path(s)" (length allowed-paths))))
+
+    ;; Create v3.0 scope-plan.yml (metadata only, no tools section)
+    (let ((scope-file (jf/gptel--scope-plan-file-path main-branch-dir))
+          (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
       (with-temp-file scope-file
-        (insert scope-yaml))
-      (jf/gptel--log 'info "Created scope plan: %s" scope-file))
+        (insert (format "version: \"3.0\"\n"))
+        (insert (format "session_id: \"%s\"\n" session-id))
+        (insert (format "created: \"%s\"\n" timestamp))
+        (insert (format "updated: \"%s\"\n" timestamp))
+        (insert (format "preset: \"%s\"\n" preset-template))
+        (when activity-org-file
+          (insert (format "activity_org_file: \"%s\"\n" activity-org-file))))
+      (jf/gptel--log 'info "Created v3.0 scope-plan.yml (metadata only): %s" scope-file))
 
     ;; Create current symlink pointing to main
     (jf/gptel--update-current-symlink session-dir "main")
