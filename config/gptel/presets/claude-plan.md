@@ -6,35 +6,30 @@ temperature: 1.0
 include-tool-results: true
 tools:
   PersistentAgent:
-    allowed: true
   ask_user_questions:
-    allowed: true
   read_file:
-    allowed: true
   write_file_in_scope:
-    allowed: true
   edit_file_in_scope:
-    allowed: true
   request_scope_expansion:
-    allowed: true
   inspect_scope_plan:
-    allowed: true
   list_activity_worktrees:
-    allowed: true
   list_known_projects:
-    allowed: true
   get_project_info:
-    allowed: true
   list_project_files:
-    allowed: true
   list_project_directories:
-    allowed: true
   expand_project_path:
-    allowed: true
   search_project_content:
-    allowed: true
   get_scope_structure:
-    allowed: true
+paths:
+  read:
+    []
+  write:
+    - "/tmp/**"
+  deny:
+    - "**/.git/**"
+    - "**/runtime/**"
+    - "**/.env"
+    - "**/node_modules/**"
 ---
 
 # Software Development Planning Guidelines

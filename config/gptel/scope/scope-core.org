@@ -701,13 +701,19 @@ and writes the modified content back to the file."
         (error "No YAML frontmatter found in %s" preset-file))
 
       (let ((yaml-start (point)))
+        (save-match-data
+          (message "DEBUG: Found opening --- at position %d (line %d)" (point) (line-number-at-pos)))
         (unless (re-search-forward "^---\n" nil t)
           (error "No closing delimiter for YAML frontmatter in %s" preset-file))
 
+        ;; CRITICAL: Save match positions BEFORE any message/logging that might clobber them
         (let* ((yaml-end (match-beginning 0))
+               (post-yaml-start (match-end 0))
                (yaml-content (buffer-substring yaml-start yaml-end))
                (parsed (yaml-parse-string yaml-content :object-type 'plist))
-               (post-yaml (buffer-substring (match-end 0) (point-max))))
+               (post-yaml (buffer-substring post-yaml-start (point-max))))
+          (save-match-data
+            (message "DEBUG: post-yaml extracted from %d, length=%d bytes" post-yaml-start (length post-yaml)))
 
           ;; Update or add paths section
           (setq parsed (plist-put parsed :paths
@@ -724,8 +730,10 @@ and writes the modified content back to the file."
           (insert "---\n")
 
           ;; Write YAML frontmatter (simple plist serialization)
+          (message "DEBUG: Serializing parsed plist keys: %S" (cl-loop for (k v) on parsed by #'cddr collect k))
           (cl-loop for (key value) on parsed by #'cddr
                    do (let ((key-name (substring (symbol-name key) 1)))
+                        (message "DEBUG: Processing key=%s value-type=%s" key-name (type-of value))
                         (cond
                          ;; Handle paths specially (nested structure)
                          ((eq key :paths)
@@ -738,10 +746,31 @@ and writes the modified content back to the file."
                                               (insert (format "    - \"%s\"\n" item)))
                                           (insert "    []\n")))))
 
-                         ;; Skip other complex nested structures (tools, org_roam_patterns, etc.)
-                         ;; They're already in the preset template
-                         ((member key '(:tools :org_roam_patterns :shell_commands))
-                          nil)  ; Skip - already in template
+                         ;; Handle tools section (map of tool names to empty plists)
+                         ((eq key :tools)
+                          (insert (format "%s:\n" key-name))
+                          ;; tools is a plist like (:read_file nil :write_file_in_scope nil ...)
+                          (cl-loop for (tool-key _tool-props) on value by #'cddr
+                                   do (let ((tool-name (substring (symbol-name tool-key) 1)))
+                                        (insert (format "  %s:\n" tool-name)))))
+
+                         ;; Handle org_roam_patterns section
+                         ((eq key :org_roam_patterns)
+                          (insert (format "%s:\n" key-name))
+                          (cl-loop for (subkey subvalue) on value by #'cddr
+                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                                        (insert (format "  %s:\n" subkey-name))
+                                        (dolist (item subvalue)
+                                          (insert (format "    - \"%s\"\n" item))))))
+
+                         ;; Handle shell_commands section
+                         ((eq key :shell_commands)
+                          (insert (format "%s:\n" key-name))
+                          (cl-loop for (subkey subvalue) on value by #'cddr
+                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                                        (insert (format "  %s:\n" subkey-name))
+                                        (dolist (item subvalue)
+                                          (insert (format "    - \"%s\"\n" item))))))
 
                          ;; Simple key-value pairs
                          ((stringp value)
@@ -750,14 +779,25 @@ and writes the modified content back to the file."
                           (insert (format "%s: %s\n" key-name value)))
                          ((symbolp value)
                           (insert (format "%s: %s\n" key-name value)))
-                         ((listp value)
-                          ;; Simple list (e.g., tools as strings)
+                         ;; Simple lists (but not plists which are already handled above)
+                         ((and (listp value) (not (keywordp (car-safe value))))
                           (insert (format "%s:\n" key-name))
                           (dolist (item value)
-                            (insert (format "  - %s\n" item)))))))
+                            (insert (format "  - %s\n" item))))
+                         ;; Skip anything else (already handled or unsupported)
+                         (t nil))))
 
           (insert "---\n")
-          (insert post-yaml)
+          (let ((before-post-yaml-size (- (point-max) (point-min))))
+            (message "DEBUG: Buffer size before post-yaml=%d" before-post-yaml-size)
+            (message "DEBUG: About to insert post-yaml, length=%d, first 100 chars: %S"
+                     (length post-yaml)
+                     (substring post-yaml 0 (min 100 (length post-yaml))))
+            (insert post-yaml)
+            (let ((final-size (- (point-max) (point-min))))
+              (message "DEBUG: Final buffer size=%d (before=%d + post-yaml=%d = expected %d)"
+                       final-size before-post-yaml-size (length post-yaml)
+                       (+ before-post-yaml-size (length post-yaml)))))
 
           ;; Write back to file
           (write-region (point-min) (point-max) preset-file nil 'silent))))))

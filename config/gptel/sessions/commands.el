@@ -283,10 +283,16 @@ Signals error if template doesn't exist."
     (unless template-path
       (error "Preset template not found: %s (checked .md and .org)" template-name))
     (let* ((template-ext (file-name-extension template-path))
-           (dest-file (expand-file-name (concat "preset." template-ext) session-dir)))
+           (dest-file (expand-file-name (concat "preset." template-ext) session-dir))
+           (template-size (nth 7 (file-attributes template-path))))
       (when (file-exists-p dest-file)
         (jf/gptel--log 'warn "Overwriting existing preset file: %s" dest-file))
+      (message "DEBUG COPY: Template %s size=%d" template-path template-size)
       (copy-file template-path dest-file t)
+      (let ((dest-size (nth 7 (file-attributes dest-file))))
+        (message "DEBUG COPY: Copied to %s size=%d" dest-file dest-size)
+        (unless (= template-size dest-size)
+          (error "File size mismatch after copy! Template=%d Dest=%d" template-size dest-size)))
       (jf/gptel--log 'info "Copied preset template %s to %s" template-name dest-file)
       dest-file)))
 
