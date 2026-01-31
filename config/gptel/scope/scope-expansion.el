@@ -1,0 +1,350 @@
+;;; scope-expansion.el --- GPTEL Scope Expansion UI -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Interactive UI for handling scope violations with 3-choice menu.
+
+;;; Code:
+
+(require 'transient)
+(require 'jf-gptel-scope-core)
+(require 'yaml)
+
+(defvar-local jf/gptel-scope--current-violation nil
+  "Current scope violation being handled.
+Plist with :tool, :resource, :reason, :validation-type, :allowed-patterns.")
+
+(defvar-local jf/gptel-scope--violation-callback nil
+  "Callback function to invoke with expansion decision.
+Called with (:decision DECISION :resource RESOURCE) where DECISION
+is 'deny, 'add-to-scope, or 'allow-once.")
+
+(transient-define-prefix jf/gptel-scope-expansion-menu ()
+  "Handle scope violation with 3-choice UI."
+  [:description
+   (lambda ()
+     (let* ((violation jf/gptel-scope--current-violation)
+            (tool (plist-get violation :tool))
+            (resource (plist-get violation :resource))
+            (reason (plist-get violation :reason)))
+       (format "Scope Violation: %s\n  Tool: %s\n  Resource: %s\n  Reason: %s"
+               (propertize "Access Denied" 'face 'error)
+               (propertize tool 'face 'font-lock-function-name-face)
+               (propertize resource 'face 'font-lock-string-face)
+               (propertize reason 'face 'warning))))
+   [("d" "Deny (reject tool call)" jf/gptel-scope--deny-expansion)
+    ("a" "Add to scope (permanent)" jf/gptel-scope--add-to-scope)
+    ("o" "Allow once (temporary)" jf/gptel-scope--allow-once-action)]
+   [""
+    ("e" "Edit preset manually" jf/gptel-scope--edit-preset)
+    ("q" "Cancel" transient-quit-one)]])
+
+(defun jf/gptel-scope--deny-expansion ()
+  "Reject the tool call completely."
+  (interactive)
+  (when jf/gptel-scope--violation-callback
+    (funcall jf/gptel-scope--violation-callback
+             (list :decision 'deny
+                   :resource (plist-get jf/gptel-scope--current-violation :resource))))
+  (transient-quit-one))
+
+(defun jf/gptel-scope--add-to-scope ()
+  "Add violated resource to preset.md permanently."
+  (interactive)
+  (let* ((violation jf/gptel-scope--current-violation)
+         (validation-type (plist-get violation :validation-type))
+         (resource (plist-get violation :resource))
+         (tool (plist-get violation :tool))
+         (context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                         (and (buffer-file-name)
+                              (file-name-directory (buffer-file-name)))))
+         (preset-file (expand-file-name "preset.md" context-dir)))
+
+    (unless (file-exists-p preset-file)
+      (user-error "No preset.md found in %s" context-dir))
+
+    ;; Route to appropriate updater based on validation type
+    (pcase validation-type
+      ('path
+       (jf/gptel-scope--add-path-to-preset preset-file resource tool))
+      ('pattern
+       (jf/gptel-scope--add-pattern-to-preset preset-file resource tool))
+      ('command
+       (jf/gptel-scope--add-command-to-preset preset-file resource))
+      (_
+       (user-error "Unknown validation type: %s" validation-type)))
+
+    ;; Notify callback
+    (when jf/gptel-scope--violation-callback
+      (funcall jf/gptel-scope--violation-callback
+               (list :decision 'add-to-scope
+                     :resource resource)))
+
+    (message "Added %s to scope in preset.md" resource)
+    (transient-quit-one)))
+
+(defun jf/gptel-scope--allow-once-action ()
+  "Add resource to temporary allow-once list."
+  (interactive)
+  (let* ((violation jf/gptel-scope--current-violation)
+         (tool (plist-get violation :tool))
+         (resource (plist-get violation :resource)))
+
+    ;; Add to allow-once list (will be implemented in Task #8)
+    (jf/gptel-scope--add-to-allow-once-list tool resource)
+
+    ;; Notify callback
+    (when jf/gptel-scope--violation-callback
+      (funcall jf/gptel-scope--violation-callback
+               (list :decision 'allow-once
+                     :resource resource)))
+
+    (message "Allowed %s once for this LLM turn" resource)
+    (transient-quit-one)))
+
+(defun jf/gptel-scope--edit-preset ()
+  "Open preset.md for manual editing."
+  (interactive)
+  (let* ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                         (and (buffer-file-name)
+                              (file-name-directory (buffer-file-name)))))
+         (preset-file (expand-file-name "preset.md" context-dir)))
+    (if (file-exists-p preset-file)
+        (progn
+          (find-file preset-file)
+          (transient-quit-one))
+      (user-error "No preset.md found in %s" context-dir))))
+
+(defun jf/gptel-scope--add-path-to-preset (preset-file path tool)
+  "Add PATH to preset.md under appropriate section based on TOOL operation.
+PRESET-FILE is the path to preset.md.
+PATH is the file/directory path to add.
+TOOL is the tool name (used to determine read vs write)."
+  (let* ((content (with-temp-buffer
+                    (insert-file-contents preset-file)
+                    (buffer-string)))
+         ;; Determine if this is a read or write operation
+         (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
+         (operation (plist-get category :operation))
+         (target-section (if (eq operation 'read) :read :write)))
+
+    ;; Parse YAML frontmatter
+    (with-temp-buffer
+      (insert content)
+      (goto-char (point-min))
+
+      (unless (re-search-forward "^---\n" nil t)
+        (error "No YAML frontmatter found in %s" preset-file))
+
+      (let ((yaml-start (point)))
+        (unless (re-search-forward "^---\n" nil t)
+          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
+
+        (let* ((yaml-end (match-beginning 0))
+               (yaml-content (buffer-substring yaml-start yaml-end))
+               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (paths (or (plist-get parsed :paths) (list)))
+               (section-paths (or (plist-get paths target-section) '()))
+               (post-yaml (buffer-substring (match-end 0) (point-max))))
+
+          ;; Add path if not already present (with /** suffix for directories)
+          (let ((normalized-path (if (string-suffix-p "/" path)
+                                    (concat (directory-file-name path) "/**")
+                                  path)))
+            (unless (member normalized-path section-paths)
+              (setq section-paths (append section-paths (list normalized-path)))
+              (setq paths (plist-put paths target-section section-paths))
+              (setq parsed (plist-put parsed :paths paths))
+
+              ;; Write updated content
+              (erase-buffer)
+              (insert "---\n")
+              (jf/gptel-scope--write-yaml-plist parsed)
+              (insert "---\n")
+              (insert post-yaml)
+              (write-region (point-min) (point-max) preset-file nil 'silent))))))))
+
+(defun jf/gptel-scope--add-pattern-to-preset (preset-file pattern tool)
+  "Add PATTERN to org_roam_patterns section in PRESET-FILE.
+PATTERN is a string describing the pattern (format: \"subdirectory:path\" or \"tags:tag\").
+TOOL is the org-roam tool name."
+  (let ((content (with-temp-buffer
+                   (insert-file-contents preset-file)
+                   (buffer-string))))
+
+    ;; Parse YAML frontmatter
+    (with-temp-buffer
+      (insert content)
+      (goto-char (point-min))
+
+      (unless (re-search-forward "^---\n" nil t)
+        (error "No YAML frontmatter found in %s" preset-file))
+
+      (let ((yaml-start (point)))
+        (unless (re-search-forward "^---\n" nil t)
+          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
+
+        (let* ((yaml-end (match-beginning 0))
+               (yaml-content (buffer-substring yaml-start yaml-end))
+               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (org-roam (or (plist-get parsed :org_roam_patterns) (list)))
+               (post-yaml (buffer-substring (match-end 0) (point-max))))
+
+          ;; Parse pattern format and add to appropriate list
+          (cond
+           ((string-prefix-p "subdirectory:" pattern)
+            (let* ((subdir (substring pattern 13))
+                   (subdirs (or (plist-get org-roam :subdirectory) '())))
+              (unless (member subdir subdirs)
+                (setq subdirs (append subdirs (list subdir)))
+                (setq org-roam (plist-put org-roam :subdirectory subdirs)))))
+
+           ((string-prefix-p "tags:" pattern)
+            (let* ((tags-str (substring pattern 5))
+                   (tags (split-string tags-str ","))
+                   (existing-tags (or (plist-get org-roam :tags) '())))
+              (dolist (tag tags)
+                (unless (member tag existing-tags)
+                  (setq existing-tags (append existing-tags (list tag)))))
+              (setq org-roam (plist-put org-roam :tags existing-tags)))))
+
+          (setq parsed (plist-put parsed :org_roam_patterns org-roam))
+
+          ;; Write updated content
+          (erase-buffer)
+          (insert "---\n")
+          (jf/gptel-scope--write-yaml-plist parsed)
+          (insert "---\n")
+          (insert post-yaml)
+          (write-region (point-min) (point-max) preset-file nil 'silent))))))
+
+(defun jf/gptel-scope--add-command-to-preset (preset-file command)
+  "Add COMMAND to shell_commands.allow section in PRESET-FILE."
+  (let ((content (with-temp-buffer
+                   (insert-file-contents preset-file)
+                   (buffer-string)))
+        (cmd-name (car (split-string command))))
+
+    ;; Parse YAML frontmatter
+    (with-temp-buffer
+      (insert content)
+      (goto-char (point-min))
+
+      (unless (re-search-forward "^---\n" nil t)
+        (error "No YAML frontmatter found in %s" preset-file))
+
+      (let ((yaml-start (point)))
+        (unless (re-search-forward "^---\n" nil t)
+          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
+
+        (let* ((yaml-end (match-beginning 0))
+               (yaml-content (buffer-substring yaml-start yaml-end))
+               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (shell-cmds (or (plist-get parsed :shell_commands) (list)))
+               (allow-list (or (plist-get shell-cmds :allow) '()))
+               (post-yaml (buffer-substring (match-end 0) (point-max))))
+
+          ;; Add command to allow list if not present
+          (unless (member cmd-name allow-list)
+            (setq allow-list (append allow-list (list cmd-name)))
+            (setq shell-cmds (plist-put shell-cmds :allow allow-list))
+            (setq parsed (plist-put parsed :shell_commands shell-cmds))
+
+            ;; Write updated content
+            (erase-buffer)
+            (insert "---\n")
+            (jf/gptel-scope--write-yaml-plist parsed)
+            (insert "---\n")
+            (insert post-yaml)
+            (write-region (point-min) (point-max) preset-file nil 'silent)))))))
+
+(defun jf/gptel-scope--write-yaml-plist (plist)
+  "Write PLIST as YAML to current buffer.
+Handles nested structures for paths, org_roam_patterns, and shell_commands."
+  (cl-loop for (key value) on plist by #'cddr
+           do (let ((key-name (substring (symbol-name key) 1)))
+                (cond
+                 ;; Handle paths (nested structure)
+                 ((eq key :paths)
+                  (insert (format "%s:\n" key-name))
+                  (cl-loop for (subkey subvalue) on value by #'cddr
+                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                                (insert (format "  %s:\n" subkey-name))
+                                (if subvalue
+                                    (dolist (item subvalue)
+                                      (insert (format "    - \"%s\"\n" item)))
+                                  (insert "    []\n")))))
+
+                 ;; Handle org_roam_patterns (nested structure)
+                 ((eq key :org_roam_patterns)
+                  (insert (format "%s:\n" key-name))
+                  (cl-loop for (subkey subvalue) on value by #'cddr
+                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                                (insert (format "  %s:\n" subkey-name))
+                                (if subvalue
+                                    (dolist (item subvalue)
+                                      (insert (format "    - \"%s\"\n" item)))
+                                  (insert "    []\n")))))
+
+                 ;; Handle shell_commands (nested structure)
+                 ((eq key :shell_commands)
+                  (insert (format "%s:\n" key-name))
+                  (cl-loop for (subkey subvalue) on value by #'cddr
+                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                                (insert (format "  %s:\n" subkey-name))
+                                (if subvalue
+                                    (dolist (item subvalue)
+                                      (insert (format "    - \"%s\"\n" item)))
+                                  (insert "    []\n")))))
+
+                 ;; Handle tools (can be list or nested map)
+                 ((eq key :tools)
+                  (insert (format "%s:\n" key-name))
+                  (cond
+                   ;; List of strings
+                   ((and (listp value) (stringp (car value)))
+                    (dolist (item value)
+                      (insert (format "  - %s\n" item))))
+                   ;; Nested map (tool-name: {allowed: true})
+                   ((and (listp value) (keywordp (car value)))
+                    (cl-loop for (tool-key tool-props) on value by #'cddr
+                             do (let ((tool-name (substring (symbol-name tool-key) 1)))
+                                  (insert (format "  %s:\n" tool-name))
+                                  (when (listp tool-props)
+                                    (cl-loop for (prop-key prop-val) on tool-props by #'cddr
+                                             do (let ((prop-name (substring (symbol-name prop-key) 1)))
+                                                  (insert (format "    %s: %s\n" prop-name prop-val))))))))))
+
+                 ;; Simple string value
+                 ((stringp value)
+                  (insert (format "%s: \"%s\"\n" key-name value)))
+
+                 ;; Simple number value
+                 ((numberp value)
+                  (insert (format "%s: %s\n" key-name value)))
+
+                 ;; Simple symbol value
+                 ((symbolp value)
+                  (insert (format "%s: %s\n" key-name value)))
+
+                 ;; Simple list of strings
+                 ((and (listp value) (stringp (car value)))
+                  (insert (format "%s:\n" key-name))
+                  (dolist (item value)
+                    (insert (format "  - %s\n" item))))))))
+
+(defun jf/gptel-scope--prompt-expansion (violation-info)
+  "Show expansion UI for VIOLATION-INFO.
+VIOLATION-INFO is a plist with :tool, :resource, :reason, :validation-type,
+:allowed-patterns, etc.
+
+Stores violation in buffer-local var and displays transient menu."
+  (setq jf/gptel-scope--current-violation violation-info)
+
+  ;; Launch transient menu
+  (jf/gptel-scope-expansion-menu))
+
+(provide 'jf-gptel-scope-expansion)
+;;; scope-expansion.el ends here

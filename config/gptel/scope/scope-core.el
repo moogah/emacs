@@ -231,6 +231,67 @@ Returns plist with :paths-read, :paths-write, :paths-deny,
                     :shell-commands (plist-get parsed :shell_commands)))))))))
 ;; Parse Preset Configuration:1 ends here
 
+;; Buffer-Local Allow-Once List
+
+
+;; [[file:scope-core.org::*Buffer-Local Allow-Once List][Buffer-Local Allow-Once List:1]]
+(defvar-local jf/gptel-scope--allow-once-list nil
+  "List of (tool-name . resource) pairs allowed for current LLM turn.
+Each entry grants temporary permission for one tool call to one resource.
+Cleared automatically after LLM response completes via gptel-post-response-functions.")
+;; Buffer-Local Allow-Once List:1 ends here
+
+;; Check Allow-Once
+
+
+;; [[file:scope-core.org::*Check Allow-Once][Check Allow-Once:1]]
+(defun jf/gptel-scope--check-allow-once (tool-name args config)
+  "Check if TOOL-NAME with ARGS is in allow-once list.
+Extracts resource from ARGS based on tool category.
+Returns t if found (and consumes the permission), nil otherwise.
+
+CONFIG is the scope configuration (used to determine tool category)."
+  (when jf/gptel-scope--allow-once-list
+    (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
+           (validation-type (plist-get category :validation))
+           (resource (pcase validation-type
+                      ('path (expand-file-name (car args)))
+                      ('pattern (format "%s:%s" tool-name (car args)))
+                      ('command (car args))
+                      (_ nil))))
+      (when resource
+        (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
+          (when (equal (cdr entry) resource)
+            ;; Consume permission (single-use)
+            (setq jf/gptel-scope--allow-once-list
+                  (delq entry jf/gptel-scope--allow-once-list))
+            t))))))
+;; Check Allow-Once:1 ends here
+
+;; Add to Allow-Once List
+
+
+;; [[file:scope-core.org::*Add to Allow-Once List][Add to Allow-Once List:1]]
+(defun jf/gptel-scope--add-to-allow-once-list (tool-name resource)
+  "Add TOOL-NAME and RESOURCE to allow-once list.
+Permission is valid only for current LLM turn."
+  (push (cons tool-name resource) jf/gptel-scope--allow-once-list))
+;; Add to Allow-Once List:1 ends here
+
+;; Clear Allow-Once After Response
+
+
+;; [[file:scope-core.org::*Clear Allow-Once After Response][Clear Allow-Once After Response:1]]
+(defun jf/gptel-scope--clear-allow-once (&rest _)
+  "Clear allow-once list after LLM response completes.
+Hooked into gptel-post-response-functions."
+  (when (boundp 'jf/gptel-scope--allow-once-list)
+    (setq-local jf/gptel-scope--allow-once-list nil)))
+
+;; Hook into gptel response lifecycle
+(add-hook 'gptel-post-response-functions #'jf/gptel-scope--clear-allow-once)
+;; Clear Allow-Once After Response:1 ends here
+
 ;; Pattern Matching Helper
 
 ;; Check if a path matches any pattern in a list.
@@ -447,10 +508,10 @@ Returns plist with:
   :tool STRING (tool name, if denied)
   :allowed-patterns LIST (if denied for not matching)."
 
-  ;; TODO: Check allow-once first (will be implemented in Task #8)
-  ;; (when (jf/gptel-scope--check-allow-once tool-name args config)
-  ;;   (cl-return-from jf/gptel-scope--check-tool-permission
-  ;;     (list :allowed t :reason "allow-once")))
+  ;; Check allow-once first (highest priority)
+  (when (jf/gptel-scope--check-allow-once tool-name args config)
+    (cl-return-from jf/gptel-scope--check-tool-permission
+      (list :allowed t :reason "allow-once")))
 
   ;; Lookup tool category
   (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
