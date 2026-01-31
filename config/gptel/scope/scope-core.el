@@ -542,6 +542,97 @@ CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny_patterns"
                              resource)))))
 ;; Format Tool Error:1 ends here
 
+;; Preset Path Updater
+
+;; Helper function for updating paths section in preset.md files.
+
+
+;; [[file:scope-core.org::*Preset Path Updater][Preset Path Updater:1]]
+(defun jf/gptel-scope--update-preset-paths (preset-file allowed-paths denied-paths)
+  "Update paths section in PRESET-FILE with ALLOWED-PATHS and DENIED-PATHS.
+PRESET-FILE is the path to a preset.md file.
+ALLOWED-PATHS is a list of glob patterns for allowed file access.
+DENIED-PATHS is a list of glob patterns to deny.
+
+If ALLOWED-PATHS is nil or empty, creates deny-all configuration (empty path lists).
+
+This function parses the YAML frontmatter, updates or adds the paths section,
+and writes the modified content back to the file."
+  (let ((content (with-temp-buffer
+                   (insert-file-contents preset-file)
+                   (buffer-string))))
+
+    ;; Find the YAML frontmatter boundaries
+    (with-temp-buffer
+      (insert content)
+      (goto-char (point-min))
+
+      (unless (re-search-forward "^---\n" nil t)
+        (error "No YAML frontmatter found in %s" preset-file))
+
+      (let ((yaml-start (point)))
+        (unless (re-search-forward "^---\n" nil t)
+          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
+
+        (let* ((yaml-end (match-beginning 0))
+               (yaml-content (buffer-substring yaml-start yaml-end))
+               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (post-yaml (buffer-substring (match-end 0) (point-max))))
+
+          ;; Update or add paths section
+          (setq parsed (plist-put parsed :paths
+                                  (list :read (or allowed-paths '())
+                                        :write '("/tmp/**")
+                                        :deny (or denied-paths
+                                                 '("**/.git/**"
+                                                   "**/runtime/**"
+                                                   "**/.env"
+                                                   "**/node_modules/**")))))
+
+          ;; Reconstruct the file
+          (erase-buffer)
+          (insert "---\n")
+
+          ;; Write YAML frontmatter (simple plist serialization)
+          (cl-loop for (key value) on parsed by #'cddr
+                   do (let ((key-name (substring (symbol-name key) 1)))
+                        (cond
+                         ;; Handle paths specially (nested structure)
+                         ((eq key :paths)
+                          (insert (format "%s:\n" key-name))
+                          (cl-loop for (subkey subvalue) on value by #'cddr
+                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                                        (insert (format "  %s:\n" subkey-name))
+                                        (if subvalue
+                                            (dolist (item subvalue)
+                                              (insert (format "    - \"%s\"\n" item)))
+                                          (insert "    []\n")))))
+
+                         ;; Skip other complex nested structures (tools, org_roam_patterns, etc.)
+                         ;; They're already in the preset template
+                         ((member key '(:tools :org_roam_patterns :shell_commands))
+                          nil)  ; Skip - already in template
+
+                         ;; Simple key-value pairs
+                         ((stringp value)
+                          (insert (format "%s: \"%s\"\n" key-name value)))
+                         ((numberp value)
+                          (insert (format "%s: %s\n" key-name value)))
+                         ((symbolp value)
+                          (insert (format "%s: %s\n" key-name value)))
+                         ((listp value)
+                          ;; Simple list (e.g., tools as strings)
+                          (insert (format "%s:\n" key-name))
+                          (dolist (item value)
+                            (insert (format "  - %s\n" item)))))))
+
+          (insert "---\n")
+          (insert post-yaml)
+
+          ;; Write back to file
+          (write-region (point-min) (point-max) preset-file nil 'silent))))))
+;; Preset Path Updater:1 ends here
+
 ;; Provide Feature
 
 

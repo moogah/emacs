@@ -162,38 +162,43 @@ with zero inheritance from the parent session."
                (denied-paths-list (if (vectorp denied-paths)
                                      (append denied-paths nil)
                                    denied-paths))
-               ;; If allowed-paths not specified, inherit from parent scope plan
+               ;; If allowed-paths not specified, inherit from parent preset.md
                (effective-allowed-paths
                 (or allowed-paths-list
-                    ;; Inherit: read parent's scope plan and extract allowed patterns
-                    ;; Patterns already have /** suffix (full glob patterns)
-                    (let ((parent-scope-file (jf/gptel--scope-plan-file-path jf/gptel--session-dir)))
-                      (when (file-exists-p parent-scope-file)
-                        (let ((parent-plan (with-temp-buffer
-                                            (insert-file-contents parent-scope-file)
-                                            (jf/gptel-scope--parse-yaml (buffer-string)))))
-                          ;; Extract patterns from first tool (they should all be the same)
-                          (when-let* ((tools (plist-get parent-plan :tools))
-                                     (first-tool-key (car (cl-loop for (k v) on tools by #'cddr
-                                                                  when (keywordp k) return k)))
-                                     (first-tool (plist-get tools first-tool-key)))
-                            (plist-get first-tool :patterns)))))))
-               ;; Generate scope plan using preset tools + explicit paths
-               (scope-yaml (jf/gptel--generate-scope-plan-yaml
-                           session-id
-                           "deny-all"        ; Template type
-                           nil               ; No projects (agents use worktrees only)
-                           session-dir       ; Branch dir (for parsing preset tools)
-                           effective-allowed-paths  ; Explicit or inherited paths
-                           nil))             ; No activity-org-file needed
-               (scope-file (expand-file-name "scope-plan.yml" session-dir)))
-          (with-temp-file scope-file
-            (insert scope-yaml))
-          (jf/gptel--log 'info "Created agent scope plan: %s with %d allowed path(s)"
-                        scope-file
-                        (length effective-allowed-paths)))
+                    ;; Inherit: read parent's preset.md and extract allowed read patterns
+                    (let ((parent-preset-file (expand-file-name "preset.md" jf/gptel--session-dir)))
+                      (when (file-exists-p parent-preset-file)
+                        (let ((parent-config (jf/gptel-scope--parse-preset-config parent-preset-file)))
+                          ;; Extract read paths from parent
+                          (plist-get parent-config :paths-read))))))
+               ;; Use denied-paths if provided, otherwise nil (helper will use defaults)
+               (effective-denied-paths denied-paths-list)
+               ;; Path to agent's preset.md
+               (preset-file (expand-file-name "preset.md" session-dir)))
 
-        ;; Parent-child relationship is now tracked via parent_session_id in scope-plan.yml
+          ;; Update preset.md with paths section
+          (jf/gptel-scope--update-preset-paths
+           preset-file
+           effective-allowed-paths
+           effective-denied-paths)
+
+          (jf/gptel--log 'info "Updated agent preset.md: %s with %d allowed path(s)"
+                        preset-file
+                        (length effective-allowed-paths))
+
+          ;; Create scope-plan.yml with session metadata
+          ;; Note: scope configuration is now in preset.md, this file only has metadata
+          (let ((scope-file (expand-file-name "scope-plan.yml" session-dir))
+                (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
+            (with-temp-file scope-file
+              (insert (format "version: \"3.0\"\n"))
+              (insert (format "session_id: \"%s\"\n" session-id))
+              (insert (format "created: \"%s\"\n" timestamp))
+              (insert (format "updated: \"%s\"\n" timestamp))
+              (insert (format "type: \"agent\"\n"))
+              (insert (format "parent_session_id: \"%s\"\n" jf/gptel--session-id))
+              (insert (format "preset: \"%s\"\n" preset)))
+            (jf/gptel--log 'info "Created agent scope-plan.yml (metadata only): %s" scope-file)))
 
         ;; Read metadata from scope-plan.yml for registry
         (let ((metadata (or (jf/gptel--read-session-metadata session-dir)
