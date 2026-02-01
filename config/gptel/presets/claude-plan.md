@@ -5,21 +5,21 @@ model: claude-opus-4-5-20251101
 temperature: 1.0
 include-tool-results: true
 tools:
-  PersistentAgent:
-  ask_user_questions:
-  read_file:
-  write_file_in_scope:
-  edit_file_in_scope:
-  request_scope_expansion:
-  inspect_scope_plan:
-  list_activity_worktrees:
-  list_known_projects:
-  get_project_info:
-  list_project_files:
-  list_project_directories:
-  expand_project_path:
-  search_project_content:
-  get_scope_structure:
+  - PersistentAgent
+  - ask_user_questions
+  - read_file
+  - write_file_in_scope
+  - edit_file_in_scope
+  - request_scope_expansion
+  - inspect_scope_plan
+  - list_activity_worktrees
+  - list_known_projects
+  - get_project_info
+  - list_project_files
+  - list_project_directories
+  - expand_project_path
+  - search_project_content
+  - get_scope_structure
 paths:
   read:
     []

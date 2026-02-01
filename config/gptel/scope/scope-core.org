@@ -746,13 +746,18 @@ and writes the modified content back to the file."
                                               (insert (format "    - \"%s\"\n" item)))
                                           (insert "    []\n")))))
 
-                         ;; Handle tools section (map of tool names to empty plists)
+                         ;; Handle tools section (list or vector of tool names)
                          ((eq key :tools)
                           (insert (format "%s:\n" key-name))
-                          ;; tools is a plist like (:read_file nil :write_file_in_scope nil ...)
-                          (cl-loop for (tool-key _tool-props) on value by #'cddr
-                                   do (let ((tool-name (substring (symbol-name tool-key) 1)))
-                                        (insert (format "  %s:\n" tool-name)))))
+                          ;; YAML parser returns vectors for lists, so check for both
+                          ;; tools can be a list ("PersistentAgent" ...) or vector ["PersistentAgent" ...]
+                          (if (and value (sequencep value) (not (stringp value)) (> (length value) 0))
+                              (seq-do (lambda (tool-name)
+                                        (when (stringp tool-name)
+                                          (insert (format "  - %s\n" tool-name))))
+                                      value)
+                            ;; Empty or null tools - write empty list
+                            (insert "  []\n")))
 
                          ;; Handle org_roam_patterns section
                          ((eq key :org_roam_patterns)
