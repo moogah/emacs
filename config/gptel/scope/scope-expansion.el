@@ -12,20 +12,12 @@
 (require 'jf-gptel-scope-core)
 (require 'yaml)
 
-(defvar-local jf/gptel-scope--current-violation nil
-  "Current scope violation being handled.
-Plist with :tool, :resource, :reason, :validation-type, :allowed-patterns.")
-
-(defvar-local jf/gptel-scope--violation-callback nil
-  "Callback function to invoke with expansion decision.
-Called with (:decision DECISION :resource RESOURCE) where DECISION
-is 'deny, 'add-to-scope, or 'allow-once.")
-
 (transient-define-prefix jf/gptel-scope-expansion-menu ()
   "Handle scope violation with 3-choice UI."
   [:description
    (lambda ()
-     (let* ((violation jf/gptel-scope--current-violation)
+     (let* ((scope (transient-scope))
+            (violation (plist-get scope :violation))
             (tool (plist-get violation :tool))
             (resource (plist-get violation :resource))
             (reason (plist-get violation :reason)))
@@ -34,9 +26,12 @@ is 'deny, 'add-to-scope, or 'allow-once.")
                (propertize tool 'face 'font-lock-function-name-face)
                (propertize resource 'face 'font-lock-string-face)
                (propertize reason 'face 'warning))))
-   [("d" "Deny (reject tool call)" jf/gptel-scope--deny-expansion)
-    ("a" "Add to scope (permanent)" jf/gptel-scope--add-to-scope)
-    ("o" "Allow once (temporary)" jf/gptel-scope--allow-once-action)]
+   [("d" "Deny (reject tool call)" jf/gptel-scope--deny-expansion
+     :transient nil)
+    ("a" "Add to scope (permanent)" jf/gptel-scope--add-to-scope
+     :transient nil)
+    ("o" "Allow once (temporary)" jf/gptel-scope--allow-once-action
+     :transient nil)]
    [""
     ("e" "Edit preset manually" jf/gptel-scope--edit-preset)
     ("q" "Cancel" transient-quit-one)]])
@@ -44,20 +39,27 @@ is 'deny, 'add-to-scope, or 'allow-once.")
 (defun jf/gptel-scope--deny-expansion ()
   "Reject the tool call completely."
   (interactive)
-  (when jf/gptel-scope--violation-callback
-    (funcall jf/gptel-scope--violation-callback
-             (list :decision 'deny
-                   :resource (plist-get jf/gptel-scope--current-violation :resource))))
-  (transient-quit-one))
+  (let* ((scope (transient-scope))
+         (callback (plist-get scope :callback)))
+    (when callback
+      (funcall callback
+               (json-serialize
+                (list :success nil
+                      :user_denied t
+                      :message "User denied scope expansion request."))))
+    (transient-quit-one)))
 
 (defun jf/gptel-scope--add-to-scope ()
   "Add violated resource to preset.md permanently."
   (interactive)
-  (let* ((violation jf/gptel-scope--current-violation)
+  (let* ((scope (transient-scope))
+         (violation (plist-get scope :violation))
+         (callback (plist-get scope :callback))
          (validation-type (plist-get violation :validation-type))
          (resource (plist-get violation :resource))
          (tool (plist-get violation :tool))
-         (context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+         (context-dir (or (plist-get scope :context-dir)
+                         (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                          (and (buffer-file-name)
                               (file-name-directory (buffer-file-name)))))
          (preset-file (expand-file-name "preset.md" context-dir)))
@@ -76,11 +78,16 @@ is 'deny, 'add-to-scope, or 'allow-once.")
       (_
        (user-error "Unknown validation type: %s" validation-type)))
 
-    ;; Notify callback
-    (when jf/gptel-scope--violation-callback
-      (funcall jf/gptel-scope--violation-callback
-               (list :decision 'add-to-scope
-                     :resource resource)))
+    ;; Notify callback with JSON response
+    (when callback
+      (let* ((patterns (plist-get scope :patterns))
+             (tool-name (plist-get scope :tool-name)))
+        (funcall callback
+                 (json-serialize
+                  (list :success t
+                        :patterns_added patterns
+                        :message (format "Scope expanded. Added %d pattern(s) to %s"
+                                       (length patterns) tool-name))))))
 
     (message "Added %s to scope in preset.md" resource)
     (transient-quit-one)))
@@ -88,18 +95,22 @@ is 'deny, 'add-to-scope, or 'allow-once.")
 (defun jf/gptel-scope--allow-once-action ()
   "Add resource to temporary allow-once list."
   (interactive)
-  (let* ((violation jf/gptel-scope--current-violation)
+  (let* ((scope (transient-scope))
+         (violation (plist-get scope :violation))
+         (callback (plist-get scope :callback))
          (tool (plist-get violation :tool))
          (resource (plist-get violation :resource)))
 
     ;; Add to allow-once list (will be implemented in Task #8)
     (jf/gptel-scope--add-to-allow-once-list tool resource)
 
-    ;; Notify callback
-    (when jf/gptel-scope--violation-callback
-      (funcall jf/gptel-scope--violation-callback
-               (list :decision 'allow-once
-                     :resource resource)))
+    ;; Notify callback with JSON response
+    (when callback
+      (funcall callback
+               (json-serialize
+                (list :success t
+                      :allowed_once t
+                      :message "Permission granted for this turn only."))))
 
     (message "Allowed %s once for this LLM turn" resource)
     (transient-quit-one)))
@@ -107,7 +118,10 @@ is 'deny, 'add-to-scope, or 'allow-once.")
 (defun jf/gptel-scope--edit-preset ()
   "Open preset.md for manual editing."
   (interactive)
-  (let* ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+  (let* ((scope (transient-scope))
+         (violation (plist-get scope :violation))
+         (context-dir (or (plist-get scope :context-dir)
+                         (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                          (and (buffer-file-name)
                               (file-name-directory (buffer-file-name)))))
          (preset-file (expand-file-name "preset.md" context-dir)))
@@ -144,7 +158,8 @@ TOOL is the tool name (used to determine read vs write)."
 
         (let* ((yaml-end (match-beginning 0))
                (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (parsed (jf/gptel-scope--vectorp-to-list
+                       (yaml-parse-string yaml-content :object-type 'plist)))
                (paths (or (plist-get parsed :paths) (list)))
                (section-paths (or (plist-get paths target-section) '()))
                (post-yaml (buffer-substring (match-end 0) (point-max))))
@@ -188,7 +203,8 @@ TOOL is the org-roam tool name."
 
         (let* ((yaml-end (match-beginning 0))
                (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (parsed (jf/gptel-scope--vectorp-to-list
+                       (yaml-parse-string yaml-content :object-type 'plist)))
                (org-roam (or (plist-get parsed :org_roam_patterns) (list)))
                (post-yaml (buffer-substring (match-end 0) (point-max))))
 
@@ -241,7 +257,8 @@ TOOL is the org-roam tool name."
 
         (let* ((yaml-end (match-beginning 0))
                (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (parsed (jf/gptel-scope--vectorp-to-list
+                       (yaml-parse-string yaml-content :object-type 'plist)))
                (shell-cmds (or (plist-get parsed :shell_commands) (list)))
                (allow-list (or (plist-get shell-cmds :allow) '()))
                (post-yaml (buffer-substring (match-end 0) (point-max))))
@@ -259,6 +276,20 @@ TOOL is the org-roam tool name."
             (insert "---\n")
             (insert post-yaml)
             (write-region (point-min) (point-max) preset-file nil 'silent)))))))
+
+(defun jf/gptel-scope--vectorp-to-list (obj)
+  "Recursively convert vectors to lists in OBJ (plist or nested structure)."
+  (cond
+   ;; Vector: convert to list and recurse
+   ((vectorp obj)
+    (mapcar #'jf/gptel-scope--vectorp-to-list (append obj nil)))
+
+   ;; List: recurse on each element
+   ((listp obj)
+    (mapcar #'jf/gptel-scope--vectorp-to-list obj))
+
+   ;; Other: return as-is
+   (t obj)))
 
 (defun jf/gptel-scope--write-yaml-plist (plist)
   "Write PLIST as YAML to current buffer.
@@ -335,16 +366,17 @@ Handles nested structures for paths, org_roam_patterns, and shell_commands."
                   (dolist (item value)
                     (insert (format "  - %s\n" item))))))))
 
-(defun jf/gptel-scope--prompt-expansion (violation-info)
+(defun jf/gptel-scope--prompt-expansion (violation-info callback patterns tool-name)
   "Show expansion UI for VIOLATION-INFO.
-VIOLATION-INFO is a plist with :tool, :resource, :reason, :validation-type,
-:allowed-patterns, etc.
-
-Stores violation in buffer-local var and displays transient menu."
-  (setq jf/gptel-scope--current-violation violation-info)
-
-  ;; Launch transient menu
-  (jf/gptel-scope-expansion-menu))
+CALLBACK is the gptel async callback to invoke with JSON result.
+PATTERNS is the list of patterns to add if approved.
+TOOL-NAME is the tool requesting expansion.
+VIOLATION-INFO is a plist with :tool, :resource, :reason, :validation-type."
+  (transient-setup 'jf/gptel-scope-expansion-menu nil nil
+                   :scope (list :violation violation-info
+                               :callback callback
+                               :patterns patterns
+                               :tool-name tool-name)))
 
 (provide 'jf-gptel-scope-expansion)
 ;;; scope-expansion.el ends here

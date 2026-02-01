@@ -176,13 +176,16 @@ Run this after gptel-agent-update to inject skill content into agents."
 ;; Load scope-commands BEFORE session-commands (session-commands requires scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-commands.el" jf/emacs-dir))
 
+;; Load scope-expansion (UI for handling scope violations)
+(jf/load-module (expand-file-name "config/gptel/scope/scope-expansion.el" jf/emacs-dir))
+
 ;; Load PersistentAgent tool (requires session modules to be loaded first)
 (jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
 
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
-;; Load remaining scope system modules (scope-core and scope-commands already loaded above)
+;; Load remaining scope system modules (scope-core, scope-commands, scope-expansion already loaded above)
 ;; Scope-aware tools check approved patterns internally and return
 ;; structured errors to LLM when operations are outside scope
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
