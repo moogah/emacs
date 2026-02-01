@@ -85,7 +85,7 @@
         (funcall callback
                  (json-serialize
                   (list :success t
-                        :patterns_added patterns
+                        :patterns_added (vconcat patterns)  ; Convert list to vector for JSON array
                         :message (format "Scope expanded. Added %d pattern(s) to %s"
                                        (length patterns) tool-name))))))
 
