@@ -142,8 +142,9 @@ with zero inheritance from the parent session."
   (let ((where (point-marker)))
 
     ;; Create nested agent directory and session ID
+    ;; Agents are created under the current branch, not at session root
     (let* ((session-dir (jf/gptel--create-agent-directory
-                         jf/gptel--session-dir preset description))
+                         jf/gptel--branch-dir preset description))
            (session-id (jf/gptel--session-id-from-directory session-dir)))
 
       ;; Copy preset template directly (file-first approach)

@@ -132,14 +132,20 @@ the primary resource identifier (filepath, node-id, command, etc.)."
       :function
       (lambda (&rest raw-args)
         (condition-case err
-            (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
+            (cl-block nil
+              (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
                    ,@(cl-mapcar (lambda (name idx)
                                  `(,name (nth ,idx normalized-args)))
                                arg-names
                                (number-sequence 0 (1- (length arg-names))))
                    (config (jf/gptel-scope--load-config)))
 
-              ;; Check config exists
+              ;; Check allow-once FIRST (before checking if config exists)
+              ;; Allow-once permissions should work even if config loading fails
+              (when (jf/gptel-scope--check-allow-once ,name normalized-args config)
+                (cl-return-from nil (progn ,@body)))
+
+              ;; Check config exists (only if allow-once didn't grant permission)
               (unless config
                 (cl-return-from nil
                   (list :success nil
@@ -158,7 +164,7 @@ the primary resource identifier (filepath, node-id, command, etc.)."
                   (jf/gptel-scope--format-tool-error
                    ,name
                    (nth 0 normalized-args)  ; Primary resource (first arg)
-                   check-result))))
+                   check-result)))))
 
           ;; Handle unexpected errors
           (error
