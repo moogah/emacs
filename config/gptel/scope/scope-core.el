@@ -603,6 +603,28 @@ CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny_patterns"
                              resource)))))
 ;; Format Tool Error:1 ends here
 
+;; Vector to List Conversion
+
+;; Helper function to convert vectors to lists in parsed YAML structures.
+;; YAML parser returns vectors for arrays, but elisp code expects lists.
+
+
+;; [[file:scope-core.org::*Vector to List Conversion][Vector to List Conversion:1]]
+(defun jf/gptel-scope--vectorp-to-list (obj)
+  "Recursively convert vectors to lists in OBJ (plist or nested structure)."
+  (cond
+   ;; Vector: convert to list and recurse
+   ((vectorp obj)
+    (mapcar #'jf/gptel-scope--vectorp-to-list (append obj nil)))
+
+   ;; List: recurse on each element
+   ((listp obj)
+    (mapcar #'jf/gptel-scope--vectorp-to-list obj))
+
+   ;; Other: return as-is
+   (t obj)))
+;; Vector to List Conversion:1 ends here
+
 ;; Preset Path Updater
 
 ;; Helper function for updating paths section in preset.md files.
@@ -641,7 +663,8 @@ and writes the modified content back to the file."
         (let* ((yaml-end (match-beginning 0))
                (post-yaml-start (match-end 0))
                (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (yaml-parse-string yaml-content :object-type 'plist))
+               (parsed (jf/gptel-scope--vectorp-to-list
+                       (yaml-parse-string yaml-content :object-type 'plist)))
                (post-yaml (buffer-substring post-yaml-start (point-max))))
           (save-match-data
             (message "DEBUG: post-yaml extracted from %d, length=%d bytes" post-yaml-start (length post-yaml)))

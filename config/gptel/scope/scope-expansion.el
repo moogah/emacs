@@ -277,20 +277,6 @@ TOOL is the org-roam tool name."
             (insert post-yaml)
             (write-region (point-min) (point-max) preset-file nil 'silent)))))))
 
-(defun jf/gptel-scope--vectorp-to-list (obj)
-  "Recursively convert vectors to lists in OBJ (plist or nested structure)."
-  (cond
-   ;; Vector: convert to list and recurse
-   ((vectorp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list (append obj nil)))
-
-   ;; List: recurse on each element
-   ((listp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list obj))
-
-   ;; Other: return as-is
-   (t obj)))
-
 (defun jf/gptel-scope--write-yaml-plist (plist)
   "Write PLIST as YAML to current buffer.
 Handles nested structures for paths, org_roam_patterns, and shell_commands."

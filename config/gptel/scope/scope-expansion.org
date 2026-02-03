@@ -347,26 +347,6 @@ TOOL is the org-roam tool name."
 
 * YAML Helper Functions
 
-** Vector to List Converter
-
-Recursively convert all vectors in a plist to lists (YAML parser returns vectors).
-
-#+begin_src emacs-lisp
-(defun jf/gptel-scope--vectorp-to-list (obj)
-  "Recursively convert vectors to lists in OBJ (plist or nested structure)."
-  (cond
-   ;; Vector: convert to list and recurse
-   ((vectorp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list (append obj nil)))
-
-   ;; List: recurse on each element
-   ((listp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list obj))
-
-   ;; Other: return as-is
-   (t obj)))
-#+end_src
-
 ** YAML Writer
 
 Helper function to serialize plist to YAML format.
