@@ -807,7 +807,15 @@ and writes the modified content back to the file."
 
                          ;; Simple key-value pairs
                          ((stringp value)
-                          (insert (format "%s: \"%s\"\n" key-name value)))
+                          ;; Check if string contains newlines - if so, use block scalar
+                          (if (string-match-p "\n" value)
+                              (progn
+                                (insert (format "%s: |\n" key-name))
+                                ;; Split into lines and indent each
+                                (dolist (line (split-string value "\n" t))
+                                  (insert (format "  %s\n" line))))
+                            ;; Single-line string - use quoted format
+                            (insert (format "%s: \"%s\"\n" key-name value))))
                          ((numberp value)
                           (insert (format "%s: %s\n" key-name value)))
                          ((symbolp value)
