@@ -5,44 +5,8 @@ description: >
   Uses tree-sitter AST analysis, ggtags semantic navigation, and projectile
   for deep code understanding. Can research external APIs/libraries via web search.
 tools:
-  - Glob
-  - Grep
-  - Read
-  - WebSearch
-  - WebFetch
-  - list_known_projects
-  - get_project_info
-  - list_project_files
-  - list_project_directories
-  - search_project_content
-  - check_ggtags_project
-  - find_definition
-  - find_references
-  - find_symbol
-  - list_treesitter_languages
-  - check_treesitter_parser
-  - list_functions
-  - list_classes
-  - list_imports
-  - extract_definition
-  - get_syntax_tree
-  - query_nodes
-  - find_nodes_by_type
-  - get_node_info
-  - get_node_context
-  - get_scope_structure
-  - list_sql_connections
-  - test_sql_connection
-  - list_sql_tables
-  - list_sql_views
-  - describe_sql_table
-  - list_sql_indexes
-  - list_sql_foreign_keys
-  - get_sql_table_stats
-  - execute_sql_select
-  - explain_sql_query
-  - count_sql_rows
-  - sample_sql_table
+  - read_file
+  - request_scope_expansion
 backend: Claude
 model: claude-sonnet-4-5-20250929
 temperature: 0.5

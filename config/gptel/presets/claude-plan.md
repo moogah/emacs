@@ -11,7 +11,6 @@ tools:
   - write_file_in_scope
   - edit_file_in_scope
   - request_scope_expansion
-  - inspect_scope_plan
   - list_activity_worktrees
   - list_known_projects
   - get_project_info
