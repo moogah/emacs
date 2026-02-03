@@ -60,6 +60,16 @@ Format: <slug>-<timestamp>, e.g., 'react-refactoring-20260120153042'.")
   "Absolute path to the directory for the current session.
 All session files (context, metadata, tools log, etc.) are stored here.")
 
+(defvar-local jf/gptel--branch-name nil
+  "Name of the current branch within the session.
+Typically 'main' for the primary branch, or timestamped names for alternate branches.")
+
+(defvar-local jf/gptel--branch-dir nil
+  "Absolute path to the current branch directory.
+This is where preset.md, scope-plan.yml, and session.md files are located.
+For regular sessions: <session-dir>/branches/<branch-name>/
+For agents: <session-dir>/ (agents don't use branch subdirectories).")
+
 (defvar-local jf/gptel--parent-session-id nil
   "Session ID of parent session (for agents only).
 Nil for top-level sessions.")
