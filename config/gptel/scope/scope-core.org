@@ -401,33 +401,34 @@ Returns plist with:
   :resource STRING (the filepath, if denied)
   :tool STRING (tool name, if denied)
   :allowed-patterns LIST (if denied for not matching)."
-  (let* ((operation (plist-get category :operation))
-         (filepath (car args))  ; First arg is always filepath
-         (full-path (expand-file-name filepath))
-         (read-paths (plist-get config :paths-read))
-         (write-paths (plist-get config :paths-write))
-         (deny-paths (plist-get config :paths-deny))
-         (target-paths (if (eq operation 'read) read-paths write-paths)))
+  (cl-block jf/gptel-scope--validate-path-tool
+    (let* ((operation (plist-get category :operation))
+           (filepath (car args))  ; First arg is always filepath
+           (full-path (expand-file-name filepath))
+           (read-paths (plist-get config :paths-read))
+           (write-paths (plist-get config :paths-write))
+           (deny-paths (plist-get config :paths-deny))
+           (target-paths (if (eq operation 'read) read-paths write-paths)))
 
-    ;; Check deny first (highest priority)
-    (when (jf/gptel-scope--matches-any-pattern full-path deny-paths)
-      (cl-return-from jf/gptel-scope--validate-path-tool
-        (list :allowed nil
-              :reason "denied-pattern"
-              :resource full-path
-              :tool tool-name)))
+      ;; Check deny first (highest priority)
+      (when (jf/gptel-scope--matches-any-pattern full-path deny-paths)
+        (cl-return-from jf/gptel-scope--validate-path-tool
+          (list :allowed nil
+                :reason "denied-pattern"
+                :resource full-path
+                :tool tool-name)))
 
-    ;; Check allow patterns
-    (unless (jf/gptel-scope--matches-any-pattern full-path target-paths)
-      (cl-return-from jf/gptel-scope--validate-path-tool
-        (list :allowed nil
-              :reason "not-in-scope"
-              :resource full-path
-              :tool tool-name
-              :allowed-patterns target-paths)))
+      ;; Check allow patterns
+      (unless (jf/gptel-scope--matches-any-pattern full-path target-paths)
+        (cl-return-from jf/gptel-scope--validate-path-tool
+          (list :allowed nil
+                :reason "not-in-scope"
+                :resource full-path
+                :tool tool-name
+                :allowed-patterns target-paths)))
 
-    ;; Passed
-    (list :allowed t)))
+      ;; Passed
+      (list :allowed t))))
 #+end_src
 
 ** Pattern-Based Validator
@@ -532,34 +533,35 @@ Returns plist with:
   :resource STRING (the command, if denied)
   :tool STRING (tool name, if denied)
   :allowed-patterns LIST (allowlist, if denied for not matching)."
-  (let* ((command-full (car args))
-         (command-name (car (split-string command-full)))
-         (shell-config (plist-get config :shell-commands))
-         (allowed (plist-get shell-config :allow))
-         (denied (plist-get shell-config :deny)))
+  (cl-block jf/gptel-scope--validate-command-tool
+    (let* ((command-full (car args))
+           (command-name (car (split-string command-full)))
+           (shell-config (plist-get config :shell-commands))
+           (allowed (plist-get shell-config :allow))
+           (denied (plist-get shell-config :deny)))
 
-    ;; Check deny patterns (substring matching)
-    (when denied
-      (dolist (deny-pattern denied)
-        (when (string-match-p (regexp-quote deny-pattern) command-full)
-          (cl-return-from jf/gptel-scope--validate-command-tool
-            (list :allowed nil
-                  :reason "denied-command"
-                  :resource command-full
-                  :tool tool-name)))))
+      ;; Check deny patterns (substring matching)
+      (when denied
+        (dolist (deny-pattern denied)
+          (when (string-match-p (regexp-quote deny-pattern) command-full)
+            (cl-return-from jf/gptel-scope--validate-command-tool
+              (list :allowed nil
+                    :reason "denied-command"
+                    :resource command-full
+                    :tool tool-name)))))
 
-    ;; Check allowlist (exact command name match or wildcard)
-    (unless (or (member command-name allowed)
-                (member "*" allowed))
-      (cl-return-from jf/gptel-scope--validate-command-tool
-        (list :allowed nil
-              :reason "not-in-allowlist"
-              :resource command-full
-              :tool tool-name
-              :allowed-patterns allowed)))
+      ;; Check allowlist (exact command name match or wildcard)
+      (unless (or (member command-name allowed)
+                  (member "*" allowed))
+        (cl-return-from jf/gptel-scope--validate-command-tool
+          (list :allowed nil
+                :reason "not-in-allowlist"
+                :resource command-full
+                :tool tool-name
+                :allowed-patterns allowed)))
 
-    ;; Passed
-    (list :allowed t)))
+      ;; Passed
+      (list :allowed t))))
 #+end_src
 
 ** Tool Permission Dispatch
