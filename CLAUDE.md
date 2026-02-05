@@ -1,249 +1,80 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Repository Overview
 
-This is an **isolated, modular Emacs configuration** using literate programming. It runs completely independent of system Emacs installations via git worktrees and a three-tier architecture (development, testing, production).
+Isolated, modular Emacs configuration using **literate programming**. Runs independently via git worktrees with three-tier architecture (development, testing, production).
 
-## Critical Architecture Concepts
+## Core Concepts
 
-### Literate Programming Workflow
+### Literate Programming
 
-**Source of truth:** `.org` files contain both documentation and tangled code.
+**Workflow:** Edit `.org` files → tangle to `.el` → Emacs loads `.el`
 
-**Core principle:** `.org` files are source of truth → tangle to `.el` files → Emacs loads `.el` files
-
-**Required workflow for all changes:**
-1. Edit `.org` file (never edit `.el` directly)
-2. Tangle and validate: `./bin/tangle-org.sh path/to/file.org`
-   - Automatically tangles to `.el` file
-   - Automatically validates with `check-parens`
-   - Exits with error if validation fails
-3. Commit **both** `.org` and `.el` files
-
-**Why both files in git:** Preserves history, allows diffs, ensures generated code matches source.
-
-**CRITICAL:** DO NOT edit `.el` files directly - they get overwritten when tangled.
-
-#### Tangling Methods
-
-**Auto-Tangle (Primary Method)**
-- **Trigger**: Save the `.org` file
-- **Requirement**: `#+auto_tangle: y` header in file
-- **Result**: Automatically generates `.el` file
-
-**Manual Tangle in Emacs**
-- **When**: Auto-tangle fails or disabled
-- **Command**: `C-c C-v t` (org-babel-tangle)
-
-**CLI Tangling (bin/tangle-org.sh)**
 ```bash
-# Single file - tangles AND validates automatically
-./bin/tangle-org.sh config/major-modes/org.org
-
-# All org files - each is validated after tangling
-find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
+# Always edit .org files, never .el directly
+./bin/tangle-org.sh config/major-modes/org.org  # tangles AND validates
 ```
 
-**Features**:
-- Auto-finds Emacs binary (uses `/Applications/Emacs.app/Contents/MacOS/Emacs` on macOS)
-- Validates tangled `.el` files with `check-parens` automatically
-- Fails with error if validation detects syntax errors
-- Batch mode with clear error messages
-
-#### Manual Validation
-
-Rarely needed - `./bin/tangle-org.sh` auto-validates. For manual checks:
-```bash
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"
-```
-
-#### Required File Headers
-
+**Required headers:**
 ```org
 #+title: Module Name
 #+property: header-args:emacs-lisp :tangle module-name.el
 #+auto_tangle: y
 ```
 
-#### Keeping Babel Blocks Focused
+**Key rules:**
+- Edit `.org` files only - `.el` files are generated and overwritten
+- Commit both `.org` and `.el` files together
+- Keep babel blocks small (one function per block for easy debugging)
+- `./bin/tangle-org.sh` auto-validates with `check-parens`
 
-**Principle:** Keep org-babel blocks small - typically one function per block. This enables effective bisection debugging and incremental validation.
+### Launch Methods
 
-**Group only when closely related:**
-- Multiple `defvar` declarations
-- Short helper macros/constants used by a single function
-- Very simple related functions (< 5 lines each)
+Launch via macOS GUI (Emacs.app) or `./bin/emacs-isolated.sh` - both isolate to `runtime/` directory. Init files (`early-init.el`, `init.el`, `init.org`) MUST be at repository root.
 
-**Avoid:** Multiple unrelated functions in one block - makes debugging syntax errors difficult.
+### Path Resolution
 
-#### After Tangling
+- `jf/emacs-dir` - Repository root
+- Module paths use `config/` prefix: `"core/defaults"` → `config/core/defaults.el`
+- `jf/resolve-module-path` handles both `"core/defaults"` and `"transient"` formats
 
-1. **Restart Emacs** or use `jf/reload-module` to load changes
-2. **Test changes** ensure they work
-3. **Commit both files** - keep .org and .el in sync
+### Git Worktree Architecture
 
-#### Common Literate Programming Mistakes
+Three tiers: `~/emacs/` (development), `~/emacs-<feature>/` (testing), `~/.emacs.d/` (production).
 
-| Mistake | Why Bad | Fix |
-|---------|---------|-----|
-| Editing `.el` files directly | Changes overwritten on next tangle | Edit `.org` file instead |
-| Committing only `.org` | `.el` out of sync, breaks config | Commit both `.org` and `.el` |
-| Forgetting to tangle | Changes in `.org` not applied | Save (auto-tangle) or `./bin/tangle-org.sh` |
-| Missing `#+auto_tangle: y` | Manual tangling required | Add header to `.org` file |
-| Property line not activated | Tangling fails silently | Press `C-c C-c` on `#+PROPERTY` line |
-| Syntax errors in org blocks | Breaks config on load | `./bin/tangle-org.sh` catches these |
-| Large babel blocks with many functions | Hard to debug syntax errors | Keep blocks focused - one function per block |
-
-### Dual-Launch Support
-
-The repository supports two launch methods that both work seamlessly:
-
-1. **From Applications** (macOS GUI): Emacs finds `early-init.el` and `init.el` at repository root automatically
-2. **Via script**: `./bin/emacs-isolated.sh` explicitly sets `EMACS_USER_DIRECTORY`
-
-**Key mechanism (early-init.el):**
-- Priority 1: Use `EMACS_USER_DIRECTORY` env var if set by script
-- Priority 2: Use local `runtime/` directory if it exists
-- Result: Both methods isolate to `runtime/` directory
-
-**Critical:** Init files MUST be at repository root (not in `config/`) for automatic discovery.
-
-### Directory Paths Resolution
-
-**jf/emacs-dir:** Points to repository root (where init.el lives)
-```elisp
-(defvar jf/emacs-dir
-  (file-name-directory (or load-file-name buffer-file-name)))
-```
-
-**Module paths:** All module paths include `config/` prefix:
-```elisp
-(expand-file-name "config/core/defaults.el" jf/emacs-dir)
-```
-
-**Critical invariant:** Module loading function (`jf/resolve-module-path`) handles both formats:
-- With subdirectory: `"core/defaults"` → `config/core/defaults.el`
-- Without subdirectory: `"transient"` → `config/transient.el`
-
-### Three-Tier Git Worktree Architecture
-
-```
-~/emacs/                      - Development (main branch, potentially unstable)
-~/emacs-<feature-name>/       - Testing (feature branches, multiple allowed)
-~/.emacs.d/                   - Production (release tags, used by host OS)
-```
-
-**Multiple testing worktrees supported:** Each feature branch gets its own meaningfully-named directory:
-```
-~/emacs-gptel-session-tools/  - Feature: gptel session tools
-~/emacs-performance-tuning/   - Feature: performance improvements
-~/emacs-new-theme/            - Feature: theme customization
-```
-
-**Each worktree has independent `runtime/` directory** containing:
-- `packages/` - straight.el installed packages
-- `cache/` - Emacs cache files
-- `state/` - Session state
-- `snippets/` - Git submodule
-- `templates/` - Git submodule
-
-**Creating worktrees:** Always use absolute paths with meaningful names to create siblings (not subdirectories):
+Each worktree has independent `runtime/` directory. Use absolute paths for siblings:
 ```bash
-git worktree add ~/emacs-gptel-session-tools -b gptel-session-tools    # Good
-git worktree add emacs-testing -b feature-name                          # Bad (creates subdirectory)
+git worktree add ~/emacs-feature-name -b feature-name        # Good
+./bin/init-worktree-runtime.sh ~/emacs-feature-name         # Copy packages (fast)
+cd ~/emacs-feature-name && git submodule update --init      # Init submodules
 ```
 
 ### Module System
 
-**Modular Loading:** This Emacs config uses `jf/enabled-modules` list and `jf/load-module()` function for explicit module control with error handling.
+Modules defined in `jf/enabled-modules` list in `init.org`, loaded with error handling.
 
-**Core principle:** Define modules in list → loader finds files → loads with error handling → config continues even if module fails
+**Loading order critical:**
+- `transient` before `language-modes` and `major-modes/magit`
+- `major-modes/magit` before `major-modes/org`
 
-**Module loading order matters.** Defined in `init.org` via `jf/enabled-modules`:
+**Key functions:**
+- `jf/load-module` - Auto-loads during init with error handling
+- `jf/reload-module` - Interactive reload for testing (M-x)
+- `jf/module-debug` - Set to `t` for verbose output
 
-Critical dependencies:
-- `transient` MUST load before `language-modes` (docker.el requires it)
-- `transient` MUST load before `major-modes/magit`
-- `major-modes/magit` MUST load before `major-modes/org` (org loads orgit)
+**Adding modules:** Add to `jf/enabled-modules`, create `.org` file, test with `jf/reload-module`.
 
-**Module structure:**
-```elisp
-(defvar jf/enabled-modules
-  '(("category/module-name" "Description")
-    ...))
-```
+### Packages (straight.el)
 
-**Module resolution:** Paths are relative to `config/`:
-- `"core/defaults"` → `config/core/defaults.el`
-- `"gptel/gptel"` → `config/gptel/gptel.el`
+Uses straight.el (not package.el). Storage in `runtime/straight/`.
 
-#### Key Module System Variables and Functions
-
-| Name | Type | Purpose |
-|------|------|---------|
-| `jf/enabled-modules` | Variable | List of modules to load in init.org |
-| `jf/load-module` | Function | Loads module with error handling (automatic during init) |
-| `jf/reload-module` | Function | Interactive reload for testing (`M-x jf/reload-module`) |
-| `jf/resolve-module-path` | Function | Converts module path to file path |
-| `jf/emacs-dir` | Variable | Root emacs directory |
-| `jf/machine-name` | Variable | Current hostname |
-| `jf/module-debug` | Variable | Set to `t` for verbose loading output |
-
-#### Adding New Modules
-
-1. Add to `jf/enabled-modules` in init.org:
-```elisp
-(setq jf/enabled-modules
-  '("core/completion"
-    "major-modes/org-roam"
-    "your-new-module"))  ; Add here
-```
-
-2. Create module file following literate programming structure
-3. Test with `M-x jf/reload-module` before full restart
-
-#### Module Loading Details
-
-**jf/load-module**: Loads module with error handling
-- Continues loading even if module fails
-- Error details go to `*Messages*` buffer
-- Machine-specific configs auto-loaded from `config/local/{hostname}.el`
-
-**jf/reload-module**: Interactive reload for testing
-- Use for iterative development
-- No need to restart Emacs
-
-**jf/resolve-module-path**: Converts module path to file path
-- Handles category directories automatically
-- Resolves relative to `jf/emacs-dir`
-
-#### Package Management (straight.el)
-
-**Configuration:**
-- **Package manager**: straight.el (not package.el)
-- **Default behavior**: `straight-use-package-by-default t`
-- **Storage**: `runtime/straight/`
-
-**Package Template:**
 ```elisp
 (use-package package-name
   :straight (package-name :type git :host github :repo "user/repo")
-  :bind (("C-c k" . package-function))
-  :hook (mode . package-mode)
-  :config
-  (setq package-setting value))
+  :config (setq package-setting value))
 ```
-
-**Common Package Issues:**
-
-| Issue | Solution |
-|-------|----------|
-| Package won't install | Check `*Messages*` for errors, verify repo access |
-| Stale package | `M-x straight-rebuild-package` |
-| Corrupted cache | Delete straight directories, restart |
-| Wrong version | Check straight recipe, rebuild package |
 
 ### GPTEL Architecture
 
@@ -280,452 +111,65 @@ gptel/
 - Reads metadata on-demand from filesystem (single source of truth)
 - Eliminates cache invalidation complexity
 
-## Common Development Commands
-
-### Literate Programming
+## Common Commands
 
 ```bash
-# Tangle single file (auto-validates)
+# Tangle and validate
 ./bin/tangle-org.sh config/core/defaults.org
 
-# Tangle all org files
-find config/ -name "*.org" -exec ./bin/tangle-org.sh {} \;
-```
-
-### Testing Configuration
-
-```bash
-# Launch isolated instance
+# Test configuration
 ./bin/emacs-isolated.sh
+./bin/emacs-isolated.sh -nw  # Terminal mode
 
-# Launch with debug enabled (shows module loading)
-# Edit init.org: (setq jf/module-debug t)
-./bin/tangle-org.sh init.org && ./bin/emacs-isolated.sh
-
-# Test in terminal mode
-./bin/emacs-isolated.sh -nw
-```
-
-### Worktree Management
-
-```bash
-# Create testing worktree with meaningful name
-git worktree add ~/emacs-gptel-session-tools -b gptel-session-tools
-
-# Test in worktree
-cd ~/emacs-gptel-session-tools
-./bin/emacs-isolated.sh
-
-# List all worktrees (shows lock status)
-git worktree list
-
-# Clean up worktree when done
-git worktree remove ~/emacs-gptel-session-tools
-git branch -d gptel-session-tools
-
-# Update production worktree to new release
-cd ~/.emacs.d
-git checkout v0.3.0
-```
-
-#### Protecting Worktrees
-
-**Lock production worktree** to prevent accidental deletion or modification:
-```bash
-# Lock with descriptive reason
-git worktree lock ~/.emacs.d --reason "Production Emacs config - do not delete"
-
-# Verify lock status (shows "locked" indicator)
-git worktree list
-
-# Unlock if needed
-git worktree unlock ~/.emacs.d
-```
-
-**Why lock:** Locked worktrees require `--force --force` to remove, preventing accidental deletion. The production worktree at `~/.emacs.d` should always be locked since it's used by the host OS.
-
-**Magit limitation:** Magit doesn't currently support lock/unlock commands. Use git command line for locking operations.
-
-#### Runtime Sharing for Worktrees
-
-**Problem:** By default, each new worktree requires straight.el to clone 142 package repos (746MB) and build 140 packages (175MB) from scratch on first launch. This takes significant time and bandwidth.
-
-**Solution:** Copy the `runtime/straight/` directory from an existing worktree (usually `~/emacs`) to new worktrees, reusing cloned repos and built packages.
-
-**Quick Start:**
-```bash
-# Create new worktree
+# Worktree workflow
 git worktree add ~/emacs-feature-name -b feature-name
+./bin/init-worktree-runtime.sh ~/emacs-feature-name  # Copy packages (746MB)
+./bin/invalidate-runtime.sh                           # Force rebuild
+git worktree lock ~/.emacs.d --reason "Production"   # Protect production
 
-# Copy runtime from main worktree (fast local copy vs slow download)
-./bin/init-worktree-runtime.sh ~/emacs-feature-name
-
-# Initialize submodules
-cd ~/emacs-feature-name
-git submodule update --init
-
-# Launch Emacs (packages already installed!)
-./bin/emacs-isolated.sh
-```
-
-**Alternative - Automatic initialization:**
-```bash
-# First launch automatically copies runtime if needed
-cd ~/emacs-feature-name
-./bin/emacs-isolated.sh --init-runtime
-```
-
-**What gets copied:**
-- `runtime/straight/repos/` (746MB) - Git clones of all packages
-- `runtime/straight/build/` (175MB) - Built/compiled packages
-- `runtime/straight/build-cache.el` (529KB) - Build cache metadata
-
-**What does NOT get copied (worktree-specific state):**
-- `custom.el` - User customizations
-- `org-roam.db` - Org-roam database
-- `history`, `bookmarks`, `recentf`, `projectile-bookmarks.eld` - Session files
-- `cache/`, `state/`, `data/`, `persist/`, `backups/` - Runtime state
-- `snippets/`, `templates/` - Git submodules (use `git submodule update --init`)
-
-**Invalidating Runtime (Force Rebuild):**
-```bash
-# Remove all packages from current worktree (forces full rebuild)
-./bin/invalidate-runtime.sh
-
-# Remove specific package (forces rebuild of just that package)
-./bin/invalidate-runtime.sh magit
-
-# Remove packages from specific worktree
-./bin/invalidate-runtime.sh --worktree ~/emacs-feature-name
-
-# Skip confirmation prompt
-./bin/invalidate-runtime.sh --force
-```
-
-**Copy from alternate source:**
-```bash
-# Copy from production instead of main worktree
-./bin/init-worktree-runtime.sh ~/emacs-feature-name --source ~/.emacs.d
-```
-
-**When to invalidate runtime:**
-- Testing fresh package installation
-- Package versions need updating (shared packages may mask version differences)
-- Build artifacts appear corrupted
-- Switching between branches with different package requirements
-
-**Trade-offs:**
-- **Pro:** Dramatically faster worktree creation (local copy vs internet download)
-- **Pro:** Reduces bandwidth usage
-- **Pro:** Identical package versions across worktrees (unless explicitly invalidated)
-- **Con:** Requires manual step after `git worktree add` (or use `--init-runtime`)
-- **Con:** Shared packages may mask version differences between branches
-- **Con:** Each worktree still uses disk space (but that's already true)
-
-### Release Management
-
-```bash
-# Create release candidate
+# Release management
 git tag -a v0.3.0-rc1 -m "Description"
-
-# Update production to RC for testing
-cd ~/.emacs.d
-git checkout v0.3.0-rc1
-
-# Promote RC to stable after testing
-cd ~/emacs
-git tag -a v0.3.0 -m "Stable release"
-cd ~/.emacs.d
-git checkout v0.3.0
+cd ~/.emacs.d && git checkout v0.3.0-rc1
 ```
 
-## Development Workflow with Git
+## Development Workflow
 
-This section describes the iterative development workflow for making changes to the Emacs configuration. The workflow emphasizes **granular milestone commits** and a clear separation of responsibilities between Claude Code and the user.
+**Iteration cycle:** Edit `.org` → tangle/validate → stage → user tests → feedback → iterate → commit milestone.
 
-### Starting from Clean State
-
-**Always begin from a clean git state:**
+Commits should be granular (working module/component), not entire features. User creates commits with co-authoring:
 
 ```bash
-# Check current status
-git status
+git commit -m "Brief milestone description
 
-# Start from clean main branch
-git checkout main
-git pull
-
-# Create feature branch
-git checkout -b feature-name
-
-# OR create dedicated worktree (recommended for larger features)
-git worktree add ~/emacs-feature-name -b feature-name
-cd ~/emacs-feature-name
-./bin/init-worktree-runtime.sh ~/emacs-feature-name
-git submodule update --init
-```
-
-**Why start clean:** Ensures changes are isolated and easily trackable. See [Worktree Management](#worktree-management) for details on worktree setup.
-
-### Implementation and Validation Cycle
-
-**Claude Code's responsibilities:**
-1. Edit `.org` source files (never `.el` directly)
-2. Tangle: `./bin/tangle-org.sh path/to/file.org` (auto-validates)
-3. Stage files if validation passes
-
-**This cycle repeats for each iteration based on user feedback.**
-
-### Staging Changes
-
-**CRITICAL: Claude stages changes but DOES NOT commit.**
-
-After validation passes:
-```bash
-# Stage both .org and .el files
-git add config/path/to/file.org config/path/to/file.el
-
-# Stage multiple related files
-git add init.org init.el config/gptel/gptel.org config/gptel/gptel.el
-```
-
-**Why stage without committing:**
-- User needs to test changes in a running Emacs instance
-- Allows for iterative refinement before milestone
-- User controls when a development milestone is reached
-
-### User Testing and Iteration
-
-**User's responsibilities:**
-1. Launch Emacs with staged changes: `./bin/emacs-isolated.sh`
-2. Test functionality works as expected
-3. Check `*Messages*` buffer for errors or warnings
-4. Provide feedback to Claude Code for refinements
-
-**Iteration cycle:**
-- If issues found: User describes problem → Claude adjusts → repeat from Implementation Cycle
-- If working: Continue testing until confident milestone is reached
-
-### Committing Development Milestones
-
-**When user determines a milestone is reached:**
-
-```bash
-# User creates commit (not Claude!)
-git commit -m "Brief description of milestone
-
-More detailed explanation of what was implemented.
-What was tested and verified.
+Detailed explanation and what was tested.
 
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ```
 
-**Milestone commit guidelines:**
-- Commit when a module/component works in isolation
-- Include clear description of what was tested
-- Note any limitations or next steps in commit body
-- Always co-author with Claude Code
+## Key Locations
 
-**Important:** User creates commits, not Claude. Claude only stages files.
+**Root:** `early-init.el`, `init.el`, `init.org` (MUST be at root)
+**Config:** `config/core/`, `config/gptel/`, `config/major-modes/`, `config/language-modes/`, `config/local/`
+**Runtime:** `runtime/straight/`, `runtime/cache/`, `runtime/state/` (gitignored)
 
-### Milestone Granularity
+**Machine roles:** `~/.machine-role` → `config/local/<role>.el` (apploi-mac, personal-mac, personal-mac-air)
 
-Milestones should be granular - a module/component tested in isolation, not a complete feature. Good: "Add metadata tracking to gptel sessions" (core structure working). Too coarse: "Complete gptel session management feature" (entire system). Too fine: "Fix typo in comment" (trivial change).
+## Writing and Debugging Elisp
 
-### Example Development Cycle
+**Validate after each function** using `./bin/tangle-org.sh file.org` - never skip validation for complex nested forms (cl-loop, multiple let*, lambdas, 3+ nesting levels).
 
-Standard flow: Claude edits `.org` → tangles/validates → stages files → User tests in Emacs → provides feedback → iterate until milestone reached → User commits. Repeat for next milestone.
+### Debugging Paren Errors
 
-### Integration with Existing Workflows
+**Bisection (preferred):** Disable file-level tangling, enable per-subtree with `:header-args:emacs-lisp: :tangle file.el` in PROPERTIES drawer. Run `./bin/tangle-org.sh` after each subtree.
 
-**This workflow integrates with:**
-- [Literate Programming Workflow](#literate-programming-workflow) - Always edit `.org` then tangle
-- [Worktree Management](#worktree-management) - Use worktrees for feature isolation
-- [Release Management](#release-management) - Milestones accumulate into releases
+**Error patterns:**
+- `Wrong type argument: sequencep, function-name` = missing closing paren
+- `scan-error` = extra closing paren earlier in file
 
-**Key workflow principle:** Small, tested, working increments accumulate into complete features.
-
-## Critical File Locations
-
-### Repository Root
-- `early-init.el` - Pre-UI initialization, sets up isolation (MUST be at root)
-- `init.el` - Main entry point, loads modules (MUST be at root)
-- `init.org` - Source of truth for init.el (MUST be at root)
-
-### Configuration
-- `config/core/` - Core functionality (17+ modules)
-- `config/gptel/` - LLM/AI integration (40 files total)
-- `config/major-modes/` - Major mode configs (magit, org, org-roam, dirvish)
-- `config/language-modes/` - Programming languages
-- `config/look-and-feel/` - UI theming
-- `config/local/` - Machine-specific configs (not in git, plain `.el` files)
-
-### Runtime (gitignored)
-- `runtime/packages/` - straight.el packages
-- `runtime/straight/` - straight.el internal state
-- `runtime/cache/`, `runtime/state/`, `runtime/data/`
-
-## Machine Roles
-
-Uses `~/.machine-role` file for stable identification. Config loaded from `config/local/<role>.el` (plain `.el`, no `.org` source).
-
-Available roles: `apploi-mac`, `personal-mac`, `personal-mac-air`
-
-## Common Pitfalls
-
-### Path Resolution Issues
-
-**Problem:** Module can't be found
-**Cause:** Missing `config/` prefix in path or init files not at root
-**Fix:** Ensure all `jf/load-module` calls use paths that resolve correctly via `jf/resolve-module-path`
-
-### Transient Version Conflicts
-
-**Problem:** `void-function transient--set-layout`
-**Cause:** Emacs 30.2 has old built-in transient v0.6.0
-**Fix:** Module order MUST have `transient` before `language-modes` and `major-modes/magit`
-
-### Dual-Launch Breaks
-
-**Problem:** Applications launch can't find init files
-**Cause:** Init files moved to `config/` subdirectory
-**Fix:** `early-init.el`, `init.el`, `init.org` MUST be at repository root
-
-### Module Path Typos
-
-**Problem:** Module loading fails with wrong path
-**Cause:** Forgot to update paths when moving modules
-**Fix:** Search and replace ALL references, including in `.org` source files, then retangle
-
-### Module Loading Issues
-
-**Problem:** Module fails to load or causes errors
-**Solutions:**
-1. Check variable: `C-h v jf/machine-name` to verify hostname
-2. Enable debug: `(setq jf/module-debug t)` in init.org
-3. Check messages: `*Messages*` buffer shows load errors
-4. Verify path: Module file must exist at resolved path
-5. Check list: Module must be in `jf/enabled-modules`
-
-### Common Mistakes Summary
-
-| Mistake | Why Bad | Fix |
-|---------|---------|-----|
-| Module not in list | Won't load | Add to `jf/enabled-modules` |
-| Wrong file path | Load fails | Check `jf/resolve-module-path` output |
-| No error checking | Silent failures | Check `*Messages*` buffer |
-| Restart for every change | Slow workflow | Use `jf/reload-module` for testing |
-| Using package.el | Wrong package manager | Use straight.el with use-package |
-| Skipping machine configs | Settings not applied | Machine configs auto-load from `config/local/{hostname}.el` |
-
-## When Making Structural Changes
-
-1. **Moving modules:** Update ALL references in `gptel.org`, `init.org`, parent modules
-2. **Adding new subsystem:** Create `.org` file with tangle header, add to `jf/enabled-modules`
-3. **Changing load order:** Edit `jf/enabled-modules` list in `init.org`, consider dependency chain
-4. **Reorganizing directories:** Update paths in source `.org` files, not `.el` files
-5. **Always:** Tangle (auto-validates) → Test → Commit both `.org` and `.el`
-
-## Secrets Management
-
-Sensitive values go in `~/.emacs-secrets.el` (outside repository), loaded automatically by init.el if present.
-
-Template: `.emacs-secrets.el.example` in repository root.
-
-## Writing and Validating Elisp
-
-Incremental validation prevents parenthesis errors. LLMs frequently produce paren errors in complex nested elisp.
-
-**Extra care needed:** Functions >20 lines, complex nested forms (cl-loop, multiple let*, lambdas), deeply nested expressions (3+ levels).
-
-### Incremental Validation Workflow
-
-The key principle: **validate after each function, before moving to the next**.
-
-1. **Write in small chunks** - One function at a time, not entire files
-2. **Validate immediately** - Run validation after each function
-3. **Use automated tools** - Never rely on visual inspection or manual counting
-4. **Test in isolation** - Extract to temp file if needed for testing
-5. **Fix before continuing** - Don't accumulate errors
-
-### Validation and Complexity
-
-**Validation:** Use `./bin/tangle-org.sh file.org` after each function - it auto-validates.
-
-**Complexity-based validation frequency:**
-- Simple nesting (2 levels): validate after 5-10 functions
-- Medium nesting (3 levels): validate after 2-3 functions
-- Deep nesting (4+ levels): validate after EACH function, or break into helpers
-
-**LLM-prone error patterns:** cl-loop with nested let*/lambdas, functions >50 lines, complex backquote expressions, deeply nested conditionals. Write these incrementally in 10-20 line chunks.
-
-### Tips for Writing Elisp
-
-1. **Never skip validation** - "It looks right" is not reliable for elisp
-2. **Start simple** - Write trivial version first, then add complexity
-3. **Test incrementally** - Don't write 100+ lines before first validation
-4. **Use git** - Commit working code frequently so you have rollback points
-5. **Break down complexity** - Helper functions are cheaper than debugging
-
-## Debugging Elisp
-
-Systematic debugging strategies for Emacs Lisp development, focusing on common error patterns like missing parentheses and Common Lisp compatibility issues.
-
-### Org-Babel Tangle Bisection Strategy
-
-For syntax errors in tangled .el files, use binary search:
-
-1. Set file-level `:tangle no` and `#+auto_tangle: nil`
-2. Enable tangling per subtree using PROPERTIES drawers: `:header-args:emacs-lisp: :tangle file.el`
-3. Run `./bin/tangle-org.sh file.org` after enabling each subtree
-4. When a subtree fails, narrow down to individual blocks with `:tangle file.el` on specific blocks
-
-This O(log n) approach beats manual inspection. Settings inherit down subtrees; precedence: block > subtree > file level.
-
-### Recognizing Common Error Patterns
-
-**Symbol appearing as value** (`Wrong type argument: sequencep, some-function-name`) = missing closing paren. Function definition incomplete, next defun name read as return value.
-
-**Containing expression ends prematurely** (`scan-error`) = extra closing paren earlier in file. Position shown is where scan stops, actual error in previous function.
-
-### Debugging Strategy for Paren Errors
-
-Preferred approach: **Org-babel tangle bisection** (see above) - most efficient for literate elisp files.
-
-Alternative strategies:
-- Isolate function in test block with `:tangle no`, evaluate with `C-c C-c`
-- Use `M-x check-parens` in buffer or `./bin/tangle-org.sh` in batch mode
-- Manual counting with nesting comments (last resort) - use `show-paren-mode` and `forward-sexp`
-
-### Common Lisp vs Emacs Lisp Gotchas
-
-**Always add `(require 'cl-lib)` at the top of your elisp files.**
-
-Common incompatibilities: `coerce` → `cl-coerce`, `return` → `cl-return`, `loop` → `cl-loop`. For early loop exit, use `cl-dotimes` with `cl-return`, or use manual flag pattern instead of return.
-
-### Git-Based Debugging Strategy
-
-When a file was recently working, isolate changes via git:
-
+**Git-based debugging:**
 ```bash
-# Find last working commit
 git log --oneline -- path/to/file.el
-
-# Test that commit
-git show <commit-hash>:path/to/file.el > /tmp/working.el
-/Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval "(progn (find-file \"/tmp/working.el\") (check-parens))"
-
-# Diff to find what changed
 git diff <working-commit> HEAD -- path/to/file.el
 ```
 
-The error is likely in one of the modified functions. Much faster than examining the entire file.
-
-### Automated Validation Tools
-
-Available tools for real-time validation:
-- **flyparens**: Highlights mismatched parens as you type
-- **Flycheck**: Byte-compiler checks (usually already configured)
-- **Save hooks**: Add `check-parens` to `before-save-hook` (blocks save until fixed)
-- **forward-sexp**: Programmatically scan for exact error position
-
+**Common Lisp gotchas:** Always `(require 'cl-lib)`. Use `cl-coerce`, `cl-return`, `cl-loop` (not CL versions).
