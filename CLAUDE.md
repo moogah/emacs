@@ -135,6 +135,37 @@ Detailed explanation and what was tested.
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ```
 
+### OpenSpec Workflow
+
+For non-trivial changes, use **OpenSpec** to plan before implementing:
+
+**When to use:**
+- New features or significant modifications
+- Changes requiring architectural decisions
+- Multi-file refactoring
+- Unclear requirements needing exploration
+
+**Invoke skills:**
+- `/opsx:explore` - Investigate and clarify requirements before planning
+- `/opsx:new` - Start structured change (proposal → design → tasks → implementation)
+- `/opsx:continue` - Progress to next artifact in workflow
+- `/opsx:ff` - Fast-forward through all artifacts to reach implementation
+- `/opsx:apply` - Implement tasks from change
+- `/opsx:verify` - Validate implementation matches artifacts
+- `/opsx:archive` - Archive completed change
+
+**Skip OpenSpec for:** Single-file edits, bug fixes, documentation updates, trivial changes.
+
+### Beads Issue Tracking
+
+Use **Beads** for tracking implementation work:
+
+**When to use:**
+- Converting OpenSpec changes to trackable issues: `/openspec-to-beads`
+- Working on existing bead: `/bead-implementation` (handles discovery and session protocol)
+
+**Database location:** `.beads/beads.db` (initialized with `bd init`)
+
 ## Key Locations
 
 **Root:** `early-init.el`, `init.el`, `init.org` (MUST be at root)
