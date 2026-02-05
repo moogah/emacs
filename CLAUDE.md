@@ -100,17 +100,6 @@ gptel/
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 ```
 
-#### Session Metadata Storage
-
-**Metadata migrated from metadata.json to scope-plan.yml + preset.md:**
-- `scope-plan.yml` - Session fields (session_id, created, updated, type, parent_session_id, agent_type)
-- `preset.md` - Configuration fields in YAML frontmatter (backend, model)
-
-**Registry simplified to runtime state only:**
-- Stores: `:session-id`, `:directory`, `:buffer`
-- Reads metadata on-demand from filesystem (single source of truth)
-- Eliminates cache invalidation complexity
-
 ## Common Commands
 
 ```bash
@@ -136,7 +125,7 @@ cd ~/.emacs.d && git checkout v0.3.0-rc1
 
 **Iteration cycle:** Edit `.org` → tangle/validate → stage → user tests → feedback → iterate → commit milestone.
 
-Commits should be granular (working module/component), not entire features. User creates commits with co-authoring:
+Commits should be granular (working module/component), not entire features. 
 
 ```bash
 git commit -m "Brief milestone description
