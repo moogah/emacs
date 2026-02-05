@@ -156,6 +156,104 @@ For non-trivial changes, use **OpenSpec** to plan before implementing:
 
 **Skip OpenSpec for:** Single-file edits, bug fixes, documentation updates, trivial changes.
 
+#### Spec Philosophy
+
+**Specs are behavioral contracts, not technical documentation.**
+
+OpenSpec specs (`openspec/specs/`) describe:
+- What a module does (behavior and intent)
+- Why it exists (responsibilities)
+- How it integrates with other modules (contracts)
+- Key invariants and constraints
+
+OpenSpec specs do NOT duplicate:
+- Implementation details → see `.org` files
+- API documentation → see `.org` files
+- Code structure → see `.org` files
+- Usage examples → see `.org` files
+
+The literate `.org` files are already comprehensive technical documentation. Specs provide the behavioral context for changes.
+
+#### Spec Organization
+
+Most modules get a single spec file:
+
+```
+openspec/specs/
+├── core/
+│   ├── module-system.md
+│   ├── completion.md
+│   └── evil.md
+└── major-modes/
+    ├── org-mode.md
+    └── magit.md
+```
+
+**Exception: gptel** is architecturally complex (31 modules, 4 subsystems) and gets its own directory:
+
+```
+openspec/specs/gptel/
+├── architecture.md    - Subsystem boundaries, integration points
+├── core.md           - Package integration, auth, main config
+├── sessions.md       - Session subsystem (8 modules)
+├── scope.md          - Scope control subsystem (7 modules)
+├── skills.md         - Skills subsystem (3 modules)
+└── tools.md          - Tools subsystem (10 modules)
+```
+
+#### Change Workflow with Delta Specs
+
+Changes use delta specs to control context and scope. The change's `specs/` directory mirrors the main `specs/` structure.
+
+**Isolated subsystem change:**
+```
+openspec/changes/add-session-export/
+└── specs/
+    └── gptel/
+        └── sessions.md    ← Only sessions context loaded
+```
+
+Claude loads:
+- `openspec/specs/gptel/architecture.md` (subsystem boundaries)
+- `openspec/specs/gptel/sessions.md` (existing session spec)
+- `openspec/changes/.../specs/gptel/sessions.md` (your delta)
+- NOT loaded: `gptel/{core,scope,skills,tools}.md`
+
+**Cross-subsystem integration:**
+```
+openspec/changes/sessions-scope-integration/
+└── specs/
+    └── gptel/
+        ├── architecture.md
+        ├── sessions.md
+        └── scope.md
+```
+
+Claude loads relevant subsystems only.
+
+**Non-gptel changes:**
+```
+openspec/changes/evil-completion-binding/
+└── specs/
+    └── core/
+        ├── evil.md
+        └── completion.md
+```
+
+All gptel specs remain invisible unless explicitly referenced.
+
+**Benefits:**
+- Cognitive load: Claude only sees relevant subsystems
+- Searchability: Focused, navigable specs
+- Change isolation: Delta specs naturally scope work
+- Context control: Create delta specs only for what you're modifying
+
+#### Bootstrapping Strategy
+
+1. **Create specs on-demand** - When making a change, create the spec
+2. **Start with gptel** - It's the architectural outlier (priority: `architecture.md` first)
+3. **Fill in organically** - Spec modules as you touch them
+
 ### Beads Issue Tracking
 
 Use **Beads** for tracking implementation work:
