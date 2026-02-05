@@ -1,8 +1,11 @@
-;;;; Emacs Bookmark Format Version 1 ;;;;
+;;;; Emacs Bookmark Format Version 1;;;; -*- coding: utf-8-emacs; mode: lisp-data -*-
 ;;; This format is meant to be slightly human-readable;
 ;;; nevertheless, you probably don't want to edit it.
 ;;; -*- End Of Bookmark File Format Version Stamp -*-
-;; Default/template bookmarks file
-;; Each machine should use its own bookmarks file: {machine-role}-bookmarks
-;; Configure in config/local/{machine-role}.el
-()
+(("org-capture-last-stored"
+ (filename . "~/org/roam/20260130171956-ggtags_session_scope_control_redesign.org")
+ (front-context-string)
+ (rear-context-string . "ontrol redesign\n")
+ (position . 115)
+ (last-modified 27004 55853 731809 0))
+)

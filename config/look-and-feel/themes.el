@@ -58,6 +58,7 @@
    '(default ((t (:background "black" :foreground "#F1F1F1"))))
    '(font-lock-comment-face ((t (:foreground "dark gray"))))
    '(font-lock-string-face ((t (:foreground "wheat1"))))
+   '(highlight ((t (:foreground "burlywood1" :background "inherit"))))
 
    ;; Magit diff faces
    '(magit-diff-hunk-heading ((t (:background "black" :foreground "dark gray"))))
