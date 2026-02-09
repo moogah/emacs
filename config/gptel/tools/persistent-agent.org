@@ -562,9 +562,9 @@ PROMPT is the detailed task instructions.
 ALLOWED-PATHS is optional array of file paths the agent can access.
 DENIED-PATHS is optional array of file paths the agent cannot access.
 
-If ALLOWED-PATHS is not specified, the agent inherits allowed paths from
-the parent session's scope plan. If specified as empty array [], agent has
-no path restrictions (reads from anywhere).
+If ALLOWED-PATHS is not specified or specified as empty array [], the agent
+has no read permissions. Paths are never inherited from the parent session -
+they must be explicitly provided.
 
 Creates a nested agent session under the current persistent session,
 launches the agent with tool support, displays progress in parent buffer
@@ -601,15 +601,9 @@ with zero inheritance from the parent session."
                (denied-paths-list (if (vectorp denied-paths)
                                      (append denied-paths nil)
                                    denied-paths))
-               ;; If allowed-paths not specified, inherit from parent preset.md
-               (effective-allowed-paths
-                (or allowed-paths-list
-                    ;; Inherit: read parent's preset.md and extract allowed read patterns
-                    (let ((parent-preset-file (expand-file-name "preset.md" jf/gptel--session-dir)))
-                      (when (file-exists-p parent-preset-file)
-                        (let ((parent-config (jf/gptel-scope--parse-preset-config parent-preset-file)))
-                          ;; Extract read paths from parent
-                          (plist-get parent-config :paths-read))))))
+               ;; Use allowed-paths as-is (nil or empty means no read permissions)
+               ;; No inheritance from parent - paths must be explicitly provided
+               (effective-allowed-paths allowed-paths-list)
                ;; Use denied-paths if provided, otherwise nil (helper will use defaults)
                (effective-denied-paths denied-paths-list)
                ;; Path to agent's preset.md

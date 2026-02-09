@@ -21,7 +21,10 @@
       "Bash(openspec instructions specs:*)",
       "Bash(openspec instructions apply:*)",
       "Bash(openspec list:*)",
-      "Bash(openspec:*)"
+      "Bash(openspec:*)",
+      "Bash(bd issue create:*)",
+      "Bash(bd --help:*)",
+      "Bash(bd create:*)"
     ]
   }
 }

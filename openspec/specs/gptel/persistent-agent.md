@@ -28,13 +28,14 @@ The tool SHALL be categorized as "meta" in the scope system, bypassing scope val
 - **THEN** the system requires preset (string from enum), description (string), and prompt (string) parameters
 - **AND** accepts optional allowed_paths (array of glob patterns) and denied_paths (array of glob patterns)
 
-#### Scenario: Optional path inheritance from parent
+#### Scenario: Explicit path configuration (no inheritance)
 - **WHEN** allowed_paths is not provided (nil)
-- **THEN** the agent inherits allowed read paths from parent's preset.md
+- **THEN** the agent has no read permissions (empty paths list)
 - **WHEN** allowed_paths is provided as empty array []
-- **THEN** the agent has no path restrictions (reads from anywhere)
+- **THEN** the agent has no read permissions (empty paths list)
 - **WHEN** allowed_paths is provided with patterns
-- **THEN** the agent uses exactly those patterns (no inheritance)
+- **THEN** the agent uses exactly those patterns
+- **AND** paths are never inherited from parent session
 
 #### Scenario: Meta tool bypasses scope validation
 - **WHEN** PersistentAgent is categorized as meta in the scope system
@@ -90,11 +91,11 @@ paths:
     - "**/node_modules/**"
 ```
 
-#### Scenario: Inherited paths from parent
-- **WHEN** creating an agent without specifying allowed_paths
-- **THEN** the system reads parent's `preset.md` YAML frontmatter
-- **AND** extracts paths.read patterns from parent
-- **AND** writes those patterns to agent's preset.md paths.read section
+#### Scenario: Empty paths when not specified
+- **WHEN** creating an agent without specifying allowed_paths (or with empty array)
+- **THEN** the system writes an empty paths.read section to agent's preset.md
+- **AND** agent has no read permissions (cannot read any files)
+- **AND** paths are never inherited from parent session
 
 #### Scenario: scope-plan.yml created with agent metadata
 - **WHEN** creating an agent session
