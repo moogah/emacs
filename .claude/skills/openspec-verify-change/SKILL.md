@@ -1,15 +1,15 @@
 ---
 name: openspec-verify-change
-description: Verify implementation matches change artifacts. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving.
+description: Verify implementation matches change artifacts. Supports both Beads tracking and tasks.md checkboxes. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving.
 license: MIT
-compatibility: Requires openspec CLI.
+compatibility: Requires openspec CLI. Optional: Beads (bd) CLI for bead-based tracking.
 metadata:
   author: openspec
-  version: "1.0"
+  version: "2.0"
   generatedBy: "1.1.1"
 ---
 
-Verify that an implementation matches the change artifacts (specs, tasks, design).
+Verify that an implementation matches the change artifacts (specs, beads/tasks, design).
 
 **Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
@@ -33,15 +33,17 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
    - `schemaName`: The workflow being used (e.g., "spec-driven")
    - Which artifacts exist for this change
 
-3. **Get the change directory and load artifacts**
+3. **Detect tracking mode (Beads vs Tasks.md)**
 
-   ```bash
-   openspec instructions apply --change "<name>" --json
-   ```
+   Read `.openspec.yaml` from the change directory to check tracking mode.
+   Check for `metadata.tracking` field - if "beads", use bead-based verification.
 
-   This returns the change directory and context files. Read all available artifacts from `contextFiles`.
+4. **Get the change directory and load artifacts**
 
-4. **Initialize verification report structure**
+   Get context files from OpenSpec CLI.
+   If bead mode, also query beads for completion status.
+
+5. **Initialize verification report structure**
 
    Create a report structure with three dimensions:
    - **Completeness**: Track tasks and spec coverage
@@ -50,15 +52,20 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    Each dimension can have CRITICAL, WARNING, or SUGGESTION issues.
 
-5. **Verify Completeness**
+6. **Verify Completeness**
 
-   **Task Completion**:
-   - If tasks.md exists in contextFiles, read it
-   - Parse checkboxes: `- [ ]` (incomplete) vs `- [x]` (complete)
+   **Task/Bead Completion** (depends on tracking mode):
+
+   **Bead mode:**
+   - Query beads filtered by external_ref for this change
+   - Count open vs closed beads
+   - Check if open beads exist (CRITICAL issues)
+   - Verify `.openspec.yaml` metadata matches bead status (WARNING if stale)
+
+   **Task mode:**
+   - Read tasks.md and parse checkboxes
    - Count complete vs total tasks
-   - If incomplete tasks exist:
-     - Add CRITICAL issue for each incomplete task
-     - Recommendation: "Complete task: <description>" or "Mark as done if already implemented"
+   - Flag incomplete tasks as CRITICAL issues
 
    **Spec Coverage**:
    - If delta specs exist in `openspec/changes/<name>/specs/`:

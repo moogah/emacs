@@ -29,7 +29,21 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
    - `schemaName`: The workflow being used (e.g., "spec-driven")
    - Which artifacts exist for this change
 
-3. **Get the change directory and load artifacts**
+3. **Detect tracking mode (Beads vs Tasks.md)**
+
+   Read `.openspec.yaml` from the change directory to check tracking mode:
+
+   ```bash
+   cat openspec/changes/<name>/.openspec.yaml
+   ```
+
+   Check for `metadata.tracking` field:
+   - If `tracking: beads`: Use **Bead-based verification**
+   - If not present or `tracking: tasks`: Use **Task-based verification**
+
+   Store the tracking mode for use in completeness checks.
+
+4. **Get the change directory and load artifacts**
 
    ```bash
    openspec instructions apply --change "<name>" --json
@@ -37,7 +51,15 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    This returns the change directory and context files. Read all available artifacts from `contextFiles`.
 
-4. **Initialize verification report structure**
+   **If bead mode**, also query beads:
+   ```bash
+   bd list --label openspec --long --limit 0 --json
+   ```
+
+   Filter results to beads with external_ref matching "opsx:<change-name>" (search in description).
+   Parse bead data to determine completion status.
+
+5. **Initialize verification report structure**
 
    Create a report structure with three dimensions:
    - **Completeness**: Track tasks and spec coverage
@@ -46,9 +68,23 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    Each dimension can have CRITICAL, WARNING, or SUGGESTION issues.
 
-5. **Verify Completeness**
+6. **Verify Completeness**
 
-   **Task Completion**:
+   **Task/Bead Completion** (depends on tracking mode):
+
+   **Bead mode:**
+   - Query beads from step 4 (filtered by external_ref)
+   - Count open vs closed beads
+   - If open beads exist:
+     - Add CRITICAL issue for each open bead
+     - Include bead ID and title
+     - Recommendation: "Complete bead <bead-id>: <description>" or "Close if already implemented"
+   - Also verify `.openspec.yaml` metadata matches bead status
+   - If metadata is stale (doesn't match actual bead status):
+     - Add WARNING: "Bead metadata out of sync"
+     - Recommendation: "Update .openspec.yaml to reflect current bead status"
+
+   **Task mode:**
    - If tasks.md exists in contextFiles, read it
    - Parse checkboxes: `- [ ]` (incomplete) vs `- [x]` (complete)
    - Count complete vs total tasks
@@ -103,11 +139,29 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
      - Add SUGGESTION: "Code pattern deviation: <details>"
      - Recommendation: "Consider following project pattern: <example>"
 
-8. **Generate Verification Report**
+9. **Generate Verification Report**
 
-   **Summary Scorecard**:
+   **Summary Scorecard** (format depends on tracking mode):
+
+   **Bead mode:**
    ```
    ## Verification Report: <change-name>
+
+   **Tracking:** Beads
+
+   ### Summary
+   | Dimension    | Status                    |
+   |--------------|---------------------------|
+   | Completeness | X/Y beads closed, N reqs  |
+   | Correctness  | M/N reqs covered          |
+   | Coherence    | Followed/Issues           |
+   ```
+
+   **Task mode:**
+   ```
+   ## Verification Report: <change-name>
+
+   **Tracking:** Tasks.md
 
    ### Summary
    | Dimension    | Status           |
@@ -120,13 +174,14 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
    **Issues by Priority**:
 
    1. **CRITICAL** (Must fix before archive):
-      - Incomplete tasks
-      - Missing requirement implementations
+      - **Bead mode**: Open beads, metadata sync issues, missing requirements
+      - **Task mode**: Incomplete tasks, missing requirements
       - Each with specific, actionable recommendation
 
    2. **WARNING** (Should fix):
       - Spec/design divergences
       - Missing scenario coverage
+      - **Bead mode**: Stale metadata in `.openspec.yaml`
       - Each with specific recommendation
 
    3. **SUGGESTION** (Nice to fix):
@@ -149,10 +204,12 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
 **Graceful Degradation**
 
-- If only tasks.md exists: verify task completion only, skip spec/design checks
-- If tasks + specs exist: verify completeness and correctness, skip design
+- **Bead mode**: If only beads exist (no specs/design): verify bead completion only, skip other checks
+- **Task mode**: If only tasks.md exists: verify task completion only, skip spec/design checks
+- If work items + specs exist: verify completeness and correctness, skip design
 - If full artifacts: verify all three dimensions
 - Always note which checks were skipped and why
+- If tracking mode unclear: default to task mode for backward compatibility
 
 **Output Format**
 
