@@ -130,9 +130,14 @@ Implement tasks from an OpenSpec change.
 
    For each open bead (in creation order):
    - Show bead details: `bd show <bead-id>`
-   - Extract task description and context
+   - Extract task description and context (all context is IN the bead - self-contained)
    - Make the code changes required
    - Keep changes minimal and focused
+   - **Discovery workflow**: If you discover unexpected work:
+     - Create follow-up bead with `--deps "discovered-from:<current-bead-id>"`
+     - Types: bugs, questions, related work, blockers
+     - DON'T expand scope of current bead
+     - DON'T update design.md (user reviews discoveries later)
    - Close the bead: `bd close <bead-id> --comment "Implemented: <summary>"`
    - Update `.openspec.yaml` bead status to "closed"
    - Continue to next bead
