@@ -1,11 +1,11 @@
 ---
 name: openspec-apply-change
-description: Implement tasks from an OpenSpec change. Use when the user wants to start implementing, continue implementation, or work through tasks.
+description: Implement tasks from an OpenSpec change. Supports both Beads tracking and tasks.md checkboxes. Use when the user wants to start implementing, continue implementation, or work through tasks.
 license: MIT
-compatibility: Requires openspec CLI.
+compatibility: Requires openspec CLI. Optional: Beads (bd) CLI for bead-based tracking.
 metadata:
   author: openspec
-  version: "1.0"
+  version: "2.0"
   generatedBy: "1.1.1"
 ---
 
@@ -32,14 +32,31 @@ Implement tasks from an OpenSpec change.
    - `schemaName`: The workflow being used (e.g., "spec-driven")
    - Which artifact contains the tasks (typically "tasks" for spec-driven, check status for others)
 
-3. **Get apply instructions**
+3. **Detect tracking mode (Beads vs Tasks.md)**
+
+   Read `.openspec.yaml` from the change directory to check tracking mode:
+
+   Check for `metadata.tracking` field:
+   - If `tracking: beads`: Use **Bead-based workflow**
+   - If not present or `tracking: tasks`: Use **Task-based workflow**
+
+3a. **Get apply instructions (Bead-based workflow)**
+
+   Query beads for this change and get context files from OpenSpec CLI.
+
+   **Handle states:**
+   - If no beads found: suggest running opsx-to-beads to create beads from tasks
+   - If all beads closed: congratulate, suggest archive
+   - Otherwise: proceed to implementation
+
+3b. **Get apply instructions (Task-based workflow)**
 
    ```bash
    openspec instructions apply --change "<name>" --json
    ```
 
    This returns:
-   - Context file paths (varies by schema - could be proposal/specs/design/tasks or spec/tests/implementation/docs)
+   - Context file paths (varies by schema)
    - Progress (total, complete, remaining)
    - Task list with status
    - Dynamic instruction based on current state
@@ -64,7 +81,19 @@ Implement tasks from an OpenSpec change.
    - Remaining tasks overview
    - Dynamic instruction from CLI
 
-6. **Implement tasks (loop until done or blocked)**
+6. **Implement work (loop until done or blocked)**
+
+   **Bead-based workflow:**
+
+   For each open bead (in creation order):
+   - Show bead details with `bd show <bead-id>`
+   - Make the code changes required
+   - Keep changes minimal and focused
+   - Close the bead: `bd close <bead-id> --comment "Implemented: <summary>"`
+   - Update `.openspec.yaml` bead status to "closed"
+   - Continue to next bead
+
+   **Task-based workflow:**
 
    For each pending task:
    - Show which task is being worked on
@@ -73,8 +102,8 @@ Implement tasks from an OpenSpec change.
    - Mark task complete in the tasks file: `- [ ]` → `- [x]`
    - Continue to next task
 
-   **Pause if:**
-   - Task is unclear → ask for clarification
+   **Pause if (both modes):**
+   - Work item is unclear → ask for clarification
    - Implementation reveals a design issue → suggest updating artifacts
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
@@ -139,14 +168,17 @@ What would you like to do?
 ```
 
 **Guardrails**
-- Keep going through tasks until done or blocked
+- Keep going through work items (beads or tasks) until done or blocked
 - Always read context files before starting (from the apply instructions output)
-- If task is ambiguous, pause and ask before implementing
+- If work item is ambiguous, pause and ask before implementing
 - If implementation reveals issues, pause and suggest artifact updates
-- Keep code changes minimal and scoped to each task
-- Update task checkbox immediately after completing each task
+- Keep code changes minimal and scoped to each work item
+- **Bead mode**: Close bead and update `.openspec.yaml` immediately after completing
+- **Task mode**: Update task checkbox immediately after completing: `- [ ]` → `- [x]`
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
+- **Bead mode**: Always query current bead status before working on it
+- **Bead mode**: Always update both the bead (close) and `.openspec.yaml` metadata
 
 **Fluid Workflow Integration**
 
