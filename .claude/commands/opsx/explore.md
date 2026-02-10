@@ -111,7 +111,7 @@ If the user mentions a change or you detect one is relevant:
 1. **Read existing artifacts for context**
    - `openspec/changes/<name>/proposal.md`
    - `openspec/changes/<name>/design.md`
-   - `openspec/changes/<name>/tasks.md`
+   - `openspec/changes/<name>/specs/` (delta specs if present)
    - etc.
 
 2. **Reference them naturally in conversation**
@@ -126,13 +126,14 @@ If the user mentions a change or you detect one is relevant:
    | Requirement changed | `specs/<capability>/spec.md` |
    | Design decision made | `design.md` |
    | Scope changed | `proposal.md` |
-   | New work identified | `tasks.md` |
+   | New work identified | Update `design.md`, create Bead later |
    | Assumption invalidated | Relevant artifact |
 
    Example offers:
    - "That's a design decision. Capture it in design.md?"
    - "This is a new requirement. Add it to specs?"
    - "This changes scope. Update the proposal?"
+   - "That's new work. Update design.md and we'll create a Bead for it."
 
 4. **The user decides** - Offer and move on. Don't pressure. Don't auto-capture.
 

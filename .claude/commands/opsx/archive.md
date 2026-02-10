@@ -33,18 +33,21 @@ Archive a completed change in the experimental workflow.
    - Prompt user for confirmation to continue
    - Proceed if user confirms
 
-3. **Check task completion status**
+3. **Check implementation completion status**
 
-   Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
+   Check for incomplete work items (Beads or tasks.md if present).
 
-   Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
+   **If using Beads tracking** (`.openspec.yaml` has `metadata.tracking: beads`):
+   - Query beads with `bd list --label openspec --long --limit 0 --json`
+   - Filter to beads with external_ref "opsx:<change-name>"
+   - Count open vs closed beads
+   - **If open beads found:** Display warning, prompt for confirmation
 
-   **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
-   - Prompt user for confirmation to continue
-   - Proceed if user confirms
+   **If using tasks.md** (legacy):
+   - Read `tasks.md` and count `- [ ]` (incomplete) vs `- [x]` (complete)
+   - **If incomplete tasks found:** Display warning, prompt for confirmation
 
-   **If no tasks file exists:** Proceed without task-related warning.
+   **If neither exists:** Proceed without warning.
 
 4. **Assess delta spec sync state**
 
@@ -97,7 +100,7 @@ Archive a completed change in the experimental workflow.
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** ✓ Synced to main specs
 
-All artifacts complete. All tasks complete.
+All artifacts complete. All work items complete.
 ```
 
 **Output On Success (No Delta Specs)**
@@ -110,7 +113,7 @@ All artifacts complete. All tasks complete.
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** No delta specs
 
-All artifacts complete. All tasks complete.
+All artifacts complete. All work items complete.
 ```
 
 **Output On Success With Warnings**
@@ -125,7 +128,7 @@ All artifacts complete. All tasks complete.
 
 **Warnings:**
 - Archived with 2 incomplete artifacts
-- Archived with 3 incomplete tasks
+- Archived with 3 incomplete work items (beads/tasks)
 - Delta spec sync was skipped (user chose to skip)
 
 Review the archive if this was not intentional.
