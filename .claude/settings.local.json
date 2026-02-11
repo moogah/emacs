@@ -13,7 +13,9 @@
       "Bash(tree:*)",
       "Skill(architecture-analyzer)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(gh pr view:*)",
+      "Bash(gh api:*)"
     ]
   }
 }
