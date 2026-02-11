@@ -1,0 +1,37 @@
+#+title: Beads Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle beads.el
+#+auto_tangle: y
+
+* Introduction
+This file configures beads.el, an Emacs interface for the Beads issue tracking system.
+Beads is a lightweight, file-based issue tracker that stores issues in SQLite databases,
+designed for local-first development workflows.
+
+* Basic Configuration
+Setup lexical binding and core Beads functionality.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+;; Core beads.el setup
+(use-package beads
+  :straight (beads :type git :host codeberg :repo "ctietze/beads.el")
+  :commands (beads beads-list beads-new)
+  :config
+  ;; Configure beads database location if needed
+  ;; By default, beads looks for .beads/beads.db in the project root
+  ;; This can be customized per-project
+  )
+#+end_src
+
+* Additional Configuration
+Future configuration options can be added here as needed.
+
+#+begin_src emacs-lisp
+;; Additional beads configuration can go here
+;; Examples:
+;; - Custom keybindings
+;; - Integration with projectile or other tools
+;; - Custom faces or display options
+#+end_src

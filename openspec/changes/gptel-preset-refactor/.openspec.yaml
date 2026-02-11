@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-02-09
+beads:
+  - emacs-edl  # Create preset configuration module with resolver functions
+  - emacs-mvt  # Add parsing and resolution phase functions
+  - emacs-d76  # Add application and serialization phase functions
+  - emacs-wej  # Update sessions persistence to use three-phase pipeline
+  - emacs-qi7  # Update PersistentAgent to use three-phase pipeline

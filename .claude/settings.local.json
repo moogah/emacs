@@ -15,7 +15,20 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "Bash(gh pr view:*)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(openspec new change:*)",
+      "Bash(openspec status:*)",
+      "Bash(openspec instructions proposal:*)",
+      "Bash(openspec instructions design:*)",
+      "Bash(openspec instructions specs:*)",
+      "Bash(openspec instructions apply:*)",
+      "Bash(openspec list:*)",
+      "Bash(openspec:*)",
+      "Bash(bd issue create:*)",
+      "Bash(bd --help:*)",
+      "Bash(bd create:*)",
+      "Bash(bd show:*)",
+      "Bash(bd update:*)"
     ]
   }
 }
