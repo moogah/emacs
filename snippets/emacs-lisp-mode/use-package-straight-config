@@ -1,0 +1,9 @@
+# -*- mode: snippet -*-
+# contributor: Jeff Farr (moogah@gmail.com)
+# name: use-package-straight-config
+# key: up
+# --
+(use-package ${1:package-name}
+  :straight t
+  :config
+  ($0))

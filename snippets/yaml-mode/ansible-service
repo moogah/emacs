@@ -1,0 +1,9 @@
+# -*- mode: snippet -*-
+# name: ansible-service 
+# key: ans-service
+# --
+- name: Enable service $1
+  service:
+    name: $1
+    enabled: yes
+  

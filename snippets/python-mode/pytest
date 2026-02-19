@@ -1,0 +1,10 @@
+# -*- mode: python-mode -*-
+# contributor: Jeff Farr (moogah@gmail.com)
+# name: pytest-test 
+# key: def
+# --
+def test_${1}__${2}(${3}):
+    """
+    ${4}
+    """
+    $0

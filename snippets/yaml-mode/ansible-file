@@ -1,0 +1,9 @@
+# -*- mode: snippet -*-
+# name: ansible-create-file 
+# key: ansible-file
+# --
+- name: create file $1
+  ansible.builtin.file:
+    path: $2
+    state: ${3:$$(yas-choose-value '("present" "directory"))}
+    mode: '$4

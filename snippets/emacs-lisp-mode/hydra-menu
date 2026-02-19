@@ -1,0 +1,14 @@
+# -*- mode: snippet -*-
+# name: hydra-menu 
+# key: hydra-menu
+# --
+(defhydra hydra-$1 (:exit ${7:$$(yas-choose-value '("t" "nil"))})
+  "
+$2
+
+_$3_: $4
+"
+  ("$5" $6 nil)
+  ("H" hydra-main/body nil)
+  ("q" nil "cancel"))
+$0

@@ -1,0 +1,10 @@
+# -*- mode: snippet -*-
+# name: ansible-lineinfile 
+# key: ans-lineinfile-regex
+# key: ans-lifr
+# --
+- name: $1
+  lineinfile:
+    path: $2
+    regexp: '$3'
+    line: '$4'

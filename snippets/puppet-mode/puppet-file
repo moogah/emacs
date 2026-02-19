@@ -1,0 +1,10 @@
+# -*- mode: snippet -*-
+# name: puppet-file 
+# key: file
+# --
+file { ${1:path}:
+  ensure => ${2:$$(yas-choose-value '("present" "directory" "file" "absent" "link"))},
+  owner  => $3,
+  group  => $4,
+  mode   => '$5',
+}

@@ -1,0 +1,8 @@
+# -*- mode: snippet -*-
+# name: ansible-template 
+# key: ans-template 
+# --
+- name: $1
+  template:
+    src: $1
+    dest: $2

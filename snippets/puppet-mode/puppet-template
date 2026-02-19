@@ -1,0 +1,11 @@
+# -*- mode: snippet -*-
+# name: puppet-template 
+# key: file
+# --
+file { ${1:path}:
+  ensure  => file,
+  owner   => $2,
+  group   => $3,
+  mode    => '$4',
+  content => template('$5'),
+}

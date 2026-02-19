@@ -6,8 +6,8 @@
   (use-package yasnippet-snippets
     :straight t)
     (setq yas-snippet-dirs
-        (list (expand-file-name "snippets" user-emacs-directory)                     ;; personal snippets
-              (expand-file-name "straight/repos/yasnippet-snippets/snippets" user-emacs-directory)))   ;; yasnippet snippets
+        (list (expand-file-name "snippets" jf/emacs-dir)                                              ;; personal snippets
+              (expand-file-name "straight/repos/yasnippet-snippets/snippets" user-emacs-directory)))   ;; community snippets
   (yas-global-mode 1))
 
 (use-package auto-yasnippet
@@ -19,7 +19,7 @@
   :straight t
   :init
   (setq auto-insert-query nil)
-  (setq auto-insert-directory (locate-user-emacs-file "templates"))
+  (setq auto-insert-directory (file-name-as-directory (expand-file-name "templates" jf/emacs-dir)))
   (add-hook 'file-file-hook 'auto-insert)
   (auto-insert-mode 1))
 

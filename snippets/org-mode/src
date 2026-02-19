@@ -1,0 +1,8 @@
+# -*- mode: snippet; -*-
+# contributor: Jeff Farr (moogah@gmail.com)
+# name: src-simple
+# key: src
+# --
+#+begin_src ${1:emacs-lisp} :async t :dir ${2:~/} :prologue exec 2>&1 :epilogue "true" :results output
+  $0
+#+end_src

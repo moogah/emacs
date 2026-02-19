@@ -1,6 +1,0 @@
-[submodule "runtime/snippets"]
-	path = runtime/snippets
-	url = git@github.com:moogah/ya-snippets.git
-[submodule "runtime/templates"]
-	path = runtime/templates
-	url = git@github.com:moogah/emacs-templates.git
