@@ -119,29 +119,22 @@ Note: =gptel-cache= can also be set to ='(system message)= to cache only specifi
     :key (lambda () (auth-source-pick-first-password :host "api.perplexity.ai"))
     :stream t)
 
-  ;; Configure Anthropic backend with curated Claude 4.5 models
+  ;; Configure Anthropic backend with curated Claude 4.5/4.6 models
   ;; Includes lightweight (Haiku), balanced (Sonnet), and heavyweight (Opus) options
   (gptel-make-anthropic "Claude"
     :stream t
     :key (lambda () (auth-source-pick-first-password :host "api.anthropic.com"))
     :models '(claude-haiku-4-5-20251001      ; Fast & economical for simple tasks
-              claude-sonnet-4-5-20250929     ; Balanced for most use cases
-              claude-opus-4-5-20251101))     ; Most capable for complex reasoning
+              claude-sonnet-4-6              ; Balanced for most use cases
+              claude-opus-4-6))              ; Most capable for complex reasoning
 
-  ;; Configure Claude Sonnet 4.5 with extended thinking mode for complex problems
+  ;; Configure Claude Sonnet 4.6 with extended thinking mode for complex problems
   ;; Thinking mode provides detailed reasoning before answering
+  ;; Note: gptel automatically handles anthropic-beta headers for caching
   (gptel-make-anthropic "Claude-thinking"
     :key (lambda () (auth-source-pick-first-password :host "api.anthropic.com"))
     :stream t
-    :models '(claude-sonnet-4-5-20250929)
-    :header (lambda ()
-              (let ((key (gptel--get-api-key
-                          (lambda () (auth-source-pick-first-password :host "api.anthropic.com")))))
-                `(("x-api-key" . ,key)
-                  ("anthropic-version" . "2023-06-01")
-                  ("anthropic-beta" . "pdfs-2024-09-25")
-                  ("anthropic-beta" . "output-128k-2025-02-19")
-                  ("anthropic-beta" . "prompt-caching-2024-07-31"))))
+    :models '(claude-sonnet-4-6)
     :request-params '(:thinking (:type "enabled" :budget_tokens 2048)
                       :max_tokens 4096))
 
