@@ -1,5 +1,4 @@
 ---
-name: executor
 description: >
   Autonomous executor for well-defined, multi-step tasks.
   Can read, write, and modify files. Use when you know what needs to be done

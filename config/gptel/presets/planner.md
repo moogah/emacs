@@ -1,5 +1,4 @@
 ---
-name: planner
 description: >
   Planning agent for requirements gathering and implementation design.
   Uses heavyweight Claude Opus 4.5 for critical planning decisions.

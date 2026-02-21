@@ -1,5 +1,4 @@
 ---
-name: explorer
 description: >
   Code exploration agent with semantic analysis capabilities.
   Uses tree-sitter AST analysis, ggtags semantic navigation, and projectile

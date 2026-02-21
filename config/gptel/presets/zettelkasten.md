@@ -1,5 +1,4 @@
 ---
-name: zettelkasten
 description: >
   Knowledge management agent specializing in the Zettelkasten method.
   Searches existing knowledge, identifies gaps, then delegates to perplexity
