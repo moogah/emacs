@@ -1,0 +1,9 @@
+# -*- mode: snippet; -*-
+# contributor: Jeff Farr
+# name: postgres-query
+# key: pgsql
+# --
+#+begin_src sql :engine postgresql :dbconnection `(yas-choose-value (mapcar #'symbol-name (mapcar #'car jf/postgres-connections)))` :results table
+${1:SELECT * FROM table_name}
+LIMIT ${2:100}$0
+#+end_src

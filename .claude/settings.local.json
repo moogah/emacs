@@ -14,6 +14,8 @@
       "Skill(architecture-analyzer)",
       "WebSearch",
       "WebFetch(domain:github.com)",
+      "Bash(gh pr view:*)",
+      "Bash(gh api:*)",
       "Bash(openspec new change:*)",
       "Bash(openspec status:*)",
       "Bash(openspec instructions proposal:*)",

@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: ansible-command 
+# key: ans-cmd
+# --
+- name: ${1:name}
+  command: $2

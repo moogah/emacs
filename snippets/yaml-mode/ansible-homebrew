@@ -1,0 +1,9 @@
+# -*- mode: snippet -*-
+# name: ansible-homebrew 
+# key: brew 
+# --
+- name: install $1
+  homebrew:
+    name: $2
+    state: present
+  

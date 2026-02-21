@@ -1,0 +1,13 @@
+# -*- mode: snippet; -*-
+# contributor: Jeff Farr
+# name: postgres-query-to-file
+# key: pgsqlf
+# --
+#+begin_src sql :engine postgresql :dbconnection `(yas-choose-value (mapcar #'symbol-name (mapcar #'car jf/postgres-connections)))` :results silent
+
+COPY (
+$0
+) TO '~/org/query-results/`(format-time-string "%Y%m%d%H%M%S")`-${1:filename}.csv'
+WITH (FORMAT csv, HEADER true);
+
+#+end_src

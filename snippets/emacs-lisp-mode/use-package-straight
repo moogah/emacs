@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# contributor: Jeff Farr (moogah@gmail.com)
+# name: use-package-straight
+# key: up
+# --
+(use-package ${1:package-name}
+  :straight t$0)

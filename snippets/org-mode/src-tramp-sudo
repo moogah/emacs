@@ -1,0 +1,8 @@
+# -*- mode: snippet; -*-
+# contributor: Jeff Farr (moogah@gmail.com)
+# name: src-tramp-sudo
+# key: src
+# --
+#+begin_src ${1:sh} :async t :dir /ssh:$2|sudo:: :results output
+  $0
+#+end_src

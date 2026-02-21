@@ -39,7 +39,7 @@
 ;; Configure daily note templates
 (setq org-roam-dailies-capture-templates
       `(("d" "default" plain
-         (file ,(expand-file-name "templates/org-roam-dailies-default.org" user-emacs-directory))
+         (file ,(expand-file-name "templates/org-roam-dailies-default.org" jf/emacs-dir))
          :if-new (file+head "%<%Y-%m-%d>.org"
                             "#+title: %<%Y-%m-%d>\n\n")
          :unnarrowed t)))
@@ -59,7 +59,7 @@
     :if-new (file+head "%<%Y%m%d%H%M%S>-${slug}.org" "#+title: ${title}\n")
     :unnarrowed t)
    ("f" "foo" plain
-    (file ,(expand-file-name "templates/org-roam-default.org" user-emacs-directory))
+    (file ,(expand-file-name "templates/org-roam-default.org" jf/emacs-dir))
     :if-new (file+head "inbox/%<%Y%m%d%H%M%S>-${slug}.org" "#+title: ${title}\n ${body}")
     :unnarrowed t)))
 

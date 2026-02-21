@@ -1,0 +1,8 @@
+# -*- mode: snippet -*-
+# name: ansible-apt 
+# key: ans-apt
+# --
+- name: Install ${1:package-name}
+  apt:
+    name: ${1:package-name}
+    state: present

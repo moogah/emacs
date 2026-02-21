@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: puppet-template-var-lookup
+# key: var
+# key: <%
+# --
+<%= scope.lookupvar('${1:scope}::${2:var_name} %>

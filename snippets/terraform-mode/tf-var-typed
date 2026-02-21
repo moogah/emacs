@@ -1,0 +1,8 @@
+# -*- mode: snippet -*-
+# name: tf-var-typed 
+# key: tf-var-typed
+# --
+variable "${1:name}" {
+  type = ${2:$$(yas-choose-value '("string" "number" "bool" "list" "map"))}
+  default = "$3"
+}

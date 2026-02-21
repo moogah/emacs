@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: puppet-template-var
+# key: var
+# key: <%
+# --
+<%= ${1:var_name} %>

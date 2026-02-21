@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: yas-field-choice 
+# key: ${
+# --
+\$\{$1:\$\$\(yas-choose-value '($2))}

@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: tf-var-simple 
+# key: tf-var 
+# --
+variable "${1:name}" {default = "$2"}

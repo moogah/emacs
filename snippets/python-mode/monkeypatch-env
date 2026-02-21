@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: monkeypatch-env 
+# key: mk
+# --
+monkeypatch.setenv("${1}", "${0}")
