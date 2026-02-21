@@ -29,23 +29,10 @@ tools:
   - create_ggtags_project
   - update_ggtags_project
   - explain_ggtags_indexing
-  # Projectile (Project Context)
-  - list_known_projects
-  - get_project_info
-  - list_project_files
-  - list_project_directories
-  - expand_project_path
-  - search_project_content
-  - list_test_files
-  - find_related_test
-  - find_related_files
-  # Basic File Operations
-  - Glob
-  - Grep
-  - Read
   # Scope Management
   - read_file
   - request_scope_expansion
+  - get_scope_structure
 paths:
   read:
     - "/**"
