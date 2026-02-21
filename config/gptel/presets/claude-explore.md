@@ -7,6 +7,43 @@ model: claude-sonnet-4-5-20250929
 temperature: 0.5
 include-tool-results: true
 tools:
+  # Tree-sitter (AST Analysis - PRIMARY TOOL)
+  - check_treesitter_parser
+  - get_node_at_position
+  - get_node_info
+  - get_node_context
+  - get_syntax_tree
+  - list_functions
+  - list_classes
+  - list_imports
+  - extract_definition
+  - query_nodes
+  - find_nodes_by_type
+  - find_nodes_in_range
+  - get_scope_structure
+  # Ggtags (Symbol Lookup - SECONDARY TOOL)
+  - check_ggtags_project
+  - find_definition
+  - find_references
+  - find_symbol
+  - create_ggtags_project
+  - update_ggtags_project
+  - explain_ggtags_indexing
+  # Projectile (Project Context)
+  - list_known_projects
+  - get_project_info
+  - list_project_files
+  - list_project_directories
+  - expand_project_path
+  - search_project_content
+  - list_test_files
+  - find_related_test
+  - find_related_files
+  # Basic File Operations
+  - Glob
+  - Grep
+  - Read
+  # Scope Management
   - read_file
   - request_scope_expansion
 paths:
