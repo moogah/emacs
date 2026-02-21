@@ -14,19 +14,19 @@ description: >
   known, research gaps via perplexity delegation, then build an interconnected
   knowledge graph with proper source attribution.
 tools:
-  - Agent                       # Delegate to perplexity-researcher/explorer (REQUIRED for research)
-  - search_roam_nodes          # Search existing knowledge base
-  - list_roam_nodes            # List all nodes with sorting
-  - read_roam_node             # Read node content at various granularities
-  - get_roam_node_metadata     # Get node structure without content
-  - query_roam_backlinks       # Find nodes linking to target
-  - create_roam_node           # Create atomic knowledge notes
-  - create_reference_node       # Create reference nodes from citations
-  - link_roam_nodes            # Create bidirectional links
-  - add_roam_tags              # Add tags for categorization
-  - Glob                        # Find files by pattern
-  - Grep                        # Search file contents
-  - Read                        # Read files
+  - PersistentAgent
+  - search_roam_nodes
+  - list_roam_nodes
+  - read_roam_node
+  - get_roam_node_metadata
+  - query_roam_backlinks 
+  - create_roam_node
+  - create_reference_node
+  - link_roam_nodes
+  - add_roam_tags
+  - Glob
+  - Grep
+  - Read
 backend: Claude
 model: claude-sonnet-4-5-20250929
 temperature: 0.6

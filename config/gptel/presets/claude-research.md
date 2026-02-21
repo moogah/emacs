@@ -9,6 +9,10 @@ include-tool-results: true
 tools:
   - WebSearch
   - WebFetch
+  # Scope Management
+  - read_file
+  - request_scope_expansion
+  - get_scope_structure
 ---
 
 # Software Research Guidelines
