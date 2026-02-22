@@ -51,6 +51,7 @@
 
     ;; Command-based: shell operations
     ("run_approved_command" . (:validation command :operation write))
+    ("run_bash_command" . (:validation bash :operation write))
 
     ;; Meta tools (always pass)
     ("PersistentAgent" . (:validation meta :operation delegate))
@@ -66,6 +67,7 @@ Validation strategies:
   path    - Validate against paths.read/write/deny lists
   pattern - Validate against org_roam_patterns
   command - Validate against shell_commands.allow/deny lists
+  bash    - Validate bash commands with command parsing and directory validation
   meta    - Always allowed (no validation)
 
 Operation types:
@@ -497,6 +499,47 @@ Returns plist with:
       (list :allowed t))))
 ;; Command-Based Validator:1 ends here
 
+;; Bash Command Validator
+
+;; Validates bash commands by parsing the command, categorizing it, and checking directory permissions.
+
+
+;; [[file:scope-core.org::*Bash Command Validator][Bash Command Validator:1]]
+(defun jf/gptel-scope--validate-bash-tool (tool-name args config)
+  "Validate bash tool: parse command, categorize, validate directory.
+
+ARGS format: (command directory)
+
+Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
+  (let* ((command (nth 0 args))
+         (directory (nth 1 args))
+         (bash-config (plist-get config :bash_tools))
+         ;; Parse base command from complex shell string
+         (base-cmd (jf/gptel-bash--parse-command command))
+         ;; Categorize: deny, read_only, safe_write, dangerous, unknown
+         (category (jf/gptel-bash--categorize-command base-cmd bash-config))
+         ;; Resolve directory to absolute path
+         (abs-dir (file-truename (expand-file-name directory))))
+
+    (cond
+     ;; Command denied
+     ((eq category 'denied)
+      (list :allowed nil
+            :reason (format "Command '%s' is in deny list" base-cmd)
+            :tool tool-name))
+
+     ;; Command not in any allow list
+     ((eq category 'unknown)
+      (list :allowed nil
+            :reason (format "Command '%s' not in allowed command lists" base-cmd)
+            :tool tool-name
+            :message "Use request_scope_expansion to request approval"))
+
+     ;; Validate directory for category
+     (t
+      (jf/gptel-bash--validate-directory-for-category abs-dir category config)))))
+;; Bash Command Validator:1 ends here
+
 ;; Tool Permission Dispatch
 
 ;; Central dispatcher that routes permission checks to tool-specific validators based on tool categories.
@@ -535,6 +578,7 @@ Returns plist with:
       ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
       ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
       ('command (jf/gptel-scope--validate-command-tool tool-name args config))
+      ('bash (jf/gptel-scope--validate-bash-tool tool-name args config))
       (_
        ;; Unknown tool - deny by default
        (list :allowed nil
