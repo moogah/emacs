@@ -28,7 +28,8 @@
       "Bash(bd --help:*)",
       "Bash(bd create:*)",
       "Bash(bd show:*)",
-      "Bash(bd update:*)"
+      "Bash(bd update:*)",
+      "Bash(bd close:*)"
     ]
   }
 }
