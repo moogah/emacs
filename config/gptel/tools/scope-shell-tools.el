@@ -170,12 +170,10 @@ Returns (:success t :output ...) or (:success nil :error ...)."
       (list :success nil :error output :exit_code exit-code))))
 ;; Execute Command:1 ends here
 
-;; Run Bash Command Tool (Scope-Aware, v3.0)
-
-;; Execute bash commands in specified directory with category-based scope validation.
+;; Tool Implementation
 
 
-;; [[file:scope-shell-tools.org::*Run Bash Command Tool (Scope-Aware, v3.0)][Run Bash Command Tool (Scope-Aware, v3.0):1]]
+;; [[file:scope-shell-tools.org::*Tool Implementation][Tool Implementation:1]]
 (gptel-make-scoped-tool
  "run_bash_command"
  "Execute shell command in specified directory with scope validation.
@@ -214,7 +212,7 @@ Examples:
 
  ;; Tool body - executed only if validation passes
  (jf/gptel-bash--execute-command command directory))
-;; Run Bash Command Tool (Scope-Aware, v3.0):1 ends here
+;; Tool Implementation:1 ends here
 
 ;; Request Scope Expansion Tool (Meta Tool, v3.0 Async)
 

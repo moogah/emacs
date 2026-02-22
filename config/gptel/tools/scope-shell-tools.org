@@ -6,17 +6,80 @@
 
 This module provides scope-aware shell execution and meta tools for v3.0 preset-based permission management:
 
-1. *Shell tool*: =run_approved_command= - Execute shell commands with pattern checking (v3.0)
+1. *Shell tool*: =run_bash_command= - Execute shell commands with category-based scope validation
 2. *Meta tool*: =request_scope_expansion= - LLM requests user approval via transient menu (v3.0 async)
 
 ** Shell Command Scoping (v3.0)
 
-The =run_approved_command= tool uses preset.md configuration:
-- *shell_commands.allow*: Allowlist of command names (e.g., ["ls", "git", "npm"])
-- *shell_commands.deny*: Denylist patterns (substring matching, e.g., ["rm -rf", "sudo"])
+The =run_bash_command= tool uses preset.md bash_tools configuration with command categorization by operational impact:
 
-Deny patterns override allow patterns for security.
-Validation handled by =jf/gptel-scope--validate-command-tool= in scope-core.org.
+*** Command Categories
+
+Commands are grouped by *operational impact* rather than technical function:
+
+1. *read_only* - Commands that only read data
+   - Examples: =ls=, =grep=, =find=, =cat=, =git log=, =git diff=
+   - Can execute in any readable directory (paths.read or paths.write)
+   - No risk of data modification
+
+2. *safe_write* - Commands that create or modify safely
+   - Examples: =mkdir=, =touch=, =echo=, =git add=, =git commit=
+   - Require write-enabled directory (paths.write)
+   - Create new content but don't destroy existing data
+
+3. *dangerous* - Commands requiring explicit approval
+   - Empty by default
+   - User must approve via scope expansion for each addition
+   - For commands with potential for unintended consequences
+
+4. *deny* - Commands never allowed
+   - Examples: =rm=, =mv=, =sudo=, =dd=
+   - Destructive operations that should never be automated
+   - Rejected immediately without scope expansion option
+
+*** Path Scope Binding
+
+Each category binds to path scope requirements:
+
+| Category    | Requires paths.read | Requires paths.write | Notes                           |
+|-------------|---------------------|----------------------|---------------------------------|
+| read_only   | ✓ (or write)        |                      | Write scope includes read       |
+| safe_write  |                     | ✓                    | More restrictive                |
+| dangerous   | ✓                   | ✓                    | Plus explicit approval          |
+| deny        | ✗                   | ✗                    | Never allowed                   |
+
+*Key insight:* Write paths imply read access. If a directory is in =paths.write=, read_only commands can execute there. This matches the intuition that "write permission includes read permission."
+
+*** Shell Composition
+
+The system supports standard shell composition features:
+
+- *Pipes*: =grep pattern file.txt | head -10=
+- *Redirects*: =ls -la > listing.txt=
+- *Command substitution*: =echo $(pwd)=
+
+*Validation strategy:* Only the *base command* (first command before pipes/redirects) is categorized and validated. If =grep= is in =read_only= and the directory is in =paths.read=, then =grep | head | tail= is allowed.
+
+*Rationale:* Validating the base command provides the primary security boundary. If =grep= is safe in a scoped directory, composing it with =head= doesn't increase risk. Parsing complex pipelines is error-prone and provides marginal security benefit.
+
+*** Security Features
+
+1. *Timeouts* - Commands automatically terminate after 30 seconds
+   - Prevents runaway processes (e.g., =find /= or infinite loops)
+   - LLM receives timeout error and can retry with more specific filters
+
+2. *Output Truncation* - Command output limited to prevent context overflow
+   - Long output truncated with notice suggesting filters
+   - LLM learns to use =head=, =grep=, =tail= to narrow results
+
+3. *Absolute Path Warnings* - Warning when command arguments contain absolute paths
+   - Example: =grep pattern /other/project= triggers warning
+   - Absolute paths in arguments bypass directory scope validation
+   - Warning suggests using relative paths
+
+4. *Explicit Directory Required* - Every command must specify working directory
+   - No implicit fallbacks or context inference
+   - Forces clear intent about where commands execute
 
 ** Scope Expansion (v3.0)
 
@@ -27,6 +90,44 @@ The =request_scope_expansion= tool shows interactive transient menu with 3 choic
 
 Uses async tool pattern with callback for FSM coordination.
 UI implemented in scope-expansion.org.
+
+*** Error Messages and Scope Expansion Flow
+
+When validation fails, the system provides structured errors guiding the LLM to request scope expansion:
+
+*Command not allowed:*
+#+begin_example json
+{
+  "success": false,
+  "error": "command_not_allowed",
+  "tool": "run_bash_command",
+  "command": "tree",
+  "message": "Command 'tree' is not in allowed command lists. Use request_scope_expansion to ask user for approval."
+}
+#+end_example
+
+*Directory not in scope:*
+#+begin_example json
+{
+  "success": false,
+  "error": "directory_not_in_scope",
+  "directory": "/Users/jefffarr/other-project",
+  "required_scope": "read",
+  "allowed_patterns": ["/Users/jefffarr/emacs/**", "/Users/jefffarr/projects/**"],
+  "message": "Directory not in read scope. Use request_scope_expansion to request access."
+}
+#+end_example
+
+The LLM can then call =request_scope_expansion= to request user approval:
+#+begin_example
+request_scope_expansion(
+  tool_name="run_bash_command",
+  patterns=["tree"],
+  justification="Need to visualize directory structure for debugging."
+)
+#+end_example
+
+User sees transient menu with options to deny, add to scope, or allow once.
 
 * File Header
 
@@ -198,6 +299,93 @@ Returns (:success t :output ...) or (:success nil :error ...)."
 * Run Bash Command Tool (Scope-Aware, v3.0)
 
 Execute bash commands in specified directory with category-based scope validation.
+
+** Tool Signature
+
+Function: =run_bash_command(command, directory)=
+
+*Parameters:*
+- =command= (string, required): Shell command to execute, including any arguments, pipes, or redirects
+- =directory= (string, required): Absolute path to working directory where command executes
+
+*Returns:*
+- =success= (boolean): Whether command executed successfully
+- =stdout= (string): Command output (truncated if too long)
+- =stderr= (string): Command error output
+- =exit_code= (integer): Process exit code
+- =error= (string): Error type if validation failed
+
+** Common Usage Patterns
+
+*Codebase exploration (read_only):*
+#+begin_example
+run_bash_command("ls -la", "/Users/jefffarr/projects/myapp")
+run_bash_command("find . -name '*.py' -type f", "/Users/jefffarr/projects/myapp")
+run_bash_command("grep -rn 'TODO' src/", "/Users/jefffarr/projects/myapp")
+run_bash_command("git log --oneline -10", "/Users/jefffarr/projects/myapp")
+#+end_example
+
+*File creation (safe_write):*
+#+begin_example
+run_bash_command("mkdir -p scratch/experiment", "/Users/jefffarr/emacs")
+run_bash_command("touch notes.txt", "/tmp")
+run_bash_command("echo 'content' > file.txt", "/tmp")
+#+end_example
+
+*Git operations:*
+#+begin_example
+run_bash_command("git status", "/Users/jefffarr/emacs")          # read_only
+run_bash_command("git add config/file.el", "/Users/jefffarr/emacs")  # safe_write
+run_bash_command("git commit -m 'message'", "/Users/jefffarr/emacs") # safe_write
+#+end_example
+
+*Shell composition:*
+#+begin_example
+run_bash_command("grep pattern . | head -20", "/Users/jefffarr/projects/myapp")
+run_bash_command("find . -name '*.org' | wc -l", "/Users/jefffarr/emacs")
+run_bash_command("ls -la > listing.txt", "/tmp")
+#+end_example
+
+** Troubleshooting
+
+*** Command denied unexpectedly
+
+*Symptom:* Command should be allowed but gets "command_not_allowed" error
+
+*Check:*
+1. Is base command in any category list? (not full command with arguments)
+2. Spelling matches exactly? (case-sensitive)
+3. Git commands use full form? (=git log= not just =git=)
+
+*** Directory scope error
+
+*Symptom:* "directory_not_in_scope" error
+
+*Check:*
+1. Does directory match paths.read or paths.write pattern?
+2. Is directory in paths.deny?
+3. For safe_write commands, is directory in paths.write (not just paths.read)?
+4. Are glob patterns correct? (=**= for recursive, =*= for single level)
+
+*** Timeout errors
+
+*Symptom:* Command killed after 30 seconds
+
+*Solution:*
+- Use more specific filters: =grep -r pattern . --include='*.el'=
+- Limit scope: =find . -maxdepth 3 -name '*.org'=
+- Use =head= to limit output: =git log | head -50=
+
+*** Truncated output
+
+*Symptom:* Output ends with truncation notice
+
+*Solution:*
+- Add filters: =grep=, =head=, =tail= to narrow results
+- Use more specific patterns: =find . -name 'exact-name.txt'=
+- Process in chunks: Multiple commands with different filters
+
+** Tool Implementation
 
 #+begin_src elisp
 (gptel-make-scoped-tool

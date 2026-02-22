@@ -183,7 +183,7 @@ Run this after gptel-agent-update to inject skill content into agents."
 ;; structured errors to LLM when operations are outside scope
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/scope/scope-org-roam-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/scope/scope-shell-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/scope-shell-tools.el" jf/emacs-dir))
 
 ;; Load activities integration (optional - only if activities package is loaded)
 ;; Enables creating persistent gptel sessions as part of activity creation
