@@ -50,43 +50,194 @@ UI implemented in scope-expansion.org.
 (require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope--prompt-expansion
 #+end_src
 
-* Run Approved Command Tool (Scope-Aware, v3.0)
+* Bash Command Helper Functions
 
-Execute shell command if allowed by scope plan using v3.0 scoped-tool macro.
+** Parse Command
+
+Extract base command from complex shell strings with pipes, redirects, and command substitution.
+
+#+begin_src elisp
+(defun jf/gptel-bash--parse-command (cmd-string)
+  "Extract base command from CMD-STRING.
+Handles pipes, redirects, command substitution.
+Examples:
+  'grep foo | head' → 'grep'
+  'ls -la > output.txt' → 'ls'
+  'echo $(date)' → 'echo'"
+  (let* ((trimmed (string-trim cmd-string))
+         ;; Split on shell metacharacters
+         (parts (split-string trimmed "[ |><;&]+" t))
+         (base (car parts)))
+    base))
+#+end_src
+
+** Categorize Command
+
+Categorize command using bash_tools configuration section.
+
+#+begin_src elisp
+(defun jf/gptel-bash--categorize-command (command config)
+  "Categorize COMMAND using CONFIG bash_tools section.
+Returns: 'denied, 'read_only, 'safe_write, 'dangerous, or 'unknown."
+  (let ((deny-list (plist-get config :deny))
+        (read-only (plist-get (plist-get config :read_only) :commands))
+        (safe-write (plist-get (plist-get config :safe_write) :commands))
+        (dangerous (plist-get (plist-get config :dangerous) :commands)))
+    (cond
+     ((member command deny-list) 'denied)
+     ((member command read-only) 'read_only)
+     ((member command safe-write) 'safe_write)
+     ((member command dangerous) 'dangerous)
+     (t 'unknown))))
+#+end_src
+
+** Validate Directory for Category
+
+Validate directory matches category's path scope requirement.
+
+#+begin_src elisp
+(defun jf/gptel-bash--validate-directory-for-category (directory category config)
+  "Validate DIRECTORY matches CATEGORY's path scope requirement.
+- read_only: must match paths.read OR paths.write
+- safe_write: must match paths.write
+- dangerous: always requires expansion (return error)
+
+Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
+  (let ((read-paths (plist-get (plist-get config :paths) :read))
+        (write-paths (plist-get (plist-get config :paths) :write))
+        (deny-paths (plist-get (plist-get config :paths) :deny)))
+
+    ;; Check deny first (deny takes precedence)
+    (when (jf/gptel-scope--path-matches-any-pattern-p directory deny-paths)
+      (cl-return-from jf/gptel-bash--validate-directory-for-category
+        (list :allowed nil
+              :reason (format "Directory %s matches deny pattern" directory))))
+
+    (pcase category
+      ('read_only
+       ;; Read-only commands allowed in read OR write paths
+       (if (or (jf/gptel-scope--path-matches-any-pattern-p directory read-paths)
+               (jf/gptel-scope--path-matches-any-pattern-p directory write-paths))
+           (list :allowed t)
+         (list :allowed nil
+               :reason (format "Directory %s not in read scope" directory)
+               :required_scope "read"
+               :allowed-patterns (append read-paths write-paths))))
+
+      ('safe_write
+       ;; Write commands require write paths
+       (if (jf/gptel-scope--path-matches-any-pattern-p directory write-paths)
+           (list :allowed t)
+         (list :allowed nil
+               :reason (format "Directory %s not in write scope" directory)
+               :required_scope "write"
+               :allowed-patterns write-paths)))
+
+      ('dangerous
+       ;; Dangerous commands always require explicit expansion
+       (list :allowed nil
+             :reason "Dangerous command requires explicit approval"
+             :message "Use request_scope_expansion to request approval")))))
+#+end_src
+
+** Check Absolute Paths
+
+Check if command contains absolute paths that bypass directory scoping.
+
+#+begin_src elisp
+(defun jf/gptel-bash--check-absolute-paths (command)
+  "Check if COMMAND contains absolute paths.
+Returns warning string if found, nil otherwise."
+  (when (string-match "/[[:alnum:]_/-]+" command)
+    "Warning: Command contains absolute path arguments. Directory scope may not protect these paths."))
+#+end_src
+
+** Execute Command
+
+Execute command in directory with timeout and output truncation.
+
+#+begin_src elisp
+(defun jf/gptel-bash--execute-command (command directory)
+  "Execute COMMAND in DIRECTORY with timeout and output truncation.
+Returns (:success t :output ...) or (:success nil :error ...)."
+  (let* ((default-directory (file-truename (expand-file-name directory)))
+         (output nil)
+         (exit-code nil)
+         (max-output-chars 10000))
+
+    (condition-case err
+        (with-timeout (30)  ; 30-second timeout
+          (setq output
+                (with-temp-buffer
+                  (setq exit-code
+                        (call-process shell-file-name nil t nil
+                                      shell-command-switch command))
+                  (buffer-string))))
+      (error
+       (cl-return-from jf/gptel-bash--execute-command
+         (list :success nil
+               :error (format "Command timed out or failed: %s" err)))))
+
+    ;; Truncate output if too long
+    (when (> (length output) max-output-chars)
+      (setq output
+            (concat (substring output 0 max-output-chars)
+                    (format "\n\n[Output truncated at %d chars. Use more specific filters like 'head', 'grep', or 'tail' to narrow results.]"
+                            max-output-chars))))
+
+    ;; Check for warnings
+    (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
+      (when path-warning
+        (setq output (concat path-warning "\n\n" output))))
+
+    (if (zerop exit-code)
+        (list :success t :output output)
+      (list :success nil :error output :exit_code exit-code))))
+#+end_src
+
+* Run Bash Command Tool (Scope-Aware, v3.0)
+
+Execute bash commands in specified directory with category-based scope validation.
 
 #+begin_src elisp
 (gptel-make-scoped-tool
- "run_approved_command"
- "Execute shell command if allowed by scope plan.
+ "run_bash_command"
+ "Execute shell command in specified directory with scope validation.
 
-Checks command against shell_commands.allow and shell_commands.deny in preset.md.
-Allow list: Exact command name match (e.g., 'ls' allows 'ls -la')
-Deny list: Substring match (e.g., 'rm -rf' blocks any command containing 'rm -rf')
+Commands are categorized:
+- read_only: ls, grep, find, cat, head, tail, wc, file, git log, git show, git diff
+- safe_write: mkdir, touch, echo, git add, git commit
+- dangerous: (empty by default, requires explicit approval)
 
-Deny patterns override allow patterns for security.
-Use request_scope_expansion to add commands to allow list."
+Directory must be in scope for command category:
+- read_only commands: directory must match paths.read OR paths.write
+- safe_write commands: directory must match paths.write
+
+Shell composition allowed (pipes, redirects, command substitution), but only base command is validated.
+
+Security features:
+- 30-second timeout
+- Output truncation at 10,000 chars
+- Warnings for absolute paths in arguments
+- Deny list blocks dangerous commands (rm, mv, chmod, sudo)
+
+Examples:
+  run_bash_command('ls -la', '/Users/jefffarr/emacs')
+  run_bash_command('grep -r TODO . | head -20', '/Users/jefffarr/projects/myapp')
+  run_bash_command('git log --oneline -10', '/Users/jefffarr/emacs')
+  run_bash_command('mkdir scratch', '/tmp')"
 
  (list '(:name "command"
          :type string
-         :description "Shell command to execute"))
+         :description "Shell command to execute (pipes and redirects allowed)")
+       '(:name "directory"
+         :type string
+         :description "Working directory (must be in scope for command category)"))
 
- "shell"
+ "bash"
 
  ;; Tool body - executed only if validation passes
- (condition-case err
-     (let* ((output (with-output-to-string
-                     (with-current-buffer standard-output
-                       (call-process shell-file-name nil t nil
-                                   shell-command-switch command))))
-            (exit-code 0))  ; Simplified - proper exit code requires process handle
-       (list :success t
-             :output output
-             :exit_code exit-code
-             :message "Command executed"))
-   (error
-    (list :success nil
-          :error "command_failed"
-          :message (format "Command execution failed: %s" (error-message-string err))))))
+ (jf/gptel-bash--execute-command command directory))
 #+end_src
 
 * Request Scope Expansion Tool (Meta Tool, v3.0 Async)
