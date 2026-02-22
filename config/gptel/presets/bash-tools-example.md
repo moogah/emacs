@@ -1,7 +1,7 @@
 ---
 description: >
   Example preset demonstrating bash_tools configuration for scoped command execution.
-  Shows command categorization, security features, and migration from shell_commands.
+  Shows command categorization, directory scope validation, and security features.
 backend: Claude
 model: claude-sonnet-4-5-20250929
 temperature: 0.5
@@ -189,115 +189,145 @@ User sees transient menu with options:
 - **Add to scope** - Permanently add to preset.md
 - **Allow once** - Allow for current turn only
 
-## Migration Guide
+## Tool: run_bash_command
 
-### Migrating from shell_commands
+The `run_bash_command` tool executes shell commands in a specified directory with scope validation.
 
-The old `shell_commands` configuration used simple allow/deny lists:
+### Function Signature
 
-```yaml
-# OLD: shell_commands (deprecated)
-shell_commands:
-  allow:
-    - "ls"
-    - "grep"
-    - "git"
-  deny:
-    - "rm -rf"
-    - "sudo"
+```
+run_bash_command(command, directory)
 ```
 
-**Problems with old approach:**
-- No directory scope validation (commands could access any path)
-- No semantic categorization (all commands treated equally)
-- Crude pattern matching (e.g., "rm -rf" could be bypassed with "rm -r -f")
-- No integration with path-based security model
+**Parameters:**
+- `command` (string, required): Shell command to execute, including any arguments, pipes, or redirects
+- `directory` (string, required): Absolute path to working directory where command executes
 
-### New bash_tools configuration
+**Returns:**
+- `success` (boolean): Whether command executed successfully
+- `stdout` (string): Command output (truncated if too long)
+- `stderr` (string): Command error output
+- `exit_code` (integer): Process exit code
+- `error` (string): Error type if validation failed
 
-```yaml
-# NEW: bash_tools (current)
-bash_tools:
-  read_only:
-    commands: ["ls", "grep", "git log", "git show", "git diff"]
-  safe_write:
-    commands: ["git add", "git commit"]
-  dangerous:
-    commands: []
-  deny:
-    - "rm"
-    - "sudo"
+### Command Categorization
+
+Commands are validated based on their **operational impact**:
+
+1. **read_only** - Commands that only read data
+   - Examples: `ls`, `grep`, `find`, `cat`, `git log`, `git diff`
+   - Scope requirement: Directory must be in `paths.read` OR `paths.write`
+   - No data modification risk
+
+2. **safe_write** - Commands that create or modify files safely
+   - Examples: `mkdir`, `touch`, `echo`, `git add`, `git commit`
+   - Scope requirement: Directory must be in `paths.write`
+   - Create new content but don't destroy existing data
+
+3. **dangerous** - Commands requiring explicit user approval
+   - Empty by default (user must approve each addition via scope expansion)
+   - Scope requirement: Directory must be in both `paths.read` AND `paths.write`, plus user approval
+   - For commands with potential for unintended consequences
+
+4. **deny** - Commands never allowed
+   - Examples: `rm`, `mv`, `cp`, `chmod`, `sudo`
+   - No scope can make these commands available
+   - Rejected immediately without scope expansion option
+
+**Validation:** Only the **base command** (first word before arguments, pipes, or redirects) is categorized. If `grep` is allowed, then `grep pattern file.txt | head -10` is allowed.
+
+### Scope Expansion Flow
+
+When a command is denied, the tool returns a structured error guiding you to request approval:
+
+**Step 1: Command denied**
+```json
+{
+  "success": false,
+  "error": "command_not_allowed",
+  "command": "tree",
+  "message": "Command 'tree' is not in allowed command lists. Use request_scope_expansion to ask user for approval."
+}
 ```
 
-**Improvements:**
-- Directory scope validation (commands restricted to paths.read/write)
-- Semantic categorization (read vs write operations)
-- Command-level validation (base command only, not full string)
-- Integrated with path security model
-- Clear escalation path via scope expansion
-
-### Migration Steps
-
-1. **Identify read-only commands** - Commands that only read data
-   - From `shell_commands.allow`: extract commands that don't modify files
-   - Common: `ls`, `grep`, `find`, `cat`, `head`, `tail`, `git log`, `git show`, `git diff`
-
-2. **Identify safe write commands** - Commands that create/modify safely
-   - From `shell_commands.allow`: extract commands that create new content
-   - Common: `mkdir`, `touch`, `echo`, `git add`, `git commit`
-
-3. **Move destructive commands to deny** - Commands that should never run
-   - From `shell_commands.deny`: extract truly destructive commands
-   - Strip specific flags (use `"rm"` not `"rm -rf"`)
-   - Common: `rm`, `mv`, `cp`, `chmod`, `sudo`
-
-4. **Remove shell_commands section** - Delete the old configuration
-   - The new bash_tools section completely replaces it
-   - No backward compatibility needed
-
-5. **Update tool calls** - Replace `run_approved_command` with `run_bash_command`
-   - Old: `run_approved_command(command="ls -la")`
-   - New: `run_bash_command(command="ls -la", directory="/path/to/dir")`
-
-### Example Migration
-
-**Before (executor.md):**
-```yaml
-paths:
-  read:
-    - "/**"
-  write:
-    - "/tmp/**"
-
-shell_commands:
-  allow:
-    - "ls"
-    - "find"
-    - "grep"
-    - "git"
-  deny:
-    - "rm -rf"
-    - "sudo"
+**Step 2: Request approval**
+```
+request_scope_expansion(
+  tool_name="run_bash_command",
+  patterns=["tree"],
+  justification="Need to visualize directory structure for debugging."
+)
 ```
 
-**After:**
-```yaml
-paths:
-  read:
-    - "/**"
-  write:
-    - "/tmp/**"
+**Step 3: User decides**
+- **Deny**: Request rejected, command remains unavailable
+- **Add to scope**: Command added to preset configuration permanently
+- **Allow once**: Command allowed for current turn only
 
-bash_tools:
-  read_only:
-    commands: ["ls", "find", "grep", "git log", "git show", "git diff", "git status"]
-  safe_write:
-    commands: ["git add", "git commit"]
-  dangerous:
-    commands: []
-  deny:
-    - "rm"
-    - "sudo"
+**Step 4: Retry command**
+After approval, the original command succeeds:
+```
+run_bash_command(
+  command="tree -L 2",
+  directory="/Users/jefffarr/projects/myapp"
+)
+```
+
+### Directory Scope Validation
+
+Every command validates that its working directory is in scope for its category:
+
+**Directory not in scope error:**
+```json
+{
+  "success": false,
+  "error": "directory_not_in_scope",
+  "directory": "/Users/jefffarr/other-project",
+  "required_scope": "read",
+  "allowed_patterns": ["/Users/jefffarr/emacs/**", "/Users/jefffarr/projects/**"],
+  "message": "Directory not in read scope. Use request_scope_expansion to request access."
+}
+```
+
+You can then request directory access:
+```
+request_scope_expansion(
+  tool_name="run_bash_command",
+  patterns=["/Users/jefffarr/other-project/**"],
+  justification="Need to access other-project for cross-repository analysis.",
+  scope_type="read"
+)
+```
+
+### Common Patterns
+
+**Codebase exploration (read_only):**
+```
+run_bash_command("ls -la", "/Users/jefffarr/projects/myapp")
+run_bash_command("find . -name '*.py' -type f", "/Users/jefffarr/projects/myapp")
+run_bash_command("grep -rn 'TODO' src/", "/Users/jefffarr/projects/myapp")
+run_bash_command("git log --oneline -10", "/Users/jefffarr/projects/myapp")
+```
+
+**File creation (safe_write):**
+```
+run_bash_command("mkdir -p scratch/experiment", "/Users/jefffarr/emacs")
+run_bash_command("touch notes.txt", "/tmp")
+run_bash_command("echo 'content' > file.txt", "/tmp")
+```
+
+**Git operations:**
+```
+run_bash_command("git status", "/Users/jefffarr/emacs")          # read_only
+run_bash_command("git add config/file.el", "/Users/jefffarr/emacs")  # safe_write
+run_bash_command("git commit -m 'message'", "/Users/jefffarr/emacs") # safe_write
+```
+
+**Shell composition:**
+```
+run_bash_command("grep pattern . | head -20", "/Users/jefffarr/projects/myapp")
+run_bash_command("find . -name '*.org' | wc -l", "/Users/jefffarr/emacs")
+run_bash_command("ls -la > listing.txt", "/tmp")
 ```
 
 ## Usage Examples
