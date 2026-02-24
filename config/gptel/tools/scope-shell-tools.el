@@ -76,12 +76,12 @@ Returns: 'denied, 'read_only, 'safe_write, 'dangerous, or 'unknown."
 - dangerous: always requires expansion (return error)
 
 Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
-  (let ((read-paths (plist-get (plist-get config :paths) :read))
-        (write-paths (plist-get (plist-get config :paths) :write))
-        (deny-paths (plist-get (plist-get config :paths) :deny)))
+  (let ((read-paths (plist-get config :paths-read))
+        (write-paths (plist-get config :paths-write))
+        (deny-paths (plist-get config :paths-deny)))
 
     ;; Check deny first (deny takes precedence)
-    (when (jf/gptel-scope--path-matches-any-pattern-p directory deny-paths)
+    (when (jf/gptel-scope--matches-any-pattern directory deny-paths)
       (cl-return-from jf/gptel-bash--validate-directory-for-category
         (list :allowed nil
               :reason (format "Directory %s matches deny pattern" directory))))
@@ -89,8 +89,8 @@ Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
     (pcase category
       ('read_only
        ;; Read-only commands allowed in read OR write paths
-       (if (or (jf/gptel-scope--path-matches-any-pattern-p directory read-paths)
-               (jf/gptel-scope--path-matches-any-pattern-p directory write-paths))
+       (if (or (jf/gptel-scope--matches-any-pattern directory read-paths)
+               (jf/gptel-scope--matches-any-pattern directory write-paths))
            (list :allowed t)
          (list :allowed nil
                :reason (format "Directory %s not in read scope" directory)
@@ -99,7 +99,7 @@ Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
 
       ('safe_write
        ;; Write commands require write paths
-       (if (jf/gptel-scope--path-matches-any-pattern-p directory write-paths)
+       (if (jf/gptel-scope--matches-any-pattern directory write-paths)
            (list :allowed t)
          (list :allowed nil
                :reason (format "Directory %s not in write scope" directory)

@@ -5,6 +5,9 @@ description: >
 backend: Claude
 model: claude-sonnet-4-5-20250929
 temperature: 0.3
+tools:
+  - PersistentAgent
+  - run_bash_command
 
 # Path scope configuration
 # Broad read access for system exploration, no write capability
@@ -23,9 +26,6 @@ paths:
     - "**/sudoers"
     - "**/node_modules/**"
     - "**/.git/objects/**"
-
-# Bash tools configuration
-# Comprehensive read-only command set for system discovery
 bash_tools:
   # Read-only commands: comprehensive system exploration capabilities
   # OS info, file exploration, command discovery, package managers, process/network inspection
