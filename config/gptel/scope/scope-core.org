@@ -260,6 +260,7 @@ Returns plist with:
   :paths-deny - List of denied paths
   :org-roam-patterns - Plist with :subdirectory, :tags, :node_ids
   :shell-commands - Plist with :allow and :deny lists
+  :bash_tools - Plist with :read_only, :safe_write, :dangerous, :deny command categories
 
 Uses buffer-local jf/gptel--branch-dir if available (set during session init),
 otherwise falls back to buffer-file-name directory.
@@ -283,10 +284,37 @@ Returns nil if preset.md not found or can't be parsed."
 Extract scope configuration from preset.md YAML frontmatter.
 
 #+begin_src elisp
+(defun jf/gptel-scope--normalize-bash-tools-config (bash-tools)
+  "Normalize BASH-TOOLS config by converting vectors to lists.
+The YAML parser returns arrays as vectors, but our code expects lists
+for use with `member` and other list functions."
+  (when bash-tools
+    (let ((deny (plist-get bash-tools :deny))
+          (read-only (plist-get bash-tools :read_only))
+          (safe-write (plist-get bash-tools :safe_write))
+          (dangerous (plist-get bash-tools :dangerous)))
+
+      (list :deny (if (vectorp deny) (append deny nil) deny)
+            :read_only (when read-only
+                         (list :commands
+                               (let ((cmds (plist-get read-only :commands)))
+                                 (if (vectorp cmds) (append cmds nil) cmds))))
+            :safe_write (when safe-write
+                          (list :commands
+                                (let ((cmds (plist-get safe-write :commands)))
+                                  (if (vectorp cmds) (append cmds nil) cmds))))
+            :dangerous (when dangerous
+                         (list :commands
+                               (let ((cmds (plist-get dangerous :commands)))
+                                 (if (vectorp cmds) (append cmds nil) cmds))))))))
+
 (defun jf/gptel-scope--parse-preset-config (preset-file)
   "Extract scope configuration from PRESET-FILE YAML frontmatter.
 Returns plist with :paths-read, :paths-write, :paths-deny,
-:org-roam-patterns, and :shell-commands."
+:org-roam-patterns, :shell-commands, and :bash_tools.
+
+All vectors from YAML parsing are converted to lists for compatibility
+with list functions like `member`."
   (with-temp-buffer
     (insert-file-contents preset-file)
     (goto-char (point-min))
@@ -302,7 +330,9 @@ Returns plist with :paths-read, :paths-write, :paths-deny,
                     :paths-write (plist-get paths :write)
                     :paths-deny (plist-get paths :deny)
                     :org-roam-patterns (plist-get parsed :org_roam_patterns)
-                    :shell-commands (plist-get parsed :shell_commands)))))))))
+                    :shell-commands (plist-get parsed :shell_commands)
+                    :bash_tools (jf/gptel-scope--normalize-bash-tools-config
+                                (plist-get parsed :bash_tools))))))))))
 #+end_src
 
 * Allow-Once Mechanism
@@ -745,9 +775,79 @@ YAML parser returns vectors for arrays, but elisp code expects lists.
    (t obj)))
 #+end_src
 
+* Generic YAML Serializer
+
+Helper functions for serializing arbitrary plists to YAML format.
+
+** Format Scalar Values
+
+#+begin_src elisp
+(defun jf/gptel-yaml--format-scalar (value)
+  "Format scalar VALUE (string, number, boolean, symbol) for YAML output."
+  (cond
+   ;; String values
+   ((stringp value)
+    ;; Multi-line string - use block scalar
+    (if (string-match-p "\n" value)
+        (concat "|\n  " (replace-regexp-in-string "\n" "\n  " value))
+      ;; Single-line string - quote it
+      (format "\"%s\"" value)))
+
+   ;; Numeric values
+   ((numberp value) (format "%s" value))
+
+   ;; Boolean and nil
+   ((eq value t) "true")
+   ((null value) "false")
+
+   ;; Symbols
+   ((symbolp value) (symbol-name value))
+
+   ;; Fallback
+   (t (format "%S" value))))
+#+end_src
+
+** Serialize Value Recursively
+
+#+begin_src elisp
+(defun jf/gptel-yaml--serialize-value (value indent-level)
+  "Recursively serialize VALUE to YAML at INDENT-LEVEL.
+Handles strings, numbers, booleans, lists, plists, and nested structures.
+Returns a string with YAML representation."
+  (let ((indent (make-string (* 2 indent-level) ?\s)))
+    (cond
+     ;; Empty/nil - represent as empty list
+     ((and (listp value) (null value))
+      "[]\n")
+
+     ;; Nested plist (keyword as first element indicates plist)
+     ((and (listp value) (keywordp (car-safe value)))
+      (concat "\n"
+              (mapconcat
+               (lambda (pair)
+                 (let ((key (substring (symbol-name (car pair)) 1))
+                       (val (cadr pair)))
+                   (concat indent key ": "
+                           (jf/gptel-yaml--serialize-value val (1+ indent-level)))))
+               (cl-loop for (k v) on value by #'cddr collect (list k v))
+               "")))
+
+     ;; List of items
+     ((listp value)
+      (concat "\n"
+              (mapconcat (lambda (item)
+                          (concat indent "- " (jf/gptel-yaml--format-scalar item)))
+                        value "\n")
+              "\n"))
+
+     ;; Scalar value
+     (t (concat (jf/gptel-yaml--format-scalar value) "\n")))))
+#+end_src
+
 * Preset Path Updater
 
 Helper function for updating paths section in preset.md files.
+Uses generic YAML serializer to preserve all preset sections.
 
 #+begin_src elisp
 (defun jf/gptel-scope--update-preset-paths (preset-file allowed-paths denied-paths)
@@ -802,76 +902,13 @@ and writes the modified content back to the file."
           (erase-buffer)
           (insert "---\n")
 
-          ;; Write YAML frontmatter (simple plist serialization)
+          ;; Write YAML frontmatter using generic serializer
           (message "DEBUG: Serializing parsed plist keys: %S" (cl-loop for (k v) on parsed by #'cddr collect k))
           (cl-loop for (key value) on parsed by #'cddr
                    do (let ((key-name (substring (symbol-name key) 1)))
                         (message "DEBUG: Processing key=%s value-type=%s" key-name (type-of value))
-                        (cond
-                         ;; Handle paths specially (nested structure)
-                         ((eq key :paths)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (if subvalue
-                                            (dolist (item subvalue)
-                                              (insert (format "    - \"%s\"\n" item)))
-                                          (insert "    []\n")))))
-
-                         ;; Handle tools section (list or vector of tool names)
-                         ((eq key :tools)
-                          (insert (format "%s:\n" key-name))
-                          ;; YAML parser returns vectors for lists, so check for both
-                          ;; tools can be a list ("PersistentAgent" ...) or vector ["PersistentAgent" ...]
-                          (if (and value (sequencep value) (not (stringp value)) (> (length value) 0))
-                              (seq-do (lambda (tool-name)
-                                        (when (stringp tool-name)
-                                          (insert (format "  - %s\n" tool-name))))
-                                      value)
-                            ;; Empty or null tools - write empty list
-                            (insert "  []\n")))
-
-                         ;; Handle org_roam_patterns section
-                         ((eq key :org_roam_patterns)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (dolist (item subvalue)
-                                          (insert (format "    - \"%s\"\n" item))))))
-
-                         ;; Handle shell_commands section
-                         ((eq key :shell_commands)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (dolist (item subvalue)
-                                          (insert (format "    - \"%s\"\n" item))))))
-
-                         ;; Simple key-value pairs
-                         ((stringp value)
-                          ;; Check if string contains newlines - if so, use block scalar
-                          (if (string-match-p "\n" value)
-                              (progn
-                                (insert (format "%s: |\n" key-name))
-                                ;; Split into lines and indent each
-                                (dolist (line (split-string value "\n" t))
-                                  (insert (format "  %s\n" line))))
-                            ;; Single-line string - use quoted format
-                            (insert (format "%s: \"%s\"\n" key-name value))))
-                         ((numberp value)
-                          (insert (format "%s: %s\n" key-name value)))
-                         ((symbolp value)
-                          (insert (format "%s: %s\n" key-name value)))
-                         ;; Simple lists (but not plists which are already handled above)
-                         ((and (listp value) (not (keywordp (car-safe value))))
-                          (insert (format "%s:\n" key-name))
-                          (dolist (item value)
-                            (insert (format "  - %s\n" item))))
-                         ;; Skip anything else (already handled or unsupported)
-                         (t nil))))
+                        (insert key-name ": ")
+                        (insert (jf/gptel-yaml--serialize-value value 1))))
 
           (insert "---\n")
           (let ((before-post-yaml-size (- (point-max) (point-min))))
