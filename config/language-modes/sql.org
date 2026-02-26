@@ -109,8 +109,8 @@ Returns port number or INTERNAL-PORT if container is not found or port not mappe
          (output (string-trim (shell-command-to-string cmd))))
     (if (string-empty-p output)
         (progn
-          (warn "Could not determine port for Docker container: %s (port %d). Using default %d."
-                container-name internal-port internal-port)
+          (message "Docker container %s not running; using default port %d."
+                   container-name internal-port)
           internal-port)
       (string-to-number output))))
 #+end_src
@@ -226,9 +226,12 @@ This makes them available to org-babel via :dbconnection parameter."
              (length jf/sql-connections)
              (if (= 1 (length jf/sql-connections)) "" "s"))))
 
-;; Auto-register connections after loading sql.el
-(with-eval-after-load 'sql
-  (jf/sql-register-connections))
+;; Register connections just-in-time before org-babel SQL execution.
+;; This avoids eager Docker port resolution at startup when containers
+;; may not be running.  jf/sql-connect handles its own registration.
+(with-eval-after-load 'ob-sql
+  (advice-add 'org-babel-execute:sql :before
+              (lambda (&rest _) (jf/sql-register-connections))))
 #+end_src
 
 * Helper Functions
