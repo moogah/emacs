@@ -59,6 +59,17 @@ YAML format containing paths, org-roam patterns, and shell command permissions."
   "File name for session metadata.
 YAML format containing session ID, timestamps, and preset name.")
 
+(defcustom jf/gptel--scope-profiles-directory
+  (expand-file-name "config/gptel/scope-profiles/" jf/emacs-dir)
+  "Directory containing scope profile template files.
+Each profile is a YAML file defining default permissions for a session type."
+  :type 'directory
+  :group 'gptel)
+
+(defconst jf/gptel-session--scope-file "scope.yml"
+  "File name for scope configuration within a session directory.
+Contains resolved scope permissions (paths, org-roam patterns, shell commands).")
+
 (defcustom jf/gptel-autosave-idle-time 0.5
   "Idle time in seconds before auto-saving session buffer.
 Set to 0 to disable auto-save."
