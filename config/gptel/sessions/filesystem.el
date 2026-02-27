@@ -121,12 +121,20 @@ Does not check if file exists."
   "Get path to context file in BRANCH-DIR."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--context-file))
 
+(defun jf/gptel--scope-file-path (branch-dir)
+  "Get path to scope.yml file in BRANCH-DIR (new format)."
+  (expand-file-name "scope.yml" branch-dir))
+
+(defun jf/gptel--metadata-file-path (branch-dir)
+  "Get path to metadata.yml file in BRANCH-DIR (new format)."
+  (expand-file-name "metadata.yml" branch-dir))
+
 (defun jf/gptel--scope-plan-file-path (branch-dir)
-  "Get path to scope-plan.yml file in BRANCH-DIR."
+  "Get path to scope-plan.yml file in BRANCH-DIR (legacy format)."
   (expand-file-name "scope-plan.yml" branch-dir))
 
 (defun jf/gptel--preset-file-path (branch-dir)
-  "Get path to preset.md file in BRANCH-DIR."
+  "Get path to preset.md file in BRANCH-DIR (legacy format)."
   (expand-file-name "preset.md" branch-dir))
 
 (defun jf/gptel--branch-metadata-file-path (branch-dir)
