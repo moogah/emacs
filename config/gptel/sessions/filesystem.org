@@ -191,6 +191,14 @@ Does not check if file exists."
 (defun jf/gptel--agents-dir-path (branch-dir)
   "Get path to agents directory in BRANCH-DIR."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--agents-dir))
+
+(defun jf/gptel--scope-file-path (branch-dir)
+  "Get path to scope.yml file in BRANCH-DIR."
+  (expand-file-name jf/gptel-session--scope-file branch-dir))
+
+(defun jf/gptel--metadata-file-path (branch-dir)
+  "Get path to metadata.yml file in BRANCH-DIR."
+  (expand-file-name jf/gptel-session--metadata-file branch-dir))
 #+end_src
 
 * Session Discovery
