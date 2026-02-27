@@ -8,8 +8,8 @@
 Session metadata persistence for gptel sessions.
 
 Metadata is read from two sources:
-- Session-level fields (session_id, created, type, parent_session_id, preset) from scope-plan.yml
-- Preset fields (backend, model) from preset.md YAML frontmatter
+- Session-level fields (session_id, created, type, parent_session_id, preset) from metadata.yml
+- Legacy support: reads from scope-plan.yml and preset.md for older sessions
 
 * Lexical Binding
 
@@ -21,10 +21,8 @@ Metadata is read from two sources:
 ;;; Commentary:
 
 ;; Session metadata persistence for gptel.
-;; Reads metadata from scope-plan.yml and preset.md.
-;;
-;; - Session fields: session_id, created, type, parent_session_id, preset
-;; - Preset fields: backend, model
+;; Primary source: metadata.yml (session_id, created, type, parent_session_id, preset)
+;; Legacy support: scope-plan.yml and preset.md for older sessions
 
 ;;; Code:
 

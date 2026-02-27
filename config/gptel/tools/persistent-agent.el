@@ -192,9 +192,7 @@ gptel--known-presets, with zero inheritance from the parent session."
 
       ;; Create agent buffer with session infrastructure
       (let* ((buffer-name (format "*gptel-agent:%s:%s*" preset description))
-             (agent-buffer (generate-new-buffer buffer-name))
-             ;; Capture agent tools AFTER buffer initialization
-             (agent-tools nil))
+             (agent-buffer (generate-new-buffer buffer-name)))
 
         ;; Initialize buffer with session tracking and preset configuration
         (with-current-buffer agent-buffer
@@ -212,9 +210,6 @@ gptel--known-presets, with zero inheritance from the parent session."
 
           ;; Enable gptel-mode AFTER preset application
           (gptel-mode 1)
-
-          ;; Capture tools from buffer context (set by preset)
-          (setq agent-tools gptel-tools)
 
           ;; Add auto-save via gptel's post-response hook
           (add-hook 'gptel-post-response-functions
@@ -316,8 +311,8 @@ Use the inspect_scope_plan tool to get your current allowed paths, then pass the
 to the agent. Example:
   allowed_paths: [\"/path/to/project/**\", \"/another/path/**\"]
 
-If allowed_paths is omitted, the agent inherits your paths automatically.
-If you want to restrict the agent to a subset of your paths, specify only those paths.
+If allowed_paths is omitted or empty, the agent has NO read access to any paths.
+You must explicitly provide paths for the agent to read files.
 
 Note: denied_paths parameter is reserved for future use. Agents always deny
 access to .git, runtime, node_modules, and .env paths."
@@ -340,7 +335,7 @@ access to .git, runtime, node_modules, and .env paths."
          ( :name "allowed_paths"
            :type array
            :items (:type string)
-           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, inherits from parent session. Use inspect_scope_plan to see your current paths.")
+           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, agent has no read access. Use inspect_scope_plan to see your current paths.")
 
          ( :name "denied_paths"
            :type array

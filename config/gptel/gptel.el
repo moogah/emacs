@@ -60,7 +60,7 @@
 (jf/load-module (expand-file-name "config/gptel/skills/skills-roam.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/skills/skills-transient.el" jf/emacs-dir))
 
-(defun jf/gptel-agent--expand-skills (system-text)
+(defun jf/gptel-preset--expand-skills (system-text)
   "Expand @skill mentions in SYSTEM-TEXT using gptel-skills.
 Returns updated system text with skill content injected.
 If skills system not loaded or no mentions found, returns text unchanged."
@@ -88,7 +88,7 @@ If skills system not loaded or no mentions found, returns text unchanged."
     ;; No skills system or no mentions - return unchanged
     system-text))
 
-(defun jf/gptel-agent--expand-all-agent-skills ()
+(defun jf/gptel-preset--expand-all-preset-skills ()
   "Expand @skill mentions in all registered preset system prompts.
 Run this after preset registration to inject skill content into presets."
   (when (and (bound-and-true-p gptel--known-presets)
@@ -102,7 +102,7 @@ Run this after preset registration to inject skill content into presets."
              (plist (cdr preset-entry))
              (system (plist-get plist :system)))
         (when (and system (stringp system))
-          (let ((expanded (jf/gptel-agent--expand-skills system)))
+          (let ((expanded (jf/gptel-preset--expand-skills system)))
             (unless (string= expanded system)
               (plist-put plist :system expanded)
               (when jf/gptel-skills-verbose
@@ -122,7 +122,7 @@ Run this after preset registration to inject skill content into presets."
 (jf/gptel-preset-register-all)
 
 ;; After preset registration, expand skills in preset system prompts
-(jf/gptel-agent--expand-all-agent-skills)
+(jf/gptel-preset--expand-all-preset-skills)
 
 ;; Load scope-core (required by scope-controlled tools)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))

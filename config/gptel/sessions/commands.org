@@ -236,12 +236,10 @@ Detects session files by path pattern:
   - Branch sessions: */branches/<branch-name>/session.md
   - Agent sessions:  */agents/<agent-name>/session.md
 
-Handles three scenarios:
+Handles two scenarios:
   1. Existing session (has gptel--preset in Local Variables) — delegate to
      upstream gptel--restore-state via gptel-mode.
-  2. Legacy session (has preset.md but no gptel--preset) — open in basic mode
-     with warning.
-  3. New session (no Local Variables, no preset.md) — read preset name from
+  2. New session (no Local Variables) — read preset name from
      metadata.yml and apply via gptel--apply-preset.
 
 This runs on every file open via find-file-hook, so performance is critical."
@@ -310,23 +308,7 @@ This runs on every file open via find-file-hook, so performance is critical."
                     (when (file-exists-p (jf/gptel--scope-file-path branch-dir))
                       (jf/gptel--log 'debug "Scope config available at %s" (jf/gptel--scope-file-path branch-dir))))
 
-                   ;; SCENARIO 2: Legacy session — has preset.md but no gptel--preset
-                   ;; Old-format session that predates upstream preset restore.
-                   ((file-exists-p (jf/gptel--preset-file-path branch-dir))
-                    (jf/gptel--log 'warn "Legacy session detected (has preset.md, no gptel--preset): %s/%s"
-                                  session-id branch-name)
-                    ;; Set buffer-local session variables
-                    (setq-local jf/gptel--session-id session-id)
-                    (setq-local jf/gptel--session-dir session-dir)
-                    (setq-local jf/gptel--branch-name branch-name)
-                    (setq-local jf/gptel--branch-dir branch-dir)
-
-                    ;; For now, just enable gptel-mode in basic mode
-                    ;; Full legacy migration will be handled by a later bead
-                    (jf/gptel--log 'warn "Legacy session opened in basic mode. Re-apply a preset from transient menu.")
-                    (jf/gptel--ensure-mode-once))
-
-                   ;; SCENARIO 3: New session — no Local Variables, no preset.md
+                   ;; SCENARIO 2: New session — no Local Variables
                    ;; Read preset name from metadata.yml and apply via gptel--apply-preset
                    (t
                     (jf/gptel--log 'debug "New %s session detected (no Local Variables): %s/%s"
@@ -375,9 +357,7 @@ This runs on every file open via find-file-hook, so performance is critical."
                   (jf/gptel--update-current-symlink session-dir branch-name)
 
                   (jf/gptel--log 'info "Auto-initialized %s %s session: %s/%s"
-                                (cond (has-preset-var "existing")
-                                      ((file-exists-p (jf/gptel--preset-file-path branch-dir)) "legacy")
-                                      (t "new"))
+                                (if has-preset-var "existing" "new")
                                 session-type session-id branch-name)
                   (message "Session initialized: %s (branch: %s)" session-id branch-name))
               (error

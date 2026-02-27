@@ -5,10 +5,8 @@
 ;;; Commentary:
 
 ;; Session metadata persistence for gptel.
-;; Reads metadata from scope-plan.yml and preset.md.
-;;
-;; - Session fields: session_id, created, type, parent_session_id, preset
-;; - Preset fields: backend, model
+;; Primary source: metadata.yml (session_id, created, type, parent_session_id, preset)
+;; Legacy support: scope-plan.yml and preset.md for older sessions
 
 ;;; Code:
 

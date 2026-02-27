@@ -11,11 +11,11 @@ The PersistentAgent tool launches specialized agents in persistent session buffe
 - Maintain bidirectional parent-child session links
 - Support resumable sessions
 
-This tool replicates gptel-agent's superior architecture while maintaining buffer-based persistence for seamless integration with gptel's save/restore mechanisms.
+This tool provides persistent agent sessions with buffer-based persistence for seamless integration with gptel's save/restore mechanisms.
 
 ** Key Architecture
 
-- *Configuration Isolation*: Uses gptel-with-preset for proper dynamic scope
+- *Configuration Isolation*: Uses gptel--apply-preset for proper buffer-local configuration
 - *Persistent State*: Buffer-local session vars survive preset scope
 - *Parent Feedback*: Overlay system shows progress without context switching
 - *Tool Persistence*: All tool I/O saved via gptel-include-tool-results
@@ -219,15 +219,15 @@ The tool extends gptel's FSM architecture with custom handlers for WAIT and TOOL
 
 Instead of switching buffers or popping up windows, progress is shown via text overlays in the parent buffer.
 
-*Why good:* Non-intrusive UX - user stays in parent context while monitoring agent progress. Similar to how gptel-agent works.
+*Why good:* Non-intrusive UX - user stays in parent context while monitoring agent progress.
 
 *** Configuration Isolation via Dynamic Scoping
 
 *Location:* Lines 230-235
 
-Uses =gptel-with-preset= macro to create a clean dynamic scope for agent configuration.
+Uses =gptel--apply-preset= to set buffer-local configuration from registered preset.
 
-*Why good:* Prevents configuration leakage between parent and child sessions. Agent gets config ONLY from its definition file.
+*Why good:* Prevents configuration leakage between parent and child sessions. Agent gets config ONLY from its preset definition.
 
 *** Hook-based Auto-save Pattern
 
@@ -298,7 +298,7 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 2. *Configuration Isolation*
    - Zero inheritance from parent
    - Explicit agent configuration loading
-   - Clean dynamic scope via =gptel-with-preset=
+   - Clean buffer-local configuration via =gptel--apply-preset=
 
 3. *Transparent Persistence*
    - Automatic buffer saves via hooks
@@ -350,7 +350,7 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 ** Integration Points
 
 *Key Dependencies:*
-- *gptel-agent*: Provides agent definition loading (=gptel-agent--agents= alist)
+- *gptel presets*: Provides preset definitions via =gptel--known-presets=
 - *gptel-session-filesystem*: Directory creation, path helpers
 - *gptel-session-metadata*: Metadata file read/write
 - *gptel-session-registry*: Global session tracking
@@ -370,7 +370,7 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 
 *Edge cases:*
 - Parent session doesn't exist → Error (expected)
-- Agent type not in =gptel-agent--agents= → Nil config (graceful degradation)
+- Preset not in =gptel--known-presets= → Error (validated before launch)
 - Network failure → Error callback invoked, overlay deleted
 - User aborts tool confirmation → 'abort callback, overlay deleted
 - Buffer killed during execution → Overlay buffer check prevents crash
@@ -630,9 +630,7 @@ gptel--known-presets, with zero inheritance from the parent session."
 
       ;; Create agent buffer with session infrastructure
       (let* ((buffer-name (format "*gptel-agent:%s:%s*" preset description))
-             (agent-buffer (generate-new-buffer buffer-name))
-             ;; Capture agent tools AFTER buffer initialization
-             (agent-tools nil))
+             (agent-buffer (generate-new-buffer buffer-name)))
 
         ;; Initialize buffer with session tracking and preset configuration
         (with-current-buffer agent-buffer
@@ -650,9 +648,6 @@ gptel--known-presets, with zero inheritance from the parent session."
 
           ;; Enable gptel-mode AFTER preset application
           (gptel-mode 1)
-
-          ;; Capture tools from buffer context (set by preset)
-          (setq agent-tools gptel-tools)
 
           ;; Add auto-save via gptel's post-response hook
           (add-hook 'gptel-post-response-functions
@@ -760,8 +755,8 @@ Use the inspect_scope_plan tool to get your current allowed paths, then pass the
 to the agent. Example:
   allowed_paths: [\"/path/to/project/**\", \"/another/path/**\"]
 
-If allowed_paths is omitted, the agent inherits your paths automatically.
-If you want to restrict the agent to a subset of your paths, specify only those paths.
+If allowed_paths is omitted or empty, the agent has NO read access to any paths.
+You must explicitly provide paths for the agent to read files.
 
 Note: denied_paths parameter is reserved for future use. Agents always deny
 access to .git, runtime, node_modules, and .env paths."
@@ -784,7 +779,7 @@ access to .git, runtime, node_modules, and .env paths."
          ( :name "allowed_paths"
            :type array
            :items (:type string)
-           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, inherits from parent session. Use inspect_scope_plan to see your current paths.")
+           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, agent has no read access. Use inspect_scope_plan to see your current paths.")
 
          ( :name "denied_paths"
            :type array
