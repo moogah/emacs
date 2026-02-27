@@ -15,13 +15,6 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 
-(defvar jf/gptel-preset--scope-defaults (make-hash-table :test 'equal)
-  "Hash table mapping preset names to scope configuration.
-Each value is a plist that may contain:
-- :scope-profile - name of a profile template file (without .yml)
-- Inline scope keys (:paths, :org-roam-patterns, :shell-commands)
-Populated by the preset-registration module.")
-
 (defun jf/gptel-scope-profile--snake-to-kebab (key)
   "Convert KEY from snake_case keyword to kebab-case keyword.
 E.g., :org_roam_patterns becomes :org-roam-patterns."
@@ -78,7 +71,7 @@ Priority:
   3. No scope defaults -> return nil
 
 Returns a scope plist or nil."
-  (let ((scope-config (gethash preset-name jf/gptel-preset--scope-defaults)))
+  (let ((scope-config (alist-get preset-name jf/gptel-preset--scope-defaults)))
     (cond
      ;; No scope configuration for this preset
      ((null scope-config)

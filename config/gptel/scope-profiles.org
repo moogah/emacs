@@ -32,20 +32,6 @@ Profile templates live as YAML files in =config/gptel/scope-profiles/=.
 (require 'gptel-session-logging)
 #+end_src
 
-* Scope Defaults Variable
-
-Hash table populated by the preset-registration module. Maps preset names to
-their scope configuration (either a named profile or inline scope defaults).
-
-#+begin_src emacs-lisp
-(defvar jf/gptel-preset--scope-defaults (make-hash-table :test 'equal)
-  "Hash table mapping preset names to scope configuration.
-Each value is a plist that may contain:
-- :scope-profile - name of a profile template file (without .yml)
-- Inline scope keys (:paths, :org-roam-patterns, :shell-commands)
-Populated by the preset-registration module.")
-#+end_src
-
 * Key Normalization Helpers
 
 Convert between snake_case (YAML on-disk format) and kebab-case (Elisp plist format).
@@ -125,7 +111,7 @@ Priority:
   3. No scope defaults -> return nil
 
 Returns a scope plist or nil."
-  (let ((scope-config (gethash preset-name jf/gptel-preset--scope-defaults)))
+  (let ((scope-config (alist-get preset-name jf/gptel-preset--scope-defaults)))
     (cond
      ;; No scope configuration for this preset
      ((null scope-config)
