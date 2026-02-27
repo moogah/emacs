@@ -60,37 +60,6 @@
 (jf/load-module (expand-file-name "config/gptel/skills/skills-roam.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/skills/skills-transient.el" jf/emacs-dir))
 
-;; Load constants and logging first (needed by preset registration and all session modules)
-(jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
-
-;; Ensure yaml parser is available
-(require 'yaml)
-
-;; Load preset registration module
-(jf/load-module (expand-file-name "config/gptel/preset-registration.el" jf/emacs-dir))
-
-;; Register all presets from config/gptel/presets/*.md
-(jf/gptel-preset-register-all)
-
-;; After preset registration, expand skills in preset system prompts
-(jf/gptel-agent--expand-all-agent-skills)
-
-;; Load scope-core (required by scope-controlled tools)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
-
-;; Load custom tools (tools must be registered before presets reference them)
-(jf/load-module (expand-file-name "config/gptel/tools/filesystem-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/projectile-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/ggtags-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/treesitter-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/org-roam-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/sql-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/tools/transient-tools.el" jf/emacs-dir))
-;; Note: persistent-agent.el loaded later after session modules
-
 (defun jf/gptel-agent--expand-skills (system-text)
   "Expand @skill mentions in SYSTEM-TEXT using gptel-skills.
 Returns updated system text with skill content injected.
@@ -138,6 +107,37 @@ Run this after preset registration to inject skill content into presets."
               (plist-put plist :system expanded)
               (when jf/gptel-skills-verbose
                 (message "Expanded skills in preset: %s" preset-name)))))))))
+
+;; Load constants and logging first (needed by preset registration and all session modules)
+(jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+
+;; Ensure yaml parser is available
+(require 'yaml)
+
+;; Load preset registration module
+(jf/load-module (expand-file-name "config/gptel/preset-registration.el" jf/emacs-dir))
+
+;; Register all presets from config/gptel/presets/*.md
+(jf/gptel-preset-register-all)
+
+;; After preset registration, expand skills in preset system prompts
+(jf/gptel-agent--expand-all-agent-skills)
+
+;; Load scope-core (required by scope-controlled tools)
+(jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
+
+;; Load custom tools (tools must be registered before presets reference them)
+(jf/load-module (expand-file-name "config/gptel/tools/filesystem-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/projectile-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/ggtags-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/treesitter-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/org-roam-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/sql-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/transient-tools.el" jf/emacs-dir))
+;; Note: persistent-agent.el loaded later after session modules
 
 ;; Note: constants.el and logging.el already loaded above (before preset registration)
 
