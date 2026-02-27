@@ -7,15 +7,6 @@
 (require 'gptel-session-logging)
 ;; Dependencies:1 ends here
 
-;; Scope File Constant
-
-
-;; [[file:scope-core.org::*Scope File Constant][Scope File Constant:1]]
-(defconst jf/gptel-session--scope-file "scope.yml"
-  "File name for scope configuration (plain YAML, no frontmatter).
-Located in the same directory as session.md.")
-;; Scope File Constant:1 ends here
-
 ;; Tool Category Constant
 
 ;; The core categorization system maps each tool to its validation strategy and operation type.
@@ -233,8 +224,7 @@ Returns plist with :paths-read, :paths-write, :paths-deny,
     (let* ((parsed (yaml-parse-string (buffer-string)
                                       :object-type 'plist
                                       :sequence-type 'list))
-           ;; Normalize snake_case keys to kebab-case
-           (paths (or (plist-get parsed :paths) (plist-get parsed :paths)))
+           (paths (plist-get parsed :paths))
            (org-roam (or (plist-get parsed :org-roam-patterns)
                          (plist-get parsed :org_roam_patterns)))
            (shell (or (plist-get parsed :shell-commands)
@@ -619,28 +609,6 @@ CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny_patterns"
                              tool-name
                              resource)))))
 ;; Format Tool Error:1 ends here
-
-;; Vector to List Conversion
-
-;; Helper function to convert vectors to lists in parsed YAML structures.
-;; YAML parser returns vectors for arrays, but elisp code expects lists.
-
-
-;; [[file:scope-core.org::*Vector to List Conversion][Vector to List Conversion:1]]
-(defun jf/gptel-scope--vectorp-to-list (obj)
-  "Recursively convert vectors to lists in OBJ (plist or nested structure)."
-  (cond
-   ;; Vector: convert to list and recurse
-   ((vectorp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list (append obj nil)))
-
-   ;; List: recurse on each element
-   ((listp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list obj))
-
-   ;; Other: return as-is
-   (t obj)))
-;; Vector to List Conversion:1 ends here
 
 ;; Provide Feature
 

@@ -296,9 +296,7 @@ Load session management modules in dependency order:
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
 
-;; Load scope-core (needed by scope-commands)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
-
+;; scope-core already loaded above (before tools); scope-commands requires it
 ;; Load scope-commands BEFORE session-commands (session-commands requires scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-commands.el" jf/emacs-dir))
 

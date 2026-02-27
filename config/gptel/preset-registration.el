@@ -95,6 +95,8 @@ Return a new plist with coerced values."
                  ((equal val "auto") 'auto)
                  ((equal val "always") t)
                  (t val)))
+               ;; General :true -> t for any key (YAML true parses as :true keyword)
+               ((eq val :true) t)
                ;; General :false -> nil for any key
                ((eq val :false) nil)
                ;; Everything else passes through

@@ -66,7 +66,7 @@ Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :
 Returns nil if file doesn't exist or can't be parsed.
 
 Supports backward compatibility: reads 'preset' field, falls back to 'agent_type' for old sessions."
-  (let ((plan-file (expand-file-name "scope-plan.yml" session-dir)))
+  (let ((plan-file (expand-file-name jf/gptel-session--scope-plan-file session-dir)))
     (when (file-exists-p plan-file)
       (condition-case err
           (with-temp-buffer

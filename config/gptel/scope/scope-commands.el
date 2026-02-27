@@ -87,7 +87,7 @@ Returns alist of (tool-name . t) for each tool, or nil if:
 - Preset has no :tools"
   (when branch-dir
     (condition-case err
-        (let* ((metadata-file (expand-file-name "metadata.yml" branch-dir))
+        (let* ((metadata-file (expand-file-name jf/gptel-session--metadata-file branch-dir))
                (preset-name
                 (when (file-exists-p metadata-file)
                   (with-temp-buffer

@@ -194,6 +194,11 @@ Functions called by the transient menu choices.
 
 Functions to update scope.yml with new permissions.
 
+*Key format convention:* YAML files use =snake_case= keys (e.g., =org_roam_patterns=,
+=shell_commands=). On read, =scope-core= normalizes these to kebab-case (=:org-roam-patterns=,
+=:shell-commands=). When writing back, these updaters use the original =snake_case= format
+so that YAML files remain consistent and human-readable.
+
 ** Add Path to Scope
 
 #+begin_src emacs-lisp
