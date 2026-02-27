@@ -12,14 +12,11 @@
 ;; The jf/gptel-resume-session, jf/gptel-list-sessions, and jf/gptel-resume-agent
 ;; commands have been removed. Use standard Emacs file navigation instead.
 ;;
-;; ARCHITECTURE NOTE: Preset files are templates used at session creation.
-;; Once created, gptel's Local Variables are the source of truth for settings.
-;; Presets are NOT reapplied on resume - they may become stale as sessions evolve.
-;;
-;; SYSTEM MESSAGE HANDLING: System messages are managed via preset files, not
-;; Local Variables. This prevents duplicate Local Variables blocks when system
-;; messages exceed ~4000 characters. Buffer-local advice on gptel--save-state
-;; prevents gptel from persisting system messages to Local Variables.
+;; ARCHITECTURE: Presets are registered in gptel--known-presets at startup.
+;; Session creation writes scope.yml (from preset's scope profile) and
+;; metadata.yml (session metadata with preset name). On first open,
+;; gptel--apply-preset applies the preset; after first save, upstream's
+;; Local Variables + gptel--preset become the source of truth.
 
 ;;; Code:
 
@@ -30,7 +27,7 @@
 (require 'gptel-session-filesystem)
 (require 'gptel-session-registry)
 (require 'gptel-session-metadata)
-(require 'jf-gptel-scope-commands)
+(require 'gptel-scope-profiles)
 
 (defun jf/gptel--check-duplicate-hooks ()
   "Check if before-save-hook has duplicate gptel--save-state entries.
@@ -288,310 +285,20 @@ This runs on every file open via find-file-hook, so performance is critical."
                               session-type (error-message-string err))
                (message "Warning: Session auto-init failed. File opened in basic mode.")))))))))
 
-(defun jf/gptel--skip-system-message-save-advice (orig-fun)
-  "Prevent gptel from saving system message for session buffers.
-Session system messages are managed via preset files, not Local Variables.
-This advice temporarily removes the buffer-local binding during save,
-preventing gptel from detecting a difference from default value."
-  (if (and (boundp 'jf/gptel--session-dir) jf/gptel--session-dir
-           (boundp 'gptel--system-message)
-           (local-variable-p 'gptel--system-message))
-      ;; Temporarily kill buffer-local binding so gptel won't save it
-      (let ((saved-system-msg gptel--system-message))
-        (kill-local-variable 'gptel--system-message)
-        (unwind-protect
-            (funcall orig-fun)
-          ;; Restore buffer-local binding after save
-          (setq-local gptel--system-message saved-system-msg)))
-    ;; Not a session buffer or no buffer-local system message, use default behavior
-    (funcall orig-fun)))
-
-(defun jf/gptel--set-session-system-message (system-message)
-  "Set system message for session buffer without triggering Local Variables save.
-System message is managed via preset files, not gptel's Local Variables persistence.
-Installs buffer-local advice to prevent gptel--save-state from saving it."
-  (when system-message
-    ;; Set the system message in the buffer
-    (setq-local gptel--system-message system-message)
-
-    ;; Install buffer-local advice to prevent gptel from saving it
-    (advice-add 'gptel--save-state :around
-                #'jf/gptel--skip-system-message-save-advice
-                '((local)))
-
-    (jf/gptel--log 'debug "Set session system message (%d chars) with save-prevention"
-                  (length system-message))))
-
-(defun jf/gptel--list-preset-templates ()
-  "List available preset template files in jf/gptel-presets-directory.
-Returns list of template names (without extensions)."
-  (let* ((preset-dir (expand-file-name jf/gptel-presets-directory))
-         (files (directory-files preset-dir nil "\\.\\(md\\|org\\)$")))
-    (mapcar (lambda (f) (file-name-sans-extension f)) files)))
-
-(defun jf/gptel--resolve-preset-template (template-name)
-  "Resolve TEMPLATE-NAME to full path.
-Checks for both .md and .org extensions.
-Returns nil if template doesn't exist."
-  (let* ((preset-dir (expand-file-name jf/gptel-presets-directory))
-         (md-file (expand-file-name (concat template-name ".md") preset-dir))
-         (org-file (expand-file-name (concat template-name ".org") preset-dir)))
-    (cond
-     ((file-exists-p md-file) md-file)
-     ((file-exists-p org-file) org-file)
-     (t nil))))
-
-(defun jf/gptel--select-preset-template ()
-  "Prompt user to select a preset template.
-Returns template name (without extension)."
-  (let ((templates (jf/gptel--list-preset-templates)))
-    (if (null templates)
-        (error "No preset templates found in %s" jf/gptel-presets-directory)
-      (completing-read "Select preset template: " templates nil t nil nil "programming-assistant"))))
-
-(defun jf/gptel--copy-preset-template (template-name session-dir)
-  "Copy preset template TEMPLATE-NAME to SESSION-DIR.
-Copies as preset.md or preset.org depending on source format.
-Signals error if template doesn't exist."
-  (let ((template-path (jf/gptel--resolve-preset-template template-name)))
-    (unless template-path
-      (error "Preset template not found: %s (checked .md and .org)" template-name))
-    (let* ((template-ext (file-name-extension template-path))
-           (dest-file (expand-file-name (concat "preset." template-ext) session-dir))
-           (template-size (nth 7 (file-attributes template-path))))
-      (when (file-exists-p dest-file)
-        (jf/gptel--log 'warn "Overwriting existing preset file: %s" dest-file))
-      (message "DEBUG COPY: Template %s size=%d" template-path template-size)
-      (copy-file template-path dest-file t)
-      (let ((dest-size (nth 7 (file-attributes dest-file))))
-        (message "DEBUG COPY: Copied to %s size=%d" dest-file dest-size)
-        (unless (= template-size dest-size)
-          (error "File size mismatch after copy! Template=%d Dest=%d" template-size dest-size)))
-      (jf/gptel--log 'info "Copied preset template %s to %s" template-name dest-file)
-      dest-file)))
-
-(defun jf/gptel--normalize-preset-for-serialization (preset-plist)
-  "Convert PRESET-PLIST to serializable form.
-Backend objects → names, model symbols → strings, tools → names."
-  (let* ((backend (plist-get preset-plist :backend))
-         (backend-name (if (gptel-backend-p backend)
-                          (gptel-backend-name backend)
-                        backend))
-         (model (plist-get preset-plist :model))
-         (model-name (if (symbolp model) (symbol-name model) model))
-         (tools (plist-get preset-plist :tools))
-         (tool-names (when tools
-                      (cond
-                       ;; New map format: (:Glob (:allowed t) :Grep (:allowed t) ...)
-                       ;; Extract keywords and convert to strings
-                       ((and (listp tools) (keywordp (car tools)))
-                        (let ((result nil))
-                          (while tools
-                            (let ((tool-key (pop tools))
-                                  (tool-props (pop tools)))
-                              (push (substring (symbol-name tool-key) 1) result)))
-                          (nreverse result)))
-                       ;; Legacy list format: ("tool1" "tool2") or (gptel-tool-struct ...)
-                       (t
-                        (mapcar (lambda (tool)
-                                 (if (stringp tool) tool (gptel-tool-name tool)))
-                               tools))))))
-    (list :backend backend-name
-          :model model-name
-          :tools tool-names
-          :description (plist-get preset-plist :description)
-          :system (plist-get preset-plist :system)
-          :temperature (plist-get preset-plist :temperature)
-          :include-tool-results (plist-get preset-plist :include-tool-results))))
-
-(defun jf/gptel--write-preset-md (session-dir preset-plist)
-  "Write PRESET-PLIST as preset.md in SESSION-DIR.
-Converts backend/model objects to names, tools to name strings."
-  (let* ((normalized (jf/gptel--normalize-preset-for-serialization preset-plist))
-         (backend-name (plist-get normalized :backend))
-         (model-name (plist-get normalized :model))
-         (system (plist-get normalized :system))
-         (temperature (plist-get normalized :temperature))
-         (include-tool-results (plist-get normalized :include-tool-results))
-         (tool-names (plist-get normalized :tools))
-         (preset-file (expand-file-name "preset.md" session-dir)))
-    (with-temp-file preset-file
-      (insert "---\n")
-      (insert (format "description: %s\n" (plist-get normalized :description)))
-      (insert (format "backend: %s\n" backend-name))
-      (insert (format "model: %s\n" model-name))
-      (insert (format "temperature: %s\n" temperature))
-      (insert (format "include-tool-results: %s\n" include-tool-results))
-      (when tool-names
-        (insert "tools:\n")
-        (dolist (tool-name tool-names)
-          (insert (format "  - %s\n" tool-name))))
-      (insert "---\n\n")
-      (when system
-        (insert system)))
-    (jf/gptel--log 'info "Created preset.md: %s" preset-file)))
-
-(defun jf/gptel--write-preset-org (session-dir preset-plist)
-  "Write PRESET-PLIST as preset.org in SESSION-DIR.
-Converts backend/model objects to names, tools to space-separated string."
-  (let* ((normalized (jf/gptel--normalize-preset-for-serialization preset-plist))
-         (backend-name (plist-get normalized :backend))
-         (model-name (plist-get normalized :model))
-         (system (plist-get normalized :system))
-         (temperature (plist-get normalized :temperature))
-         (include-tool-results (plist-get normalized :include-tool-results))
-         (tool-names (plist-get normalized :tools))
-         (preset-file (expand-file-name "preset.org" session-dir)))
-    (with-temp-file preset-file
-      (insert ":PROPERTIES:\n")
-      (insert (format ":description: %s\n" (plist-get normalized :description)))
-      (insert (format ":backend: %s\n" backend-name))
-      (insert (format ":model: %s\n" model-name))
-      (insert (format ":temperature: %s\n" temperature))
-      (insert (format ":include-tool-results: %s\n" include-tool-results))
-      (when tool-names
-        (let ((tools-str (mapconcat #'identity tool-names " ")))
-          (insert (format ":tools: %s\n" tools-str))))
-      (insert ":END:\n\n")
-      (when system
-        (insert system)))
-    (jf/gptel--log 'info "Created preset.org: %s" preset-file)))
-
-(defun jf/gptel--write-preset-file (session-dir preset-plist &optional format)
-  "Write PRESET-PLIST to preset file in SESSION-DIR.
-FORMAT can be 'md (markdown) or 'org (default: 'md).
-Converts backend objects to names, tools to name strings."
-  (let ((format (or format 'md)))
-    (pcase format
-      ('md (jf/gptel--write-preset-md session-dir preset-plist))
-      ('org (jf/gptel--write-preset-org session-dir preset-plist))
-      (_ (error "Unsupported preset format: %s (expected 'md or 'org)" format)))))
-
-(defun jf/gptel--load-preset-from-file (session-dir)
-  "Load preset for session in SESSION-DIR.
-Supports .md and .org formats only.
-
-Priority order:
-1. session-dir/preset.md
-2. session-dir/preset.org
-
-Returns preset plist with keys :description, :backend, :model, :system,
-:temperature, :include-tool-results, :tools.
-
-NOTE: This is a template loader, not used during session resume."
-  (let* ((md-file (expand-file-name "preset.md" session-dir))
-         (org-file (expand-file-name "preset.org" session-dir))
-         (preset-path (cond
-                       ((file-exists-p md-file) md-file)
-                       ((file-exists-p org-file) org-file)
-                       (t (error "No preset file found in %s (expected preset.md or preset.org)" session-dir))))
-         (ext (file-name-extension preset-path)))
-    (unless (member ext '("md" "org"))
-      (error "Unsupported preset file format: %s (expected .md or .org)" ext))
-    ;; Load using gptel-agent parser
-    (require 'gptel-agent)
-    ;; Pass non-nil templates to trigger :system extraction (empty list '() is nil in elisp!)
-    (let* ((preset-data (gptel-agent-read-file preset-path '((dummy . dummy))))
-           (preset-plist (cdr preset-data))
-           ;; Convert tool names to tool objects if needed
-           (tools (plist-get preset-plist :tools))
-           (resolved-tools
-            (when tools
-              (cond
-               ;; New format: tools is a plist (:tool-name (:allowed t) :tool2 (:allowed t) ...)
-               ;; Check if first element is a keyword (indicates plist format)
-               ((and (listp tools)
-                     (keywordp (car tools)))
-                (cl-loop for (tool-name props) on tools by #'cddr
-                         when (and (listp props)
-                                   (plist-get props :allowed))
-                         collect (substring (symbol-name tool-name) 1)))
-               ;; Alist format: ((tool-name . props) ...)
-               ((and (listp tools)
-                     (consp (car tools))
-                     (not (stringp (car tools))))
-                (cl-loop for (tool-name . props) in tools
-                         when (and (listp props)
-                                   (cdr (assq 'allowed props)))
-                         collect (cond
-                                  ((keywordp tool-name)
-                                   (substring (symbol-name tool-name) 1))
-                                  ((symbolp tool-name)
-                                   (symbol-name tool-name))
-                                  (t tool-name))))
-               ;; Old format: simple list of tool names
-               ((listp tools) tools)
-               ;; Space-separated string from org
-               (t (split-string tools))))))
-      ;; Update tools in plist
-      (when resolved-tools
-        (plist-put preset-plist :tools resolved-tools))
-      ;; Convert backend name to object
-      (when-let ((backend-name (plist-get preset-plist :backend)))
-        (plist-put preset-plist :backend
-                   (alist-get backend-name gptel--known-backends nil nil #'equal)))
-      ;; Convert model name to symbol
-      (when-let ((model-name (plist-get preset-plist :model)))
-        (plist-put preset-plist :model
-                   (if (symbolp model-name) model-name (intern model-name))))
-      preset-plist)))
-
-(defun jf/gptel--apply-session-preset (preset-plist)
-  "Apply PRESET-PLIST to current buffer buffer-locally.
-Includes tools from preset and gptel-include-tool-results for native tool persistence.
-
-NOTE: This should only be called ONCE at session creation.
-After the first save, gptel's Local Variables become the source of truth.
-
-IMPORTANT: Sets system message with save-prevention advice to prevent gptel
-from saving it to Local Variables (which causes duplicate blocks with long
-messages >4000 chars). System message is managed via preset files."
-  (let ((backend (plist-get preset-plist :backend))
-        (model (plist-get preset-plist :model))
-        (system (plist-get preset-plist :system))
-        (temperature (plist-get preset-plist :temperature))
-        (include-tool-results (plist-get preset-plist :include-tool-results))
-        (tools (plist-get preset-plist :tools)))
-    (when backend
-      (setq-local gptel-backend backend))
-    (when model
-      (setq-local gptel-model model))
-    ;; Set system message with save-prevention (so it's active from session start)
-    (when system
-      (jf/gptel--set-session-system-message system))
-    (when temperature
-      (setq-local gptel-temperature temperature))
-    (when (not (null include-tool-results))
-      (setq-local gptel-include-tool-results include-tool-results))
-    ;; Apply tools from preset - ALWAYS set gptel-tools for isolation
-    ;; If preset has no tools or tools don't resolve, explicitly set to nil
-    (let ((resolved-tools
-           (when tools
-             (cl-loop for tool-name in tools
-                      for tool = (gptel-get-tool tool-name)
-                      when tool collect tool
-                      else do (jf/gptel--log 'warn "Tool not found: %s" tool-name)))))
-      (setq-local gptel-tools resolved-tools)  ; ALWAYS set, even if nil
-      (jf/gptel--log 'info "Applied %d tools from preset (isolation ensured)"
-                    (if resolved-tools (length resolved-tools) 0)))
-    (jf/gptel--log 'info "Applied session preset as initial template (system message with save-prevention)")))
-
-(defun jf/gptel--create-session-core (session-id session-dir preset-template scope-type &optional projects initial-content worktree-paths activity-org-file)
+(defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root)
   "Create session directory structure with branching support.
 
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
-PRESET-TEMPLATE - name of preset template to copy
-SCOPE-TYPE - symbol 'project-aware or 'deny-all
-PROJECTS - optional list for project-aware scope plans
+PRESET-NAME - symbol, name of registered preset in gptel--known-presets
 INITIAL-CONTENT - optional initial content for session.md (default: \"###\\n\")
-WORKTREE-PATHS - optional list of worktree paths for activity isolation
-ACTIVITY-ORG-FILE - optional path to activity org-roam document for agent access
+WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
+PROJECT-ROOT - optional project root for scope profile variable expansion
 
 Creates:
 - SESSION-DIR/branches/main/ directory structure
-- preset.md (copied from template)
-- scope-plan.yml (project-aware or deny-all, optionally with worktree paths and activity org file)
+- scope.yml (from preset's scope profile, or explicit worktree-paths)
+- metadata.yml (session metadata with preset name)
 - session.md (with initial content)
 - current symlink pointing to main branch
 
@@ -602,43 +309,23 @@ Returns plist with:
   :branch-name - \"main\"
   :session-file - path to session.md"
 
-  (let* (;; Create branches/main/ directory
-         (main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
+  (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
          (initial-content (or initial-content "###\n")))
 
-    ;; Copy preset template to main branch directory FIRST
-    (jf/gptel--copy-preset-template preset-template main-branch-dir)
+    ;; Write scope.yml from preset's scope profile
+    (jf/gptel-scope-profile--create-for-session
+     preset-name main-branch-dir project-root worktree-paths)
 
-    ;; Update preset.md with paths if needed (v3.0 architecture)
-    (let ((preset-file (expand-file-name "preset.md" main-branch-dir))
-          (allowed-paths (cond
-                          ;; Project-aware: use project paths
-                          ((eq scope-type 'project-aware)
-                           (mapcar (lambda (proj)
-                                    (concat (directory-file-name proj) "/**"))
-                                  projects))
-                          ;; Worktree isolation: use worktree paths
-                          (worktree-paths worktree-paths)
-                          ;; Deny-all: empty paths (will use defaults from template)
-                          (t nil))))
-
-      (when allowed-paths
-        (jf/gptel-scope--update-preset-paths preset-file allowed-paths nil)
-        (jf/gptel--log 'info "Updated preset.md with %d path(s)" (length allowed-paths))))
-
-    ;; Create v3.0 scope-plan.yml (metadata only, no tools section)
-    (let ((scope-file (jf/gptel--scope-plan-file-path main-branch-dir))
+    ;; Write metadata.yml
+    (let ((metadata-file (jf/gptel--metadata-file-path main-branch-dir))
           (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
-      (with-temp-file scope-file
-        (insert (format "version: \"3.0\"\n"))
+      (with-temp-file metadata-file
         (insert (format "session_id: \"%s\"\n" session-id))
         (insert (format "created: \"%s\"\n" timestamp))
         (insert (format "updated: \"%s\"\n" timestamp))
-        (insert (format "preset: \"%s\"\n" preset-template))
-        (when activity-org-file
-          (insert (format "activity_org_file: \"%s\"\n" activity-org-file))))
-      (jf/gptel--log 'info "Created v3.0 scope-plan.yml (metadata only): %s" scope-file))
+        (insert (format "preset: \"%s\"\n" (symbol-name preset-name))))
+      (jf/gptel--log 'info "Created metadata.yml: %s" metadata-file))
 
     ;; Create current symlink pointing to main
     (jf/gptel--update-current-symlink session-dir "main")
@@ -655,49 +342,55 @@ Returns plist with:
           :branch-name "main"
           :session-file session-file)))
 
-(defun jf/gptel-persistent-session (session-name &optional backend model preset-template)
+(defun jf/gptel-persistent-session (session-name &optional backend model preset-name)
   "Create a new persistent gptel session named SESSION-NAME.
 
 Optional BACKEND and MODEL default to Claude Opus 4.5.
-Optional PRESET-TEMPLATE specifies template name (default: \"programming-assistant\").
-With prefix argument (C-u), prompts to select template interactively.
+Optional PRESET-NAME specifies registered preset (default: 'executor).
+With prefix argument (C-u), prompts to select preset interactively.
 
 Prompts user to select projectile projects (0 or more).
-If projects selected, creates project-aware scope plan.
-Otherwise creates deny-all scope plan.
+If projects selected, first project is used as project-root for scope expansion.
 
 Creates session with branches/main/ structure and current symlink.
 The session auto-initializes when opened (via find-file-hook).
 
 To open existing sessions: Just use find-file (C-x C-f) or dired on ~/.gptel/sessions/
-No special resume command needed - sessions auto-initialize when opened.
-
-The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/branches/main/session.md"
+No special resume command needed - sessions auto-initialize when opened."
   (interactive
-   (let ((name (read-string "Session name: "))
-         (template (if current-prefix-arg
-                       (jf/gptel--select-preset-template)
-                     "programming-assistant")))
-     (list name nil nil template)))
+   (let* ((name (read-string "Session name: "))
+          (preset (if current-prefix-arg
+                      (let* ((presets (mapcar #'car gptel--known-presets))
+                             (annotator (lambda (name)
+                                          (let* ((preset (gptel-get-preset (intern name)))
+                                                 (desc (plist-get preset :description)))
+                                            (when desc (format "  -- %s" desc)))))
+                             (completion-extra-properties
+                              (list :annotation-function annotator)))
+                        (intern (completing-read "Select preset: "
+                                                 (mapcar #'symbol-name presets)
+                                                 nil t)))
+                    'executor)))
+     (list name nil nil preset)))
   (let* ((session-id (jf/gptel--generate-session-id session-name))
          (session-dir (jf/gptel--create-session-directory session-id))
-         (preset-template (or preset-template "programming-assistant"))
+         (preset-name (or preset-name 'executor))
          ;; Project selection
          (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
                              (jf/gptel--select-projects)))
+         (project-root (when selected-projects (car selected-projects)))
          (project-names (when selected-projects
                          (mapcar #'jf/gptel--project-display-name selected-projects)))
-         (scope-type (if selected-projects 'project-aware 'deny-all))
          (initial-content (format "# %s\n\n" session-name)))
 
     ;; Create session structure using core helper
     (let* ((session-info (jf/gptel--create-session-core
                          session-id
                          session-dir
-                         preset-template
-                         scope-type
-                         selected-projects
-                         initial-content))
+                         preset-name
+                         initial-content
+                         nil         ; no worktree-paths for standalone
+                         project-root))
            (session-file (plist-get session-info :session-file)))
 
       ;; Open session file - auto-initialization hook will handle the rest
@@ -707,10 +400,10 @@ The session will auto-save to ~/.gptel/sessions/SESSION-NAME-TIMESTAMP/branches/
                       (if selected-projects
                           (format " with %d project(s)" (length selected-projects))
                         ""))
-        (message "Created session: %s\nDirectory: %s\nBranch: main\nTemplate: %s%s\n\nSession will auto-initialize when opened."
+        (message "Created session: %s\nDirectory: %s\nBranch: main\nPreset: %s%s\n\nSession will auto-initialize when opened."
                  session-name
                  session-dir
-                 preset-template
+                 preset-name
                  (if project-names
                      (format "\nProjects: %s" (string-join project-names ", "))
                    ""))
