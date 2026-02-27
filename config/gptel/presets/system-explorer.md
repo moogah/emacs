@@ -5,6 +5,7 @@ description: >
 backend: Claude
 model: claude-sonnet-4-5-20250929
 temperature: 0.3
+include-tool-results: true
 tools:
   - PersistentAgent
   - run_bash_command
