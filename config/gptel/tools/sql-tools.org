@@ -28,7 +28,6 @@ Setup lexical binding and load required libraries.
 ;; -*- lexical-binding: t; -*-
 
 (require 'gptel)
-(require 'gptel-agent)
 #+end_src
 
 * Core Helper Functions

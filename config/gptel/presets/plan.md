@@ -19,16 +19,7 @@ tools:
   - expand_project_path
   - search_project_content
   - get_scope_structure
-paths:
-  read:
-    []
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
+scope_profile: coding
 ---
 
 # Software Development Planning Guidelines

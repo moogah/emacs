@@ -35,16 +35,7 @@ tools:
   - edit_file_in_scope
   - request_scope_expansion
   - get_scope_structure
-paths:
-  read:
-    - "/**"
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
+scope_profile: coding
 ---
 
 # Software Exploration Guidelines

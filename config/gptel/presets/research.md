@@ -13,6 +13,7 @@ tools:
   - read_file
   - request_scope_expansion
   - get_scope_structure
+scope_profile: research
 ---
 
 # Software Research Guidelines
