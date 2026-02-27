@@ -253,21 +253,6 @@ Returns new branch directory path."
         (copy-file parent-metadata branch-metadata t)
         (jf/gptel--log 'info "Copied metadata.yml to branch")))
 
-    ;; Legacy fallback: copy scope-plan.yml and preset.md if new-format files don't exist
-    (unless (file-exists-p (jf/gptel--scope-file-path parent-branch-dir))
-      ;; Legacy parent: copy old-format files as-is
-      (let ((parent-scope (jf/gptel--scope-plan-file-path parent-branch-dir))
-            (branch-scope (jf/gptel--scope-plan-file-path branch-dir)))
-        (when (file-exists-p parent-scope)
-          (copy-file parent-scope branch-scope t)
-          (jf/gptel--log 'info "Copied legacy scope-plan.yml to branch")))
-
-      (let ((parent-preset (jf/gptel--preset-file-path parent-branch-dir))
-            (branch-preset (jf/gptel--preset-file-path branch-dir)))
-        (when (file-exists-p parent-preset)
-          (copy-file parent-preset branch-preset t)
-          (jf/gptel--log 'info "Copied legacy preset.md to branch"))))
-
     ;; Create branch-metadata.yml
     (jf/gptel--write-branch-metadata branch-dir parent-branch-name branch-position)
 
@@ -295,7 +280,7 @@ Interactively:
 
 The new branch is created in the same session with:
 - Timestamped branch name: <timestamp>-<user-name>
-- Copied scope.yml and metadata.yml from parent (or legacy scope-plan.yml/preset.md)
+- Copied scope.yml and metadata.yml from parent
 - branch-metadata.yml tracking parent branch name
 - Copied agent subdirectories from parent branch
 - session.md truncated at branch point with filtered bounds

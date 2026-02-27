@@ -64,10 +64,13 @@
                               (file-name-directory (buffer-file-name)))))
          (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                          (jf/gptel--scope-file-path jf/gptel--branch-dir)
-                       (expand-file-name "scope.yml" context-dir))))
+                       (expand-file-name jf/gptel-session--scope-file context-dir))))
 
     (unless (file-exists-p scope-file)
       (user-error "No scope.yml found in %s" context-dir))
+
+    (unless (file-writable-p scope-file)
+      (user-error "scope.yml is not writable: %s" scope-file))
 
     ;; Route to appropriate updater based on validation type
     (pcase validation-type
@@ -128,7 +131,7 @@
                               (file-name-directory (buffer-file-name)))))
          (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                          (jf/gptel--scope-file-path jf/gptel--branch-dir)
-                       (expand-file-name "scope.yml" context-dir))))
+                       (expand-file-name jf/gptel-session--scope-file context-dir))))
     (if (file-exists-p scope-file)
         (progn
           (find-file scope-file)
@@ -140,6 +143,8 @@
 SCOPE-FILE is the path to scope.yml.
 PATH is the file/directory path to add.
 TOOL is the tool name (used to determine read vs write)."
+  (unless (file-writable-p scope-file)
+    (user-error "scope.yml is not writable: %s" scope-file))
   (let* ((content (with-temp-buffer
                     (insert-file-contents scope-file)
                     (buffer-string)))
@@ -149,8 +154,13 @@ TOOL is the tool name (used to determine read vs write)."
          (target-section (if (eq operation 'read) :read :write)))
 
     ;; Parse entire file as YAML (no frontmatter delimiters)
-    (let* ((parsed (jf/gptel-scope--vectorp-to-list
-                   (yaml-parse-string content :object-type 'plist)))
+    (let* ((parsed (condition-case err
+                       (yaml-parse-string content
+                                          :object-type 'plist
+                                          :sequence-type 'list)
+                     (error
+                      (user-error "Failed to parse scope.yml (%s): %s"
+                                  scope-file (error-message-string err)))))
            (paths (or (plist-get parsed :paths) (list)))
            (section-paths (or (plist-get paths target-section) '())))
 
@@ -172,12 +182,19 @@ TOOL is the tool name (used to determine read vs write)."
   "Add PATTERN to org_roam_patterns section in SCOPE-FILE.
 PATTERN is a string describing the pattern (format: \"subdirectory:path\" or \"tags:tag\").
 TOOL is the org-roam tool name."
+  (unless (file-writable-p scope-file)
+    (user-error "scope.yml is not writable: %s" scope-file))
   (let* ((content (with-temp-buffer
                     (insert-file-contents scope-file)
                     (buffer-string)))
          ;; Parse entire file as YAML (no frontmatter delimiters)
-         (parsed (jf/gptel-scope--vectorp-to-list
-                 (yaml-parse-string content :object-type 'plist)))
+         (parsed (condition-case err
+                     (yaml-parse-string content
+                                        :object-type 'plist
+                                        :sequence-type 'list)
+                   (error
+                    (user-error "Failed to parse scope.yml (%s): %s"
+                                scope-file (error-message-string err)))))
          (org-roam (or (plist-get parsed :org_roam_patterns) (list))))
 
     ;; Parse pattern format and add to appropriate list
@@ -207,13 +224,20 @@ TOOL is the org-roam tool name."
 
 (defun jf/gptel-scope--add-command-to-scope (scope-file command)
   "Add COMMAND to shell_commands.allow section in SCOPE-FILE."
+  (unless (file-writable-p scope-file)
+    (user-error "scope.yml is not writable: %s" scope-file))
   (let* ((content (with-temp-buffer
                     (insert-file-contents scope-file)
                     (buffer-string)))
          (cmd-name (car (split-string command)))
          ;; Parse entire file as YAML (no frontmatter delimiters)
-         (parsed (jf/gptel-scope--vectorp-to-list
-                 (yaml-parse-string content :object-type 'plist)))
+         (parsed (condition-case err
+                     (yaml-parse-string content
+                                        :object-type 'plist
+                                        :sequence-type 'list)
+                   (error
+                    (user-error "Failed to parse scope.yml (%s): %s"
+                                scope-file (error-message-string err)))))
          (shell-cmds (or (plist-get parsed :shell_commands) (list)))
          (allow-list (or (plist-get shell-cmds :allow) '())))
 

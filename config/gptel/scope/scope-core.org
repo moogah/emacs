@@ -206,7 +206,7 @@ the primary resource identifier (filepath, node-id, command, etc.)."
                 (cl-return-from nil
                   (list :success nil
                         :error "no_scope_config"
-                        :message "No scope configuration found in preset.md. Ensure preset.md has paths section.")))
+                        :message "No scope configuration found. Ensure scope.yml exists with paths section.")))
 
               ;; Check tool permission
               (let ((check-result (jf/gptel-scope--check-tool-permission
@@ -233,9 +233,7 @@ the primary resource identifier (filepath, node-id, command, etc.)."
 
 Tools locate scope configuration using a simple filesystem convention:
 
-**Primary:** =scope.yml= (plain YAML, no frontmatter) in the same directory as =session.md=
-
-**Legacy fallback:** =preset.md= (YAML frontmatter between =---= delimiters) for backward compatibility.
+=scope.yml= (plain YAML, no frontmatter) in the same directory as =session.md=
 
 Scope configuration contains:
 - =paths= section for filesystem/projectile/treesitter tools
@@ -249,21 +247,21 @@ This eliminates the need for complex lookups:
 
 Tools execute in the context of the gptel buffer, which has the buffer-local variable
 =jf/gptel--branch-dir= set during session initialization. The scope loading functions
-use this to find =scope.yml= (or legacy =preset.md=) in the same directory as the context file.
+use this to find =scope.yml= in the same directory as the context file.
 
 * Configuration Loading Functions
 
 ** Load Scope Configuration
 
-Load and parse scope configuration from scope.yml or legacy preset.md.
+Load and parse scope configuration from scope.yml.
 
-Convention: scope.yml (or legacy preset.md) is always in the same directory as session.md.
+Convention: scope.yml is always in the same directory as session.md.
 
 #+begin_src elisp
 (require 'yaml)  ; Emacs built-in YAML parser
 
 (defun jf/gptel-scope--load-config ()
-  "Load scope configuration from scope.yml or legacy preset.md.
+  "Load scope configuration from scope.yml.
 Returns plist with:
   :paths-read - List of allowed read paths
   :paths-write - List of allowed write paths
@@ -271,26 +269,16 @@ Returns plist with:
   :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
   :shell-commands - Plist with :allow and :deny lists
 
-Tries scope.yml first (new format), falls back to preset.md (legacy).
 Uses buffer-local jf/gptel--branch-dir if available.
-Returns nil if neither file found or can't be parsed."
+Returns nil if scope.yml not found or can't be parsed."
   (condition-case err
       (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                              (and (buffer-file-name)
                                   (file-name-directory (buffer-file-name))))))
         (when context-dir
-          (let ((scope-file (expand-file-name jf/gptel-session--scope-file context-dir))
-                (preset-file (expand-file-name "preset.md" context-dir)))
-            (cond
-             ;; New format: scope.yml (plain YAML, no frontmatter)
-             ((file-exists-p scope-file)
-              (jf/gptel-scope--parse-scope-yml scope-file))
-             ;; Legacy format: preset.md (YAML frontmatter)
-             ((file-exists-p preset-file)
-              (jf/gptel--log 'warn "Loading scope from legacy preset.md — session will be migrated on next open")
-              (jf/gptel-scope--parse-preset-config preset-file))
-             ;; Neither exists
-             (t nil)))))
+          (let ((scope-file (expand-file-name jf/gptel-session--scope-file context-dir)))
+            (when (file-exists-p scope-file)
+              (jf/gptel-scope--parse-scope-yml scope-file)))))
     (error
      (message "Error loading scope config: %s" (error-message-string err))
      nil)))
@@ -323,32 +311,6 @@ Returns plist with :paths-read, :paths-write, :paths-deny,
             :shell-commands shell))))
 #+end_src
 
-** Parse Preset Configuration
-
-Extract scope configuration from preset.md YAML frontmatter.
-
-#+begin_src elisp
-(defun jf/gptel-scope--parse-preset-config (preset-file)
-  "Extract scope configuration from PRESET-FILE YAML frontmatter.
-Returns plist with :paths-read, :paths-write, :paths-deny,
-:org-roam-patterns, and :shell-commands."
-  (with-temp-buffer
-    (insert-file-contents preset-file)
-    (goto-char (point-min))
-    (when (re-search-forward "^---\n" nil t)
-      (let ((yaml-start (point)))
-        (when (re-search-forward "^---\n" nil t)
-          (let* ((yaml-end (match-beginning 0))
-                 (yaml-content (buffer-substring yaml-start yaml-end))
-                 (parsed (yaml-parse-string yaml-content :object-type 'plist)))
-            ;; Extract paths section
-            (let ((paths (plist-get parsed :paths)))
-              (list :paths-read (plist-get paths :read)
-                    :paths-write (plist-get paths :write)
-                    :paths-deny (plist-get paths :deny)
-                    :org-roam-patterns (plist-get parsed :org_roam_patterns)
-                    :shell-commands (plist-get parsed :shell_commands)))))))))
-#+end_src
 
 * Allow-Once Mechanism
 
@@ -747,150 +709,6 @@ YAML parser returns vectors for arrays, but elisp code expects lists.
 
    ;; Other: return as-is
    (t obj)))
-#+end_src
-
-* Preset Path Updater
-
-Helper function for updating paths section in preset.md files.
-
-#+begin_src elisp
-(defun jf/gptel-scope--update-preset-paths (preset-file allowed-paths denied-paths)
-  "Update paths section in PRESET-FILE with ALLOWED-PATHS and DENIED-PATHS.
-PRESET-FILE is the path to a preset.md file.
-ALLOWED-PATHS is a list of glob patterns for allowed file access.
-DENIED-PATHS is a list of glob patterns to deny.
-
-If ALLOWED-PATHS is nil or empty, creates deny-all configuration (empty path lists).
-
-This function parses the YAML frontmatter, updates or adds the paths section,
-and writes the modified content back to the file."
-  (let ((content (with-temp-buffer
-                   (insert-file-contents preset-file)
-                   (buffer-string))))
-
-    ;; Find the YAML frontmatter boundaries
-    (with-temp-buffer
-      (insert content)
-      (goto-char (point-min))
-
-      (unless (re-search-forward "^---\n" nil t)
-        (error "No YAML frontmatter found in %s" preset-file))
-
-      (let ((yaml-start (point)))
-        (save-match-data
-          (message "DEBUG: Found opening --- at position %d (line %d)" (point) (line-number-at-pos)))
-        (unless (re-search-forward "^---\n" nil t)
-          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
-
-        ;; CRITICAL: Save match positions BEFORE any message/logging that might clobber them
-        (let* ((yaml-end (match-beginning 0))
-               (post-yaml-start (match-end 0))
-               (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (jf/gptel-scope--vectorp-to-list
-                       (yaml-parse-string yaml-content :object-type 'plist)))
-               (post-yaml (buffer-substring post-yaml-start (point-max))))
-          (save-match-data
-            (message "DEBUG: post-yaml extracted from %d, length=%d bytes" post-yaml-start (length post-yaml)))
-
-          ;; Update or add paths section
-          (setq parsed (plist-put parsed :paths
-                                  (list :read (or allowed-paths '())
-                                        :write '("/tmp/**")
-                                        :deny (or denied-paths
-                                                 '("**/.git/**"
-                                                   "**/runtime/**"
-                                                   "**/.env"
-                                                   "**/node_modules/**")))))
-
-          ;; Reconstruct the file
-          (erase-buffer)
-          (insert "---\n")
-
-          ;; Write YAML frontmatter (simple plist serialization)
-          (message "DEBUG: Serializing parsed plist keys: %S" (cl-loop for (k v) on parsed by #'cddr collect k))
-          (cl-loop for (key value) on parsed by #'cddr
-                   do (let ((key-name (substring (symbol-name key) 1)))
-                        (message "DEBUG: Processing key=%s value-type=%s" key-name (type-of value))
-                        (cond
-                         ;; Handle paths specially (nested structure)
-                         ((eq key :paths)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (if subvalue
-                                            (dolist (item subvalue)
-                                              (insert (format "    - \"%s\"\n" item)))
-                                          (insert "    []\n")))))
-
-                         ;; Handle tools section (list or vector of tool names)
-                         ((eq key :tools)
-                          (insert (format "%s:\n" key-name))
-                          ;; YAML parser returns vectors for lists, so check for both
-                          ;; tools can be a list ("PersistentAgent" ...) or vector ["PersistentAgent" ...]
-                          (if (and value (sequencep value) (not (stringp value)) (> (length value) 0))
-                              (seq-do (lambda (tool-name)
-                                        (when (stringp tool-name)
-                                          (insert (format "  - %s\n" tool-name))))
-                                      value)
-                            ;; Empty or null tools - write empty list
-                            (insert "  []\n")))
-
-                         ;; Handle org_roam_patterns section
-                         ((eq key :org_roam_patterns)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (dolist (item subvalue)
-                                          (insert (format "    - \"%s\"\n" item))))))
-
-                         ;; Handle shell_commands section
-                         ((eq key :shell_commands)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (dolist (item subvalue)
-                                          (insert (format "    - \"%s\"\n" item))))))
-
-                         ;; Simple key-value pairs
-                         ((stringp value)
-                          ;; Check if string contains newlines - if so, use block scalar
-                          (if (string-match-p "\n" value)
-                              (progn
-                                (insert (format "%s: |\n" key-name))
-                                ;; Split into lines and indent each
-                                (dolist (line (split-string value "\n" t))
-                                  (insert (format "  %s\n" line))))
-                            ;; Single-line string - use quoted format
-                            (insert (format "%s: \"%s\"\n" key-name value))))
-                         ((numberp value)
-                          (insert (format "%s: %s\n" key-name value)))
-                         ((symbolp value)
-                          (insert (format "%s: %s\n" key-name value)))
-                         ;; Simple lists (but not plists which are already handled above)
-                         ((and (listp value) (not (keywordp (car-safe value))))
-                          (insert (format "%s:\n" key-name))
-                          (dolist (item value)
-                            (insert (format "  - %s\n" item))))
-                         ;; Skip anything else (already handled or unsupported)
-                         (t nil))))
-
-          (insert "---\n")
-          (let ((before-post-yaml-size (- (point-max) (point-min))))
-            (message "DEBUG: Buffer size before post-yaml=%d" before-post-yaml-size)
-            (message "DEBUG: About to insert post-yaml, length=%d, first 100 chars: %S"
-                     (length post-yaml)
-                     (substring post-yaml 0 (min 100 (length post-yaml))))
-            (insert post-yaml)
-            (let ((final-size (- (point-max) (point-min))))
-              (message "DEBUG: Final buffer size=%d (before=%d + post-yaml=%d = expected %d)"
-                       final-size before-post-yaml-size (length post-yaml)
-                       (+ before-post-yaml-size (length post-yaml)))))
-
-          ;; Write back to file
-          (write-region (point-min) (point-max) preset-file nil 'silent))))))
 #+end_src
 
 * Provide Feature
