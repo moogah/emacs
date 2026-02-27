@@ -22,7 +22,7 @@ Two tools remain unscoped (language/parser management):
 - check_treesitter_parser
 
 Permission is validated based on the filepath against glob patterns defined in
-~/.gptel/sessions/SESSION_ID/scope-plan.yml.
+~/.gptel/sessions/SESSION_ID/scope.yml.
 
 Tree-sitter provides:
 - AST-based code analysis (structural understanding)

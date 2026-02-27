@@ -56,9 +56,9 @@ Uses projectile-project-name if available, else basename."
     (error (file-name-nondirectory (directory-file-name project-root)))))
 #+end_src
 
-** Get Activity Org-File from Scope Plan
+** Get Activity Org-File from Metadata File
 
-Extract activity org-file path from scope-plan.yml.
+Extract activity org-file path from metadata file (legacy scope-plan.yml).
 
 #+begin_src elisp
 (defun jf/gptel-scope--get-activity-org-file (scope-plan-file)

@@ -56,8 +56,7 @@
 
     ;; Meta tools (always pass)
     ("PersistentAgent" . (:validation meta :operation delegate))
-    ("request_scope_expansion" . (:validation meta :operation meta))
-    ("inspect_scope_plan" . (:validation meta :operation meta)))
+    ("request_scope_expansion" . (:validation meta :operation meta)))
   "Tool → validation strategy mapping.
 
 Each tool maps to a plist with:

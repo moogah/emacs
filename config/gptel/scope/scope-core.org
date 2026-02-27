@@ -12,7 +12,7 @@ This module provides the core infrastructure for scope-aware tools in gptel sess
 ** Architecture (v2.0)
 
 The scope system uses YAML plan documents stored alongside context files:
-- Location: Same directory as =session.md= (e.g., =~/.gptel/sessions/SESSION_ID/branches/main/scope-plan.yml=)
+- Location: Same directory as =session.md= (e.g., =~/.gptel/sessions/SESSION_ID/branches/main/scope.yml=)
 - Format: v2.0 YAML with tool-level permissions (write_file_in_scope, edit_file_in_scope, etc.)
 - Default policy: Deny by default, explicit tool configuration required
 - Convention: Filesystem is source of truth, no in-memory tracking needed
@@ -100,8 +100,7 @@ The core categorization system maps each tool to its validation strategy and ope
 
     ;; Meta tools (always pass)
     ("PersistentAgent" . (:validation meta :operation delegate))
-    ("request_scope_expansion" . (:validation meta :operation meta))
-    ("inspect_scope_plan" . (:validation meta :operation meta)))
+    ("request_scope_expansion" . (:validation meta :operation meta)))
   "Tool → validation strategy mapping.
 
 Each tool maps to a plist with:
