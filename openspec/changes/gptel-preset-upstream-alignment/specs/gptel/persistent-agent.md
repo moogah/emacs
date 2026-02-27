@@ -106,10 +106,14 @@ Configuration loading SHALL:
 - **THEN** the agent SHALL NOT inherit any of those settings
 - **AND** agent configuration comes exclusively from the named preset
 
-#### Scenario: gptel-with-preset isolation
-- **WHEN** executing the agent request
-- **THEN** the system uses gptel-with-preset to create a clean dynamic scope
-- **AND** passes :tools (captured from agent buffer), :use-tools t, :include-tool-results t
+#### Scenario: Request uses buffer-local settings (not gptel-with-preset)
+- **WHEN** executing the agent request via `gptel-request`
+- **THEN** the system sends the request from within the agent buffer (via `with-current-buffer`)
+- **AND** `gptel-request` reads buffer-local `gptel-backend`, `gptel-model`, `gptel-tools`, etc. set by `gptel--apply-preset` during initialization
+- **AND** does NOT use `gptel-with-preset` (which creates temporary dynamic scope — unnecessary since buffer-local settings are already correct)
+- **AND** passes `:use-tools t` and `:include-tool-results t` to `gptel-request`
+
+**Rationale:** `gptel--apply-preset` with buffer-local setter sets all configuration as buffer-local variables. Since `gptel-request` is called from within the agent buffer, it naturally picks up these settings. `gptel-with-preset` would be redundant and could mask issues where buffer-local state drifts from expectations.
 
 ### Requirement: Integration with sessions subsystem
 
@@ -161,9 +165,11 @@ The system SHALL auto-save the agent buffer after every API response, preserving
 
 #### Scenario: Session resumable via find-file
 - **WHEN** user opens `<agent-dir>/session.md` via find-file
-- **THEN** the auto-initialization hook fires
-- **AND** detects the session file pattern (*/agents/*/session.md)
-- **AND** sets buffer-local vars, enables gptel-mode
+- **THEN** the auto-initialization hook fires (see `sessions-persistence.md` Open lifecycle — agent pattern)
+- **AND** matches the `*/agents/*/session.md` path pattern
+- **AND** sets `jf/gptel--session-dir` and `jf/gptel--branch-dir` to the agent directory (flat structure, no branches)
+- **AND** sets `jf/gptel--branch-name` to `"main"`
+- **AND** detects session state via `(local-variable-p 'gptel--preset)`
 - **AND** upstream's `gptel--restore-state` applies preset from Local Variables
 - **AND** scope system loads `scope.yml` from agent directory
 

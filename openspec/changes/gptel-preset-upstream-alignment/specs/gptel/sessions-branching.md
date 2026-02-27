@@ -4,13 +4,15 @@
 
 The system SHALL copy configuration files from the parent branch to the new branch.
 
-Configuration inheritance SHALL copy:
+Configuration inheritance SHALL copy from the parent branch:
 - `metadata.yml` - Session metadata (session_id, created, type, preset)
 - `scope.yml` - Mutable scope configuration
 
 Configuration files SHALL be copied as-is, preserving content exactly.
 
 The new branch's metadata.yml SHALL maintain the same `session_id`, ensuring all branches share a common session identifier.
+
+Additionally, the system SHALL create a new `branch-metadata.yml` in the new branch directory with branch lineage information.
 
 #### Scenario: Copying metadata.yml
 - **WHEN** creating a new branch from a parent
@@ -23,6 +25,13 @@ The new branch's metadata.yml SHALL maintain the same `session_id`, ensuring all
 - **THEN** the parent's scope.yml SHALL be copied to the new branch directory
 - **AND** scope permissions (paths, org-roam patterns, shell commands) are inherited
 - **AND** subsequent scope expansion in either branch SHALL NOT affect the other
+
+#### Scenario: Creating branch-metadata.yml
+- **WHEN** creating a new branch from a parent
+- **THEN** the system creates `branch-metadata.yml` in the new branch directory
+- **AND** includes `parent_branch` set to the parent branch name
+- **AND** includes `created` set to the current ISO8601 timestamp
+- **AND** optionally includes `branch_point_position` if the branch was created from a specific point in conversation
 
 #### Scenario: Session ID consistency
 - **WHEN** a session has multiple branches (main, feature-1, feature-2)

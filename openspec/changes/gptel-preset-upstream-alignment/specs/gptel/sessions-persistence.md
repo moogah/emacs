@@ -80,12 +80,14 @@ The system SHALL support creating new sessions via `jf/gptel-persistent-session`
 On session creation, the system SHALL:
 1. Generate a unique session ID
 2. Create directory structure: `<session-id>/branches/main/`
-3. Apply preset by name via `gptel--apply-preset` with buffer-local setter
-4. Create `scope.yml` from preset's scope profile or scope defaults
-5. Write metadata.yml with session_id, created timestamp, and preset name
-6. Create empty `session.md` file
-7. Create `current` symlink pointing to `branches/main`
-8. Register the session in the in-memory registry
+3. Create `scope.yml` from preset's scope profile or scope defaults
+4. Write metadata.yml with session_id, created timestamp, and preset name
+5. Create empty `session.md` file
+6. Create `current` symlink pointing to `branches/main`
+7. Open session.md in a buffer (triggers find-file-hook)
+8. The find-file-hook detects a new session (no Local Variables), reads preset from metadata.yml, applies via `gptel--apply-preset` with buffer-local setter, and enables gptel-mode
+
+**Hook interaction:** Session creation does NOT apply the preset directly — it delegates to the find-file-hook's "new session" path. The creation flow writes metadata.yml (with the preset name) and scope.yml before opening session.md, ensuring the hook has the information it needs. This avoids duplication between creation and the open hook. The hook also handles registry registration and setting buffer-local session variables.
 
 #### Scenario: Standalone session creation
 - **WHEN** user invokes `jf/gptel-persistent-session` with name "API Integration"
@@ -93,9 +95,8 @@ On session creation, the system SHALL:
 - **AND** writes metadata.yml with `session_id: "api-integration-<timestamp>"` and `preset: "executor"`
 - **AND** creates scope.yml from the preset's scope profile
 - **AND** creates empty session.md
-- **AND** applies preset via `(gptel--apply-preset 'executor setter)` with buffer-local setter
 - **AND** creates symlink `current → branches/main`
-- **AND** opens session.md in a buffer
+- **AND** opens session.md in a buffer (triggering the find-file-hook to apply the preset and initialize)
 
 #### Scenario: Activities-integrated session creation
 - **WHEN** creating a session via `activities-ext-create`
@@ -108,8 +109,8 @@ On session creation, the system SHALL:
 The system SHALL auto-initialize session buffers when opening session.md files via find-file-hook.
 
 Auto-initialization SHALL:
-1. Detect files matching pattern `*/branches/*/session.md`
-2. Extract session-id and branch-name from path
+1. Detect files matching pattern `*/branches/*/session.md` OR `*/agents/*/session.md`
+2. Extract session-id and branch-name (or agent-id) from path
 3. Look up session in registry (or create entry if missing)
 4. Set buffer-local variables: `jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`
 5. Determine session state: **new** (no Local Variables) vs **existing** (has Local Variables)
@@ -117,8 +118,14 @@ Auto-initialization SHALL:
 7. Load scope configuration from `scope.yml`
 8. Set `jf/gptel-autosave-enabled` to t
 
+**File detection:** The hook SHALL match two path patterns:
+- Branch sessions: `*/branches/*/session.md` — session-dir is `../../` from the file
+- Agent sessions: `*/agents/*/session.md` — session-dir is the agent directory itself (agents are flat, no branches). Agent sessions set `jf/gptel--branch-name` to `"main"` and `jf/gptel--branch-dir` to the agent directory.
+
+**Session state detection:** The hook SHALL determine new vs. existing state by checking `(local-variable-p 'gptel--preset)`. This replaces the prior check on `gptel-backend`, because upstream's differential save only writes `gptel--preset` plus overridden values — `gptel-backend` may not be present in Local Variables if it matches the preset default.
+
 The open hook handles two distinct sub-cases:
-- **Existing sessions** (reopened, has Local Variables with `gptel--preset`): Enable gptel-mode, which triggers upstream's `gptel--restore-state` to apply the preset and overlay saved overrides. The session hook SHALL NOT call custom preset loading functions.
+- **Existing sessions** (reopened, has Local Variables with `gptel--preset`): Enable gptel-mode, which triggers upstream's `gptel--restore-state` to apply the preset and overlay saved overrides. The session hook SHALL NOT call custom preset loading functions. **Mechanism:** `gptel-mode` calls `gptel--restore-state` (gptel.el line 885) as part of mode activation.
 - **New sessions** (just created, no Local Variables yet): Apply the preset directly via `gptel--apply-preset` with a buffer-local setter (`(lambda (var val) (set (make-local-variable var) val))`), then enable gptel-mode. On first save, upstream writes `gptel--preset` to Local Variables.
 
 #### Scenario: Reopening existing session (has Local Variables)
@@ -157,10 +164,22 @@ The open hook handles two distinct sub-cases:
 - **AND** does NOT set `gptel--preset` (no matching registered preset)
 - **AND** the session operates without upstream preset differential save
 
+#### Scenario: Opening agent session via find-file
+- **WHEN** opening `<parent-branch-dir>/agents/<agent-id>/session.md` via find-file
+- **THEN** the hook matches the `*/agents/*/session.md` pattern
+- **AND** sets `jf/gptel--session-dir` to the agent directory (not `../../`)
+- **AND** sets `jf/gptel--branch-name` to `"main"` and `jf/gptel--branch-dir` to the agent directory
+- **AND** proceeds with the same new/existing session logic as branch sessions
+
 #### Scenario: Fast guard for non-session files
 - **WHEN** opening a file that is not a session.md
 - **THEN** the auto-initialization hook SHALL exit early (before expensive checks)
 - **AND** NOT impact file-open performance
+
+#### Scenario: Session state detected via gptel--preset
+- **WHEN** the hook needs to determine if a session.md has been saved before
+- **THEN** it checks `(local-variable-p 'gptel--preset)` (NOT `gptel-backend`)
+- **AND** returns true for any session that has been saved at least once (since `gptel--preset` is always written by upstream's differential save)
 
 ### Requirement: Session lifecycle - Save
 

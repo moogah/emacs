@@ -109,3 +109,28 @@ The system SHALL resolve `${project_root}` in scope profile templates to the act
 - **WHEN** creating a session and no project root can be determined
 - **THEN** `${project_root}` patterns are removed from scope.yml
 - **AND** the system logs a warning that project root could not be resolved
+
+### Requirement: Multi-project scope from activities integration
+
+When creating a session via activities integration, multiple worktree paths may be provided. The system SHALL support writing explicit paths to `scope.yml` that bypass scope profile template expansion.
+
+#### Scenario: Activities session with multiple worktree paths
+- **WHEN** creating a session via activities integration with worktree paths `["/path/to/project-a", "/path/to/project-b"]`
+- **THEN** the system writes `scope.yml` with each worktree path as a separate `read` entry (with `/**` glob suffix)
+- **AND** `write` entries for each path
+- **AND** standard `deny` entries (`.git`, `runtime`, `.env`, `node_modules`)
+- **AND** does NOT use `${project_root}` variable expansion (paths are already resolved)
+
+#### Scenario: Activities session with single worktree path
+- **WHEN** creating a session via activities integration with one worktree path
+- **THEN** the behavior is identical to multi-project — explicit path written to `scope.yml`
+
+#### Scenario: Activities session with no worktree paths
+- **WHEN** creating a session via activities integration with no worktree paths
+- **THEN** scope profile resolution falls back to the preset's scope defaults or deny-by-default
+- **AND** follows the standard resolution priority (named profile > inline defaults > empty)
+
+#### Scenario: Explicit paths take precedence over scope profiles
+- **WHEN** a session is created with explicit worktree paths AND the preset has a `scope_profile`
+- **THEN** the explicit paths are used (activities-provided paths override the profile)
+- **AND** the scope profile is NOT consulted

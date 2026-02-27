@@ -5,6 +5,8 @@ The scope system SHALL load scope configuration from `scope.yml` located in the 
 
 **Parser change:** `scope.yml` is plain YAML (no frontmatter delimiters). The parser SHALL read the entire file content and pass it to `yaml-parse-string` directly. This differs from the legacy `preset.md` parser which extracted YAML from between `---` delimiters before parsing. Both paths use `yaml-parse-string` with `:object-type 'plist`, but the input preparation differs.
 
+**Key normalization:** After parsing, YAML snake_case keys SHALL be normalized to kebab-case keywords (e.g., `:org_roam_patterns` → `:org-roam-patterns`, `:shell_commands` → `:shell-commands`). This follows the same convention documented in `preset-registration/spec.md`.
+
 #### Scenario: Configuration loaded from scope.yml
 - **WHEN** a tool executes and needs scope validation
 - **THEN** the system reads `scope.yml` from the buffer's branch directory

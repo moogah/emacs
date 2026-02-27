@@ -26,13 +26,38 @@ The parser SHALL NOT depend on the `gptel-agent` package.
 - **THEN** the system returns nil
 - **AND** logs an error with the file path and parse error
 
+### Requirement: YAML key normalization
+
+After `yaml-parse-string`, the parser SHALL normalize YAML keys from snake_case to kebab-case keywords. This is required because YAML convention uses underscores (`org_roam_patterns`, `shell_commands`, `confirm_tool_calls`) while elisp convention uses hyphens.
+
+The normalization SHALL:
+1. Convert each keyword's name from snake_case to kebab-case (e.g., `:org_roam_patterns` → `:org-roam-patterns`, `:shell_commands` → `:shell-commands`, `:confirm_tool_calls` → `:confirm-tool-calls`)
+2. Apply to ALL keys in the parsed plist (not just a known list)
+3. Leave keys that already use hyphens unchanged
+4. Apply BEFORE coercion fixes (so coercion rules use kebab-case key names)
+
+**Note:** This normalization applies to all YAML parsing throughout the system — preset files, scope.yml, metadata.yml, and scope profiles all use the same convention.
+
+#### Scenario: Snake_case YAML keys converted to kebab-case
+- **WHEN** a parsed plist contains `:include_tool_results t` and `:confirm_tool_calls "auto"`
+- **THEN** after normalization the keys are `:include-tool-results` and `:confirm-tool-calls`
+
+#### Scenario: Scope keys normalized
+- **WHEN** a parsed plist contains `:org_roam_patterns` and `:shell_commands`
+- **THEN** after normalization the keys are `:org-roam-patterns` and `:shell-commands`
+
+#### Scenario: Simple keys unchanged
+- **WHEN** a parsed plist contains `:model`, `:backend`, `:tools` (no underscores)
+- **THEN** these keys pass through normalization unchanged
+
 ### Requirement: YAML coercion fixes
 
-The system SHALL fix known YAML-to-elisp coercion issues after parsing, before registration. Coercion SHALL handle:
+The system SHALL fix known YAML-to-elisp coercion issues after parsing and key normalization, before registration. Coercion SHALL handle:
 
 - `:model` — string values SHALL be interned to symbols (e.g., `"claude-opus-4-5"` becomes `'claude-opus-4-5`)
 - `:confirm-tool-calls` — string `"nil"` SHALL become `nil`, string `"auto"` SHALL become symbol `'auto`, string `"always"` SHALL become `t`
 - `:include-tool-results` — YAML `:false` keyword SHALL become `nil`, YAML `t` passes through
+- **General boolean coercion** — any key whose YAML value is the `:false` keyword SHALL be coerced to `nil`. This covers `:stream`, `:include-tool-results`, and any future boolean keys parsed from YAML `false`.
 
 #### Scenario: Model string converted to symbol
 - **WHEN** a parsed plist contains `:model "claude-opus-4-5"`
@@ -50,18 +75,22 @@ The system SHALL fix known YAML-to-elisp coercion issues after parsing, before r
 - **WHEN** a parsed plist contains `:include-tool-results :false`
 - **THEN** after coercion the value is `nil`
 
+#### Scenario: Stream false converted via general boolean rule
+- **WHEN** a parsed plist contains `:stream :false`
+- **THEN** after coercion the value is `nil`
+
 #### Scenario: Unknown keys pass through unchanged
-- **WHEN** a parsed plist contains keys not in the coercion table
+- **WHEN** a parsed plist contains keys not in the coercion table and their values are not `:false`
 - **THEN** their values pass through without modification
 
 ### Requirement: Scope key extraction
 
-The system SHALL extract scope-related keys from parsed preset plists before registration with `gptel-make-preset`. Scope keys are: `:paths`, `:org_roam_patterns`, `:shell_commands`, `:scope_profile`.
+The system SHALL extract scope-related keys from parsed preset plists before registration with `gptel-make-preset`. After key normalization, scope keys are: `:paths`, `:org-roam-patterns`, `:shell-commands`, `:scope-profile`.
 
 Extracted scope data SHALL be stored in `jf/gptel-preset--scope-defaults`, an alist mapping preset name symbols to scope plists.
 
 #### Scenario: Scope keys stripped from preset plist
-- **WHEN** a parsed plist contains `:paths`, `:org_roam_patterns`, and `:shell_commands`
+- **WHEN** a parsed and normalized plist contains `:paths`, `:org-roam-patterns`, and `:shell-commands`
 - **THEN** these keys are removed from the plist before calling `gptel-make-preset`
 - **AND** the registered preset contains only gptel-recognized keys
 
@@ -70,9 +99,9 @@ Extracted scope data SHALL be stored in `jf/gptel-preset--scope-defaults`, an al
 - **THEN** `jf/gptel-preset--scope-defaults` contains entry `(executor . (:paths (:read ("/**") :write ("/tmp/**"))))`
 
 #### Scenario: Scope profile reference extracted
-- **WHEN** a preset contains `:scope_profile "coding"`
+- **WHEN** a preset contains `scope_profile: "coding"` in YAML (normalized to `:scope-profile`)
 - **THEN** the scope defaults entry includes `:scope-profile "coding"`
-- **AND** `:scope_profile` is removed from the preset plist
+- **AND** `:scope-profile` is removed from the preset plist
 
 #### Scenario: Preset with no scope keys
 - **WHEN** a preset contains no scope-related keys
@@ -137,6 +166,20 @@ Preset registration SHALL run during gptel initialization, after `yaml.el` and `
 - **WHEN** presets are registered
 - **THEN** the skills `@mention` expansion iterates `gptel--known-presets` to expand `@skill` tokens in `:system` strings
 - **AND** runs once after all presets are registered
+
+### Requirement: Module location
+
+The preset registration pipeline SHALL be defined in `config/gptel/preset-registration.org` (tangled to `preset-registration.el`), providing feature `gptel-preset-registration`. This module is loaded by `gptel.org` before session hooks.
+
+#### Scenario: Module loaded during gptel init
+- **WHEN** `gptel.org` initializes
+- **THEN** it loads `config/gptel/preset-registration.el` after `yaml.el` and `gptel` are available
+- **AND** before session module loading (constants, commands, etc.)
+
+#### Scenario: Module provides all registration functions
+- **WHEN** `gptel-preset-registration` is loaded
+- **THEN** it provides: `jf/gptel-preset-register-all`, `jf/gptel-preset--parse-file`, `jf/gptel-preset--coerce-values`, `jf/gptel-preset--extract-scope`
+- **AND** defines `jf/gptel-preset--scope-defaults` variable
 
 ### Requirement: Presets directory configuration
 
