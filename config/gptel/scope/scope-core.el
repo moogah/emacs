@@ -3,7 +3,18 @@
 
 ;; [[file:scope-core.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
 ;; Dependencies:1 ends here
+
+;; Scope File Constant
+
+
+;; [[file:scope-core.org::*Scope File Constant][Scope File Constant:1]]
+(defconst jf/gptel-session--scope-file "scope.yml"
+  "File name for scope configuration (plain YAML, no frontmatter).
+Located in the same directory as session.md.")
+;; Scope File Constant:1 ends here
 
 ;; Tool Category Constant
 
@@ -175,39 +186,75 @@ the primary resource identifier (filepath, node-id, command, etc.)."
 
 ;; Load Scope Configuration
 
-;; Load and parse scope configuration from preset.md YAML frontmatter.
+;; Load and parse scope configuration from scope.yml or legacy preset.md.
 
-;; Convention: preset.md is always in the same directory as session.md.
+;; Convention: scope.yml (or legacy preset.md) is always in the same directory as session.md.
 
 
 ;; [[file:scope-core.org::*Load Scope Configuration][Load Scope Configuration:1]]
 (require 'yaml)  ; Emacs built-in YAML parser
 
 (defun jf/gptel-scope--load-config ()
-  "Load scope configuration from preset.md in current session directory.
+  "Load scope configuration from scope.yml or legacy preset.md.
 Returns plist with:
   :paths-read - List of allowed read paths
   :paths-write - List of allowed write paths
   :paths-deny - List of denied paths
-  :org-roam-patterns - Plist with :subdirectory, :tags, :node_ids
+  :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
   :shell-commands - Plist with :allow and :deny lists
 
-Uses buffer-local jf/gptel--branch-dir if available (set during session init),
-otherwise falls back to buffer-file-name directory.
-
-Returns nil if preset.md not found or can't be parsed."
+Tries scope.yml first (new format), falls back to preset.md (legacy).
+Uses buffer-local jf/gptel--branch-dir if available.
+Returns nil if neither file found or can't be parsed."
   (condition-case err
       (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                              (and (buffer-file-name)
                                   (file-name-directory (buffer-file-name))))))
         (when context-dir
-          (let ((preset-file (expand-file-name "preset.md" context-dir)))
-            (when (file-exists-p preset-file)
-              (jf/gptel-scope--parse-preset-config preset-file)))))
+          (let ((scope-file (expand-file-name jf/gptel-session--scope-file context-dir))
+                (preset-file (expand-file-name "preset.md" context-dir)))
+            (cond
+             ;; New format: scope.yml (plain YAML, no frontmatter)
+             ((file-exists-p scope-file)
+              (jf/gptel-scope--parse-scope-yml scope-file))
+             ;; Legacy format: preset.md (YAML frontmatter)
+             ((file-exists-p preset-file)
+              (jf/gptel--log 'warn "Loading scope from legacy preset.md — session will be migrated on next open")
+              (jf/gptel-scope--parse-preset-config preset-file))
+             ;; Neither exists
+             (t nil)))))
     (error
      (message "Error loading scope config: %s" (error-message-string err))
      nil)))
 ;; Load Scope Configuration:1 ends here
+
+;; Parse Scope YAML
+
+;; Parse scope configuration from a plain YAML file (no frontmatter).
+
+
+;; [[file:scope-core.org::*Parse Scope YAML][Parse Scope YAML:1]]
+(defun jf/gptel-scope--parse-scope-yml (scope-file)
+  "Parse scope configuration from SCOPE-FILE (plain YAML, no frontmatter).
+Returns plist with :paths-read, :paths-write, :paths-deny,
+:org-roam-patterns, and :shell-commands."
+  (with-temp-buffer
+    (insert-file-contents scope-file)
+    (let* ((parsed (yaml-parse-string (buffer-string)
+                                      :object-type 'plist
+                                      :sequence-type 'list))
+           ;; Normalize snake_case keys to kebab-case
+           (paths (or (plist-get parsed :paths) (plist-get parsed :paths)))
+           (org-roam (or (plist-get parsed :org-roam-patterns)
+                         (plist-get parsed :org_roam_patterns)))
+           (shell (or (plist-get parsed :shell-commands)
+                      (plist-get parsed :shell_commands))))
+      (list :paths-read (plist-get paths :read)
+            :paths-write (plist-get paths :write)
+            :paths-deny (plist-get paths :deny)
+            :org-roam-patterns org-roam
+            :shell-commands shell))))
+;; Parse Scope YAML:1 ends here
 
 ;; Parse Preset Configuration
 
