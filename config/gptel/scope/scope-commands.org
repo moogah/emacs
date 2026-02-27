@@ -8,7 +8,9 @@ This module provides scope management commands for gptel sessions.
 
 ** Available Commands
 
-1. =jf/gptel-scope-edit-plan= - Open existing plan for editing
+1. =jf/gptel-scope--parse-preset-tools= - Extract tool list from preset registry
+2. =jf/gptel--select-projects= - Interactive project selection
+3. =jf/gptel--list-all-sessions= - List session IDs for completion
 
 * Dependencies
 
@@ -77,116 +79,51 @@ Returns the org-roam document path if present, nil otherwise."
 
 ** Parse Preset Tools
 
-Extract tool list and settings from preset file.
+Extract tool list from the preset registry (=gptel--known-presets=).
+
+Reads the preset name from =metadata.yml= in the branch directory, then
+looks up the preset's =:tools= list from the in-memory registry.
 
 #+begin_src elisp
 (defun jf/gptel-scope--parse-preset-tools (branch-dir)
-  "Extract tools and their settings from preset file in BRANCH-DIR.
+  "Extract tools from the preset registered for the session in BRANCH-DIR.
 
-Reads preset.md or preset.org from BRANCH-DIR, parses YAML frontmatter
-or org properties to extract :tools field.
+Reads the preset name from metadata.yml in BRANCH-DIR, then looks up the
+preset's :tools list from `gptel--known-presets'.
 
-Returns alist of (tool-name . allowed-bool), or nil if:
-- Preset file doesn't exist
-- File has no tools field
-- Error parsing file
-
-Supports formats:
-- Map: {tool1: {allowed: true}, tool2: {allowed: false}}
-- List (legacy): [\"tool1\", \"tool2\"] - defaults to allowed: true"
+Returns alist of (tool-name . t) for each tool, or nil if:
+- BRANCH-DIR is nil
+- metadata.yml doesn't exist or has no preset field
+- Preset not found in `gptel--known-presets'
+- Preset has no :tools"
   (when branch-dir
-    (let* ((md-file (expand-file-name "preset.md" branch-dir))
-           (org-file (expand-file-name "preset.org" branch-dir))
-           (preset-file (cond
-                         ((file-exists-p md-file) md-file)
-                         ((file-exists-p org-file) org-file)
-                         (t nil))))
-      (when preset-file
-        (condition-case err
-            (progn
-              (require 'gptel-agent nil t)
-              (when (fboundp 'gptel-agent-read-file)
-                (let* ((preset-data (gptel-agent-read-file preset-file '((dummy . dummy))))
-                       (preset-plist (cdr preset-data))
-                       (tools (plist-get preset-plist :tools)))
-                  (cond
-                   ;; Map format: {tool1: {allowed: true}, tool2: {allowed: false}}
-                   ;; Parsed as plist: (:tool1 (:allowed t) :tool2 (:allowed nil))
-                   ((and (listp tools) (keywordp (car tools)))
-                    (let ((result nil))
-                      (while tools
-                        (let* ((tool-key (pop tools))
-                               (tool-props (pop tools))
-                               (tool-name (substring (symbol-name tool-key) 1)) ; Remove leading :
-                               (allowed (if (listp tool-props)
-                                           (plist-get tool-props :allowed)
-                                         t))) ; Default to true if no props
-                          (push (cons tool-name allowed) result)))
-                      (nreverse result)))
-
-                   ;; List of strings (legacy) - default all to allowed: true
-                   ((and (listp tools) (stringp (car tools)))
-                    (mapcar (lambda (tool) (cons tool t)) tools))
-
-                   ;; Space-separated string (from org properties) - default to allowed: true
-                   ((stringp tools)
-                    (mapcar (lambda (tool) (cons tool t)) (split-string tools)))
-
-                   ;; Nil or unknown format
-                   (t nil)))))
-          (error
-           (message "Warning: Failed to parse preset tools from %s: %s"
-                    preset-file (error-message-string err))
-           nil))))))
+    (condition-case err
+        (let* ((metadata-file (expand-file-name "metadata.yml" branch-dir))
+               (preset-name
+                (when (file-exists-p metadata-file)
+                  (with-temp-buffer
+                    (insert-file-contents metadata-file)
+                    (goto-char (point-min))
+                    (when (re-search-forward "^preset: \"\\([^\"]+\\)\"" nil t)
+                      (match-string 1))))))
+          (when preset-name
+            (let* ((preset-plist (alist-get preset-name gptel--known-presets
+                                           nil nil #'string=))
+                   (tools (plist-get preset-plist :tools)))
+              (when (listp tools)
+                (mapcar (lambda (tool)
+                          (cons (if (symbolp tool) (symbol-name tool) tool) t))
+                        tools)))))
+      (error
+       (message "Warning: Failed to parse preset tools for %s: %s"
+                branch-dir (error-message-string err))
+       nil))))
 #+end_src
 
 
-* Interactive Commands
+** List All Sessions
 
-** Edit Scope Plan
-
-Open existing scope plan for editing.
-
-#+begin_src elisp
-(defun jf/gptel-scope-edit-plan (&optional session-id)
-  "Open scope plan in editor.
-Works from anywhere - prompts for session if not in gptel buffer.
-
-SESSION-ID: Optional session ID. If nil, uses current session or prompts."
-  (interactive)
-  (let* ((session-id (or session-id
-                        (and (boundp 'jf/gptel--session-id) jf/gptel--session-id)
-                        (let ((sessions (jf/gptel--list-all-sessions)))
-                          (when sessions
-                            (completing-read "Select session: " sessions nil t)))))
-         (session-data (when session-id (jf/gptel--get-session-data session-id)))
-         (session-dir (when session-data (plist-get session-data :directory)))
-         (plan-file (when session-dir (expand-file-name "scope-plan.yml" session-dir))))
-
-    (unless session-id
-      (user-error "No session selected or found"))
-
-    (unless (file-exists-p plan-file)
-      (if (yes-or-no-p (format "No plan found for session %s. Create one? " session-id))
-          (let* ((template (intern (completing-read "Template: "
-                                                   '("deny-all" "codebase-read" "org-roam-safe"
-                                                     "permissive" "project-aware")
-                                                   nil t nil nil "deny-all")))
-                 (template-args (when (eq template 'project-aware)
-                                 (list (jf/gptel--select-projects)))))
-            (with-temp-file plan-file
-              (insert (apply (intern (format "jf/gptel-scope--template-%s" template))
-                           session-id template-args)))
-            (find-file plan-file)
-            (message "Scope plan created: %s" plan-file))
-        (user-error "Cancelled")))
-
-    (find-file plan-file)))
-#+end_src
-
-** List Session Helpers (For Completion)
-
-Helper functions to list sessions for command completion.
+Helper function to list sessions for command completion.
 
 #+begin_src elisp
 (defun jf/gptel--list-all-sessions ()
