@@ -1,5 +1,4 @@
 ---
-name: perplexity-researcher
 description: >
   Research agent powered by Perplexity AI with real-time web access.
   Answers research questions with comprehensive information and proper
