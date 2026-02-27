@@ -134,65 +134,137 @@ Scans all sessions and removes duplicate blocks without opening buffers."
     (message "Cleaned %d of %d session files" cleaned total)))
 
 (defun jf/gptel--auto-init-session-buffer ()
-  "Auto-initialize gptel session if current buffer is a branch session file.
-Detects session files by path pattern: sessions/<session-id>/branches/<branch-name>/session.md
-Handles both new sessions (no Local Variables yet) and existing sessions
-(Local Variables already loaded by Emacs).
+  "Auto-initialize gptel session if current buffer is a session file.
+Detects session files by path pattern:
+  - Branch sessions: */branches/<branch-name>/session.md
+  - Agent sessions:  */agents/<agent-name>/session.md
+
+Handles three scenarios:
+  1. Existing session (has gptel--preset in Local Variables) — delegate to
+     upstream gptel--restore-state via gptel-mode.
+  2. Legacy session (has preset.md but no gptel--preset) — open in basic mode
+     with warning.
+  3. New session (no Local Variables, no preset.md) — read preset name from
+     metadata.yml and apply via gptel--apply-preset.
+
 This runs on every file open via find-file-hook, so performance is critical."
   ;; Fast path guards (performance critical - runs on every file open)
   (when (and (buffer-file-name)                      ; Has file? (fast)
              (not (bound-and-true-p jf/gptel--session-id)) ; Not already initialized? (fast)
              (string-suffix-p ".md" (buffer-file-name)))   ; Is .md file? (fast)
     (let* ((file-path (expand-file-name (buffer-file-name)))
-           (file-name (file-name-nondirectory file-path)))
-      ;; Branch session file detection: path must match */branches/*/session.md
-      ;; Works for both ~/.gptel/sessions/<id>/branches/<branch>/session.md
-      ;; and ~/emacs-activities/<name>/session/branches/<branch>/session.md
+           (file-name (file-name-nondirectory file-path))
+           ;; Detect session type from path pattern
+           (branch-name nil)
+           (branch-dir nil)
+           (session-dir nil)
+           (session-type nil))
+
+      ;; Branch session: */branches/<branch>/session.md
       (when (and (string= file-name "session.md")
                  (string-match "/branches/\\([^/]+\\)/session\\.md$" file-path))
-        (let* ((branch-name (match-string 1 file-path))
-               (branch-dir (file-name-directory file-path))
-               (session-dir (expand-file-name "../.." branch-dir))
-               ;; Extract session-id from session-dir
-               (session-id (jf/gptel--session-id-from-directory session-dir)))
-          ;; Validate session and branch directories
-          (when (and (jf/gptel--valid-session-directory-p session-dir)
-                    (jf/gptel--valid-branch-directory-p branch-dir))
-            ;; Initialization (inline - no separate helper function)
+        (setq branch-name (match-string 1 file-path)
+              branch-dir (file-name-directory file-path)
+              session-dir (expand-file-name "../.." branch-dir)
+              session-type 'branch))
+
+      ;; Agent session: */agents/<agent>/session.md
+      (when (and (not session-type)
+                 (string= file-name "session.md")
+                 (string-match "/agents/\\([^/]+\\)/session\\.md$" file-path))
+        (let ((agent-dir (file-name-directory file-path)))
+          (setq branch-name "main"
+                branch-dir agent-dir
+                session-dir agent-dir
+                session-type 'agent)))
+
+      (when session-type
+        (let ((session-id (jf/gptel--session-id-from-directory session-dir)))
+          ;; Validate directories (branch sessions need both checks; agent sessions just branch-dir)
+          (when (if (eq session-type 'branch)
+                    (and (jf/gptel--valid-session-directory-p session-dir)
+                         (jf/gptel--valid-branch-directory-p branch-dir))
+                  (jf/gptel--valid-branch-directory-p branch-dir))
             (condition-case err
-                (let (;; Detect scenario: check if gptel-backend is buffer-local
-                      ;; If Local Variables exist, Emacs has already loaded them
-                      (has-local-vars (local-variable-p 'gptel-backend)))
+                (let (;; Detect scenario: check if gptel--preset is buffer-local
+                      ;; Upstream's differential save always writes gptel--preset
+                      ;; gptel-backend may NOT be in Local Variables if it matches preset default
+                      (has-preset-var (local-variable-p 'gptel--preset)))
 
-                  (if has-local-vars
-                      ;; SCENARIO 2: Existing session with Local Variables
-                      ;; Local Variables were already loaded by Emacs before hook ran
-                      (progn
-                        (jf/gptel--log 'debug "Existing branch session detected (has Local Variables): %s/%s"
-                                      session-id branch-name)
-                        ;; Enable gptel-mode (gptel--restore-state will use existing vars)
-                        (jf/gptel--ensure-mode-once)
-                        ;; Load system message from preset (not in Local Variables)
-                        (when-let ((preset-plist (jf/gptel--load-preset-from-file branch-dir))
-                                   (system-message (plist-get preset-plist :system)))
-                          (jf/gptel--set-session-system-message system-message)))
+                  (cond
+                   ;; SCENARIO 1: Existing session with gptel--preset in Local Variables
+                   ;; Emacs already loaded Local Variables before this hook ran.
+                   ;; Delegate entirely to upstream gptel--restore-state.
+                   (has-preset-var
+                    (jf/gptel--log 'debug "Existing %s session detected (has gptel--preset): %s/%s"
+                                  session-type session-id branch-name)
+                    ;; Set buffer-local session variables FIRST
+                    (setq-local jf/gptel--session-id session-id)
+                    (setq-local jf/gptel--session-dir session-dir)
+                    (setq-local jf/gptel--branch-name branch-name)
+                    (setq-local jf/gptel--branch-dir branch-dir)
 
-                    ;; SCENARIO 1: New session without Local Variables
-                    ;; Apply preset settings BEFORE enabling gptel-mode
-                    (progn
-                      (jf/gptel--log 'debug "New branch session detected (no Local Variables): %s/%s"
-                                    session-id branch-name)
-                      ;; Load and apply preset settings (includes system message with save-prevention)
-                      (let ((preset-plist (jf/gptel--load-preset-from-file branch-dir)))
-                        (jf/gptel--apply-session-preset preset-plist))
-                      ;; Now enable gptel-mode (will see the buffer-local settings we just applied)
-                      (jf/gptel--ensure-mode-once)))
+                    ;; Enable gptel-mode — triggers gptel--restore-state which applies
+                    ;; preset and overlays saved overrides. We do NOT call any custom
+                    ;; preset loading functions.
+                    (jf/gptel--ensure-mode-once)
 
-                  ;; Common steps for both scenarios
-                  (setq-local jf/gptel--session-id session-id)
-                  (setq-local jf/gptel--session-dir session-dir)
-                  (setq-local jf/gptel--branch-name branch-name)
-                  (setq-local jf/gptel--branch-dir branch-dir)
+                    ;; Load scope from scope.yml if it exists
+                    (when (file-exists-p (jf/gptel--scope-file-path branch-dir))
+                      (jf/gptel--log 'debug "Scope config available at %s" (jf/gptel--scope-file-path branch-dir))))
+
+                   ;; SCENARIO 2: Legacy session — has preset.md but no gptel--preset
+                   ;; Old-format session that predates upstream preset restore.
+                   ((file-exists-p (jf/gptel--preset-file-path branch-dir))
+                    (jf/gptel--log 'warn "Legacy session detected (has preset.md, no gptel--preset): %s/%s"
+                                  session-id branch-name)
+                    ;; Set buffer-local session variables
+                    (setq-local jf/gptel--session-id session-id)
+                    (setq-local jf/gptel--session-dir session-dir)
+                    (setq-local jf/gptel--branch-name branch-name)
+                    (setq-local jf/gptel--branch-dir branch-dir)
+
+                    ;; For now, just enable gptel-mode in basic mode
+                    ;; Full legacy migration will be handled by a later bead
+                    (jf/gptel--log 'warn "Legacy session opened in basic mode. Re-apply a preset from transient menu.")
+                    (jf/gptel--ensure-mode-once))
+
+                   ;; SCENARIO 3: New session — no Local Variables, no preset.md
+                   ;; Read preset name from metadata.yml and apply via gptel--apply-preset
+                   (t
+                    (jf/gptel--log 'debug "New %s session detected (no Local Variables): %s/%s"
+                                  session-type session-id branch-name)
+                    ;; Set buffer-local session variables
+                    (setq-local jf/gptel--session-id session-id)
+                    (setq-local jf/gptel--session-dir session-dir)
+                    (setq-local jf/gptel--branch-name branch-name)
+                    (setq-local jf/gptel--branch-dir branch-dir)
+
+                    ;; Read preset name from metadata.yml
+                    (let* ((metadata-path (jf/gptel--metadata-file-path branch-dir))
+                           (preset-name nil))
+                      (when (file-exists-p metadata-path)
+                        (condition-case err
+                            (with-temp-buffer
+                              (insert-file-contents metadata-path)
+                              (let* ((parsed (yaml-parse-string (buffer-string) :object-type 'plist))
+                                     (preset-str (plist-get parsed :preset)))
+                                (when preset-str
+                                  (setq preset-name (intern preset-str)))))
+                          (error
+                           (jf/gptel--log 'warn "Failed to read metadata.yml: %s" (error-message-string err)))))
+
+                      (if (and preset-name (gptel-get-preset preset-name))
+                          ;; Apply preset via upstream with buffer-local setter
+                          (progn
+                            (gptel--apply-preset preset-name
+                                                (lambda (var val) (set (make-local-variable var) val)))
+                            (jf/gptel--ensure-mode-once))
+                        ;; Fallback: enable gptel-mode without preset
+                        (jf/gptel--log 'warn "No preset found for new session %s, enabling basic gptel-mode" session-id)
+                        (jf/gptel--ensure-mode-once)))))
+
+                  ;; Common steps for all scenarios
                   (jf/gptel--register-session session-dir (current-buffer) session-id branch-name branch-dir)
                   (setq-local jf/gptel-autosave-enabled t)
 
@@ -205,13 +277,15 @@ This runs on every file open via find-file-hook, so performance is critical."
                   ;; Update current symlink to point to this branch
                   (jf/gptel--update-current-symlink session-dir branch-name)
 
-                  (jf/gptel--log 'info "Auto-initialized %s branch session: %s/%s"
-                                (if has-local-vars "existing" "new")
-                                session-id branch-name)
+                  (jf/gptel--log 'info "Auto-initialized %s %s session: %s/%s"
+                                (cond (has-preset-var "existing")
+                                      ((file-exists-p (jf/gptel--preset-file-path branch-dir)) "legacy")
+                                      (t "new"))
+                                session-type session-id branch-name)
                   (message "Session initialized: %s (branch: %s)" session-id branch-name))
               (error
-               (jf/gptel--log 'error "Failed to auto-initialize branch session: %s"
-                              (error-message-string err))
+               (jf/gptel--log 'error "Failed to auto-initialize %s session: %s"
+                              session-type (error-message-string err))
                (message "Warning: Session auto-init failed. File opened in basic mode.")))))))))
 
 (defun jf/gptel--skip-system-message-save-advice (orig-fun)

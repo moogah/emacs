@@ -180,6 +180,14 @@ Does not check if file exists."
   "Get path to branch-metadata.yml file in BRANCH-DIR."
   (expand-file-name "branch-metadata.yml" branch-dir))
 
+(defun jf/gptel--metadata-file-path (branch-dir)
+  "Get path to metadata.yml file in BRANCH-DIR."
+  (expand-file-name "metadata.yml" branch-dir))
+
+(defun jf/gptel--scope-file-path (branch-dir)
+  "Get path to scope.yml file in BRANCH-DIR."
+  (expand-file-name "scope.yml" branch-dir))
+
 (defun jf/gptel--tools-log-path (branch-dir)
   "Get path to tools log file in BRANCH-DIR."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--tools-log-file))
