@@ -63,7 +63,7 @@
                          (and (buffer-file-name)
                               (file-name-directory (buffer-file-name)))))
          (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                         (jf/gptel--scope-file-path jf/gptel--branch-dir)
+                         (expand-file-name jf/gptel-session--scope-file jf/gptel--branch-dir)
                        (expand-file-name jf/gptel-session--scope-file context-dir))))
 
     (unless (file-exists-p scope-file)
@@ -130,7 +130,7 @@
                          (and (buffer-file-name)
                               (file-name-directory (buffer-file-name)))))
          (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                         (jf/gptel--scope-file-path jf/gptel--branch-dir)
+                         (expand-file-name jf/gptel-session--scope-file jf/gptel--branch-dir)
                        (expand-file-name jf/gptel-session--scope-file context-dir))))
     (if (file-exists-p scope-file)
         (progn
