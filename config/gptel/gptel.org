@@ -24,7 +24,7 @@ session is automatically created with:
 
 - Directory structure under =~/emacs-activities/<activity-name>/session/=
 - Branch-based session management (=branches/main/= by default)
-- Scoped file access via =scope-plan.yml= (default: deny-all for security)
+- Scoped file access via =scope.yml= (default: deny-all for security)
 - Preset configuration for model, backend, and tools
 - Auto-initialization when you open session files
 - Integration with activity suspend/resume workflow
@@ -253,7 +253,7 @@ This replaces the =gptel-agent= package dependency.
 
 Persistent gptel sessions provide file-backed, auto-saving conversation buffers with:
 - Branch-based versioning for experimental conversation threads
-- Scope-based file access controls (via =scope-plan.yml=)
+- Scope-based file access controls (via =scope.yml=)
 - Preset-based configuration (backend, model, tools, system prompts)
 - Auto-initialization when opening session files (no manual resume needed)
 - Integration with activities package for activity-scoped sessions

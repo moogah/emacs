@@ -11,7 +11,7 @@ This module provides scope-aware shell execution and meta tools for v3.0 preset-
 
 ** Shell Command Scoping (v3.0)
 
-The =run_approved_command= tool uses preset.md configuration:
+The =run_approved_command= tool uses scope.yml configuration:
 - *shell_commands.allow*: Allowlist of command names (e.g., ["ls", "git", "npm"])
 - *shell_commands.deny*: Denylist patterns (substring matching, e.g., ["rm -rf", "sudo"])
 
@@ -22,7 +22,7 @@ Validation handled by =jf/gptel-scope--validate-command-tool= in scope-core.org.
 
 The =request_scope_expansion= tool shows interactive transient menu with 3 choices:
 - *Deny* - Reject the expansion request
-- *Add to scope* - Permanently add patterns to preset.md
+- *Add to scope* - Permanently add patterns to scope.yml
 - *Allow once* - Temporarily allow for current turn only
 
 Uses async tool pattern with callback for FSM coordination.
@@ -59,7 +59,7 @@ Execute shell command if allowed by scope plan using v3.0 scoped-tool macro.
  "run_approved_command"
  "Execute shell command if allowed by scope plan.
 
-Checks command against shell_commands.allow and shell_commands.deny in preset.md.
+Checks command against shell_commands.allow and shell_commands.deny in scope.yml.
 Allow list: Exact command name match (e.g., 'ls' allows 'ls -la')
 Deny list: Substring match (e.g., 'rm -rf' blocks any command containing 'rm -rf')
 
@@ -101,7 +101,7 @@ LLM uses this tool to explicitly request user approval for expanding scope using
 
 Displays interactive menu with 3 options:
 1. Deny - Reject the expansion request
-2. Add to scope - Permanently add patterns to preset.md
+2. Add to scope - Permanently add patterns to scope.yml
 3. Allow once - Temporarily allow for current turn only
 
 The user will see:
@@ -156,8 +156,8 @@ Helper to infer validation type from tool name using tool categories.
 
 * Obsolete: inspect_scope_plan Tool (Removed in v3.0)
 
-In v3.0, preset.md is a readable markdown file with YAML frontmatter.
-LLM can use read_file("preset.md") to inspect scope configuration directly.
+In v3.0, scope.yml is a plain YAML file.
+LLM can use read_file("scope.yml") to inspect scope configuration directly.
 No dedicated inspection tool needed.
 
 * Provide Feature

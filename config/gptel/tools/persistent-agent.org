@@ -54,7 +54,7 @@ config/gptel/
 │   ├── logging.el         - Debug logging
 │   ├── filesystem.el      - Directory structure, path helpers
 │   ├── registry.el        - Global session tracking (runtime state only)
-│   ├── metadata.el        - Read metadata from scope-plan.yml + preset.md
+│   ├── metadata.el        - Read metadata from metadata.yml + scope.yml
 │   ├── agent-integration.el - Parent-child session linking
 │   ├── commands.el        - User-facing session commands
 │   └── activities-integration.el - Activities package integration
@@ -121,8 +121,8 @@ sequenceDiagram
     FS-->>T: session-dir path
 
     T->>FS: Load agent config (NO parent inheritance)
-    T->>FS: Write scope-plan.yml (includes parent_session_id)
-    T->>FS: Write preset.md
+    T->>FS: Write scope.yml (includes path permissions)
+    T->>FS: Write metadata.yml (includes parent_session_id)
 
     T->>B: Create buffer with session vars
     T->>B: Insert prompt
@@ -153,14 +153,14 @@ Sessions are persisted to disk with the following structure:
 #+begin_example
 ~/gptel-sessions/
 └── parent-session-20260121143022/
-    ├── scope-plan.yml               # Session metadata and permissions
-    ├── preset.md                    # Backend and model configuration
+    ├── metadata.yml                 # Session metadata (session_id, timestamps, preset)
+    ├── scope.yml                    # Path permissions and scope configuration
     ├── session.md                   # Parent conversation
     ├── tools.org                    # Parent tool calls
     └── agents/                      # Agent sessions
         └── researcher-20260121143245-analyze-code/
-            ├── scope-plan.yml       # Agent metadata (includes parent_session_id)
-            ├── preset.md            # Agent-specific config (NO inheritance)
+            ├── metadata.yml         # Agent metadata (includes parent_session_id)
+            ├── scope.yml            # Agent-specific scope (NO inheritance)
             ├── session.md           # Agent conversation (auto-saved)
             └── tools.org            # Agent tool calls
 #+end_example
@@ -362,7 +362,7 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 1. Create parent persistent session
 2. Invoke PersistentAgent tool from parent
 3. Verify agent directory created under =agents/=
-4. Check scope-plan.yml includes =parent_session_id=
+4. Check metadata.yml includes =parent_session_id=
 5. Verify overlay appears in parent buffer
 6. Monitor overlay updates during tool calls
 7. Check final result returned to parent
@@ -447,7 +447,7 @@ Only saves if buffer has associated file and session directory."
   (when (and jf/gptel--session-dir
              (buffer-file-name))
     (save-buffer)
-    ;; Note: scope-plan.yml updated timestamp is managed by scope commands,
+    ;; Note: metadata.yml updated timestamp is managed by scope commands,
     ;; not auto-save
     ))
 #+end_src
@@ -751,7 +751,7 @@ Sessions persist to disk with full conversation history.
 Use for complex research, open-ended exploration, or iterative tasks.
 
 IMPORTANT: You should typically pass allowed_paths to control the agent's file access.
-Use the inspect_scope_plan tool to get your current allowed paths, then pass them
+Use the read_file tool on scope.yml to get your current allowed paths, then pass them
 to the agent. Example:
   allowed_paths: [\"/path/to/project/**\", \"/another/path/**\"]
 
@@ -779,7 +779,7 @@ access to .git, runtime, node_modules, and .env paths."
          ( :name "allowed_paths"
            :type array
            :items (:type string)
-           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, agent has no read access. Use inspect_scope_plan to see your current paths.")
+           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, agent has no read access. Use read_file on scope.yml to see your current paths.")
 
          ( :name "denied_paths"
            :type array

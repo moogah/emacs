@@ -6,7 +6,7 @@
 
 ;; Session metadata persistence for gptel.
 ;; Primary source: metadata.yml (session_id, created, type, parent_session_id, preset)
-;; Legacy support: scope-plan.yml and preset.md for older sessions
+;; Legacy support: scope-plan.yml for older sessions
 
 ;;; Code:
 
@@ -17,7 +17,7 @@
 (require 'gptel-session-filesystem)
 
 (defun jf/gptel--read-session-metadata (session-dir)
-  "Read session metadata from scope-plan.yml in SESSION-DIR.
+  "Read session metadata from metadata.yml (or legacy scope-plan.yml) in SESSION-DIR.
 Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :preset.
 Returns nil if file doesn't exist or can't be parsed.
 

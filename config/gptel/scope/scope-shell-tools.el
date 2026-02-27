@@ -32,7 +32,7 @@
  "run_approved_command"
  "Execute shell command if allowed by scope plan.
 
-Checks command against shell_commands.allow and shell_commands.deny in preset.md.
+Checks command against shell_commands.allow and shell_commands.deny in scope.yml.
 Allow list: Exact command name match (e.g., 'ls' allows 'ls -la')
 Deny list: Substring match (e.g., 'rm -rf' blocks any command containing 'rm -rf')
 
@@ -75,7 +75,7 @@ Use request_scope_expansion to add commands to allow list."
 
 Displays interactive menu with 3 options:
 1. Deny - Reject the expansion request
-2. Add to scope - Permanently add patterns to preset.md
+2. Add to scope - Permanently add patterns to scope.yml
 3. Allow once - Temporarily allow for current turn only
 
 The user will see:

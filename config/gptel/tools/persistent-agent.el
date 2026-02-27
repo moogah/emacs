@@ -27,7 +27,7 @@ Only saves if buffer has associated file and session directory."
   (when (and jf/gptel--session-dir
              (buffer-file-name))
     (save-buffer)
-    ;; Note: scope-plan.yml updated timestamp is managed by scope commands,
+    ;; Note: metadata.yml updated timestamp is managed by scope commands,
     ;; not auto-save
     ))
 
@@ -307,7 +307,7 @@ Sessions persist to disk with full conversation history.
 Use for complex research, open-ended exploration, or iterative tasks.
 
 IMPORTANT: You should typically pass allowed_paths to control the agent's file access.
-Use the inspect_scope_plan tool to get your current allowed paths, then pass them
+Use the read_file tool on scope.yml to get your current allowed paths, then pass them
 to the agent. Example:
   allowed_paths: [\"/path/to/project/**\", \"/another/path/**\"]
 
@@ -335,7 +335,7 @@ access to .git, runtime, node_modules, and .env paths."
          ( :name "allowed_paths"
            :type array
            :items (:type string)
-           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, agent has no read access. Use inspect_scope_plan to see your current paths.")
+           :description "Array of glob patterns for paths the agent can access. Use /** suffix for recursive access. Example: [\"/path/to/project/**\"]. If omitted, agent has no read access. Use read_file on scope.yml to see your current paths.")
 
          ( :name "denied_paths"
            :type array

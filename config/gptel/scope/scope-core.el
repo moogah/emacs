@@ -113,7 +113,7 @@ CATEGORY: Resource category (\"filesystem\", \"org_roam\", \"shell\")
 BODY: Tool implementation - executed only if scope check passes
 
 The macro automatically:
-- Loads scope config from preset.md in current buffer's directory
+- Loads scope config from scope.yml in current buffer's directory
 - Checks tool permission using v3.0 validation
 - Normalizes arguments (vector->list)
 - Formats errors on scope violation
@@ -504,7 +504,7 @@ Returns plist with:
 ;; [[file:scope-core.org::*Tool Permission Dispatch][Tool Permission Dispatch:1]]
 (defun jf/gptel-scope--check-tool-permission (config tool-name args)
   "Validate TOOL-NAME with ARGS against CONFIG.
-CONFIG is the scope configuration plist from preset.md.
+CONFIG is the scope configuration plist from scope.yml.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list.
 
