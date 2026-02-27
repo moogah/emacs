@@ -6,7 +6,6 @@
 
 ;; Session metadata persistence for gptel.
 ;; Primary source: metadata.yml (session_id, created, type, parent_session_id, preset)
-;; Legacy support: scope-plan.yml for older sessions
 
 ;;; Code:
 
@@ -17,21 +16,14 @@
 (require 'gptel-session-filesystem)
 
 (defun jf/gptel--read-session-metadata (session-dir)
-  "Read session metadata from metadata.yml (or legacy scope-plan.yml) in SESSION-DIR.
+  "Read session metadata from metadata.yml in SESSION-DIR.
 Returns plist with :session-id, :created, :updated, :type, :parent-session-id, :preset.
-Returns nil if no metadata file exists or can't be parsed.
-
-Tries metadata.yml first (current format), falls back to scope-plan.yml (legacy).
-Supports backward compatibility: reads 'preset' field, falls back to 'agent_type' for old sessions."
-  (let* ((metadata-file (expand-file-name jf/gptel-session--metadata-file session-dir))
-         (legacy-file (expand-file-name jf/gptel-session--scope-plan-file session-dir))
-         (target-file (cond
-                       ((file-exists-p metadata-file) metadata-file)
-                       ((file-exists-p legacy-file) legacy-file))))
-    (when target-file
+Returns nil if metadata.yml does not exist or can't be parsed."
+  (let ((metadata-file (expand-file-name jf/gptel-session--metadata-file session-dir)))
+    (when (file-exists-p metadata-file)
       (condition-case err
           (with-temp-buffer
-            (insert-file-contents target-file)
+            (insert-file-contents metadata-file)
             (let* ((parsed (yaml-parse-string (buffer-string) :object-type 'plist))
                    ;; Convert snake_case to kebab-case keywords
                    (session-id (plist-get parsed :session_id))
@@ -39,9 +31,7 @@ Supports backward compatibility: reads 'preset' field, falls back to 'agent_type
                    (updated (plist-get parsed :updated))
                    (type (plist-get parsed :type))
                    (parent-id (plist-get parsed :parent_session_id))
-                   ;; Backward compatibility: try 'preset' first, fall back to 'agent_type'
-                   (preset (or (plist-get parsed :preset)
-                              (plist-get parsed :agent_type))))
+                   (preset (plist-get parsed :preset)))
               (list :session-id session-id
                     :created created
                     :updated updated
@@ -50,32 +40,6 @@ Supports backward compatibility: reads 'preset' field, falls back to 'agent_type
                     :preset preset)))
         (error
          (jf/gptel--log 'error "Failed to parse session metadata in %s: %s"
-                       session-dir (error-message-string err))
-         nil)))))
-
-(defun jf/gptel--read-preset-metadata (session-dir)
-  "Read backend and model from preset.md YAML frontmatter in SESSION-DIR.
-Returns plist with :backend and :model.
-Returns nil if file doesn't exist or can't be parsed."
-  (let ((preset-file (expand-file-name "preset.md" session-dir)))
-    (when (file-exists-p preset-file)
-      (condition-case err
-          (with-temp-buffer
-            (insert-file-contents preset-file)
-            (goto-char (point-min))
-            ;; Look for YAML frontmatter (between --- markers)
-            (when (re-search-forward "^---\n" nil t)
-              (let ((yaml-start (point)))
-                (when (re-search-forward "^---\n" nil t)
-                  (let* ((yaml-end (match-beginning 0))
-                         (yaml-content (buffer-substring yaml-start yaml-end))
-                         (parsed (yaml-parse-string yaml-content :object-type 'plist))
-                         (backend (plist-get parsed :backend))
-                         (model (plist-get parsed :model)))
-                    (list :backend backend
-                          :model model))))))
-        (error
-         (jf/gptel--log 'error "Failed to parse preset.md in %s: %s"
                        session-dir (error-message-string err))
          nil)))))
 

@@ -59,9 +59,6 @@ YAML format containing paths, org-roam patterns, and shell command permissions."
   "File name for session metadata.
 YAML format containing session ID, timestamps, and preset name.")
 
-(defconst jf/gptel-session--scope-plan-file "scope-plan.yml"
-  "Legacy scope plan filename.")
-
 (defcustom jf/gptel-autosave-idle-time 0.5
   "Idle time in seconds before auto-saving session buffer.
 Set to 0 to disable auto-save."

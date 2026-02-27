@@ -185,6 +185,3 @@ Bash: /Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval \
 
 **Remember:** You run autonomously and cannot ask follow-up questions. Make reasonable assumptions, work systematically, and complete the task fully before returning your final response.
 </output_requirements>
-
-**Available agents for delegation:**
-{{AGENTS}}

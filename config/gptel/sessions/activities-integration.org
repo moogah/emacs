@@ -121,10 +121,6 @@ When you resume an activity (=M-x activities-resume=):
   :type 'boolean
   :group 'jf-gptel-activities)
 
-(defcustom jf/gptel-activities-create-scope-plan t
-  "Create default deny-all scope plan for activity sessions."
-  :type 'boolean
-  :group 'jf-gptel-activities)
 #+end_src
 
 * Eager Session Creation

@@ -168,14 +168,6 @@ Does not check if file exists."
   "Get path to context file in BRANCH-DIR."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--context-file))
 
-(defun jf/gptel--scope-plan-file-path (branch-dir)
-  "Get path to scope-plan.yml file in BRANCH-DIR (legacy format)."
-  (expand-file-name jf/gptel-session--scope-plan-file branch-dir))
-
-(defun jf/gptel--preset-file-path (branch-dir)
-  "Get path to preset.md file in BRANCH-DIR (legacy format)."
-  (expand-file-name "preset.md" branch-dir))
-
 (defun jf/gptel--branch-metadata-file-path (branch-dir)
   "Get path to branch-metadata.yml file in BRANCH-DIR."
   (expand-file-name "branch-metadata.yml" branch-dir))

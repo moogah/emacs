@@ -26,11 +26,6 @@
   :type 'boolean
   :group 'jf-gptel-activities)
 
-(defcustom jf/gptel-activities-create-scope-plan t
-  "Create default deny-all scope plan for activity sessions."
-  :type 'boolean
-  :group 'jf-gptel-activities)
-
 (defun jf/gptel-session-create-persistent (activity-name &optional backend model preset-name org-file)
   "Create persistent gptel session immediately for ACTIVITY-NAME.
 
