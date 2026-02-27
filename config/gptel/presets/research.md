@@ -3,7 +3,7 @@ description: >
   Research agent for software design patterns and architectural best practices.
   Bridges conceptual gap between requirements and industry-proven solutions.
 backend: Claude
-model: claude-sonnet-4-5-20250929
+model: claude-sonnet-4-6
 temperature: 0.6
 include-tool-results: true
 tools:

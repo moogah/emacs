@@ -41,7 +41,7 @@ tools:
   - execute_sql_alter
   - execute_sql_drop
 backend: Claude
-model: claude-3-7-sonnet-20250219
+model: claude-sonnet-4-6
 temperature: 0.3
 confirm-tool-calls: auto
 scope_profile: coding

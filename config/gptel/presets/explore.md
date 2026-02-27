@@ -3,7 +3,7 @@ description: >
   Code exploration agent for analyzing codebase structure, patterns, and dependencies.
   Provides concrete findings with file paths and function names to inform planning.
 backend: Claude
-model: claude-sonnet-4-5-20250929
+model: claude-sonnet-4-6
 temperature: 0.5
 include-tool-results: true
 tools:

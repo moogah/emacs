@@ -28,7 +28,7 @@ tools:
   - Grep
   - Read
 backend: Claude
-model: claude-sonnet-4-5-20250929
+model: claude-sonnet-4-6
 temperature: 0.6
 confirm-tool-calls: nil
 scope_profile: research
