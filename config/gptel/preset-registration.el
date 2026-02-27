@@ -18,7 +18,7 @@ Each entry is (PRESET-NAME . SCOPE-PLIST) where SCOPE-PLIST contains
 keys like :paths, :org-roam-patterns, :shell-commands, :scope-profile
 that were extracted from the preset file during registration.")
 
-(defun jf/gptel-preset--parse-file (filepath)
+(cl-defun jf/gptel-preset--parse-file (filepath)
   "Parse a preset .md file at FILEPATH.
 Extract YAML frontmatter between --- delimiters and parse it.
 The markdown body after the closing --- becomes the :system value.

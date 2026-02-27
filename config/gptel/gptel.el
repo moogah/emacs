@@ -60,6 +60,10 @@
 (jf/load-module (expand-file-name "config/gptel/skills/skills-roam.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/skills/skills-transient.el" jf/emacs-dir))
 
+;; Load constants and logging first (needed by preset registration and all session modules)
+(jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+
 ;; Ensure yaml parser is available
 (require 'yaml)
 
@@ -135,9 +139,7 @@ Run this after preset registration to inject skill content into presets."
               (when jf/gptel-skills-verbose
                 (message "Expanded skills in preset: %s" preset-name)))))))))
 
-;; Load foundational modules first (used by all other session modules)
-(jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+;; Note: constants.el and logging.el already loaded above (before preset registration)
 
 ;; Load filesystem utilities before other modules (registry and hooks depend on it)
 (jf/load-module (expand-file-name "config/gptel/sessions/filesystem.el" jf/emacs-dir))
