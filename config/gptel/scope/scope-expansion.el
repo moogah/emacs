@@ -33,7 +33,7 @@
     ("o" "Allow once (temporary)" jf/gptel-scope--allow-once-action
      :transient nil)]
    [""
-    ("e" "Edit preset manually" jf/gptel-scope--edit-preset)
+    ("e" "Edit scope manually" jf/gptel-scope--edit-scope)
     ("q" "Cancel" transient-quit-one)]])
 
 (defun jf/gptel-scope--deny-expansion ()
@@ -50,7 +50,7 @@
     (transient-quit-one)))
 
 (defun jf/gptel-scope--add-to-scope ()
-  "Add violated resource to preset.md permanently."
+  "Add violated resource to scope.yml permanently."
   (interactive)
   (let* ((scope (transient-scope))
          (violation (plist-get scope :violation))
@@ -62,19 +62,21 @@
                          (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                          (and (buffer-file-name)
                               (file-name-directory (buffer-file-name)))))
-         (preset-file (expand-file-name "preset.md" context-dir)))
+         (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                         (jf/gptel--scope-file-path jf/gptel--branch-dir)
+                       (expand-file-name "scope.yml" context-dir))))
 
-    (unless (file-exists-p preset-file)
-      (user-error "No preset.md found in %s" context-dir))
+    (unless (file-exists-p scope-file)
+      (user-error "No scope.yml found in %s" context-dir))
 
     ;; Route to appropriate updater based on validation type
     (pcase validation-type
       ('path
-       (jf/gptel-scope--add-path-to-preset preset-file resource tool))
+       (jf/gptel-scope--add-path-to-scope scope-file resource tool))
       ('pattern
-       (jf/gptel-scope--add-pattern-to-preset preset-file resource tool))
+       (jf/gptel-scope--add-pattern-to-scope scope-file resource tool))
       ('command
-       (jf/gptel-scope--add-command-to-preset preset-file resource))
+       (jf/gptel-scope--add-command-to-scope scope-file resource))
       (_
        (user-error "Unknown validation type: %s" validation-type)))
 
@@ -89,7 +91,7 @@
                         :message (format "Scope expanded. Added %d pattern(s) to %s"
                                        (length patterns) tool-name))))))
 
-    (message "Added %s to scope in preset.md" resource)
+    (message "Added %s to scope" resource)
     (transient-quit-one)))
 
 (defun jf/gptel-scope--allow-once-action ()
@@ -115,8 +117,8 @@
     (message "Allowed %s once for this LLM turn" resource)
     (transient-quit-one)))
 
-(defun jf/gptel-scope--edit-preset ()
-  "Open preset.md for manual editing."
+(defun jf/gptel-scope--edit-scope ()
+  "Open scope.yml for manual editing."
   (interactive)
   (let* ((scope (transient-scope))
          (violation (plist-get scope :violation))
@@ -124,158 +126,107 @@
                          (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                          (and (buffer-file-name)
                               (file-name-directory (buffer-file-name)))))
-         (preset-file (expand-file-name "preset.md" context-dir)))
-    (if (file-exists-p preset-file)
+         (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                         (jf/gptel--scope-file-path jf/gptel--branch-dir)
+                       (expand-file-name "scope.yml" context-dir))))
+    (if (file-exists-p scope-file)
         (progn
-          (find-file preset-file)
+          (find-file scope-file)
           (transient-quit-one))
-      (user-error "No preset.md found in %s" context-dir))))
+      (user-error "No scope.yml found in %s" context-dir))))
 
-(defun jf/gptel-scope--add-path-to-preset (preset-file path tool)
-  "Add PATH to preset.md under appropriate section based on TOOL operation.
-PRESET-FILE is the path to preset.md.
+(defun jf/gptel-scope--add-path-to-scope (scope-file path tool)
+  "Add PATH to scope.yml under appropriate section based on TOOL operation.
+SCOPE-FILE is the path to scope.yml.
 PATH is the file/directory path to add.
 TOOL is the tool name (used to determine read vs write)."
   (let* ((content (with-temp-buffer
-                    (insert-file-contents preset-file)
+                    (insert-file-contents scope-file)
                     (buffer-string)))
          ;; Determine if this is a read or write operation
          (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
          (operation (plist-get category :operation))
          (target-section (if (eq operation 'read) :read :write)))
 
-    ;; Parse YAML frontmatter
-    (with-temp-buffer
-      (insert content)
-      (goto-char (point-min))
+    ;; Parse entire file as YAML (no frontmatter delimiters)
+    (let* ((parsed (jf/gptel-scope--vectorp-to-list
+                   (yaml-parse-string content :object-type 'plist)))
+           (paths (or (plist-get parsed :paths) (list)))
+           (section-paths (or (plist-get paths target-section) '())))
 
-      (unless (re-search-forward "^---\n" nil t)
-        (error "No YAML frontmatter found in %s" preset-file))
+      ;; Add path if not already present (with /** suffix for directories)
+      (let ((normalized-path (if (string-suffix-p "/" path)
+                                (concat (directory-file-name path) "/**")
+                              path)))
+        (unless (member normalized-path section-paths)
+          (setq section-paths (append section-paths (list normalized-path)))
+          (setq paths (plist-put paths target-section section-paths))
+          (setq parsed (plist-put parsed :paths paths))
 
-      (let ((yaml-start (point)))
-        (unless (re-search-forward "^---\n" nil t)
-          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
+          ;; Write updated content (plain YAML, no delimiters)
+          (with-temp-buffer
+            (jf/gptel-scope--write-yaml-plist parsed)
+            (write-region (point-min) (point-max) scope-file nil 'silent)))))))
 
-        (let* ((yaml-end (match-beginning 0))
-               (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (jf/gptel-scope--vectorp-to-list
-                       (yaml-parse-string yaml-content :object-type 'plist)))
-               (paths (or (plist-get parsed :paths) (list)))
-               (section-paths (or (plist-get paths target-section) '()))
-               (post-yaml (buffer-substring (match-end 0) (point-max))))
-
-          ;; Add path if not already present (with /** suffix for directories)
-          (let ((normalized-path (if (string-suffix-p "/" path)
-                                    (concat (directory-file-name path) "/**")
-                                  path)))
-            (unless (member normalized-path section-paths)
-              (setq section-paths (append section-paths (list normalized-path)))
-              (setq paths (plist-put paths target-section section-paths))
-              (setq parsed (plist-put parsed :paths paths))
-
-              ;; Write updated content
-              (erase-buffer)
-              (insert "---\n")
-              (jf/gptel-scope--write-yaml-plist parsed)
-              (insert "---\n")
-              (insert post-yaml)
-              (write-region (point-min) (point-max) preset-file nil 'silent))))))))
-
-(defun jf/gptel-scope--add-pattern-to-preset (preset-file pattern tool)
-  "Add PATTERN to org_roam_patterns section in PRESET-FILE.
+(defun jf/gptel-scope--add-pattern-to-scope (scope-file pattern tool)
+  "Add PATTERN to org_roam_patterns section in SCOPE-FILE.
 PATTERN is a string describing the pattern (format: \"subdirectory:path\" or \"tags:tag\").
 TOOL is the org-roam tool name."
-  (let ((content (with-temp-buffer
-                   (insert-file-contents preset-file)
-                   (buffer-string))))
+  (let* ((content (with-temp-buffer
+                    (insert-file-contents scope-file)
+                    (buffer-string)))
+         ;; Parse entire file as YAML (no frontmatter delimiters)
+         (parsed (jf/gptel-scope--vectorp-to-list
+                 (yaml-parse-string content :object-type 'plist)))
+         (org-roam (or (plist-get parsed :org_roam_patterns) (list))))
 
-    ;; Parse YAML frontmatter
+    ;; Parse pattern format and add to appropriate list
+    (cond
+     ((string-prefix-p "subdirectory:" pattern)
+      (let* ((subdir (substring pattern 13))
+             (subdirs (or (plist-get org-roam :subdirectory) '())))
+        (unless (member subdir subdirs)
+          (setq subdirs (append subdirs (list subdir)))
+          (setq org-roam (plist-put org-roam :subdirectory subdirs)))))
+
+     ((string-prefix-p "tags:" pattern)
+      (let* ((tags-str (substring pattern 5))
+             (tags (split-string tags-str ","))
+             (existing-tags (or (plist-get org-roam :tags) '())))
+        (dolist (tag tags)
+          (unless (member tag existing-tags)
+            (setq existing-tags (append existing-tags (list tag)))))
+        (setq org-roam (plist-put org-roam :tags existing-tags)))))
+
+    (setq parsed (plist-put parsed :org_roam_patterns org-roam))
+
+    ;; Write updated content (plain YAML, no delimiters)
     (with-temp-buffer
-      (insert content)
-      (goto-char (point-min))
+      (jf/gptel-scope--write-yaml-plist parsed)
+      (write-region (point-min) (point-max) scope-file nil 'silent))))
 
-      (unless (re-search-forward "^---\n" nil t)
-        (error "No YAML frontmatter found in %s" preset-file))
+(defun jf/gptel-scope--add-command-to-scope (scope-file command)
+  "Add COMMAND to shell_commands.allow section in SCOPE-FILE."
+  (let* ((content (with-temp-buffer
+                    (insert-file-contents scope-file)
+                    (buffer-string)))
+         (cmd-name (car (split-string command)))
+         ;; Parse entire file as YAML (no frontmatter delimiters)
+         (parsed (jf/gptel-scope--vectorp-to-list
+                 (yaml-parse-string content :object-type 'plist)))
+         (shell-cmds (or (plist-get parsed :shell_commands) (list)))
+         (allow-list (or (plist-get shell-cmds :allow) '())))
 
-      (let ((yaml-start (point)))
-        (unless (re-search-forward "^---\n" nil t)
-          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
+    ;; Add command to allow list if not present
+    (unless (member cmd-name allow-list)
+      (setq allow-list (append allow-list (list cmd-name)))
+      (setq shell-cmds (plist-put shell-cmds :allow allow-list))
+      (setq parsed (plist-put parsed :shell_commands shell-cmds))
 
-        (let* ((yaml-end (match-beginning 0))
-               (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (jf/gptel-scope--vectorp-to-list
-                       (yaml-parse-string yaml-content :object-type 'plist)))
-               (org-roam (or (plist-get parsed :org_roam_patterns) (list)))
-               (post-yaml (buffer-substring (match-end 0) (point-max))))
-
-          ;; Parse pattern format and add to appropriate list
-          (cond
-           ((string-prefix-p "subdirectory:" pattern)
-            (let* ((subdir (substring pattern 13))
-                   (subdirs (or (plist-get org-roam :subdirectory) '())))
-              (unless (member subdir subdirs)
-                (setq subdirs (append subdirs (list subdir)))
-                (setq org-roam (plist-put org-roam :subdirectory subdirs)))))
-
-           ((string-prefix-p "tags:" pattern)
-            (let* ((tags-str (substring pattern 5))
-                   (tags (split-string tags-str ","))
-                   (existing-tags (or (plist-get org-roam :tags) '())))
-              (dolist (tag tags)
-                (unless (member tag existing-tags)
-                  (setq existing-tags (append existing-tags (list tag)))))
-              (setq org-roam (plist-put org-roam :tags existing-tags)))))
-
-          (setq parsed (plist-put parsed :org_roam_patterns org-roam))
-
-          ;; Write updated content
-          (erase-buffer)
-          (insert "---\n")
-          (jf/gptel-scope--write-yaml-plist parsed)
-          (insert "---\n")
-          (insert post-yaml)
-          (write-region (point-min) (point-max) preset-file nil 'silent))))))
-
-(defun jf/gptel-scope--add-command-to-preset (preset-file command)
-  "Add COMMAND to shell_commands.allow section in PRESET-FILE."
-  (let ((content (with-temp-buffer
-                   (insert-file-contents preset-file)
-                   (buffer-string)))
-        (cmd-name (car (split-string command))))
-
-    ;; Parse YAML frontmatter
-    (with-temp-buffer
-      (insert content)
-      (goto-char (point-min))
-
-      (unless (re-search-forward "^---\n" nil t)
-        (error "No YAML frontmatter found in %s" preset-file))
-
-      (let ((yaml-start (point)))
-        (unless (re-search-forward "^---\n" nil t)
-          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
-
-        (let* ((yaml-end (match-beginning 0))
-               (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (jf/gptel-scope--vectorp-to-list
-                       (yaml-parse-string yaml-content :object-type 'plist)))
-               (shell-cmds (or (plist-get parsed :shell_commands) (list)))
-               (allow-list (or (plist-get shell-cmds :allow) '()))
-               (post-yaml (buffer-substring (match-end 0) (point-max))))
-
-          ;; Add command to allow list if not present
-          (unless (member cmd-name allow-list)
-            (setq allow-list (append allow-list (list cmd-name)))
-            (setq shell-cmds (plist-put shell-cmds :allow allow-list))
-            (setq parsed (plist-put parsed :shell_commands shell-cmds))
-
-            ;; Write updated content
-            (erase-buffer)
-            (insert "---\n")
-            (jf/gptel-scope--write-yaml-plist parsed)
-            (insert "---\n")
-            (insert post-yaml)
-            (write-region (point-min) (point-max) preset-file nil 'silent)))))))
+      ;; Write updated content (plain YAML, no delimiters)
+      (with-temp-buffer
+        (jf/gptel-scope--write-yaml-plist parsed)
+        (write-region (point-min) (point-max) scope-file nil 'silent)))))
 
 (defun jf/gptel-scope--write-yaml-plist (plist)
   "Write PLIST as YAML to current buffer.
