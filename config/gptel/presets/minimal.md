@@ -3,6 +3,7 @@ description: Minimal preset for custom configuration
 backend: Claude
 model: claude-opus-4-5-20251101
 temperature: 1.0
+scope_profile: restricted
 include-tool-results: false
 ---
 

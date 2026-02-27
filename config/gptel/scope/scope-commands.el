@@ -43,28 +43,6 @@ Uses projectile-project-name if available, else basename."
     (error (file-name-nondirectory (directory-file-name project-root)))))
 ;; Project Display Name:1 ends here
 
-;; Get Activity Org-File from Metadata File
-
-;; Extract activity org-file path from metadata file (legacy scope-plan.yml).
-
-
-;; [[file:scope-commands.org::*Get Activity Org-File from Metadata File][Get Activity Org-File from Metadata File:1]]
-(defun jf/gptel-scope--get-activity-org-file (scope-plan-file)
-  "Extract activity_org_file path from SCOPE-PLAN-FILE.
-Returns the org-roam document path if present, nil otherwise."
-  (when (file-exists-p scope-plan-file)
-    (condition-case err
-        (with-temp-buffer
-          (insert-file-contents scope-plan-file)
-          (goto-char (point-min))
-          (when (re-search-forward "^activity_org_file: \"\\([^\"]+\\)\"" nil t)
-            (match-string 1)))
-      (error
-       (message "Warning: Failed to parse activity_org_file from %s: %s"
-                scope-plan-file (error-message-string err))
-       nil))))
-;; Get Activity Org-File from Metadata File:1 ends here
-
 ;; Parse Preset Tools
 
 ;; Extract tool list from the preset registry (=gptel--known-presets=).
