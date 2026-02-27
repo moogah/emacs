@@ -83,6 +83,13 @@ Extracted scope data SHALL be stored in `jf/gptel-preset--scope-defaults`, an al
 
 The system SHALL register each parsed and coerced preset with upstream's `gptel-make-preset`, using the preset file's basename (sans extension) as the name symbol.
 
+**Value formats passed to `gptel-make-preset`:**
+- `:backend` — string name (e.g., `"Claude"`). Upstream's `gptel--apply-preset` resolves to a backend object at application time.
+- `:model` — symbol (e.g., `'claude-opus-4-6`). Already coerced from string by the parser.
+- `:tools` — list of tool name strings (e.g., `("PersistentAgent" "Read" "Write")`). Upstream resolves to tool objects via `gptel-get-tool` at application time.
+- `:system` — string (the markdown body from the preset file).
+- `:temperature`, `:description` — passed through as-is.
+
 #### Scenario: All presets in directory registered
 - **WHEN** `jf/gptel-preset-register-all` runs at init time
 - **THEN** every `.md` file in `config/gptel/presets/` is parsed, coerced, scope-stripped, and registered
@@ -95,7 +102,14 @@ The system SHALL register each parsed and coerced preset with upstream's `gptel-
 #### Scenario: Presets visible in transient menu
 - **WHEN** presets are registered via `gptel-make-preset`
 - **THEN** they appear in gptel's transient preset menu (`@` key)
+- **AND** their `:description` is shown as an annotation during completion
 - **AND** can be selected by the user
+
+#### Scenario: Presets usable inline via @preset-name syntax
+- **WHEN** presets are registered in `gptel--known-presets`
+- **THEN** typing `@executor` in a prompt automatically applies the `executor` preset before sending the request
+- **AND** `@executor` is removed from the prompt text
+- **AND** completion is available for preset names via `gptel-preset-capf`
 
 #### Scenario: Presets usable with gptel-with-preset
 - **WHEN** a preset `executor` is registered
@@ -136,3 +150,14 @@ The system SHALL use a configurable directory path for preset file discovery.
 - **WHEN** scanning the presets directory
 - **THEN** only files with `.md` extension are processed
 - **AND** subdirectories, dotfiles, and non-markdown files are ignored
+
+### Requirement: Upstream preset features — out of scope
+
+Upstream's `gptel-make-preset` supports advanced features that this registration pipeline SHALL NOT use in the initial implementation. These are documented here for awareness:
+
+- **`:parents`** — preset inheritance chains (apply parent presets before this one)
+- **`:pre` / `:post`** — hook functions run before/after preset application
+- **Value modifiers** — `(:append LIST)`, `(:prepend LIST)`, `(:eval FORM)`, `(:function FUNC)`, `(:merge PLIST)` for dynamic value composition
+- **`:system` as symbol** — resolves against `gptel-directives` alist
+
+These features may be adopted in future iterations (e.g., using `:parents` for preset composition, or `:post` for scope initialization). For now, presets are registered with flat plists containing concrete values only.

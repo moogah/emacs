@@ -124,9 +124,11 @@ branches/main/
 
 **Why remove `preset.md` from sessions?** It served three purposes: (1) model/backend config — now in `gptel--preset` Local Variable + upstream restore, (2) system message — now in the registered preset, (3) scope config — now in `scope.yml`. With all three purposes addressed, the file is redundant.
 
-### 6. Delegate restore entirely to upstream
+### 6. Delegate restore to upstream for existing sessions
 
-On session resume (`find-file` on `session.md`):
+There are two distinct open paths:
+
+**Existing sessions (reopened, has Local Variables):** Upstream handles everything.
 
 1. `gptel-mode` activates (from Local Variables)
 2. `gptel--restore-state` runs (upstream, automatic):
@@ -139,7 +141,19 @@ On session resume (`find-file` on `session.md`):
    - Loads `scope.yml` for scope enforcement
    - Registers in session registry
 
-Steps 2 and 3 are independent — upstream handles model/tool config, we handle session identity and scope. Our `jf/gptel--load-preset-from-file` and `jf/gptel--apply-session-preset` are no longer called.
+Steps 2 and 3 are independent — upstream handles model/tool config, we handle session identity and scope.
+
+**New sessions (just created, no Local Variables yet):** We apply the preset directly.
+
+1. Our `find-file-hook` detects a session.md with no Local Variables
+2. Reads preset name from `metadata.yml`
+3. Applies preset via `gptel--apply-preset` with buffer-local setter
+4. Enables gptel-mode
+5. On first save, upstream writes `gptel--preset` to Local Variables
+
+This distinction matters because upstream's `gptel--restore-state` reads `gptel--preset` from Local Variables — which don't exist yet for newly created sessions. After the first save, subsequent reopens follow the existing session path.
+
+Our `jf/gptel--load-preset-from-file` and `jf/gptel--apply-session-preset` are no longer called in either path — replaced by `gptel--apply-preset` (new sessions) and `gptel--restore-state` (existing sessions).
 
 **What if the preset was deleted/renamed since the session was saved?** Upstream's `gptel--restore-state` warns but continues. The session opens with whatever Local Variable overrides were saved. This is acceptable degradation — the user can re-apply a preset from the transient menu.
 

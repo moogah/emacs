@@ -3,9 +3,13 @@
 ### Requirement: Configuration loading from scope document
 The scope system SHALL load scope configuration from `scope.yml` located in the session's branch directory.
 
+**Parser change:** `scope.yml` is plain YAML (no frontmatter delimiters). The parser SHALL read the entire file content and pass it to `yaml-parse-string` directly. This differs from the legacy `preset.md` parser which extracted YAML from between `---` delimiters before parsing. Both paths use `yaml-parse-string` with `:object-type 'plist`, but the input preparation differs.
+
 #### Scenario: Configuration loaded from scope.yml
 - **WHEN** a tool executes and needs scope validation
 - **THEN** the system reads `scope.yml` from the buffer's branch directory
+- **AND** parses the entire file as YAML (no frontmatter extraction needed)
+- **AND** returns a plist with `:paths`, `:org-roam-patterns`, `:shell-commands`
 
 #### Scenario: Missing scope.yml handled gracefully
 - **WHEN** no `scope.yml` exists in the branch directory
@@ -14,7 +18,8 @@ The scope system SHALL load scope configuration from `scope.yml` located in the 
 
 #### Scenario: Legacy preset.md fallback
 - **WHEN** `scope.yml` does not exist but `preset.md` does in the branch directory
-- **THEN** the system reads scope configuration from `preset.md` YAML frontmatter
+- **THEN** the system reads scope configuration from `preset.md` using frontmatter extraction (between `---` delimiters)
+- **AND** extracts only scope-relevant keys (`:paths`, `:org_roam_patterns`, `:shell_commands`)
 - **AND** logs a deprecation warning
 
 #### Scenario: Buffer context determines directory

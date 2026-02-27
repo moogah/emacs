@@ -112,33 +112,50 @@ Auto-initialization SHALL:
 2. Extract session-id and branch-name from path
 3. Look up session in registry (or create entry if missing)
 4. Set buffer-local variables: `jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`
-5. Enable gptel-mode (which triggers upstream's `gptel--restore-state`)
-6. Load scope configuration from `scope.yml`
-7. Set `jf/gptel-autosave-enabled` to t
+5. Determine session state: **new** (no Local Variables) vs **existing** (has Local Variables)
+6. Apply preset configuration (path depends on session state — see scenarios below)
+7. Load scope configuration from `scope.yml`
+8. Set `jf/gptel-autosave-enabled` to t
 
-Upstream's `gptel--restore-state` SHALL handle preset application and override restoration. The session open hook SHALL NOT call custom preset loading functions.
+The open hook handles two distinct sub-cases:
+- **Existing sessions** (reopened, has Local Variables with `gptel--preset`): Enable gptel-mode, which triggers upstream's `gptel--restore-state` to apply the preset and overlay saved overrides. The session hook SHALL NOT call custom preset loading functions.
+- **New sessions** (just created, no Local Variables yet): Apply the preset directly via `gptel--apply-preset` with a buffer-local setter (`(lambda (var val) (set (make-local-variable var) val))`), then enable gptel-mode. On first save, upstream writes `gptel--preset` to Local Variables.
 
-#### Scenario: Opening existing session via find-file
-- **WHEN** user opens `~/.gptel/sessions/my-session-20260205/branches/main/session.md`
+#### Scenario: Reopening existing session (has Local Variables)
+- **WHEN** opening a session.md that contains Local Variables footer with `gptel--preset: executor`
 - **THEN** the auto-initialization hook detects the session file
-- **AND** extracts session-id "my-session-20260205" and branch-name "main"
 - **AND** sets buffer-local session variables
 - **AND** enables gptel-mode (triggering `gptel--restore-state` which applies preset from Local Variables)
+- **AND** overlays any explicitly saved overrides (temperature, model changes, etc.)
 - **AND** loads scope configuration from `scope.yml`
 - **AND** enables auto-save
-
-#### Scenario: Opening session with Local Variables
-- **WHEN** opening an existing session.md that contains Local Variables footer with `gptel--preset: executor`
-- **THEN** upstream's `gptel--restore-state` applies the `executor` preset from `gptel--known-presets`
-- **AND** overlays any explicitly saved overrides (temperature, model changes, etc.)
 - **AND** the session hook does NOT call custom preset loading functions
+
+#### Scenario: Opening newly created session (no Local Variables)
+- **WHEN** opening a session.md that has no Local Variables footer (just created by session creation flow)
+- **AND** the session's metadata.yml contains a `preset` field
+- **THEN** the hook reads the preset name from metadata.yml
+- **AND** applies the preset via `gptel--apply-preset` with buffer-local setter
+- **AND** enables gptel-mode
+- **AND** loads scope configuration from `scope.yml`
+- **AND** on first save, upstream writes `gptel--preset` and `gptel--bounds` to Local Variables
 
 #### Scenario: Opening legacy session with preset.md
 - **WHEN** opening a session that has `preset.md` but no `gptel--preset` in Local Variables
 - **THEN** the system detects the legacy format
-- **AND** reads preset.md to determine the preset name
-- **AND** applies the preset and saves session.md to create Local Variables with `gptel--preset`
-- **AND** logs a warning suggesting session migration
+- **AND** reads preset.md YAML frontmatter to determine the preset name (matching against registered presets)
+- **AND** applies the preset via `gptel--apply-preset` with buffer-local setter
+- **AND** creates `scope.yml` from preset.md's scope sections (paths, org_roam_patterns, shell_commands)
+- **AND** enables gptel-mode
+- **AND** on next save, upstream writes `gptel--preset` to Local Variables (completing migration)
+- **AND** logs a warning indicating the legacy session was auto-migrated
+
+#### Scenario: Legacy session with unknown preset
+- **WHEN** opening a legacy session whose preset.md does not match any registered preset name
+- **THEN** the system logs a warning with the unmatched preset details
+- **AND** falls back to applying settings directly from preset.md (backend, model, tools, system message)
+- **AND** does NOT set `gptel--preset` (no matching registered preset)
+- **AND** the session operates without upstream preset differential save
 
 #### Scenario: Fast guard for non-session files
 - **WHEN** opening a file that is not a session.md
@@ -151,17 +168,17 @@ The system SHALL rely on upstream's differential save for persisting session sta
 
 On save, upstream's `gptel--save-state` SHALL:
 1. Write `gptel--preset` as a Local Variable
-2. For each setting (model, backend, tools, temperature, etc.), only write a Local Variable if the value differs from the preset
-3. NOT write system message to Local Variables (matches preset, so omitted)
+2. For each setting (model, backend, tools, temperature, etc.), only write a Local Variable if the value differs from the preset (using `gptel--preset-mismatch-value`)
+3. System message: only written if it differs from the preset's `:system` value
 
-The session system SHALL NOT apply advice to prevent system message saving. Upstream's `gptel--preset-mismatch-value` handles this automatically.
+The session system SHALL NOT apply advice to prevent system message saving. Upstream's `gptel--preset-mismatch-value` handles this automatically — if the system message matches the registered preset, it is omitted; if modified during the session, it is saved as an override. This aligns session behavior with upstream's intended save semantics.
 
 #### Scenario: Manual save via C-x C-s
 - **WHEN** user saves a session buffer with C-x C-s
 - **THEN** conversation history is written to session.md
 - **AND** `gptel--preset` is written as a Local Variable
 - **AND** only overridden settings are written as Local Variables
-- **AND** system message is NOT written (matches preset)
+- **AND** system message is NOT written if it matches the preset
 
 #### Scenario: Save after temperature change
 - **WHEN** user changes temperature from 0.5 (preset default) to 0.8
@@ -169,6 +186,12 @@ The session system SHALL NOT apply advice to prevent system message saving. Upst
 - **THEN** `gptel-temperature: 0.8` is written as a Local Variable
 - **AND** `gptel--preset: executor` is written as a Local Variable
 - **AND** backend, model, tools, system message are NOT written (match preset)
+
+#### Scenario: Save after system message modification
+- **WHEN** an agent or user modifies the system message during a session
+- **AND** the modified message differs from the preset's `:system` value
+- **THEN** the modified system message IS written as a Local Variable override
+- **AND** on next restore, the override takes precedence over the preset's system message
 
 #### Scenario: Save with no changes from preset
 - **WHEN** user saves a session without changing any settings from the preset
