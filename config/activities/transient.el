@@ -237,15 +237,10 @@ Reads preset names from `gptel--known-presets' (symbol-keyed alist)."
                  when key-char
                  for key-str = (key-description (list key-char))
                  for is-selected = (eq preset current-preset)
-                 for description = (plist-get (alist-get preset gptel--known-presets) :description)
-                 for display = (concat
-                                (if is-selected
-                                    (propertize (format "%s (selected)" preset-str)
-                                              'face 'transient-value)
-                                  preset-str)
-                                (when description
-                                  (propertize (format " - %s" description)
-                                             'face 'transient-inactive-value)))
+                 for display = (if is-selected
+                                   (propertize (format "%s (selected)" preset-str)
+                                             'face 'transient-value)
+                                 preset-str)
                  collect (list key-str
                              display
                              `(lambda ()
