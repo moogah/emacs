@@ -71,7 +71,6 @@ called by validators, even though conceptually it could be in a utilities sectio
 (require 'cl-lib)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
-(require 'jf-gptel-scope-shell-tools)  ; For bash helper functions
 #+end_src
 
 * Tool Categorization System

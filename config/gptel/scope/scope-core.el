@@ -5,7 +5,6 @@
 (require 'cl-lib)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
-(require 'jf-gptel-scope-shell-tools)  ; For bash helper functions
 ;; Dependencies:1 ends here
 
 ;; Tool Category Constant
