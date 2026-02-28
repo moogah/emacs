@@ -320,7 +320,7 @@ CONFIG is the scope configuration (used to determine tool category)."
                       ('path (expand-file-name (car args)))
                       ('pattern (format "%s:%s" tool-name (car args)))
                       ('command (car args))
-                      ('bash (car args))  ; Just the command, not command:directory
+                      ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))  ; Composite: command:directory
                       (_ nil))))
       (when resource
         (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
@@ -574,7 +574,7 @@ Returns plist with:
 
 ;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:2]]
 (:allowed nil
- :reason "command_not_allowed"
+ :reason "command-not-allowed"
  :tool "run_bash_command"
  :resource "tree"
  :command "tree"
@@ -587,7 +587,7 @@ Returns plist with:
 
 ;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:3]]
 (:allowed nil
- :reason "denied"
+ :reason "denied-command"
  :tool "run_bash_command"
  :resource "rm -rf /tmp/file"
  :command "rm -rf /tmp/file"
@@ -600,7 +600,7 @@ Returns plist with:
 
 ;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:4]]
 (:allowed nil
- :reason "directory_not_in_scope"
+ :reason "directory-not-in-scope"
  :tool "run_bash_command"
  :resource "/Users/jefffarr/other-project"
  :command "ls -la"
@@ -616,7 +616,7 @@ Returns plist with:
 
 ;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:5]]
 (:allowed nil
- :reason "dangerous_command"
+ :reason "dangerous-command"
  :tool "run_bash_command"
  :resource "dangerous-cmd"
  :command "dangerous-cmd"
@@ -629,7 +629,7 @@ Returns plist with:
 
 ;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:6]]
 (:allowed nil
- :reason "command_not_allowed"
+ :reason "command-not-allowed"
  :tool "run_bash_command"
  :resource "ls"
  :command "ls"

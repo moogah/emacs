@@ -166,8 +166,6 @@ Functions called by the transient menu choices.
        (jf/gptel-scope--add-path-to-scope scope-file resource tool))
       ('pattern
        (jf/gptel-scope--add-pattern-to-scope scope-file resource tool))
-      ('command
-       (jf/gptel-scope--add-command-to-scope scope-file resource))
       ('bash
        (jf/gptel-scope--add-bash-to-scope scope-file resource tool))
       (_
@@ -277,7 +275,7 @@ TOOL is the tool name (used to determine read vs write)."
         ;; Write updated content (plain YAML, no delimiters)
         (with-temp-buffer
           (jf/gptel-scope--write-yaml-plist normalized)
-          (write-region (point-min) (point-max) scope-file nil 'silent)))))))
+          (write-region (point-min) (point-max) scope-file nil 'silent))))))
 #+end_src
 
 ** Add Pattern to Scope
@@ -317,40 +315,6 @@ TOOL is the org-roam tool name."
     (with-temp-buffer
       (jf/gptel-scope--write-yaml-plist normalized)
       (write-region (point-min) (point-max) scope-file nil 'silent))))
-#+end_src
-
-** Add Command to Scope
-
-#+begin_src emacs-lisp
-(defun jf/gptel-scope--add-command-to-scope (scope-file command)
-  "Add COMMAND to shell_commands.allow section in SCOPE-FILE."
-  (jf/gptel-scope--validate-scope-file-writable scope-file)
-  (let* ((content (with-temp-buffer
-                    (insert-file-contents scope-file)
-                    (buffer-string)))
-         (cmd-name (car (split-string command)))
-         ;; Parse entire file as YAML (no frontmatter delimiters)
-         (parsed (condition-case err
-                     (yaml-parse-string content
-                                        :object-type 'plist
-                                        :sequence-type 'list)
-                   (error
-                    (user-error "Failed to parse scope.yml (%s): %s"
-                                scope-file (error-message-string err)))))
-         (normalized (jf/gptel-scope--normalize-plist-keys parsed))
-         (shell-cmds (or (plist-get normalized :shell-commands) (list)))
-         (allow-list (or (plist-get shell-cmds :allow) '())))
-
-    ;; Add command to allow list if not present
-    (unless (member cmd-name allow-list)
-      (setq allow-list (append allow-list (list cmd-name)))
-      (setq shell-cmds (plist-put shell-cmds :allow allow-list))
-      (setq normalized (plist-put normalized :shell-commands shell-cmds))
-
-      ;; Write updated content (plain YAML, no delimiters)
-      (with-temp-buffer
-        (jf/gptel-scope--write-yaml-plist normalized)
-        (write-region (point-min) (point-max) scope-file nil 'silent)))))
 #+end_src
 
 ** Add Bash Command to Scope
@@ -412,19 +376,10 @@ TOOL is the tool name (used to determine read vs write operation)."
       (jf/gptel-scope--add-path-to-scope scope-file resource tool)
 
     ;; Command pattern - add to bash_tools
-    (let* ((content (with-temp-buffer
-                      (insert-file-contents scope-file)
-                      (buffer-string)))
-           ;; Extract base command name
+    (let* (;; Extract base command name
            (cmd-name (car (split-string resource "[ |><;&]" t)))
-           ;; Parse entire file as YAML (no frontmatter delimiters)
-           (parsed (condition-case err
-                       (yaml-parse-string content
-                                          :object-type 'plist
-                                          :sequence-type 'list)
-                     (error
-                      (user-error "Failed to parse scope.yml (%s): %s"
-                                  scope-file (error-message-string err)))))
+           ;; Parse YAML file
+           (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
            ;; Normalize YAML keys from snake_case to kebab-case
            (normalized (jf/gptel-scope--normalize-plist-keys parsed))
            (bash-tools (or (plist-get normalized :bash-tools) (list)))
