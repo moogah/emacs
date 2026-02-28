@@ -291,7 +291,7 @@ Round-trip property: Writing and reading YAML preserves key names."
 (defun jf/gptel-scope--write-yaml-nested-list (key-name value)
   "Write KEY-NAME with nested list VALUE to current buffer.
 VALUE is a plist where each key maps to a list of strings.
-Used for paths, org_roam_patterns, and shell_commands sections."
+Used for paths and org_roam_patterns sections."
   (insert (format "%s:\n" key-name))
   (cl-loop for (subkey subvalue) on value by #'cddr
            do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
@@ -381,8 +381,8 @@ Converts kebab-case keys to snake_case for YAML output."
   (cl-loop for (key value) on plist by #'cddr
            do (let ((key-name (jf/gptel-scope--kebab-to-snake key)))
                 (cond
-                 ;; Nested list structures (paths, org-roam-patterns, shell-commands)
-                 ((memq key '(:paths :org-roam-patterns :shell-commands))
+                 ;; Nested list structures (paths, org-roam-patterns)
+                 ((memq key '(:paths :org-roam-patterns))
                   (jf/gptel-scope--write-yaml-nested-list key-name value))
 
                  ;; Bash tools (triple-nested with categories)

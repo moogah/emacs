@@ -69,7 +69,6 @@ Each tool maps to a plist with:
 Validation strategies:
   path    - Validate against paths.read/write/deny lists
   pattern - Validate against org_roam_patterns
-  command - Validate against shell_commands.allow/deny lists
   bash    - Validate against bash_tools.categories and paths
   meta    - Always allowed (no validation)
 
@@ -196,7 +195,6 @@ Returns plist with:
   :paths-write - List of allowed write paths
   :paths-deny - List of denied paths
   :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
-  :shell-commands - Plist with :allow and :deny lists
   :bash-tools - Plist with :categories and :deny lists
                 (YAML uses snake_case: bash_tools, read_only
                  Elisp uses kebab-case: :bash-tools, :read-only)
@@ -267,7 +265,7 @@ Example: :bash_tools -> :bash-tools, :read_only -> :read-only"
 (defun jf/gptel-scope--parse-scope-yml (scope-file)
   "Parse scope configuration from SCOPE-FILE (plain YAML, no frontmatter).
 Returns plist with :paths-read, :paths-write, :paths-deny,
-:org-roam-patterns, :shell-commands, and :bash-tools.
+:org-roam-patterns, and :bash-tools.
 
 Automatically normalizes all keys: underscored keys (bash_tools) are
 converted to hyphenated keys (bash-tools) for consistency."
@@ -279,13 +277,11 @@ converted to hyphenated keys (bash-tools) for consistency."
            (normalized (jf/gptel-scope--normalize-plist-keys parsed))
            (paths (plist-get normalized :paths))
            (org-roam (plist-get normalized :org-roam-patterns))
-           (shell (plist-get normalized :shell-commands))
            (bash-tools (plist-get normalized :bash-tools)))
       (list :paths-read (plist-get paths :read)
             :paths-write (plist-get paths :write)
             :paths-deny (plist-get paths :deny)
             :org-roam-patterns org-roam
-            :shell-commands shell
             :bash-tools bash-tools))))
 ;; Parse Scope YAML:1 ends here
 
@@ -506,55 +502,6 @@ Returns plist with:
              :resource tool-name
              :tool tool-name)))))
 ;; Pattern-Based Validator:1 ends here
-
-;; Command-Based Validator
-
-;; Validates shell commands against allowlist and denylist.
-
-
-;; [[file:scope-core.org::*Command-Based Validator][Command-Based Validator:1]]
-(defun jf/gptel-scope--validate-command-tool (tool-name args config)
-  "Validate shell command against shell_commands allowlist/denylist.
-TOOL-NAME is the tool being validated.
-ARGS is the tool arguments list (first arg should be command string).
-CONFIG is the scope configuration plist.
-
-Returns plist with:
-  :allowed t/nil
-  :reason STRING (if denied)
-  :resource STRING (the command, if denied)
-  :tool STRING (tool name, if denied)
-  :allowed-patterns LIST (allowlist, if denied for not matching)."
-  (cl-block jf/gptel-scope--validate-command-tool
-    (let* ((command-full (car args))
-           (command-name (car (split-string command-full)))
-           (shell-config (plist-get config :shell-commands))
-           (allowed (plist-get shell-config :allow))
-           (denied (plist-get shell-config :deny)))
-
-      ;; Check deny patterns (substring matching)
-      (when denied
-        (dolist (deny-pattern denied)
-          (when (string-match-p (regexp-quote deny-pattern) command-full)
-            (cl-return-from jf/gptel-scope--validate-command-tool
-              (list :allowed nil
-                    :reason "denied-command"
-                    :resource command-full
-                    :tool tool-name)))))
-
-      ;; Check allowlist (exact command name match or wildcard)
-      (unless (or (member command-name allowed)
-                  (member "*" allowed))
-        (cl-return-from jf/gptel-scope--validate-command-tool
-          (list :allowed nil
-                :reason "not-in-allowlist"
-                :resource command-full
-                :tool tool-name
-                :allowed-patterns allowed)))
-
-      ;; Passed
-      (list :allowed t))))
-;; Command-Based Validator:1 ends here
 
 ;; Validator Return Values
 
@@ -849,7 +796,6 @@ Returns plist with:
     (pcase validation-type
       ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
       ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
-      ('command (jf/gptel-scope--validate-command-tool tool-name args config))
       ('bash (jf/gptel-scope--validate-bash-tool tool-name args config))
       (_
        ;; Unknown tool - deny by default
