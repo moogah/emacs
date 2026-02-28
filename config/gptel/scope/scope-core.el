@@ -320,7 +320,7 @@ CONFIG is the scope configuration (used to determine tool category)."
                       ('path (expand-file-name (car args)))
                       ('pattern (format "%s:%s" tool-name (car args)))
                       ('command (car args))
-                      ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
+                      ('bash (car args))  ; Just the command, not command:directory
                       (_ nil))))
       (when resource
         (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
@@ -607,7 +607,7 @@ Returns plist with:
  :directory "/Users/jefffarr/other-project"
  :required-scope "read"
  :allowed-patterns ("/Users/jefffarr/emacs/**" "/Users/jefffarr/projects/**")
- :message "Directory '/Users/jefffarr/other-project' is not in scope for read operations. Command 'ls' requires read access.")
+ :message "Directory '/Users/jefffarr/other-project' is not in scope for read operations. Command 'ls' requires read access. Use request_scope_expansion to request access.")
 ;; Validator Return Values:4 ends here
 
 
@@ -790,7 +790,7 @@ Returns plist with:
                          :directory real-directory
                          :required-scope required-scope
                          :allowed-patterns (append read-paths write-paths)
-                         :message (format "Directory '%s' is not in scope for read operations. Command '%s' requires read access."
+                         :message (format "Directory '%s' is not in scope for read operations. Command '%s' requires read access. Use request_scope_expansion to request access."
                                         real-directory base-command)))))
 
               ('safe-write
@@ -805,7 +805,7 @@ Returns plist with:
                          :directory real-directory
                          :required-scope required-scope
                          :allowed-patterns write-paths
-                         :message (format "Directory '%s' is not in scope for write operations. Command '%s' requires write access."
+                         :message (format "Directory '%s' is not in scope for write operations. Command '%s' requires write access. Use request_scope_expansion to request access."
                                         real-directory base-command))))))
 
             ;; Passed all checks
@@ -910,15 +910,25 @@ Expands relative paths to absolute, resolves symlinks."
   "Format tool permission error for LLM.
 TOOL-NAME: Name of the tool that was denied
 RESOURCE: The resource that was denied (path, node-id, command, etc.)
-CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny-patterns"
-  (let ((patterns (plist-get check-result :patterns))
+CHECK-RESULT: Plist from validator with :allowed, :patterns/:allowed-patterns, :deny-patterns, :reason/:error"
+  (let ((patterns (or (plist-get check-result :allowed-patterns)  ; Bash validator uses :allowed-patterns
+                      (plist-get check-result :patterns)))        ; Other validators use :patterns
         (deny-patterns (plist-get check-result :deny-patterns))
-        (error-type (or (plist-get check-result :error) "scope-violation"))
-        (custom-message (plist-get check-result :message)))
+        (error-type (or (plist-get check-result :reason)          ; Bash validator uses :reason
+                        (plist-get check-result :error)           ; Other validators use :error
+                        "scope-violation"))
+        (custom-message (plist-get check-result :message))
+        ;; Extract bash-specific fields (will be nil for non-bash tools)
+        (command (plist-get check-result :command))
+        (directory (plist-get check-result :directory))
+        (required-scope (plist-get check-result :required-scope)))
     (list :success nil
           :error error-type
           :tool tool-name
           :resource resource
+          :command command                    ; Pass through bash command field
+          :directory directory                ; Pass through bash directory field
+          :required-scope required-scope      ; Pass through required scope level
           :allowed-patterns patterns
           :deny-patterns deny-patterns
           :message (or custom-message

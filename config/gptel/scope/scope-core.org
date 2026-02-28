@@ -17,19 +17,26 @@ The scope system uses YAML plan documents stored alongside context files:
 - Default policy: Deny by default, explicit tool configuration required
 - Convention: Filesystem is source of truth, no in-memory tracking needed
 
-Example v2.0 structure:
+Example scope.yml structure:
 #+begin_example yaml
-version: "2.0"
-tools:
-  write_file_in_scope:
-    allowed: true
-    patterns: ["/project/**"]
-    deny_patterns: ["**/.git/**"]
+paths:
+  read: ["/**"]
+  write: ["/project/**"]
+  deny: ["**/.git/**", "**/.env"]
 
-  read_file:
-    allowed: true
-    patterns: ["/**"]
-    deny_patterns: ["**/.env"]
+org_roam_patterns:
+  subdirectory: ["gptel/**"]
+  tags: ["gptel"]
+
+bash_tools:
+  categories:
+    read_only:
+      commands: [ls, find, grep, cat, pwd]
+    safe_write:
+      commands: [mkdir, touch, echo]
+    dangerous:
+      commands: []
+  deny: [rm, sudo, mv, chmod]
 #+end_example
 
 ** Key Design Principles
@@ -39,6 +46,24 @@ tools:
 3. *Structured errors returned to LLM*: Tools return descriptive errors, not exceptions
 4. *LLM mediates user communication*: No automatic prompts, LLM uses request_scope_expansion
 5. *Read operations scope-controlled*: But templates grant permissive =/**= patterns by default
+
+** Module Organization
+
+This module is organized into the following sections:
+
+1. *Dependencies* - Required modules
+2. *Tool Categorization System* - Maps tools to validation strategies
+3. *Tool Wrapper Macro* - Public API for creating scoped tools
+4. *Scope Configuration Location Convention* - Filesystem conventions
+5. *Configuration Loading Functions* - Load and parse scope.yml
+6. *Allow-Once Mechanism* - Temporary permissions for single use
+7. *Validation System* - Validators for each tool category
+8. *Glob Pattern Matching* - Utility functions for path matching
+9. *Error Formatting* - Standardized error responses
+
+*Note:* Sections are ordered by dependency relationships rather than conceptual grouping.
+For example, glob pattern matching appears after validation system because it's
+called by validators, even though conceptually it could be in a utilities section.
 
 * Dependencies
 
@@ -552,7 +577,7 @@ CONFIG is the scope configuration (used to determine tool category)."
                       ('path (expand-file-name (car args)))
                       ('pattern (format "%s:%s" tool-name (car args)))
                       ('command (car args))
-                      ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
+                      ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))  ; Composite: command:directory
                       (_ nil))))
       (when resource
         (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
@@ -847,7 +872,7 @@ The bash validator returns structured error information to help the LLM understa
     :directory "/Users/jefffarr/other-project"
     :required-scope "read"
     :allowed-patterns ("/Users/jefffarr/emacs/**" "/Users/jefffarr/projects/**")
-    :message "Directory '/Users/jefffarr/other-project' is not in scope for read operations. Command 'ls' requires read access.")
+    :message "Directory '/Users/jefffarr/other-project' is not in scope for read operations. Command 'ls' requires read access. Use request_scope_expansion to request access.")
    #+end_src
 
 4. *Dangerous command* (requires explicit approval):
@@ -1038,7 +1063,7 @@ Returns plist with:
                          :directory real-directory
                          :required-scope required-scope
                          :allowed-patterns (append read-paths write-paths)
-                         :message (format "Directory '%s' is not in scope for read operations. Command '%s' requires read access."
+                         :message (format "Directory '%s' is not in scope for read operations. Command '%s' requires read access. Use request_scope_expansion to request access."
                                         real-directory base-command)))))
 
               ('safe-write
@@ -1053,7 +1078,7 @@ Returns plist with:
                          :directory real-directory
                          :required-scope required-scope
                          :allowed-patterns write-paths
-                         :message (format "Directory '%s' is not in scope for write operations. Command '%s' requires write access."
+                         :message (format "Directory '%s' is not in scope for write operations. Command '%s' requires write access. Use request_scope_expansion to request access."
                                         real-directory base-command))))))
 
             ;; Passed all checks
@@ -1161,15 +1186,25 @@ Create standardized error response for tool-level permission violations.
   "Format tool permission error for LLM.
 TOOL-NAME: Name of the tool that was denied
 RESOURCE: The resource that was denied (path, node-id, command, etc.)
-CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny-patterns"
-  (let ((patterns (plist-get check-result :patterns))
+CHECK-RESULT: Plist from validator with :allowed, :patterns/:allowed-patterns, :deny-patterns, :reason/:error"
+  (let ((patterns (or (plist-get check-result :allowed-patterns)  ; Bash validator uses :allowed-patterns
+                      (plist-get check-result :patterns)))        ; Other validators use :patterns
         (deny-patterns (plist-get check-result :deny-patterns))
-        (error-type (or (plist-get check-result :error) "scope-violation"))
-        (custom-message (plist-get check-result :message)))
+        (error-type (or (plist-get check-result :reason)          ; Bash validator uses :reason
+                        (plist-get check-result :error)           ; Other validators use :error
+                        "scope-violation"))
+        (custom-message (plist-get check-result :message))
+        ;; Extract bash-specific fields (will be nil for non-bash tools)
+        (command (plist-get check-result :command))
+        (directory (plist-get check-result :directory))
+        (required-scope (plist-get check-result :required-scope)))
     (list :success nil
           :error error-type
           :tool tool-name
           :resource resource
+          :command command                    ; Pass through bash command field
+          :directory directory                ; Pass through bash directory field
+          :required-scope required-scope      ; Pass through required scope level
           :allowed-patterns patterns
           :deny-patterns deny-patterns
           :message (or custom-message

@@ -481,118 +481,148 @@ Round-trip property: Writing and reading YAML preserves key names."
   (replace-regexp-in-string "-" "_" (substring (symbol-name key) 1)))
 #+end_src
 
-** YAML Writer
+** YAML Writer Helpers
 
-Helper function to serialize plist to YAML format.
+Helper functions to serialize specific YAML structure types.
+
+*** Write Simple Nested List
+
+Write a two-level nested structure (key → subkeys → lists).
+Used for paths, org_roam_patterns, and shell_commands.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--write-yaml-nested-list (key-name value)
+  "Write KEY-NAME with nested list VALUE to current buffer.
+VALUE is a plist where each key maps to a list of strings.
+Used for paths, org_roam_patterns, and shell_commands sections."
+  (insert (format "%s:\n" key-name))
+  (cl-loop for (subkey subvalue) on value by #'cddr
+           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
+                (insert (format "  %s:\n" subkey-name))
+                (if subvalue
+                    (dolist (item subvalue)
+                      (insert (format "    - \"%s\"\n" item)))
+                  (insert "    []\n")))))
+#+end_src
+
+*** Write Bash Tools Structure
+
+Write the bash_tools section with triple-nested categories structure.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--write-yaml-bash-tools (key-name value)
+  "Write bash_tools section with KEY-NAME and VALUE to current buffer.
+VALUE is a plist with :categories (triple-nested) and :deny (list)."
+  (insert (format "%s:\n" key-name))
+  (cl-loop for (subkey subvalue) on value by #'cddr
+           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
+                (cond
+                 ;; Handle categories (triple-nested: categories → read_only/safe_write/dangerous → commands → list)
+                 ((eq subkey :categories)
+                  (insert (format "  %s:\n" subkey-name))
+                  (cl-loop for (cat-key cat-value) on subvalue by #'cddr
+                           do (let ((cat-name (jf/gptel-scope--kebab-to-snake cat-key)))
+                                (insert (format "    %s:\n" cat-name))
+                                (cl-loop for (prop-key prop-value) on cat-value by #'cddr
+                                         do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
+                                              (insert (format "      %s:\n" prop-name))
+                                              (if prop-value
+                                                  (dolist (cmd prop-value)
+                                                    (insert (format "        - \"%s\"\n" cmd)))
+                                                (insert "        []\n")))))))
+                 ;; Handle deny (simple list under bash_tools)
+                 ((eq subkey :deny)
+                  (insert (format "  %s:\n" subkey-name))
+                  (if subvalue
+                      (dolist (item subvalue)
+                        (insert (format "    - \"%s\"\n" item)))
+                    (insert "    []\n")))))))
+#+end_src
+
+*** Write Tools Structure
+
+Write the tools section which can be either a list or nested map.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--write-yaml-tools (key-name value)
+  "Write tools section with KEY-NAME and VALUE to current buffer.
+VALUE can be either a list of strings or a plist of tool configurations."
+  (insert (format "%s:\n" key-name))
+  (cond
+   ;; List of tool names
+   ((and (listp value) (stringp (car value)))
+    (dolist (item value)
+      (insert (format "  - %s\n" item))))
+   ;; Nested map (tool-name: {allowed: true})
+   ((and (listp value) (keywordp (car value)))
+    (cl-loop for (tool-key tool-props) on value by #'cddr
+             do (let ((tool-name (jf/gptel-scope--kebab-to-snake tool-key)))
+                  (insert (format "  %s:\n" tool-name))
+                  (when (listp tool-props)
+                    (cl-loop for (prop-key prop-val) on tool-props by #'cddr
+                             do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
+                                  (insert (format "    %s: %s\n" prop-name prop-val))))))))))
+#+end_src
+
+*** Write Simple Value
+
+Write a simple (non-nested) YAML value.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--write-yaml-simple-value (key-name value)
+  "Write simple (non-nested) VALUE with KEY-NAME to current buffer.
+Handles strings, numbers, symbols, and lists of strings."
+  (cond
+   ;; String value
+   ((stringp value)
+    (insert (format "%s: \"%s\"\n" key-name value)))
+
+   ;; Number value
+   ((numberp value)
+    (insert (format "%s: %s\n" key-name value)))
+
+   ;; Symbol value
+   ((symbolp value)
+    (insert (format "%s: %s\n" key-name value)))
+
+   ;; List of strings
+   ((and (listp value) (stringp (car value)))
+    (insert (format "%s:\n" key-name))
+    (dolist (item value)
+      (insert (format "  - %s\n" item))))
+
+   ;; Unknown type
+   (t
+    (error "Unknown simple value type for key '%s': %S" key-name value))))
+#+end_src
+
+** YAML Writer Main Function
+
+Main function to serialize plist to YAML format, delegating to structure-specific helpers.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--write-yaml-plist (plist)
   "Write PLIST as YAML to current buffer.
-Handles nested structures for paths, org_roam_patterns, shell_commands, and bash_tools.
+Delegates to helper functions for different structure types.
 Converts kebab-case keys to snake_case for YAML output."
   (cl-loop for (key value) on plist by #'cddr
            do (let ((key-name (jf/gptel-scope--kebab-to-snake key)))
                 (cond
-                 ;; Handle paths (nested structure)
-                 ((eq key :paths)
-                  (insert (format "%s:\n" key-name))
-                  (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
-                                (insert (format "  %s:\n" subkey-name))
-                                (if subvalue
-                                    (dolist (item subvalue)
-                                      (insert (format "    - \"%s\"\n" item)))
-                                  (insert "    []\n")))))
+                 ;; Nested list structures (paths, org-roam-patterns, shell-commands)
+                 ((memq key '(:paths :org-roam-patterns :shell-commands))
+                  (jf/gptel-scope--write-yaml-nested-list key-name value))
 
-                 ;; Handle org_roam_patterns (nested structure)
-                 ((eq key :org-roam-patterns)
-                  (insert (format "%s:\n" key-name))
-                  (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
-                                (insert (format "  %s:\n" subkey-name))
-                                (if subvalue
-                                    (dolist (item subvalue)
-                                      (insert (format "    - \"%s\"\n" item)))
-                                  (insert "    []\n")))))
-
-                 ;; Handle shell_commands (nested structure)
-                 ((eq key :shell-commands)
-                  (insert (format "%s:\n" key-name))
-                  (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
-                                (insert (format "  %s:\n" subkey-name))
-                                (if subvalue
-                                    (dolist (item subvalue)
-                                      (insert (format "    - \"%s\"\n" item)))
-                                  (insert "    []\n")))))
-
-                 ;; Handle bash_tools (nested structure with categories)
+                 ;; Bash tools (triple-nested with categories)
                  ((eq key :bash-tools)
-                  (insert (format "%s:\n" key-name))
-                  (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
-                                (cond
-                                 ;; Handle categories (triple-nested)
-                                 ((eq subkey :categories)
-                                  (insert (format "  %s:\n" subkey-name))
-                                  (cl-loop for (cat-key cat-value) on subvalue by #'cddr
-                                           do (let ((cat-name (jf/gptel-scope--kebab-to-snake cat-key)))
-                                                (insert (format "    %s:\n" cat-name))
-                                                (cl-loop for (prop-key prop-value) on cat-value by #'cddr
-                                                         do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
-                                                              (insert (format "      %s:\n" prop-name))
-                                                              (if prop-value
-                                                                  (dolist (cmd prop-value)
-                                                                    (insert (format "        - \"%s\"\n" cmd)))
-                                                                (insert "        []\n")))))))
-                                 ;; Handle deny (simple list)
-                                 ((eq subkey :deny)
-                                  (insert (format "  %s:\n" subkey-name))
-                                  (if subvalue
-                                      (dolist (item subvalue)
-                                        (insert (format "    - \"%s\"\n" item)))
-                                    (insert "    []\n")))))))
+                  (jf/gptel-scope--write-yaml-bash-tools key-name value))
 
-                 ;; Handle tools (can be list or nested map)
+                 ;; Tools (list or nested map)
                  ((eq key :tools)
-                  (insert (format "%s:\n" key-name))
-                  (cond
-                   ;; List of strings
-                   ((and (listp value) (stringp (car value)))
-                    (dolist (item value)
-                      (insert (format "  - %s\n" item))))
-                   ;; Nested map (tool-name: {allowed: true})
-                   ((and (listp value) (keywordp (car value)))
-                    (cl-loop for (tool-key tool-props) on value by #'cddr
-                             do (let ((tool-name (jf/gptel-scope--kebab-to-snake tool-key)))
-                                  (insert (format "  %s:\n" tool-name))
-                                  (when (listp tool-props)
-                                    (cl-loop for (prop-key prop-val) on tool-props by #'cddr
-                                             do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
-                                                  (insert (format "    %s: %s\n" prop-name prop-val))))))))))
+                  (jf/gptel-scope--write-yaml-tools key-name value))
 
-                 ;; Simple string value
-                 ((stringp value)
-                  (insert (format "%s: \"%s\"\n" key-name value)))
-
-                 ;; Simple number value
-                 ((numberp value)
-                  (insert (format "%s: %s\n" key-name value)))
-
-                 ;; Simple symbol value
-                 ((symbolp value)
-                  (insert (format "%s: %s\n" key-name value)))
-
-                 ;; Simple list of strings
-                 ((and (listp value) (stringp (car value)))
-                  (insert (format "%s:\n" key-name))
-                  (dolist (item value)
-                    (insert (format "  - %s\n" item))))
-
-                 ;; Unknown structure - fail loudly
+                 ;; Simple values (strings, numbers, symbols, lists)
                  (t
-                  (error "Unknown YAML structure for key '%s': %S. Expected known nested structure or simple value"
-                         key-name value))))))
+                  (jf/gptel-scope--write-yaml-simple-value key-name value))))))
 #+end_src
 
 * Entry Point
