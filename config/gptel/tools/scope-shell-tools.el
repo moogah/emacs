@@ -244,7 +244,7 @@ Examples:
 
 Displays interactive menu with 3 options:
 1. Deny - Reject the expansion request
-2. Add to scope - Permanently add patterns to preset.md
+2. Add to scope - Permanently add patterns to scope.yml
 3. Allow once - Temporarily allow for current turn only
 
 The user will see:
