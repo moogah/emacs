@@ -22,6 +22,21 @@
 (require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope-prompt-expansion
 ;; Dependencies:1 ends here
 
+;; Constants
+
+;; Security and resource limits for bash command execution.
+
+
+;; [[file:scope-shell-tools.org::*Constants][Constants:1]]
+(defconst jf/gptel-bash--max-output-chars 10000
+  "Maximum characters in command output before truncation.
+Prevents context window overflow from large command output.")
+
+(defconst jf/gptel-bash--command-timeout 30
+  "Timeout in seconds for bash command execution.
+Prevents runaway processes from consuming resources indefinitely.")
+;; Constants:1 ends here
+
 ;; Implementation
 
 
@@ -70,14 +85,15 @@ Error types: timeout, execution-failed."
          (truncated nil)
          (warnings nil)
          (error-type nil)
-         (max-output-chars 10000))
+         (max-output-chars jf/gptel-bash--max-output-chars))
 
     (condition-case err
-        (with-timeout (30  ; 30-second timeout
+        (with-timeout (jf/gptel-bash--command-timeout
                        (progn
                          (setq error-type "timeout")
                          (setq exit-code 124)  ; GNU timeout exit code
-                         (setq output "Command execution timed out after 30 seconds. Output may be incomplete.")
+                         (setq output (format "Command execution timed out after %d seconds. Output may be incomplete."
+                                              jf/gptel-bash--command-timeout))
                          (setq warnings (list "Command timed out - use more specific filters to reduce execution time"))))
           (setq output
                 (with-temp-buffer
