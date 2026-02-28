@@ -280,27 +280,57 @@ Returns nil if scope.yml not found or can't be parsed."
      nil)))
 #+end_src
 
+** Key Normalization Helper
+
+Normalize YAML keys by converting underscores to hyphens.
+
+#+begin_src elisp
+(defun jf/gptel-scope--normalize-plist-keys (plist)
+  "Normalize all keys in PLIST by converting underscores to hyphens.
+Recursively processes nested plists.
+Example: :bash_tools -> :bash-tools, :read_only -> :read-only"
+  (when plist
+    (let ((result nil))
+      (while plist
+        (let* ((key (car plist))
+               (value (cadr plist))
+               (normalized-key (if (keywordp key)
+                                   (intern (concat ":" (replace-regexp-in-string
+                                                       "_" "-"
+                                                       (substring (symbol-name key) 1))))
+                                 key))
+               (normalized-value (if (and (listp value)
+                                         (keywordp (car value)))
+                                    (jf/gptel-scope--normalize-plist-keys value)
+                                  value)))
+          (setq result (append result (list normalized-key normalized-value)))
+          (setq plist (cddr plist))))
+      result)))
+#+end_src
+
 ** Parse Scope YAML
 
 Parse scope configuration from a plain YAML file (no frontmatter).
+Automatically normalizes all keys from underscore to hyphenated format.
 
 #+begin_src elisp
 (defun jf/gptel-scope--parse-scope-yml (scope-file)
   "Parse scope configuration from SCOPE-FILE (plain YAML, no frontmatter).
 Returns plist with :paths-read, :paths-write, :paths-deny,
-:org-roam-patterns, :shell-commands, and :bash-tools."
+:org-roam-patterns, :shell-commands, and :bash-tools.
+
+Automatically normalizes all keys: underscored keys (bash_tools) are
+converted to hyphenated keys (bash-tools) for consistency."
   (with-temp-buffer
     (insert-file-contents scope-file)
     (let* ((parsed (yaml-parse-string (buffer-string)
                                       :object-type 'plist
                                       :sequence-type 'list))
-           (paths (plist-get parsed :paths))
-           (org-roam (or (plist-get parsed :org-roam-patterns)
-                         (plist-get parsed :org_roam_patterns)))
-           (shell (or (plist-get parsed :shell-commands)
-                      (plist-get parsed :shell_commands)))
-           (bash-tools (or (plist-get parsed :bash-tools)
-                           (plist-get parsed :bash_tools))))
+           (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+           (paths (plist-get normalized :paths))
+           (org-roam (plist-get normalized :org-roam-patterns))
+           (shell (plist-get normalized :shell-commands))
+           (bash-tools (plist-get normalized :bash-tools)))
       (list :paths-read (plist-get paths :read)
             :paths-write (plist-get paths :write)
             :paths-deny (plist-get paths :deny)
