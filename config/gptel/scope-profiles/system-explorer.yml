@@ -1,0 +1,152 @@
+# System Explorer profile: Read-only system exploration
+# Use case: Environment audits, dependency discovery, system documentation
+# Security: No write access, comprehensive read-only bash commands
+
+paths:
+  read: ["/**"]  # Read access to entire filesystem (excluding deny list)
+  write: []  # No write access - exploration only
+  deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**", "**/.ssh/**", "**/.gnupg/**", "**/*_history", "**/credentials*", "**/*.key", "**/*.pem", "**/shadow", "**/sudoers"]
+
+org_roam_patterns:
+  subdirectory: []
+  tags: []
+  node_ids: []
+
+bash_tools:
+  categories:
+    # Read-only commands: comprehensive system exploration capabilities
+    # OS info, file exploration, command discovery, process/network inspection
+    read_only:
+      commands:
+        # Operating system information
+        - "uname"
+        - "sw_vers"
+        - "lsb_release"
+        # File system exploration
+        - "ls"
+        - "cat"
+        - "grep"
+        - "find"
+        - "file"
+        - "stat"
+        - "head"
+        - "tail"
+        - "wc"
+        # Command discovery
+        - "which"
+        - "whereis"
+        - "type"
+        # Process and network inspection
+        - "ps"
+        - "top"
+        - "ifconfig"
+        - "netstat"
+        # Version control (read-only)
+        - "git status"
+        - "git log"
+        - "git show"
+        - "git diff"
+        - "git branch"
+        - "git remote"
+        - "git ls-files"
+        # Shell environment
+        - "echo"
+        - "pwd"
+        - "printenv"
+        - "env"
+        # Language runtimes (version checking)
+        # Note: These can execute code, but are useful for system exploration
+        - "python"
+        - "python3"
+        - "node"
+        - "ruby"
+        - "perl"
+        - "php"
+        - "java"
+        - "javac"
+        - "rustc"
+        - "gcc"
+        - "clang"
+
+    # Safe write: none - this is a read-only exploration preset
+    safe_write:
+      commands: []
+
+    # Dangerous: none - exploration should never require these
+    dangerous:
+      commands: []
+
+  # Denied commands: destructive operations never allowed
+  deny:
+    - "rm"
+    - "rmdir"
+    - "mv"
+    - "cp"
+    - "chmod"
+    - "ln"
+    - "scp"
+    - "rsync"
+    - "chown"
+    - "sudo"
+    - "dd"
+    - "mkfs"
+    - "kill"
+    - "pkill"
+    # Archive tools (extraction can overwrite files)
+    - "tar"
+    - "zip"
+    - "unzip"
+    - "gzip"
+    - "gunzip"
+    - "bzip2"
+    - "bunzip2"
+    # Download tools (can write files)
+    - "curl"
+    - "wget"
+    # Task scheduling
+    - "crontab"
+    # Firewall commands
+    - "iptables"
+    - "ip6tables"
+    - "ufw"
+    - "firewall-cmd"
+    - "pfctl"
+    - "ipfw"
+    - "nft"
+    # System service commands
+    - "systemctl"
+    - "service"
+    - "launchctl"
+    - "sc"
+    - "systemd"
+    - "init"
+    - "shutdown"
+    - "reboot"
+    - "halt"
+    - "poweroff"
+    # User management
+    - "useradd"
+    - "userdel"
+    - "usermod"
+    - "passwd"
+    - "chpasswd"
+    - "adduser"
+    - "deluser"
+    - "groupadd"
+    - "groupdel"
+    - "groupmod"
+    # Package managers
+    - "brew"
+    - "apt"
+    - "apt-get"
+    - "yum"
+    - "dnf"
+    - "pip"
+    - "pip3"
+    - "npm"
+    - "yarn"
+    - "pnpm"
+    - "gem"
+    - "cargo"
+    - "composer"
+    - "go"

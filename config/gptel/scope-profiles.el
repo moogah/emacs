@@ -199,26 +199,42 @@ If SCOPE-PLIST is nil or empty, writes minimal YAML with empty sections."
   "Create scope.yml for a session in TARGET-DIR.
 PRESET-NAME is used to resolve the scope profile.
 PROJECT-ROOT is used for variable expansion.
-WORKTREE-PATHS, if provided, bypasses profile resolution and writes
-explicit paths directly (used by activities integration).
+WORKTREE-PATHS, if provided, overrides the paths from the profile but
+preserves other scope configuration (bash_tools, org_roam_patterns).
 
 Flow:
-  1. If WORKTREE-PATHS provided: write them directly as scope
-  2. Otherwise: resolve profile for PRESET-NAME
+  1. Resolve profile for PRESET-NAME (get bash_tools, org_roam_patterns, etc.)
+  2. If WORKTREE-PATHS provided: merge by overriding :paths section
   3. Expand variables with PROJECT-ROOT
   4. Write scope.yml to TARGET-DIR"
-  (let ((scope-plist
-         (cond
-          ;; Explicit worktree paths bypass profile resolution
-          (worktree-paths
-           (jf/gptel--log 'info "Using explicit worktree paths for session scope")
-           worktree-paths)
+  (let* ((resolved (jf/gptel-scope-profile--resolve preset-name))
+         (expanded (when resolved
+                     (jf/gptel-scope-profile--expand-variables resolved project-root)))
+         (scope-plist
+          (cond
+           ;; Merge worktree paths with preset's scope configuration
+           ((and worktree-paths expanded)
+            (jf/gptel--log 'info "Merging worktree paths with preset scope configuration")
+            ;; Override :paths from worktree-paths, preserve rest of scope config
+            (let ((merged (copy-sequence expanded)))
+              (when (plist-member worktree-paths :paths)
+                (setq merged (plist-put merged :paths (plist-get worktree-paths :paths))))
+              merged))
 
-          ;; Resolve from preset's scope configuration
-          (t
-           (let ((resolved (jf/gptel-scope-profile--resolve preset-name)))
-             (when resolved
-               (jf/gptel-scope-profile--expand-variables resolved project-root)))))))
+           ;; Only worktree paths (no preset scope config)
+           (worktree-paths
+            (jf/gptel--log 'info "Using explicit worktree paths (preset has no scope config)")
+            worktree-paths)
+
+           ;; Only preset scope config (no worktree paths)
+           (expanded
+            (jf/gptel--log 'info "Using preset scope configuration")
+            expanded)
+
+           ;; Neither available
+           (t
+            (jf/gptel--log 'warn "No scope configuration available for preset: %s" preset-name)
+            nil))))
     (jf/gptel-scope-profile--write-scope-yml target-dir scope-plist)))
 
 (provide 'gptel-scope-profiles)
