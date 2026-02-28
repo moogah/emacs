@@ -259,7 +259,7 @@ Returns:
 - patterns_added: list of patterns if permanently added"
  :args (list '(:name "tool_name"
                :type string
-               :description "Tool name (e.g., 'read_file', 'write_file_in_scope', 'run_approved_command')")
+               :description "Tool name (e.g., 'read_file', 'write_file_in_scope')")
              '(:name "patterns"
                :type array
                :items (:type string)

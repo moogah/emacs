@@ -52,7 +52,6 @@
     ("link_roam_nodes_in_scope" . (:validation pattern :operation write))
 
     ;; Command-based: shell operations
-    ("run_approved_command" . (:validation command :operation write))
 
     ;; Bash validation: scoped bash commands
     ("run_bash_command" . (:validation bash :operation write))

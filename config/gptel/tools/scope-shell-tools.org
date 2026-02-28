@@ -11,7 +11,7 @@ This module provides scope-aware shell execution and meta tools for v3.0 preset-
 
 ** Shell Command Scoping (v3.0)
 
-The =run_bash_command= tool uses preset.md bash_tools configuration with command categorization by operational impact:
+The =run_bash_command= tool uses scope.yml bash_tools configuration with command categorization by operational impact:
 
 *** Command Categories
 
@@ -85,7 +85,7 @@ The system supports standard shell composition features:
 
 The =request_scope_expansion= tool shows interactive transient menu with 3 choices:
 - *Deny* - Reject the expansion request
-- *Add to scope* - Permanently add patterns to preset.md
+- *Add to scope* - Permanently add patterns to scope.yml
 - *Allow once* - Temporarily allow for current turn only
 
 Uses async tool pattern with callback for FSM coordination.
@@ -457,7 +457,7 @@ LLM uses this tool to explicitly request user approval for expanding scope using
 
 Displays interactive menu with 3 options:
 1. Deny - Reject the expansion request
-2. Add to scope - Permanently add patterns to preset.md
+2. Add to scope - Permanently add patterns to scope.yml
 3. Allow once - Temporarily allow for current turn only
 
 The user will see:
@@ -472,7 +472,7 @@ Returns:
 - patterns_added: list of patterns if permanently added"
  :args (list '(:name "tool_name"
                :type string
-               :description "Tool name (e.g., 'read_file', 'write_file_in_scope', 'run_approved_command')")
+               :description "Tool name (e.g., 'read_file', 'write_file_in_scope')")
              '(:name "patterns"
                :type array
                :items (:type string)
@@ -512,8 +512,8 @@ Helper to infer validation type from tool name using tool categories.
 
 * Obsolete: inspect_scope_plan Tool (Removed in v3.0)
 
-In v3.0, preset.md is a readable markdown file with YAML frontmatter.
-LLM can use read_file("preset.md") to inspect scope configuration directly.
+In v3.0, scope.yml is a readable YAML file.
+LLM can use read_file("scope.yml") to inspect scope configuration directly.
 No dedicated inspection tool needed.
 
 * Provide Feature
