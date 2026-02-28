@@ -197,7 +197,8 @@ TOOL is the org-roam tool name."
                    (error
                     (user-error "Failed to parse scope.yml (%s): %s"
                                 scope-file (error-message-string err)))))
-         (org-roam (or (plist-get parsed :org_roam_patterns) (list))))
+         (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+         (org-roam (or (plist-get normalized :org-roam-patterns) (list))))
 
     ;; Parse pattern format and add to appropriate list
     (cond
@@ -217,11 +218,11 @@ TOOL is the org-roam tool name."
             (setq existing-tags (append existing-tags (list tag)))))
         (setq org-roam (plist-put org-roam :tags existing-tags)))))
 
-    (setq parsed (plist-put parsed :org_roam_patterns org-roam))
+    (setq normalized (plist-put normalized :org-roam-patterns org-roam))
 
     ;; Write updated content (plain YAML, no delimiters)
     (with-temp-buffer
-      (jf/gptel-scope--write-yaml-plist parsed)
+      (jf/gptel-scope--write-yaml-plist normalized)
       (write-region (point-min) (point-max) scope-file nil 'silent))))
 
 (defun jf/gptel-scope--add-command-to-scope (scope-file command)
@@ -240,18 +241,19 @@ TOOL is the org-roam tool name."
                    (error
                     (user-error "Failed to parse scope.yml (%s): %s"
                                 scope-file (error-message-string err)))))
-         (shell-cmds (or (plist-get parsed :shell_commands) (list)))
+         (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+         (shell-cmds (or (plist-get normalized :shell-commands) (list)))
          (allow-list (or (plist-get shell-cmds :allow) '())))
 
     ;; Add command to allow list if not present
     (unless (member cmd-name allow-list)
       (setq allow-list (append allow-list (list cmd-name)))
       (setq shell-cmds (plist-put shell-cmds :allow allow-list))
-      (setq parsed (plist-put parsed :shell_commands shell-cmds))
+      (setq normalized (plist-put normalized :shell-commands shell-cmds))
 
       ;; Write updated content (plain YAML, no delimiters)
       (with-temp-buffer
-        (jf/gptel-scope--write-yaml-plist parsed)
+        (jf/gptel-scope--write-yaml-plist normalized)
         (write-region (point-min) (point-max) scope-file nil 'silent)))))
 
 (defun jf/gptel-scope--add-bash-to-scope (scope-file resource tool)
@@ -282,16 +284,15 @@ TOOL is the tool name (used to determine read vs write operation)."
                      (error
                       (user-error "Failed to parse scope.yml (%s): %s"
                                   scope-file (error-message-string err)))))
-           ;; Accept both hyphenated and underscored keys from YAML (normalization)
-           (bash-tools (or (plist-get parsed :bash-tools)
-                           (plist-get parsed :bash_tools)
-                           (list)))
+           ;; Normalize YAML keys from snake_case to kebab-case
+           (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+           (bash-tools (or (plist-get normalized :bash-tools) (list)))
            (categories (or (plist-get bash-tools :categories) (list)))
 
            ;; Determine target category based on tool operation
            (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
            (operation (plist-get category :operation))
-           ;; Use hyphenated keys for category names (matches normalization)
+           ;; Use kebab-case internally (will be converted to snake_case on write)
            (target-category (if (eq operation 'read) :read-only :safe-write))
 
            ;; Get existing command list for target category
@@ -304,24 +305,30 @@ TOOL is the tool name (used to determine read vs write operation)."
         (setq category-config (plist-put category-config :commands command-list))
         (setq categories (plist-put categories target-category category-config))
         (setq bash-tools (plist-put bash-tools :categories categories))
-        (setq parsed (plist-put parsed :bash_tools bash-tools))
+        (setq normalized (plist-put normalized :bash-tools bash-tools))
 
         ;; Write updated content (plain YAML, no delimiters)
         (with-temp-buffer
-          (jf/gptel-scope--write-yaml-plist parsed)
+          (jf/gptel-scope--write-yaml-plist normalized)
           (write-region (point-min) (point-max) scope-file nil 'silent))))))
+
+(defun jf/gptel-scope--kebab-to-snake (key)
+  "Convert KEY from kebab-case to snake_case for YAML output.
+E.g., :org-roam-patterns becomes org_roam_patterns."
+  (replace-regexp-in-string "-" "_" (substring (symbol-name key) 1)))
 
 (defun jf/gptel-scope--write-yaml-plist (plist)
   "Write PLIST as YAML to current buffer.
-Handles nested structures for paths, org_roam_patterns, and shell_commands."
+Handles nested structures for paths, org_roam_patterns, shell_commands, and bash_tools.
+Converts kebab-case keys to snake_case for YAML output."
   (cl-loop for (key value) on plist by #'cddr
-           do (let ((key-name (substring (symbol-name key) 1)))
+           do (let ((key-name (jf/gptel-scope--kebab-to-snake key)))
                 (cond
                  ;; Handle paths (nested structure)
                  ((eq key :paths)
                   (insert (format "%s:\n" key-name))
                   (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
                                 (insert (format "  %s:\n" subkey-name))
                                 (if subvalue
                                     (dolist (item subvalue)
@@ -329,10 +336,10 @@ Handles nested structures for paths, org_roam_patterns, and shell_commands."
                                   (insert "    []\n")))))
 
                  ;; Handle org_roam_patterns (nested structure)
-                 ((eq key :org_roam_patterns)
+                 ((eq key :org-roam-patterns)
                   (insert (format "%s:\n" key-name))
                   (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
                                 (insert (format "  %s:\n" subkey-name))
                                 (if subvalue
                                     (dolist (item subvalue)
@@ -340,10 +347,10 @@ Handles nested structures for paths, org_roam_patterns, and shell_commands."
                                   (insert "    []\n")))))
 
                  ;; Handle shell_commands (nested structure)
-                 ((eq key :shell_commands)
+                 ((eq key :shell-commands)
                   (insert (format "%s:\n" key-name))
                   (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
                                 (insert (format "  %s:\n" subkey-name))
                                 (if subvalue
                                     (dolist (item subvalue)
@@ -351,19 +358,19 @@ Handles nested structures for paths, org_roam_patterns, and shell_commands."
                                   (insert "    []\n")))))
 
                  ;; Handle bash_tools (nested structure with categories)
-                 ((eq key :bash_tools)
+                 ((eq key :bash-tools)
                   (insert (format "%s:\n" key-name))
                   (cl-loop for (subkey subvalue) on value by #'cddr
-                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
                                 (cond
                                  ;; Handle categories (triple-nested)
                                  ((eq subkey :categories)
                                   (insert (format "  %s:\n" subkey-name))
                                   (cl-loop for (cat-key cat-value) on subvalue by #'cddr
-                                           do (let ((cat-name (substring (symbol-name cat-key) 1)))
+                                           do (let ((cat-name (jf/gptel-scope--kebab-to-snake cat-key)))
                                                 (insert (format "    %s:\n" cat-name))
                                                 (cl-loop for (prop-key prop-value) on cat-value by #'cddr
-                                                         do (let ((prop-name (substring (symbol-name prop-key) 1)))
+                                                         do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
                                                               (insert (format "      %s:\n" prop-name))
                                                               (if prop-value
                                                                   (dolist (cmd prop-value)
@@ -388,11 +395,11 @@ Handles nested structures for paths, org_roam_patterns, and shell_commands."
                    ;; Nested map (tool-name: {allowed: true})
                    ((and (listp value) (keywordp (car value)))
                     (cl-loop for (tool-key tool-props) on value by #'cddr
-                             do (let ((tool-name (substring (symbol-name tool-key) 1)))
+                             do (let ((tool-name (jf/gptel-scope--kebab-to-snake tool-key)))
                                   (insert (format "  %s:\n" tool-name))
                                   (when (listp tool-props)
                                     (cl-loop for (prop-key prop-val) on tool-props by #'cddr
-                                             do (let ((prop-name (substring (symbol-name prop-key) 1)))
+                                             do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
                                                   (insert (format "    %s: %s\n" prop-name prop-val))))))))))
 
                  ;; Simple string value
