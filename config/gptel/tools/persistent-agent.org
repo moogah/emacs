@@ -765,7 +765,7 @@ access to .git, runtime, node_modules, and .env paths."
 
  :args '(( :name "preset"
            :type string
-           :enum ["researcher" "executor" "explorer" "planner"]
+           :enum ["researcher" "executor" "explore" "planner"]
            :description "Preset name for specialized agent")
 
          ( :name "description"
