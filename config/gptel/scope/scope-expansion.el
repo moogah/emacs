@@ -282,13 +282,17 @@ TOOL is the tool name (used to determine read vs write operation)."
                      (error
                       (user-error "Failed to parse scope.yml (%s): %s"
                                   scope-file (error-message-string err)))))
-           (bash-tools (or (plist-get parsed :bash_tools) (list)))
+           ;; Accept both hyphenated and underscored keys from YAML (normalization)
+           (bash-tools (or (plist-get parsed :bash-tools)
+                           (plist-get parsed :bash_tools)
+                           (list)))
            (categories (or (plist-get bash-tools :categories) (list)))
 
            ;; Determine target category based on tool operation
            (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
            (operation (plist-get category :operation))
-           (target-category (if (eq operation 'read) :read_only :safe_write))
+           ;; Use hyphenated keys for category names (matches normalization)
+           (target-category (if (eq operation 'read) :read-only :safe-write))
 
            ;; Get existing command list for target category
            (category-config (or (plist-get categories target-category) (list)))
