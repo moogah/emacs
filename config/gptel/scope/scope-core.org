@@ -845,7 +845,7 @@ The bash validator returns structured error information to help the LLM understa
 1. *Command not allowed* (command not in any category):
    #+begin_src elisp
    (:allowed nil
-    :reason "command_not_allowed"
+    :reason "command-not-allowed"
     :tool "run_bash_command"
     :resource "tree"
     :command "tree"
@@ -855,7 +855,7 @@ The bash validator returns structured error information to help the LLM understa
 2. *Denied command* (in bash_tools.deny list):
    #+begin_src elisp
    (:allowed nil
-    :reason "denied"
+    :reason "denied-command"
     :tool "run_bash_command"
     :resource "rm -rf /tmp/file"
     :command "rm -rf /tmp/file"
@@ -865,7 +865,7 @@ The bash validator returns structured error information to help the LLM understa
 3. *Directory not in scope* (directory doesn't match paths.read or paths.write):
    #+begin_src elisp
    (:allowed nil
-    :reason "directory_not_in_scope"
+    :reason "directory-not-in-scope"
     :tool "run_bash_command"
     :resource "/Users/jefffarr/other-project"
     :command "ls -la"
@@ -878,7 +878,7 @@ The bash validator returns structured error information to help the LLM understa
 4. *Dangerous command* (requires explicit approval):
    #+begin_src elisp
    (:allowed nil
-    :reason "dangerous_command"
+    :reason "dangerous-command"
     :tool "run_bash_command"
     :resource "dangerous-cmd"
     :command "dangerous-cmd"
@@ -888,7 +888,7 @@ The bash validator returns structured error information to help the LLM understa
 5. *No bash_tools configuration*:
    #+begin_src elisp
    (:allowed nil
-    :reason "command_not_allowed"
+    :reason "command-not-allowed"
     :tool "run_bash_command"
     :resource "ls"
     :command "ls"

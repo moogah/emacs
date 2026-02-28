@@ -12,10 +12,6 @@ org_roam_patterns:
   tags: ["*"]
   node_ids: ["*"]
 
-shell_commands:
-  allow: ["ls", "find", "grep", "rg"]
-  deny: ["rm -rf", "sudo", "git push", "git reset"]
-
 bash_tools:
   categories:
     # Read-only commands: Explore without modification

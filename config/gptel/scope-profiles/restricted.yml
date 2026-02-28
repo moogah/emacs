@@ -5,6 +5,3 @@ org_roam_patterns:
   subdirectory: []
   tags: []
   node_ids: []
-shell_commands:
-  allow: []
-  deny: ["*"]

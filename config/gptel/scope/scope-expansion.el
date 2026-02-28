@@ -109,8 +109,6 @@ Returns parsed plist, or signals user-error if parsing fails."
        (jf/gptel-scope--add-path-to-scope scope-file resource tool))
       ('pattern
        (jf/gptel-scope--add-pattern-to-scope scope-file resource tool))
-      ('command
-       (jf/gptel-scope--add-command-to-scope scope-file resource))
       ('bash
        (jf/gptel-scope--add-bash-to-scope scope-file resource tool))
       (_
