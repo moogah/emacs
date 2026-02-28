@@ -53,8 +53,8 @@ Examples:
 Returns: 'denied, 'read_only, 'safe_write, 'dangerous, or 'unknown."
   (let* ((categories (plist-get config :categories))
          (deny-list (plist-get config :deny))
-         (read-only (plist-get (plist-get categories :read_only) :commands))
-         (safe-write (plist-get (plist-get categories :safe_write) :commands))
+         (read-only (plist-get (plist-get categories :read-only) :commands))
+         (safe-write (plist-get (plist-get categories :safe-write) :commands))
          (dangerous (plist-get (plist-get categories :dangerous) :commands)))
     (cond
      ((member command deny-list) 'denied)
