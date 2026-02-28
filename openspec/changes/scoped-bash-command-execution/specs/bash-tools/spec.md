@@ -203,15 +203,15 @@ The bash tools system SHALL return structured errors that guide the LLM to reque
 
 #### Scenario: Command not allowed error structure
 - **WHEN** a command is not in any allow list
-- **THEN** the system returns :allowed nil with :reason "command_not_allowed", tool, command, and message fields
+- **THEN** the system returns :allowed nil with :reason "command-not-allowed", tool, command, and message fields
 
 #### Scenario: Command denied error structure
 - **WHEN** a command is in deny list
-- **THEN** the system returns :allowed nil with :reason "denied", tool, command, and security warning
+- **THEN** the system returns :allowed nil with :reason "denied-command", tool, command, and security warning
 
 #### Scenario: Directory not in scope error structure
 - **WHEN** directory does not match category's path requirement
-- **THEN** the system returns :allowed nil with :reason "directory_not_in_scope", directory, required_scope, allowed_patterns, and message
+- **THEN** the system returns :allowed nil with :reason "directory-not-in-scope", directory, required_scope, allowed_patterns, and message
 
 #### Scenario: Error messages suggest expansion
 - **WHEN** any scope violation occurs
