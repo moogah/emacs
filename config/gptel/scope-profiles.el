@@ -186,7 +186,6 @@ If SCOPE-PLIST is nil or empty, writes minimal YAML with empty sections."
         (effective-plist (or scope-plist
                              (list :paths (list :read nil :write nil :deny nil)
                                    :org-roam-patterns (list :subdirectory nil :tags nil :node-ids nil)
-                                   :shell-commands (list :allow nil :deny nil)
                                    :bash-tools (list :categories (list :read-only (list :commands nil)
                                                                        :safe-write (list :commands nil)
                                                                        :dangerous (list :commands nil))
