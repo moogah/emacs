@@ -234,14 +234,13 @@ gptel--known-presets, with zero inheritance from the parent session."
 
           ;; Execute request from agent buffer
           ;; Buffer-local settings from gptel--apply-preset are sufficient
+          ;; (use-tools and include-tool-results set via preset)
           (let ((partial ""))
             (gptel-request nil
               :buffer agent-buffer
               :position (with-current-buffer agent-buffer (point-max))
               :context ov
               :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
-              :use-tools t
-              :include-tool-results t
 
               :callback
               (lambda (resp info &optional raw)

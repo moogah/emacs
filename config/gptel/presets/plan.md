@@ -3,6 +3,7 @@ description: Planning assistent for software projects
 backend: Claude
 model: claude-opus-4-6
 temperature: 1.0
+use-tools: true
 include-tool-results: true
 tools:
   - PersistentAgent

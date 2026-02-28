@@ -5,6 +5,7 @@ description: >
 backend: Claude
 model: claude-sonnet-4-6
 temperature: 0.6
+use-tools: true
 include-tool-results: true
 tools:
   - WebSearch

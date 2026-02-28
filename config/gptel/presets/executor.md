@@ -3,6 +3,8 @@ description: >
   Autonomous executor for well-defined, multi-step tasks.
   Can read, write, and modify files. Use when you know what needs to be done
   but want to keep the main context clean.
+use-tools: true
+include-tool-results: true
 tools:
   - PersistentAgent
   - TodoWrite
