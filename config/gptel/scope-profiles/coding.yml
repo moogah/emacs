@@ -18,7 +18,7 @@ bash_tools:
     # These commands only read data, cannot create or modify files
     # Path requirement: paths.read OR paths.write (write scope includes read)
     read_only:
-      commands: ["ls", "cat", "grep", "find", "git log", "git show", "git diff", "git status", "pwd"]
+      commands: ["ls", "cat", "grep", "find", "git", "pwd"]
 
     # Safe write: Non-destructive creation and git operations
     # These commands create new content but don't destroy existing files
@@ -29,7 +29,7 @@ bash_tools:
     #   - git add: Stages changes (reversible, doesn't modify working tree)
     #   - git commit: Records changes (reversible with git reset)
     safe_write:
-      commands: ["mkdir", "touch", "git add", "git commit"]
+      commands: ["mkdir", "touch", "git"]
 
     # Dangerous: Empty by default
     # Commands here require explicit user approval via request_scope_expansion

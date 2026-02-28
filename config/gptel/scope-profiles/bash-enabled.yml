@@ -19,7 +19,7 @@ bash_tools:
     # Path requirement: paths.read OR paths.write (write scope includes read)
     # Includes additional utilities: tree (directory visualization), file (type detection)
     read_only:
-      commands: ["ls", "cat", "grep", "find", "tree", "head", "tail", "wc", "file", "git log", "git show", "git diff", "git status", "pwd", "which"]
+      commands: ["ls", "cat", "grep", "find", "tree", "head", "tail", "wc", "file", "git", "pwd", "which"]
 
     # Safe write: Non-destructive creation with echo support
     # These commands create new content but don't destroy existing files
@@ -30,7 +30,7 @@ bash_tools:
     #   - echo: Write text via redirection (when combined with >)
     #   - git add/commit: Reversible version control operations
     safe_write:
-      commands: ["mkdir", "touch", "echo", "git add", "git commit"]
+      commands: ["mkdir", "touch", "echo", "git"]
 
     # Dangerous: Empty by default
     # Commands here require explicit user approval via request_scope_expansion

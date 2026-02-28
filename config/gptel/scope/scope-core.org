@@ -915,21 +915,10 @@ Returns plist with:
                   :tool tool-name
                   :resource command-full
                   :command command-full
-                  :message "Malformed bash_tools configuration: missing required category (read_only, safe_write, or dangerous).")))
-
-        ;; Validate each category has a commands list
-        (unless (and (plist-get read-only-section :commands)
-                     (plist-get safe-write-section :commands)
-                     (plist-get dangerous-section :commands))
-          (cl-return-from jf/gptel-scope--validate-bash-tool
-            (list :allowed nil
-                  :reason "malformed-config"
-                  :tool tool-name
-                  :resource command-full
-                  :command command-full
-                  :message "Malformed bash_tools configuration: category missing 'commands' list."))))
+                  :message "Malformed bash_tools configuration: missing required category (read_only, safe_write, or dangerous)."))))
 
       ;; Parse command to extract base command
+      ;; Note: Empty command lists are valid (they mean "no commands in this category")
       (let* ((command-parts (split-string command-full "[ |><;&]+" t))
              (base-command (car command-parts)))
 

@@ -42,13 +42,8 @@ bash_tools:
         - "ifconfig"
         - "netstat"
         # Version control (read-only)
-        - "git status"
-        - "git log"
-        - "git show"
-        - "git diff"
-        - "git branch"
-        - "git remote"
-        - "git ls-files"
+        # Note: Only base command validated; subcommands like "git log" are composed at runtime
+        - "git"
         # Shell environment
         - "echo"
         - "pwd"
