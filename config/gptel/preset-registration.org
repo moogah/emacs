@@ -39,15 +39,16 @@ Pipeline stages (each a pure function):
 * Scope Defaults Storage
 
 Alist mapping preset name symbols to scope plists extracted during registration.
-Scope keys (=:paths=, =:org-roam-patterns=, =:shell-commands=, =:scope-profile=) are
-stripped from the preset plist and stored here for later use by the scope subsystem.
+Scope keys (=:paths=, =:org-roam-patterns=, =:shell-commands=, =:bash-tools=,
+=:scope-profile=) are stripped from the preset plist and stored here for later
+use by the scope subsystem.
 
 #+begin_src emacs-lisp
 (defvar jf/gptel-preset--scope-defaults nil
   "Alist mapping preset name symbols to scope plists.
 Each entry is (PRESET-NAME . SCOPE-PLIST) where SCOPE-PLIST contains
-keys like :paths, :org-roam-patterns, :shell-commands, :scope-profile
-that were extracted from the preset file during registration.")
+keys like :paths, :org-roam-patterns, :shell-commands, :bash-tools,
+:scope-profile that were extracted from the preset file during registration.")
 #+end_src
 
 * Parse File
@@ -102,10 +103,13 @@ Return a plist on success, or nil on failure (with warning logged)."
 Convert all snake_case keywords to kebab-case. For example,
 =:confirm_tool_calls= becomes =:confirm-tool-calls=. Applied before coercion.
 
+Recursively processes nested plists to handle structures like =bash_tools= with
+nested categories.
+
 #+begin_src emacs-lisp
 (defun jf/gptel-preset--normalize-keys (plist)
   "Normalize all snake_case keywords in PLIST to kebab-case.
-Return a new plist with converted keys.  Values are unchanged.
+Return a new plist with converted keys. Recursively processes nested plists.
 Already-hyphenated keys pass through unchanged."
   (let ((result nil))
     (while plist
@@ -113,8 +117,14 @@ Already-hyphenated keys pass through unchanged."
              (val (pop plist))
              (key-name (symbol-name key))
              (normalized-name (replace-regexp-in-string "_" "-" key-name))
-             (normalized-key (intern normalized-name)))
-        (setq result (plist-put result normalized-key val))))
+             (normalized-key (intern normalized-name))
+             ;; Recursively normalize nested plists
+             (normalized-val (if (and (listp val)
+                                      (not (null val))
+                                      (keywordp (car val)))
+                                 (jf/gptel-preset--normalize-keys val)
+                               val)))
+        (setq result (plist-put result normalized-key normalized-val))))
     result))
 #+end_src
 
@@ -166,11 +176,12 @@ Strip scope-related keys from the plist and store them in
 #+begin_src emacs-lisp
 (defun jf/gptel-preset--extract-scope (plist preset-name)
   "Extract scope keys from PLIST and store under PRESET-NAME.
-Scope keys are :paths, :org-roam-patterns, :shell-commands, and :scope-profile.
+Scope keys are :paths, :org-roam-patterns, :shell-commands, :bash-tools,
+and :scope-profile.
 If any scope keys are present, store them in `jf/gptel-preset--scope-defaults'
 keyed by PRESET-NAME (a symbol).
 Return a new plist with scope keys removed."
-  (let ((scope-keys '(:paths :org-roam-patterns :shell-commands :scope-profile))
+  (let ((scope-keys '(:paths :org-roam-patterns :shell-commands :bash-tools :scope-profile))
         (scope-plist nil)
         (result nil))
     ;; Collect scope keys and non-scope keys

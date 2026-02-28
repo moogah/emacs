@@ -24,41 +24,42 @@ paths:
 # Bash tools configuration
 # Commands are categorized by operational impact and bound to path scope requirements
 bash_tools:
-  # Read-only commands: only read data, no modifications
-  # Path requirement: paths.read OR paths.write (write scope includes read capability)
-  # Use for: exploration, searching, viewing
-  read_only:
-    commands:
-      - "ls"           # List directory contents
-      - "grep"         # Search file contents
-      - "find"         # Find files by pattern
-      - "cat"          # Display file contents
-      - "head"         # Display file start
-      - "tail"         # Display file end
-      - "wc"           # Count lines/words/chars
-      - "file"         # Identify file type
-      - "stat"         # File status/metadata
-      - "git log"      # View commit history
-      - "git show"     # View commit details
-      - "git diff"     # View changes
-      - "git status"   # View working tree status
+  categories:
+    # Read-only commands: only read data, no modifications
+    # Path requirement: paths.read OR paths.write (write scope includes read capability)
+    # Use for: exploration, searching, viewing
+    read_only:
+      commands:
+        - "ls"           # List directory contents
+        - "grep"         # Search file contents
+        - "find"         # Find files by pattern
+        - "cat"          # Display file contents
+        - "head"         # Display file start
+        - "tail"         # Display file end
+        - "wc"           # Count lines/words/chars
+        - "file"         # Identify file type
+        - "stat"         # File status/metadata
+        - "git log"      # View commit history
+        - "git show"     # View commit details
+        - "git diff"     # View changes
+        - "git status"   # View working tree status
 
-  # Safe write commands: create or modify files/directories safely
-  # Path requirement: paths.write only
-  # Use for: creating directories, touching files, git operations
-  safe_write:
-    commands:
-      - "mkdir"        # Create directories
-      - "touch"        # Create empty files
-      - "echo"         # Write text (with redirection)
-      - "git add"      # Stage changes
-      - "git commit"   # Commit changes
+    # Safe write commands: create or modify files/directories safely
+    # Path requirement: paths.write only
+    # Use for: creating directories, touching files, git operations
+    safe_write:
+      commands:
+        - "mkdir"        # Create directories
+        - "touch"        # Create empty files
+        - "echo"         # Write text (with redirection)
+        - "git add"      # Stage changes
+        - "git commit"   # Commit changes
 
-  # Dangerous commands: require explicit user approval via scope expansion
-  # Empty by default - user must approve each addition
-  # Use for: commands that could cause data loss or system changes
-  dangerous:
-    commands: []
+    # Dangerous commands: require explicit user approval via scope expansion
+    # Empty by default - user must approve each addition
+    # Use for: commands that could cause data loss or system changes
+    dangerous:
+      commands: []
 
   # Denied commands: never allowed, even with scope expansion
   # These are destructive operations that should never be automated

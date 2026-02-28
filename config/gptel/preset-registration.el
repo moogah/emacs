@@ -15,8 +15,8 @@
 (defvar jf/gptel-preset--scope-defaults nil
   "Alist mapping preset name symbols to scope plists.
 Each entry is (PRESET-NAME . SCOPE-PLIST) where SCOPE-PLIST contains
-keys like :paths, :org-roam-patterns, :shell-commands, :scope-profile
-that were extracted from the preset file during registration.")
+keys like :paths, :org-roam-patterns, :shell-commands, :bash-tools,
+:scope-profile that were extracted from the preset file during registration.")
 
 (cl-defun jf/gptel-preset--parse-file (filepath)
   "Parse a preset .md file at FILEPATH.
@@ -59,7 +59,7 @@ Return a plist on success, or nil on failure (with warning logged)."
 
 (defun jf/gptel-preset--normalize-keys (plist)
   "Normalize all snake_case keywords in PLIST to kebab-case.
-Return a new plist with converted keys.  Values are unchanged.
+Return a new plist with converted keys. Recursively processes nested plists.
 Already-hyphenated keys pass through unchanged."
   (let ((result nil))
     (while plist
@@ -67,8 +67,14 @@ Already-hyphenated keys pass through unchanged."
              (val (pop plist))
              (key-name (symbol-name key))
              (normalized-name (replace-regexp-in-string "_" "-" key-name))
-             (normalized-key (intern normalized-name)))
-        (setq result (plist-put result normalized-key val))))
+             (normalized-key (intern normalized-name))
+             ;; Recursively normalize nested plists
+             (normalized-val (if (and (listp val)
+                                      (not (null val))
+                                      (keywordp (car val)))
+                                 (jf/gptel-preset--normalize-keys val)
+                               val)))
+        (setq result (plist-put result normalized-key normalized-val))))
     result))
 
 (defun jf/gptel-preset--coerce-values (plist)
@@ -106,11 +112,12 @@ Return a new plist with coerced values."
 
 (defun jf/gptel-preset--extract-scope (plist preset-name)
   "Extract scope keys from PLIST and store under PRESET-NAME.
-Scope keys are :paths, :org-roam-patterns, :shell-commands, and :scope-profile.
+Scope keys are :paths, :org-roam-patterns, :shell-commands, :bash-tools,
+and :scope-profile.
 If any scope keys are present, store them in `jf/gptel-preset--scope-defaults'
 keyed by PRESET-NAME (a symbol).
 Return a new plist with scope keys removed."
-  (let ((scope-keys '(:paths :org-roam-patterns :shell-commands :scope-profile))
+  (let ((scope-keys '(:paths :org-roam-patterns :shell-commands :bash-tools :scope-profile))
         (scope-plist nil)
         (result nil))
     ;; Collect scope keys and non-scope keys
