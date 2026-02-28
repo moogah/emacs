@@ -781,34 +781,34 @@ This separation keeps validation logic in scope-core.org and tool implementation
 The bash validator returns structured error information to help the LLM understand what went wrong and how to fix it.
 
 *Success case:*
-#+begin_src elisp
+#+begin_example
 (:allowed t)
-#+end_src
+#+end_example
 
 *Error cases:*
 
 1. *Command not allowed* (command not in any category):
-   #+begin_src elisp
+   #+begin_example
    (:allowed nil
     :reason "command-not-allowed"
     :tool "run_bash_command"
     :resource "tree"
     :command "tree"
     :message "Command 'tree' is not in any bash_tools category (read_only, safe_write, dangerous). Use request_scope_expansion to request adding this command to an appropriate category.")
-   #+end_src
+   #+end_example
 
 2. *Denied command* (in bash_tools.deny list):
-   #+begin_src elisp
+   #+begin_example
    (:allowed nil
     :reason "denied-command"
     :tool "run_bash_command"
     :resource "rm -rf /tmp/file"
     :command "rm -rf /tmp/file"
     :message "Command 'rm' is explicitly denied in bash_tools.deny list.")
-   #+end_src
+   #+end_example
 
 3. *Directory not in scope* (directory doesn't match paths.read or paths.write):
-   #+begin_src elisp
+   #+begin_example
    (:allowed nil
     :reason "directory-not-in-scope"
     :tool "run_bash_command"
@@ -818,27 +818,27 @@ The bash validator returns structured error information to help the LLM understa
     :required-scope "read"
     :allowed-patterns ("/Users/jefffarr/emacs/**" "/Users/jefffarr/projects/**")
     :message "Directory '/Users/jefffarr/other-project' is not in scope for read operations. Command 'ls' requires read access. Use request_scope_expansion to request access.")
-   #+end_src
+   #+end_example
 
 4. *Dangerous command* (requires explicit approval):
-   #+begin_src elisp
+   #+begin_example
    (:allowed nil
     :reason "dangerous-command"
     :tool "run_bash_command"
     :resource "dangerous-cmd"
     :command "dangerous-cmd"
     :message "Command 'dangerous-cmd' is categorized as dangerous and requires explicit user approval via request_scope_expansion.")
-   #+end_src
+   #+end_example
 
 5. *No bash_tools configuration*:
-   #+begin_src elisp
+   #+begin_example
    (:allowed nil
     :reason "command-not-allowed"
     :tool "run_bash_command"
     :resource "ls"
     :command "ls"
     :message "No bash_tools configuration found. All commands denied by default.")
-   #+end_src
+   #+end_example
 
 These structured errors allow the LLM to:
 - Understand exactly why the command was rejected
