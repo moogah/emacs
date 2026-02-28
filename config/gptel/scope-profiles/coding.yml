@@ -1,0 +1,100 @@
+# Coding profile: Read and write within project boundaries
+# Use case: Active development, file creation, git operations
+# Security: Write access limited to project root, excludes sensitive directories
+
+paths:
+  read: ["/**"]  # Read access to entire filesystem (excluding deny list)
+  write: ["${project_root}/**"]  # Write access limited to project directory
+  deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
+
+org_roam_patterns:
+  subdirectory: ["gptel/**"]
+  tags: ["gptel"]
+  node_ids: ["*"]
+
+bash_tools:
+  categories:
+    # Read-only commands: Safe exploration and inspection
+    # These commands only read data, cannot create or modify files
+    # Path requirement: paths.read OR paths.write (write scope includes read)
+    read_only:
+      commands: ["ls", "cat", "grep", "find", "git log", "git show", "git diff", "git status", "pwd"]
+
+    # Safe write: Non-destructive creation and git operations
+    # These commands create new content but don't destroy existing files
+    # Path requirement: paths.write ONLY (more restrictive than read_only)
+    # Rationale:
+    #   - mkdir: Creates directories (fails if exists, no overwrite)
+    #   - touch: Creates empty files (updates timestamp if exists, safe)
+    #   - git add: Stages changes (reversible, doesn't modify working tree)
+    #   - git commit: Records changes (reversible with git reset)
+    safe_write:
+      commands: ["mkdir", "touch", "git add", "git commit"]
+
+    # Dangerous: Empty by default
+    # Commands here require explicit user approval via request_scope_expansion
+    # Example candidates: git push, git reset --hard, git clean
+    dangerous:
+      commands: []
+
+  # Deny list: Commands never allowed, even with scope expansion
+  # Blocked for security: destructive operations, system changes, privilege escalation
+  # Rationale:
+  #   - rm/mv: Can overwrite/delete files (data loss risk)
+  #   - chmod/chown: Permission changes (security boundary violations)
+  #   - sudo/system commands: Privilege escalation (system integrity risk)
+  #   - Package managers: Install software (supply chain risk, writes outside project)
+  deny:
+    - "rm"
+    - "sudo"
+    - "mv"
+    - "chmod"
+    - "chown"
+    - "dd"
+    - "shutdown"
+    - "reboot"
+    - "halt"
+    - "poweroff"
+    - "init"
+    # Task scheduling
+    - "crontab"
+    # Firewall commands
+    - "iptables"
+    - "ip6tables"
+    - "ufw"
+    - "firewall-cmd"
+    - "pfctl"
+    - "ipfw"
+    - "nft"
+    # System service commands
+    - "systemctl"
+    - "service"
+    - "launchctl"
+    - "sc"
+    - "systemd"
+    # User management
+    - "useradd"
+    - "userdel"
+    - "usermod"
+    - "passwd"
+    - "chpasswd"
+    - "adduser"
+    - "deluser"
+    - "groupadd"
+    - "groupdel"
+    - "groupmod"
+    # Package managers (can install/modify packages, write files)
+    - "brew"
+    - "apt"
+    - "apt-get"
+    - "yum"
+    - "dnf"
+    - "pip"
+    - "pip3"
+    - "npm"
+    - "yarn"
+    - "pnpm"
+    - "gem"
+    - "cargo"
+    - "composer"
+    - "go"

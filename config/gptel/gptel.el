@@ -60,38 +60,7 @@
 (jf/load-module (expand-file-name "config/gptel/skills/skills-roam.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/skills/skills-transient.el" jf/emacs-dir))
 
-(use-package gptel-agent
-  :straight t
-  :after gptel
-  :demand t
-  :config
-  ;; Add our presets directory to the agent scan path
-  (add-to-list 'gptel-agent-dirs
-               (expand-file-name "config/gptel/presets/" jf/emacs-dir))
-
-  ;; Load scope-core FIRST (required by scope-controlled tools)
-  (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
-
-  ;; Load custom tools BEFORE agent update so agents can reference them
-  (jf/load-module (expand-file-name "config/gptel/tools/filesystem-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/projectile-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/ggtags-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/treesitter-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/org-roam-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/sql-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
-  (jf/load-module (expand-file-name "config/gptel/tools/transient-tools.el" jf/emacs-dir))
-  ;; Note: persistent-agent.el loaded later after session modules
-
-  ;; Scan and register agents from all configured directories
-  (gptel-agent-update)
-
-  ;; Enable Agent tool by default for all gptel sessions
-  ;; This allows the main LLM to delegate tasks to specialized agents
-  (setq-default gptel-tools (list (gptel-get-tool "Agent"))))
-
-(defun jf/gptel-agent--expand-skills (system-text)
+(defun jf/gptel-preset--expand-skills (system-text)
   "Expand @skill mentions in SYSTEM-TEXT using gptel-skills.
 Returns updated system text with skill content injected.
 If skills system not loaded or no mentions found, returns text unchanged."
@@ -119,41 +88,61 @@ If skills system not loaded or no mentions found, returns text unchanged."
     ;; No skills system or no mentions - return unchanged
     system-text))
 
-(defun jf/gptel-agent--expand-all-agent-skills ()
-  "Expand @skill mentions in all registered agent system prompts.
-Run this after gptel-agent-update to inject skill content into agents."
-  (when (and (boundp 'gptel-agent--agents)
+(defun jf/gptel-preset--expand-all-preset-skills ()
+  "Expand @skill mentions in all registered preset system prompts.
+Run this after preset registration to inject skill content into presets."
+  (when (and (bound-and-true-p gptel--known-presets)
              (fboundp 'jf/gptel-skills--discover))
     ;; Ensure skills are discovered first
     (jf/gptel-skills--discover)
 
-    ;; Process each agent
-    (dolist (agent-entry gptel-agent--agents)
-      (let* ((agent-name (car agent-entry))
-             (plist (cdr agent-entry))
+    ;; Process each preset
+    (dolist (preset-entry gptel--known-presets)
+      (let* ((preset-name (car preset-entry))
+             (plist (cdr preset-entry))
              (system (plist-get plist :system)))
         (when (and system (stringp system))
-          (let ((expanded (jf/gptel-agent--expand-skills system)))
+          (let ((expanded (jf/gptel-preset--expand-skills system)))
             (unless (string= expanded system)
               (plist-put plist :system expanded)
               (when jf/gptel-skills-verbose
-                (message "Expanded skills in agent: %s" agent-name)))))))))
+                (message "Expanded skills in preset: %s" preset-name)))))))))
 
-;; Hook into gptel-agent-update to auto-expand skills
-(with-eval-after-load 'gptel-agent
-  (advice-add 'gptel-agent-update :after #'jf/gptel-agent--expand-all-agent-skills))
-
-;; TEMPORARILY COMMENTED OUT: Testing cursor movement with confirmation enabled
-;; ;; Disable confirmation for Agent tool (agent invocations)
-;; ;; The Agent tool by default has :confirm t, but we trust our agents
-;; (with-eval-after-load 'gptel-agent-tools
-;;   (when-let ((agent-tool (gptel-get-tool "Agent")))
-;;     (setf (gptel-tool-confirm agent-tool) nil)
-;;     (message "Disabled confirmation for Agent tool")))
-
-;; Load foundational modules first (used by all other session modules)
+;; Load constants and logging first (needed by preset registration and all session modules)
 (jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
+
+;; Ensure yaml parser is available
+(require 'yaml)
+
+;; Load preset registration module
+(jf/load-module (expand-file-name "config/gptel/preset-registration.el" jf/emacs-dir))
+
+;; Register all presets from config/gptel/presets/*.md
+(jf/gptel-preset-register-all)
+
+;; After preset registration, expand skills in preset system prompts
+(jf/gptel-preset--expand-all-preset-skills)
+
+;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
+(jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
+
+;; Load scope-core (required by scope-controlled tools, depends on scope-profiles)
+(jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
+
+;; Load custom tools (tools must be registered before presets reference them)
+(jf/load-module (expand-file-name "config/gptel/tools/filesystem-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/projectile-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/ggtags-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/treesitter-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/org-roam-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/sql-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/meta-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/community-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/tools/transient-tools.el" jf/emacs-dir))
+;; Note: persistent-agent.el loaded later after session modules
+
+;; Note: constants.el and logging.el already loaded above (before preset registration)
 
 ;; Load filesystem utilities before other modules (registry and hooks depend on it)
 (jf/load-module (expand-file-name "config/gptel/sessions/filesystem.el" jf/emacs-dir))
@@ -163,14 +152,15 @@ Run this after gptel-agent-update to inject skill content into agents."
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
 
-;; Load scope-core (needed by scope-commands)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
-
+;; scope-core already loaded above (before tools); scope-commands requires it
 ;; Load scope-commands BEFORE session-commands (session-commands requires scope-commands)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-commands.el" jf/emacs-dir))
 
 ;; Load scope-expansion (UI for handling scope violations)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-expansion.el" jf/emacs-dir))
+
+;; Load scope-shell-tools (depends on scope-core validator and scope-expansion)
+(jf/load-module (expand-file-name "config/gptel/tools/scope-shell-tools.el" jf/emacs-dir))
 
 ;; Load PersistentAgent tool (requires session modules to be loaded first)
 (jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
@@ -178,12 +168,11 @@ Run this after gptel-agent-update to inject skill content into agents."
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
-;; Load remaining scope system modules (scope-core, scope-commands, scope-expansion already loaded above)
+;; Load remaining scope system modules (scope-core, scope-commands, scope-expansion, scope-shell-tools already loaded above)
 ;; Scope-aware tools check approved patterns internally and return
 ;; structured errors to LLM when operations are outside scope
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/scope/scope-org-roam-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/scope/scope-shell-tools.el" jf/emacs-dir))
 
 ;; Load activities integration (optional - only if activities package is loaded)
 ;; Enables creating persistent gptel sessions as part of activity creation

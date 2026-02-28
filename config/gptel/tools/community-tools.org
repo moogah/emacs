@@ -24,13 +24,13 @@ All tools are configured with confirmation enabled by default for security.
 (setq gptel-use-tools t)
 #+end_src
 
-* GPTEL Agent
+* GPTEL Presets (formerly gptel-agent)
 
-NOTE: gptel-agent configuration has been moved to =major-modes/gpt.org= to properly
-configure the agent directory and tool loading order. See the "GPTEL Agent" section
-in gpt.org for the current configuration.
+NOTE: Agent/preset configuration is now handled by the preset registration system
+in =gptel/preset-registration.org=. Presets are loaded from =config/gptel/presets/*.md=
+files and registered via =jf/gptel-preset-register-all=.
 
-From: https://github.com/karthink/gptel-agent
+Originally from: https://github.com/karthink/gptel-agent
 
 * GPTEL Org Tools
 
@@ -78,7 +78,7 @@ From: https://github.com/skissue/llm-tool-collection
   :demand t
   :config
   ;; Confirmation enabled for destructive operations
-  ;; Note: Some overlap with gptel-agent filesystem tools
+  ;; Note: Some overlap with custom scope-aware filesystem tools
   )
 #+end_src
 
@@ -111,7 +111,7 @@ From: https://github.com/positron-solutions/ragmacs
 
 ** Tool Overlap
 Some functionality overlaps between collections:
-- gptel-agent and llm-tool-collection both provide filesystem tools
+- Scope-aware filesystem tools and llm-tool-collection both provide filesystem operations
 - Multiple packages provide buffer manipulation
 
 The LLM will choose the most appropriate tool based on context.

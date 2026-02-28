@@ -1,8 +1,3 @@
-;; In init.org or config/local/machine.el
-(setq activities-ext-create-gptel-by-default nil)
-
-(setq activities-ext-default-gptel-preset "programming-assistant")
-
 ;;; activities-integration.el --- GPTEL Sessions Activities Integration -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -17,8 +12,6 @@
 (require 'gptel-session-filesystem)
 (require 'gptel-session-registry)
 (require 'gptel-session-metadata)
-(require 'jf-gptel-scope-core nil t)
-(require 'jf-gptel-scope-commands nil t)  ; For jf/gptel-scope--template-deny-all
 
 ;; Optional dependency - checked at runtime
 (defvar activities-ext--slugify)
@@ -33,23 +26,19 @@
   :type 'boolean
   :group 'jf-gptel-activities)
 
-(defcustom jf/gptel-activities-create-scope-plan t
-  "Create default deny-all scope plan for activity sessions."
-  :type 'boolean
-  :group 'jf-gptel-activities)
-
-(defun jf/gptel-session-create-persistent (activity-name &optional backend model preset-template org-file)
+(defun jf/gptel-session-create-persistent (activity-name &optional backend model preset-name org-file)
   "Create persistent gptel session immediately for ACTIVITY-NAME.
 
 Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
-- scope-plan.yml with session metadata and deny-all permissions
-- preset.md with backend and model configuration (from template)
-- session.org file for buffer to visit
+- scope.yml with file access permissions (from preset scope profile)
+- metadata.yml with session metadata and preset reference
+- session.md file for buffer to visit
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
-PRESET-TEMPLATE specifies template name (default: \"programming-assistant\").
+PRESET-NAME is a symbol naming a registered preset in `gptel--known-presets'
+  (default: `executor').
 ORG-FILE is optional path to activity org file (for worktree parsing).
 
 Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file ...)"
@@ -69,39 +58,41 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
          (backend (or backend gptel-backend))
          (model (or model gptel-model))
          (backend-name (gptel-backend-name backend))
-         (preset-template (or preset-template "programming-assistant"))
+         (preset-name (or preset-name 'executor))
          ;; Parse worktree paths from org-roam documentation
          ;; Ensure file is saved before parsing
-         (worktree-paths (jf/gptel-activities--parse-worktree-paths activity-name org-file)))
+         (raw-paths (jf/gptel-activities--parse-worktree-paths activity-name org-file))
+         ;; Convert raw worktree paths to scope plist format
+         (worktree-scope
+          (when raw-paths
+            (list :paths (list :read raw-paths
+                               :write raw-paths
+                               :deny '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**"))))))
 
     ;; Create session directory structure using core helper
-    ;; This creates branches/main/, preset.md, scope-plan.yml (with activity_org_file), session.md, and current symlink
+    ;; This creates branches/main/, scope.yml, metadata.yml, session.md, and current symlink
     (let* ((session-info (jf/gptel--create-session-core
                           session-id
                           session-dir
-                          preset-template
-                          'deny-all    ; Activities integration uses deny-all scope by default
-                          nil          ; No projects
-                          "###\n"      ; Minimal initial content
-                          worktree-paths  ; Pass worktree paths for scope generation
-                          org-file))   ; Pass org-file for activity_org_file field in scope plan
+                          preset-name
+                          "###\n"          ; Minimal initial content
+                          worktree-scope   ; Scope plist (or nil)
+                          nil))            ; No project-root
            (branch-dir (plist-get session-info :branch-dir))
            (session-file (plist-get session-info :session-file)))
 
       ;; Store worktree paths in session file as file-local variable
-      (when worktree-paths
+      (when raw-paths
         (with-temp-buffer
           (insert-file-contents session-file)
           (goto-char (point-max))
           ;; Add file-local variable block if not already present
           (unless (search-backward "<!-- gptel-activity-worktrees:" nil t)
             (insert (format "\n<!-- gptel-activity-worktrees: %S -->\n"
-                           worktree-paths))
+                           raw-paths))
             (write-region (point-min) (point-max) session-file nil 'silent))
           (jf/gptel--log 'info "Stored %d worktree path(s) in session metadata"
-                        (length worktree-paths))))
-
-      ;; activity_org_file is now included in scope plan template (no runtime insertion needed)
+                        (length raw-paths))))
 
       ;; Register in global registry
       (jf/gptel--log 'info "Registering session: %s" session-id)
@@ -195,101 +186,31 @@ following documentation-first architecture. Uses only standard org-mode function
 
 (defun jf/gptel-session--create-buffer (session-info)
   "Create gptel buffer associated with session file.
-SESSION-INFO is plist from jf/gptel-session-create-persistent."
-  (let* ((buffer-name (plist-get session-info :buffer-name))
-         (session-file (plist-get session-info :session-file))
-         (session-id (plist-get session-info :session-id))
-         (backend-name (plist-get session-info :backend))
-         (model-name (plist-get session-info :model))
-         (model (if (stringp model-name) (intern model-name) model-name)))
+SESSION-INFO is plist from jf/gptel-session-create-persistent.
 
-    ;; Open session.org file in buffer
+The find-file-hook (`jf/gptel--auto-init-session-buffer') handles
+preset application and gptel-mode initialization automatically
+when the session file is opened."
+  (let* ((buffer-name (plist-get session-info :buffer-name))
+         (session-file (plist-get session-info :session-file)))
+    ;; Open session file — find-file-hook handles auto-initialization
     (let ((buffer (find-file-noselect session-file)))
       (with-current-buffer buffer
         ;; Rename buffer to expected name
         (rename-buffer buffer-name t)
-
-        ;; Enable gptel-mode if not already active
-        (unless gptel-mode
-          (gptel-mode 1))
-
-        ;; Set buffer-local session variables
-        (setq-local jf/gptel--session-id session-id)
-        (setq-local jf/gptel--session-dir (plist-get session-info :session-dir))
-        (setq-local jf/gptel--branch-name (or (plist-get session-info :branch-name) "main"))
-
-        ;; Load and apply preset from file (includes backend, model, system, tools, etc.)
-        (when (fboundp 'jf/gptel--load-preset-from-file)
-          (condition-case err
-              (let ((preset-plist (jf/gptel--load-preset-from-file
-                                  (or (plist-get session-info :branch-dir)
-                                      (plist-get session-info :session-dir)))))
-                (when (and preset-plist (fboundp 'jf/gptel--apply-session-preset))
-                  (jf/gptel--apply-session-preset preset-plist)
-                  (jf/gptel--log 'info "Applied preset to buffer: %s" buffer-name)))
-            (error
-             (jf/gptel--log 'warn "Failed to load preset, falling back to basic config: %s"
-                           (error-message-string err))
-             ;; Fallback: Set basic backend and model
-             (setq-local gptel-backend (alist-get backend-name gptel--known-backends
-                                                  nil nil #'equal))
-             (setq-local gptel-model model))))
-
-        ;; Force autosave enabled for this buffer
-        (setq-local jf/gptel-autosave-enabled t)
-
-        (jf/gptel--log 'info "Created buffer: %s (session: %s)" buffer-name session-id)
+        (jf/gptel--log 'info "Created buffer: %s (session: %s)"
+                      buffer-name (plist-get session-info :session-id))
         buffer))))
 
 (defun jf/gptel-session--open-existing (session-file)
   "Open existing gptel session from SESSION-FILE.
-Restores session-id and other state from file properties.
+The find-file-hook handles auto-initialization and state restoration.
 Returns the buffer visiting the session file."
   (unless (file-exists-p session-file)
     (error "Session file does not exist: %s" session-file))
-
   (let ((buffer (find-file-noselect session-file)))
-    (with-current-buffer buffer
-      ;; Parse org properties to get session-id
-      (org-with-point-at (point-min)
-        (let ((session-id (org-entry-get nil "session_id")))
-          (if (not session-id)
-              (progn
-                (jf/gptel--log 'warn "No session_id found in %s" session-file)
-                buffer)
-
-            ;; Find session in registry or disk
-            (if-let ((session (and (fboundp 'jf/gptel-session-find)
-                                  (jf/gptel-session-find session-id "main"))))
-                (progn
-                  ;; Set buffer-local variables
-                  (setq-local jf/gptel--session-id session-id)
-                  (setq-local jf/gptel--session-dir (plist-get session :session-dir))
-                  (setq-local jf/gptel--branch-name (plist-get session :branch-name))
-
-                  ;; Enable gptel-mode if not already
-                  (unless gptel-mode
-                    (gptel-mode 1))
-
-                  ;; Force autosave
-                  (setq-local jf/gptel-autosave-enabled t)
-
-                  ;; Restore backend/model from preset metadata on disk
-                  (let ((preset-meta (jf/gptel--read-preset-metadata (plist-get session :session-dir))))
-                    (when-let ((backend-name (plist-get preset-meta :backend)))
-                      (setq-local gptel-backend (alist-get backend-name gptel--known-backends
-                                                           nil nil #'equal)))
-                    (when-let ((model-name (plist-get preset-meta :model)))
-                      (setq-local gptel-model (if (stringp model-name)
-                                                 (intern model-name)
-                                               model-name))))
-
-                  (jf/gptel--log 'info "Opened existing session: %s" session-id)
-                  buffer)
-
-              ;; Session not found in registry
-              (jf/gptel--log 'warn "Session %s not found in registry" session-id)
-              buffer)))))))
+    (jf/gptel--log 'info "Opened session: %s" session-file)
+    buffer))
 
 (provide 'jf-gptel-activities-integration)
 ;;; activities-integration.el ends here

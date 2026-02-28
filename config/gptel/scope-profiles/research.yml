@@ -1,0 +1,88 @@
+# Research profile: Read-only exploration with no write access
+# Use case: Investigating codebases, analyzing files, searching content
+# Security: Prevents any file creation or modification
+
+paths:
+  read: ["/**"]  # Read access to entire filesystem (excluding deny list)
+  # No write paths - research is strictly read-only
+  deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
+
+org_roam_patterns:
+  subdirectory: ["**"]
+  tags: ["*"]
+  node_ids: ["*"]
+
+bash_tools:
+  categories:
+    # Read-only commands: Explore without modification
+    # These commands only read data, cannot create or modify files
+    # Path requirement: paths.read (or paths.write if present)
+    read_only:
+      commands: ["ls", "find", "grep", "rg", "pwd", "which", "cat", "head", "tail", "wc"]
+
+    # Safe write: Empty for research profile
+    # Research sessions should not create or modify files
+    safe_write:
+      commands: []
+
+    # Dangerous: Empty by default
+    # Commands here require explicit user approval via request_scope_expansion
+    dangerous:
+      commands: []
+
+  # Deny list: Commands never allowed, even with scope expansion
+  # Blocked for security: destructive operations, system changes, privilege escalation
+  deny:
+    - "rm"
+    - "sudo"
+    - "mv"
+    - "chmod"
+    - "chown"
+    - "dd"
+    - "shutdown"
+    - "reboot"
+    - "halt"
+    - "poweroff"
+    - "init"
+    # Task scheduling
+    - "crontab"
+    # Firewall commands
+    - "iptables"
+    - "ip6tables"
+    - "ufw"
+    - "firewall-cmd"
+    - "pfctl"
+    - "ipfw"
+    - "nft"
+    # System service commands
+    - "systemctl"
+    - "service"
+    - "launchctl"
+    - "sc"
+    - "systemd"
+    # User management
+    - "useradd"
+    - "userdel"
+    - "usermod"
+    - "passwd"
+    - "chpasswd"
+    - "adduser"
+    - "deluser"
+    - "groupadd"
+    - "groupdel"
+    - "groupmod"
+    # Package managers (can install/modify packages, write files)
+    - "brew"
+    - "apt"
+    - "apt-get"
+    - "yum"
+    - "dnf"
+    - "pip"
+    - "pip3"
+    - "npm"
+    - "yarn"
+    - "pnpm"
+    - "gem"
+    - "cargo"
+    - "composer"
+    - "go"

@@ -3,8 +3,9 @@ description: >
   Code exploration agent for analyzing codebase structure, patterns, and dependencies.
   Provides concrete findings with file paths and function names to inform planning.
 backend: Claude
-model: claude-sonnet-4-5-20250929
+model: claude-sonnet-4-6
 temperature: 0.5
+use-tools: true
 include-tool-results: true
 tools:
   # Tree-sitter (AST Analysis - PRIMARY TOOL)
@@ -35,16 +36,7 @@ tools:
   - edit_file_in_scope
   - request_scope_expansion
   - get_scope_structure
-paths:
-  read:
-    - "/**"
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
+scope_profile: coding
 ---
 
 # Software Exploration Guidelines

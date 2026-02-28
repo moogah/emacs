@@ -216,9 +216,9 @@ The scope system SHALL extract the primary resource identifier from the first ar
 - **WHEN** validating create_roam_node_in_scope
 - **THEN** the system extracts subdirectory (2nd arg) and tags (3rd arg) for validation
 
-#### Scenario: Command tools use first arg as command string
-- **WHEN** validating run_approved_command
-- **THEN** the system treats the first argument as the full command string to validate
+#### Scenario: Bash tools use command and directory args
+- **WHEN** validating run_bash_command
+- **THEN** the system treats the first argument as the command string and second argument as the working directory
 
 #### Scenario: Resource extraction for allow-once
 - **WHEN** adding a tool to the allow-once list

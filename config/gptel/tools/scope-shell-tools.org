@@ -1,0 +1,745 @@
+#+title: GPTEL Scope Manager - Shell and Meta Tools
+#+author: Jeff Farr
+#+property: header-args:elisp :tangle scope-shell-tools.el :comments both
+
+* Overview
+
+This module provides scope-aware shell execution and meta tools for v3.0 preset-based permission management:
+
+1. *Shell tool*: =run_bash_command= - Execute shell commands with category-based scope validation
+2. *Meta tool*: =request_scope_expansion= - LLM requests user approval via transient menu (v3.0 async)
+
+*See also:* Complete usage examples in =config/gptel/presets/bash-tools-example.md= and =config/gptel/presets/system-explorer.md=
+
+** Shell Command Scoping (v3.0)
+
+The =run_bash_command= tool uses scope.yml bash_tools configuration with command categorization by operational impact.
+
+*** YAML Schema
+
+The =bash_tools= section in =scope.yml= has the following structure:
+
+#+begin_src yaml
+bash_tools:
+  categories:
+    read_only:
+      commands: [ARRAY_OF_COMMAND_STRINGS]
+    safe_write:
+      commands: [ARRAY_OF_COMMAND_STRINGS]
+    dangerous:
+      commands: [ARRAY_OF_COMMAND_STRINGS]
+  deny: [ARRAY_OF_COMMAND_STRINGS]
+#+end_src
+
+*Schema fields:*
+- =categories= (object, required): Command categorization by operational impact
+  - =read_only= (object): Commands that only read data
+    - =commands= (array of strings): List of read-only command names
+  - =safe_write= (object): Commands that create or modify safely
+    - =commands= (array of strings): List of safe write command names
+  - =dangerous= (object): Commands requiring explicit user approval
+    - =commands= (array of strings): List of dangerous command names (typically empty)
+  - =deny= (array of strings): Commands never allowed, even with scope expansion
+
+*Example:*
+
+#+begin_src yaml
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "grep", "find", "cat", "head", "tail", "wc", "file", "git log", "git diff"]
+    safe_write:
+      commands: ["mkdir", "touch", "echo", "git add", "git commit"]
+    dangerous:
+      commands: []
+  deny:
+    - "rm"
+    - "rmdir"
+    - "mv"
+    - "cp"
+    - "ln"
+    - "chmod"
+    - "sudo"
+    - "dd"
+    - "tar"
+    - "zip"
+    - "curl"
+    - "wget"
+#+end_src
+
+*** Command Categories
+
+Commands are grouped by *operational impact* rather than technical function:
+
+1. *read_only* - Commands that only read data
+   - Examples: =ls=, =grep=, =find=, =cat=, =git log=, =git diff=
+   - Can execute in any readable directory (paths.read or paths.write)
+   - No risk of data modification
+
+2. *safe_write* - Commands that create or modify safely
+   - Examples: =mkdir=, =touch=, =echo=, =git add=, =git commit=
+   - Require write-enabled directory (paths.write)
+   - Create new content but don't destroy existing data
+
+3. *dangerous* - Commands requiring explicit approval
+   - Empty by default
+   - User must approve via scope expansion for each addition
+   - For commands with potential for unintended consequences
+
+4. *deny* - Commands never allowed
+   - Examples: =rm=, =rmdir=, =mv=, =cp=, =ln=, =scp=, =rsync=, =chmod=, =sudo=, =dd=, =crontab=, =iptables=, =systemctl=, =useradd=, =shutdown=, =reboot=, =halt=, =poweroff=
+   - Destructive operations that should never be automated
+   - Includes file operations (rm, rmdir, mv, cp, ln), remote transfers (scp, rsync), permissions (chmod), and security-sensitive commands: task scheduling, firewall, system services, user management, power management
+   - Archive tools with overwrite risk: =tar=, =zip=, =unzip=, =gzip=, =bzip2= (see Archive Tools Evaluation below)
+   - Download tools with write capability: =curl=, =wget= (see Download Tools Evaluation below)
+   - Rejected immediately without scope expansion option
+
+*** Path Scope Binding
+
+Each category binds to path scope requirements:
+
+| Category    | Requires paths.read | Requires paths.write | Notes                           |
+|-------------|---------------------|----------------------|---------------------------------|
+| read_only   | ✓ (or write)        |                      | Write scope includes read       |
+| safe_write  |                     | ✓                    | More restrictive                |
+| dangerous   | ✓                   | ✓                    | Plus explicit approval          |
+| deny        | ✗                   | ✗                    | Never allowed                   |
+
+*Key insight:* Write paths imply read access. If a directory is in =paths.write=, read_only commands can execute there. This matches the intuition that "write permission includes read permission."
+
+*** Shell Composition
+
+The system supports standard shell composition features:
+
+- *Pipes*: =grep pattern file.txt | head -10=
+- *Redirects*: =ls -la > listing.txt=
+- *Command substitution*: =echo $(pwd)=
+
+*Validation strategy:* Only the *base command* (first command before pipes/redirects) is categorized and validated. If =grep= is in =read_only= and the directory is in =paths.read=, then =grep | head | tail= is allowed.
+
+*Rationale:* Validating the base command provides the primary security boundary. If =grep= is safe in a scoped directory, composing it with =head= doesn't increase risk. Parsing complex pipelines is error-prone and provides marginal security benefit.
+
+*IMPORTANT SECURITY LIMITATION:* This design allows dangerous commands in pipeline positions after the base command. For example:
+
+- =ls | xargs rm= would be ALLOWED if =ls= is in =read_only= category, even though =rm= is in the deny list
+- =grep pattern . | sh= would be ALLOWED if =grep= is in =read_only= category, even though =sh= could execute arbitrary commands
+- =find . -name '*.txt' | xargs chmod 777= would be ALLOWED if =find= is in =read_only=
+
+This is an *intentional security trade-off* balancing usability vs. risk:
+
+1. *Risk mitigation:* Directory scope still applies - all commands execute in a validated directory. Commands cannot escape the directory scope without using absolute paths (which trigger warnings).
+
+2. *Deny list provides primary defense:* Commands like =rm=, =sudo=, =chmod= in the deny list cannot be used as base commands. The LLM must compose them in pipelines to bypass validation.
+
+3. *LLM behavior:* The LLM learns safe patterns through normal operation. Deliberately bypassing security requires intent, which violates the LLM's operational guidelines.
+
+4. *User monitoring:* All bash commands are visible in the gptel buffer. Users can see when suspicious pipelines are executed.
+
+5. *Future enhancement:* Could add full pipeline parsing and validation if this becomes a practical attack vector in real-world usage.
+
+If this security boundary is insufficient for your use case, consider:
+- Setting bash_tools categories lists to empty =[]= to deny all bash commands
+- Only allowing specific commands via scope expansion
+- Monitoring gptel buffers for suspicious pipeline patterns
+
+*** Security Features
+
+1. *Timeouts* - Commands automatically terminate after 30 seconds
+   - Prevents runaway processes (e.g., =find /= or infinite loops)
+   - LLM receives timeout error and can retry with more specific filters
+
+2. *Output Truncation* - Command output limited to prevent context overflow
+   - Long output truncated with notice suggesting filters
+   - LLM learns to use =head=, =grep=, =tail= to narrow results
+
+3. *Absolute Path Warnings* - Warning when command arguments contain absolute paths
+   - Example: =grep pattern /other/project= triggers warning
+   - Absolute paths in arguments bypass directory scope validation
+   - Warning suggests using relative paths
+
+4. *Explicit Directory Required* - Every command must specify working directory
+   - No implicit fallbacks or context inference
+   - Forces clear intent about where commands execute
+
+*** Archive Tools Evaluation
+
+*Evaluated commands:* =tar=, =zip=, =unzip=, =gzip=, =bzip2=, =gunzip=, =bunzip2=
+
+*Risk analysis:*
+- Extraction operations can overwrite existing files without warning
+- Example: =tar -xf archive.tar= will silently overwrite files in current directory
+- Example: =unzip file.zip= can overwrite files during extraction
+
+*Safe operations exist:*
+- =tar -tf= or =tar -tzf= - List archive contents (read-only)
+- =unzip -l= - List zip contents (read-only)
+- =zip -sf= - Show files in archive (read-only)
+
+*Challenge:*
+Current validation model categorizes base commands only, not command+flag combinations. Cannot distinguish =tar -tf= (safe) from =tar -xf= (unsafe).
+
+*Decision: Add to deny list (conservative approach)*
+
+*Rationale:*
+1. *Overwrite risk outweighs utility* - Extraction can silently destroy data
+2. *Read-only alternatives exist* - Can use =less= or =cat= for single files
+3. *Limited use case* - LLM rarely needs to extract archives during exploration
+4. *Directory scope insufficient* - Even in write-enabled directory, overwriting existing files is dangerous
+5. *Consistent with existing policy* - =cp= and =mv= already denied for same overwrite risk
+
+*User workaround:* If archive extraction needed, user can run commands manually or add to =dangerous= category via scope expansion.
+
+*** Download Tools Evaluation
+
+*Evaluated commands:* =curl=, =wget=
+
+*Risk analysis:*
+- Both can write files using =-o= or =--output= flags
+- Example: =curl -o file.txt https://example.com= writes to filesystem
+- Example: =wget https://example.com/file.zip= saves file to current directory
+
+*Safe operations exist:*
+- =curl https://example.com= - Fetch content to stdout (read-only)
+- =wget -O - https://example.com= - Fetch to stdout (read-only)
+
+*Challenge:*
+Current validation model cannot validate flag combinations. Cannot distinguish =curl URL= (safe) from =curl -o file URL= (unsafe).
+
+*Decision: Add to deny list (conservative approach)*
+
+*Rationale:*
+1. *Write capability with flags* - =-o= flag bypasses directory scope validation
+2. *wget defaults to writing files* - Even without flags, writes to current directory
+3. *Security risk* - LLM could download and execute malicious content
+4. *Alternatives exist* - If LLM needs to fetch content, can suggest user use browser or dedicated tools
+5. *Scope boundary enforcement* - Download tools violate the principle that all writes must validate directory scope
+
+*Counterargument considered:*
+system-explorer preset has =write: []= (no write paths), so curl/wget write attempts would fail directory validation. However, this relies on preset configuration rather than command categorization. Conservative approach is safer.
+
+*User workaround:* If download capability needed, user can add to =dangerous= category via scope expansion with specific justification.
+
+** Scope Expansion (v3.0)
+
+The =request_scope_expansion= tool shows interactive transient menu with 3 choices:
+- *Deny* - Reject the expansion request
+- *Add to scope* - Permanently add patterns to scope.yml
+- *Allow once* - Temporarily allow for current turn only
+
+Uses async tool pattern with callback for FSM coordination.
+UI implemented in scope-expansion.org.
+
+*** Error Messages and Scope Expansion Flow
+
+When validation fails, the system provides structured errors guiding the LLM to request scope expansion:
+
+*Command not allowed:*
+#+begin_example json
+{
+  "success": false,
+  "error": "command_not_allowed",
+  "tool": "run_bash_command",
+  "command": "tree",
+  "message": "Command 'tree' is not in allowed command lists. Use request_scope_expansion to ask user for approval."
+}
+#+end_example
+
+*Directory not in scope:*
+#+begin_example json
+{
+  "success": false,
+  "error": "directory_not_in_scope",
+  "directory": "/Users/jefffarr/other-project",
+  "required_scope": "read",
+  "allowed_patterns": ["/Users/jefffarr/emacs/**", "/Users/jefffarr/projects/**"],
+  "message": "Directory not in read scope. Use request_scope_expansion to request access."
+}
+#+end_example
+
+The LLM can then call =request_scope_expansion= to request user approval:
+#+begin_example
+request_scope_expansion(
+  tool_name="run_bash_command",
+  patterns=["tree"],
+  justification="Need to visualize directory structure for debugging."
+)
+#+end_example
+
+User sees transient menu with options to deny, add to scope, or allow once.
+
+* File Header
+
+#+begin_src elisp
+;;; scope-shell-tools.el --- GPTEL Scope Shell and Meta Tools -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Scope-aware shell execution and meta tools for v3.0 preset-based permission management.
+
+;;; Code:
+#+end_src
+
+* Dependencies
+
+#+begin_src elisp
+(require 'cl-lib)
+(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope-prompt-expansion
+#+end_src
+
+* Constants
+
+Security and resource limits for bash command execution.
+
+#+begin_src elisp
+(defconst jf/gptel-bash--max-output-chars 10000
+  "Maximum characters in command output before truncation.
+Prevents context window overflow from large command output.")
+
+(defconst jf/gptel-bash--command-timeout 30
+  "Timeout in seconds for bash command execution.
+Prevents runaway processes from consuming resources indefinitely.")
+#+end_src
+
+* Bash Command Helper Functions
+
+These helper functions use the =jf/gptel-bash--= prefix (not =jf/gptel-scope-shell--=)
+to indicate they are bash-specific utilities for command parsing and execution.
+This naming is intentional and distinguishes them from scope validation functions
+which use the =jf/gptel-scope--= prefix.
+
+** Parse Command
+
+Extract base command from complex shell strings with pipes, redirects, and command substitution.
+
+*** Implementation
+
+#+begin_src elisp
+(defun jf/gptel-bash--parse-command (cmd-string)
+  "Extract base command from CMD-STRING.
+Handles pipes, redirects, command substitution.
+Examples:
+  'grep foo | head' → 'grep'
+  'ls -la > output.txt' → 'ls'
+  'echo $(date)' → 'echo'"
+  (let* ((trimmed (string-trim cmd-string))
+         ;; Split on shell metacharacters
+         (parts (split-string trimmed "[ |><;&]+" t))
+         (base (car parts)))
+    base))
+#+end_src
+
+*** Test Coverage
+
+Edge cases covered by this implementation:
+
+**** Pipes
+#+begin_example
+Input: "grep foo | head"
+Expected: "grep"
+Rationale: Only base command matters for security categorization
+#+end_example
+
+**** Redirects (Output)
+#+begin_example
+Input: "ls -la > output.txt"
+Expected: "ls"
+Rationale: Base command determines if operation allowed
+#+end_example
+
+**** Redirects (Input)
+#+begin_example
+Input: "cat < input.txt"
+Expected: "cat"
+Rationale: Input redirection doesn't change command category
+#+end_example
+
+**** Semicolons (Command Chaining)
+#+begin_example
+Input: "cd /tmp; ls"
+Expected: "cd"
+Rationale: First command in chain is validated
+#+end_example
+
+**** AND Operator
+#+begin_example
+Input: "mkdir foo && cd foo"
+Expected: "mkdir"
+Rationale: Short-circuit AND - first command validated
+#+end_example
+
+**** OR Operator
+#+begin_example
+Input: "test -f file || touch file"
+Expected: "test"
+Rationale: Short-circuit OR - first command validated
+#+end_example
+
+**** Leading/Trailing Whitespace
+#+begin_example
+Input: "  ls  "
+Expected: "ls"
+Rationale: string-trim handles whitespace normalization
+#+end_example
+
+**** Multiple Spaces Between Command and Args
+#+begin_example
+Input: "ls  -la"
+Expected: "ls"
+Rationale: split-string with " +" regex handles multiple spaces
+#+end_example
+
+**** Compound Operators Without Spaces
+#+begin_example
+Input: "ls&&cd"
+Expected: "ls"
+Rationale: Regex "[ |><;&]+" splits on & without requiring spaces
+#+end_example
+
+**** Quoted Arguments
+#+begin_example
+Input: "echo 'hello world'"
+Expected: "echo"
+Rationale: Quotes appear in arguments, not command name
+#+end_example
+
+**** Command Substitution
+#+begin_example
+Input: "echo $(date)"
+Expected: "echo"
+Rationale: Substitution happens in argument position
+#+end_example
+
+**** Complex Pipes
+#+begin_example
+Input: "grep -r pattern . | head -20 | tail -5"
+Expected: "grep"
+Rationale: Multi-stage pipeline - only first command matters
+#+end_example
+
+**** Background Execution
+#+begin_example
+Input: "sleep 10 &"
+Expected: "sleep"
+Rationale: & operator doesn't affect command extraction
+#+end_example
+
+**** Quoted Strings with Metacharacters (Known Limitation)
+#+begin_example
+Input: "echo 'a|b'"
+Expected: "echo" (CORRECT for security purposes)
+Note: Parsing doesn't distinguish metacharacters inside quotes from outside.
+      This is acceptable - we only need base command for categorization.
+
+Input: "grep 'pattern|other' file"
+Expected: "grep" (CORRECT)
+Rationale: Even if argument parsing is naive, base command extraction is reliable.
+#+end_example
+
+This implementation uses simple regex splitting rather than full shell parsing. For security categorization, only the base command matters - argument content is irrelevant to whether the command is read-only, safe-write, or dangerous.
+
+*** Security Implications
+
+*Why only validate base command:*
+
+1. *Primary security boundary*: If =grep= is categorized as =read_only=, composing it with =head= or =tail= doesn't increase risk
+2. *Parsing complexity*: Full pipeline parsing is error-prone and fragile
+3. *Marginal benefit*: Validating every command in a pipeline provides minimal additional security
+4. *LLM behavior*: The LLM learns safe patterns; overly restrictive parsing would force workarounds
+
+*Known limitations:*
+
+1. Command chaining (=;=, =&&=, =||=) only validates first command
+2. Subsequent commands in chain bypass validation
+3. This is acceptable because directory scope still applies to all operations
+4. Dangerous commands in chain will fail on execution due to directory permissions
+
+
+** Check Absolute Paths
+
+Check if command contains absolute paths that bypass directory scoping.
+
+#+begin_src elisp
+(defun jf/gptel-bash--check-absolute-paths (command)
+  "Check if COMMAND contains absolute paths.
+Returns warning string if found, nil otherwise."
+  (when (string-match "/[[:alnum:]_/-]+" command)
+    "Warning: Command contains absolute path arguments. Directory scope may not protect these paths."))
+#+end_src
+
+** Execute Command
+
+Execute command in directory with timeout and output truncation.
+
+#+begin_src elisp
+(defun jf/gptel-bash--execute-command (command directory)
+  "Execute COMMAND in DIRECTORY with timeout and output truncation.
+Returns (:output OUTPUT :exit_code CODE :truncated BOOL :warnings LIST :error ERROR-TYPE).
+Warnings are returned in a separate field to allow LLM to distinguish them from command output.
+Error types: timeout, execution-failed."
+  (let* ((default-directory (file-truename (expand-file-name directory)))
+         (output nil)
+         (exit-code nil)
+         (truncated nil)
+         (warnings nil)
+         (error-type nil)
+         (max-output-chars jf/gptel-bash--max-output-chars))
+
+    (condition-case err
+        (with-timeout (jf/gptel-bash--command-timeout
+                       (progn
+                         (setq error-type "timeout")
+                         (setq exit-code 124)  ; GNU timeout exit code
+                         (setq output (format "Command execution timed out after %d seconds. Output may be incomplete."
+                                              jf/gptel-bash--command-timeout))
+                         (setq warnings (list "Command timed out - use more specific filters to reduce execution time"))))
+          (setq output
+                (with-temp-buffer
+                  (setq exit-code
+                        (call-process shell-file-name nil t nil
+                                      shell-command-switch command))
+                  (buffer-string))))
+      (error
+       (cl-return-from jf/gptel-bash--execute-command
+         (list :output (format "Command execution failed: %s" (error-message-string err))
+               :exit_code 1
+               :error "execution-failed"
+               :truncated nil
+               :warnings nil))))
+
+    ;; Truncate output if too long
+    (let ((original-length (length output)))
+      (when (> original-length max-output-chars)
+        (setq truncated t)
+        (setq output
+              (concat (substring output 0 max-output-chars)
+                      (format "\n\n[Output truncated at %d chars. Total: %d chars. Use filters like 'head', 'grep', or 'tail' to narrow results.]"
+                              max-output-chars original-length)))))
+
+    ;; Check for warnings (collect in list, don't modify output)
+    (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
+      (when path-warning
+        (setq warnings (list path-warning))))
+
+    (list :output output
+          :exit_code exit-code
+          :truncated truncated
+          :warnings warnings
+          :error error-type)))
+#+end_src
+
+* Run Bash Command Tool (Scope-Aware, v3.0)
+
+Execute bash commands in specified directory with category-based scope validation.
+
+** Tool Signature
+
+Function: =run_bash_command(command, directory)=
+
+*Parameters:*
+- =command= (string, required): Shell command to execute, including any arguments, pipes, or redirects
+- =directory= (string, required): Absolute path to working directory where command executes. This is the working directory (cwd) for the shell process - all relative paths in the command are resolved from this directory. The directory must exist and must be in scope for the command's category (read_only requires paths.read or paths.write, safe_write requires paths.write)
+
+*Returns:*
+- =success= (boolean): Whether command executed successfully
+- =stdout= (string): Command output (truncated if too long)
+- =stderr= (string): Command error output
+- =exit_code= (integer): Process exit code
+- =error= (string): Error type if validation failed
+
+** Common Usage Patterns
+
+*Codebase exploration (read_only):*
+#+begin_example
+run_bash_command("ls -la", "/Users/jefffarr/projects/myapp")
+run_bash_command("find . -name '*.py' -type f", "/Users/jefffarr/projects/myapp")
+run_bash_command("grep -rn 'TODO' src/", "/Users/jefffarr/projects/myapp")
+run_bash_command("git log --oneline -10", "/Users/jefffarr/projects/myapp")
+#+end_example
+
+*File creation (safe_write):*
+#+begin_example
+run_bash_command("mkdir -p scratch/experiment", "/Users/jefffarr/emacs")
+run_bash_command("touch notes.txt", "/tmp")
+run_bash_command("echo 'content' > file.txt", "/tmp")
+#+end_example
+
+*Git operations:*
+#+begin_example
+run_bash_command("git status", "/Users/jefffarr/emacs")          # read_only
+run_bash_command("git add config/file.el", "/Users/jefffarr/emacs")  # safe_write
+run_bash_command("git commit -m 'message'", "/Users/jefffarr/emacs") # safe_write
+#+end_example
+
+*Shell composition:*
+#+begin_example
+run_bash_command("grep pattern . | head -20", "/Users/jefffarr/projects/myapp")
+run_bash_command("find . -name '*.org' | wc -l", "/Users/jefffarr/emacs")
+run_bash_command("ls -la > listing.txt", "/tmp")
+#+end_example
+
+** Troubleshooting
+
+*** Command denied unexpectedly
+
+*Symptom:* Command should be allowed but gets "command_not_allowed" error
+
+*Check:*
+1. Is base command in any category list? (not full command with arguments)
+2. Spelling matches exactly? (case-sensitive)
+3. Git commands use full form? (=git log= not just =git=)
+
+*** Directory scope error
+
+*Symptom:* "directory_not_in_scope" error
+
+*Check:*
+1. Does directory match paths.read or paths.write pattern?
+2. Is directory in paths.deny?
+3. For safe_write commands, is directory in paths.write (not just paths.read)?
+4. Are glob patterns correct? (=**= for recursive, =*= for single level)
+
+*** Timeout errors
+
+*Symptom:* Command killed after 30 seconds
+
+*Solution:*
+- Use more specific filters: =grep -r pattern . --include='*.el'=
+- Limit scope: =find . -maxdepth 3 -name '*.org'=
+- Use =head= to limit output: =git log | head -50=
+
+*** Truncated output
+
+*Symptom:* Output ends with truncation notice
+
+*Solution:*
+- Add filters: =grep=, =head=, =tail= to narrow results
+- Use more specific patterns: =find . -name 'exact-name.txt'=
+- Process in chunks: Multiple commands with different filters
+
+** Tool Implementation
+
+#+begin_src elisp
+(gptel-make-scoped-tool
+ "run_bash_command"
+ "Execute shell command in specified directory with scope validation.
+
+Commands are categorized:
+- read_only: ls, grep, find, cat, head, tail, wc, file, git log, git show, git diff
+- safe_write: mkdir, touch, echo, git add, git commit
+- dangerous: (empty by default, requires explicit approval)
+
+Directory must be in scope for command category:
+- read_only commands: directory must match paths.read OR paths.write
+- safe_write commands: directory must match paths.write
+
+Shell composition allowed (pipes, redirects, command substitution), but only base command is validated.
+
+Security features:
+- 30-second timeout
+- Output truncation at 10,000 chars
+- Warnings for absolute paths in arguments
+- Deny list blocks dangerous commands (rm, rmdir, mv, cp, ln, scp, rsync, chmod, sudo, crontab, iptables, systemctl, useradd, shutdown, reboot, halt, poweroff, etc.)
+
+Examples:
+  run_bash_command('ls -la', '/Users/jefffarr/emacs')
+  run_bash_command('grep -r TODO . | head -20', '/Users/jefffarr/projects/myapp')
+  run_bash_command('git log --oneline -10', '/Users/jefffarr/emacs')
+  run_bash_command('mkdir scratch', '/tmp')"
+
+ (list '(:name "command"
+         :type string
+         :description "Shell command to execute (pipes and redirects allowed)")
+       '(:name "directory"
+         :type string
+         :description "Working directory (must be in scope for command category)"))
+
+ "bash"
+
+ ;; Tool body - executed only if validation passes
+ (let* ((result (jf/gptel-bash--execute-command command directory))
+        (exit-code (plist-get result :exit_code))
+        (output (plist-get result :output))
+        (truncated (plist-get result :truncated))
+        (warnings (plist-get result :warnings))
+        (success (zerop exit-code)))
+   (list :success success
+         :output output
+         :exit_code exit-code
+         :truncated truncated
+         :warnings warnings)))
+#+end_src
+
+* Request Scope Expansion Tool (Meta Tool, v3.0 Async)
+
+LLM uses this tool to explicitly request user approval for expanding scope using transient menu.
+
+#+begin_src elisp
+(gptel-make-tool
+ :name "request_scope_expansion"
+ :async t  ; MUST be async for transient menu
+ :description "Request user approval to expand scope with new patterns.
+
+Displays interactive menu with 3 options:
+1. Deny - Reject the expansion request
+2. Add to scope - Permanently add patterns to scope.yml
+3. Allow once - Temporarily allow for current turn only
+
+The user will see:
+- Which tool needs access
+- What patterns/resources you want to add
+- Your justification for why access is needed
+
+Returns:
+- success: true if approved (add-to-scope or allow-once)
+- success: false if denied
+- allowed_once: true if temporary permission granted
+- patterns_added: list of patterns if permanently added"
+ :args (list '(:name "tool_name"
+               :type string
+               :description "Tool name (e.g., 'read_file', 'write_file_in_scope')")
+             '(:name "patterns"
+               :type array
+               :items (:type string)
+               :description "Patterns to add (e.g., [\"/tmp/**\"] for files, [\"npm\"] for shell)")
+             '(:name "justification"
+               :type string
+               :description "Explain why this access is needed. Be specific."))
+ :category "scope"
+ :function
+ (lambda (callback tool_name patterns justification)  ; callback first!
+   ;; Convert patterns from vector to list
+   (when (vectorp patterns)
+     (setq patterns (append patterns nil)))
+
+   ;; Build violation info for transient menu
+   (let* ((violation-info
+           (list :tool tool_name
+                 :resource (car patterns)  ; First pattern as resource
+                 :reason justification
+                 :validation-type (jf/gptel-scope--infer-validation-type tool_name)
+                 :patterns patterns)))
+
+     ;; Show transient menu - pass callback, patterns, tool_name directly in scope
+     (jf/gptel-scope-prompt-expansion violation-info callback patterns tool_name))))
+#+end_src
+
+* Helper: Infer Validation Type
+
+Helper to infer validation type from tool name using tool categories.
+
+#+begin_src elisp
+(defun jf/gptel-scope--infer-validation-type (tool-name)
+  "Infer validation type from TOOL-NAME using tool categories."
+  (let ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories))))
+    (plist-get category :validation)))
+#+end_src
+
+* Provide Feature
+
+#+begin_src elisp
+(provide 'jf-gptel-scope-shell-tools)
+;;; scope-shell-tools.el ends here
+#+end_src

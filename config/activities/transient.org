@@ -24,7 +24,7 @@ Scope structure:
   :selected-project - currently selected project for detail view (or nil)
   :activity-name - user-provided name
   :sanitized-name - slugified name for git operations
-  :gptel-preset - selected gptel preset template name
+  :gptel-preset - selected gptel preset name (symbol from gptel--known-presets)
 
 #+begin_src emacs-lisp
 (defun activities-ext--init-scope (activity-name)
@@ -34,7 +34,7 @@ Scope structure:
         :selected-project nil
         :activity-name activity-name
         :sanitized-name (activities-ext--slugify activity-name)
-        :gptel-preset "programming-assistant"))
+        :gptel-preset 'programming-assistant))
 
 (defun activities-ext--scope-projects ()
   "Get selected projects from current transient scope.
@@ -301,34 +301,36 @@ Returns list of character codes."
 
 (defun activities-ext--generate-gptel-preset-suffixes ()
   "Generate suffix list for available gptel presets.
-Each preset gets a letter key, excluding keys used by projects."
-  (when (fboundp 'jf/gptel--list-preset-templates)
-    (let ((presets (jf/gptel--list-preset-templates))
+Each preset gets a letter key, excluding keys used by projects.
+Reads preset names from `gptel--known-presets' (symbol-keyed alist)."
+  (when (bound-and-true-p gptel--known-presets)
+    (let ((preset-names (mapcar #'car gptel--known-presets))
           (current-preset (activities-ext--scope-gptel-preset))
           (project-keys (activities-ext--get-project-keys)))
-      (when presets
-        (cl-loop for preset in presets
+      (when preset-names
+        (cl-loop for preset in preset-names
                  ;; Start with all keys except q (quit) and project keys
                  with unused-keys = (cl-set-difference
                                     (number-sequence ?a ?z)
                                     (cons ?q project-keys))
+                 for preset-str = (symbol-name preset)
                  ;; Try to use first letter of preset name, else first available
                  for key-char = (seq-find (lambda (k) (member k unused-keys))
-                                         preset
+                                         preset-str
                                          (seq-first unused-keys))
                  do (setq unused-keys (delete key-char unused-keys))
                  when key-char
                  for key-str = (key-description (list key-char))
-                 for is-selected = (string= preset current-preset)
+                 for is-selected = (eq preset current-preset)
                  for display = (if is-selected
-                                  (propertize (format "%s (selected)" preset)
-                                            'face 'transient-value)
-                                preset)
+                                   (propertize (format "%s (selected)" preset-str)
+                                             'face 'transient-value)
+                                 preset-str)
                  collect (list key-str
                              display
                              `(lambda ()
                                 (interactive)
-                                (activities-ext--scope-set-gptel-preset ,preset))
+                                (activities-ext--scope-set-gptel-preset ',preset))
                              :transient t))))))
 #+end_src
 
@@ -500,8 +502,8 @@ Left: toggle selection. Right: cycle git actions (W → B → ·)."
     :description (lambda ()
                    (let ((preset (activities-ext--scope-gptel-preset)))
                      (format "Gptel Preset: %s"
-                            (propertize preset 'face 'transient-value))))
-    :if (lambda () (fboundp 'jf/gptel--list-preset-templates))
+                            (propertize (symbol-name preset) 'face 'transient-value))))
+    :if (lambda () (bound-and-true-p gptel--known-presets))
     :pad-keys t
     :setup-children
     (lambda (_)

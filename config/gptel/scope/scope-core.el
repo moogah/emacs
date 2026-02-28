@@ -3,6 +3,8 @@
 
 ;; [[file:scope-core.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
 ;; Dependencies:1 ends here
 
 ;; Tool Category Constant
@@ -50,22 +52,23 @@
     ("link_roam_nodes_in_scope" . (:validation pattern :operation write))
 
     ;; Command-based: shell operations
-    ("run_approved_command" . (:validation command :operation write))
+
+    ;; Bash validation: scoped bash commands
+    ("run_bash_command" . (:validation bash :operation write))
 
     ;; Meta tools (always pass)
     ("PersistentAgent" . (:validation meta :operation delegate))
-    ("request_scope_expansion" . (:validation meta :operation meta))
-    ("inspect_scope_plan" . (:validation meta :operation meta)))
+    ("request_scope_expansion" . (:validation meta :operation meta)))
   "Tool → validation strategy mapping.
 
 Each tool maps to a plist with:
-  :validation - Validation strategy (path, pattern, command, meta)
+  :validation - Validation strategy (path, pattern, command, bash, meta)
   :operation - Operation type (read, write, delegate, meta)
 
 Validation strategies:
   path    - Validate against paths.read/write/deny lists
   pattern - Validate against org_roam_patterns
-  command - Validate against shell_commands.allow/deny lists
+  bash    - Validate against bash_tools.categories and paths
   meta    - Always allowed (no validation)
 
 Operation types:
@@ -111,7 +114,7 @@ CATEGORY: Resource category (\"filesystem\", \"org_roam\", \"shell\")
 BODY: Tool implementation - executed only if scope check passes
 
 The macro automatically:
-- Loads scope config from preset.md in current buffer's directory
+- Loads scope config from scope.yml in current buffer's directory
 - Checks tool permission using v3.0 validation
 - Normalizes arguments (vector->list)
 - Formats errors on scope violation
@@ -150,7 +153,7 @@ the primary resource identifier (filepath, node-id, command, etc.)."
                 (cl-return-from nil
                   (list :success nil
                         :error "no_scope_config"
-                        :message "No scope configuration found in preset.md. Ensure preset.md has paths section.")))
+                        :message "No scope configuration found. Ensure scope.yml exists with paths section.")))
 
               ;; Check tool permission
               (let ((check-result (jf/gptel-scope--check-tool-permission
@@ -160,7 +163,8 @@ the primary resource identifier (filepath, node-id, command, etc.)."
                     (progn ,@body)
 
                   ;; Format and return error
-                  ;; TODO: Trigger expansion UI instead of immediate return (Task #7)
+                  ;; Note: Expansion UI is triggered by LLM via request_scope_expansion tool,
+                  ;; not automatically here. This maintains LLM-mediated communication pattern.
                   (jf/gptel-scope--format-tool-error
                    ,name
                    (nth 0 normalized-args)  ; Primary resource (first arg)
@@ -175,67 +179,110 @@ the primary resource identifier (filepath, node-id, command, etc.)."
 
 ;; Load Scope Configuration
 
-;; Load and parse scope configuration from preset.md YAML frontmatter.
+;; Load and parse scope configuration from scope.yml.
 
-;; Convention: preset.md is always in the same directory as session.md.
+;; Convention: scope.yml is always in the same directory as session.md.
 
 
 ;; [[file:scope-core.org::*Load Scope Configuration][Load Scope Configuration:1]]
 (require 'yaml)  ; Emacs built-in YAML parser
 
 (defun jf/gptel-scope--load-config ()
-  "Load scope configuration from preset.md in current session directory.
+  "Load scope configuration from scope.yml.
 Returns plist with:
   :paths-read - List of allowed read paths
   :paths-write - List of allowed write paths
   :paths-deny - List of denied paths
-  :org-roam-patterns - Plist with :subdirectory, :tags, :node_ids
-  :shell-commands - Plist with :allow and :deny lists
+  :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
+  :bash-tools - Plist with :categories and :deny lists
+                (YAML uses snake_case: bash_tools, read_only
+                 Elisp uses kebab-case: :bash-tools, :read-only)
 
-Uses buffer-local jf/gptel--branch-dir if available (set during session init),
-otherwise falls back to buffer-file-name directory.
-
-Returns nil if preset.md not found or can't be parsed."
+Uses buffer-local jf/gptel--branch-dir if available.
+Returns nil if scope.yml not found or can't be parsed."
   (condition-case err
       (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
                              (and (buffer-file-name)
                                   (file-name-directory (buffer-file-name))))))
         (when context-dir
-          (let ((preset-file (expand-file-name "preset.md" context-dir)))
-            (when (file-exists-p preset-file)
-              (jf/gptel-scope--parse-preset-config preset-file)))))
+          (let ((scope-file (expand-file-name jf/gptel-session--scope-file context-dir)))
+            (when (file-exists-p scope-file)
+              (jf/gptel-scope--parse-scope-yml scope-file)))))
     (error
      (message "Error loading scope config: %s" (error-message-string err))
      nil)))
 ;; Load Scope Configuration:1 ends here
 
-;; Parse Preset Configuration
+;; Key Normalization Helper
 
-;; Extract scope configuration from preset.md YAML frontmatter.
+;; Normalize YAML keys by converting underscores to hyphens for internal consistency.
+
+;; *Bidirectional conversion:*
+;; - *Read path*: YAML =bash_tools= (snake_case) → Elisp =:bash-tools= (kebab-case)
+;; - *Write path*: Elisp =:bash-tools= (kebab-case) → YAML =bash_tools= (snake_case)
+
+;; This normalization is automatic and bidirectional:
+;; 1. When loading scope.yml, =jf/gptel-scope--normalize-plist-keys= converts all underscore keys to hyphens
+;; 2. When writing scope.yml, =jf/gptel-scope--kebab-to-snake= (in scope-expansion.org) converts hyphens back to underscores
+
+;; *Example:* Users write =bash_tools= in YAML files, but code uses =:bash-tools= internally.
+
+;; This is especially important for =bash_tools= since it's the most recent addition to the schema.
 
 
-;; [[file:scope-core.org::*Parse Preset Configuration][Parse Preset Configuration:1]]
-(defun jf/gptel-scope--parse-preset-config (preset-file)
-  "Extract scope configuration from PRESET-FILE YAML frontmatter.
+;; [[file:scope-core.org::*Key Normalization Helper][Key Normalization Helper:1]]
+(defun jf/gptel-scope--normalize-plist-keys (plist)
+  "Normalize all keys in PLIST by converting underscores to hyphens.
+Recursively processes nested plists.
+Example: :bash_tools -> :bash-tools, :read_only -> :read-only"
+  (when plist
+    (let ((result nil))
+      (while plist
+        (let* ((key (car plist))
+               (value (cadr plist))
+               (normalized-key (if (keywordp key)
+                                   (intern (concat ":" (replace-regexp-in-string
+                                                       "_" "-"
+                                                       (substring (symbol-name key) 1))))
+                                 key))
+               (normalized-value (if (and (listp value)
+                                         (keywordp (car value)))
+                                    (jf/gptel-scope--normalize-plist-keys value)
+                                  value)))
+          (setq result (append result (list normalized-key normalized-value)))
+          (setq plist (cddr plist))))
+      result)))
+;; Key Normalization Helper:1 ends here
+
+;; Parse Scope YAML
+
+;; Parse scope configuration from a plain YAML file (no frontmatter).
+;; Automatically normalizes all keys from underscore to hyphenated format.
+
+
+;; [[file:scope-core.org::*Parse Scope YAML][Parse Scope YAML:1]]
+(defun jf/gptel-scope--parse-scope-yml (scope-file)
+  "Parse scope configuration from SCOPE-FILE (plain YAML, no frontmatter).
 Returns plist with :paths-read, :paths-write, :paths-deny,
-:org-roam-patterns, and :shell-commands."
+:org-roam-patterns, and :bash-tools.
+
+Automatically normalizes all keys: underscored keys (bash_tools) are
+converted to hyphenated keys (bash-tools) for consistency."
   (with-temp-buffer
-    (insert-file-contents preset-file)
-    (goto-char (point-min))
-    (when (re-search-forward "^---\n" nil t)
-      (let ((yaml-start (point)))
-        (when (re-search-forward "^---\n" nil t)
-          (let* ((yaml-end (match-beginning 0))
-                 (yaml-content (buffer-substring yaml-start yaml-end))
-                 (parsed (yaml-parse-string yaml-content :object-type 'plist)))
-            ;; Extract paths section
-            (let ((paths (plist-get parsed :paths)))
-              (list :paths-read (plist-get paths :read)
-                    :paths-write (plist-get paths :write)
-                    :paths-deny (plist-get paths :deny)
-                    :org-roam-patterns (plist-get parsed :org_roam_patterns)
-                    :shell-commands (plist-get parsed :shell_commands)))))))))
-;; Parse Preset Configuration:1 ends here
+    (insert-file-contents scope-file)
+    (let* ((parsed (yaml-parse-string (buffer-string)
+                                      :object-type 'plist
+                                      :sequence-type 'list))
+           (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+           (paths (plist-get normalized :paths))
+           (org-roam (plist-get normalized :org-roam-patterns))
+           (bash-tools (plist-get normalized :bash-tools)))
+      (list :paths-read (plist-get paths :read)
+            :paths-write (plist-get paths :write)
+            :paths-deny (plist-get paths :deny)
+            :org-roam-patterns org-roam
+            :bash-tools bash-tools))))
+;; Parse Scope YAML:1 ends here
 
 ;; Buffer-Local Allow-Once List
 
@@ -256,6 +303,10 @@ Cleared automatically after LLM response completes via gptel-post-response-funct
 Extracts resource from ARGS based on tool category.
 Returns t if found (and consumes the permission), nil otherwise.
 
+IMPORTANT: Permission is consumed when this function returns t, BEFORE the
+tool body executes. This ensures single-use semantics but means permissions
+cannot be retried if the tool body fails. See 'Consumption Semantics' above.
+
 CONFIG is the scope configuration (used to determine tool category)."
   (when jf/gptel-scope--allow-once-list
     (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
@@ -264,6 +315,7 @@ CONFIG is the scope configuration (used to determine tool category)."
                       ('path (expand-file-name (car args)))
                       ('pattern (format "%s:%s" tool-name (car args)))
                       ('command (car args))
+                      ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))  ; Composite: command:directory
                       (_ nil))))
       (when resource
         (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
@@ -278,9 +330,11 @@ CONFIG is the scope configuration (used to determine tool category)."
 
 
 ;; [[file:scope-core.org::*Add to Allow-Once List][Add to Allow-Once List:1]]
-(defun jf/gptel-scope--add-to-allow-once-list (tool-name resource)
+(defun jf/gptel-scope-add-to-allow-once-list (tool-name resource)
   "Add TOOL-NAME and RESOURCE to allow-once list.
-Permission is valid only for current LLM turn."
+Permission is valid only for current LLM turn.
+
+This is a public API function used by scope-expansion and other modules."
   (push (cons tool-name resource) jf/gptel-scope--allow-once-list))
 ;; Add to Allow-Once List:1 ends here
 
@@ -430,7 +484,7 @@ Returns plist with:
                  :tool tool-name))))
 
       ("link_roam_nodes_in_scope"
-       (let ((node-ids (plist-get org-roam-config :node_ids)))
+       (let ((node-ids (plist-get org-roam-config :node-ids)))
          ;; Check if wildcard "*" is in allowed node_ids
          (if (member "*" node-ids)
              (list :allowed t)
@@ -448,54 +502,181 @@ Returns plist with:
              :tool tool-name)))))
 ;; Pattern-Based Validator:1 ends here
 
-;; Command-Based Validator
-
-;; Validates shell commands against allowlist and denylist.
+;; Implementation
 
 
-;; [[file:scope-core.org::*Command-Based Validator][Command-Based Validator:1]]
-(defun jf/gptel-scope--validate-command-tool (tool-name args config)
-  "Validate shell command against shell_commands allowlist/denylist.
+;; [[file:scope-core.org::*Implementation][Implementation:1]]
+(defun jf/gptel-scope--validate-bash-tool (tool-name args config)
+  "Validate bash command against bash_tools categories and paths.
 TOOL-NAME is the tool being validated.
-ARGS is the tool arguments list (first arg should be command string).
+ARGS is the tool arguments list (command and directory).
 CONFIG is the scope configuration plist.
 
 Returns plist with:
   :allowed t/nil
   :reason STRING (if denied)
-  :resource STRING (the command, if denied)
+  :resource STRING (the denied resource - command or directory)
+  :command STRING (the command, if denied)
+  :directory STRING (the directory, if denied)
   :tool STRING (tool name, if denied)
-  :allowed-patterns LIST (allowlist, if denied for not matching)."
-  (cl-block jf/gptel-scope--validate-command-tool
+  :message STRING (descriptive message)
+  :required-scope STRING (read/write, if denied)
+  :allowed-patterns LIST (if denied for directory not in scope)."
+  (cl-block jf/gptel-scope--validate-bash-tool
     (let* ((command-full (car args))
-           (command-name (car (split-string command-full)))
-           (shell-config (plist-get config :shell-commands))
-           (allowed (plist-get shell-config :allow))
-           (denied (plist-get shell-config :deny)))
+           (directory (cadr args))
+           (bash-config (plist-get config :bash-tools))
+           (categories (plist-get bash-config :categories))
+           (deny-list (plist-get bash-config :deny))
+           (read-paths (plist-get config :paths-read))
+           (write-paths (plist-get config :paths-write))
+           (deny-paths (plist-get config :paths-deny)))
 
-      ;; Check deny patterns (substring matching)
-      (when denied
-        (dolist (deny-pattern denied)
-          (when (string-match-p (regexp-quote deny-pattern) command-full)
-            (cl-return-from jf/gptel-scope--validate-command-tool
-              (list :allowed nil
-                    :reason "denied-command"
-                    :resource command-full
-                    :tool tool-name)))))
-
-      ;; Check allowlist (exact command name match or wildcard)
-      (unless (or (member command-name allowed)
-                  (member "*" allowed))
-        (cl-return-from jf/gptel-scope--validate-command-tool
+      ;; If bash_tools section is missing, deny all commands
+      (unless bash-config
+        (cl-return-from jf/gptel-scope--validate-bash-tool
           (list :allowed nil
-                :reason "not-in-allowlist"
-                :resource command-full
+                :reason "command-not-allowed"
                 :tool tool-name
-                :allowed-patterns allowed)))
+                :resource command-full
+                :command command-full
+                :message "No bash_tools configuration found. All commands denied by default.")))
 
-      ;; Passed
-      (list :allowed t))))
-;; Command-Based Validator:1 ends here
+      ;; Validate bash_tools structure is well-formed
+      (unless (and categories (listp categories))
+        (cl-return-from jf/gptel-scope--validate-bash-tool
+          (list :allowed nil
+                :reason "malformed-config"
+                :tool tool-name
+                :resource command-full
+                :command command-full
+                :message "Malformed bash_tools configuration: missing or invalid 'categories' section.")))
+
+      ;; Validate required category sections exist
+      (let ((read-only-section (plist-get categories :read-only))
+            (safe-write-section (plist-get categories :safe-write))
+            (dangerous-section (plist-get categories :dangerous)))
+        (unless (and read-only-section safe-write-section dangerous-section)
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "malformed-config"
+                  :tool tool-name
+                  :resource command-full
+                  :command command-full
+                  :message "Malformed bash_tools configuration: missing required category (read_only, safe_write, or dangerous).")))
+
+        ;; Validate each category has a commands list
+        (unless (and (plist-get read-only-section :commands)
+                     (plist-get safe-write-section :commands)
+                     (plist-get dangerous-section :commands))
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "malformed-config"
+                  :tool tool-name
+                  :resource command-full
+                  :command command-full
+                  :message "Malformed bash_tools configuration: category missing 'commands' list."))))
+
+      ;; Parse command to extract base command
+      (let* ((command-parts (split-string command-full "[ |><;&]+" t))
+             (base-command (car command-parts)))
+
+        ;; Check deny list first (highest priority)
+        (when (member base-command deny-list)
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "denied-command"
+                  :tool tool-name
+                  :resource (format "%s:%s" command-full (expand-file-name directory))
+                  :command command-full
+                  :message (format "Command '%s' is explicitly denied in bash_tools.deny list."
+                                 base-command))))
+
+        ;; Categorize command
+        (let ((category nil)
+              (read-only (plist-get (plist-get categories :read-only) :commands))
+              (safe-write (plist-get (plist-get categories :safe-write) :commands))
+              (dangerous (plist-get (plist-get categories :dangerous) :commands)))
+
+          (cond
+           ((member base-command read-only) (setq category 'read-only))
+           ((member base-command safe-write) (setq category 'safe-write))
+           ((member base-command dangerous) (setq category 'dangerous))
+           (t
+            ;; Unknown command - deny and suggest scope expansion
+            (cl-return-from jf/gptel-scope--validate-bash-tool
+              (list :allowed nil
+                    :reason "command-not-allowed"
+                    :tool tool-name
+                    :resource (format "%s:%s" command-full (expand-file-name directory))
+                    :command command-full
+                    :message (format "Command '%s' is not in any bash_tools category (read_only, safe_write, dangerous). Use request_scope_expansion to request adding this command to an appropriate category."
+                                   base-command)))))
+
+          ;; Dangerous commands always denied (require explicit expansion)
+          (when (eq category 'dangerous)
+            (cl-return-from jf/gptel-scope--validate-bash-tool
+              (list :allowed nil
+                    :reason "dangerous-command"
+                    :tool tool-name
+                    :resource (format "%s:%s" command-full (expand-file-name directory))
+                    :command command-full
+                    :message (format "Command '%s' is categorized as dangerous and requires explicit user approval via request_scope_expansion."
+                                   base-command))))
+
+          ;; Resolve directory to absolute path
+          (let* ((abs-directory (expand-file-name directory))
+                 (real-directory (file-truename abs-directory))
+                 (required-scope (if (eq category 'read-only) "read" "write")))
+
+            ;; Check deny paths first (overrides all)
+            (when (jf/gptel-scope--matches-any-pattern real-directory deny-paths)
+              (cl-return-from jf/gptel-scope--validate-bash-tool
+                (list :allowed nil
+                      :reason "denied-path"
+                      :tool tool-name
+                      :resource (format "%s:%s" command-full real-directory)
+                      :command command-full
+                      :directory real-directory
+                      :message (format "Directory '%s' is explicitly denied in paths.deny list."
+                                     real-directory))))
+
+            ;; Validate directory against category requirement
+            (pcase category
+              ('read-only
+               ;; Read commands allowed in paths.read OR paths.write
+               (unless (or (jf/gptel-scope--matches-any-pattern real-directory read-paths)
+                          (jf/gptel-scope--matches-any-pattern real-directory write-paths))
+                 (cl-return-from jf/gptel-scope--validate-bash-tool
+                   (list :allowed nil
+                         :reason "directory-not-in-scope"
+                         :tool tool-name
+                         :resource (format "%s:%s" command-full real-directory)
+                         :command command-full
+                         :directory real-directory
+                         :required-scope required-scope
+                         :allowed-patterns (append read-paths write-paths)
+                         :message (format "Directory '%s' is not in scope for read operations. Command '%s' requires read access. Use request_scope_expansion to request access."
+                                        real-directory base-command)))))
+
+              ('safe-write
+               ;; Write commands require paths.write only
+               (unless (jf/gptel-scope--matches-any-pattern real-directory write-paths)
+                 (cl-return-from jf/gptel-scope--validate-bash-tool
+                   (list :allowed nil
+                         :reason "directory-not-in-scope"
+                         :tool tool-name
+                         :resource (format "%s:%s" command-full real-directory)
+                         :command command-full
+                         :directory real-directory
+                         :required-scope required-scope
+                         :allowed-patterns write-paths
+                         :message (format "Directory '%s' is not in scope for write operations. Command '%s' requires write access. Use request_scope_expansion to request access."
+                                        real-directory base-command))))))
+
+            ;; Passed all checks
+            (list :allowed t)))))))
+;; Implementation:1 ends here
 
 ;; Tool Permission Dispatch
 
@@ -505,7 +686,7 @@ Returns plist with:
 ;; [[file:scope-core.org::*Tool Permission Dispatch][Tool Permission Dispatch:1]]
 (defun jf/gptel-scope--check-tool-permission (config tool-name args)
   "Validate TOOL-NAME with ARGS against CONFIG.
-CONFIG is the scope configuration plist from preset.md.
+CONFIG is the scope configuration plist from scope.yml.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list.
 
@@ -534,7 +715,7 @@ Returns plist with:
     (pcase validation-type
       ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
       ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
-      ('command (jf/gptel-scope--validate-command-tool tool-name args config))
+      ('bash (jf/gptel-scope--validate-bash-tool tool-name args config))
       (_
        ;; Unknown tool - deny by default
        (list :allowed nil
@@ -594,189 +775,32 @@ Expands relative paths to absolute, resolves symlinks."
   "Format tool permission error for LLM.
 TOOL-NAME: Name of the tool that was denied
 RESOURCE: The resource that was denied (path, node-id, command, etc.)
-CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny_patterns"
-  (let ((patterns (plist-get check-result :patterns))
-        (deny-patterns (plist-get check-result :deny_patterns))
-        (error-type (or (plist-get check-result :error) "scope_violation"))
-        (custom-message (plist-get check-result :message)))
+CHECK-RESULT: Plist from validator with :allowed, :patterns/:allowed-patterns, :deny-patterns, :reason/:error"
+  (let ((patterns (or (plist-get check-result :allowed-patterns)  ; Bash validator uses :allowed-patterns
+                      (plist-get check-result :patterns)))        ; Other validators use :patterns
+        (deny-patterns (plist-get check-result :deny-patterns))
+        (error-type (or (plist-get check-result :reason)          ; Bash validator uses :reason
+                        (plist-get check-result :error)           ; Other validators use :error
+                        "scope-violation"))
+        (custom-message (plist-get check-result :message))
+        ;; Extract bash-specific fields (will be nil for non-bash tools)
+        (command (plist-get check-result :command))
+        (directory (plist-get check-result :directory))
+        (required-scope (plist-get check-result :required-scope)))
     (list :success nil
           :error error-type
           :tool tool-name
           :resource resource
-          :allowed_patterns patterns
-          :deny_patterns deny-patterns
+          :command command                    ; Pass through bash command field
+          :directory directory                ; Pass through bash directory field
+          :required-scope required-scope      ; Pass through required scope level
+          :allowed-patterns patterns
+          :deny-patterns deny-patterns
           :message (or custom-message
                       (format "Tool '%s' denied for resource '%s'. Use request_scope_expansion to ask user for approval."
                              tool-name
                              resource)))))
 ;; Format Tool Error:1 ends here
-
-;; Vector to List Conversion
-
-;; Helper function to convert vectors to lists in parsed YAML structures.
-;; YAML parser returns vectors for arrays, but elisp code expects lists.
-
-
-;; [[file:scope-core.org::*Vector to List Conversion][Vector to List Conversion:1]]
-(defun jf/gptel-scope--vectorp-to-list (obj)
-  "Recursively convert vectors to lists in OBJ (plist or nested structure)."
-  (cond
-   ;; Vector: convert to list and recurse
-   ((vectorp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list (append obj nil)))
-
-   ;; List: recurse on each element
-   ((listp obj)
-    (mapcar #'jf/gptel-scope--vectorp-to-list obj))
-
-   ;; Other: return as-is
-   (t obj)))
-;; Vector to List Conversion:1 ends here
-
-;; Preset Path Updater
-
-;; Helper function for updating paths section in preset.md files.
-
-
-;; [[file:scope-core.org::*Preset Path Updater][Preset Path Updater:1]]
-(defun jf/gptel-scope--update-preset-paths (preset-file allowed-paths denied-paths)
-  "Update paths section in PRESET-FILE with ALLOWED-PATHS and DENIED-PATHS.
-PRESET-FILE is the path to a preset.md file.
-ALLOWED-PATHS is a list of glob patterns for allowed file access.
-DENIED-PATHS is a list of glob patterns to deny.
-
-If ALLOWED-PATHS is nil or empty, creates deny-all configuration (empty path lists).
-
-This function parses the YAML frontmatter, updates or adds the paths section,
-and writes the modified content back to the file."
-  (let ((content (with-temp-buffer
-                   (insert-file-contents preset-file)
-                   (buffer-string))))
-
-    ;; Find the YAML frontmatter boundaries
-    (with-temp-buffer
-      (insert content)
-      (goto-char (point-min))
-
-      (unless (re-search-forward "^---\n" nil t)
-        (error "No YAML frontmatter found in %s" preset-file))
-
-      (let ((yaml-start (point)))
-        (save-match-data
-          (message "DEBUG: Found opening --- at position %d (line %d)" (point) (line-number-at-pos)))
-        (unless (re-search-forward "^---\n" nil t)
-          (error "No closing delimiter for YAML frontmatter in %s" preset-file))
-
-        ;; CRITICAL: Save match positions BEFORE any message/logging that might clobber them
-        (let* ((yaml-end (match-beginning 0))
-               (post-yaml-start (match-end 0))
-               (yaml-content (buffer-substring yaml-start yaml-end))
-               (parsed (jf/gptel-scope--vectorp-to-list
-                       (yaml-parse-string yaml-content :object-type 'plist)))
-               (post-yaml (buffer-substring post-yaml-start (point-max))))
-          (save-match-data
-            (message "DEBUG: post-yaml extracted from %d, length=%d bytes" post-yaml-start (length post-yaml)))
-
-          ;; Update or add paths section
-          (setq parsed (plist-put parsed :paths
-                                  (list :read (or allowed-paths '())
-                                        :write '("/tmp/**")
-                                        :deny (or denied-paths
-                                                 '("**/.git/**"
-                                                   "**/runtime/**"
-                                                   "**/.env"
-                                                   "**/node_modules/**")))))
-
-          ;; Reconstruct the file
-          (erase-buffer)
-          (insert "---\n")
-
-          ;; Write YAML frontmatter (simple plist serialization)
-          (message "DEBUG: Serializing parsed plist keys: %S" (cl-loop for (k v) on parsed by #'cddr collect k))
-          (cl-loop for (key value) on parsed by #'cddr
-                   do (let ((key-name (substring (symbol-name key) 1)))
-                        (message "DEBUG: Processing key=%s value-type=%s" key-name (type-of value))
-                        (cond
-                         ;; Handle paths specially (nested structure)
-                         ((eq key :paths)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (if subvalue
-                                            (dolist (item subvalue)
-                                              (insert (format "    - \"%s\"\n" item)))
-                                          (insert "    []\n")))))
-
-                         ;; Handle tools section (list or vector of tool names)
-                         ((eq key :tools)
-                          (insert (format "%s:\n" key-name))
-                          ;; YAML parser returns vectors for lists, so check for both
-                          ;; tools can be a list ("PersistentAgent" ...) or vector ["PersistentAgent" ...]
-                          (if (and value (sequencep value) (not (stringp value)) (> (length value) 0))
-                              (seq-do (lambda (tool-name)
-                                        (when (stringp tool-name)
-                                          (insert (format "  - %s\n" tool-name))))
-                                      value)
-                            ;; Empty or null tools - write empty list
-                            (insert "  []\n")))
-
-                         ;; Handle org_roam_patterns section
-                         ((eq key :org_roam_patterns)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (dolist (item subvalue)
-                                          (insert (format "    - \"%s\"\n" item))))))
-
-                         ;; Handle shell_commands section
-                         ((eq key :shell_commands)
-                          (insert (format "%s:\n" key-name))
-                          (cl-loop for (subkey subvalue) on value by #'cddr
-                                   do (let ((subkey-name (substring (symbol-name subkey) 1)))
-                                        (insert (format "  %s:\n" subkey-name))
-                                        (dolist (item subvalue)
-                                          (insert (format "    - \"%s\"\n" item))))))
-
-                         ;; Simple key-value pairs
-                         ((stringp value)
-                          ;; Check if string contains newlines - if so, use block scalar
-                          (if (string-match-p "\n" value)
-                              (progn
-                                (insert (format "%s: |\n" key-name))
-                                ;; Split into lines and indent each
-                                (dolist (line (split-string value "\n" t))
-                                  (insert (format "  %s\n" line))))
-                            ;; Single-line string - use quoted format
-                            (insert (format "%s: \"%s\"\n" key-name value))))
-                         ((numberp value)
-                          (insert (format "%s: %s\n" key-name value)))
-                         ((symbolp value)
-                          (insert (format "%s: %s\n" key-name value)))
-                         ;; Simple lists (but not plists which are already handled above)
-                         ((and (listp value) (not (keywordp (car-safe value))))
-                          (insert (format "%s:\n" key-name))
-                          (dolist (item value)
-                            (insert (format "  - %s\n" item))))
-                         ;; Skip anything else (already handled or unsupported)
-                         (t nil))))
-
-          (insert "---\n")
-          (let ((before-post-yaml-size (- (point-max) (point-min))))
-            (message "DEBUG: Buffer size before post-yaml=%d" before-post-yaml-size)
-            (message "DEBUG: About to insert post-yaml, length=%d, first 100 chars: %S"
-                     (length post-yaml)
-                     (substring post-yaml 0 (min 100 (length post-yaml))))
-            (insert post-yaml)
-            (let ((final-size (- (point-max) (point-min))))
-              (message "DEBUG: Final buffer size=%d (before=%d + post-yaml=%d = expected %d)"
-                       final-size before-post-yaml-size (length post-yaml)
-                       (+ before-post-yaml-size (length post-yaml)))))
-
-          ;; Write back to file
-          (write-region (point-min) (point-max) preset-file nil 'silent))))))
-;; Preset Path Updater:1 ends here
 
 ;; Provide Feature
 

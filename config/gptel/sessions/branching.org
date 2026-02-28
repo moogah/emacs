@@ -9,7 +9,7 @@ Session branching support for gptel sessions. Allows users to create divergent
 conversation paths from any user prompt.
 
 Branches are full-fledged session directories with:
-- Copied metadata (scope-plan.yml, preset.md)
+- Copied config (scope.yml, metadata.yml)
 - Copied agent subdirectories
 - Truncated context (session.md) with filtered bounds
 
@@ -305,19 +305,19 @@ Returns new branch directory path."
 
     (jf/gptel--log 'info "Creating branch: %s from parent: %s" new-branch-name parent-branch-name)
 
-    ;; Copy scope-plan.yml from parent branch
-    (let ((parent-scope (jf/gptel--scope-plan-file-path parent-branch-dir))
-          (branch-scope (jf/gptel--scope-plan-file-path branch-dir)))
-      (when (file-exists-p parent-scope)
-        (copy-file parent-scope branch-scope t)
-        (jf/gptel--log 'info "Copied scope-plan.yml to branch")))
+    ;; Copy scope.yml from parent branch (new format)
+    (let ((parent-scope-yml (jf/gptel--scope-file-path parent-branch-dir))
+          (branch-scope-yml (jf/gptel--scope-file-path branch-dir)))
+      (when (file-exists-p parent-scope-yml)
+        (copy-file parent-scope-yml branch-scope-yml t)
+        (jf/gptel--log 'info "Copied scope.yml to branch")))
 
-    ;; Copy preset.md from parent branch
-    (let ((parent-preset (jf/gptel--preset-file-path parent-branch-dir))
-          (branch-preset (jf/gptel--preset-file-path branch-dir)))
-      (when (file-exists-p parent-preset)
-        (copy-file parent-preset branch-preset t)
-        (jf/gptel--log 'info "Copied preset.md to branch")))
+    ;; Copy metadata.yml from parent branch (new format)
+    (let ((parent-metadata (jf/gptel--metadata-file-path parent-branch-dir))
+          (branch-metadata (jf/gptel--metadata-file-path branch-dir)))
+      (when (file-exists-p parent-metadata)
+        (copy-file parent-metadata branch-metadata t)
+        (jf/gptel--log 'info "Copied metadata.yml to branch")))
 
     ;; Create branch-metadata.yml
     (jf/gptel--write-branch-metadata branch-dir parent-branch-name branch-position)
@@ -354,7 +354,7 @@ Interactively:
 
 The new branch is created in the same session with:
 - Timestamped branch name: <timestamp>-<user-name>
-- Copied preset.md and scope-plan.yml from parent branch
+- Copied scope.yml and metadata.yml from parent
 - branch-metadata.yml tracking parent branch name
 - Copied agent subdirectories from parent branch
 - session.md truncated at branch point with filtered bounds

@@ -1,0 +1,10 @@
+schema: spec-driven
+created: 2026-02-21
+beads:
+  - emacs-7jj  # Extend scope-profiles for bash_tools schema
+  - emacs-7xb  # Extend preset-registration to extract bash_tools
+  - emacs-qwu  # Add bash validation to scope-core
+  - emacs-9lu  # Implement run_bash_command tool
+  - emacs-9hs  # Extend scope-expansion for bash commands
+  - emacs-oyg  # Update module loader and relocate bash-tools
+  - emacs-u5z  # Create bash-enabled example presets
