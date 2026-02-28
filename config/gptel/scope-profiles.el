@@ -41,7 +41,7 @@ also normalized recursively."
 (defun jf/gptel-scope-profile--load (profile-name)
   "Load scope profile PROFILE-NAME from the profiles directory.
 PROFILE-NAME is the base name without .yml extension.
-Returns a plist with :paths, :org-roam-patterns, :shell-commands.
+Returns a plist with :paths, :org-roam-patterns, :shell-commands, :bash-tools.
 Returns nil and logs a warning if the file is missing or cannot be parsed."
   (let ((profile-file (expand-file-name
                        (concat profile-name ".yml")
@@ -186,7 +186,11 @@ If SCOPE-PLIST is nil or empty, writes minimal YAML with empty sections."
         (effective-plist (or scope-plist
                              (list :paths (list :read nil :write nil :deny nil)
                                    :org-roam-patterns (list :subdirectory nil :tags nil :node-ids nil)
-                                   :shell-commands (list :allow nil :deny nil)))))
+                                   :shell-commands (list :allow nil :deny nil)
+                                   :bash-tools (list :categories (list :read-only (list :commands nil)
+                                                                       :safe-write (list :commands nil)
+                                                                       :dangerous (list :commands nil))
+                                                     :deny nil)))))
     (with-temp-file scope-file
       (insert (jf/gptel-scope-profile--plist-to-yaml effective-plist 0))
       (insert "\n"))
