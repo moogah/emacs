@@ -377,6 +377,71 @@ If SCOPE-PLIST is nil or empty, writes minimal YAML with empty sections."
     (jf/gptel--log 'info "Wrote scope file: %s" scope-file)))
 #+end_src
 
+* Deep Merge for Scope Configuration
+
+Generic deep-merge for scope plists that doesn't hard-code schema knowledge.
+
+** Merge Lists with Deduplication
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope-profile--merge-lists (list1 list2)
+  "Merge LIST1 and LIST2, removing duplicates.
+Preserves order: LIST1 items first, then new items from LIST2.
+Returns nil if both lists are nil."
+  (when (or list1 list2)
+    (let ((result (copy-sequence list1)))
+      (dolist (item list2)
+        (unless (member item result)
+          (setq result (append result (list item)))))
+      result)))
+#+end_src
+
+** Deep Merge Plists
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope-profile--deep-merge (base override)
+  "Deep merge two plists, with OVERRIDE taking precedence.
+
+Merging rules:
+- Nested plists: recursively merge
+- Lists: concatenate and deduplicate (base first, then override)
+- Scalars: override wins
+- nil: treated as absence (override's nil doesn't clear base's value)
+
+Returns a new plist with merged values.
+
+This is schema-agnostic - works for any plist structure including
+future additions to scope configuration."
+  (if (null override)
+      base
+    (let ((result (copy-sequence base)))
+      ;; Iterate over all keys in override
+      (cl-loop for (key val) on override by #'cddr
+               do (let ((base-val (plist-get base key)))
+                    (setq result
+                          (plist-put result key
+                                     (cond
+                                      ;; Both are plists: recursively merge
+                                      ((and (listp base-val) (listp val)
+                                            (keywordp (car-safe base-val))
+                                            (keywordp (car-safe val)))
+                                       (jf/gptel-scope-profile--deep-merge base-val val))
+
+                                      ;; Both are lists (not plists): merge and deduplicate
+                                      ((and (listp base-val) (listp val)
+                                            (not (keywordp (car-safe base-val)))
+                                            (not (keywordp (car-safe val))))
+                                       (jf/gptel-scope-profile--merge-lists base-val val))
+
+                                      ;; Override is nil: keep base value (nil means absence)
+                                      ((null val)
+                                       base-val)
+
+                                      ;; Otherwise: override wins
+                                      (t val))))))
+      result)))
+#+end_src
+
 * High-Level Session Integration
 
 #+begin_src emacs-lisp
@@ -384,27 +449,28 @@ If SCOPE-PLIST is nil or empty, writes minimal YAML with empty sections."
   "Create scope.yml for a session in TARGET-DIR.
 PRESET-NAME is used to resolve the scope profile.
 PROJECT-ROOT is used for variable expansion.
-WORKTREE-PATHS, if provided, overrides the paths from the profile but
-preserves other scope configuration (bash_tools, org_roam_patterns).
+WORKTREE-PATHS, if provided, is deep-merged with the preset's scope
+configuration (paths are concatenated, bash_tools preserved, etc.).
 
 Flow:
   1. Resolve profile for PRESET-NAME (get bash_tools, org_roam_patterns, etc.)
-  2. If WORKTREE-PATHS provided: merge by overriding :paths section
-  3. Expand variables with PROJECT-ROOT
-  4. Write scope.yml to TARGET-DIR"
+  2. Expand variables with PROJECT-ROOT
+  3. If WORKTREE-PATHS provided: deep-merge into preset's scope config
+  4. Write scope.yml to TARGET-DIR
+
+Deep merge is schema-agnostic and works for any future scope configuration:
+- Lists (read/write paths): concatenated and deduplicated
+- Nested plists: recursively merged
+- Scalars: worktree-paths wins"
   (let* ((resolved (jf/gptel-scope-profile--resolve preset-name))
          (expanded (when resolved
                      (jf/gptel-scope-profile--expand-variables resolved project-root)))
          (scope-plist
           (cond
-           ;; Merge worktree paths with preset's scope configuration
+           ;; Deep merge worktree paths with preset's scope configuration
            ((and worktree-paths expanded)
-            (jf/gptel--log 'info "Merging worktree paths with preset scope configuration")
-            ;; Override :paths from worktree-paths, preserve rest of scope config
-            (let ((merged (copy-sequence expanded)))
-              (when (plist-member worktree-paths :paths)
-                (setq merged (plist-put merged :paths (plist-get worktree-paths :paths))))
-              merged))
+            (jf/gptel--log 'info "Deep-merging worktree paths with preset scope configuration")
+            (jf/gptel-scope-profile--deep-merge expanded worktree-paths))
 
            ;; Only worktree paths (no preset scope config)
            (worktree-paths
