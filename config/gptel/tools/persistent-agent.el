@@ -233,17 +233,20 @@ gptel--known-presets, with zero inheritance from the parent session."
                    where preset description)))
 
           ;; Execute request from agent buffer
-          ;; Buffer-local settings from gptel--apply-preset are sufficient
-          ;; (use-tools and include-tool-results set via preset)
+          ;; CRITICAL: Must execute gptel-request from agent-buffer context
+          ;; so configuration lookup uses agent's buffer-local variables,
+          ;; not parent's. The :buffer parameter only controls where response
+          ;; is inserted, not which buffer's config is used.
           (let ((partial ""))
-            (gptel-request nil
-              :buffer agent-buffer
-              :position (with-current-buffer agent-buffer (point-max))
-              :context ov
-              :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
+            (with-current-buffer agent-buffer
+              (gptel-request nil
+                :buffer agent-buffer
+                :position (point-max)
+                :context ov
+                :fsm (gptel-make-fsm :handlers jf/gptel-persistent-agent--fsm-handlers)
 
-              :callback
-              (lambda (resp info &optional raw)
+                :callback
+                (lambda (resp info &optional raw)
                 (let ((ov (plist-get info :context))
                       (buf (plist-get info :buffer)))
                   (pcase resp
@@ -294,7 +297,7 @@ gptel--known-presets, with zero inheritance from the parent session."
                          ;; Apply transformer if present
                          (when-let ((transform (plist-get info :transformer)))
                            (setq partial (funcall transform partial)))
-                         (funcall main-cb partial))))))))))))))
+                         (funcall main-cb partial)))))))))))))))
 
 (gptel-make-tool
  :name "PersistentAgent"
@@ -320,7 +323,7 @@ access to .git, runtime, node_modules, and .env paths."
 
  :args '(( :name "preset"
            :type string
-           :enum ["researcher" "executor" "explore" "planner"]
+           :enum ["explore"]
            :description "Preset name for specialized agent")
 
          ( :name "description"
