@@ -21,6 +21,16 @@ Returns absolute path to scope.yml, or nil if context cannot be determined."
     (when context-dir
       (expand-file-name jf/gptel-session--scope-file context-dir))))
 
+(defun jf/gptel-scope--validate-scope-file-writable (scope-file)
+  "Validate SCOPE-FILE exists and is writable.
+Signals user-error if any check fails."
+  (unless scope-file
+    (user-error "No scope.yml found - unable to determine context directory"))
+  (unless (file-exists-p scope-file)
+    (user-error "No scope.yml found at %s" scope-file))
+  (unless (file-writable-p scope-file)
+    (user-error "scope.yml is not writable: %s" scope-file)))
+
 (transient-define-prefix jf/gptel-scope-expansion-menu ()
   "Handle scope violation with 3-choice UI."
   [:description
@@ -77,14 +87,7 @@ Returns absolute path to scope.yml, or nil if context cannot be determined."
          (tool (plist-get violation :tool))
          (scope-file (jf/gptel-scope--get-scope-file-path)))
 
-    (unless scope-file
-      (user-error "No scope.yml found - unable to determine context directory"))
-
-    (unless (file-exists-p scope-file)
-      (user-error "No scope.yml found at %s" scope-file))
-
-    (unless (file-writable-p scope-file)
-      (user-error "scope.yml is not writable: %s" scope-file))
+    (jf/gptel-scope--validate-scope-file-writable scope-file)
 
     ;; Route to appropriate updater based on validation type
     (pcase validation-type
@@ -159,10 +162,7 @@ Returns absolute path to scope.yml, or nil if context cannot be determined."
 SCOPE-FILE is the path to scope.yml.
 PATH is the file/directory path to add.
 TOOL is the tool name (used to determine read vs write)."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
   (let* ((content (with-temp-buffer
                     (insert-file-contents scope-file)
                     (buffer-string)))
@@ -201,10 +201,7 @@ TOOL is the tool name (used to determine read vs write)."
   "Add PATTERN to org_roam_patterns section in SCOPE-FILE.
 PATTERN is a string describing the pattern (format: \"subdirectory:path\" or \"tags:tag\").
 TOOL is the org-roam tool name."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
   (let* ((content (with-temp-buffer
                     (insert-file-contents scope-file)
                     (buffer-string)))
@@ -246,10 +243,7 @@ TOOL is the org-roam tool name."
 
 (defun jf/gptel-scope--add-command-to-scope (scope-file command)
   "Add COMMAND to shell_commands.allow section in SCOPE-FILE."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
   (let* ((content (with-temp-buffer
                     (insert-file-contents scope-file)
                     (buffer-string)))
@@ -281,10 +275,7 @@ TOOL is the org-roam tool name."
   "Add bash command to bash_tools section in SCOPE-FILE.
 RESOURCE is the command pattern or directory path.
 TOOL is the tool name (used to determine read vs write operation)."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
 
   ;; Check if resource is a directory path or command pattern
   (if (or (file-directory-p resource)

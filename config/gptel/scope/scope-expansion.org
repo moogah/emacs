@@ -53,6 +53,38 @@ Returns absolute path to scope.yml, or nil if context cannot be determined."
       (expand-file-name jf/gptel-session--scope-file context-dir))))
 #+end_src
 
+** Validate Scope File Writable
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--validate-scope-file-writable (scope-file)
+  "Validate SCOPE-FILE exists and is writable.
+Signals user-error if any check fails."
+  (unless scope-file
+    (user-error "No scope.yml found - unable to determine context directory"))
+  (unless (file-exists-p scope-file)
+    (user-error "No scope.yml found at %s" scope-file))
+  (unless (file-writable-p scope-file)
+    (user-error "scope.yml is not writable: %s" scope-file)))
+#+end_src
+
+** Read Scope File as YAML
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--read-scope-file-as-yaml (scope-file)
+  "Read and parse SCOPE-FILE as YAML.
+Returns parsed plist, or signals user-error if parsing fails."
+  (let ((content (with-temp-buffer
+                   (insert-file-contents scope-file)
+                   (buffer-string))))
+    (condition-case err
+        (yaml-parse-string content
+                          :object-type 'plist
+                          :sequence-type 'list)
+      (error
+       (user-error "Failed to parse scope.yml (%s): %s"
+                   scope-file (error-message-string err))))))
+#+end_src
+
 * Transient Menu
 
 The main UI for handling scope violations.
@@ -126,14 +158,7 @@ Functions called by the transient menu choices.
          (tool (plist-get violation :tool))
          (scope-file (jf/gptel-scope--get-scope-file-path)))
 
-    (unless scope-file
-      (user-error "No scope.yml found - unable to determine context directory"))
-
-    (unless (file-exists-p scope-file)
-      (user-error "No scope.yml found at %s" scope-file))
-
-    (unless (file-writable-p scope-file)
-      (user-error "scope.yml is not writable: %s" scope-file))
+    (jf/gptel-scope--validate-scope-file-writable scope-file)
 
     ;; Route to appropriate updater based on validation type
     (pcase validation-type
@@ -229,43 +254,30 @@ so that YAML files remain consistent and human-readable.
 SCOPE-FILE is the path to scope.yml.
 PATH is the file/directory path to add.
 TOOL is the tool name (used to determine read vs write)."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
-  (let* ((content (with-temp-buffer
-                    (insert-file-contents scope-file)
-                    (buffer-string)))
-         ;; Determine if this is a read or write operation
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
+  (let* (;; Determine if this is a read or write operation
          (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
          (operation (plist-get category :operation))
-         (target-section (if (eq operation 'read) :read :write)))
+         (target-section (if (eq operation 'read) :read :write))
+         ;; Parse YAML file
+         (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
+         (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+         (paths (or (plist-get normalized :paths) (list)))
+         (section-paths (or (plist-get paths target-section) '())))
 
-    ;; Parse entire file as YAML (no frontmatter delimiters)
-    (let* ((parsed (condition-case err
-                       (yaml-parse-string content
-                                          :object-type 'plist
-                                          :sequence-type 'list)
-                     (error
-                      (user-error "Failed to parse scope.yml (%s): %s"
-                                  scope-file (error-message-string err)))))
-           (normalized (jf/gptel-scope--normalize-plist-keys parsed))
-           (paths (or (plist-get normalized :paths) (list)))
-           (section-paths (or (plist-get paths target-section) '())))
+    ;; Add path if not already present (with /** suffix for directories)
+    (let ((normalized-path (if (string-suffix-p "/" path)
+                              (concat (directory-file-name path) "/**")
+                            path)))
+      (unless (member normalized-path section-paths)
+        (setq section-paths (append section-paths (list normalized-path)))
+        (setq paths (plist-put paths target-section section-paths))
+        (setq normalized (plist-put normalized :paths paths))
 
-      ;; Add path if not already present (with /** suffix for directories)
-      (let ((normalized-path (if (string-suffix-p "/" path)
-                                (concat (directory-file-name path) "/**")
-                              path)))
-        (unless (member normalized-path section-paths)
-          (setq section-paths (append section-paths (list normalized-path)))
-          (setq paths (plist-put paths target-section section-paths))
-          (setq normalized (plist-put normalized :paths paths))
-
-          ;; Write updated content (plain YAML, no delimiters)
-          (with-temp-buffer
-            (jf/gptel-scope--write-yaml-plist normalized)
-            (write-region (point-min) (point-max) scope-file nil 'silent)))))))
+        ;; Write updated content (plain YAML, no delimiters)
+        (with-temp-buffer
+          (jf/gptel-scope--write-yaml-plist normalized)
+          (write-region (point-min) (point-max) scope-file nil 'silent)))))))
 #+end_src
 
 ** Add Pattern to Scope
@@ -275,21 +287,9 @@ TOOL is the tool name (used to determine read vs write)."
   "Add PATTERN to org_roam_patterns section in SCOPE-FILE.
 PATTERN is a string describing the pattern (format: \"subdirectory:path\" or \"tags:tag\").
 TOOL is the org-roam tool name."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
-  (let* ((content (with-temp-buffer
-                    (insert-file-contents scope-file)
-                    (buffer-string)))
-         ;; Parse entire file as YAML (no frontmatter delimiters)
-         (parsed (condition-case err
-                     (yaml-parse-string content
-                                        :object-type 'plist
-                                        :sequence-type 'list)
-                   (error
-                    (user-error "Failed to parse scope.yml (%s): %s"
-                                scope-file (error-message-string err)))))
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
+  (let* (;; Parse YAML file
+         (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
          (normalized (jf/gptel-scope--normalize-plist-keys parsed))
          (org-roam (or (plist-get normalized :org-roam-patterns) (list))))
 
@@ -324,10 +324,7 @@ TOOL is the org-roam tool name."
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--add-command-to-scope (scope-file command)
   "Add COMMAND to shell_commands.allow section in SCOPE-FILE."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
   (let* ((content (with-temp-buffer
                     (insert-file-contents scope-file)
                     (buffer-string)))
@@ -405,10 +402,7 @@ This allows the LLM to request either command expansion (="tree"=) or directory 
   "Add bash command to bash_tools section in SCOPE-FILE.
 RESOURCE is the command pattern or directory path.
 TOOL is the tool name (used to determine read vs write operation)."
-  (unless (file-exists-p scope-file)
-    (user-error "scope.yml not found: %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file))
+  (jf/gptel-scope--validate-scope-file-writable scope-file)
 
   ;; Check if resource is a directory path or command pattern
   (if (or (file-directory-p resource)
