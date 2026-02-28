@@ -54,19 +54,23 @@
     ;; Command-based: shell operations
     ("run_approved_command" . (:validation command :operation write))
 
+    ;; Bash validation: scoped bash commands
+    ("run_bash_command" . (:validation bash :operation write))
+
     ;; Meta tools (always pass)
     ("PersistentAgent" . (:validation meta :operation delegate))
     ("request_scope_expansion" . (:validation meta :operation meta)))
   "Tool → validation strategy mapping.
 
 Each tool maps to a plist with:
-  :validation - Validation strategy (path, pattern, command, meta)
+  :validation - Validation strategy (path, pattern, command, bash, meta)
   :operation - Operation type (read, write, delegate, meta)
 
 Validation strategies:
   path    - Validate against paths.read/write/deny lists
   pattern - Validate against org_roam_patterns
   command - Validate against shell_commands.allow/deny lists
+  bash    - Validate against bash_tools.categories and paths
   meta    - Always allowed (no validation)
 
 Operation types:
@@ -192,6 +196,7 @@ Returns plist with:
   :paths-deny - List of denied paths
   :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
   :shell-commands - Plist with :allow and :deny lists
+  :bash-tools - Plist with :categories and :deny lists
 
 Uses buffer-local jf/gptel--branch-dir if available.
 Returns nil if scope.yml not found or can't be parsed."
@@ -265,6 +270,7 @@ CONFIG is the scope configuration (used to determine tool category)."
                       ('path (expand-file-name (car args)))
                       ('pattern (format "%s:%s" tool-name (car args)))
                       ('command (car args))
+                      ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
                       (_ nil))))
       (when resource
         (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
@@ -498,6 +504,132 @@ Returns plist with:
       (list :allowed t))))
 ;; Command-Based Validator:1 ends here
 
+;; Bash-Based Validator
+
+;; Validates bash commands against category-based permissions and directory scope.
+
+
+;; [[file:scope-core.org::*Bash-Based Validator][Bash-Based Validator:1]]
+(defun jf/gptel-scope--validate-bash-tool (tool-name args config)
+  "Validate bash command against bash_tools categories and paths.
+TOOL-NAME is the tool being validated.
+ARGS is the tool arguments list (command and directory).
+CONFIG is the scope configuration plist.
+
+Returns plist with:
+  :allowed t/nil
+  :reason STRING (if denied)
+  :command STRING (the command, if denied)
+  :directory STRING (the directory, if denied)
+  :tool STRING (tool name, if denied)
+  :message STRING (descriptive message)
+  :required-scope STRING (read/write, if denied)
+  :allowed-patterns LIST (if denied for directory not in scope)."
+  (cl-block jf/gptel-scope--validate-bash-tool
+    (let* ((command-full (car args))
+           (directory (cadr args))
+           (bash-config (plist-get config :bash-tools))
+           (categories (plist-get bash-config :categories))
+           (deny-list (plist-get bash-config :deny))
+           (read-paths (plist-get config :paths-read))
+           (write-paths (plist-get config :paths-write))
+           (deny-paths (plist-get config :paths-deny)))
+
+      ;; Parse command to extract base command
+      (let* ((command-parts (split-string command-full "[ |><;&]" t))
+             (base-command (car command-parts)))
+
+        ;; Check deny list first (highest priority)
+        (when (member base-command deny-list)
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "denied"
+                  :tool tool-name
+                  :command command-full
+                  :message (format "Command '%s' is explicitly denied in bash_tools.deny list."
+                                 base-command))))
+
+        ;; Categorize command
+        (let ((category nil)
+              (read-only (plist-get categories :read-only))
+              (safe-write (plist-get categories :safe-write))
+              (dangerous (plist-get categories :dangerous)))
+
+          (cond
+           ((member base-command read-only) (setq category 'read-only))
+           ((member base-command safe-write) (setq category 'safe-write))
+           ((member base-command dangerous) (setq category 'dangerous))
+           (t
+            ;; Unknown command - deny
+            (cl-return-from jf/gptel-scope--validate-bash-tool
+              (list :allowed nil
+                    :reason "command_not_allowed"
+                    :tool tool-name
+                    :command command-full
+                    :message (format "Command '%s' is not in any bash_tools category (read_only, safe_write, dangerous)."
+                                   base-command)))))
+
+          ;; Dangerous commands always denied (require explicit expansion)
+          (when (eq category 'dangerous)
+            (cl-return-from jf/gptel-scope--validate-bash-tool
+              (list :allowed nil
+                    :reason "dangerous_command"
+                    :tool tool-name
+                    :command command-full
+                    :message (format "Command '%s' is categorized as dangerous and requires explicit user approval via request_scope_expansion."
+                                   base-command))))
+
+          ;; Resolve directory to absolute path
+          (let* ((abs-directory (expand-file-name directory))
+                 (real-directory (file-truename abs-directory))
+                 (required-scope (if (eq category 'read-only) "read" "write")))
+
+            ;; Check deny paths first (overrides all)
+            (when (jf/gptel-scope--matches-any-pattern real-directory deny-paths)
+              (cl-return-from jf/gptel-scope--validate-bash-tool
+                (list :allowed nil
+                      :reason "denied"
+                      :tool tool-name
+                      :command command-full
+                      :directory real-directory
+                      :message (format "Directory '%s' is explicitly denied in paths.deny list."
+                                     real-directory))))
+
+            ;; Validate directory against category requirement
+            (pcase category
+              ('read-only
+               ;; Read commands allowed in paths.read OR paths.write
+               (unless (or (jf/gptel-scope--matches-any-pattern real-directory read-paths)
+                          (jf/gptel-scope--matches-any-pattern real-directory write-paths))
+                 (cl-return-from jf/gptel-scope--validate-bash-tool
+                   (list :allowed nil
+                         :reason "directory_not_in_scope"
+                         :tool tool-name
+                         :command command-full
+                         :directory real-directory
+                         :required-scope required-scope
+                         :allowed-patterns (append read-paths write-paths)
+                         :message (format "Directory '%s' is not in scope for read operations. Command '%s' requires read access."
+                                        real-directory base-command)))))
+
+              ('safe-write
+               ;; Write commands require paths.write only
+               (unless (jf/gptel-scope--matches-any-pattern real-directory write-paths)
+                 (cl-return-from jf/gptel-scope--validate-bash-tool
+                   (list :allowed nil
+                         :reason "directory_not_in_scope"
+                         :tool tool-name
+                         :command command-full
+                         :directory real-directory
+                         :required-scope required-scope
+                         :allowed-patterns write-paths
+                         :message (format "Directory '%s' is not in scope for write operations. Command '%s' requires write access."
+                                        real-directory base-command))))))
+
+            ;; Passed all checks
+            (list :allowed t)))))))
+;; Bash-Based Validator:1 ends here
+
 ;; Tool Permission Dispatch
 
 ;; Central dispatcher that routes permission checks to tool-specific validators based on tool categories.
@@ -536,6 +668,7 @@ Returns plist with:
       ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
       ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
       ('command (jf/gptel-scope--validate-command-tool tool-name args config))
+      ('bash (jf/gptel-scope--validate-bash-tool tool-name args config))
       (_
        ;; Unknown tool - deny by default
        (list :allowed nil

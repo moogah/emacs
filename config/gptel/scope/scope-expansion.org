@@ -123,6 +123,8 @@ Functions called by the transient menu choices.
        (jf/gptel-scope--add-pattern-to-scope scope-file resource tool))
       ('command
        (jf/gptel-scope--add-command-to-scope scope-file resource))
+      ('bash
+       (jf/gptel-scope--add-bash-to-scope scope-file resource tool))
       (_
        (user-error "Unknown validation type: %s" validation-type)))
 
@@ -325,6 +327,63 @@ TOOL is the org-roam tool name."
         (write-region (point-min) (point-max) scope-file nil 'silent)))))
 #+end_src
 
+** Add Bash Command to Scope
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--add-bash-to-scope (scope-file resource tool)
+  "Add bash command to bash_tools section in SCOPE-FILE.
+RESOURCE is the command pattern or directory path.
+TOOL is the tool name (used to determine read vs write operation)."
+  (unless (file-writable-p scope-file)
+    (user-error "scope.yml is not writable: %s" scope-file))
+
+  ;; Check if resource is a directory path or command pattern
+  (if (or (file-directory-p resource)
+          (string-suffix-p "/" resource)
+          (string-match-p "/" resource))
+      ;; Directory path - delegate to path expansion
+      (jf/gptel-scope--add-path-to-scope scope-file resource tool)
+
+    ;; Command pattern - add to bash_tools
+    (let* ((content (with-temp-buffer
+                      (insert-file-contents scope-file)
+                      (buffer-string)))
+           ;; Extract base command name
+           (cmd-name (car (split-string resource "[ |><;&]" t)))
+           ;; Parse entire file as YAML (no frontmatter delimiters)
+           (parsed (condition-case err
+                       (yaml-parse-string content
+                                          :object-type 'plist
+                                          :sequence-type 'list)
+                     (error
+                      (user-error "Failed to parse scope.yml (%s): %s"
+                                  scope-file (error-message-string err)))))
+           (bash-tools (or (plist-get parsed :bash_tools) (list)))
+           (categories (or (plist-get bash-tools :categories) (list)))
+
+           ;; Determine target category based on tool operation
+           (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
+           (operation (plist-get category :operation))
+           (target-category (if (eq operation 'read) :read_only :safe_write))
+
+           ;; Get existing command list for target category
+           (category-config (or (plist-get categories target-category) (list)))
+           (command-list (or (plist-get category-config :commands) '())))
+
+      ;; Add command to target category if not present
+      (unless (member cmd-name command-list)
+        (setq command-list (append command-list (list cmd-name)))
+        (setq category-config (plist-put category-config :commands command-list))
+        (setq categories (plist-put categories target-category category-config))
+        (setq bash-tools (plist-put bash-tools :categories categories))
+        (setq parsed (plist-put parsed :bash_tools bash-tools))
+
+        ;; Write updated content (plain YAML, no delimiters)
+        (with-temp-buffer
+          (jf/gptel-scope--write-yaml-plist parsed)
+          (write-region (point-min) (point-max) scope-file nil 'silent))))))
+#+end_src
+
 * YAML Helper Functions
 
 ** YAML Writer
@@ -370,6 +429,33 @@ Handles nested structures for paths, org_roam_patterns, and shell_commands."
                                     (dolist (item subvalue)
                                       (insert (format "    - \"%s\"\n" item)))
                                   (insert "    []\n")))))
+
+                 ;; Handle bash_tools (nested structure with categories)
+                 ((eq key :bash_tools)
+                  (insert (format "%s:\n" key-name))
+                  (cl-loop for (subkey subvalue) on value by #'cddr
+                           do (let ((subkey-name (substring (symbol-name subkey) 1)))
+                                (cond
+                                 ;; Handle categories (triple-nested)
+                                 ((eq subkey :categories)
+                                  (insert (format "  %s:\n" subkey-name))
+                                  (cl-loop for (cat-key cat-value) on subvalue by #'cddr
+                                           do (let ((cat-name (substring (symbol-name cat-key) 1)))
+                                                (insert (format "    %s:\n" cat-name))
+                                                (cl-loop for (prop-key prop-value) on cat-value by #'cddr
+                                                         do (let ((prop-name (substring (symbol-name prop-key) 1)))
+                                                              (insert (format "      %s:\n" prop-name))
+                                                              (if prop-value
+                                                                  (dolist (cmd prop-value)
+                                                                    (insert (format "        - \"%s\"\n" cmd)))
+                                                                (insert "        []\n")))))))
+                                 ;; Handle deny (simple list)
+                                 ((eq subkey :deny)
+                                  (insert (format "  %s:\n" subkey-name))
+                                  (if subvalue
+                                      (dolist (item subvalue)
+                                        (insert (format "    - \"%s\"\n" item)))
+                                    (insert "    []\n")))))))
 
                  ;; Handle tools (can be list or nested map)
                  ((eq key :tools)
