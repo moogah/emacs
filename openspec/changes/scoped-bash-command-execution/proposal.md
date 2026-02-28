@@ -4,7 +4,7 @@ Current `run_approved_command` validates shell commands by name only, without co
 
 ## Context: Preset Alignment Architecture
 
-This change integrates with the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment` on the `gptel-preset-alignment` branch). Key architectural points:
+This change integrates with the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment`). Key architectural points:
 
 **Immutable Presets:** Presets are registered at init in `gptel--known-presets`, defined in `config/gptel/presets/*.md`, and reference scope profiles via `scope_profile: "coding"`. They are never modified after registration.
 
@@ -23,7 +23,7 @@ This change integrates with the preset-alignment architecture (see `openspec/cha
 - **Add security features**: 30-second timeout protection, output truncation with suggestions, warnings for absolute paths in arguments
 - **Parse base command** from complex command strings to categorize correctly
 - **Deny by default**: Commands not in allow lists are rejected
-- **Update preset registration** to extract `bash_tools` from preset files and store in scope defaults
+- **Update preset registration** to extract `bash_tools` from scope profiles and store in scope defaults
 - **Update scope expansion** to write approved commands to `scope.yml` bash_tools section
 - **BREAKING: Replace `run_approved_command`** with new tool that enforces directory scoping
 
@@ -34,7 +34,7 @@ This change integrates with the preset-alignment architecture (see `openspec/cha
 
 ### Modified Capabilities
 - `scope-profiles`: Extends scope profile schema to include `bash_tools` section for command categorization and deny lists.
-- `preset-registration`: Extends scope key extraction to recognize and extract `bash_tools` from preset files.
+- `preset-registration`: Extends scope key extraction to recognize and extract `bash_tools` from scope profiles.
 - `scope`: Extends scope validation system to support bash tool category (command + directory validation). Adds bash validation type to tool categorization and directory-per-category validation logic. Loads bash_tools config from `scope.yml`.
 - `scope-expansion`: Extends scope expansion to write approved bash commands to `scope.yml` bash_tools section.
 
@@ -50,7 +50,7 @@ This change integrates with the preset-alignment architecture (see `openspec/cha
 **Configuration changes:**
 - Scope profile templates (`config/gptel/scope-profiles/*.yml`) include new `bash_tools` section with category-based command lists
 - Per-session `scope.yml` files created from profiles will contain bash_tools configuration
-- Preset `.md` files can optionally define inline `bash_tools` (extracted during registration to scope defaults)
+- `bash_tools` configuration is defined in scope profiles and flows to `scope.yml` (source of truth for enforcement)
 
 **Tool interface:**
 - Breaking: `run_approved_command` removed

@@ -1,6 +1,6 @@
 ## CONTEXT: Preset Alignment
 
-This spec describes bash tools in the context of the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment` on the `gptel-preset-alignment` branch).
+This spec describes bash tools in the context of the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment`).
 
 **Configuration storage:**
 - Scope profile templates (`config/gptel/scope-profiles/*.yml`) define default bash_tools config
@@ -203,7 +203,7 @@ The bash tools system SHALL integrate with the existing scope expansion mechanis
 
 #### Scenario: User approves command permanently
 - **WHEN** user selects "Add to scope" in expansion menu
-- **THEN** the system adds command to appropriate category in preset.md
+- **THEN** the system adds command to appropriate category in scope.yml
 
 #### Scenario: User approves command once
 - **WHEN** user selects "Allow once" in expansion menu

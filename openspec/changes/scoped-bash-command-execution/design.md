@@ -18,7 +18,7 @@ The scope system already has infrastructure for path-based validation (`paths.re
 
 ## Alignment with Preset System
 
-This feature integrates with the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment` on the `gptel-preset-alignment` branch).
+This feature integrates with the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment`).
 
 ### Preset-Alignment Architecture Summary
 
@@ -44,7 +44,7 @@ This feature integrates with the preset-alignment architecture (see `openspec/ch
 **Config Storage:**
 - Scope profile templates: `config/gptel/scope-profiles/*.yml` include `bash_tools` section
 - Session scope: `scope.yml` contains per-session `bash_tools` config (mutable)
-- Presets: If `bash_tools` appears in preset `.md`, extracted to scope defaults during registration
+- Scope defaults: `bash_tools` configuration from scope profiles provides defaults during session creation
 
 **Module Updates:**
 - `preset-registration.el`: Extend scope key extraction to recognize `bash_tools`
@@ -54,7 +54,7 @@ This feature integrates with the preset-alignment architecture (see `openspec/ch
 - `scope-bash-tools.el`: Implement tool, relocated from `scope/` to `tools/` directory
 
 **Core Validation Logic:**
-The categorization, directory scoping, and shell composition validation remain as originally designed (see Decision sections below). The integration layer changed from preset.md to scope.yml, but the security model is unchanged.
+The categorization, directory scoping, and shell composition validation remain as originally designed (see Decision sections below). The integration uses scope.yml as the source of truth, with bash_tools configuration flowing from scope profiles to per-session scope.yml files.
 
 ## Goals / Non-Goals
 
