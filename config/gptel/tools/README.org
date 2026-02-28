@@ -272,7 +272,7 @@ that run with dedicated tool sets, models, and configurations. This preserves th
 agent's context window by offloading complex subtasks to specialized agents that return
 concise summaries.
 
-Built on [[https://github.com/karthink/gptel-agent][gptel-agent]] infrastructure for robust, battle-tested agent execution.
+Built on gptel's preset system (=gptel--known-presets=) for robust, configurable agent execution.
 
 ** Architecture
 
@@ -280,7 +280,7 @@ Built on [[https://github.com/karthink/gptel-agent][gptel-agent]] infrastructure
 
 *Invisible Execution*: Agents run in the background without creating visible buffers
 
-*Standard Tool*: Use the =Agent= tool (from gptel-agent) to invoke agents
+*Standard Tool*: Use the =PersistentAgent= tool to invoke agents via presets
 
 *Complete Isolation*: Each agent gets its own:
 - FSM (finite state machine) instance for state management
@@ -347,7 +347,7 @@ search_project_content
 
 *Location*: =emacs/major-modes/gpt-tools/agents/executor.md=
 
-*** researcher (from gptel-agent)
+*** researcher
 
 Web research and codebase exploration for information gathering.
 
@@ -359,7 +359,7 @@ Web research and codebase exploration for information gathering.
 - Codebase exploration (alternative to explorer agent)
 - Multi-source information synthesis
 
-*** introspector (from gptel-agent)
+*** introspector
 
 Emacs and elisp introspection specialist.
 
@@ -467,33 +467,24 @@ description: Emacs configuration specialist
 You are an Emacs configuration expert...
 #+end_example
 
-When =gptel-agent-update= runs, =@mentions= are automatically expanded with skill content.
+When presets are registered, =@mentions= are automatically expanded with skill content via =jf/gptel-preset--expand-all-agent-skills=.
 
-*** Register New Agent
+*** Register New Preset
 
-After creating the agent file, register it:
+After creating the preset file in =config/gptel/presets/=, register it:
 
 #+begin_src emacs-lisp
-(gptel-agent-update)  ; Scans agent directories and registers new agents
+(jf/gptel-preset-register-all)  ; Scans preset directory and registers all presets
 #+end_src
 
-The agent will now appear in the =Agent= tool's enum list.
-
-*** Project-Specific Agents
-
-Agents can also be defined in =.agents/= directories within project roots.
-gptel-agent will scan these locations automatically.
+The preset will now appear in =gptel--known-presets= and be available for sessions.
 
 ** Configuration
 
-*** Agent Directory
+*** Preset Directory
 
-Agent directory is configured in =emacs/major-modes/gpt.org=:
-
-#+begin_src emacs-lisp
-(add-to-list 'gptel-agent-dirs
-             (expand-file-name "major-modes/gpt-tools/agents/" jf/emacs-dir))
-#+end_src
+Presets are stored in =config/gptel/presets/= as =.md= files with YAML frontmatter.
+Registration is handled by =jf/gptel-preset-register-all= in =gptel.org=.
 
 *** Tool Confirmation Settings
 
@@ -563,13 +554,13 @@ Previous custom implementation (now deprecated):
 - Custom =invoke_agent= tool
 - Manual FSM and callback management
 
-Current gptel-agent implementation:
+Current preset-based implementation:
 - Invisible background execution
-- File-based agent definitions
-- Standard =Agent= tool
+- File-based preset definitions (=config/gptel/presets/*.md=)
+- =PersistentAgent= tool for persistent sessions
 - Proven FSM and state management
 - Skills integration support
-- Template system for agent discovery
+- Preset registration via =gptel--known-presets=
 
 * Organization
 
@@ -580,7 +571,7 @@ Tools are organized by category in separate files:
 - =ggtags-tools.org= :: Semantic code navigation using GNU Global
 - =org-roam-tools.org= :: Knowledge management and note operations
 - =meta-tools.org= :: Tools for generating new tools
-- =community-tools.org= :: External tool packages (gptel-agent, ragmacs, etc.)
+- =community-tools.org= :: External tool packages (ragmacs, etc.)
 
 Agent definitions:
 
@@ -591,7 +582,7 @@ Agent definitions:
 
 Deprecated files:
 
-- =subagent-tools.org= :: Legacy agent implementation (superseded by gptel-agent integration)
+- =subagent-tools.org= :: Legacy agent implementation (superseded by preset-based system)
 
 Each =.org= file tangles to a =.el= file that is loaded by =major-modes/gpt.org=.
 
@@ -632,7 +623,7 @@ Include tools in gptel presets for specific workflows:
 
 ** Community Tool Collections
 - [[https://github.com/skissue/llm-tool-collection][llm-tool-collection]] - Files, buffers, system commands
-- [[https://github.com/karthink/gptel-agent][gptel-agent]] - Agentic tools: filesystem, bash, web search
+- [[https://github.com/karthink/gptel][gptel]] - LLM client with preset and tool support
 - [[https://github.com/ultronozm/codel.el][codel.el]] - Code editing tools
 - [[https://codeberg.org/bajsicki/gptel-org-tools][gptel-org-tools]] - Org file interaction
 - [[https://github.com/positron-solutions/ragmacs][ragmacs]] - Emacs introspection

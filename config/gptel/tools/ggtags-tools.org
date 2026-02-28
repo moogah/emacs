@@ -30,7 +30,7 @@ before accessing project directories:
 - explain_ggtags_indexing
 
 Permission is validated based on the directory (project root) path against
-glob patterns defined in ~/.gptel/sessions/SESSION_ID/scope-plan.yml.
+glob patterns defined in ~/.gptel/sessions/SESSION_ID/scope.yml.
 
 * Basic Configuration
 #+begin_src emacs-lisp

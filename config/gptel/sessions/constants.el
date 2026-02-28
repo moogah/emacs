@@ -25,6 +25,14 @@ Users can create custom presets by copying and editing template files."
   :type 'directory
   :group 'gptel)
 
+(defcustom jf/gptel--scope-profiles-directory
+  (expand-file-name "config/gptel/scope-profiles/" jf/emacs-dir)
+  "Directory containing scope profile template files.
+Each .yml file defines a reusable scope configuration (paths, org-roam
+patterns, shell commands) that can be referenced by presets."
+  :type 'directory
+  :group 'gptel)
+
 (defconst jf/gptel-session--context-file "session.md"
   "File name for main conversation context.
 Uses markdown format (gptel's native format).")
@@ -42,6 +50,14 @@ Uses org-mode format for better structure.")
 
 (defconst jf/gptel-session--agents-dir "agents"
   "Directory name for agent sessions within parent session.")
+
+(defconst jf/gptel-session--scope-file "scope.yml"
+  "File name for session scope configuration.
+YAML format containing paths, org-roam patterns, and shell command permissions.")
+
+(defconst jf/gptel-session--metadata-file "metadata.yml"
+  "File name for session metadata.
+YAML format containing session ID, timestamps, and preset name.")
 
 (defcustom jf/gptel-autosave-idle-time 0.5
   "Idle time in seconds before auto-saving session buffer.
@@ -66,7 +82,7 @@ Typically 'main' for the primary branch, or timestamped names for alternate bran
 
 (defvar-local jf/gptel--branch-dir nil
   "Absolute path to the current branch directory.
-This is where preset.md, scope-plan.yml, and session.md files are located.
+This is where scope.yml, metadata.yml, and session.md files are located.
 For regular sessions: <session-dir>/branches/<branch-name>/
 For agents: <session-dir>/ (agents don't use branch subdirectories).")
 

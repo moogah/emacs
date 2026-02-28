@@ -12,6 +12,7 @@ backend: Perplexity
 model: sonar-pro
 temperature: 0.4
 confirm-tool-calls: nil
+scope_profile: restricted
 ---
 You are a research specialist powered by Perplexity AI with real-time web access.
 

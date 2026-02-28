@@ -3,8 +3,10 @@ description: >
   Autonomous executor for well-defined, multi-step tasks.
   Can read, write, and modify files. Use when you know what needs to be done
   but want to keep the main context clean.
+use-tools: true
+include-tool-results: true
 tools:
-  - Agent
+  - PersistentAgent
   - TodoWrite
   - Glob
   - Grep
@@ -41,38 +43,10 @@ tools:
   - execute_sql_alter
   - execute_sql_drop
 backend: Claude
-model: claude-3-7-sonnet-20250219
+model: claude-sonnet-4-6
 temperature: 0.3
 confirm-tool-calls: auto
-
-paths:
-  read:
-    - "/**"
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
-
-org_roam_patterns:
-  subdirectory:
-    - "gptel/**"
-  tags:
-    - "gptel"
-  node_ids:
-    - "*"
-
-shell_commands:
-  allow:
-    - "ls"
-    - "find"
-    - "grep"
-    - "git"
-  deny:
-    - "rm -rf"
-    - "sudo"
+scope_profile: coding
 ---
 You are an autonomous executor agent. Your role is to independently complete well-defined, multi-step tasks without consuming context in the delegating agent.
 
@@ -213,6 +187,3 @@ Bash: /Applications/Emacs.app/Contents/MacOS/Emacs --batch --eval \
 
 **Remember:** You run autonomously and cannot ask follow-up questions. Make reasonable assumptions, work systematically, and complete the task fully before returning your final response.
 </output_requirements>
-
-**Available agents for delegation:**
-{{AGENTS}}

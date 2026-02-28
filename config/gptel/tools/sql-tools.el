@@ -1,7 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
 (require 'gptel)
-(require 'gptel-agent)
 
 (defun gptel-sql--get-cli-command (sql-product)
   "Get CLI command for SQL-PRODUCT.

@@ -3,7 +3,7 @@
 # name: postgres-query-to-file
 # key: pgsqlf
 # --
-#+begin_src sql :engine postgresql :dbconnection `(yas-choose-value (mapcar #'symbol-name (mapcar #'car jf/postgres-connections)))` :results silent
+#+begin_src sql :engine `(let* ((conn (yas-choose-value (mapcar #'symbol-name (mapcar #'car jf/sql-connections)))) (product (plist-get (cdr (assoc (intern conn) jf/sql-connections)) :sql-product)) (engine (pcase product ('postgres "postgresql") ('mysql "mysql") ('sqlite "sqlite") ('oracle "oracle") ('sqlserver "ms") (_ "sql")))) (setq jf/--yas-sql-conn conn) engine)` :dbconnection `jf/--yas-sql-conn` :results silent
 
 COPY (
 $0

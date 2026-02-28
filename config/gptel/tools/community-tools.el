@@ -26,7 +26,7 @@
   :demand t
   :config
   ;; Confirmation enabled for destructive operations
-  ;; Note: Some overlap with gptel-agent filesystem tools
+  ;; Note: Some overlap with custom scope-aware filesystem tools
   )
 
 (use-package ragmacs

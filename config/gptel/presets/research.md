@@ -3,8 +3,9 @@ description: >
   Research agent for software design patterns and architectural best practices.
   Bridges conceptual gap between requirements and industry-proven solutions.
 backend: Claude
-model: claude-sonnet-4-5-20250929
+model: claude-sonnet-4-6
 temperature: 0.6
+use-tools: true
 include-tool-results: true
 tools:
   - WebSearch
@@ -13,6 +14,7 @@ tools:
   - read_file
   - request_scope_expansion
   - get_scope_structure
+scope_profile: research
 ---
 
 # Software Research Guidelines

@@ -1,0 +1,10 @@
+paths:
+  read: ["/**"]
+  deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
+org_roam_patterns:
+  subdirectory: ["**"]
+  tags: ["*"]
+  node_ids: ["*"]
+shell_commands:
+  allow: ["ls", "find", "grep", "rg"]
+  deny: ["rm -rf", "sudo", "git push", "git reset"]

@@ -1,8 +1,9 @@
 ---
 description: Planning assistent for software projects
 backend: Claude
-model: claude-opus-4-5-20251101
+model: claude-opus-4-6
 temperature: 1.0
+use-tools: true
 include-tool-results: true
 tools:
   - PersistentAgent
@@ -19,16 +20,7 @@ tools:
   - expand_project_path
   - search_project_content
   - get_scope_structure
-paths:
-  read:
-    []
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
+scope_profile: coding
 ---
 
 # Software Development Planning Guidelines
