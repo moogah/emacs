@@ -65,13 +65,60 @@ bash_tools:
   # These are destructive operations that should never be automated
   deny:
     - "rm"           # Remove files/directories
+    - "rmdir"        # Remove directories
     - "mv"           # Move/rename (can overwrite)
     - "cp"           # Copy (can overwrite)
+    - "ln"           # Create links (can overwrite and create dangerous symlinks)
+    - "scp"          # Remote file copy (can overwrite remote files)
+    - "rsync"        # Remote file sync (can delete/overwrite files)
     - "chmod"        # Change permissions
     - "chown"        # Change ownership
     - "sudo"         # Elevated privileges
     - "dd"           # Low-level disk operations
     - "mkfs"         # Format filesystems
+    # Archive tools (extraction can overwrite files)
+    - "tar"          # Tape archive (tar -xf can overwrite)
+    - "zip"          # Create zip archives (can overwrite)
+    - "unzip"        # Extract zip archives (can overwrite)
+    - "gzip"         # Compress files (can overwrite)
+    - "gunzip"       # Decompress gzip files (can overwrite)
+    - "bzip2"        # Compress files (can overwrite)
+    - "bunzip2"      # Decompress bzip2 files (can overwrite)
+    # Download tools (can write files with -o flag)
+    - "curl"         # Download files (curl -o can write)
+    - "wget"         # Download files (wget writes by default)
+    # Task scheduling
+    - "crontab"      # Schedule automated tasks
+    # Firewall commands
+    - "iptables"     # Linux firewall (netfilter)
+    - "ip6tables"    # Linux IPv6 firewall
+    - "ufw"          # Uncomplicated Firewall (Ubuntu)
+    - "firewall-cmd" # FirewallD command (Red Hat/CentOS)
+    - "pfctl"        # BSD/macOS packet filter
+    - "ipfw"         # Legacy BSD/macOS firewall
+    - "nft"          # nftables (newer Linux firewall)
+    # System service commands
+    - "systemctl"    # SystemD service control (Linux)
+    - "service"      # SysV/Upstart service control (Linux)
+    - "launchctl"    # macOS service control
+    - "sc"           # Windows service control
+    - "systemd"      # Direct systemd commands
+    - "init"         # Init system control
+    - "shutdown"     # System shutdown
+    - "reboot"       # System reboot
+    - "halt"         # System halt
+    - "poweroff"     # Power off system
+    # User management
+    - "useradd"      # Add user accounts
+    - "userdel"      # Delete user accounts
+    - "usermod"      # Modify user accounts
+    - "passwd"       # Change passwords
+    - "chpasswd"     # Change passwords in batch
+    - "adduser"      # Add user (Debian/Ubuntu)
+    - "deluser"      # Delete user (Debian/Ubuntu)
+    - "groupadd"     # Add groups
+    - "groupdel"     # Delete groups
+    - "groupmod"     # Modify groups
 
 ---
 
@@ -90,6 +137,22 @@ Commands are categorized by operational impact:
 Directory scope validation:
 - read_only: requires `paths.read` OR `paths.write`
 - safe_write: requires `paths.write`
+
+## Command Validation Strategy
+
+**Only the base command (first token before pipes/redirects) is categorized and validated.**
+
+This means:
+- Listing `grep` allows `grep pattern file | head | tail`
+- Listing `ls` allows `ls -la | grep "\.el$" | wc -l`
+- Listing `brew` allows `brew list` and `brew install` (constrained by directory scope)
+
+Security relies on three layers:
+1. **Base command categorization** - Command must be in an allow list
+2. **Directory scope enforcement** - Working directory must match category's path requirements
+3. **Read vs write path validation** - Category determines required path access level
+
+**Important:** Pipes, redirects, and command substitution are allowed if the base command is categorized. The working directory determines what files can be accessed, not the command arguments.
 
 ## Example Usage
 
@@ -110,4 +173,4 @@ request_scope_expansion(
 )
 ```
 
-See `config/gptel/tools/scope-shell-tools.org` for complete documentation.
+See `config/gptel/tools/scope-shell-tools.org` for implementation details and complete documentation.

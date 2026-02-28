@@ -5,6 +5,10 @@ The scope system SHALL support bash validation type for tools that execute shell
 
 **Config source:** `scope.yml` in the session's branch directory, under the `bash_tools` top-level key with nested `categories` structure.
 
+**Tool:** `run_bash_command` - Executes shell commands with category-based validation and directory scope checking.
+
+**Module:** `scope-shell-tools` (config/gptel/tools/scope-shell-tools.el) - Implements the run_bash_command tool using bash validation strategy.
+
 **Related specs:** See `scope-profiles/spec.md` for bash_tools schema definition and `bash-tools/spec.md` for detailed bash tools behavior.
 
 #### Scenario: Bash tool categorized

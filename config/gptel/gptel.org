@@ -236,7 +236,7 @@ This replaces the =gptel-agent= package dependency.
 ;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
 (jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
 
-;; Load scope-core (required by scope-controlled tools, depends on scope-profiles)
+;; Load scope-core (required by scope-controlled tools; loaded after scope-profiles for organizational clarity)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
 
 ;; Load custom tools (tools must be registered before presets reference them)

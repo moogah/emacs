@@ -12,6 +12,15 @@
 (require 'jf-gptel-scope-core)
 (require 'yaml)
 
+(defun jf/gptel-scope--get-scope-file-path ()
+  "Get the path to scope.yml for the current buffer context.
+Returns absolute path to scope.yml, or nil if context cannot be determined."
+  (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                         (and (buffer-file-name)
+                              (file-name-directory (buffer-file-name))))))
+    (when context-dir
+      (expand-file-name jf/gptel-session--scope-file context-dir))))
+
 (transient-define-prefix jf/gptel-scope-expansion-menu ()
   "Handle scope violation with 3-choice UI."
   [:description
@@ -39,15 +48,23 @@
 (defun jf/gptel-scope--deny-expansion ()
   "Reject the tool call completely."
   (interactive)
-  (let* ((scope (transient-scope))
-         (callback (plist-get scope :callback)))
-    (when callback
-      (funcall callback
-               (json-serialize
-                (list :success nil
-                      :user_denied t
-                      :message "User denied scope expansion request."))))
-    (transient-quit-one)))
+  (condition-case err
+      (let* ((scope (transient-scope))
+             (callback (plist-get scope :callback)))
+        (if callback
+            (condition-case callback-err
+                (funcall callback
+                         (json-serialize
+                          (list :success nil
+                                :user_denied t
+                                :message "User denied scope expansion request.")))
+              (error
+               (message "Error invoking callback: %s" (error-message-string callback-err))))
+          (message "Warning: No callback provided for scope expansion"))
+        (transient-quit-one))
+    (error
+     (message "Error in deny-expansion: %s" (error-message-string err))
+     (transient-quit-one))))
 
 (defun jf/gptel-scope--add-to-scope ()
   "Add violated resource to scope.yml permanently."
@@ -58,16 +75,13 @@
          (validation-type (plist-get violation :validation-type))
          (resource (plist-get violation :resource))
          (tool (plist-get violation :tool))
-         (context-dir (or (plist-get scope :context-dir)
-                         (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                         (and (buffer-file-name)
-                              (file-name-directory (buffer-file-name)))))
-         (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                         (expand-file-name jf/gptel-session--scope-file jf/gptel--branch-dir)
-                       (expand-file-name jf/gptel-session--scope-file context-dir))))
+         (scope-file (jf/gptel-scope--get-scope-file-path)))
+
+    (unless scope-file
+      (user-error "No scope.yml found - unable to determine context directory"))
 
     (unless (file-exists-p scope-file)
-      (user-error "No scope.yml found in %s" context-dir))
+      (user-error "No scope.yml found at %s" scope-file))
 
     (unless (file-writable-p scope-file)
       (user-error "scope.yml is not writable: %s" scope-file))
@@ -86,15 +100,19 @@
        (user-error "Unknown validation type: %s" validation-type)))
 
     ;; Notify callback with JSON response
-    (when callback
-      (let* ((patterns (plist-get scope :patterns))
-             (tool-name (plist-get scope :tool-name)))
-        (funcall callback
-                 (json-serialize
-                  (list :success t
-                        :patterns_added (vconcat patterns)  ; Convert list to vector for JSON array
-                        :message (format "Scope expanded. Added %d pattern(s) to %s"
-                                       (length patterns) tool-name))))))
+    (condition-case err
+        (if callback
+            (let* ((patterns (plist-get scope :patterns))
+                   (tool-name (plist-get scope :tool-name)))
+              (funcall callback
+                       (json-serialize
+                        (list :success t
+                              :patterns_added (vconcat patterns)  ; Convert list to vector for JSON array
+                              :message (format "Scope expanded. Added %d pattern(s) to %s"
+                                             (length patterns) tool-name)))))
+          (message "Warning: No callback provided for scope expansion"))
+      (error
+       (message "Error invoking callback: %s" (error-message-string err))))
 
     (message "Added %s to scope" resource)
     (transient-quit-one)))
@@ -108,16 +126,20 @@
          (tool (plist-get violation :tool))
          (resource (plist-get violation :resource)))
 
-    ;; Add to allow-once list (will be implemented in Task #8)
-    (jf/gptel-scope--add-to-allow-once-list tool resource)
+    ;; Add to allow-once list for this buffer
+    (jf/gptel-scope-add-to-allow-once-list tool resource)
 
     ;; Notify callback with JSON response
-    (when callback
-      (funcall callback
-               (json-serialize
-                (list :success t
-                      :allowed_once t
-                      :message "Permission granted for this turn only."))))
+    (condition-case err
+        (if callback
+            (funcall callback
+                     (json-serialize
+                      (list :success t
+                            :allowed_once t
+                            :message "Permission granted for this turn only.")))
+          (message "Warning: No callback provided for scope expansion"))
+      (error
+       (message "Error invoking callback: %s" (error-message-string err))))
 
     (message "Allowed %s once for this LLM turn" resource)
     (transient-quit-one)))
@@ -125,26 +147,20 @@
 (defun jf/gptel-scope--edit-scope ()
   "Open scope.yml for manual editing."
   (interactive)
-  (let* ((scope (transient-scope))
-         (violation (plist-get scope :violation))
-         (context-dir (or (plist-get scope :context-dir)
-                         (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                         (and (buffer-file-name)
-                              (file-name-directory (buffer-file-name)))))
-         (scope-file (if (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                         (expand-file-name jf/gptel-session--scope-file jf/gptel--branch-dir)
-                       (expand-file-name jf/gptel-session--scope-file context-dir))))
-    (if (file-exists-p scope-file)
+  (let ((scope-file (jf/gptel-scope--get-scope-file-path)))
+    (if (and scope-file (file-exists-p scope-file))
         (progn
           (find-file scope-file)
           (transient-quit-one))
-      (user-error "No scope.yml found in %s" context-dir))))
+      (user-error "No scope.yml found - unable to determine context directory"))))
 
 (defun jf/gptel-scope--add-path-to-scope (scope-file path tool)
   "Add PATH to scope.yml under appropriate section based on TOOL operation.
 SCOPE-FILE is the path to scope.yml.
 PATH is the file/directory path to add.
 TOOL is the tool name (used to determine read vs write)."
+  (unless (file-exists-p scope-file)
+    (user-error "scope.yml not found: %s" scope-file))
   (unless (file-writable-p scope-file)
     (user-error "scope.yml is not writable: %s" scope-file))
   (let* ((content (with-temp-buffer
@@ -163,7 +179,8 @@ TOOL is the tool name (used to determine read vs write)."
                      (error
                       (user-error "Failed to parse scope.yml (%s): %s"
                                   scope-file (error-message-string err)))))
-           (paths (or (plist-get parsed :paths) (list)))
+           (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+           (paths (or (plist-get normalized :paths) (list)))
            (section-paths (or (plist-get paths target-section) '())))
 
       ;; Add path if not already present (with /** suffix for directories)
@@ -173,17 +190,19 @@ TOOL is the tool name (used to determine read vs write)."
         (unless (member normalized-path section-paths)
           (setq section-paths (append section-paths (list normalized-path)))
           (setq paths (plist-put paths target-section section-paths))
-          (setq parsed (plist-put parsed :paths paths))
+          (setq normalized (plist-put normalized :paths paths))
 
           ;; Write updated content (plain YAML, no delimiters)
           (with-temp-buffer
-            (jf/gptel-scope--write-yaml-plist parsed)
+            (jf/gptel-scope--write-yaml-plist normalized)
             (write-region (point-min) (point-max) scope-file nil 'silent)))))))
 
 (defun jf/gptel-scope--add-pattern-to-scope (scope-file pattern tool)
   "Add PATTERN to org_roam_patterns section in SCOPE-FILE.
 PATTERN is a string describing the pattern (format: \"subdirectory:path\" or \"tags:tag\").
 TOOL is the org-roam tool name."
+  (unless (file-exists-p scope-file)
+    (user-error "scope.yml not found: %s" scope-file))
   (unless (file-writable-p scope-file)
     (user-error "scope.yml is not writable: %s" scope-file))
   (let* ((content (with-temp-buffer
@@ -227,6 +246,8 @@ TOOL is the org-roam tool name."
 
 (defun jf/gptel-scope--add-command-to-scope (scope-file command)
   "Add COMMAND to shell_commands.allow section in SCOPE-FILE."
+  (unless (file-exists-p scope-file)
+    (user-error "scope.yml not found: %s" scope-file))
   (unless (file-writable-p scope-file)
     (user-error "scope.yml is not writable: %s" scope-file))
   (let* ((content (with-temp-buffer
@@ -260,6 +281,8 @@ TOOL is the org-roam tool name."
   "Add bash command to bash_tools section in SCOPE-FILE.
 RESOURCE is the command pattern or directory path.
 TOOL is the tool name (used to determine read vs write operation)."
+  (unless (file-exists-p scope-file)
+    (user-error "scope.yml not found: %s" scope-file))
   (unless (file-writable-p scope-file)
     (user-error "scope.yml is not writable: %s" scope-file))
 
@@ -314,7 +337,10 @@ TOOL is the tool name (used to determine read vs write operation)."
 
 (defun jf/gptel-scope--kebab-to-snake (key)
   "Convert KEY from kebab-case to snake_case for YAML output.
-E.g., :org-roam-patterns becomes org_roam_patterns."
+E.g., :org-roam-patterns becomes org_roam_patterns.
+
+Inverse function: jf/gptel-scope--normalize-plist-keys (scope-core.org)
+Round-trip property: Writing and reading YAML preserves key names."
   (replace-regexp-in-string "-" "_" (substring (symbol-name key) 1)))
 
 (defun jf/gptel-scope--write-yaml-plist (plist)
@@ -418,14 +444,21 @@ Converts kebab-case keys to snake_case for YAML output."
                  ((and (listp value) (stringp (car value)))
                   (insert (format "%s:\n" key-name))
                   (dolist (item value)
-                    (insert (format "  - %s\n" item))))))))
+                    (insert (format "  - %s\n" item))))
 
-(defun jf/gptel-scope--prompt-expansion (violation-info callback patterns tool-name)
+                 ;; Unknown structure - fail loudly
+                 (t
+                  (error "Unknown YAML structure for key '%s': %S. Expected known nested structure or simple value"
+                         key-name value))))))
+
+(defun jf/gptel-scope-prompt-expansion (violation-info callback patterns tool-name)
   "Show expansion UI for VIOLATION-INFO.
 CALLBACK is the gptel async callback to invoke with JSON result.
 PATTERNS is the list of patterns to add if approved.
 TOOL-NAME is the tool requesting expansion.
-VIOLATION-INFO is a plist with :tool, :resource, :reason, :validation-type."
+VIOLATION-INFO is a plist with :tool, :resource, :reason, :validation-type.
+
+This is a public API function used by scope-shell-tools and other modules."
   (transient-setup 'jf/gptel-scope-expansion-menu nil nil
                    :scope (list :violation violation-info
                                :callback callback

@@ -5,6 +5,7 @@
 (require 'cl-lib)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
+(require 'jf-gptel-scope-shell-tools)  ; For bash helper functions
 ;; Dependencies:1 ends here
 
 ;; Tool Category Constant
@@ -164,7 +165,8 @@ the primary resource identifier (filepath, node-id, command, etc.)."
                     (progn ,@body)
 
                   ;; Format and return error
-                  ;; TODO: Trigger expansion UI instead of immediate return (Task #7)
+                  ;; Note: Expansion UI is triggered by LLM via request_scope_expansion tool,
+                  ;; not automatically here. This maintains LLM-mediated communication pattern.
                   (jf/gptel-scope--format-tool-error
                    ,name
                    (nth 0 normalized-args)  ; Primary resource (first arg)
@@ -196,6 +198,8 @@ Returns plist with:
   :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
   :shell-commands - Plist with :allow and :deny lists
   :bash-tools - Plist with :categories and :deny lists
+                (YAML uses snake_case: bash_tools, read_only
+                 Elisp uses kebab-case: :bash-tools, :read-only)
 
 Uses buffer-local jf/gptel--branch-dir if available.
 Returns nil if scope.yml not found or can't be parsed."
@@ -214,7 +218,19 @@ Returns nil if scope.yml not found or can't be parsed."
 
 ;; Key Normalization Helper
 
-;; Normalize YAML keys by converting underscores to hyphens.
+;; Normalize YAML keys by converting underscores to hyphens for internal consistency.
+
+;; *Bidirectional conversion:*
+;; - *Read path*: YAML =bash_tools= (snake_case) → Elisp =:bash-tools= (kebab-case)
+;; - *Write path*: Elisp =:bash-tools= (kebab-case) → YAML =bash_tools= (snake_case)
+
+;; This normalization is automatic and bidirectional:
+;; 1. When loading scope.yml, =jf/gptel-scope--normalize-plist-keys= converts all underscore keys to hyphens
+;; 2. When writing scope.yml, =jf/gptel-scope--kebab-to-snake= (in scope-expansion.org) converts hyphens back to underscores
+
+;; *Example:* Users write =bash_tools= in YAML files, but code uses =:bash-tools= internally.
+
+;; This is especially important for =bash_tools= since it's the most recent addition to the schema.
 
 
 ;; [[file:scope-core.org::*Key Normalization Helper][Key Normalization Helper:1]]
@@ -292,6 +308,10 @@ Cleared automatically after LLM response completes via gptel-post-response-funct
 Extracts resource from ARGS based on tool category.
 Returns t if found (and consumes the permission), nil otherwise.
 
+IMPORTANT: Permission is consumed when this function returns t, BEFORE the
+tool body executes. This ensures single-use semantics but means permissions
+cannot be retried if the tool body fails. See 'Consumption Semantics' above.
+
 CONFIG is the scope configuration (used to determine tool category)."
   (when jf/gptel-scope--allow-once-list
     (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
@@ -315,9 +335,11 @@ CONFIG is the scope configuration (used to determine tool category)."
 
 
 ;; [[file:scope-core.org::*Add to Allow-Once List][Add to Allow-Once List:1]]
-(defun jf/gptel-scope--add-to-allow-once-list (tool-name resource)
+(defun jf/gptel-scope-add-to-allow-once-list (tool-name resource)
   "Add TOOL-NAME and RESOURCE to allow-once list.
-Permission is valid only for current LLM turn."
+Permission is valid only for current LLM turn.
+
+This is a public API function used by scope-expansion and other modules."
   (push (cons tool-name resource) jf/gptel-scope--allow-once-list))
 ;; Add to Allow-Once List:1 ends here
 
@@ -534,12 +556,90 @@ Returns plist with:
       (list :allowed t))))
 ;; Command-Based Validator:1 ends here
 
-;; Bash-Based Validator
+;; Validator Return Values
 
-;; Validates bash commands against category-based permissions and directory scope.
+;; The bash validator returns structured error information to help the LLM understand what went wrong and how to fix it.
+
+;; *Success case:*
+
+;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:1]]
+(:allowed t)
+;; Validator Return Values:1 ends here
 
 
-;; [[file:scope-core.org::*Bash-Based Validator][Bash-Based Validator:1]]
+
+;; *Error cases:*
+
+;; 1. *Command not allowed* (command not in any category):
+
+;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:2]]
+(:allowed nil
+ :reason "command_not_allowed"
+ :tool "run_bash_command"
+ :resource "tree"
+ :command "tree"
+ :message "Command 'tree' is not in any bash_tools category (read_only, safe_write, dangerous). Use request_scope_expansion to request adding this command to an appropriate category.")
+;; Validator Return Values:2 ends here
+
+
+
+;; 2. *Denied command* (in bash_tools.deny list):
+
+;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:3]]
+(:allowed nil
+ :reason "denied"
+ :tool "run_bash_command"
+ :resource "rm -rf /tmp/file"
+ :command "rm -rf /tmp/file"
+ :message "Command 'rm' is explicitly denied in bash_tools.deny list.")
+;; Validator Return Values:3 ends here
+
+
+
+;; 3. *Directory not in scope* (directory doesn't match paths.read or paths.write):
+
+;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:4]]
+(:allowed nil
+ :reason "directory_not_in_scope"
+ :tool "run_bash_command"
+ :resource "/Users/jefffarr/other-project"
+ :command "ls -la"
+ :directory "/Users/jefffarr/other-project"
+ :required-scope "read"
+ :allowed-patterns ("/Users/jefffarr/emacs/**" "/Users/jefffarr/projects/**")
+ :message "Directory '/Users/jefffarr/other-project' is not in scope for read operations. Command 'ls' requires read access.")
+;; Validator Return Values:4 ends here
+
+
+
+;; 4. *Dangerous command* (requires explicit approval):
+
+;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:5]]
+(:allowed nil
+ :reason "dangerous_command"
+ :tool "run_bash_command"
+ :resource "dangerous-cmd"
+ :command "dangerous-cmd"
+ :message "Command 'dangerous-cmd' is categorized as dangerous and requires explicit user approval via request_scope_expansion.")
+;; Validator Return Values:5 ends here
+
+
+
+;; 5. *No bash_tools configuration*:
+
+;; [[file:scope-core.org::*Validator Return Values][Validator Return Values:6]]
+(:allowed nil
+ :reason "command_not_allowed"
+ :tool "run_bash_command"
+ :resource "ls"
+ :command "ls"
+ :message "No bash_tools configuration found. All commands denied by default.")
+;; Validator Return Values:6 ends here
+
+;; Implementation
+
+
+;; [[file:scope-core.org::*Implementation][Implementation:1]]
 (defun jf/gptel-scope--validate-bash-tool (tool-name args config)
   "Validate bash command against bash_tools categories and paths.
 TOOL-NAME is the tool being validated.
@@ -549,6 +649,7 @@ CONFIG is the scope configuration plist.
 Returns plist with:
   :allowed t/nil
   :reason STRING (if denied)
+  :resource STRING (the denied resource - command or directory)
   :command STRING (the command, if denied)
   :directory STRING (the directory, if denied)
   :tool STRING (tool name, if denied)
@@ -569,21 +670,58 @@ Returns plist with:
       (unless bash-config
         (cl-return-from jf/gptel-scope--validate-bash-tool
           (list :allowed nil
-                :reason "command_not_allowed"
+                :reason "command-not-allowed"
                 :tool tool-name
+                :resource command-full
                 :command command-full
                 :message "No bash_tools configuration found. All commands denied by default.")))
 
+      ;; Validate bash_tools structure is well-formed
+      (unless (and categories (listp categories))
+        (cl-return-from jf/gptel-scope--validate-bash-tool
+          (list :allowed nil
+                :reason "malformed-config"
+                :tool tool-name
+                :resource command-full
+                :command command-full
+                :message "Malformed bash_tools configuration: missing or invalid 'categories' section.")))
+
+      ;; Validate required category sections exist
+      (let ((read-only-section (plist-get categories :read-only))
+            (safe-write-section (plist-get categories :safe-write))
+            (dangerous-section (plist-get categories :dangerous)))
+        (unless (and read-only-section safe-write-section dangerous-section)
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "malformed-config"
+                  :tool tool-name
+                  :resource command-full
+                  :command command-full
+                  :message "Malformed bash_tools configuration: missing required category (read_only, safe_write, or dangerous).")))
+
+        ;; Validate each category has a commands list
+        (unless (and (plist-get read-only-section :commands)
+                     (plist-get safe-write-section :commands)
+                     (plist-get dangerous-section :commands))
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "malformed-config"
+                  :tool tool-name
+                  :resource command-full
+                  :command command-full
+                  :message "Malformed bash_tools configuration: category missing 'commands' list."))))
+
       ;; Parse command to extract base command
-      (let* ((command-parts (split-string command-full "[ |><;&]" t))
+      (let* ((command-parts (split-string command-full "[ |><;&]+" t))
              (base-command (car command-parts)))
 
         ;; Check deny list first (highest priority)
         (when (member base-command deny-list)
           (cl-return-from jf/gptel-scope--validate-bash-tool
             (list :allowed nil
-                  :reason "denied"
+                  :reason "denied-command"
                   :tool tool-name
+                  :resource command-full
                   :command command-full
                   :message (format "Command '%s' is explicitly denied in bash_tools.deny list."
                                  base-command))))
@@ -599,21 +737,23 @@ Returns plist with:
            ((member base-command safe-write) (setq category 'safe-write))
            ((member base-command dangerous) (setq category 'dangerous))
            (t
-            ;; Unknown command - deny
+            ;; Unknown command - deny and suggest scope expansion
             (cl-return-from jf/gptel-scope--validate-bash-tool
               (list :allowed nil
-                    :reason "command_not_allowed"
+                    :reason "command-not-allowed"
                     :tool tool-name
+                    :resource command-full
                     :command command-full
-                    :message (format "Command '%s' is not in any bash_tools category (read_only, safe_write, dangerous)."
+                    :message (format "Command '%s' is not in any bash_tools category (read_only, safe_write, dangerous). Use request_scope_expansion to request adding this command to an appropriate category."
                                    base-command)))))
 
           ;; Dangerous commands always denied (require explicit expansion)
           (when (eq category 'dangerous)
             (cl-return-from jf/gptel-scope--validate-bash-tool
               (list :allowed nil
-                    :reason "dangerous_command"
+                    :reason "dangerous-command"
                     :tool tool-name
+                    :resource command-full
                     :command command-full
                     :message (format "Command '%s' is categorized as dangerous and requires explicit user approval via request_scope_expansion."
                                    base-command))))
@@ -627,8 +767,9 @@ Returns plist with:
             (when (jf/gptel-scope--matches-any-pattern real-directory deny-paths)
               (cl-return-from jf/gptel-scope--validate-bash-tool
                 (list :allowed nil
-                      :reason "denied"
+                      :reason "denied-path"
                       :tool tool-name
+                      :resource real-directory
                       :command command-full
                       :directory real-directory
                       :message (format "Directory '%s' is explicitly denied in paths.deny list."
@@ -642,8 +783,9 @@ Returns plist with:
                           (jf/gptel-scope--matches-any-pattern real-directory write-paths))
                  (cl-return-from jf/gptel-scope--validate-bash-tool
                    (list :allowed nil
-                         :reason "directory_not_in_scope"
+                         :reason "directory-not-in-scope"
                          :tool tool-name
+                         :resource real-directory
                          :command command-full
                          :directory real-directory
                          :required-scope required-scope
@@ -656,8 +798,9 @@ Returns plist with:
                (unless (jf/gptel-scope--matches-any-pattern real-directory write-paths)
                  (cl-return-from jf/gptel-scope--validate-bash-tool
                    (list :allowed nil
-                         :reason "directory_not_in_scope"
+                         :reason "directory-not-in-scope"
                          :tool tool-name
+                         :resource real-directory
                          :command command-full
                          :directory real-directory
                          :required-scope required-scope
@@ -667,7 +810,7 @@ Returns plist with:
 
             ;; Passed all checks
             (list :allowed t)))))))
-;; Bash-Based Validator:1 ends here
+;; Implementation:1 ends here
 
 ;; Tool Permission Dispatch
 

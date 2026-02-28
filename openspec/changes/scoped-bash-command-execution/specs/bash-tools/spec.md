@@ -27,8 +27,8 @@ The bash tools system SHALL categorize commands into read_only, safe_write, and 
 - **THEN** the system categorizes it as safe_write requiring paths.write access
 
 #### Scenario: Dangerous command categorized
-- **WHEN** a command is explicitly listed in bash_tools.dangerous
-- **THEN** the system categorizes it as dangerous and requires explicit scope expansion
+- **WHEN** a command is explicitly listed in bash_tools.categories.dangerous
+- **THEN** the system categorizes it as dangerous, always denies it, and requires explicit user approval via request_scope_expansion
 
 #### Scenario: Denied command rejected immediately
 - **WHEN** a command appears in bash_tools.deny list
@@ -122,6 +122,29 @@ The bash tools system SHALL parse command strings to extract the base command fo
 - **WHEN** parsing "  ls -la  "
 - **THEN** the system trims and extracts "ls" as base command
 
+### Requirement: Complete validation pipeline
+The bash tools system SHALL execute a multi-step validation pipeline for each command.
+
+#### Scenario: Validation pipeline for command execution
+- **WHEN** run_bash_command is called with command and directory
+- **THEN** the system executes these steps in order:
+  1. Parse command to extract base command (first token before pipes/redirects)
+  2. Categorize base command (check deny → read_only → safe_write → dangerous)
+  3. Resolve directory to absolute path using expand-file-name
+  4. Resolve directory symlinks to real path using file-truename
+  5. Validate directory against category's path scope requirement
+  6. Execute command with timeout and output truncation
+
+#### Scenario: Directory resolution with symlinks
+- **WHEN** validating a directory path containing symlinks
+- **THEN** the system resolves symlinks to the real path before pattern matching
+- **AND** pattern matching occurs against the fully resolved path
+
+#### Scenario: Relative directory resolution
+- **WHEN** a relative directory path is provided
+- **THEN** the system expands it to absolute path relative to buffer's default-directory
+- **AND** then resolves any symlinks to real path
+
 ### Requirement: Safe command execution with timeouts
 The bash tools system SHALL execute commands with timeout protection to prevent runaway processes.
 
@@ -180,15 +203,15 @@ The bash tools system SHALL return structured errors that guide the LLM to reque
 
 #### Scenario: Command not allowed error structure
 - **WHEN** a command is not in any allow list
-- **THEN** the system returns :error "command_not_allowed" with tool, command, and message fields
+- **THEN** the system returns :allowed nil with :reason "command_not_allowed", tool, command, and message fields
 
 #### Scenario: Command denied error structure
 - **WHEN** a command is in deny list
-- **THEN** the system returns :error "command_denied" with tool, command, and security warning
+- **THEN** the system returns :allowed nil with :reason "denied", tool, command, and security warning
 
 #### Scenario: Directory not in scope error structure
 - **WHEN** directory does not match category's path requirement
-- **THEN** the system returns :error "directory_not_in_scope" with directory, required_scope, allowed_patterns, and message
+- **THEN** the system returns :allowed nil with :reason "directory_not_in_scope", directory, required_scope, allowed_patterns, and message
 
 #### Scenario: Error messages suggest expansion
 - **WHEN** any scope violation occurs
@@ -232,8 +255,9 @@ The bash tools system SHALL load bash command configuration from `scope.yml` loc
 
 #### Scenario: Category structure parsed
 - **WHEN** bash_tools configuration is loaded
-- **THEN** the system parses bash_tools.categories.read_only, bash_tools.categories.safe_write, and bash_tools.categories.dangerous lists
-- **AND** converts nested structure: {:bash-tools {:categories {:read-only [...] :safe-write [...]} :deny [...]}}
+- **THEN** the system parses bash_tools.categories.read_only, bash_tools.categories.safe_write, and bash_tools.categories.dangerous lists from YAML (using snake_case keys)
+- **AND** normalizes keys to kebab-case during parsing: {:bash-tools {:categories {:read-only [...] :safe-write [...]} :deny [...]}}
+- **NOTE:** YAML uses snake_case (bash_tools, read_only), Elisp uses kebab-case (:bash-tools, :read-only)
 
 #### Scenario: Deny list parsed
 - **WHEN** bash_tools configuration is loaded

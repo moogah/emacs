@@ -29,7 +29,12 @@
       "Bash(bd create:*)",
       "Bash(bd show:*)",
       "Bash(bd update:*)",
-      "Bash(bd close:*)"
+      "Bash(bd close:*)",
+      "Bash(bd new:*)",
+      "Bash(bd list:*)",
+      "Bash(bd start:*)",
+      "Bash(bd status:*)",
+      "Bash(/Users/jefffarr/emacs/bin/tangle-org.sh:*)"
     ]
   }
 }

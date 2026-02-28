@@ -19,15 +19,13 @@
 ;; [[file:scope-shell-tools.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
 (require 'jf-gptel-scope-core)
-(require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope--prompt-expansion
+(require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope-prompt-expansion
 ;; Dependencies:1 ends here
 
-;; Parse Command
-
-;; Extract base command from complex shell strings with pipes, redirects, and command substitution.
+;; Implementation
 
 
-;; [[file:scope-shell-tools.org::*Parse Command][Parse Command:1]]
+;; [[file:scope-shell-tools.org::*Implementation][Implementation:1]]
 (defun jf/gptel-bash--parse-command (cmd-string)
   "Extract base command from CMD-STRING.
 Handles pipes, redirects, command substitution.
@@ -40,86 +38,7 @@ Examples:
          (parts (split-string trimmed "[ |><;&]+" t))
          (base (car parts)))
     base))
-;; Parse Command:1 ends here
-
-;; Categorize Command
-
-;; Categorize command using bash_tools configuration section.
-
-
-;; [[file:scope-shell-tools.org::*Categorize Command][Categorize Command:1]]
-(defun jf/gptel-bash--categorize-command (command bash-config)
-  "Categorize COMMAND using BASH-CONFIG (the bash_tools section).
-BASH-CONFIG should be the value of (plist-get config :bash-tools).
-Returns: 'denied, 'read_only, 'safe_write, 'dangerous, or 'unknown."
-  (let* ((categories (plist-get bash-config :categories))
-         (deny-list (plist-get bash-config :deny))
-         (read-only (plist-get (plist-get categories :read-only) :commands))
-         (safe-write (plist-get (plist-get categories :safe-write) :commands))
-         (dangerous (plist-get (plist-get categories :dangerous) :commands)))
-    (cond
-     ((member command deny-list) 'denied)
-     ((member command read-only) 'read_only)
-     ((member command safe-write) 'safe_write)
-     ((member command dangerous) 'dangerous)
-     (t 'unknown))))
-;; Categorize Command:1 ends here
-
-;; Validate Directory for Category
-
-;; Validate directory matches category's path scope requirement.
-
-
-;; [[file:scope-shell-tools.org::*Validate Directory for Category][Validate Directory for Category:1]]
-(defun jf/gptel-bash--validate-directory-for-category (directory category paths-config)
-  "Validate DIRECTORY matches CATEGORY's path scope requirement.
-PATHS-CONFIG should be the paths section from scope config with :read, :write, :deny keys.
-- read_only: must match paths.read OR paths.write
-- safe_write: must match paths.write
-- dangerous: always requires expansion (return error)
-
-Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
-  (let ((read-paths (plist-get paths-config :read))
-        (write-paths (plist-get paths-config :write))
-        (deny-paths (plist-get paths-config :deny)))
-
-    ;; Check deny first (deny takes precedence)
-    (when (jf/gptel-scope--matches-any-pattern directory deny-paths)
-      (cl-return-from jf/gptel-bash--validate-directory-for-category
-        (list :allowed nil
-              :reason (format "Directory %s matches deny pattern" directory))))
-
-    (pcase category
-      ('read_only
-       ;; Read-only commands allowed in read OR write paths
-       (if (or (jf/gptel-scope--matches-any-pattern directory read-paths)
-               (jf/gptel-scope--matches-any-pattern directory write-paths))
-           (list :allowed t)
-         (list :allowed nil
-               :reason (format "Directory %s not in read scope" directory)
-               :required-scope "read"
-               :allowed-patterns (append read-paths write-paths))))
-
-      ('safe_write
-       ;; Write commands require write paths
-       (if (jf/gptel-scope--matches-any-pattern directory write-paths)
-           (list :allowed t)
-         (list :allowed nil
-               :reason (format "Directory %s not in write scope" directory)
-               :required-scope "write"
-               :allowed-patterns write-paths)))
-
-      ('dangerous
-       ;; Dangerous commands always require explicit expansion
-       (list :allowed nil
-             :reason "Dangerous command requires explicit approval"
-             :message "Use request_scope_expansion to request approval"))
-
-      ;; Default case for unknown or invalid categories
-      (_
-       (list :allowed nil
-             :reason (format "Invalid or unsupported command category: %s" category))))))
-;; Validate Directory for Category:1 ends here
+;; Implementation:1 ends here
 
 ;; Check Absolute Paths
 
@@ -142,15 +61,24 @@ Returns warning string if found, nil otherwise."
 ;; [[file:scope-shell-tools.org::*Execute Command][Execute Command:1]]
 (defun jf/gptel-bash--execute-command (command directory)
   "Execute COMMAND in DIRECTORY with timeout and output truncation.
-Returns (:output OUTPUT :exit_code CODE :truncated BOOL)."
+Returns (:output OUTPUT :exit_code CODE :truncated BOOL :warnings LIST :error ERROR-TYPE).
+Warnings are returned in a separate field to allow LLM to distinguish them from command output.
+Error types: timeout, execution-failed."
   (let* ((default-directory (file-truename (expand-file-name directory)))
          (output nil)
          (exit-code nil)
          (truncated nil)
+         (warnings nil)
+         (error-type nil)
          (max-output-chars 10000))
 
     (condition-case err
-        (with-timeout (30)  ; 30-second timeout
+        (with-timeout (30  ; 30-second timeout
+                       (progn
+                         (setq error-type "timeout")
+                         (setq exit-code 124)  ; GNU timeout exit code
+                         (setq output "Command execution timed out after 30 seconds. Output may be incomplete.")
+                         (setq warnings (list "Command timed out - use more specific filters to reduce execution time"))))
           (setq output
                 (with-temp-buffer
                   (setq exit-code
@@ -159,9 +87,11 @@ Returns (:output OUTPUT :exit_code CODE :truncated BOOL)."
                   (buffer-string))))
       (error
        (cl-return-from jf/gptel-bash--execute-command
-         (list :output (format "Command timed out or failed: %s" err)
+         (list :output (format "Command execution failed: %s" (error-message-string err))
                :exit_code 1
-               :truncated nil))))
+               :error "execution-failed"
+               :truncated nil
+               :warnings nil))))
 
     ;; Truncate output if too long
     (let ((original-length (length output)))
@@ -172,12 +102,16 @@ Returns (:output OUTPUT :exit_code CODE :truncated BOOL)."
                       (format "\n\n[Output truncated at %d chars. Total: %d chars. Use filters like 'head', 'grep', or 'tail' to narrow results.]"
                               max-output-chars original-length)))))
 
-    ;; Check for warnings
+    ;; Check for warnings (collect in list, don't modify output)
     (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
       (when path-warning
-        (setq output (concat path-warning "\n\n" output))))
+        (setq warnings (list path-warning))))
 
-    (list :output output :exit_code exit-code :truncated truncated)))
+    (list :output output
+          :exit_code exit-code
+          :truncated truncated
+          :warnings warnings
+          :error error-type)))
 ;; Execute Command:1 ends here
 
 ;; Tool Implementation
@@ -203,7 +137,7 @@ Security features:
 - 30-second timeout
 - Output truncation at 10,000 chars
 - Warnings for absolute paths in arguments
-- Deny list blocks dangerous commands (rm, mv, chmod, sudo)
+- Deny list blocks dangerous commands (rm, rmdir, mv, cp, ln, scp, rsync, chmod, sudo, crontab, iptables, systemctl, useradd, shutdown, reboot, halt, poweroff, etc.)
 
 Examples:
   run_bash_command('ls -la', '/Users/jefffarr/emacs')
@@ -225,11 +159,13 @@ Examples:
         (exit-code (plist-get result :exit_code))
         (output (plist-get result :output))
         (truncated (plist-get result :truncated))
+        (warnings (plist-get result :warnings))
         (success (zerop exit-code)))
    (list :success success
          :output output
          :exit_code exit-code
-         :truncated truncated)))
+         :truncated truncated
+         :warnings warnings)))
 ;; Tool Implementation:1 ends here
 
 ;; Request Scope Expansion Tool (Meta Tool, v3.0 Async)
@@ -284,7 +220,7 @@ Returns:
                  :patterns patterns)))
 
      ;; Show transient menu - pass callback, patterns, tool_name directly in scope
-     (jf/gptel-scope--prompt-expansion violation-info callback patterns tool_name))))
+     (jf/gptel-scope-prompt-expansion violation-info callback patterns tool_name))))
 ;; Request Scope Expansion Tool (Meta Tool, v3.0 Async):1 ends here
 
 ;; Helper: Infer Validation Type

@@ -5,11 +5,128 @@
 * Introduction
 
 Scope profile templates for gptel sessions. Profiles define default permissions
-(file paths, org-roam patterns, shell commands) that can be associated with
+(file paths, org-roam patterns, shell commands, bash tools) that can be associated with
 presets. When a session starts, the profile is resolved, variables are expanded,
 and the result is written as =scope.yml= into the session directory.
 
 Profile templates live as YAML files in =config/gptel/scope-profiles/=.
+
+** Scope Profile Sections
+
+Profiles can include the following configuration sections:
+
+1. *paths* - File access control (read, write, deny patterns)
+2. *org-roam-patterns* - Org-roam node filtering (subdirectory, tags, node-ids)
+3. *shell-commands* - Legacy shell command allow/deny lists (deprecated in favor of bash_tools)
+4. *bash_tools* - Category-based bash command execution with directory scoping
+
+** Bash Tools Configuration
+
+The =bash_tools= section provides fine-grained control over shell command execution:
+
+*** Structure
+
+#+begin_example yaml
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "grep", "find", "cat", "head", "tail", "wc", "git log", "git diff"]
+    safe_write:
+      commands: ["mkdir", "touch", "echo", "git add", "git commit"]
+    dangerous:
+      commands: []
+  deny:
+    - "rm"
+    - "mv"
+    - "sudo"
+    - "chmod"
+#+end_example
+
+*** Categories
+
+Commands are grouped by operational impact:
+
+- *read_only* - Commands that only read data (require paths.read OR paths.write)
+- *safe_write* - Commands that create/modify safely (require paths.write)
+- *dangerous* - Commands requiring explicit user approval (empty by default)
+- *deny* - Commands never allowed, even with scope expansion
+
+*** Directory Scope Binding
+
+Each category binds to path scope requirements:
+
+| Category   | Requires paths.read | Requires paths.write | Notes                      |
+|------------|---------------------|----------------------|----------------------------|
+| read_only  | ✓ (or write)        |                      | Write scope includes read  |
+| safe_write |                     | ✓                    | More restrictive           |
+| dangerous  | ✓                   | ✓                    | Plus explicit approval     |
+| deny       | ✗                   | ✗                    | Never allowed              |
+
+*** Variable Expansion
+
+Like other scope sections, bash_tools configuration supports variable expansion:
+
+#+begin_example yaml
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "cat", "grep"]
+  deny:
+    - "rm"
+    - "${dangerous_command}"  # Variables expanded during session creation
+#+end_example
+
+*** Example: Complete Profile with Bash Tools
+
+Here's a complete profile demonstrating all sections:
+
+#+begin_example yaml
+# File: config/gptel/scope-profiles/coding.yml
+paths:
+  read: ["/**"]
+  write: ["${project_root}/**"]
+  deny: ["**/.git/**", "**/runtime/**", "**/.env"]
+
+org_roam_patterns:
+  subdirectory: ["gptel/**"]
+  tags: ["gptel"]
+  node_ids: ["*"]
+
+shell_commands:
+  allow: ["ls", "find", "grep", "git"]
+  deny: ["rm -rf", "sudo"]
+
+bash_tools:
+  categories:
+    read_only:
+      commands:
+        - "ls"
+        - "cat"
+        - "grep"
+        - "find"
+        - "git log"
+        - "git show"
+        - "git diff"
+        - "git status"
+        - "pwd"
+    safe_write:
+      commands:
+        - "mkdir"
+        - "touch"
+        - "git add"
+        - "git commit"
+    dangerous:
+      commands: []
+  deny:
+    - "rm"
+    - "rmdir"
+    - "mv"
+    - "cp"
+    - "chmod"
+    - "sudo"
+#+end_example
+
+See =config/gptel/tools/scope-shell-tools.org= for complete documentation on the =run_bash_command= tool.
 
 * Lexical Binding
 

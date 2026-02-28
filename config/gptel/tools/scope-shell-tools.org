@@ -9,9 +9,63 @@ This module provides scope-aware shell execution and meta tools for v3.0 preset-
 1. *Shell tool*: =run_bash_command= - Execute shell commands with category-based scope validation
 2. *Meta tool*: =request_scope_expansion= - LLM requests user approval via transient menu (v3.0 async)
 
+*See also:* Complete usage examples in =config/gptel/presets/bash-tools-example.md= and =config/gptel/presets/system-explorer.md=
+
 ** Shell Command Scoping (v3.0)
 
-The =run_bash_command= tool uses scope.yml bash_tools configuration with command categorization by operational impact:
+The =run_bash_command= tool uses scope.yml bash_tools configuration with command categorization by operational impact.
+
+*** YAML Schema
+
+The =bash_tools= section in =scope.yml= has the following structure:
+
+#+begin_src yaml
+bash_tools:
+  categories:
+    read_only:
+      commands: [ARRAY_OF_COMMAND_STRINGS]
+    safe_write:
+      commands: [ARRAY_OF_COMMAND_STRINGS]
+    dangerous:
+      commands: [ARRAY_OF_COMMAND_STRINGS]
+  deny: [ARRAY_OF_COMMAND_STRINGS]
+#+end_src
+
+*Schema fields:*
+- =categories= (object, required): Command categorization by operational impact
+  - =read_only= (object): Commands that only read data
+    - =commands= (array of strings): List of read-only command names
+  - =safe_write= (object): Commands that create or modify safely
+    - =commands= (array of strings): List of safe write command names
+  - =dangerous= (object): Commands requiring explicit user approval
+    - =commands= (array of strings): List of dangerous command names (typically empty)
+  - =deny= (array of strings): Commands never allowed, even with scope expansion
+
+*Example:*
+
+#+begin_src yaml
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "grep", "find", "cat", "head", "tail", "wc", "file", "git log", "git diff"]
+    safe_write:
+      commands: ["mkdir", "touch", "echo", "git add", "git commit"]
+    dangerous:
+      commands: []
+  deny:
+    - "rm"
+    - "rmdir"
+    - "mv"
+    - "cp"
+    - "ln"
+    - "chmod"
+    - "sudo"
+    - "dd"
+    - "tar"
+    - "zip"
+    - "curl"
+    - "wget"
+#+end_src
 
 *** Command Categories
 
@@ -33,8 +87,11 @@ Commands are grouped by *operational impact* rather than technical function:
    - For commands with potential for unintended consequences
 
 4. *deny* - Commands never allowed
-   - Examples: =rm=, =mv=, =sudo=, =dd=
+   - Examples: =rm=, =rmdir=, =mv=, =cp=, =ln=, =scp=, =rsync=, =chmod=, =sudo=, =dd=, =crontab=, =iptables=, =systemctl=, =useradd=, =shutdown=, =reboot=, =halt=, =poweroff=
    - Destructive operations that should never be automated
+   - Includes file operations (rm, rmdir, mv, cp, ln), remote transfers (scp, rsync), permissions (chmod), and security-sensitive commands: task scheduling, firewall, system services, user management, power management
+   - Archive tools with overwrite risk: =tar=, =zip=, =unzip=, =gzip=, =bzip2= (see Archive Tools Evaluation below)
+   - Download tools with write capability: =curl=, =wget= (see Download Tools Evaluation below)
    - Rejected immediately without scope expansion option
 
 *** Path Scope Binding
@@ -62,6 +119,29 @@ The system supports standard shell composition features:
 
 *Rationale:* Validating the base command provides the primary security boundary. If =grep= is safe in a scoped directory, composing it with =head= doesn't increase risk. Parsing complex pipelines is error-prone and provides marginal security benefit.
 
+*IMPORTANT SECURITY LIMITATION:* This design allows dangerous commands in pipeline positions after the base command. For example:
+
+- =ls | xargs rm= would be ALLOWED if =ls= is in =read_only= category, even though =rm= is in the deny list
+- =grep pattern . | sh= would be ALLOWED if =grep= is in =read_only= category, even though =sh= could execute arbitrary commands
+- =find . -name '*.txt' | xargs chmod 777= would be ALLOWED if =find= is in =read_only=
+
+This is an *intentional security trade-off* balancing usability vs. risk:
+
+1. *Risk mitigation:* Directory scope still applies - all commands execute in a validated directory. Commands cannot escape the directory scope without using absolute paths (which trigger warnings).
+
+2. *Deny list provides primary defense:* Commands like =rm=, =sudo=, =chmod= in the deny list cannot be used as base commands. The LLM must compose them in pipelines to bypass validation.
+
+3. *LLM behavior:* The LLM learns safe patterns through normal operation. Deliberately bypassing security requires intent, which violates the LLM's operational guidelines.
+
+4. *User monitoring:* All bash commands are visible in the gptel buffer. Users can see when suspicious pipelines are executed.
+
+5. *Future enhancement:* Could add full pipeline parsing and validation if this becomes a practical attack vector in real-world usage.
+
+If this security boundary is insufficient for your use case, consider:
+- Setting bash_tools categories lists to empty =[]= to deny all bash commands
+- Only allowing specific commands via scope expansion
+- Monitoring gptel buffers for suspicious pipeline patterns
+
 *** Security Features
 
 1. *Timeouts* - Commands automatically terminate after 30 seconds
@@ -80,6 +160,64 @@ The system supports standard shell composition features:
 4. *Explicit Directory Required* - Every command must specify working directory
    - No implicit fallbacks or context inference
    - Forces clear intent about where commands execute
+
+*** Archive Tools Evaluation
+
+*Evaluated commands:* =tar=, =zip=, =unzip=, =gzip=, =bzip2=, =gunzip=, =bunzip2=
+
+*Risk analysis:*
+- Extraction operations can overwrite existing files without warning
+- Example: =tar -xf archive.tar= will silently overwrite files in current directory
+- Example: =unzip file.zip= can overwrite files during extraction
+
+*Safe operations exist:*
+- =tar -tf= or =tar -tzf= - List archive contents (read-only)
+- =unzip -l= - List zip contents (read-only)
+- =zip -sf= - Show files in archive (read-only)
+
+*Challenge:*
+Current validation model categorizes base commands only, not command+flag combinations. Cannot distinguish =tar -tf= (safe) from =tar -xf= (unsafe).
+
+*Decision: Add to deny list (conservative approach)*
+
+*Rationale:*
+1. *Overwrite risk outweighs utility* - Extraction can silently destroy data
+2. *Read-only alternatives exist* - Can use =less= or =cat= for single files
+3. *Limited use case* - LLM rarely needs to extract archives during exploration
+4. *Directory scope insufficient* - Even in write-enabled directory, overwriting existing files is dangerous
+5. *Consistent with existing policy* - =cp= and =mv= already denied for same overwrite risk
+
+*User workaround:* If archive extraction needed, user can run commands manually or add to =dangerous= category via scope expansion.
+
+*** Download Tools Evaluation
+
+*Evaluated commands:* =curl=, =wget=
+
+*Risk analysis:*
+- Both can write files using =-o= or =--output= flags
+- Example: =curl -o file.txt https://example.com= writes to filesystem
+- Example: =wget https://example.com/file.zip= saves file to current directory
+
+*Safe operations exist:*
+- =curl https://example.com= - Fetch content to stdout (read-only)
+- =wget -O - https://example.com= - Fetch to stdout (read-only)
+
+*Challenge:*
+Current validation model cannot validate flag combinations. Cannot distinguish =curl URL= (safe) from =curl -o file URL= (unsafe).
+
+*Decision: Add to deny list (conservative approach)*
+
+*Rationale:*
+1. *Write capability with flags* - =-o= flag bypasses directory scope validation
+2. *wget defaults to writing files* - Even without flags, writes to current directory
+3. *Security risk* - LLM could download and execute malicious content
+4. *Alternatives exist* - If LLM needs to fetch content, can suggest user use browser or dedicated tools
+5. *Scope boundary enforcement* - Download tools violate the principle that all writes must validate directory scope
+
+*Counterargument considered:*
+system-explorer preset has =write: []= (no write paths), so curl/wget write attempts would fail directory validation. However, this relies on preset configuration rather than command categorization. Conservative approach is safer.
+
+*User workaround:* If download capability needed, user can add to =dangerous= category via scope expansion with specific justification.
 
 ** Scope Expansion (v3.0)
 
@@ -148,14 +286,21 @@ User sees transient menu with options to deny, add to scope, or allow once.
 #+begin_src elisp
 (require 'cl-lib)
 (require 'jf-gptel-scope-core)
-(require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope--prompt-expansion
+(require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope-prompt-expansion
 #+end_src
 
 * Bash Command Helper Functions
 
+These helper functions use the =jf/gptel-bash--= prefix (not =jf/gptel-scope-shell--=)
+to indicate they are bash-specific utilities for command parsing and execution.
+This naming is intentional and distinguishes them from scope validation functions
+which use the =jf/gptel-scope--= prefix.
+
 ** Parse Command
 
 Extract base command from complex shell strings with pipes, redirects, and command substitution.
+
+*** Implementation
 
 #+begin_src elisp
 (defun jf/gptel-bash--parse-command (cmd-string)
@@ -172,82 +317,131 @@ Examples:
     base))
 #+end_src
 
-** Categorize Command
+*** Test Coverage
 
-Categorize command using bash_tools configuration section.
+Edge cases covered by this implementation:
 
-#+begin_src elisp
-(defun jf/gptel-bash--categorize-command (command bash-config)
-  "Categorize COMMAND using BASH-CONFIG (the bash_tools section).
-BASH-CONFIG should be the value of (plist-get config :bash-tools).
-Returns: 'denied, 'read_only, 'safe_write, 'dangerous, or 'unknown."
-  (let* ((categories (plist-get bash-config :categories))
-         (deny-list (plist-get bash-config :deny))
-         (read-only (plist-get (plist-get categories :read-only) :commands))
-         (safe-write (plist-get (plist-get categories :safe-write) :commands))
-         (dangerous (plist-get (plist-get categories :dangerous) :commands)))
-    (cond
-     ((member command deny-list) 'denied)
-     ((member command read-only) 'read_only)
-     ((member command safe-write) 'safe_write)
-     ((member command dangerous) 'dangerous)
-     (t 'unknown))))
-#+end_src
+**** Pipes
+#+begin_example
+Input: "grep foo | head"
+Expected: "grep"
+Rationale: Only base command matters for security categorization
+#+end_example
 
-** Validate Directory for Category
+**** Redirects (Output)
+#+begin_example
+Input: "ls -la > output.txt"
+Expected: "ls"
+Rationale: Base command determines if operation allowed
+#+end_example
 
-Validate directory matches category's path scope requirement.
+**** Redirects (Input)
+#+begin_example
+Input: "cat < input.txt"
+Expected: "cat"
+Rationale: Input redirection doesn't change command category
+#+end_example
 
-#+begin_src elisp
-(defun jf/gptel-bash--validate-directory-for-category (directory category paths-config)
-  "Validate DIRECTORY matches CATEGORY's path scope requirement.
-PATHS-CONFIG should be the paths section from scope config with :read, :write, :deny keys.
-- read_only: must match paths.read OR paths.write
-- safe_write: must match paths.write
-- dangerous: always requires expansion (return error)
+**** Semicolons (Command Chaining)
+#+begin_example
+Input: "cd /tmp; ls"
+Expected: "cd"
+Rationale: First command in chain is validated
+#+end_example
 
-Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
-  (let ((read-paths (plist-get paths-config :read))
-        (write-paths (plist-get paths-config :write))
-        (deny-paths (plist-get paths-config :deny)))
+**** AND Operator
+#+begin_example
+Input: "mkdir foo && cd foo"
+Expected: "mkdir"
+Rationale: Short-circuit AND - first command validated
+#+end_example
 
-    ;; Check deny first (deny takes precedence)
-    (when (jf/gptel-scope--matches-any-pattern directory deny-paths)
-      (cl-return-from jf/gptel-bash--validate-directory-for-category
-        (list :allowed nil
-              :reason (format "Directory %s matches deny pattern" directory))))
+**** OR Operator
+#+begin_example
+Input: "test -f file || touch file"
+Expected: "test"
+Rationale: Short-circuit OR - first command validated
+#+end_example
 
-    (pcase category
-      ('read_only
-       ;; Read-only commands allowed in read OR write paths
-       (if (or (jf/gptel-scope--matches-any-pattern directory read-paths)
-               (jf/gptel-scope--matches-any-pattern directory write-paths))
-           (list :allowed t)
-         (list :allowed nil
-               :reason (format "Directory %s not in read scope" directory)
-               :required-scope "read"
-               :allowed-patterns (append read-paths write-paths))))
+**** Leading/Trailing Whitespace
+#+begin_example
+Input: "  ls  "
+Expected: "ls"
+Rationale: string-trim handles whitespace normalization
+#+end_example
 
-      ('safe_write
-       ;; Write commands require write paths
-       (if (jf/gptel-scope--matches-any-pattern directory write-paths)
-           (list :allowed t)
-         (list :allowed nil
-               :reason (format "Directory %s not in write scope" directory)
-               :required-scope "write"
-               :allowed-patterns write-paths)))
+**** Multiple Spaces Between Command and Args
+#+begin_example
+Input: "ls  -la"
+Expected: "ls"
+Rationale: split-string with " +" regex handles multiple spaces
+#+end_example
 
-      ('dangerous
-       ;; Dangerous commands always require explicit expansion
-       (list :allowed nil
-             :reason "Dangerous command requires explicit approval"
-             :message "Use request_scope_expansion to request approval"))
+**** Compound Operators Without Spaces
+#+begin_example
+Input: "ls&&cd"
+Expected: "ls"
+Rationale: Regex "[ |><;&]+" splits on & without requiring spaces
+#+end_example
 
-      ;; Default case for unknown or invalid categories
-      (_
-       (list :allowed nil
-             :reason (format "Invalid or unsupported command category: %s" category))))))
-#+end_src
+**** Quoted Arguments
+#+begin_example
+Input: "echo 'hello world'"
+Expected: "echo"
+Rationale: Quotes appear in arguments, not command name
+#+end_example
+
+**** Command Substitution
+#+begin_example
+Input: "echo $(date)"
+Expected: "echo"
+Rationale: Substitution happens in argument position
+#+end_example
+
+**** Complex Pipes
+#+begin_example
+Input: "grep -r pattern . | head -20 | tail -5"
+Expected: "grep"
+Rationale: Multi-stage pipeline - only first command matters
+#+end_example
+
+**** Background Execution
+#+begin_example
+Input: "sleep 10 &"
+Expected: "sleep"
+Rationale: & operator doesn't affect command extraction
+#+end_example
+
+**** Quoted Strings with Metacharacters (Known Limitation)
+#+begin_example
+Input: "echo 'a|b'"
+Expected: "echo" (CORRECT for security purposes)
+Note: Parsing doesn't distinguish metacharacters inside quotes from outside.
+      This is acceptable - we only need base command for categorization.
+
+Input: "grep 'pattern|other' file"
+Expected: "grep" (CORRECT)
+Rationale: Even if argument parsing is naive, base command extraction is reliable.
+#+end_example
+
+This implementation uses simple regex splitting rather than full shell parsing. For security categorization, only the base command matters - argument content is irrelevant to whether the command is read-only, safe-write, or dangerous.
+
+*** Security Implications
+
+*Why only validate base command:*
+
+1. *Primary security boundary*: If =grep= is categorized as =read_only=, composing it with =head= or =tail= doesn't increase risk
+2. *Parsing complexity*: Full pipeline parsing is error-prone and fragile
+3. *Marginal benefit*: Validating every command in a pipeline provides minimal additional security
+4. *LLM behavior*: The LLM learns safe patterns; overly restrictive parsing would force workarounds
+
+*Known limitations:*
+
+1. Command chaining (=;=, =&&=, =||=) only validates first command
+2. Subsequent commands in chain bypass validation
+3. This is acceptable because directory scope still applies to all operations
+4. Dangerous commands in chain will fail on execution due to directory permissions
+
 
 ** Check Absolute Paths
 
@@ -268,15 +462,24 @@ Execute command in directory with timeout and output truncation.
 #+begin_src elisp
 (defun jf/gptel-bash--execute-command (command directory)
   "Execute COMMAND in DIRECTORY with timeout and output truncation.
-Returns (:output OUTPUT :exit_code CODE :truncated BOOL)."
+Returns (:output OUTPUT :exit_code CODE :truncated BOOL :warnings LIST :error ERROR-TYPE).
+Warnings are returned in a separate field to allow LLM to distinguish them from command output.
+Error types: timeout, execution-failed."
   (let* ((default-directory (file-truename (expand-file-name directory)))
          (output nil)
          (exit-code nil)
          (truncated nil)
+         (warnings nil)
+         (error-type nil)
          (max-output-chars 10000))
 
     (condition-case err
-        (with-timeout (30)  ; 30-second timeout
+        (with-timeout (30  ; 30-second timeout
+                       (progn
+                         (setq error-type "timeout")
+                         (setq exit-code 124)  ; GNU timeout exit code
+                         (setq output "Command execution timed out after 30 seconds. Output may be incomplete.")
+                         (setq warnings (list "Command timed out - use more specific filters to reduce execution time"))))
           (setq output
                 (with-temp-buffer
                   (setq exit-code
@@ -285,9 +488,11 @@ Returns (:output OUTPUT :exit_code CODE :truncated BOOL)."
                   (buffer-string))))
       (error
        (cl-return-from jf/gptel-bash--execute-command
-         (list :output (format "Command timed out or failed: %s" err)
+         (list :output (format "Command execution failed: %s" (error-message-string err))
                :exit_code 1
-               :truncated nil))))
+               :error "execution-failed"
+               :truncated nil
+               :warnings nil))))
 
     ;; Truncate output if too long
     (let ((original-length (length output)))
@@ -298,12 +503,16 @@ Returns (:output OUTPUT :exit_code CODE :truncated BOOL)."
                       (format "\n\n[Output truncated at %d chars. Total: %d chars. Use filters like 'head', 'grep', or 'tail' to narrow results.]"
                               max-output-chars original-length)))))
 
-    ;; Check for warnings
+    ;; Check for warnings (collect in list, don't modify output)
     (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
       (when path-warning
-        (setq output (concat path-warning "\n\n" output))))
+        (setq warnings (list path-warning))))
 
-    (list :output output :exit_code exit-code :truncated truncated)))
+    (list :output output
+          :exit_code exit-code
+          :truncated truncated
+          :warnings warnings
+          :error error-type)))
 #+end_src
 
 * Run Bash Command Tool (Scope-Aware, v3.0)
@@ -316,7 +525,7 @@ Function: =run_bash_command(command, directory)=
 
 *Parameters:*
 - =command= (string, required): Shell command to execute, including any arguments, pipes, or redirects
-- =directory= (string, required): Absolute path to working directory where command executes
+- =directory= (string, required): Absolute path to working directory where command executes. This is the working directory (cwd) for the shell process - all relative paths in the command are resolved from this directory. The directory must exist and must be in scope for the command's category (read_only requires paths.read or paths.write, safe_write requires paths.write)
 
 *Returns:*
 - =success= (boolean): Whether command executed successfully
@@ -417,7 +626,7 @@ Security features:
 - 30-second timeout
 - Output truncation at 10,000 chars
 - Warnings for absolute paths in arguments
-- Deny list blocks dangerous commands (rm, mv, chmod, sudo)
+- Deny list blocks dangerous commands (rm, rmdir, mv, cp, ln, scp, rsync, chmod, sudo, crontab, iptables, systemctl, useradd, shutdown, reboot, halt, poweroff, etc.)
 
 Examples:
   run_bash_command('ls -la', '/Users/jefffarr/emacs')
@@ -439,11 +648,13 @@ Examples:
         (exit-code (plist-get result :exit_code))
         (output (plist-get result :output))
         (truncated (plist-get result :truncated))
+        (warnings (plist-get result :warnings))
         (success (zerop exit-code)))
    (list :success success
          :output output
          :exit_code exit-code
-         :truncated truncated)))
+         :truncated truncated
+         :warnings warnings)))
 #+end_src
 
 * Request Scope Expansion Tool (Meta Tool, v3.0 Async)
@@ -497,7 +708,7 @@ Returns:
                  :patterns patterns)))
 
      ;; Show transient menu - pass callback, patterns, tool_name directly in scope
-     (jf/gptel-scope--prompt-expansion violation-info callback patterns tool_name))))
+     (jf/gptel-scope-prompt-expansion violation-info callback patterns tool_name))))
 #+end_src
 
 * Helper: Infer Validation Type
@@ -510,12 +721,6 @@ Helper to infer validation type from tool name using tool categories.
   (let ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories))))
     (plist-get category :validation)))
 #+end_src
-
-* Obsolete: inspect_scope_plan Tool (Removed in v3.0)
-
-In v3.0, scope.yml is a readable YAML file.
-LLM can use read_file("scope.yml") to inspect scope configuration directly.
-No dedicated inspection tool needed.
 
 * Provide Feature
 

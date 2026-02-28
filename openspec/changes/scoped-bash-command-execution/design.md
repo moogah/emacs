@@ -51,7 +51,7 @@ This feature integrates with the preset-alignment architecture (see `openspec/ch
 - `scope-profiles.el`: Include `bash_tools` in profile schema and session scope creation
 - `scope-core.el`: Load `bash_tools` from `scope.yml`, validate bash tools
 - `scope-expansion.el`: Write approved bash commands to `scope.yml`
-- `scope-bash-tools.el`: Implement tool, relocated from `scope/` to `tools/` directory
+- `scope-shell-tools.el`: Implement tool, relocated from `scope/` to `tools/` directory
 
 **Core Validation Logic:**
 The categorization, directory scoping, and shell composition validation remain as originally designed (see Decision sections below). The integration uses scope.yml as the source of truth, with bash_tools configuration flowing from scope profiles to per-session scope.yml files.
@@ -196,10 +196,10 @@ bash_tools:
 ### File Structure
 
 **Modified files:**
-- `config/gptel/scope/scope-bash-tools.{org,el}` - Replace `run_approved_command` with `run_bash_command`, add command parsing and categorization
+- `config/gptel/tools/scope-shell-tools.{org,el}` - Replace `run_approved_command` with `run_bash_command`, add command parsing and categorization
 - `config/gptel/scope/scope-core.el` - Add bash validation type to tool categories, implement bash validator
 
-**New functions in scope-bash-tools.el:**
+**New functions in scope-shell-tools.el:**
 ```elisp
 (defun jf/gptel-bash--parse-command (cmd-string)
   "Extract base command from CMD-STRING.")
@@ -437,11 +437,11 @@ Scope expansion flow:
 - Tangle and validate scope-core.org
 
 **Step 4: Implement bash tool**
-- Relocate `scope-bash-tools.{org,el}` from `config/gptel/scope/` to `config/gptel/tools/`
+- Relocate `scope-shell-tools.{org,el}` from `config/gptel/scope/` to `config/gptel/tools/`
 - Replace `run_approved_command` tool definition with `run_bash_command`
 - Implement command parsing, categorization, execution helpers
 - Use `gptel-make-scoped-tool` macro for consistency
-- Tangle and validate scope-bash-tools.org
+- Tangle and validate scope-shell-tools.org
 
 **Step 5: Update scope expansion**
 - Extend scope-expansion.el to write approved bash commands to `scope.yml` bash_tools section
@@ -449,7 +449,7 @@ Scope expansion flow:
 - Test YAML serialization of bash_tools updates
 
 **Step 6: Update loader**
-- Update `config/gptel/gptel.org` to load scope-bash-tools from `tools/` directory
+- Update `config/gptel/gptel.org` to load scope-shell-tools from `tools/` directory
 - Verify module load order (preset-registration → scope-profiles → scope-core → tools → sessions)
 
 **Step 7: Create example presets**

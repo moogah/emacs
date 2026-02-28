@@ -41,7 +41,7 @@ This change integrates with the preset-alignment architecture (see `openspec/cha
 ## Impact
 
 **Code changes:**
-- `config/gptel/tools/scope-bash-tools.{org,el}` - Major rewrite to replace `run_approved_command` with `run_bash_command` (relocated from `scope/` to `tools/` directory)
+- `config/gptel/tools/scope-shell-tools.{org,el}` - Major rewrite to replace `run_approved_command` with `run_bash_command` (relocated from `scope/` to `tools/` directory)
 - `config/gptel/scope/scope-core.{org,el}` - Add bash validation type to tool categories and implement `jf/gptel-scope--validate-bash-tool`
 - `config/gptel/scope/scope-expansion.{org,el}` - Add bash command expansion to write approved commands to `scope.yml`
 - `config/gptel/preset-registration.{org,el}` - Extend scope key extraction to recognize `bash_tools`
