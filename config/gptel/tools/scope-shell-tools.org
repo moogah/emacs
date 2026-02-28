@@ -177,11 +177,12 @@ Examples:
 Categorize command using bash_tools configuration section.
 
 #+begin_src elisp
-(defun jf/gptel-bash--categorize-command (command config)
-  "Categorize COMMAND using CONFIG bash_tools section.
+(defun jf/gptel-bash--categorize-command (command bash-config)
+  "Categorize COMMAND using BASH-CONFIG (the bash_tools section).
+BASH-CONFIG should be the value of (plist-get config :bash-tools).
 Returns: 'denied, 'read_only, 'safe_write, 'dangerous, or 'unknown."
-  (let* ((categories (plist-get config :categories))
-         (deny-list (plist-get config :deny))
+  (let* ((categories (plist-get bash-config :categories))
+         (deny-list (plist-get bash-config :deny))
          (read-only (plist-get (plist-get categories :read-only) :commands))
          (safe-write (plist-get (plist-get categories :safe-write) :commands))
          (dangerous (plist-get (plist-get categories :dangerous) :commands)))
@@ -224,7 +225,7 @@ Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
            (list :allowed t)
          (list :allowed nil
                :reason (format "Directory %s not in read scope" directory)
-               :required_scope "read"
+               :required-scope "read"
                :allowed-patterns (append read-paths write-paths))))
 
       ('safe_write
@@ -233,7 +234,7 @@ Returns (:allowed t) or (:allowed nil :reason ... :allowed-patterns ...)."
            (list :allowed t)
          (list :allowed nil
                :reason (format "Directory %s not in write scope" directory)
-               :required_scope "write"
+               :required-scope "write"
                :allowed-patterns write-paths)))
 
       ('dangerous

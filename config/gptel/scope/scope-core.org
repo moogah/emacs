@@ -535,7 +535,7 @@ Returns plist with:
                  :tool tool-name))))
 
       ("link_roam_nodes_in_scope"
-       (let ((node-ids (plist-get org-roam-config :node_ids)))
+       (let ((node-ids (plist-get org-roam-config :node-ids)))
          ;; Check if wildcard "*" is in allowed node_ids
          (if (member "*" node-ids)
              (list :allowed t)
@@ -631,6 +631,15 @@ Returns plist with:
            (write-paths (plist-get config :paths-write))
            (deny-paths (plist-get config :paths-deny)))
 
+      ;; If bash_tools section is missing, deny all commands
+      (unless bash-config
+        (cl-return-from jf/gptel-scope--validate-bash-tool
+          (list :allowed nil
+                :reason "command_not_allowed"
+                :tool tool-name
+                :command command-full
+                :message "No bash_tools configuration found. All commands denied by default.")))
+
       ;; Parse command to extract base command
       (let* ((command-parts (split-string command-full "[ |><;&]" t))
              (base-command (car command-parts)))
@@ -647,9 +656,9 @@ Returns plist with:
 
         ;; Categorize command
         (let ((category nil)
-              (read-only (plist-get categories :read-only))
-              (safe-write (plist-get categories :safe-write))
-              (dangerous (plist-get categories :dangerous)))
+              (read-only (plist-get (plist-get categories :read-only) :commands))
+              (safe-write (plist-get (plist-get categories :safe-write) :commands))
+              (dangerous (plist-get (plist-get categories :dangerous) :commands)))
 
           (cond
            ((member base-command read-only) (setq category 'read-only))
@@ -827,17 +836,17 @@ Create standardized error response for tool-level permission violations.
   "Format tool permission error for LLM.
 TOOL-NAME: Name of the tool that was denied
 RESOURCE: The resource that was denied (path, node-id, command, etc.)
-CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny_patterns"
+CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny-patterns"
   (let ((patterns (plist-get check-result :patterns))
-        (deny-patterns (plist-get check-result :deny_patterns))
-        (error-type (or (plist-get check-result :error) "scope_violation"))
+        (deny-patterns (plist-get check-result :deny-patterns))
+        (error-type (or (plist-get check-result :error) "scope-violation"))
         (custom-message (plist-get check-result :message)))
     (list :success nil
           :error error-type
           :tool tool-name
           :resource resource
-          :allowed_patterns patterns
-          :deny_patterns deny-patterns
+          :allowed-patterns patterns
+          :deny-patterns deny-patterns
           :message (or custom-message
                       (format "Tool '%s' denied for resource '%s'. Use request_scope_expansion to ask user for approval."
                              tool-name
