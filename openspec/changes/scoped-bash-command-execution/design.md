@@ -16,6 +16,46 @@ The scope system already has infrastructure for path-based validation (`paths.re
 - Must use existing `gptel-make-scoped-tool` macro for consistency
 - Breaking change is acceptable since `run_approved_command` was never production-tested
 
+## Alignment with Preset System
+
+This feature integrates with the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment` on the `gptel-preset-alignment` branch).
+
+### Preset-Alignment Architecture Summary
+
+**Immutable Presets:**
+- Registered at init in `gptel--known-presets`
+- Defined in `config/gptel/presets/*.md`
+- Reference scope profiles via `scope_profile: "coding"`
+- Never modified after registration
+
+**Mutable Scope:**
+- Per-session `scope.yml` in branch directories
+- Created from scope profile templates
+- Modified by scope expansion when user approves new permissions
+
+**Config Flow:**
+1. **Init:** Parse presets → extract scope config → register in `gptel--known-presets`
+2. **Session creation:** Load scope profile → write `scope.yml` with bash_tools
+3. **Tool execution:** Read `scope.yml` → validate bash command + directory
+4. **Scope expansion:** Update `scope.yml` with approved commands
+
+### Bash Tools Integration Points
+
+**Config Storage:**
+- Scope profile templates: `config/gptel/scope-profiles/*.yml` include `bash_tools` section
+- Session scope: `scope.yml` contains per-session `bash_tools` config (mutable)
+- Presets: If `bash_tools` appears in preset `.md`, extracted to scope defaults during registration
+
+**Module Updates:**
+- `preset-registration.el`: Extend scope key extraction to recognize `bash_tools`
+- `scope-profiles.el`: Include `bash_tools` in profile schema and session scope creation
+- `scope-core.el`: Load `bash_tools` from `scope.yml`, validate bash tools
+- `scope-expansion.el`: Write approved bash commands to `scope.yml`
+- `scope-bash-tools.el`: Implement tool, relocated from `scope/` to `tools/` directory
+
+**Core Validation Logic:**
+The categorization, directory scoping, and shell composition validation remain as originally designed (see Decision sections below). The integration layer changed from preset.md to scope.yml, but the security model is unchanged.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -196,7 +236,7 @@ run_bash_command(command, directory)
   ↓
 gptel-make-scoped-tool macro
   ↓
-Load config from preset.md
+Load config from scope.yml (in session's branch directory)
   ↓
 jf/gptel-scope--validate-bash-tool
   ↓
@@ -240,43 +280,81 @@ jf/gptel-scope--validate-bash-tool
 
 ### Configuration Schema
 
-**preset.md structure:**
+**Scope profile template structure** (`config/gptel/scope-profiles/coding.yml`):
 ```yaml
----
-name: "example-preset"
-model: "claude-opus-4"
-
 paths:
   read:
-    - "/Users/jefffarr/emacs/**"
-    - "/Users/jefffarr/projects/**"
+    - "/**"
   write:
-    - "/tmp/**"
-    - "/Users/jefffarr/emacs/scratch/**"
+    - "${project_root}/**"
   deny:
     - "**/.git/**"
+    - "**/runtime/**"
+    - "**/.env"
     - "**/node_modules/**"
 
+org_roam_patterns:
+  subdirectory: ["gptel/**"]
+
+shell_commands:
+  allow: ["ls", "find", "grep", "git", "rg"]
+  deny: ["rm -rf", "sudo"]
+
 bash_tools:
-  read_only:
-    commands: ["ls", "grep", "find", "tree", "cat", "head", "tail", "wc", "file", "git log", "git show", "git diff"]
-  safe_write:
-    commands: ["mkdir", "touch", "echo", "git add", "git commit"]
-  dangerous:
-    commands: []
+  categories:
+    read_only:
+      commands: ["ls", "grep", "find", "tree", "cat", "head", "tail", "wc", "file", "git log", "git show", "git diff"]
+    safe_write:
+      commands: ["mkdir", "touch", "echo", "git add", "git commit"]
+    dangerous:
+      commands: []
   deny:
     - "rm"
     - "mv"
     - "chmod"
     - "sudo"
     - "chown"
----
 ```
 
-**Parsing logic:**
-- Load YAML frontmatter using `yaml-parse-string`
-- Extract `bash_tools` section
-- Handle missing section gracefully (empty allow lists = deny all)
+**Session scope.yml structure** (in branch directory, e.g., `sessions/main/scope.yml`):
+```yaml
+# Same structure as profile, but with variables expanded
+paths:
+  read:
+    - "/**"
+  write:
+    - "/Users/jefffarr/emacs/**"  # ${project_root} expanded
+  deny:
+    - "**/.git/**"
+    - "**/runtime/**"
+
+org_roam_patterns:
+  subdirectory: ["gptel/**"]
+
+shell_commands:
+  allow: ["ls", "find", "grep", "git", "rg"]
+  deny: ["rm -rf", "sudo"]
+
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "grep", "find", "tree", "cat", "head", "tail", "wc", "file", "git log", "git show", "git diff"]
+    safe_write:
+      commands: ["mkdir", "touch", "echo", "git add", "git commit"]
+    dangerous:
+      commands: []
+  deny:
+    - "rm"
+    - "mv"
+    - "chmod"
+    - "sudo"
+```
+
+**Loading logic:**
+- Load plain YAML from `scope.yml` using `yaml-parse-string` (no frontmatter extraction needed)
+- Extract `bash_tools` section with `:categories` and `:deny` subsections
+- Handle missing `bash_tools` section gracefully (empty allow lists = deny all commands by default)
+- Normalize YAML keys from snake_case to kebab-case (`:bash_tools` → `:bash-tools`)
 - Convert vectors to lists using `jf/gptel-scope--vectorp-to-list`
 
 ### Integration with Scope Expansion
@@ -301,12 +379,14 @@ LLM calls:
   :justification "Need to remove temporary build artifacts.")
 ```
 
-Scope expansion flow (existing):
+Scope expansion flow:
 1. Infer validation type from tool name (bash → command + path validation)
 2. Show transient menu to user
 3. User chooses: Deny / Add to scope / Allow once
-4. If "Add to scope", update preset.md bash_tools section or paths section
+4. If "Add to scope", update `scope.yml` bash_tools section or paths section
 5. If "Allow once", add to buffer-local allow-once list
+
+**Note:** The expansion system writes to the session's `scope.yml` file, not the immutable preset. This preserves the ability to expand scope dynamically while keeping preset definitions unchanged.
 
 ## Risks / Trade-offs
 
@@ -338,45 +418,52 @@ Scope expansion flow (existing):
 - Removing `run_approved_command` breaks any in-flight sessions using it
 - **Mitigation:** User confirmed tool was never production-tested. Update agent definitions before deploying. No migration path needed.
 
-## Migration Plan
+## Implementation Plan
 
-**Step 1: Implement new validation logic**
+**Step 1: Extend scope profile schema**
+- Add `bash_tools` section to existing scope profile templates in `config/gptel/scope-profiles/`
+- Create new `bash-enabled.yml` profile with comprehensive bash command examples
+- Update `scope-profiles.el` to handle bash_tools during profile loading and scope.yml creation
+
+**Step 2: Update preset registration**
+- Extend `jf/gptel-preset--extract-scope-keys` in `preset-registration.el` to recognize `:bash-tools`
+- Add `:bash-tools` to scope extraction logic
+- Store extracted bash_tools in `jf/gptel-preset--scope-defaults`
+
+**Step 3: Implement bash validation in scope-core**
 - Add `jf/gptel-scope--validate-bash-tool` to scope-core.el
 - Register bash validation type in tool categories
+- Update config loading to read bash_tools from `scope.yml` (using plain YAML parsing)
 - Tangle and validate scope-core.org
 
-**Step 2: Rewrite scope-bash-tools**
-- Replace `run_approved_command` tool definition
+**Step 4: Implement bash tool**
+- Relocate `scope-bash-tools.{org,el}` from `config/gptel/scope/` to `config/gptel/tools/`
+- Replace `run_approved_command` tool definition with `run_bash_command`
 - Implement command parsing, categorization, execution helpers
 - Use `gptel-make-scoped-tool` macro for consistency
 - Tangle and validate scope-bash-tools.org
 
-**Step 3: Update preset templates**
-- Create example preset with bash_tools section
-- Document configuration schema
-- Provide migration guide for shell_commands → bash_tools
+**Step 5: Update scope expansion**
+- Extend scope-expansion.el to write approved bash commands to `scope.yml` bash_tools section
+- Add bash command expansion routing
+- Test YAML serialization of bash_tools updates
 
-**Step 4: Update agent definitions**
-- Search for references to `run_approved_command` in agent .md files
-- Replace with `run_bash_command` examples
-- Update tool descriptions
+**Step 6: Update loader**
+- Update `config/gptel/gptel.org` to load scope-bash-tools from `tools/` directory
+- Verify module load order (preset-registration → scope-profiles → scope-core → tools → sessions)
 
-**Step 5: Test in isolated session**
-- Create test preset with limited bash_tools
-- Verify categorization logic
+**Step 7: Create example presets**
+- Create `bash-tools-example.md` preset with `scope_profile: bash-enabled`
+- Create `system-explorer.md` preset for read-only system exploration
+- Update agent definitions to use `run_bash_command`
+
+**Step 8: Integration testing**
+- Create test session with bash-enabled profile
+- Verify bash_tools appears in scope.yml
+- Test categorization logic
 - Test scope expansion flow
 - Verify timeout and truncation
 - Test error messages
-
-**Step 6: Deploy to production worktree**
-- Commit changes to development worktree
-- Test in production session
-- Monitor for issues
-
-**Rollback strategy:**
-- Git revert commits if critical issues found
-- Restore `run_approved_command` from git history if needed
-- No data migration required (tool state is ephemeral)
 
 ## Open Questions
 

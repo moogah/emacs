@@ -1,3 +1,18 @@
+## CONTEXT: Preset Alignment
+
+This spec describes bash tools in the context of the preset-alignment architecture (see `openspec/changes/gptel-preset-upstream-alignment` on the `gptel-preset-alignment` branch).
+
+**Configuration storage:**
+- Scope profile templates (`config/gptel/scope-profiles/*.yml`) define default bash_tools config
+- Session `scope.yml` files contain per-session bash_tools (mutable)
+- Presets may define inline bash_tools (extracted during registration to scope defaults)
+
+**Source of truth for enforcement:** `scope.yml` in the session's branch directory.
+
+**Related specs:** See delta specs for `scope-profiles` and `preset-registration` for details on how bash_tools configuration flows from profiles to sessions.
+
+---
+
 ## ADDED Requirements
 
 ### Requirement: Command categorization by operation type
@@ -198,20 +213,27 @@ The bash tools system SHALL integrate with the existing scope expansion mechanis
 - **WHEN** request_scope_expansion is called with directory pattern
 - **THEN** the system adds pattern to appropriate paths section (read or write)
 
-### Requirement: Configuration loading from preset
-The bash tools system SHALL load bash command configuration from preset.md YAML frontmatter.
+### Requirement: Configuration loading from scope document
+The bash tools system SHALL load bash command configuration from `scope.yml` located in the session's branch directory.
 
-#### Scenario: Bash tools configuration loaded
+#### Scenario: Bash tools configuration loaded from scope.yml
 - **WHEN** a bash command executes
-- **THEN** the system loads bash_tools section from preset.md in buffer's branch directory
+- **THEN** the system loads bash_tools section from scope.yml in buffer's branch directory
+- **AND** uses plain YAML parsing (no frontmatter extraction)
+- **AND** normalizes YAML keys from snake_case to kebab-case
 
-#### Scenario: Missing bash tools configuration handled
-- **WHEN** preset.md exists but has no bash_tools section
+#### Scenario: Missing bash tools section handled
+- **WHEN** scope.yml exists but has no bash_tools section
 - **THEN** the system uses empty allow lists (deny all commands by default)
 
-#### Scenario: Category allow lists parsed
+#### Scenario: Missing scope.yml errors
+- **WHEN** scope.yml does not exist in the branch directory
+- **THEN** the system returns error "no_scope_config"
+
+#### Scenario: Category structure parsed
 - **WHEN** bash_tools configuration is loaded
-- **THEN** the system parses read_only.commands, safe_write.commands, and dangerous.commands lists
+- **THEN** the system parses bash_tools.categories.read_only, bash_tools.categories.safe_write, and bash_tools.categories.dangerous lists
+- **AND** converts nested structure: {:bash-tools {:categories {:read-only [...] :safe-write [...]} :deny [...]}}
 
 #### Scenario: Deny list parsed
 - **WHEN** bash_tools configuration is loaded

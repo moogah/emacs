@@ -3,6 +3,10 @@
 ### Requirement: Bash tool categorization
 The scope system SHALL support bash validation type for tools that execute shell commands with directory-scoped validation.
 
+**Config source:** `scope.yml` in the session's branch directory, under the `bash_tools` top-level key with nested `categories` structure.
+
+**Related specs:** See `scope-profiles/spec.md` for bash_tools schema definition and `bash-tools/spec.md` for detailed bash tools behavior.
+
 #### Scenario: Bash tool categorized
 - **WHEN** a tool executes arbitrary shell commands in a specified directory
 - **THEN** the system categorizes it with validation strategy "bash" and operation type "write"
