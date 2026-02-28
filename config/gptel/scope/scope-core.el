@@ -587,7 +587,7 @@ Returns plist with:
             (list :allowed nil
                   :reason "denied-command"
                   :tool tool-name
-                  :resource command-full
+                  :resource (format "%s:%s" command-full (expand-file-name directory))
                   :command command-full
                   :message (format "Command '%s' is explicitly denied in bash_tools.deny list."
                                  base-command))))
@@ -608,7 +608,7 @@ Returns plist with:
               (list :allowed nil
                     :reason "command-not-allowed"
                     :tool tool-name
-                    :resource command-full
+                    :resource (format "%s:%s" command-full (expand-file-name directory))
                     :command command-full
                     :message (format "Command '%s' is not in any bash_tools category (read_only, safe_write, dangerous). Use request_scope_expansion to request adding this command to an appropriate category."
                                    base-command)))))
@@ -619,7 +619,7 @@ Returns plist with:
               (list :allowed nil
                     :reason "dangerous-command"
                     :tool tool-name
-                    :resource command-full
+                    :resource (format "%s:%s" command-full (expand-file-name directory))
                     :command command-full
                     :message (format "Command '%s' is categorized as dangerous and requires explicit user approval via request_scope_expansion."
                                    base-command))))
@@ -635,7 +635,7 @@ Returns plist with:
                 (list :allowed nil
                       :reason "denied-path"
                       :tool tool-name
-                      :resource real-directory
+                      :resource (format "%s:%s" command-full real-directory)
                       :command command-full
                       :directory real-directory
                       :message (format "Directory '%s' is explicitly denied in paths.deny list."
@@ -651,7 +651,7 @@ Returns plist with:
                    (list :allowed nil
                          :reason "directory-not-in-scope"
                          :tool tool-name
-                         :resource real-directory
+                         :resource (format "%s:%s" command-full real-directory)
                          :command command-full
                          :directory real-directory
                          :required-scope required-scope
@@ -666,7 +666,7 @@ Returns plist with:
                    (list :allowed nil
                          :reason "directory-not-in-scope"
                          :tool tool-name
-                         :resource real-directory
+                         :resource (format "%s:%s" command-full real-directory)
                          :command command-full
                          :directory real-directory
                          :required-scope required-scope
