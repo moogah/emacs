@@ -743,6 +743,276 @@ Example:
                          thereis (jf/bash-glob-match-p file-path pattern))
            return rule))
 
+(defun jf/bash-check-operation-permission (operation matched-rule)
+  "Check if OPERATION is allowed by MATCHED-RULE.
+Returns nil if allowed, or a violation plist if denied.
+
+OPERATION is a plist with :file and :operation keys.
+MATCHED-RULE is a rule plist from `jf/bash-match-rule', or nil.
+
+Denial conditions:
+  1. No rule matched (path not in allowlist)
+  2. Operation type not in rule's :operations list
+
+Violation plist contains:
+  :file - The file path
+  :operation - The operation type (:read, :write, :delete, etc.)
+  :matched-rule - The rule that was evaluated (or nil)
+  :reason - Human-readable explanation
+
+Examples:
+  ;; Allowed operation
+  (jf/bash-check-operation-permission
+    \\='(:file \"/workspace/file.txt\" :operation :read)
+    \\='(:patterns (\"/workspace/**\") :operations (:read :write)))
+  => nil
+
+  ;; Denied: operation not in rule
+  (jf/bash-check-operation-permission
+    \\='(:file \"/workspace/file.txt\" :operation :delete)
+    \\='(:patterns (\"/workspace/**\") :operations (:read :write)))
+  => (:file \"/workspace/file.txt\"
+      :operation :delete
+      :matched-rule (:patterns (\"/workspace/**\") :operations (:read :write))
+      :reason \"Operation delete not allowed (rule permits: (:read :write))\")
+
+  ;; Denied: no rule matched
+  (jf/bash-check-operation-permission
+    \\='(:file \"/etc/passwd\" :operation :read)
+    nil)
+  => (:file \"/etc/passwd\"
+      :operation :read
+      :matched-rule nil
+      :reason \"No allowlist rule matches this file path\")"
+  (let ((file (plist-get operation :file))
+        (op-type (plist-get operation :operation)))
+    (cond
+     ;; No rule matched = violation (fail-safe: deny by default)
+     ((null matched-rule)
+      (list :file file
+            :operation op-type
+            :matched-rule nil
+            :reason "No allowlist rule matches this file path"))
+
+     ;; Operation not in allowed list = violation
+     ((not (memq op-type (plist-get matched-rule :operations)))
+      (list :file file
+            :operation op-type
+            :matched-rule matched-rule
+            :reason (format "Operation %s not allowed (rule permits: %s)"
+                           op-type (plist-get matched-rule :operations))))
+
+     ;; Allowed
+     (t nil))))
+
+(defun jf/bash-contains-cd-command-p (command-string)
+  "Return t if COMMAND-STRING contains a cd command.
+
+Detects cd in various contexts:
+  - Simple command: \"cd /tmp\"
+  - With flags: \"cd -P /tmp\"
+  - In pipelines: \"cd /tmp && ls\"
+  - In chains: \"cd /tmp; ls\"
+  - Builtin invocation: \"builtin cd /tmp\"
+
+Does NOT match:
+  - cd as part of another word: \"cdrom\", \"abcd\"
+  - cd in strings (would be caught by parser)
+
+Returns t if cd command found, nil otherwise."
+  (let ((case-fold-search nil))  ; Case-sensitive matching
+    (string-match-p "\\(?:^\\|[;&|]\\|\\s-\\)\\(?:builtin\\s-+\\)?cd\\(?:\\s-\\|$\\)"
+                    command-string)))
+
+(defun jf/bash-operation-has-unresolved-vars-p (operation)
+  "Return t if OPERATION contains unresolved variable references.
+
+An operation has unresolved variables if:
+  - The :file path contains shell variable syntax ($VAR, ${VAR})
+  - The :unresolved flag is set to t
+
+Operations with unresolved variables cannot be reliably validated
+and should be reported as unhandled."
+  (or (plist-get operation :unresolved)
+      (let ((file (plist-get operation :file)))
+        (and (stringp file)
+             (string-match-p "\\$\\(?:{[^}]+}\\|[A-Za-z_][A-Za-z0-9_]*\\)" file)))))
+
+(defun jf/bash-sandbox-check (command-string rules &optional var-context indirect-policy)
+  "Validate COMMAND-STRING against sandbox RULES.
+
+This is the main entry point for security validation. It coordinates
+the complete validation pipeline and returns a comprehensive result.
+
+Arguments:
+  COMMAND-STRING - The bash command to validate
+  RULES - List of security rule plists (from `jf/bash-match-rule')
+  VAR-CONTEXT - Optional variable resolution context (future use)
+  INDIRECT-POLICY - How to handle indirect operations (:strict, :warn, :permissive)
+                    :strict - Reject all indirect operations as violations
+                    :warn - Flag indirect operations as unhandled
+                    :permissive (default) - Validate indirect operations normally
+
+Returns validation result plist:
+  :allowed - t if command is safe, nil if denied
+  :command - Original command string (for reference)
+  :operations - All extracted file operations (for debugging)
+  :violations - List of security violations (non-empty => denied)
+  :unhandled - Operations that couldn't be validated
+  :cd-detected - t if cd command was detected
+
+Validation logic:
+  1. Reject if cd command detected
+  2. Parse command to structured form
+  3. Extract file operations from parsed command
+  4. For each operation:
+     - Check indirect policy (if operation has :indirect t)
+     - Check for unresolved variables → unhandled
+     - Match against security rules
+     - Validate operation permission
+     - Collect violations or mark as unhandled
+  5. Allow only if no violations AND no unhandled operations
+
+Examples:
+  ;; Safe command
+  (jf/bash-sandbox-check
+    \"cat /workspace/file.txt\"
+    \\='((:patterns (\"/workspace/**\") :operations (:read :write))))
+  => (:allowed t
+      :command \"cat /workspace/file.txt\"
+      :operations ((:file \"/workspace/file.txt\" :operation :read ...))
+      :violations nil
+      :unhandled nil
+      :cd-detected nil)
+
+  ;; Denied: operation not allowed
+  (jf/bash-sandbox-check
+    \"rm /workspace/file.txt\"
+    \\='((:patterns (\"/workspace/**\") :operations (:read))))
+  => (:allowed nil
+      :command \"rm /workspace/file.txt\"
+      :operations ((:file \"/workspace/file.txt\" :operation :delete ...))
+      :violations ((:file \"/workspace/file.txt\"
+                    :operation :delete
+                    :reason \"Operation delete not allowed...\"))
+      :unhandled nil
+      :cd-detected nil)
+
+  ;; Denied: unresolved variable
+  (jf/bash-sandbox-check
+    \"cat $FILE\"
+    \\='((:patterns (\"/workspace/**\") :operations (:read))))
+  => (:allowed nil
+      :command \"cat $FILE\"
+      :operations ((:file \"$FILE\" :operation :read ...))
+      :violations nil
+      :unhandled ((:file \"$FILE\"
+                   :operation :read
+                   :reason \"Unresolved variable reference\"))
+      :cd-detected nil)
+
+  ;; Denied: cd command
+  (jf/bash-sandbox-check
+    \"cd /tmp && cat file.txt\"
+    \\='((:patterns (\"/**\") :operations (:read))))
+  => (:allowed nil
+      :command \"cd /tmp && cat file.txt\"
+      :operations nil
+      :violations ((:reason \"cd command not allowed in sandbox\"))
+      :unhandled nil
+      :cd-detected t)
+
+  ;; Denied: indirect operation with strict policy
+  (jf/bash-sandbox-check
+    \"bash -c 'rm /workspace/file.txt'\"
+    \\='((:patterns (\"/workspace/**\") :operations (:read :write :delete)))
+    nil :strict)
+  => (:allowed nil
+      :command \"bash -c 'rm /workspace/file.txt'\"
+      :operations ((:file \"/workspace/file.txt\" :operation :delete :indirect t ...))
+      :violations ((:file \"/workspace/file.txt\"
+                    :operation :delete
+                    :reason \"Indirect operation not allowed (strict policy)\"))
+      :unhandled nil
+      :cd-detected nil)
+
+  ;; Warned: indirect operation with warn policy
+  (jf/bash-sandbox-check
+    \"bash -c 'cat /workspace/file.txt'\"
+    \\='((:patterns (\"/workspace/**\") :operations (:read :write)))
+    nil :warn)
+  => (:allowed nil
+      :command \"bash -c 'cat /workspace/file.txt'\"
+      :operations ((:file \"/workspace/file.txt\" :operation :read :indirect t ...))
+      :violations nil
+      :unhandled ((:file \"/workspace/file.txt\"
+                   :operation :read
+                   :reason \"Indirect operation (flagged by warn policy)\"))
+      :cd-detected nil)"
+  (let ((violations nil)
+        (unhandled nil)
+        (operations nil)
+        (cd-detected nil))
+
+    ;; Check for cd command (immediate rejection)
+    (if (jf/bash-contains-cd-command-p command-string)
+        (setq cd-detected t
+              violations (list (list :reason "cd command not allowed in sandbox - use absolute paths instead"
+                                    :command command-string)))
+
+      ;; Normal validation pipeline
+      (let ((parsed (jf/bash-parse command-string)))
+        (when (plist-get parsed :success)
+          (setq operations (jf/bash-extract-file-operations parsed var-context))
+
+          ;; Validate each operation
+          (dolist (op operations)
+            (cond
+             ;; Indirect operation policy handling (check before other validations)
+             ((and (plist-get op :indirect)
+                   (eq indirect-policy :strict))
+              ;; Strict policy: reject all indirect operations
+              (push (list :file (plist-get op :file)
+                         :operation (plist-get op :operation)
+                         :reason "Indirect operation not allowed (strict policy)")
+                    violations))
+
+             ((and (plist-get op :indirect)
+                   (eq indirect-policy :warn))
+              ;; Warn policy: flag indirect operations as unhandled
+              (push (plist-put (copy-sequence op)
+                              :reason "Indirect operation (flagged by warn policy)")
+                    unhandled))
+
+             ;; Unresolved variables → unhandled
+             ((jf/bash-operation-has-unresolved-vars-p op)
+              (push (plist-put (copy-sequence op)
+                              :reason "Unresolved variable reference")
+                    unhandled))
+
+             ;; Low confidence → unhandled
+             ((eq (plist-get op :confidence) :low)
+              (push (plist-put (copy-sequence op)
+                              :reason "Low confidence operation detection")
+                    unhandled))
+
+             ;; Normal validation: match rule and check permission
+             ;; (includes permissive indirect operations - no special handling)
+             (t
+              (let* ((file (plist-get op :file))
+                     (rule (jf/bash-match-rule file rules))
+                     (violation (jf/bash-check-operation-permission op rule)))
+                (when violation
+                  (push violation violations)))))))))
+
+    ;; Return comprehensive result
+    (list :allowed (and (null violations) (null unhandled))
+          :command command-string
+          :operations operations
+          :violations (nreverse violations)
+          :unhandled (nreverse unhandled)
+          :cd-detected cd-detected)))
+
 (defvar jf/bash-command-file-semantics
   '((cat . (:operations ((:source :positional-args :operation :read))))
     (head . (:operations ((:source :positional-args :operation :read))))
