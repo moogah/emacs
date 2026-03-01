@@ -1248,6 +1248,295 @@ Examples:
     (nreverse assignments)))
 #+end_src
 
+* File Operations Extraction
+
+Extract file operations from parsed bash command structures with high confidence.
+This system enables security validation by identifying which files a command will
+read, write, delete, or modify.
+
+** Extraction from Redirections
+
+Redirections are grammar-level constructs with unambiguous semantics, making them
+the highest confidence source of file operations. The parser already extracts
+redirections into structured form with operator and destination fields.
+
+*** Operator to Operation Mapping
+
+Shell redirection operators map directly to file operations:
+
+- =>=: Output redirection - creates or overwrites file (:write)
+- =>>=: Append redirection - creates or appends to file (:append)
+- =<=: Input redirection - reads from file (:read)
+- =2>=: Error redirection - writes stderr to file (:write)
+- =&>=: Combined redirection - writes stdout+stderr to file (:write)
+- =&>>=: Combined append - appends stdout+stderr to file (:append)
+
+Other operators (=>&=, =<&=, =>&-=, =<&-=) are descriptor manipulation, not file operations.
+
+*** Implementation
+
+#+begin_src emacs-lisp
+(defun jf/bash-extract-operations-from-redirections (parsed-command &optional var-context)
+  "Extract file operations from :redirections field with high confidence.
+
+PARSED-COMMAND is the output of `jf/bash-parse'.
+VAR-CONTEXT is an optional alist mapping variable names (symbols) to values (strings).
+
+Returns list of operation plists:
+  (:file \"path\" :operation :read/:write/:append
+   :confidence :high :source :redirection
+   :metadata (:operator \">\" :descriptor nil ...))
+
+For paths with variable references:
+  - Resolved variables: Returns simple path string
+  - Unresolved variables: Returns plist with :path and :unresolved list
+
+Redirections are always :high confidence since they are explicit grammar constructs.
+File operations are unambiguous - \">\" always writes, \"<\" always reads.
+
+Examples:
+  (jf/bash-extract-operations-from-redirections
+    (jf/bash-parse \"cat file.txt > output.txt\")
+    nil)
+  => ((:file \"output.txt\" :operation :write :confidence :high
+       :source :redirection :metadata (...)))
+
+  (jf/bash-extract-operations-from-redirections
+    (jf/bash-parse \"cmd >> log.txt\")
+    nil)
+  => ((:file \"log.txt\" :operation :append :confidence :high
+       :source :redirection :metadata (...)))
+
+  (jf/bash-extract-operations-from-redirections
+    (jf/bash-parse \"cat < input.txt\")
+    nil)
+  => ((:file \"input.txt\" :operation :read :confidence :high
+       :source :redirection :metadata (...)))
+
+  (jf/bash-extract-operations-from-redirections
+    (jf/bash-parse \"cmd > $OUTFILE\")
+    '((OUTFILE . \"/workspace/output.txt\")))
+  => ((:file \"/workspace/output.txt\" :operation :write :confidence :high
+       :source :redirection :metadata (...)))"
+  (let ((operations nil))
+    ;; Handle different command types
+    (let ((command-type (plist-get parsed-command :type))
+          (all-commands (plist-get parsed-command :all-commands)))
+
+      (cond
+       ;; Simple command: check for redirections
+       ((eq command-type :simple)
+        (when-let ((redirections (plist-get parsed-command :redirections)))
+          (setq operations (jf/bash--extract-ops-from-redirect-list redirections var-context))))
+
+       ;; Pipeline or chain: process each command's redirections
+       ((or (eq command-type :pipeline) (eq command-type :chain))
+        (dolist (cmd all-commands)
+          (when-let ((redirections (plist-get cmd :redirections)))
+            (setq operations
+                  (append operations
+                         (jf/bash--extract-ops-from-redirect-list redirections var-context))))))))
+
+    operations))
+#+end_src
+
+*** Helper: Process Redirection List
+
+#+begin_src emacs-lisp
+(defun jf/bash--extract-ops-from-redirect-list (redirections var-context)
+  "Extract operations from REDIRECTIONS list with VAR-CONTEXT.
+
+REDIRECTIONS is a list of redirection plists from the parser.
+VAR-CONTEXT is optional variable resolution context.
+
+Returns list of operation plists with resolved file paths."
+  (let ((operations nil))
+    (dolist (redir redirections)
+      (let* ((redir-type (plist-get redir :type))
+             (operator (plist-get redir :operator))
+             (destination (plist-get redir :destination)))
+
+        ;; Only process file redirections (not heredoc/herestring)
+        (when (and (eq redir-type :file) destination)
+          ;; Map operator to operation type
+          (let ((operation-type (jf/bash--map-redirect-operator-to-operation operator)))
+            (when operation-type
+              ;; Resolve variables in destination path
+              (let ((resolved-path (if var-context
+                                      (jf/bash-resolve-variables destination var-context)
+                                    destination)))
+                ;; Build operation plist
+                (push (list :file resolved-path
+                           :operation operation-type
+                           :confidence :high
+                           :source :redirection
+                           :metadata redir)
+                      operations)))))))
+    (nreverse operations)))
+#+end_src
+
+*** Helper: Operator Mapping
+
+#+begin_src emacs-lisp
+(defun jf/bash--map-redirect-operator-to-operation (operator)
+  "Map shell redirection OPERATOR to file operation type.
+
+Returns operation keyword or nil for non-file operators:
+  \">\"   => :write   (output redirection)
+  \">>\"  => :append  (append redirection)
+  \"<\"   => :read    (input redirection)
+  \"2>\"  => :write   (stderr redirection)
+  \"&>\"  => :write   (combined stdout+stderr)
+  \"&>>\" => :append  (combined append)
+
+Returns nil for descriptor operators (>&, <&, >&-, <&-) and other
+non-file redirection operators."
+  (pcase operator
+    ;; Output redirections - write operations
+    (">" :write)
+    ("2>" :write)
+    ("&>" :write)
+    (">|" :write)  ;; noclobber override
+
+    ;; Append redirections
+    (">>" :append)
+    ("&>>" :append)
+
+    ;; Input redirections - read operations
+    ("<" :read)
+
+    ;; Descriptor manipulation - not file operations
+    (">&" nil)
+    ("<&" nil)
+    (">&-" nil)
+    ("<&-" nil)
+
+    ;; Unknown operator
+    (_ nil)))
+#+end_src
+
+** Extraction from Exec Blocks
+
+Extract file operations from find -exec blocks by recursive extraction. The parser
+provides exec blocks as structured data in the `:exec-blocks` field. Each exec block
+contains a nested command that should be treated as a separate command for file
+operation extraction.
+
+Key concepts:
+- Exec blocks are indirect operations (nested within find command)
+- The nested command is extracted from the already-parsed exec block structure
+- Operations are marked with `:indirect t` to indicate nested execution
+- The {} placeholder represents files matched by find (confidence: :medium)
+
+#+begin_src emacs-lisp
+(defun jf/bash-extract-from-exec-blocks (parsed-command var-context)
+  "Extract file operations from find -exec blocks in PARSED-COMMAND.
+
+PARSED-COMMAND is the output of `jf/bash-parse' containing parsed exec blocks.
+VAR-CONTEXT is an optional alist mapping variable names to values.
+
+Returns list of operation plists with :indirect t metadata, representing file
+operations that will be executed by the nested command in each exec block.
+
+Each operation includes:
+  :file - File path (may contain {} placeholder or resolved path)
+  :operation - Operation type (:read, :write, :delete, :modify, etc.)
+  :confidence - Confidence level (:medium for exec blocks)
+  :source - Source of the file path (:exec-block)
+  :indirect - Always t (marks operation as nested)
+  :exec-type - Type of exec block (\"-exec\" or \"-execdir\")
+  :command-name - Name of command in exec block
+
+The {} placeholder in exec blocks represents files matched by find. Operations on
+{} are extracted but confidence is :medium since the actual files depend on
+find's runtime results.
+
+Examples:
+  ;; find . -name '*.txt' -exec cat {} \\;
+  ;; => ((:file \"{}\" :operation :read :confidence :medium
+  ;;      :indirect t :exec-type \"-exec\" :command-name \"cat\"))
+
+  ;; find /tmp -name '*.log' -exec rm {} \\;
+  ;; => ((:file \"{}\" :operation :delete :confidence :medium
+  ;;      :indirect t :exec-type \"-exec\" :command-name \"rm\"))
+
+  ;; Multiple exec blocks are processed independently
+  ;; find . -exec cat {} \\; -exec rm {} \\;
+  ;; => Two operations: one :read, one :delete"
+  (let ((exec-blocks (plist-get parsed-command :exec-blocks))
+        (operations nil))
+
+    (when exec-blocks
+      (dolist (exec-block exec-blocks)
+        (let* ((exec-type (plist-get exec-block :type))
+               (exec-cmd-name (plist-get exec-block :command-name))
+               (exec-flags (plist-get exec-block :flags))
+               (exec-positional (plist-get exec-block :positional-args)))
+
+          ;; Build operation for each positional arg in exec command
+          ;; This uses the simplified inference - full extraction would use semantics database
+          (dolist (file-path exec-positional)
+            (let ((operation-type (jf/bash--infer-operation-type exec-cmd-name)))
+
+              (when operation-type
+                (push (list :file file-path
+                           :operation operation-type
+                           :confidence :medium  ; indirect operations have medium confidence
+                           :source :exec-block
+                           :indirect t
+                           :exec-type exec-type
+                           :command-name exec-cmd-name)
+                      operations)))))))
+
+    (nreverse operations)))
+#+end_src
+
+*** Helper: Infer Operation Type
+
+Helper function to infer operation type from command name. This is a simplified
+version for exec block extraction. Full operation extraction should use the command
+semantics database.
+
+#+begin_src emacs-lisp
+(defun jf/bash--infer-operation-type (command-name)
+  "Infer operation type from COMMAND-NAME.
+
+Returns operation type symbol (:read, :write, :delete, :modify) or nil if
+command is not recognized or doesn't operate on files.
+
+This is a simplified heuristic for exec block extraction. For full operation
+extraction, use the command semantics database instead.
+
+Recognized patterns:
+  - Read operations: cat, head, tail, less, more, grep, wc, file, stat
+  - Write operations: touch, tee, dd (of=)
+  - Delete operations: rm, rmdir
+  - Modify operations: chmod, chown, chgrp, sed -i
+
+Unknown commands return nil."
+  (when command-name
+    (let ((cmd (intern command-name)))
+      (cond
+       ;; Read operations
+       ((memq cmd '(cat head tail less more grep egrep fgrep wc file stat))
+        :read)
+
+       ;; Write operations
+       ((memq cmd '(touch tee))
+        :write)
+
+       ;; Delete operations
+       ((memq cmd '(rm rmdir))
+        :delete)
+
+       ;; Modify operations
+       ((memq cmd '(chmod chown chgrp))
+        :modify)
+
+       ;; Unknown or non-file-operation command
+       (t nil)))))
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp
