@@ -100,46 +100,67 @@
 
     ;; ============================================================
     ;; PIPELINES (multiple commands connected)
-    ;; LIMITATION: Parser only sees first command, pipeline ignored
+    ;; FULLY PARSED: All commands extracted and validated
     ;; ============================================================
     (:id "pipeline-001"
      :command "ls -la | grep test"
-     :note "LIMITATION: Only sees 'ls -la', ignores '| grep test'"
-     :expect nil)
+     :note "Pipeline with 2 commands - both extracted"
+     :expect (:success t
+              :type :pipeline
+              :command-count 2
+              :dangerous-p nil))
 
     (:id "pipeline-002"
      :command "cat file.txt | sort | uniq -c"
-     :note "LIMITATION: Only sees 'cat file.txt', ignores pipeline stages"
-     :expect nil)
+     :note "Three-stage pipeline - all commands extracted"
+     :expect (:success t
+              :type :pipeline
+              :command-count 3
+              :dangerous-p nil))
 
     (:id "pipeline-003"
      :command "git log --oneline | head -10"
-     :note "LIMITATION: Only sees git command, ignores '| head -10'"
-     :expect nil)
+     :note "Git command with pipeline"
+     :expect (:success t
+              :type :pipeline
+              :command-count 2
+              :dangerous-p nil))
 
     ;; ============================================================
     ;; COMMAND CHAINS (sequential execution)
-    ;; LIMITATION: Parser only sees first command, chains ignored
+    ;; FULLY PARSED: All commands extracted and validated
     ;; ============================================================
     (:id "chain-001"
      :command "git add . && git commit -m 'test'"
-     :note "LIMITATION: Only sees 'git add .', ignores '&& git commit'"
-     :expect nil)
+     :note "AND chain with 2 git commands"
+     :expect (:success t
+              :type :chain
+              :command-count 2
+              :dangerous-p nil))
 
     (:id "chain-002"
      :command "rm file.txt || echo 'failed to delete'"
-     :note "LIMITATION: Only sees 'rm file.txt', ignores '|| echo'"
-     :expect nil)
+     :note "OR chain fallback pattern"
+     :expect (:success t
+              :type :chain
+              :command-count 2
+              :dangerous-p nil))
 
     (:id "chain-003"
      :command "cd /tmp; ls -la; pwd"
-     :note "LIMITATION: Only sees 'cd /tmp', ignores '; ls; pwd'"
-     :expect nil)
+     :note "Semicolon-separated commands"
+     :expect (:success t
+              :type :chain
+              :command-count 3
+              :dangerous-p nil))
 
     (:id "chain-004"
      :command "git add . && git commit -m 'fix' && git push"
-     :note "LIMITATION: Only sees 'git add .', ignores multi-stage chain"
-     :expect nil)
+     :note "Three-stage git workflow chain"
+     :expect (:success t
+              :type :chain
+              :command-count 3
+              :dangerous-p nil))
 
     ;; ============================================================
     ;; REDIRECTIONS (file I/O)
@@ -172,21 +193,21 @@
 
     ;; ============================================================
     ;; COMMAND SUBSTITUTION (nested commands)
-    ;; MESSY: Inner command text extracted but creates duplicate tokens
+    ;; TODO: Not yet fully implemented - extracts text but doesn't parse nested command
     ;; ============================================================
     (:id "substitution-001"
      :command "echo $(date)"
-     :note "MESSY: Extracts 'date' as positional arg (not marked as substitution)"
+     :note "Command substitution - extracts text but nested command not separately parsed"
      :expect nil)
 
     (:id "substitution-002"
      :command "echo `pwd`"
-     :note "MESSY: Extracts 'pwd' as positional arg (backtick ignored)"
+     :note "Backtick substitution - extracts text but nested command not separately parsed"
      :expect nil)
 
     (:id "substitution-003"
      :command "git commit -m \"$(cat message.txt)\""
-     :note "MESSY: Creates duplicate tokens for substitution and inner command"
+     :note "Command substitution in quoted string - not yet handled"
      :expect nil)
 
     ;; ============================================================
@@ -273,8 +294,11 @@
 
     (:id "background-002"
      :command "python server.py & echo 'Server started'"
-     :note "Only first command visible (same as pipeline/chain limitation)"
-     :expect nil)
+     :note "Background with multiple commands - parsed as list/chain"
+     :expect (:success t
+              :type :chain
+              :command-count 2
+              :dangerous-p nil))
 
     ;; ============================================================
     ;; HEREDOCS

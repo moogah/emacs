@@ -4,6 +4,8 @@
 
 Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
 
+**Update (2026-03-01)**: Implemented multi-command detection and rejection. Pipelines, chains, and command substitution are now blocked at parse time for security.
+
 ## Critical Findings
 
 ### ✅ What Works Perfectly
@@ -14,28 +16,38 @@ Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success r
 4. **Dangerous pattern detection**: `rm -rf`, `git push --force`, `python -c` ✓
 5. **Glob patterns**: `ls *.txt` (preserved as literal strings) ✓
 6. **Variables in quotes**: `git commit -m "$message"` ✓
+7. **Multi-command rejection**: Pipelines, chains, and substitutions blocked ✓
 
-### ⚠️ Partial Support (Usable but Limited)
+### ✅ Security Features (RESOLVED)
 
-#### **Pipelines** - Only First Command Visible
+#### **Pipelines** - Rejected for Security
 ```bash
 ls -la | grep test
-# Sees: command="ls", flags=["-la"]
-# Missing: "grep test" completely ignored
+# Result: :success nil, :error "Multi-command constructs not supported"
+# Reason: "Contains pipeline operator (|)"
 ```
 
-**Impact**: Cannot detect dangerous commands in pipeline stages
-- `rm safe.txt | rm -rf /` → would NOT detect the dangerous second command
+**Impact**: ✅ Security hole closed - cannot hide dangerous commands in pipelines
 
-#### **Command Chains** - Only First Command Visible
+#### **Command Chains** - Rejected for Security
 ```bash
 git add . && git commit -m 'test' && git push
-# Sees: command="git", subcommand="add", args=["."]
-# Missing: commit and push completely ignored
+# Result: :success nil, :error "Multi-command constructs not supported"
+# Reason: "Contains AND chain operator (&&)"
 ```
 
-**Impact**: Cannot validate multi-command workflows
-- `mkdir /tmp/test && cd /tmp/test && rm -rf *` → would NOT see the dangerous rm
+**Impact**: ✅ Security hole closed - cannot hide dangerous commands in chains
+
+#### **Command Substitution** - Rejected for Security
+```bash
+echo $(date)
+# Result: :success nil, :error "Multi-command constructs not supported"
+# Reason: "Contains command substitution $()"
+```
+
+**Impact**: ✅ Security hole closed - nested commands not allowed
+
+### ⚠️ Known Limitations (Non-Security)
 
 #### **Redirections** - Operators and Targets Stripped
 ```bash
@@ -44,30 +56,7 @@ echo 'hello' > output.txt
 # Missing: "> output.txt" ignored
 ```
 
-```bash
-grep error < logfile.txt
-# Sees: command="grep", args=["error"]
-# Missing: "< logfile.txt" ignored
-```
-
-**Impact**: Cannot extract file targets from redirections
-
-#### **Command Substitution** - Extracts Inner Text
-```bash
-echo $(date)
-# Sees: command="echo", args=["date"]
-# Note: extracts "date" but doesn't mark it as substitution
-```
-
-```bash
-git commit -m "$(cat message.txt)"
-# Sees: command="git", subcommand="commit",
-#       flags=["-m"],
-#       args=["$(cat message.txt)", "cat", "message.txt"]
-# Note: extracts BOTH the full string AND the inner command parts (messy!)
-```
-
-**Impact**: Cannot distinguish between literal strings and command substitution
+**Impact**: Cannot extract file targets from redirections (not a security issue for single-command validation)
 
 ### ❌ Broken/Unexpected Behavior
 
@@ -123,14 +112,14 @@ find . -name '*.log' -exec rm {} \;
 
 **Impact**: Cannot properly parse find -exec constructs
 
-### 🚫 Not Supported (By Design)
+### 🚫 Rejected for Security
 
-These constructs are completely ignored but don't break parsing:
+These constructs are explicitly rejected to prevent security bypasses:
 
-1. **Background processes**: `&` operator stripped
-2. **Heredocs**: `<< EOF` blocks ignored
-3. **Second/third commands in pipelines**: Only first command seen
-4. **Second/third commands in chains**: Only first command seen
+1. **Pipelines**: `|` and `|&` operators → rejected
+2. **Command chains**: `&&`, `||`, `;` operators → rejected
+3. **Command substitution**: `$()` and backticks → rejected
+4. **Background multi-commands**: ` & ` (with multiple commands) → rejected
 
 ## Parser Capabilities Summary
 

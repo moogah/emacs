@@ -23,14 +23,25 @@ Format: (command . ((:subcommand \"name\" :flags (list))
                     (:any-flag-contains (list))))")
 
 (defun jf/bash-parse (command-string)
-  "Parse COMMAND-STRING using tree-sitter.
+  "Parse COMMAND-STRING using tree-sitter with full pipeline/chain support.
+
 Returns plist with:
   :success - t if parsing succeeded
+  :type - :simple, :pipeline, or :chain
+  :all-commands - list of all parsed commands (always present)
+  :command-count - number of commands found
+
+For simple commands, also includes (for backward compatibility):
   :command-name - base command
-  :subcommand - subcommand if detected (e.g., 'log' in 'git log')
-  :flags - list of flags (arguments starting with -)
+  :subcommand - subcommand if detected
+  :flags - list of flags
   :positional-args - list of non-flag arguments
   :dangerous-p - t if command matches dangerous patterns
+
+For pipelines/chains:
+  Each element in :all-commands has the same structure as simple commands
+
+Additional fields:
   :ast - tree-sitter root node (for debugging)
   :error - error message if parsing failed"
   (condition-case err
@@ -39,54 +50,123 @@ Returns plist with:
                  :error (error-message-string err)))))
 
 (defun jf/bash-parse--internal (command-string)
-  "Internal parser implementation for COMMAND-STRING."
+  "Internal parser implementation for COMMAND-STRING with pipeline support."
   (with-temp-buffer
     (insert command-string)
     (let* ((parser (treesit-parser-create 'bash))
            (root-node (treesit-parser-root-node parser))
-           (command-node (jf/bash-parse--find-first-command root-node)))
+           (struct-type (jf/bash-parse--detect-structure-type root-node)))
 
-      (if (null command-node)
-          (list :success nil
-                :error "No command found in input")
+      (pcase struct-type
+        (:pipeline
+         (jf/bash-parse--handle-pipeline root-node))
+        (:list
+         (jf/bash-parse--handle-list root-node))
+        (:simple
+         (jf/bash-parse--handle-simple-command root-node))
+        (_
+         (list :success nil
+               :error "Unknown command structure"))))))
 
-        (let* ((words (jf/bash-parse--extract-words command-node))
-               (command-name (car words))
-               (remaining-words (cdr words))
-               (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
-               (args-start (if subcommand (cdr remaining-words) remaining-words))
-               (flags (jf/bash-parse--extract-flags args-start))
-               (positional-args (jf/bash-parse--extract-positional-args args-start))
-               (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+(defun jf/bash-parse--detect-structure-type (root-node)
+  "Detect the structure type from ROOT-NODE.
+Returns :pipeline, :list, or :simple."
+  (let ((pipeline-node (jf/bash-parse--find-node-by-type root-node "pipeline"))
+        (list-node (jf/bash-parse--find-node-by-type root-node "list")))
+    (cond
+     (pipeline-node :pipeline)
+     (list-node :list)
+     (t :simple))))
 
-          (list :success t
-                :command-name command-name
-                :subcommand subcommand
-                :flags flags
-                :positional-args positional-args
-                :dangerous-p dangerous-p
-                :ast root-node))))))
+(defun jf/bash-parse--find-node-by-type (node target-type)
+  "Find first node of TARGET-TYPE in tree starting from NODE."
+  (when node
+    (if (string= (treesit-node-type node) target-type)
+        node
+      (let ((child-count (treesit-node-child-count node))
+            (result nil))
+        (dotimes (i child-count)
+          (when (null result)
+            (when-let ((child (treesit-node-child node i)))
+              (setq result (jf/bash-parse--find-node-by-type child target-type)))))
+        result))))
 
-(defun jf/bash-parse--find-first-command (node)
-  "Find the first command node in tree starting from NODE."
-  (if (null node)
-      nil
-    (let ((node-type (treesit-node-type node)))
-      (cond
-       ;; If this node is a command, return it
-       ((string= node-type "command")
-        node)
+(defun jf/bash-parse--handle-pipeline (root-node)
+  "Handle pipeline command from ROOT-NODE."
+  (let* ((pipeline-node (jf/bash-parse--find-node-by-type root-node "pipeline"))
+         (command-nodes (jf/bash-parse--get-all-command-nodes pipeline-node))
+         (parsed-commands (mapcar #'jf/bash-parse--parse-single-command-node
+                                   command-nodes))
+         (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
+                                  parsed-commands)))
 
-       ;; Otherwise search children recursively
-       (t
-        (let ((child-count (treesit-node-child-count node))
-              (result nil))
-          (dotimes (i child-count)
-            (when (null result)
-              (let ((child (treesit-node-child node i)))
-                (when child
-                  (setq result (jf/bash-parse--find-first-command child))))))
-          result))))))
+    (list :success t
+          :type :pipeline
+          :all-commands parsed-commands
+          :command-count (length parsed-commands)
+          :dangerous-p any-dangerous
+          :ast root-node)))
+
+(defun jf/bash-parse--handle-list (root-node)
+  "Handle command list/chain from ROOT-NODE."
+  (let* ((list-node (jf/bash-parse--find-node-by-type root-node "list"))
+         (command-nodes (jf/bash-parse--get-all-command-nodes list-node))
+         (parsed-commands (mapcar #'jf/bash-parse--parse-single-command-node
+                                   command-nodes))
+         (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
+                                  parsed-commands)))
+
+    (list :success t
+          :type :chain
+          :all-commands parsed-commands
+          :command-count (length parsed-commands)
+          :dangerous-p any-dangerous
+          :ast root-node)))
+
+(defun jf/bash-parse--handle-simple-command (root-node)
+  "Handle simple (single) command from ROOT-NODE."
+  (let* ((command-node (jf/bash-parse--find-node-by-type root-node "command")))
+
+    (if (null command-node)
+        (list :success nil
+              :error "No command found in input")
+
+      (let ((parsed-cmd (jf/bash-parse--parse-single-command-node command-node)))
+        ;; Return flattened structure for backward compatibility
+        (append (list :success t
+                      :type :simple
+                      :all-commands (list parsed-cmd)
+                      :command-count 1
+                      :ast root-node)
+                ;; Flatten first command's fields to top level
+                parsed-cmd)))))
+
+(defun jf/bash-parse--get-all-command-nodes (container-node)
+  "Get all command nodes from CONTAINER-NODE (pipeline or list)."
+  (let ((commands '()))
+    (jf/bash-parse--visit-node
+     container-node
+     (lambda (node)
+       (when (string= (treesit-node-type node) "command")
+         (push node commands))))
+    (nreverse commands)))
+
+(defun jf/bash-parse--parse-single-command-node (command-node)
+  "Parse a single COMMAND-NODE into command structure."
+  (let* ((words (jf/bash-parse--extract-words command-node))
+         (command-name (car words))
+         (remaining-words (cdr words))
+         (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
+         (args-start (if subcommand (cdr remaining-words) remaining-words))
+         (flags (jf/bash-parse--extract-flags args-start))
+         (positional-args (jf/bash-parse--extract-positional-args args-start))
+         (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+
+    (list :command-name command-name
+          :subcommand subcommand
+          :flags flags
+          :positional-args positional-args
+          :dangerous-p dangerous-p)))
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.
@@ -105,11 +185,12 @@ Returns list of strings representing all words in the command."
              ;; Remove quotes from strings
              (when (and text (> (length text) 0))
                (setq text (string-trim text))
-               ;; Remove surrounding quotes if present
-               (when (or (and (string-prefix-p "\"" text)
-                             (string-suffix-p "\"" text))
-                        (and (string-prefix-p "'" text)
-                             (string-suffix-p "'" text)))
+               ;; Remove surrounding quotes if present (only if length > 2)
+               (when (and (> (length text) 1)
+                         (or (and (string-prefix-p "\"" text)
+                                  (string-suffix-p "\"" text))
+                             (and (string-prefix-p "'" text)
+                                  (string-suffix-p "'" text))))
                  (setq text (substring text 1 -1)))
                (unless (string-empty-p text)
                  (push text words))))))))
@@ -117,12 +198,12 @@ Returns list of strings representing all words in the command."
 
 (defun jf/bash-parse--visit-node (node visitor-fn)
   "Visit NODE and all children, calling VISITOR-FN on each."
-  (funcall visitor-fn node)
-  (let ((child-count (treesit-node-child-count node)))
-    (dotimes (i child-count)
-      (jf/bash-parse--visit-node
-       (treesit-node-child node i)
-       visitor-fn))))
+  (when node
+    (funcall visitor-fn node)
+    (let ((child-count (treesit-node-child-count node)))
+      (dotimes (i child-count)
+        (when-let ((child (treesit-node-child node i)))
+          (jf/bash-parse--visit-node child visitor-fn))))))
 
 (defun jf/bash-parse--detect-subcommand (command-name remaining-words)
   "Detect if COMMAND-NAME has a subcommand in REMAINING-WORDS.

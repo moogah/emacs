@@ -36,7 +36,8 @@
       "Bash(bd status:*)",
       "Bash(/Users/jefffarr/emacs/bin/tangle-org.sh:*)",
       "WebFetch(domain:news.ycombinator.com)",
-      "Bash(./bin/emacs-isolated.sh:*)"
+      "Bash(./bin/emacs-isolated.sh:*)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
