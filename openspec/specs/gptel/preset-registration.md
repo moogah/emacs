@@ -62,6 +62,8 @@ The system SHALL parse preset `.md` files from `config/gptel/presets/` by extrac
 
 **Implementation:** `jf/gptel-preset--parse-file` in `/Users/jefffarr/emacs/config/gptel/preset-registration.org` lines 61–98.
 
+The parser SHALL NOT depend on the `gptel-agent` package.
+
 The parser SHALL:
 - Check file is readable, return nil if not (log warning)
 - Expect opening `---` at start of file (lines 75–77)

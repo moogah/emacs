@@ -1,1 +1,1 @@
-("~/org/" "~/emacs/" "~/src/dotfiles/" "~/src/reddit_scraper/")
+("~/emacs/" "~/org/" "~/src/dotfiles/" "~/src/reddit_scraper/")

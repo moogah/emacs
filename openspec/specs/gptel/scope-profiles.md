@@ -246,6 +246,22 @@ When session has both preset scope AND explicit worktree paths, the system SHALL
 - **THEN** worktree paths take precedence
 - **AND** profile not consulted
 
+#### Scenario: Activities session with multiple worktree paths
+- **WHEN** creating session via activities integration with worktree paths `/path/to/project-a`, `/path/to/project-b`
+- **THEN** scope.yml has each worktree path as separate read entry (with `/**` glob suffix)
+- **AND** write entries for each path
+- **AND** standard deny entries (`.git`, `runtime`, `.env`, `node_modules`)
+- **AND** does NOT use `${project_root}` variable expansion (paths already resolved)
+
+#### Scenario: Activities session with single worktree path
+- **WHEN** creating session via activities integration with one worktree path
+- **THEN** behavior identical to multi-project (explicit path written to scope.yml)
+
+#### Scenario: Activities session with no worktree paths
+- **WHEN** creating session via activities integration with no worktree paths
+- **THEN** scope profile resolution falls back to preset's scope defaults or deny-by-default
+- **AND** follows standard resolution priority (named profile > inline defaults > empty)
+
 ### Requirement: Key normalization (snake_case ↔ kebab-case)
 
 Scope profiles use YAML snake_case keys. System SHALL convert to kebab-case keywords for Elisp, then back to snake_case when writing scope.yml.
