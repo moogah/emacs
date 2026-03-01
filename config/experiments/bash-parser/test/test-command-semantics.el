@@ -1,0 +1,350 @@
+;;; test-command-semantics.el --- ERT tests for bash command semantics database -*- lexical-binding: t; -*-
+
+;; Tests validate the command semantics database (jf/bash-command-file-semantics)
+;; and lookup function (jf/bash-lookup-command-semantics).
+
+;;; Code:
+
+(require 'ert)
+(load-file (expand-file-name "../bash-parser.el"
+                              (file-name-directory (or load-file-name buffer-file-name))))
+
+;;; Simple Read Commands
+
+(ert-deftest test-semantics-lookup-simple-read-command ()
+  "Scenario: bash-command-semantics § 'Lookup simple read command'"
+  (let ((result (jf/bash-lookup-command-semantics "cat")))
+    (should result)
+    (let ((ops (plist-get result :operations)))
+      (should (listp ops))
+      (should (> (length ops) 0))
+      (let ((op (car ops)))
+        (should (eq (plist-get op :operation) :read))
+        (should (eq (plist-get op :source) :positional-args))))))
+
+(ert-deftest test-semantics-lookup-head-command ()
+  "Scenario: bash-command-semantics § 'File reading commands' - head"
+  (let* ((result (jf/bash-lookup-command-semantics "head"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 1))
+    (should (eq (plist-get (car ops) :operation) :read))))
+
+(ert-deftest test-semantics-lookup-tail-command ()
+  "Scenario: bash-command-semantics § 'File reading commands' - tail"
+  (let* ((result (jf/bash-lookup-command-semantics "tail"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 1))
+    (should (eq (plist-get (car ops) :operation) :read))))
+
+(ert-deftest test-semantics-lookup-less-command ()
+  "Scenario: bash-command-semantics § 'File reading commands' - less"
+  (let* ((result (jf/bash-lookup-command-semantics "less"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 1))
+    (should (eq (plist-get (car ops) :operation) :read))))
+
+(ert-deftest test-semantics-lookup-wc-command ()
+  "Scenario: bash-command-semantics § 'File reading commands' - wc"
+  (let* ((result (jf/bash-lookup-command-semantics "wc"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 1))
+    (should (eq (plist-get (car ops) :operation) :read))))
+
+;;; Commands with Skip Rules
+
+(ert-deftest test-semantics-lookup-command-with-skip-rules ()
+  "Scenario: bash-command-semantics § 'Lookup command with skip rules'"
+  (let ((result (jf/bash-lookup-command-semantics "grep")))
+    (should result)
+    (let ((ops (plist-get result :operations)))
+      (should (listp ops))
+      (should (> (length ops) 0))
+      (let ((op (car ops)))
+        (should (eq (plist-get op :operation) :read))
+        (should (eq (plist-get op :source) :positional-args))
+        (should (equal (plist-get op :skip-indices) '(0)))))))
+
+(ert-deftest test-semantics-lookup-egrep-skip-rules ()
+  "Scenario: bash-command-semantics § 'Lookup command with skip rules' - egrep variant"
+  (let* ((result (jf/bash-lookup-command-semantics "egrep"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :read))
+    (should (equal (plist-get op :skip-indices) '(0)))))
+
+(ert-deftest test-semantics-lookup-chmod-skip-rules ()
+  "Scenario: bash-command-semantics § 'File manipulation commands' - chmod with skip"
+  (let* ((result (jf/bash-lookup-command-semantics "chmod"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :modify))
+    (should (equal (plist-get op :skip-indices) '(0)))))
+
+(ert-deftest test-semantics-lookup-chown-skip-rules ()
+  "Scenario: bash-command-semantics § 'File manipulation commands' - chown with skip"
+  (let* ((result (jf/bash-lookup-command-semantics "chown"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :modify))
+    (should (equal (plist-get op :skip-indices) '(0)))))
+
+;;; Unknown Commands
+
+(ert-deftest test-semantics-lookup-unknown-command ()
+  "Scenario: bash-command-semantics § 'Lookup unknown command'"
+  (let ((result (jf/bash-lookup-command-semantics "nonexistent-command-xyz")))
+    (should-not result)))
+
+;;; Multi-operation Commands
+
+(ert-deftest test-semantics-multi-operation-cp ()
+  "Scenario: bash-command-semantics § 'Copy command with read and write operations'"
+  (let* ((result (jf/bash-lookup-command-semantics "cp"))
+         (ops (plist-get result :operations)))
+    (should (= (length ops) 2))
+    ;; First op: read sources (indices 0 to N-2)
+    (let ((read-op (nth 0 ops)))
+      (should (eq (plist-get read-op :operation) :read))
+      (should (eq (plist-get read-op :source) :positional-args))
+      (should (equal (plist-get read-op :indices) '(0 . -2))))
+    ;; Second op: write destination (index -1)
+    (let ((write-op (nth 1 ops)))
+      (should (eq (plist-get write-op :operation) :write))
+      (should (eq (plist-get write-op :source) :positional-args))
+      (should (= (plist-get write-op :index) -1)))))
+
+(ert-deftest test-semantics-multi-operation-mv ()
+  "Scenario: bash-command-semantics § 'Move command with delete and write operations'"
+  (let* ((result (jf/bash-lookup-command-semantics "mv"))
+         (ops (plist-get result :operations)))
+    (should (= (length ops) 2))
+    ;; First op: delete sources
+    (let ((delete-op (nth 0 ops)))
+      (should (eq (plist-get delete-op :operation) :delete))
+      (should (equal (plist-get delete-op :indices) '(0 . -2))))
+    ;; Second op: write destination
+    (let ((write-op (nth 1 ops)))
+      (should (eq (plist-get write-op :operation) :write))
+      (should (= (plist-get write-op :index) -1)))))
+
+(ert-deftest test-semantics-multi-operation-ln ()
+  "Scenario: bash-command-semantics § 'File manipulation commands' - ln multi-op"
+  (let* ((result (jf/bash-lookup-command-semantics "ln"))
+         (ops (plist-get result :operations)))
+    (should (= (length ops) 2))
+    ;; First op: read sources
+    (should (eq (plist-get (nth 0 ops) :operation) :read))
+    ;; Second op: write destination
+    (should (eq (plist-get (nth 1 ops) :operation) :write))))
+
+;;; Subcommand-based Commands
+
+(ert-deftest test-semantics-git-add-subcommand ()
+  "Scenario: bash-command-semantics § 'Git add subcommand'"
+  (let ((result (jf/bash-lookup-command-semantics "git")))
+    (should result)
+    (should (eq (plist-get result :operations) :complex))
+    (let* ((handlers (plist-get result :subcommand-handlers))
+           (add-spec (alist-get 'add handlers)))
+      (should add-spec)
+      (should (= (length add-spec) 1))
+      (should (eq (plist-get (car add-spec) :operation) :read)))))
+
+(ert-deftest test-semantics-git-checkout-subcommand ()
+  "Scenario: bash-command-semantics § 'Git checkout subcommand'"
+  (let ((result (jf/bash-lookup-command-semantics "git")))
+    (should result)
+    (should (eq (plist-get result :operations) :complex))
+    (let* ((handlers (plist-get result :subcommand-handlers))
+           (checkout-spec (alist-get 'checkout handlers)))
+      (should checkout-spec)
+      (should (= (length checkout-spec) 1))
+      (should (eq (plist-get (car checkout-spec) :operation) :modify)))))
+
+(ert-deftest test-semantics-git-rm-subcommand ()
+  "Scenario: bash-command-semantics § 'Subcommand-specific semantics' - git rm"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (rm-spec (alist-get 'rm handlers)))
+    (should rm-spec)
+    (should (eq (plist-get (car rm-spec) :operation) :delete))))
+
+(ert-deftest test-semantics-git-diff-subcommand ()
+  "Scenario: bash-command-semantics § 'Subcommand-specific semantics' - git diff"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (diff-spec (alist-get 'diff handlers)))
+    (should diff-spec)
+    (should (eq (plist-get (car diff-spec) :operation) :read))))
+
+(ert-deftest test-semantics-docker-cp-subcommand ()
+  "Scenario: bash-command-semantics § 'Subcommand-specific semantics' - docker cp"
+  (let* ((result (jf/bash-lookup-command-semantics "docker"))
+         (handlers (plist-get result :subcommand-handlers))
+         (cp-spec (alist-get 'cp handlers)))
+    (should cp-spec)
+    (should (= (length cp-spec) 2))
+    (should (eq (plist-get (nth 0 cp-spec) :operation) :read))
+    (should (eq (plist-get (nth 1 cp-spec) :operation) :write))))
+
+;;; Operation Type Classification
+
+(ert-deftest test-semantics-read-operation-classification ()
+  "Scenario: bash-command-semantics § 'Read operation classification'"
+  (let ((result (jf/bash-lookup-command-semantics "cat")))
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :read))))
+
+(ert-deftest test-semantics-write-operation-classification ()
+  "Scenario: bash-command-semantics § 'Write operation classification'"
+  (let ((result (jf/bash-lookup-command-semantics "tee")))
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :write))))
+
+(ert-deftest test-semantics-delete-operation-classification ()
+  "Scenario: bash-command-semantics § 'Delete operation classification'"
+  (let ((result (jf/bash-lookup-command-semantics "rm")))
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :delete))))
+
+(ert-deftest test-semantics-modify-operation-classification ()
+  "Scenario: bash-command-semantics § 'Modify operation classification'"
+  (let ((result (jf/bash-lookup-command-semantics "chmod")))
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :modify))))
+
+(ert-deftest test-semantics-create-operation-classification ()
+  "Scenario: bash-command-semantics § 'Operation type classification' - create"
+  (let ((result (jf/bash-lookup-command-semantics "mkdir")))
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :create))))
+
+(ert-deftest test-semantics-create-or-modify-operation-classification ()
+  "Scenario: bash-command-semantics § 'Operation type classification' - create-or-modify"
+  (let ((result (jf/bash-lookup-command-semantics "touch")))
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :create-or-modify))))
+
+;;; Core Command Coverage
+
+(ert-deftest test-semantics-core-command-touch ()
+  "Scenario: bash-command-semantics § 'File writing commands' - touch"
+  (let ((result (jf/bash-lookup-command-semantics "touch")))
+    (should result)
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :create-or-modify))))
+
+(ert-deftest test-semantics-core-command-mkdir ()
+  "Scenario: bash-command-semantics § 'Core command coverage' - mkdir"
+  (let ((result (jf/bash-lookup-command-semantics "mkdir")))
+    (should result)
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :create))))
+
+(ert-deftest test-semantics-core-command-rmdir ()
+  "Scenario: bash-command-semantics § 'File deletion commands' - rmdir"
+  (let ((result (jf/bash-lookup-command-semantics "rmdir")))
+    (should result)
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :delete))))
+
+(ert-deftest test-semantics-core-command-find ()
+  "Scenario: bash-command-semantics § 'Core command coverage' - find"
+  (let ((result (jf/bash-lookup-command-semantics "find")))
+    (should result)
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :read))))
+
+(ert-deftest test-semantics-core-command-tee ()
+  "Scenario: bash-command-semantics § 'File writing commands' - tee"
+  (let ((result (jf/bash-lookup-command-semantics "tee")))
+    (should result)
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :write))))
+
+(ert-deftest test-semantics-core-command-chgrp ()
+  "Scenario: bash-command-semantics § 'File manipulation commands' - chgrp"
+  (let ((result (jf/bash-lookup-command-semantics "chgrp")))
+    (should result)
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :modify))))
+
+;;; Positional Argument Indexing
+
+(ert-deftest test-semantics-single-index-specification ()
+  "Scenario: bash-command-semantics § 'Single index specification'"
+  (let* ((result (jf/bash-lookup-command-semantics "cp"))
+         (ops (plist-get result :operations))
+         (write-op (nth 1 ops)))
+    (should (= (plist-get write-op :index) -1))))
+
+(ert-deftest test-semantics-last-argument-specification ()
+  "Scenario: bash-command-semantics § 'Last argument specification'"
+  (let* ((result (jf/bash-lookup-command-semantics "mv"))
+         (ops (plist-get result :operations))
+         (write-op (nth 1 ops)))
+    (should (= (plist-get write-op :index) -1))))
+
+(ert-deftest test-semantics-range-specification ()
+  "Scenario: bash-command-semantics § 'Range specification'"
+  (let* ((result (jf/bash-lookup-command-semantics "cp"))
+         (ops (plist-get result :operations))
+         (read-op (nth 0 ops)))
+    (should (equal (plist-get read-op :indices) '(0 . -2)))))
+
+;;; Flag-dependent Operations
+
+(ert-deftest test-semantics-flag-dependent-sed ()
+  "Scenario: bash-command-semantics § 'Flag-dependent operations' - sed"
+  (let ((result (jf/bash-lookup-command-semantics "sed")))
+    (should result)
+    (should (eq (plist-get result :operations) :flag-dependent))
+    (let ((handlers (plist-get result :flag-handlers)))
+      (should handlers)
+      ;; Check in-place flag handler
+      (let ((in-place-spec (alist-get '("-i" "--in-place") handlers nil nil #'equal)))
+        (should in-place-spec)
+        (should (eq (plist-get (car in-place-spec) :operation) :modify)))
+      ;; Check default handler (no flags)
+      (let ((default-spec (alist-get nil handlers)))
+        (should default-spec)
+        (should (eq (plist-get (car default-spec) :operation) :read))))))
+
+(ert-deftest test-semantics-flag-dependent-tar ()
+  "Scenario: bash-command-semantics § 'Flag-dependent operations' - tar"
+  (let ((result (jf/bash-lookup-command-semantics "tar")))
+    (should result)
+    (should (eq (plist-get result :operations) :flag-dependent))
+    (let ((handlers (plist-get result :flag-handlers)))
+      (should handlers)
+      ;; Check extract flag handler
+      (let ((extract-spec (alist-get '("-x" "--extract" "--get") handlers nil nil #'equal)))
+        (should extract-spec)
+        (should (eq (plist-get (car extract-spec) :operation) :write)))
+      ;; Check create flag handler
+      (let ((create-spec (alist-get '("-c" "--create") handlers nil nil #'equal)))
+        (should create-spec)
+        (should (eq (plist-get (car create-spec) :operation) :read))))))
+
+;;; Named Arguments (dd-style)
+
+(ert-deftest test-semantics-named-args-dd ()
+  "Scenario: bash-command-semantics § 'Core command coverage' - dd named args"
+  (let* ((result (jf/bash-lookup-command-semantics "dd"))
+         (ops (plist-get result :operations)))
+    (should (= (length ops) 2))
+    ;; First op: read from if=
+    (let ((read-op (nth 0 ops)))
+      (should (eq (plist-get read-op :operation) :read))
+      (should (eq (plist-get read-op :source) :named-args))
+      (should (equal (plist-get read-op :names) '("if"))))
+    ;; Second op: write to of=
+    (let ((write-op (nth 1 ops)))
+      (should (eq (plist-get write-op :operation) :write))
+      (should (eq (plist-get write-op :source) :named-args))
+      (should (equal (plist-get write-op :names) '("of"))))))
+
+;;; Test Suite Summary
+
+(defun test-semantics-run-all ()
+  "Run all command semantics tests and report results."
+  (interactive)
+  (ert "^test-semantics-"))
+
+(provide 'test-command-semantics)
+;;; test-command-semantics.el ends here
