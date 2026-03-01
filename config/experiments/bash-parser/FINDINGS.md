@@ -4,7 +4,9 @@
 
 Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
 
-**Update (2026-03-01)**: Implemented full pipeline and command chain parsing. All commands in pipelines (|) and chains (&&, ||, ;) are now extracted and validated individually.
+**Update (2026-03-01)**:
+- Implemented full pipeline and command chain parsing. All commands in pipelines (|) and chains (&&, ||, ;) are now extracted and validated individually.
+- Implemented full redirection parsing. All redirection operators (>, >>, <, 2>&1, etc.) with descriptors and targets are now extracted.
 
 ## Critical Findings
 
@@ -18,17 +20,19 @@ Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success r
 6. **Variables in quotes**: `git commit -m "$message"` ✓
 7. **Pipelines**: `ls -la | grep test` - all commands fully parsed ✓
 8. **Command chains**: `git add . && git commit -m 'test'` - all commands fully parsed ✓
+9. **Redirections**: `echo 'hello' > output.txt` - operators, descriptors, targets extracted ✓
+10. **Multiple redirections**: `git log > /dev/null 2>&1` - all redirects parsed ✓
 
-### ⚠️ Known Limitations
+### ✅ Fully Supported Features
 
-#### **Redirections** - Operators and Targets Stripped
+#### **Redirections** - Operators and Targets Extracted
 ```bash
 echo 'hello' > output.txt
 # Sees: command="echo", args=["hello"]
-# Missing: "> output.txt" ignored
+# Redirections: [{type: :file, operator: ">", destination: "output.txt"}]
 ```
 
-**Impact**: Cannot extract file targets from redirections (not a security issue for single-command validation)
+**Impact**: Full redirection support including file descriptors, operators, and targets
 
 ### ❌ Broken/Unexpected Behavior
 
@@ -96,7 +100,7 @@ find . -name '*.log' -exec rm {} \;
 | Dangerous patterns | ✅ Perfect | Flag and subcommand matching works |
 | Pipelines | ✅ Perfect | All commands extracted and validated |
 | Command chains | ✅ Perfect | All commands extracted and validated |
-| Redirections | ⚠️ Partial | Operators/targets stripped |
+| Redirections | ✅ Perfect | Operators, descriptors, and targets extracted |
 | Command substitution | ⚠️ Partial | Text extracted but not parsed recursively |
 | Variables | ❌ Broken | Inconsistent (disappear or duplicate) |
 | Escaped quotes | ❌ Broken | Splits incorrectly |
@@ -115,12 +119,12 @@ find . -name '*.log' -exec rm {} \;
 3. **Dangerous flag detection** - Reliable for rm -rf, git --force, etc. across all commands
 4. **Basic argument extraction** - Good for simple tools
 5. **Subcommand routing** - Perfect for git/docker/npm workflows
+6. **File redirection analysis** - Full extraction of operators, descriptors, and targets
 
 ### ⚠️ Use With Caution:
 
-1. **File target extraction** - Cannot extract redirection targets
-2. **Complex quoting** - May misbehave with escaped quotes
-3. **Command substitution** - Nested commands not recursively parsed
+1. **Complex quoting** - May misbehave with escaped quotes
+2. **Command substitution** - Nested commands not recursively parsed
 
 ### ❌ Don't Use For:
 
@@ -134,26 +138,33 @@ find . -name '*.log' -exec rm {} \;
 - Detecting dangerous flags in simple commands
 - Validating git/docker/npm operations
 - Detecting dangerous commands in pipelines and chains
+- Extracting redirection targets for file validation
 
 ### ⚠️ Unsafe:
 - **Variable evasion**: `rm -rf $HOME` → unpredictable (might not detect)
 - **Command substitution**: `rm -rf $(dangerous)` → nested command not validated
 
+### 🎯 New Security Capabilities:
+With redirection support, you can now:
+- Detect suspicious file targets (`/etc/passwd`, `/dev/sda`, etc.)
+- Warn on destructive redirections (`> /important/config`)
+- Validate output destinations before execution
+
 ## Recommendations
 
 ### For Command Validation Use Case:
 
-1. **Use pipeline/chain parsing**: Parser now extracts all commands from pipelines (|) and chains (&&, ||, ;)
-2. **Pattern matching**: Use dangerous pattern database across all commands in multi-command strings
-3. **Pre-flight check for unsupported constructs**: Consider rejecting:
+1. **Use pipeline/chain parsing**: Parser extracts all commands from pipelines (|) and chains (&&, ||, ;)
+2. **Use redirection parsing**: Parser extracts all redirection operators, descriptors, and file targets
+3. **Pattern matching**: Use dangerous pattern database across all commands in multi-command strings
+4. **Pre-flight check for unsupported constructs**: Consider rejecting:
    - Command substitution (`$()`, backticks) if recursive validation needed
-   - Complex redirections (`2>&1`, etc.) if file targets must be validated
    - Bare variables (`$VAR`) due to unpredictable behavior
 
 ### For Future Enhancement:
 
 If you need full command parsing, consider:
 
-1. **Redirection extraction**: Post-process AST to find redirection nodes and targets
-2. **Variable expansion**: Pre-expand variables before parsing (if safe context)
-3. **Recursive command substitution**: Parse nested commands in $() and backticks
+1. **Variable expansion**: Pre-expand variables before parsing (if safe context)
+2. **Recursive command substitution**: Parse nested commands in $() and backticks
+3. **Advanced redirect validation**: Add security rules for dangerous file targets

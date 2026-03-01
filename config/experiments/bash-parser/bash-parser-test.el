@@ -22,7 +22,7 @@ TEST-CASE is a plist with :id, :command, and :expect."
     (should (plist-get result :success))
 
     ;; Check each expected field
-    (dolist (key '(:command-name :subcommand :flags :positional-args :dangerous-p :type :command-count))
+    (dolist (key '(:command-name :subcommand :flags :positional-args :dangerous-p :type :command-count :redirections))
       (when (plist-member expected key)
         (let ((expected-val (plist-get expected key))
               (actual-val (plist-get result key)))
@@ -146,6 +146,42 @@ TEST-CASE is a plist with :id, :command, and :expect."
   "Test: chain-004 - git add . && git commit -m 'fix' && git push"
   (jf/bash-parser-test--run-corpus-test
    (seq-find (lambda (tc) (equal (plist-get tc :id) "chain-004"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-redirect-001 ()
+  "Test: redirect-001 - echo 'hello' > output.txt"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "redirect-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-redirect-002 ()
+  "Test: redirect-002 - cat input.txt >> output.txt"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "redirect-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-redirect-003 ()
+  "Test: redirect-003 - grep error < logfile.txt"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "redirect-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-redirect-004 ()
+  "Test: redirect-004 - command 2>&1"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "redirect-004"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-redirect-005 ()
+  "Test: redirect-005 - git log > /dev/null 2>&1"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "redirect-005"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-redirect-006 ()
+  "Test: redirect-006 - echo 'test' 2> error.log"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "redirect-006"))
              jf/bash-parser-test-corpus)))
 
 ;;; Manual Tests (for debugging specific cases)

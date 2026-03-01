@@ -249,32 +249,89 @@
 
     ;; ============================================================
     ;; REDIRECTIONS (file I/O)
-    ;; LIMITATION: Redirection operators and targets stripped
+    ;; FULLY PARSED: Redirection operators and targets extracted
     ;; ============================================================
     (:id "redirect-001"
      :command "echo 'hello' > output.txt"
-     :note "LIMITATION: Sees 'echo hello' but loses '> output.txt'"
-     :expect nil)
+     :note "Output redirection - extracts operator and destination"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("hello")
+              :dangerous-p nil
+              :redirections ((:type :file
+                              :operator ">"
+                              :descriptor nil
+                              :destination "output.txt"))))
 
     (:id "redirect-002"
      :command "cat input.txt >> output.txt"
-     :note "LIMITATION: Sees 'cat input.txt' but loses '>> output.txt'"
-     :expect nil)
+     :note "Append redirection - extracts >> operator"
+     :expect (:command-name "cat"
+              :subcommand nil
+              :flags ()
+              :positional-args ("input.txt")
+              :dangerous-p nil
+              :redirections ((:type :file
+                              :operator ">>"
+                              :descriptor nil
+                              :destination "output.txt"))))
 
     (:id "redirect-003"
      :command "grep error < logfile.txt"
-     :note "LIMITATION: Sees 'grep error' but loses '< logfile.txt'"
-     :expect nil)
+     :note "Input redirection - extracts < operator"
+     :expect (:command-name "grep"
+              :subcommand nil
+              :flags ()
+              :positional-args ("error")
+              :dangerous-p nil
+              :redirections ((:type :file
+                              :operator "<"
+                              :descriptor nil
+                              :destination "logfile.txt"))))
 
     (:id "redirect-004"
      :command "command 2>&1"
-     :note "LIMITATION: Sees 'command' but loses '2>&1'"
-     :expect nil)
+     :note "Stderr to stdout redirection with descriptor"
+     :expect (:command-name "command"
+              :subcommand nil
+              :flags ()
+              :positional-args ()
+              :dangerous-p nil
+              :redirections ((:type :file
+                              :operator ">&"
+                              :descriptor "2"
+                              :destination "1"))))
 
     (:id "redirect-005"
      :command "git log > /dev/null 2>&1"
-     :note "LIMITATION: Sees 'git log' but loses redirections"
-     :expect nil)
+     :note "Multiple redirections - both extracted"
+     :expect (:command-name "git"
+              :subcommand "log"
+              :flags ()
+              :positional-args ()
+              :dangerous-p nil
+              :redirections ((:type :file
+                              :operator ">"
+                              :descriptor nil
+                              :destination "/dev/null")
+                             (:type :file
+                              :operator ">&"
+                              :descriptor "2"
+                              :destination "1"))))
+
+    (:id "redirect-006"
+     :command "echo 'test' 2> error.log"
+     :note "Separate stderr redirection to file"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("test")
+              :dangerous-p nil
+              :redirections ((:type :file
+                              :operator ">"
+                              :descriptor "2"
+                              :destination "error.log"))))
 
     ;; ============================================================
     ;; COMMAND SUBSTITUTION (nested commands)
