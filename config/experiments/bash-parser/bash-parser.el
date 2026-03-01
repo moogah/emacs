@@ -217,6 +217,7 @@ This function handles variable expansions and concatenations correctly:
 - expansion (${VAR}) - extracted as-is
 - concatenation ($VAR/path) - extracted as single unit, children NOT visited
 - string (\"text\") - extracted with quotes removed
+- ansi_c_string ($'text\\n') - extracted with $'' wrapper, content preserved
 - word, number - extracted as-is"
   (let ((words '())
         (visited-nodes (make-hash-table :test 'eq)))
@@ -229,6 +230,7 @@ This function handles variable expansions and concatenations correctly:
            (when (or (string= node-type "word")
                      (string= node-type "string")
                      (string= node-type "raw_string")
+                     (string= node-type "ansi_c_string")
                      (string= node-type "concatenation")
                      (string= node-type "simple_expansion")
                      (string= node-type "expansion")
@@ -237,7 +239,8 @@ This function handles variable expansions and concatenations correctly:
                ;; Remove quotes from strings only
                (when (and text (> (length text) 0))
                  (setq text (string-trim text))
-                 ;; Remove surrounding quotes if present (only for string types)
+                 ;; Remove surrounding quotes if present (only for regular string types)
+                 ;; ANSI-C strings ($'...') are kept as-is to preserve escape sequences
                  (when (and (or (string= node-type "string")
                                (string= node-type "raw_string"))
                            (> (length text) 1)
@@ -257,6 +260,7 @@ This function handles variable expansions and concatenations correctly:
              (when (or (string= node-type "concatenation")
                        (string= node-type "string")
                        (string= node-type "raw_string")
+                       (string= node-type "ansi_c_string")
                        (string= node-type "simple_expansion")
                        (string= node-type "expansion"))
                'skip-children)))))

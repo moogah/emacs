@@ -442,13 +442,35 @@
 
     (:id "quote-002"
      :command "echo 'it\\'s working'"
-     :note "BROKEN: Escaped single quote splits into multiple tokens"
+     :note "Invalid bash syntax - cannot escape single quote within single quotes"
      :expect nil)
 
     (:id "quote-003"
      :command "git commit -m $'test\\nwith\\nnewlines'"
-     :note "BROKEN: ANSI-C quoting completely disappears"
-     :expect nil)
+     :note "ANSI-C quoting with escape sequences - preserved with $'' wrapper"
+     :expect (:command-name "git"
+              :subcommand "commit"
+              :flags ("-m")
+              :positional-args ("$'test\\nwith\\nnewlines'")
+              :dangerous-p nil))
+
+    (:id "quote-004"
+     :command "echo $'it\\'s working'"
+     :note "ANSI-C quoting with escaped single quote - works correctly"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("$'it\\'s working'")
+              :dangerous-p nil))
+
+    (:id "quote-005"
+     :command "echo $'line1\\nline2\\ttab'"
+     :note "ANSI-C quoting with multiple escape sequences"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("$'line1\\nline2\\ttab'")
+              :dangerous-p nil))
 
     ;; ============================================================
     ;; GLOB PATTERNS

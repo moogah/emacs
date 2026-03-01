@@ -232,6 +232,72 @@ TEST-CASE is a plist with :id, :command, and :expect."
    (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-008"))
              jf/bash-parser-test-corpus)))
 
+(ert-deftest jf/bash-parser-test-quote-001 ()
+  "Test: quote-001 - echo \"hello 'world'\""
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "quote-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-quote-003 ()
+  "Test: quote-003 - git commit -m $'test\\nwith\\nnewlines'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "quote-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-quote-004 ()
+  "Test: quote-004 - echo $'it\\'s working'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "quote-004"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-quote-005 ()
+  "Test: quote-005 - echo $'line1\\nline2\\ttab'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "quote-005"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-glob-001 ()
+  "Test: glob-001 - ls *.txt"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "glob-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-glob-002 ()
+  "Test: glob-002 - rm config/**/*.el"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "glob-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-background-001 ()
+  "Test: background-001 - npm run build &"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "background-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-background-002 ()
+  "Test: background-002 - python server.py & echo 'Server started'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "background-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-heredoc-001 ()
+  "Test: heredoc-001 - cat << EOF..."
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "heredoc-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-complex-004 ()
+  "Test: complex-004 - python -c 'import sys; print(sys.version)'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "complex-004"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-complex-005 ()
+  "Test: complex-005 - sed -i.bak 's/foo/bar/g' *.txt"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "complex-005"))
+             jf/bash-parser-test-corpus)))
+
 ;;; Manual Tests (for debugging specific cases)
 
 (ert-deftest jf/bash-parser-test-manual-basic ()
