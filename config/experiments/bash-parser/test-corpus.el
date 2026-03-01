@@ -354,16 +354,25 @@
 
     ;; ============================================================
     ;; VARIABLE EXPANSION
+    ;; FULLY SUPPORTED: Variables extracted correctly in all contexts
     ;; ============================================================
     (:id "variable-001"
      :command "echo $PATH"
-     :note "BROKEN: Variable completely disappears"
-     :expect nil)
+     :note "Bare variable - simple_expansion node extracted correctly"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("$PATH")
+              :dangerous-p nil))
 
     (:id "variable-002"
      :command "rm -rf $HOME/tmp"
-     :note "BROKEN: Extracts both '$HOME/tmp' AND '/tmp' (weird duplication)"
-     :expect nil)
+     :note "Variable concatenation - extracted as single unit"
+     :expect (:command-name "rm"
+              :subcommand nil
+              :flags ("-rf")
+              :positional-args ("$HOME/tmp")
+              :dangerous-p t))
 
     (:id "variable-003"
      :command "git commit -m \"$commit_message\""
@@ -372,6 +381,51 @@
               :subcommand "commit"
               :flags ("-m")
               :positional-args ("$commit_message")
+              :dangerous-p nil))
+
+    (:id "variable-004"
+     :command "echo ${HOME}"
+     :note "Braced expansion - expansion node extracted correctly"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("${HOME}")
+              :dangerous-p nil))
+
+    (:id "variable-005"
+     :command "echo $VAR1 $VAR2"
+     :note "Multiple separate variables - both extracted"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("$VAR1" "$VAR2")
+              :dangerous-p nil))
+
+    (:id "variable-006"
+     :command "ls $HOME/*.txt"
+     :note "Variable with glob pattern - concatenation preserved"
+     :expect (:command-name "ls"
+              :subcommand nil
+              :flags ()
+              :positional-args ("$HOME/*.txt")
+              :dangerous-p nil))
+
+    (:id "variable-007"
+     :command "echo prefix$VAR"
+     :note "Prefix concatenated with variable"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("prefix$VAR")
+              :dangerous-p nil))
+
+    (:id "variable-008"
+     :command "echo $VAR/suffix"
+     :note "Variable concatenated with suffix"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("$VAR/suffix")
               :dangerous-p nil))
 
     ;; ============================================================

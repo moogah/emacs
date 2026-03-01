@@ -2,11 +2,12 @@
 
 ## Summary
 
-Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
+Tested **51 commands** (11 baseline, 32 exploratory, 8 variable expansion) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
 
 **Update (2026-03-01)**:
 - Implemented full pipeline and command chain parsing. All commands in pipelines (|) and chains (&&, ||, ;) are now extracted and validated individually.
 - Implemented full redirection parsing. All redirection operators (>, >>, <, 2>&1, etc.) with descriptors and targets are now extracted.
+- **FIXED Variable Expansion**: All variable expansion scenarios now work correctly. Added support for `simple_expansion` ($VAR) and `expansion` (${VAR}) node types, plus proper handling of concatenations to prevent duplication.
 
 ## Critical Findings
 
@@ -17,39 +18,15 @@ Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success r
 3. **Quoted strings**: `echo "hello 'world'"` ✓
 4. **Dangerous pattern detection**: `rm -rf`, `git push --force`, `python -c` ✓
 5. **Glob patterns**: `ls *.txt` (preserved as literal strings) ✓
-6. **Variables in quotes**: `git commit -m "$message"` ✓
-7. **Pipelines**: `ls -la | grep test` - all commands fully parsed ✓
-8. **Command chains**: `git add . && git commit -m 'test'` - all commands fully parsed ✓
-9. **Redirections**: `echo 'hello' > output.txt` - operators, descriptors, targets extracted ✓
-10. **Multiple redirections**: `git log > /dev/null 2>&1` - all redirects parsed ✓
+6. **Variables**: `echo $PATH`, `rm -rf $HOME/tmp`, `echo ${HOME}` - all forms correctly extracted ✓
+7. **Variable concatenations**: `echo $VAR/suffix`, `ls $HOME/*.txt` - preserved as single units ✓
+8. **Pipelines**: `ls -la | grep test` - all commands fully parsed ✓
+9. **Command chains**: `git add . && git commit -m 'test'` - all commands fully parsed ✓
+10. **Redirections**: `echo 'hello' > output.txt` - operators, descriptors, targets extracted ✓
+11. **Multiple redirections**: `git log > /dev/null 2>&1` - all redirects parsed ✓
 
-### ✅ Fully Supported Features
-
-#### **Redirections** - Operators and Targets Extracted
-```bash
-echo 'hello' > output.txt
-# Sees: command="echo", args=["hello"]
-# Redirections: [{type: :file, operator: ">", destination: "output.txt"}]
-```
-
-**Impact**: Full redirection support including file descriptors, operators, and targets
 
 ### ❌ Broken/Unexpected Behavior
-
-#### **Variable Expansion** - Inconsistent
-```bash
-echo $PATH
-# Sees: command="echo", args=[]
-# BUG: $PATH completely disappears!
-```
-
-```bash
-rm -rf $HOME/tmp
-# Sees: command="rm", flags=["-rf"], args=["$HOME/tmp", "/tmp"]
-# BUG: Extracts BOTH "$HOME/tmp" AND "/tmp" as separate args
-```
-
-**Impact**: Unpredictable - variables sometimes disappear, sometimes duplicated
 
 #### **Escaped Quotes** - Breaks Parsing
 ```bash
@@ -101,8 +78,8 @@ find . -name '*.log' -exec rm {} \;
 | Pipelines | ✅ Perfect | All commands extracted and validated |
 | Command chains | ✅ Perfect | All commands extracted and validated |
 | Redirections | ✅ Perfect | Operators, descriptors, and targets extracted |
+| Variables | ✅ Perfect | $VAR, ${VAR}, concatenations all work correctly |
 | Command substitution | ⚠️ Partial | Text extracted but not parsed recursively |
-| Variables | ❌ Broken | Inconsistent (disappear or duplicate) |
 | Escaped quotes | ❌ Broken | Splits incorrectly |
 | ANSI-C quoting | ❌ Broken | Completely ignored |
 | Brace expansion | ❌ Broken | Splits into multiple tokens |
@@ -117,9 +94,10 @@ find . -name '*.log' -exec rm {} \;
 1. **Single-command validation** - Works great for simple commands
 2. **Multi-command validation** - Pipelines and chains fully parsed
 3. **Dangerous flag detection** - Reliable for rm -rf, git --force, etc. across all commands
-4. **Basic argument extraction** - Good for simple tools
-5. **Subcommand routing** - Perfect for git/docker/npm workflows
-6. **File redirection analysis** - Full extraction of operators, descriptors, and targets
+4. **Variable handling** - Variables preserved for validation (e.g., `$HOME`, `${VAR}`)
+5. **Basic argument extraction** - Good for simple tools
+6. **Subcommand routing** - Perfect for git/docker/npm workflows
+7. **File redirection analysis** - Full extraction of operators, descriptors, and targets
 
 ### ⚠️ Use With Caution:
 
@@ -129,8 +107,8 @@ find . -name '*.log' -exec rm {} \;
 ### ❌ Don't Use For:
 
 1. **Script parsing** - Too many unsupported constructs
-2. **Variable expansion** - Unpredictable behavior
-3. **Complex find commands** - Structure not recognized
+2. **Complex find commands** - Structure not recognized
+3. **ANSI-C quoting** - Not currently supported
 
 ## Security Implications
 
@@ -139,10 +117,10 @@ find . -name '*.log' -exec rm {} \;
 - Validating git/docker/npm operations
 - Detecting dangerous commands in pipelines and chains
 - Extracting redirection targets for file validation
+- Variable extraction - variables preserved for validation (e.g., detect `rm -rf $HOME`)
 
 ### ⚠️ Unsafe:
-- **Variable evasion**: `rm -rf $HOME` → unpredictable (might not detect)
-- **Command substitution**: `rm -rf $(dangerous)` → nested command not validated
+- **Command substitution**: `rm -rf $(dangerous)` → nested command not validated (text extracted but not recursively parsed)
 
 ### 🎯 New Security Capabilities:
 With redirection support, you can now:
@@ -156,15 +134,17 @@ With redirection support, you can now:
 
 1. **Use pipeline/chain parsing**: Parser extracts all commands from pipelines (|) and chains (&&, ||, ;)
 2. **Use redirection parsing**: Parser extracts all redirection operators, descriptors, and file targets
-3. **Pattern matching**: Use dangerous pattern database across all commands in multi-command strings
-4. **Pre-flight check for unsupported constructs**: Consider rejecting:
+3. **Use variable extraction**: Variables are preserved as-is (e.g., `$PATH`, `${HOME}`) for validation or expansion
+4. **Pattern matching**: Use dangerous pattern database across all commands in multi-command strings
+5. **Pre-flight check for unsupported constructs**: Consider rejecting:
    - Command substitution (`$()`, backticks) if recursive validation needed
-   - Bare variables (`$VAR`) due to unpredictable behavior
+   - ANSI-C quoting (`$'...'`) as it's not currently parsed
 
 ### For Future Enhancement:
 
 If you need full command parsing, consider:
 
-1. **Variable expansion**: Pre-expand variables before parsing (if safe context)
-2. **Recursive command substitution**: Parse nested commands in $() and backticks
+1. **Recursive command substitution**: Parse nested commands in $() and backticks
+2. **ANSI-C quoting support**: Add support for `$'string\n'` format
 3. **Advanced redirect validation**: Add security rules for dangerous file targets
+4. **Brace expansion**: Handle `{a,b,c}` patterns correctly

@@ -184,6 +184,54 @@ TEST-CASE is a plist with :id, :command, and :expect."
    (seq-find (lambda (tc) (equal (plist-get tc :id) "redirect-006"))
              jf/bash-parser-test-corpus)))
 
+(ert-deftest jf/bash-parser-test-variable-001 ()
+  "Test: variable-001 - echo $PATH"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-variable-002 ()
+  "Test: variable-002 - rm -rf $HOME/tmp"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-variable-003 ()
+  "Test: variable-003 - git commit -m \"$commit_message\""
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-variable-004 ()
+  "Test: variable-004 - echo ${HOME}"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-004"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-variable-005 ()
+  "Test: variable-005 - echo $VAR1 $VAR2"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-005"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-variable-006 ()
+  "Test: variable-006 - ls $HOME/*.txt"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-006"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-variable-007 ()
+  "Test: variable-007 - echo prefix$VAR"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-007"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-variable-008 ()
+  "Test: variable-008 - echo $VAR/suffix"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "variable-008"))
+             jf/bash-parser-test-corpus)))
+
 ;;; Manual Tests (for debugging specific cases)
 
 (ert-deftest jf/bash-parser-test-manual-basic ()

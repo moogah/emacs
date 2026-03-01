@@ -210,30 +210,57 @@ Returns command structure with optional :redirections field."
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.
-Returns list of strings representing all words in the command."
-  (let ((words '()))
-    (jf/bash-parse--visit-node
+Returns list of strings representing all words in the command.
+
+This function handles variable expansions and concatenations correctly:
+- simple_expansion ($VAR) - extracted as-is
+- expansion (${VAR}) - extracted as-is
+- concatenation ($VAR/path) - extracted as single unit, children NOT visited
+- string (\"text\") - extracted with quotes removed
+- word, number - extracted as-is"
+  (let ((words '())
+        (visited-nodes (make-hash-table :test 'eq)))
+    (jf/bash-parse--visit-node-conditional
      command-node
      (lambda (node)
-       (let ((node-type (treesit-node-type node)))
-         (when (or (string= node-type "word")
-                   (string= node-type "string")
-                   (string= node-type "raw_string")
-                   (string= node-type "concatenation")
-                   (string= node-type "number"))
-           (let ((text (treesit-node-text node t)))
-             ;; Remove quotes from strings
-             (when (and text (> (length text) 0))
-               (setq text (string-trim text))
-               ;; Remove surrounding quotes if present (only if length > 2)
-               (when (and (> (length text) 1)
-                         (or (and (string-prefix-p "\"" text)
-                                  (string-suffix-p "\"" text))
-                             (and (string-prefix-p "'" text)
-                                  (string-suffix-p "'" text))))
-                 (setq text (substring text 1 -1)))
-               (unless (string-empty-p text)
-                 (push text words))))))))
+       ;; Skip if we've already processed this node
+       (unless (gethash node visited-nodes)
+         (let ((node-type (treesit-node-type node)))
+           (when (or (string= node-type "word")
+                     (string= node-type "string")
+                     (string= node-type "raw_string")
+                     (string= node-type "concatenation")
+                     (string= node-type "simple_expansion")
+                     (string= node-type "expansion")
+                     (string= node-type "number"))
+             (let ((text (treesit-node-text node t)))
+               ;; Remove quotes from strings only
+               (when (and text (> (length text) 0))
+                 (setq text (string-trim text))
+                 ;; Remove surrounding quotes if present (only for string types)
+                 (when (and (or (string= node-type "string")
+                               (string= node-type "raw_string"))
+                           (> (length text) 1)
+                           (or (and (string-prefix-p "\"" text)
+                                    (string-suffix-p "\"" text))
+                               (and (string-prefix-p "'" text)
+                                    (string-suffix-p "'" text))))
+                   (setq text (substring text 1 -1)))
+                 (unless (string-empty-p text)
+                   (push text words))))
+
+             ;; Mark node as visited
+             (puthash node t visited-nodes)
+
+             ;; Return nil to skip visiting children for terminal node types
+             ;; These types should be extracted as atomic units
+             (when (or (string= node-type "concatenation")
+                       (string= node-type "string")
+                       (string= node-type "raw_string")
+                       (string= node-type "simple_expansion")
+                       (string= node-type "expansion"))
+               'skip-children)))))
+     visited-nodes)
     (nreverse words)))
 
 (defun jf/bash-parse--extract-redirections (statement-node)
@@ -348,6 +375,22 @@ Returns: (:type :heredoc :operator \"<<\" :descriptor nil :delimiter \"...\")"
       (dotimes (i child-count)
         (when-let ((child (treesit-node-child node i)))
           (jf/bash-parse--visit-node child visitor-fn))))))
+
+(defun jf/bash-parse--visit-node-conditional (node visitor-fn &optional visited-nodes)
+  "Visit NODE and conditionally visit children based on VISITOR-FN return value.
+
+VISITOR-FN is called on each node. If it returns 'skip-children, children
+are not visited. VISITED-NODES is an optional hash table to track visited nodes."
+  (when node
+    ;; Check if already visited
+    (unless (and visited-nodes (gethash node visited-nodes))
+      (let ((result (funcall visitor-fn node)))
+        ;; Only visit children if visitor didn't return 'skip-children
+        (unless (eq result 'skip-children)
+          (let ((child-count (treesit-node-child-count node)))
+            (dotimes (i child-count)
+              (when-let ((child (treesit-node-child node i)))
+                (jf/bash-parse--visit-node-conditional child visitor-fn visited-nodes)))))))))
 
 (defun jf/bash-parse--detect-subcommand (command-name remaining-words)
   "Detect if COMMAND-NAME has a subcommand in REMAINING-WORDS.
