@@ -170,6 +170,92 @@ Returns either command or redirected_statement nodes."
            (push node commands)))))
     (nreverse commands)))
 
+(defun jf/bash-parse--parse-find-with-exec (command-name args redirections)
+  "Parse find command with -exec or -execdir blocks.
+COMMAND-NAME is 'find', ARGS are all arguments, REDIRECTIONS are any redirections.
+Returns a command structure with :exec-blocks field containing parsed exec commands."
+  (let ((flags '())
+        (positional-args '())
+        (exec-blocks '())
+        (i 0))
+
+    (while (< i (length args))
+      (let ((arg (nth i args)))
+        (cond
+         ;; Start of exec block
+         ((or (string= arg "-exec") (string= arg "-execdir"))
+          (let ((exec-type arg)
+                (exec-words '())
+                (j (1+ i))
+                (found-terminator nil))
+
+            ;; Collect words until we find \; or +
+            (while (and (< j (length args))
+                       (not found-terminator))
+              (let ((word (nth j args)))
+                (cond
+                 ;; Terminators
+                 ((or (string= word "\\;") (string= word ";")
+                      (string= word "+"))
+                  (setq found-terminator word)
+                  (setq j (1+ j)))
+                 ;; Regular word in exec block
+                 (t
+                  (push word exec-words)
+                  (setq j (1+ j))))))
+
+            ;; Parse the exec block as a command
+            (setq exec-words (nreverse exec-words))
+            (when exec-words
+              (let* ((exec-cmd-name (car exec-words))
+                     (exec-args (cdr exec-words))
+                     (exec-flags (jf/bash-parse--extract-flags exec-args))
+                     (exec-positional (jf/bash-parse--extract-positional-args exec-args))
+                     (exec-dangerous (jf/bash-parse--is-dangerous exec-cmd-name nil exec-flags)))
+
+                (push (list :type exec-type
+                           :terminator found-terminator
+                           :command-name exec-cmd-name
+                           :flags exec-flags
+                           :positional-args exec-positional
+                           :dangerous-p exec-dangerous)
+                      exec-blocks)))
+
+            ;; Add the -exec flag itself to find's flags
+            (push exec-type flags)
+
+            ;; Move past the exec block
+            (setq i j)))
+
+         ;; Regular flag
+         ((string-prefix-p "-" arg)
+          (push arg flags)
+          (setq i (1+ i)))
+
+         ;; Positional argument
+         (t
+          (push arg positional-args)
+          (setq i (1+ i))))))
+
+    ;; Reverse lists to restore original order
+    (setq flags (nreverse flags))
+    (setq positional-args (nreverse positional-args))
+    (setq exec-blocks (nreverse exec-blocks))
+
+    ;; Build result
+    (let ((result (list :command-name command-name
+                       :subcommand nil
+                       :flags flags
+                       :positional-args positional-args
+                       :exec-blocks exec-blocks
+                       :dangerous-p (or (seq-some (lambda (block)
+                                                   (plist-get block :dangerous-p))
+                                                 exec-blocks)
+                                       nil))))
+      (when redirections
+        (setq result (plist-put result :redirections redirections)))
+      result)))
+
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
   "Parse COMMAND-OR-STATEMENT-NODE which may be command or redirected_statement.
 Returns command structure with optional :redirections field."
@@ -193,20 +279,28 @@ Returns command structure with optional :redirections field."
            (command-name (car words))
            (remaining-words (cdr words))
            (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
-           (args-start (if subcommand (cdr remaining-words) remaining-words))
-           (flags (jf/bash-parse--extract-flags args-start))
-           (positional-args (jf/bash-parse--extract-positional-args args-start))
-           (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+           (args-start (if subcommand (cdr remaining-words) remaining-words)))
 
-      ;; Build result, only include redirections if present
-      (let ((result (list :command-name command-name
-                         :subcommand subcommand
-                         :flags flags
-                         :positional-args positional-args
-                         :dangerous-p dangerous-p)))
-        (when redirections
-          (setq result (plist-put result :redirections redirections)))
-        result))))
+      ;; Check for find command with -exec blocks
+      (if (and (string= command-name "find")
+               (or (member "-exec" args-start)
+                   (member "-execdir" args-start)))
+          (jf/bash-parse--parse-find-with-exec command-name args-start redirections)
+
+        ;; Normal command processing
+        (let* ((flags (jf/bash-parse--extract-flags args-start))
+               (positional-args (jf/bash-parse--extract-positional-args args-start))
+               (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+
+          ;; Build result, only include redirections if present
+          (let ((result (list :command-name command-name
+                             :subcommand subcommand
+                             :flags flags
+                             :positional-args positional-args
+                             :dangerous-p dangerous-p)))
+            (when redirections
+              (setq result (plist-put result :redirections redirections)))
+            result))))))
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.

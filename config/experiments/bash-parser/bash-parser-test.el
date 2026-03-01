@@ -22,7 +22,7 @@ TEST-CASE is a plist with :id, :command, and :expect."
     (should (plist-get result :success))
 
     ;; Check each expected field
-    (dolist (key '(:command-name :subcommand :flags :positional-args :dangerous-p :type :command-count :redirections))
+    (dolist (key '(:command-name :subcommand :flags :positional-args :dangerous-p :type :command-count :redirections :exec-blocks))
       (when (plist-member expected key)
         (let ((expected-val (plist-get expected key))
               (actual-val (plist-get result key)))
@@ -308,6 +308,36 @@ TEST-CASE is a plist with :id, :command, and :expect."
   "Test: heredoc-001 - cat << EOF..."
   (jf/bash-parser-test--run-corpus-test
    (seq-find (lambda (tc) (equal (plist-get tc :id) "heredoc-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-complex-001 ()
+  "Test: complex-001 - find . -name '*.log' -exec rm {} \\;"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "complex-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-find-001 ()
+  "Test: find-001 - find . -type f -exec chmod 644 {} +"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "find-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-find-002 ()
+  "Test: find-002 - find /tmp -name '*.tmp' -execdir rm -rf {} \\;"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "find-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-find-003 ()
+  "Test: find-003 - find . -name '*.txt' -exec grep pattern {} \\; -exec echo {} \\;"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "find-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-find-004 ()
+  "Test: find-004 - find . -maxdepth 2 -name '*.log'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "find-004"))
              jf/bash-parser-test-corpus)))
 
 (ert-deftest jf/bash-parser-test-complex-004 ()

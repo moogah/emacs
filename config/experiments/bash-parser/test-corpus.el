@@ -566,8 +566,78 @@
     ;; ============================================================
     (:id "complex-001"
      :command "find . -name '*.log' -exec rm {} \\;"
-     :note "MESSY: Treats -exec as flag, misclassifies structure"
-     :expect nil)
+     :note "Find with -exec block - exec commands parsed separately"
+     :expect (:command-name "find"
+              :subcommand nil
+              :flags ("-name" "-exec")
+              :positional-args ("." "*.log")
+              :dangerous-p nil
+              :exec-blocks ((:type "-exec"
+                            :terminator "\\;"
+                            :command-name "rm"
+                            :flags ()
+                            :positional-args ("{}")
+                            :dangerous-p nil))))
+
+    (:id "find-001"
+     :command "find . -type f -exec chmod 644 {} +"
+     :note "Find with -exec and + terminator (batch execution)"
+     :expect (:command-name "find"
+              :subcommand nil
+              :flags ("-type" "-exec")
+              :positional-args ("." "f")
+              :dangerous-p nil
+              :exec-blocks ((:type "-exec"
+                            :terminator "+"
+                            :command-name "chmod"
+                            :flags ()
+                            :positional-args ("644" "{}")
+                            :dangerous-p nil))))
+
+    (:id "find-002"
+     :command "find /tmp -name '*.tmp' -execdir rm -rf {} \\;"
+     :note "Find with -execdir and dangerous rm -rf"
+     :expect (:command-name "find"
+              :subcommand nil
+              :flags ("-name" "-execdir")
+              :positional-args ("/tmp" "*.tmp")
+              :dangerous-p t
+              :exec-blocks ((:type "-execdir"
+                            :terminator "\\;"
+                            :command-name "rm"
+                            :flags ("-rf")
+                            :positional-args ("{}")
+                            :dangerous-p t))))
+
+    (:id "find-003"
+     :command "find . -name '*.txt' -exec grep pattern {} \\; -exec echo {} \\;"
+     :note "Find with multiple -exec blocks"
+     :expect (:command-name "find"
+              :subcommand nil
+              :flags ("-name" "-exec" "-exec")
+              :positional-args ("." "*.txt")
+              :dangerous-p nil
+              :exec-blocks ((:type "-exec"
+                            :terminator "\\;"
+                            :command-name "grep"
+                            :flags ()
+                            :positional-args ("pattern" "{}")
+                            :dangerous-p nil)
+                           (:type "-exec"
+                            :terminator "\\;"
+                            :command-name "echo"
+                            :flags ()
+                            :positional-args ("{}")
+                            :dangerous-p nil))))
+
+    (:id "find-004"
+     :command "find . -maxdepth 2 -name '*.log'"
+     :note "Find without -exec - should parse as normal command"
+     :expect (:command-name "find"
+              :subcommand nil
+              :flags ("-maxdepth" "-name")
+              :positional-args ("." "2" "*.log")
+              :dangerous-p nil))
 
     (:id "complex-002"
      :command "docker run -it --rm -v $(pwd):/app ubuntu bash"

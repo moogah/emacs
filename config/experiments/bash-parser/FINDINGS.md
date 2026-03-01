@@ -2,7 +2,7 @@
 
 ## Summary
 
-Tested **55 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 brace expansion) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
+Tested **60 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 brace expansion, 5 find -exec) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
 
 **Update (2026-03-01)**:
 - Implemented full pipeline and command chain parsing. All commands in pipelines (|) and chains (&&, ||, ;) are now extracted and validated individually.
@@ -10,6 +10,7 @@ Tested **55 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 bra
 - **FIXED Variable Expansion**: All variable expansion scenarios now work correctly. Added support for `simple_expansion` ($VAR) and `expansion` (${VAR}) node types, plus proper handling of concatenations to prevent duplication.
 - **FIXED ANSI-C Quoting**: Added support for `ansi_c_string` node type. Commands like `echo $'text\n'` now parse correctly with escape sequences preserved.
 - **FIXED Brace Expansion**: Patterns like `*.{el,org}` and `{a,b,c}` are now correctly preserved as single tokens instead of being split. Modified visitor pattern to skip recursion into terminal node types (concatenation, string, expansion) to prevent duplicate extraction.
+- **FIXED Find -exec**: Added special handling for `find` command with `-exec` and `-execdir` blocks. Exec blocks are now parsed as separate commands with their own flags, arguments, and danger detection. Supports both `\;` and `+` terminators, and handles multiple exec blocks in a single find command.
 - **CLARIFIED Escaped Quotes**: The command `echo 'it\'s working'` is **invalid bash syntax** - you cannot escape single quotes within single-quoted strings. This is not a parser bug but correct behavior. Use ANSI-C quoting (`$'it\'s'`) or double quotes instead.
 
 ## Critical Findings
@@ -29,6 +30,7 @@ Tested **55 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 bra
 11. **Multiple redirections**: `git log > /dev/null 2>&1` - all redirects parsed ✓
 12. **ANSI-C quoting**: `echo $'line1\nline2'` - escape sequences preserved with $'' wrapper ✓
 13. **Brace expansion**: `git add *.{el,org}`, `echo {a,b,c}` - patterns preserved as single tokens ✓
+14. **Find -exec blocks**: `find . -name '*.log' -exec rm {} \;` - exec blocks parsed as separate commands with danger detection ✓
 
 
 ### ❌ Broken/Unexpected Behavior
@@ -47,16 +49,6 @@ echo 'it\'s working'
 
 **Impact**: Parser correctly rejects invalid syntax. No fix needed.
 
-#### **Find -exec** - Misclassified
-```bash
-find . -name '*.log' -exec rm {} \;
-# Sees: flags=["-name", "-exec"],
-#       args=[".", "*.log", "rm", "{}", "{", "}", "\\;"]
-# BUG: Treats "-exec" as a flag instead of recognizing exec block
-```
-
-**Impact**: Cannot properly parse find -exec constructs
-
 ## Parser Capabilities Summary
 
 | Feature | Support | Notes |
@@ -73,9 +65,9 @@ find . -name '*.log' -exec rm {} \;
 | Variables | ✅ Perfect | $VAR, ${VAR}, concatenations all work correctly |
 | ANSI-C quoting | ✅ Perfect | $'string\n' with escape sequences fully supported |
 | Brace expansion | ✅ Perfect | `*.{el,org}`, `{a,b,c}` patterns preserved as single tokens |
+| Find -exec blocks | ✅ Perfect | Exec blocks parsed as separate commands with danger detection |
 | Command substitution | ⚠️ Partial | Text extracted but not parsed recursively |
 | Escaped quotes in single quotes | 🚫 N/A | Invalid bash syntax (correctly rejected) |
-| Find -exec | ❌ Broken | Misclassifies structure |
 | Background `&` | 🚫 Ignored | Stripped but doesn't break |
 | Heredocs | 🚫 Ignored | Stripped but doesn't break |
 
@@ -90,6 +82,7 @@ find . -name '*.log' -exec rm {} \;
 5. **Basic argument extraction** - Good for simple tools
 6. **Subcommand routing** - Perfect for git/docker/npm workflows
 7. **File redirection analysis** - Full extraction of operators, descriptors, and targets
+8. **Find command validation** - Exec blocks parsed separately with danger detection
 
 ### ⚠️ Use With Caution:
 
@@ -99,7 +92,6 @@ find . -name '*.log' -exec rm {} \;
 ### ❌ Don't Use For:
 
 1. **Script parsing** - Too many unsupported constructs (heredocs, complex command substitution)
-2. **Complex find commands** - Structure not recognized (-exec blocks misclassified)
 
 ## Security Implications
 
@@ -137,4 +129,3 @@ If you need full command parsing, consider:
 
 1. **Recursive command substitution**: Parse nested commands in $() and backticks
 2. **Advanced redirect validation**: Add security rules for dangerous file targets
-3. **Find -exec parsing**: Properly handle -exec blocks as separate command structures
