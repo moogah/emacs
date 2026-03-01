@@ -22,9 +22,9 @@ Fast-forward through artifact creation - generate everything needed to start imp
 
 2. **Create the change directory**
    ```bash
-   openspec new change "<name>"
+   openspec new change "<name>" --schema spec-driven-beads
    ```
-   This creates a scaffolded change at `openspec/changes/<name>/`.
+   This creates a scaffolded change at `openspec/changes/<name>/` using the spec-driven-beads schema.
 
 3. **Get the artifact build order**
    ```bash
@@ -102,8 +102,9 @@ After completing artifacts through design, summarize:
 - Use the `template` as a starting point, filling in based on context
 
 **Guardrails**
-- Create artifacts through design (proposal → specs → design)
-- Skip tasks artifact (beads replace tasks)
+- Create artifacts through design (proposal → specs → architecture → design)
+- Architecture includes testing approach dialog with user
+- Skip tasks artifact (Beads replace tasks - use `/opsx:create-beads` after design)
 - Always read dependency artifacts before creating a new one
 - If context is critically unclear, ask the user - but prefer making reasonable decisions to keep momentum
 - If a change with that name already exists, ask if user wants to continue it or create a new one

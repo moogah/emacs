@@ -22,19 +22,24 @@ Start a new change using the experimental artifact-driven approach.
 
 2. **Determine the workflow schema**
 
-   Use the default schema (omit `--schema`) unless the user explicitly requests a different workflow.
+   **For this project, use `spec-driven-beads` schema** (proposal → specs → architecture → design → beads).
+
+   Always create changes with: `openspec new change "<name>" --schema spec-driven-beads`
 
    **Use a different schema only if the user mentions:**
    - A specific schema name → use `--schema <name>`
    - "show workflows" or "what workflows" → run `openspec schemas --json` and let them choose
 
-   **Otherwise**: Omit `--schema` to use the default.
+   **Why spec-driven-beads:**
+   - Includes architecture.md for system structure and testing approach
+   - Clear dependency chain (no parallel/interleaved artifacts)
+   - Uses Beads for implementation tracking (no tasks.md)
 
 3. **Create the change directory**
    ```bash
-   openspec new change "<name>"
+   openspec new change "<name>" --schema spec-driven-beads
    ```
-   Add `--schema <name>` only if the user requested a specific workflow.
+   Use a different `--schema <name>` only if the user requested a specific workflow.
    This creates a scaffolded change at `openspec/changes/<name>/` with the selected schema.
 
 4. **Show the artifact status**
