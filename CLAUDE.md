@@ -139,22 +139,51 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 For non-trivial changes, use **OpenSpec** to plan before implementing:
 
+**Default schema:** `spec-driven-beads` (proposal → specs → architecture → design → beads)
+
 **When to use:**
 - New features or significant modifications
 - Changes requiring architectural decisions
 - Multi-file refactoring
 - Unclear requirements needing exploration
 
+**Workflow artifacts:**
+1. **proposal.md** - WHY (problem, motivation, capabilities, impact)
+2. **specs/** - WHAT (behavioral requirements with scenarios)
+3. **architecture.md** - HOW to structure and test (components, interfaces, testing approach)
+4. **design.md** - HOW to implement (technical decisions, implementation approach)
+5. **Beads** - Implementation tracking (generated from design and specs)
+
 **Invoke skills:**
 - `/opsx:explore` - Investigate and clarify requirements before planning
-- `/opsx:new` - Start structured change (proposal → design → tasks → implementation)
+- `/opsx:new` - Start structured change with spec-driven-beads schema
 - `/opsx:continue` - Progress to next artifact in workflow
 - `/opsx:ff` - Fast-forward through all artifacts to reach implementation
-- `/opsx:apply` - Implement tasks from change
+- `/opsx:create-beads` - Generate Beads issues from design and specs
+- `/opsx:apply` - Implement Beads (uses `/bead-implementation` workflow)
 - `/opsx:verify` - Validate implementation matches artifacts
 - `/opsx:archive` - Archive completed change
 
 **Skip OpenSpec for:** Single-file edits, bug fixes, documentation updates, trivial changes.
+
+#### Architecture Artifact
+
+The **architecture.md** artifact bridges requirements (specs) and implementation (design):
+
+**Purpose:**
+- Define system structure (components, interfaces, boundaries)
+- Establish testing approach BEFORE writing code
+- Create testability contract for implementation
+
+**Testing Approach section (critical):**
+- **Test Framework**: Which framework and why (ERT for Emacs, Jest for JS, pytest for Python)
+- **Test Organization**: Where test files live (test/, tests/, co-located)
+- **Naming Conventions**: Test file and function naming patterns
+- **Running Tests**: Commands to run tests (all tests, specific tests)
+- **Test Patterns**: Mocking/stubbing approach, test data setup, helpers
+- **Scenario Mapping**: How spec scenarios map to test cases
+
+**Workflow:** Claude will use `AskUserQuestion` during architecture creation to gather your testing preferences. These decisions are documented and guide both test creation and implementation.
 
 #### Spec Philosophy
 
