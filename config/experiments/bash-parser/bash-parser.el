@@ -332,7 +332,7 @@ Returns command structure with wrapper's flags separated from wrapped command."
       result)))
 
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
-  "Parse COMMAND-OR-STATEMENT-NODE which may be command or redirected_statement.
+  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, or variable_assignment.
 Returns command structure with optional :redirections field."
   (let ((command-node nil)
         (redirections nil))
@@ -349,12 +349,26 @@ Returns command structure with optional :redirections field."
       ;; Not a redirected statement, use node as-is
       (setq command-node command-or-statement-node))
 
-    ;; Parse command as before
-    (let* ((words (jf/bash-parse--extract-words command-node))
-           (command-name (car words))
-           (remaining-words (cdr words))
-           (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
-           (args-start (if subcommand (cdr remaining-words) remaining-words)))
+    ;; Handle variable_assignment nodes specially
+    (if (string= (treesit-node-type command-node) "variable_assignment")
+        (let* ((name-node (treesit-node-child-by-field-name command-node "name"))
+               (value-node (treesit-node-child-by-field-name command-node "value"))
+               (var-name (treesit-node-text name-node))
+               (var-value (treesit-node-text value-node))
+               (assignment-str (format "%s=%s" var-name var-value)))
+          ;; Return as a simple command with assignment in command-name
+          (list :command-name assignment-str
+                :subcommand nil
+                :flags nil
+                :positional-args nil
+                :dangerous-p nil))
+
+      ;; Parse regular command
+      (let* ((words (jf/bash-parse--extract-words command-node))
+             (command-name (car words))
+             (remaining-words (cdr words))
+             (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
+             (args-start (if subcommand (cdr remaining-words) remaining-words)))
 
       ;; Check for wrapper commands (sudo, env, time, etc.)
       (if-let ((wrapper-spec (alist-get (intern command-name)
@@ -380,7 +394,7 @@ Returns command structure with optional :redirections field."
                                :dangerous-p dangerous-p)))
               (when redirections
                 (setq result (plist-put result :redirections redirections)))
-              result)))))))
+              result))))))))
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.
@@ -1431,7 +1445,22 @@ Examples:
      ((eq command-type :chain)
       (dolist (cmd all-commands)
         ;; Track assignments from this command
-        (setq context (jf/bash-track-assignments cmd context))
+        (when-let ((assignments (jf/bash--extract-assignments-from-command cmd)))
+          ;; Resolve variables in assignment values using current context
+          (setq assignments
+                (mapcar (lambda (assignment)
+                          (let* ((var-name (car assignment))
+                                 (var-value (cdr assignment))
+                                 (resolved-value (if (string-match-p "\\$" var-value)
+                                                   (jf/bash-resolve-variables var-value context)
+                                                   var-value)))
+                            ;; If resolution returns a plist, extract the path
+                            (cons var-name
+                                  (if (listp resolved-value)
+                                      (plist-get resolved-value :path)
+                                    resolved-value))))
+                        assignments))
+          (setq context (append assignments context)))
         ;; Extract operations from this command
         (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
           (setq operations (append operations cmd-ops)))))

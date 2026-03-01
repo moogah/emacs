@@ -416,7 +416,7 @@ Returns command structure with wrapper's flags separated from wrapped command."
 
 #+begin_src emacs-lisp
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
-  "Parse COMMAND-OR-STATEMENT-NODE which may be command or redirected_statement.
+  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, or variable_assignment.
 Returns command structure with optional :redirections field."
   (let ((command-node nil)
         (redirections nil))
@@ -478,7 +478,7 @@ Returns command structure with optional :redirections field."
                                :dangerous-p dangerous-p)))
               (when redirections
                 (setq result (plist-put result :redirections redirections)))
-              result)))))))
+              result))))))))
 #+end_src
 
 ** Extract Words
@@ -1828,7 +1828,22 @@ Examples:
      ((eq command-type :chain)
       (dolist (cmd all-commands)
         ;; Track assignments from this command
-        (setq context (jf/bash-track-assignments cmd context))
+        (when-let ((assignments (jf/bash--extract-assignments-from-command cmd)))
+          ;; Resolve variables in assignment values using current context
+          (setq assignments
+                (mapcar (lambda (assignment)
+                          (let* ((var-name (car assignment))
+                                 (var-value (cdr assignment))
+                                 (resolved-value (if (string-match-p "\\$" var-value)
+                                                   (jf/bash-resolve-variables var-value context)
+                                                   var-value)))
+                            ;; If resolution returns a plist, extract the path
+                            (cons var-name
+                                  (if (listp resolved-value)
+                                      (plist-get resolved-value :path)
+                                    resolved-value))))
+                        assignments))
+          (setq context (append assignments context)))
         ;; Extract operations from this command
         (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
           (setq operations (append operations cmd-ops)))))
