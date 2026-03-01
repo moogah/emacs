@@ -31,12 +31,11 @@ Fast-forward through artifact creation - generate everything needed to start imp
    openspec status --change "<name>" --json
    ```
    Parse the JSON to get:
-   - `applyRequires`: array of artifact IDs needed before implementation (e.g., `["tasks"]`)
    - `artifacts`: list of all artifacts with their status and dependencies
 
-4. **Create artifacts in sequence until apply-ready**
+4. **Create artifacts in sequence until design is complete**
 
-   Use the **TodoWrite tool** to track progress through the artifacts.
+   Use the **TaskCreate tool** to track progress through the artifacts.
 
    Loop through artifacts in dependency order (artifacts with no pending dependencies first):
 
@@ -53,14 +52,30 @@ Fast-forward through artifact creation - generate everything needed to start imp
         - `outputPath`: Where to write the artifact
         - `dependencies`: Completed artifacts to read for context
       - Read any completed dependency files for context
-      - Create the artifact file using `template` as the structure
+      - **Special handling for artifact types:**
+        - **architecture**: Engage user in dialog about testing approach using **AskUserQuestion**:
+          - Test framework and version
+          - Test file location
+          - Naming conventions
+          - How to run tests
+          - Mock/stub patterns
+          - Test helpers approach
+          - Document all decisions in architecture.md
+        - **tests**: Create actual test files (not documentation):
+          - Use test location/framework from architecture.md
+          - Create test files mapping spec scenarios to test cases
+          - Use naming from architecture.md conventions
+          - Include test helpers if specified
+          - Tests should be runnable but may fail (TDD red phase)
+          - Use skip/expected-fail for tests requiring future work
+        - **Other artifacts**: Create using `template` as structure
       - Apply `context` and `rules` as constraints - but do NOT copy them into the file
       - Show brief progress: "✓ Created <artifact-id>"
 
-   b. **Continue until all `applyRequires` artifacts are complete**
+   b. **Continue until design is complete**
       - After creating each artifact, re-run `openspec status --change "<name>" --json`
-      - Check if every artifact ID in `applyRequires` has `status: "done"` in the artifacts array
-      - Stop when all `applyRequires` artifacts are done
+      - Stop when design artifact has `status: "done"`
+      - Skip tasks artifact (beads replace tasks)
 
    c. **If an artifact requires user input** (unclear context):
       - Use **AskUserQuestion tool** to clarify
@@ -73,11 +88,11 @@ Fast-forward through artifact creation - generate everything needed to start imp
 
 **Output**
 
-After completing all artifacts, summarize:
+After completing artifacts through design, summarize:
 - Change name and location
 - List of artifacts created with brief descriptions
-- What's ready: "All artifacts created! Ready for implementation."
-- Prompt: "Run `/opsx:apply` to start implementing."
+- What's ready: "All planning artifacts created!"
+- Prompt: "Next: Create Beads with `/opsx:create-beads` to generate implementation work items from design and specs."
 
 **Artifact Creation Guidelines**
 
@@ -87,7 +102,8 @@ After completing all artifacts, summarize:
 - Use the `template` as a starting point, filling in based on context
 
 **Guardrails**
-- Create ALL artifacts needed for implementation (as defined by schema's `apply.requires`)
+- Create artifacts through design (proposal → specs → design)
+- Skip tasks artifact (beads replace tasks)
 - Always read dependency artifacts before creating a new one
 - If context is critically unclear, ask the user - but prefer making reasonable decisions to keep momentum
 - If a change with that name already exists, ask if user wants to continue it or create a new one

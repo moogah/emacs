@@ -36,9 +36,11 @@ This skill allows you to batch-archive changes, handling spec conflicts intellig
       - Parse `schemaName` and `artifacts` list
       - Note which artifacts are `done` vs other states
 
-   b. **Task completion** - Read `openspec/changes/<name>/tasks.md`
-      - Count `- [ ]` (incomplete) vs `- [x]` (complete)
-      - If no tasks file exists, note as "No tasks"
+   b. **Bead completion** - Query beads for this change
+      - Run `bd list --label openspec --long --limit 0 --json`
+      - Filter to beads with external_ref "opsx:<name>"
+      - Count open vs closed beads
+      - If no beads exist, note as "No beads"
 
    c. **Delta specs** - Check `openspec/changes/<name>/specs/` directory
       - List which capability specs exist
@@ -80,7 +82,7 @@ This skill allows you to batch-archive changes, handling spec conflicts intellig
    Display a table summarizing all changes:
 
    ```
-   | Change               | Artifacts | Tasks | Specs   | Conflicts | Status |
+   | Change               | Artifacts | Beads | Specs   | Conflicts | Status |
    |---------------------|-----------|-------|---------|-----------|--------|
    | schema-management   | Done      | 5/5   | 2 delta | None      | Ready  |
    | project-config      | Done      | 3/3   | 1 delta | None      | Ready  |
@@ -97,7 +99,7 @@ This skill allows you to batch-archive changes, handling spec conflicts intellig
    For incomplete changes, show warnings:
    ```
    Warnings:
-   - add-verify-skill: 1 incomplete artifact, 3 incomplete tasks
+   - add-verify-skill: 1 incomplete artifact, 3 open beads
    ```
 
 7. **Confirm batch operation**

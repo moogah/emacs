@@ -39,7 +39,7 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
      - "Recreate all beads" → close existing, create new
      - "Cancel" → exit
 
-3. **Read design and specs**
+3. **Read design, specs, and tests**
 
    Read all context files:
    ```bash
@@ -50,6 +50,8 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    - design.md (required)
    - specs/**/*.md (if exist)
    - proposal.md (for high-level context)
+   - architecture.md (if exists - for test info)
+   - tests/** (if exist - for test coverage)
 
    Parse design.md structure:
    - Extract sections (## headings)
@@ -258,10 +260,16 @@ Files to modify:
 - [path/to/file1.ext]
 - [path/to/file2.ext]
 
+Test coverage (if tests exist):
+- [test-file.el::test-function-name] (FAILING/SKIPPED)
+- [another-test.el::test-name] (FAILING/SKIPPED)
+- [If no tests: "No existing tests - verification manual"]
+
 Implementation steps:
 1. [Specific actionable step with details]
 2. [Another step, include code patterns if relevant]
 3. [Be concrete - mention functions, variables, patterns]
+4. [If tests exist: Run tests to verify (command from architecture.md)]
 
 Design rationale: [WHY from design.md - extract and embed]
 [The architectural reasoning that explains this implementation]
@@ -272,9 +280,9 @@ Design pattern: [Pattern to follow]
 [Reference similar code: "See config/core/X.el for similar pattern"]
 
 Verification:
-- [How to test this works - be specific]
+- [If tests: Run <test-command> and verify tests pass]
+- [Additional manual checks if needed]
 - [Acceptance criteria - what "done" means]
-- [Commands to run: tests, linters, manual checks]
 
 Context: design.md § [section] '[section title]'
 ```
@@ -284,12 +292,14 @@ Context: design.md § [section] '[section title]'
 - **Self-contained:** Extract and embed design context, don't just reference
 - **Actionable:** Each bead must have concrete implementation steps
 - **Scoped:** Target 1-4 hours per bead (one session)
-- **Verified:** Each bead must have clear acceptance criteria
+- **Test-aware:** If tests exist, include which tests this bead makes pass
+- **Verified:** Each bead must have clear acceptance criteria (tests or manual)
 - **Linked:** Use labels and external-ref for traceability
 - **Sequenced:** Add dependencies where order matters
 - **No tasks.md:** Beads replace tasks.md entirely - don't create it
 - **User approval:** Always preview and get confirmation before creating
 - **Context extraction:** Include WHY (rationale) not just WHAT (steps)
+- **TDD-compatible:** Beads can be "write test + implement" or just "implement" depending on whether tests already exist
 
 **Error Handling**
 
