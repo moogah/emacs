@@ -108,7 +108,17 @@
      :expect (:success t
               :type :pipeline
               :command-count 2
-              :dangerous-p nil))
+              :dangerous-p nil
+              :all-commands ((:command-name "ls"
+                              :subcommand nil
+                              :flags ("-la")
+                              :positional-args ()
+                              :dangerous-p nil)
+                            (:command-name "grep"
+                              :subcommand nil
+                              :flags ()
+                              :positional-args ("test")
+                              :dangerous-p nil))))
 
     (:id "pipeline-002"
      :command "cat file.txt | sort | uniq -c"
@@ -116,7 +126,22 @@
      :expect (:success t
               :type :pipeline
               :command-count 3
-              :dangerous-p nil))
+              :dangerous-p nil
+              :all-commands ((:command-name "cat"
+                              :subcommand nil
+                              :flags ()
+                              :positional-args ("file.txt")
+                              :dangerous-p nil)
+                            (:command-name "sort"
+                              :subcommand nil
+                              :flags ()
+                              :positional-args ()
+                              :dangerous-p nil)
+                            (:command-name "uniq"
+                              :subcommand nil
+                              :flags ("-c")
+                              :positional-args ()
+                              :dangerous-p nil))))
 
     (:id "pipeline-003"
      :command "git log --oneline | head -10"
@@ -124,7 +149,17 @@
      :expect (:success t
               :type :pipeline
               :command-count 2
-              :dangerous-p nil))
+              :dangerous-p nil
+              :all-commands ((:command-name "git"
+                              :subcommand "log"
+                              :flags ("--oneline")
+                              :positional-args ()
+                              :dangerous-p nil)
+                            (:command-name "head"
+                              :subcommand nil
+                              :flags ("-10")
+                              :positional-args ()
+                              :dangerous-p nil))))
 
     ;; ============================================================
     ;; COMMAND CHAINS (sequential execution)
@@ -136,7 +171,17 @@
      :expect (:success t
               :type :chain
               :command-count 2
-              :dangerous-p nil))
+              :dangerous-p nil
+              :all-commands ((:command-name "git"
+                              :subcommand "add"
+                              :flags ()
+                              :positional-args (".")
+                              :dangerous-p nil)
+                            (:command-name "git"
+                              :subcommand "commit"
+                              :flags ("-m")
+                              :positional-args ("test")
+                              :dangerous-p nil))))
 
     (:id "chain-002"
      :command "rm file.txt || echo 'failed to delete'"
@@ -144,7 +189,17 @@
      :expect (:success t
               :type :chain
               :command-count 2
-              :dangerous-p nil))
+              :dangerous-p nil
+              :all-commands ((:command-name "rm"
+                              :subcommand nil
+                              :flags ()
+                              :positional-args ("file.txt")
+                              :dangerous-p nil)
+                            (:command-name "echo"
+                              :subcommand nil
+                              :flags ()
+                              :positional-args ("failed to delete")
+                              :dangerous-p nil))))
 
     (:id "chain-003"
      :command "cd /tmp; ls -la; pwd"
@@ -152,7 +207,22 @@
      :expect (:success t
               :type :chain
               :command-count 3
-              :dangerous-p nil))
+              :dangerous-p nil
+              :all-commands ((:command-name "cd"
+                              :subcommand nil
+                              :flags ()
+                              :positional-args ("/tmp")
+                              :dangerous-p nil)
+                            (:command-name "ls"
+                              :subcommand nil
+                              :flags ("-la")
+                              :positional-args ()
+                              :dangerous-p nil)
+                            (:command-name "pwd"
+                              :subcommand nil
+                              :flags ()
+                              :positional-args ()
+                              :dangerous-p nil))))
 
     (:id "chain-004"
      :command "git add . && git commit -m 'fix' && git push"
@@ -160,7 +230,22 @@
      :expect (:success t
               :type :chain
               :command-count 3
-              :dangerous-p nil))
+              :dangerous-p nil
+              :all-commands ((:command-name "git"
+                              :subcommand "add"
+                              :flags ()
+                              :positional-args (".")
+                              :dangerous-p nil)
+                            (:command-name "git"
+                              :subcommand "commit"
+                              :flags ("-m")
+                              :positional-args ("fix")
+                              :dangerous-p nil)
+                            (:command-name "git"
+                              :subcommand "push"
+                              :flags ()
+                              :positional-args ()
+                              :dangerous-p nil))))
 
     ;; ============================================================
     ;; REDIRECTIONS (file I/O)

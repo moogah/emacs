@@ -72,10 +72,17 @@ Additional fields:
   "Detect the structure type from ROOT-NODE.
 Returns :pipeline, :list, or :simple."
   (let ((pipeline-node (jf/bash-parse--find-node-by-type root-node "pipeline"))
-        (list-node (jf/bash-parse--find-node-by-type root-node "list")))
+        (list-node (jf/bash-parse--find-node-by-type root-node "list"))
+        (command-count 0))
+    ;; Count command nodes at program level (for semicolon-separated commands)
+    (dotimes (i (treesit-node-child-count root-node))
+      (when-let ((child (treesit-node-child root-node i)))
+        (when (string= (treesit-node-type child) "command")
+          (setq command-count (1+ command-count)))))
     (cond
      (pipeline-node :pipeline)
      (list-node :list)
+     ((> command-count 1) :list)  ; Multiple commands at program level = chain
      (t :simple))))
 
 (defun jf/bash-parse--find-node-by-type (node target-type)
@@ -110,7 +117,9 @@ Returns :pipeline, :list, or :simple."
 (defun jf/bash-parse--handle-list (root-node)
   "Handle command list/chain from ROOT-NODE."
   (let* ((list-node (jf/bash-parse--find-node-by-type root-node "list"))
-         (command-nodes (jf/bash-parse--get-all-command-nodes list-node))
+         ;; If no list node, commands are direct children of root (semicolon-separated)
+         (container-node (or list-node root-node))
+         (command-nodes (jf/bash-parse--get-all-command-nodes container-node))
          (parsed-commands (mapcar #'jf/bash-parse--parse-single-command-node
                                    command-nodes))
          (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))

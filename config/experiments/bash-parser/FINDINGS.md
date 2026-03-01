@@ -4,7 +4,7 @@
 
 Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
 
-**Update (2026-03-01)**: Implemented multi-command detection and rejection. Pipelines, chains, and command substitution are now blocked at parse time for security.
+**Update (2026-03-01)**: Implemented full pipeline and command chain parsing. All commands in pipelines (|) and chains (&&, ||, ;) are now extracted and validated individually.
 
 ## Critical Findings
 
@@ -16,38 +16,10 @@ Tested **43 commands** (11 baseline, 32 exploratory) with **100% parse success r
 4. **Dangerous pattern detection**: `rm -rf`, `git push --force`, `python -c` ✓
 5. **Glob patterns**: `ls *.txt` (preserved as literal strings) ✓
 6. **Variables in quotes**: `git commit -m "$message"` ✓
-7. **Multi-command rejection**: Pipelines, chains, and substitutions blocked ✓
+7. **Pipelines**: `ls -la | grep test` - all commands fully parsed ✓
+8. **Command chains**: `git add . && git commit -m 'test'` - all commands fully parsed ✓
 
-### ✅ Security Features (RESOLVED)
-
-#### **Pipelines** - Rejected for Security
-```bash
-ls -la | grep test
-# Result: :success nil, :error "Multi-command constructs not supported"
-# Reason: "Contains pipeline operator (|)"
-```
-
-**Impact**: ✅ Security hole closed - cannot hide dangerous commands in pipelines
-
-#### **Command Chains** - Rejected for Security
-```bash
-git add . && git commit -m 'test' && git push
-# Result: :success nil, :error "Multi-command constructs not supported"
-# Reason: "Contains AND chain operator (&&)"
-```
-
-**Impact**: ✅ Security hole closed - cannot hide dangerous commands in chains
-
-#### **Command Substitution** - Rejected for Security
-```bash
-echo $(date)
-# Result: :success nil, :error "Multi-command constructs not supported"
-# Reason: "Contains command substitution $()"
-```
-
-**Impact**: ✅ Security hole closed - nested commands not allowed
-
-### ⚠️ Known Limitations (Non-Security)
+### ⚠️ Known Limitations
 
 #### **Redirections** - Operators and Targets Stripped
 ```bash
@@ -112,15 +84,6 @@ find . -name '*.log' -exec rm {} \;
 
 **Impact**: Cannot properly parse find -exec constructs
 
-### 🚫 Rejected for Security
-
-These constructs are explicitly rejected to prevent security bypasses:
-
-1. **Pipelines**: `|` and `|&` operators → rejected
-2. **Command chains**: `&&`, `||`, `;` operators → rejected
-3. **Command substitution**: `$()` and backticks → rejected
-4. **Background multi-commands**: ` & ` (with multiple commands) → rejected
-
 ## Parser Capabilities Summary
 
 | Feature | Support | Notes |
@@ -131,10 +94,10 @@ These constructs are explicitly rejected to prevent security bypasses:
 | Subcommands | ✅ Perfect | Git, docker, npm, etc. |
 | Quoted strings | ✅ Good | Double quotes and basic single quotes work |
 | Dangerous patterns | ✅ Perfect | Flag and subcommand matching works |
-| Pipelines | ⚠️ Partial | Only first command visible |
-| Command chains | ⚠️ Partial | Only first command visible |
+| Pipelines | ✅ Perfect | All commands extracted and validated |
+| Command chains | ✅ Perfect | All commands extracted and validated |
 | Redirections | ⚠️ Partial | Operators/targets stripped |
-| Command substitution | ⚠️ Partial | Text extracted but not marked special |
+| Command substitution | ⚠️ Partial | Text extracted but not parsed recursively |
 | Variables | ❌ Broken | Inconsistent (disappear or duplicate) |
 | Escaped quotes | ❌ Broken | Splits incorrectly |
 | ANSI-C quoting | ❌ Broken | Completely ignored |
@@ -148,62 +111,49 @@ These constructs are explicitly rejected to prevent security bypasses:
 ### ✅ Good For:
 
 1. **Single-command validation** - Works great for simple commands
-2. **Dangerous flag detection** - Reliable for rm -rf, git --force, etc.
-3. **Basic argument extraction** - Good for simple tools
-4. **Subcommand routing** - Perfect for git/docker/npm workflows
+2. **Multi-command validation** - Pipelines and chains fully parsed
+3. **Dangerous flag detection** - Reliable for rm -rf, git --force, etc. across all commands
+4. **Basic argument extraction** - Good for simple tools
+5. **Subcommand routing** - Perfect for git/docker/npm workflows
 
 ### ⚠️ Use With Caution:
 
-1. **Multi-command strings** - Only validates first command in pipeline/chain
-2. **File target extraction** - Cannot extract redirection targets
-3. **Complex quoting** - May misbehave with escaped quotes
+1. **File target extraction** - Cannot extract redirection targets
+2. **Complex quoting** - May misbehave with escaped quotes
+3. **Command substitution** - Nested commands not recursively parsed
 
 ### ❌ Don't Use For:
 
 1. **Script parsing** - Too many unsupported constructs
 2. **Variable expansion** - Unpredictable behavior
 3. **Complex find commands** - Structure not recognized
-4. **Validation of command chains** - Only sees first command
 
 ## Security Implications
 
 ### 🔒 Safe:
 - Detecting dangerous flags in simple commands
-- Validating single git/docker/npm operations
+- Validating git/docker/npm operations
+- Detecting dangerous commands in pipelines and chains
 
 ### ⚠️ Unsafe:
-- **Pipeline evasion**: `echo safe | rm -rf /tmp` → would NOT detect rm -rf
-- **Chain evasion**: `ls && rm -rf /tmp` → would NOT detect rm -rf
 - **Variable evasion**: `rm -rf $HOME` → unpredictable (might not detect)
+- **Command substitution**: `rm -rf $(dangerous)` → nested command not validated
 
 ## Recommendations
 
 ### For Command Validation Use Case:
 
-1. **Pre-flight check**: Reject commands containing:
-   - Pipeline operators (`|`)
-   - Chain operators (`&&`, `||`, `;`)
-   - Command substitution (`$()`, backticks)
-   - Complex redirections (`2>&1`, etc.)
-
-2. **Allow list approach**: Only permit simple, single commands
-   - Example: `git add file.txt` ✓
-   - Example: `git add . && git commit` ✗ (reject)
-
-3. **Pattern matching**: Use dangerous pattern database for allowed commands
+1. **Use pipeline/chain parsing**: Parser now extracts all commands from pipelines (|) and chains (&&, ||, ;)
+2. **Pattern matching**: Use dangerous pattern database across all commands in multi-command strings
+3. **Pre-flight check for unsupported constructs**: Consider rejecting:
+   - Command substitution (`$()`, backticks) if recursive validation needed
+   - Complex redirections (`2>&1`, etc.) if file targets must be validated
+   - Bare variables (`$VAR`) due to unpredictable behavior
 
 ### For Future Enhancement:
 
 If you need full command parsing, consider:
 
-1. **Multi-command detection**: Add explicit detection for `|`, `&&`, `||`, `;`
-2. **Redirection extraction**: Post-process AST to find redirection nodes
-3. **Variable expansion**: Pre-expand variables before parsing (if safe context)
-4. **Recursive parsing**: Parse pipeline/chain stages separately
-
-## Next Steps
-
-1. **Document limitations** in main README
-2. **Add pre-flight validation** for disallowed constructs
-3. **Extend dangerous patterns** database
-4. **Consider recursive parser** for multi-command support (if needed)
+1. **Redirection extraction**: Post-process AST to find redirection nodes and targets
+2. **Variable expansion**: Pre-expand variables before parsing (if safe context)
+3. **Recursive command substitution**: Parse nested commands in $() and backticks

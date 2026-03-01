@@ -22,13 +22,21 @@ TEST-CASE is a plist with :id, :command, and :expect."
     (should (plist-get result :success))
 
     ;; Check each expected field
-    (dolist (key '(:command-name :subcommand :flags :positional-args :dangerous-p))
+    (dolist (key '(:command-name :subcommand :flags :positional-args :dangerous-p :type :command-count))
       (when (plist-member expected key)
         (let ((expected-val (plist-get expected key))
               (actual-val (plist-get result key)))
           (unless (equal expected-val actual-val)
             (error "Test %s failed for %s: expected %S, got %S"
-                   test-id key expected-val actual-val)))))))
+                   test-id key expected-val actual-val)))))
+
+    ;; Check :all-commands if present (for pipelines and chains)
+    (when (plist-member expected :all-commands)
+      (let ((expected-commands (plist-get expected :all-commands))
+            (actual-commands (plist-get result :all-commands)))
+        (unless (equal expected-commands actual-commands)
+          (error "Test %s failed for :all-commands: expected %S, got %S"
+                 test-id expected-commands actual-commands))))))
 
 ;;; Corpus-Based Tests
 
@@ -96,6 +104,48 @@ TEST-CASE is a plist with :id, :command, and :expect."
   "Test: dangerous-002 - git reset --hard HEAD~1"
   (jf/bash-parser-test--run-corpus-test
    (seq-find (lambda (tc) (equal (plist-get tc :id) "dangerous-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-pipeline-001 ()
+  "Test: pipeline-001 - ls -la | grep test"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "pipeline-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-pipeline-002 ()
+  "Test: pipeline-002 - cat file.txt | sort | uniq -c"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "pipeline-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-pipeline-003 ()
+  "Test: pipeline-003 - git log --oneline | head -10"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "pipeline-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-chain-001 ()
+  "Test: chain-001 - git add . && git commit -m 'test'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "chain-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-chain-002 ()
+  "Test: chain-002 - rm file.txt || echo 'failed to delete'"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "chain-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-chain-003 ()
+  "Test: chain-003 - cd /tmp; ls -la; pwd"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "chain-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-chain-004 ()
+  "Test: chain-004 - git add . && git commit -m 'fix' && git push"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "chain-004"))
              jf/bash-parser-test-corpus)))
 
 ;;; Manual Tests (for debugging specific cases)
