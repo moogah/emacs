@@ -1055,6 +1055,136 @@ Examples:
 
     (nreverse assignments)))
 
+(defun jf/bash-extract-file-operations (parsed-command &optional var-context)
+  "Extract all file operations from PARSED-COMMAND.
+
+This is the main entry point for file operation extraction. It coordinates
+extraction from all sources:
+- Redirections (>, >>, <, 2>, etc.)
+- Positional arguments (based on command semantics)
+- Exec blocks (find -exec ... \\;)
+
+PARSED-COMMAND is the output from `jf/bash-parse'.
+VAR-CONTEXT is an optional alist mapping variable names (symbols) to values (strings).
+
+Returns a list of operation plists, each containing:
+  :file - File path (may contain unresolved variables)
+  :operation - Operation type (:read, :write, :delete, :modify, :create, :append)
+  :confidence - Confidence level (:high, :medium, :low, :unknown)
+  :source - Source of operation (:redirection, :positional-arg, :exec-block)
+  :indirect - t if from nested command (optional)
+  :unresolved - List of unresolved variable names (optional)
+
+Handles multi-command constructs:
+- Pipelines: Extract from each command in the pipeline
+- Chains: Extract from each command, tracking variable assignments
+- Simple: Extract from the single command
+
+Operations are deduplicated: if the same file appears with the same operation
+type multiple times, only one entry is returned.
+
+Examples:
+  ;; Simple read
+  (jf/bash-extract-file-operations
+    (jf/bash-parse \"cat /workspace/file.txt\"))
+  => ((:file \"/workspace/file.txt\" :operation :read
+       :confidence :high :source :positional-arg))
+
+  ;; Multiple sources
+  (jf/bash-extract-file-operations
+    (jf/bash-parse \"cat input.txt > output.txt\"))
+  => ((:file \"input.txt\" :operation :read :confidence :high :source :positional-arg)
+      (:file \"output.txt\" :operation :write :confidence :high :source :redirection))
+
+  ;; Pipeline
+  (jf/bash-extract-file-operations
+    (jf/bash-parse \"cat file.txt | grep pattern > output.txt\"))
+  => ((:file \"file.txt\" :operation :read ...)
+      (:file \"output.txt\" :operation :write ...))
+
+  ;; Variable resolution
+  (jf/bash-extract-file-operations
+    (jf/bash-parse \"cat $WORKSPACE/file.txt\")
+    '((WORKSPACE . \"/workspace\")))
+  => ((:file \"/workspace/file.txt\" :operation :read ...))"
+  (let ((operations nil)
+        (context (or var-context nil))
+        (command-type (plist-get parsed-command :type))
+        (all-commands (plist-get parsed-command :all-commands)))
+
+    (cond
+     ;; Chain: process sequentially, tracking variable assignments
+     ((eq command-type :chain)
+      (dolist (cmd all-commands)
+        ;; Track assignments from this command
+        (setq context (jf/bash-track-assignments cmd context))
+        ;; Extract operations from this command
+        (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
+          (setq operations (append operations cmd-ops)))))
+
+     ;; Pipeline: process each command independently
+     ((eq command-type :pipeline)
+      (dolist (cmd all-commands)
+        (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
+          (setq operations (append operations cmd-ops)))))
+
+     ;; Simple: extract from single command
+     ((eq command-type :simple)
+      (setq operations (jf/bash--extract-from-single-command parsed-command context))))
+
+    ;; Deduplicate: same file + operation
+    (jf/bash--deduplicate-operations operations)))
+
+(defun jf/bash--extract-from-single-command (command var-context)
+  "Extract file operations from a single COMMAND with VAR-CONTEXT.
+
+COMMAND is a single parsed command structure (from :all-commands or top-level).
+VAR-CONTEXT is an alist of variable bindings.
+
+Returns list of operation plists from all extraction sources."
+  (let ((operations nil))
+    ;; Extract from redirections (high confidence)
+    (when-let ((redir-ops (jf/bash-extract-operations-from-redirections command var-context)))
+      (setq operations (append operations redir-ops)))
+
+    ;; Extract from positional arguments (command semantics)
+    (when-let ((pos-ops (jf/bash-extract-operations-from-positional-args command var-context)))
+      (setq operations (append operations pos-ops)))
+
+    ;; Extract from exec blocks (find -exec)
+    (when-let ((exec-ops (jf/bash-extract-from-exec-blocks command var-context)))
+      (setq operations (append operations exec-ops)))
+
+    operations))
+
+(defun jf/bash--deduplicate-operations (operations)
+  "Deduplicate OPERATIONS list by file + operation type.
+
+If multiple operations have the same :file and :operation values,
+keep only the first occurrence. This handles cases where a file
+appears multiple times in a command.
+
+Returns deduplicated list maintaining original order."
+  (let ((seen (make-hash-table :test 'equal))
+        (result nil))
+    (dolist (op operations)
+      (let* ((file (plist-get op :file))
+             (operation (plist-get op :operation))
+             (key (cons file operation)))
+        (unless (gethash key seen)
+          (puthash key t seen)
+          (push op result))))
+    (nreverse result)))
+
+(defun jf/bash-extract-operations-from-positional-args (parsed-command &optional var-context)
+  "Extract file operations from positional arguments in PARSED-COMMAND.
+
+Stub implementation - will be implemented by bead emacs-dm41.
+
+Uses command semantics database to determine which positional arguments
+represent file paths and what operations are performed on them."
+  nil)
+
 (defun jf/bash-extract-operations-from-redirections (parsed-command &optional var-context)
   "Extract file operations from :redirections field with high confidence.
 
