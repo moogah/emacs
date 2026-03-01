@@ -949,5 +949,111 @@ their runtime values cannot be validated against scope constraints."
           ;; Full resolution - return simple string
           resolved)))))
 
+(defun jf/bash-track-assignments (parsed-command &optional initial-context)
+  "Track variable assignments from PARSED-COMMAND, merging with INITIAL-CONTEXT.
+
+Extracts simple VAR=value assignments from the parsed command structure and
+builds a variable context alist mapping variable names (as symbols) to their
+values (as strings).
+
+PARSED-COMMAND is the output of `jf/bash-parse'.
+INITIAL-CONTEXT is an optional alist of existing variable bindings.
+
+Returns updated context alist with new assignments merged.
+
+Supported patterns:
+- Simple assignment: VAR=value
+- Assignment before command: DIR=/tmp cat $DIR/file
+- Command chains: A=1 && B=2 && cmd (accumulates left-to-right)
+
+Unsupported (returns unchanged context):
+- Complex expansions: ${VAR:-default}
+- Arrays: ARR=(a b c)
+- Command substitution: VAR=$(cmd)
+
+Examples:
+  (jf/bash-track-assignments
+    (jf/bash-parse \"DIR=/tmp && cat $DIR/file.txt\")
+    nil)
+  => ((DIR . \"/tmp\"))
+
+  (jf/bash-track-assignments
+    (jf/bash-parse \"A=/foo && B=$A/bar\")
+    ((WORKSPACE . \"/workspace\")))
+  => ((B . \"$A/bar\") (A . \"/foo\") (WORKSPACE . \"/workspace\"))
+
+Implementation note:
+  Assignments are detected by checking if the command name or positional
+  arguments match the VAR=value pattern. Tree-sitter may parse these as
+  variable_assignment nodes or include them in the word list depending on
+  command structure."
+  (let ((context (copy-alist initial-context))
+        (command-type (plist-get parsed-command :type))
+        (all-commands (plist-get parsed-command :all-commands)))
+
+    (cond
+     ;; Chain or pipeline: process all commands in order
+     ((or (eq command-type :chain) (eq command-type :pipeline))
+      (dolist (cmd all-commands)
+        (when-let ((assignments (jf/bash--extract-assignments-from-command cmd)))
+          ;; Prepend assignments to maintain left-to-right precedence
+          (setq context (append assignments context)))))
+
+     ;; Simple command: check for assignments
+     ((eq command-type :simple)
+      (when-let ((assignments (jf/bash--extract-assignments-from-command parsed-command)))
+        (setq context (append assignments context)))))
+
+    context))
+
+(defun jf/bash--extract-assignments-from-command (command)
+  "Extract variable assignments from COMMAND structure.
+
+COMMAND is a single parsed command (from :all-commands or a simple command).
+
+Returns alist of (VAR-SYMBOL . VALUE-STRING) for each assignment found,
+or nil if no assignments detected.
+
+Detects assignments by checking if the command name matches the pattern
+VAR=value. Tree-sitter parses these as variable_assignment nodes, but
+they may also appear in the word list.
+
+This function only handles simple assignments (no complex expansions).
+
+Examples:
+  ;; Assignment as command
+  (jf/bash--extract-assignments-from-command
+    (:command-name \"DIR=/tmp\" :subcommand nil ...))
+  => ((DIR . \"/tmp\"))
+
+  ;; No assignment
+  (jf/bash--extract-assignments-from-command
+    (:command-name \"cat\" :positional-args (\"file.txt\") ...))
+  => nil
+
+  ;; Assignment in positional args
+  (jf/bash--extract-assignments-from-command
+    (:command-name \"env\" :positional-args (\"VAR=value\" \"cmd\") ...))
+  => ((VAR . \"value\"))"
+  (let ((assignments nil)
+        (command-name (plist-get command :command-name))
+        (positional-args (plist-get command :positional-args)))
+
+    ;; Check if command-name itself is an assignment (VAR=value)
+    (when (and command-name (string-match "^\\([A-Za-z_][A-Za-z0-9_]*\\)=\\(.+\\)$" command-name))
+      (let ((var-name (match-string 1 command-name))
+            (var-value (match-string 2 command-name)))
+        (push (cons (intern var-name) var-value) assignments)))
+
+    ;; Also check positional args for assignment patterns
+    ;; (in case tree-sitter includes them there)
+    (dolist (arg positional-args)
+      (when (string-match "^\\([A-Za-z_][A-Za-z0-9_]*\\)=\\(.+\\)$" arg)
+        (let ((var-name (match-string 1 arg))
+              (var-value (match-string 2 arg)))
+          (push (cons (intern var-name) var-value) assignments))))
+
+    (nreverse assignments)))
+
 (provide 'bash-parser)
 ;;; bash-parser.el ends here
