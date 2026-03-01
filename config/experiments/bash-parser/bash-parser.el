@@ -1179,11 +1179,244 @@ Returns deduplicated list maintaining original order."
 (defun jf/bash-extract-operations-from-positional-args (parsed-command &optional var-context)
   "Extract file operations from positional arguments in PARSED-COMMAND.
 
-Stub implementation - will be implemented by bead emacs-dm41.
-
 Uses command semantics database to determine which positional arguments
-represent file paths and what operations are performed on them."
-  nil)
+represent file paths and what operations they represent.
+
+PARSED-COMMAND is the output of `jf/bash-parse'.
+VAR-CONTEXT is optional alist mapping variable names (symbols) to values (strings).
+
+Returns list of operation plists with:
+  :file - File path (string, possibly with variables)
+  :operation - Operation type (:read, :write, :delete, :modify, etc.)
+  :confidence - Confidence level (:high for known commands, nil for unknown)
+  :source - Source of file path (:positional-arg)
+  :command - Command name that performs the operation
+
+Returns empty list if:
+- Command is not in semantics database
+- Command has no positional arguments
+- No positional args map to file operations per semantics
+
+Example:
+  (jf/bash-extract-operations-from-positional-args
+    (jf/bash-parse \"cat /workspace/foo.txt\"))
+  => ((:file \"/workspace/foo.txt\" :operation :read
+       :confidence :high :source :positional-arg :command \"cat\"))
+
+  (jf/bash-extract-operations-from-positional-args
+    (jf/bash-parse \"cp src.txt dst.txt\"))
+  => ((:file \"src.txt\" :operation :read :confidence :high ...)
+      (:file \"dst.txt\" :operation :write :confidence :high ...))
+
+  (jf/bash-extract-operations-from-positional-args
+    (jf/bash-parse \"grep pattern file.txt\"))
+  => ((:file \"file.txt\" :operation :read :confidence :high ...))
+      ;; Note: pattern arg at index 0 is skipped per semantics"
+  (let* ((command-name (plist-get parsed-command :command-name))
+         (subcommand (plist-get parsed-command :subcommand))
+         (flags (plist-get parsed-command :flags))
+         (positional-args (plist-get parsed-command :positional-args))
+         (operations nil))
+
+    ;; Only proceed if we have a command and positional args
+    (when (and command-name positional-args)
+      (let ((semantics (jf/bash-lookup-command-semantics command-name)))
+        (when semantics
+          (let ((ops-spec (plist-get semantics :operations)))
+            (cond
+             ;; Complex command (git, docker, etc.) - handle subcommand
+             ((eq ops-spec :complex)
+              (when subcommand
+                (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
+                  (when-let ((handler-spec (alist-get (intern subcommand) subcommand-handlers)))
+                    (setq operations
+                          (jf/bash--extract-ops-from-positional-specs
+                           handler-spec positional-args command-name var-context))))))
+
+             ;; Flag-dependent command (tar, sed, etc.) - check flags
+             ((eq ops-spec :flag-dependent)
+              (let* ((flag-handlers (plist-get semantics :flag-handlers))
+                     (matched-handler nil))
+                ;; Find first matching flag handler
+                (dolist (handler flag-handlers)
+                  (when (null matched-handler)
+                    (let ((trigger-flags (car handler))
+                          (handler-spec (cdr handler)))
+                      ;; Check if any trigger flag is present
+                      (when (or (null trigger-flags)  ; Empty trigger matches always
+                                (seq-some (lambda (f) (member f flags)) trigger-flags))
+                        (setq matched-handler handler-spec)))))
+                (when matched-handler
+                  (setq operations
+                        (jf/bash--extract-ops-from-positional-specs
+                         matched-handler positional-args command-name var-context)))))
+
+             ;; Simple command - direct operation specs
+             ((listp ops-spec)
+              (setq operations
+                    (jf/bash--extract-ops-from-positional-specs
+                     ops-spec positional-args command-name var-context))))))))
+
+    operations))
+
+(defun jf/bash--extract-ops-from-positional-specs (op-specs positional-args command-name var-context)
+  "Apply OP-SPECS to POSITIONAL-ARGS to extract file operations.
+
+OP-SPECS is a list of operation specification plists.
+POSITIONAL-ARGS is list of argument strings.
+COMMAND-NAME is the command performing the operations.
+VAR-CONTEXT is optional variable resolution context.
+
+Returns list of operation plists.
+
+Operation spec format:
+  :source - Must be :positional-args (others handled elsewhere)
+  :operation - Operation type (:read, :write, :delete, :modify, etc.)
+  :index - Single index (0-based, -1 for last)
+  :indices - Range (0 . -2) for first to second-to-last, :all for all args
+  :skip-indices - List of indices to skip (e.g., (0) skips first arg)"
+  (let ((operations nil))
+    (dolist (spec op-specs)
+      (when (eq (plist-get spec :source) :positional-args)
+        (let* ((operation (plist-get spec :operation))
+               (index (plist-get spec :index))
+               (indices (plist-get spec :indices))
+               (skip-indices (plist-get spec :skip-indices))
+               (target-indices nil))
+
+          ;; Determine which positional arg indices to extract
+          (cond
+           ;; Single index specified
+           (index
+            (let ((resolved-idx (jf/bash--resolve-index index positional-args)))
+              (when resolved-idx
+                (setq target-indices (list resolved-idx)))))
+
+           ;; Range of indices specified
+           (indices
+            (setq target-indices (jf/bash--resolve-index-range indices positional-args)))
+
+           ;; No index specification - all positional args
+           (t
+            (setq target-indices (number-sequence 0 (1- (length positional-args))))))
+
+          ;; Filter out skip-indices
+          (when skip-indices
+            (setq target-indices (seq-remove (lambda (i) (member i skip-indices))
+                                            target-indices)))
+
+          ;; Extract file paths at target indices
+          (dolist (idx target-indices)
+            (when (and (>= idx 0) (< idx (length positional-args)))
+              (let* ((file-path (nth idx positional-args))
+                     (resolved-path (jf/bash--resolve-path-variables file-path var-context)))
+                ;; Create operation plist
+                (push (list :file (if (stringp resolved-path)
+                                    resolved-path
+                                  (plist-get resolved-path :path))
+                           :operation operation
+                           :confidence :high
+                           :source :positional-arg
+                           :command command-name)
+                      operations)))))))
+
+    (nreverse operations)))
+
+(defun jf/bash--resolve-index (index args)
+  "Resolve INDEX (possibly negative) to actual position in ARGS.
+
+INDEX can be:
+  - Positive integer (0-based): 0 = first, 1 = second, etc.
+  - Negative integer: -1 = last, -2 = second-to-last, etc.
+
+ARGS is the list of positional arguments.
+
+Returns actual 0-based index, or nil if out of bounds.
+
+Examples:
+  (jf/bash--resolve-index 0 '(\"a\" \"b\" \"c\"))   => 0
+  (jf/bash--resolve-index -1 '(\"a\" \"b\" \"c\"))  => 2
+  (jf/bash--resolve-index -2 '(\"a\" \"b\" \"c\"))  => 1
+  (jf/bash--resolve-index 5 '(\"a\" \"b\" \"c\"))   => nil (out of bounds)"
+  (let ((len (length args)))
+    (cond
+     ;; Negative index - count from end
+     ((< index 0)
+      (let ((resolved (+ len index)))
+        (if (>= resolved 0) resolved nil)))
+     ;; Positive index - use as-is if in bounds
+     ((< index len)
+      index)
+     ;; Out of bounds
+     (t nil))))
+
+(defun jf/bash--resolve-index-range (range-spec args)
+  "Resolve RANGE-SPEC to list of actual indices in ARGS.
+
+RANGE-SPEC can be:
+  - Cons cell (START . END): range from START to END (inclusive)
+  - Symbol :all: all indices
+
+START and END can be positive or negative integers.
+
+ARGS is the list of positional arguments.
+
+Returns list of actual 0-based indices.
+
+Examples:
+  (jf/bash--resolve-index-range '(0 . -2) '(\"a\" \"b\" \"c\"))
+    => (0 1)  ;; First to second-to-last
+
+  (jf/bash--resolve-index-range '(0 . -1) '(\"a\" \"b\" \"c\"))
+    => (0 1 2)  ;; First to last
+
+  (jf/bash--resolve-index-range :all '(\"a\" \"b\" \"c\"))
+    => (0 1 2)  ;; All indices
+
+  (jf/bash--resolve-index-range '(1 . 2) '(\"a\" \"b\" \"c\" \"d\"))
+    => (1 2)  ;; Second to third"
+  (cond
+   ;; :all symbol - return all indices
+   ((eq range-spec :all)
+    (number-sequence 0 (1- (length args))))
+
+   ;; Cons cell range
+   ((consp range-spec)
+    (let* ((start-idx (jf/bash--resolve-index (car range-spec) args))
+           (end-idx (jf/bash--resolve-index (cdr range-spec) args)))
+      (when (and start-idx end-idx (<= start-idx end-idx))
+        (number-sequence start-idx end-idx))))
+
+   ;; Unknown spec
+   (t nil)))
+
+(defun jf/bash--resolve-path-variables (file-path var-context)
+  "Resolve variables in FILE-PATH using VAR-CONTEXT.
+
+This is a wrapper around `jf/bash-resolve-variables' for use in
+file operations extraction.
+
+FILE-PATH is the file path string (may contain variables).
+VAR-CONTEXT is optional alist mapping variable names to values.
+
+Returns:
+  - String: Fully resolved path (if all variables resolved)
+  - Plist: Partially resolved path with :unresolved metadata
+  - Original path: If no variables or no context
+
+Examples:
+  (jf/bash--resolve-path-variables \"/workspace/file.txt\" nil)
+    => \"/workspace/file.txt\"
+
+  (jf/bash--resolve-path-variables \"$WORKSPACE/file.txt\"
+                                   '((WORKSPACE . \"/workspace\")))
+    => \"/workspace/file.txt\"
+
+  (jf/bash--resolve-path-variables \"$WORKSPACE/$FILE\" nil)
+    => (:path \"$WORKSPACE/$FILE\" :unresolved (\"WORKSPACE\" \"FILE\"))"
+  (if var-context
+      (jf/bash-resolve-variables file-path var-context)
+    file-path))
 
 (defun jf/bash-extract-operations-from-redirections (parsed-command &optional var-context)
   "Extract file operations from :redirections field with high confidence.
