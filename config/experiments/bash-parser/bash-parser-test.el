@@ -352,6 +352,30 @@ TEST-CASE is a plist with :id, :command, and :expect."
    (seq-find (lambda (tc) (equal (plist-get tc :id) "complex-005"))
              jf/bash-parser-test-corpus)))
 
+(ert-deftest jf/bash-parser-test-wrapper-001 ()
+  "Test: wrapper-001 - sudo rm -rf /tmp/test"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "wrapper-001"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-wrapper-002 ()
+  "Test: wrapper-002 - sudo -u www-data php script.php"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "wrapper-002"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-wrapper-003 ()
+  "Test: wrapper-003 - sudo -E env 'PATH=/custom/path' command"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "wrapper-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-wrapper-004 ()
+  "Test: wrapper-004 - env -i HOME=$HOME command"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "wrapper-004"))
+             jf/bash-parser-test-corpus)))
+
 ;;; Manual Tests (for debugging specific cases)
 
 (ert-deftest jf/bash-parser-test-manual-basic ()

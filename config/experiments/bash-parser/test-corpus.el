@@ -666,6 +666,45 @@
               :flags ("-i.bak")
               :positional-args ("s/foo/bar/g" "*.txt")
               :dangerous-p nil))
+
+    ;; ============================================================
+    ;; WRAPPER COMMANDS (sudo, env, time, etc.)
+    ;; ============================================================
+    (:id "wrapper-001"
+     :command "sudo rm -rf /tmp/test"
+     :note "Sudo wrapping destructive command - always dangerous"
+     :expect (:command-name "sudo"
+              :subcommand nil
+              :flags nil
+              :positional-args ("rm" "-rf" "/tmp/test")
+              :dangerous-p t))
+
+    (:id "wrapper-002"
+     :command "sudo -u www-data php script.php"
+     :note "Sudo with -u flag - flag extracted, rest is wrapped command"
+     :expect (:command-name "sudo"
+              :subcommand nil
+              :flags ("-u")
+              :positional-args ("www-data" "php" "script.php")
+              :dangerous-p t))
+
+    (:id "wrapper-003"
+     :command "sudo -E env 'PATH=/custom/path' command"
+     :note "Sudo with -E flag preserving environment"
+     :expect (:command-name "sudo"
+              :subcommand nil
+              :flags ("-E")
+              :positional-args ("env" "PATH=/custom/path" "command")
+              :dangerous-p t))
+
+    (:id "wrapper-004"
+     :command "env -i HOME=$HOME command"
+     :note "Env wrapper with -i flag - not marked dangerous"
+     :expect (:command-name "env"
+              :subcommand nil
+              :flags ("-i")
+              :positional-args ("HOME=$HOME" "command")
+              :dangerous-p nil))
     )
   "Test corpus for bash command parsing.
 Each entry has :id, :command, and :expect plist.

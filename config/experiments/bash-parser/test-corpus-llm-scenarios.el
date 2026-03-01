@@ -292,9 +292,9 @@
      :note "Sudo with destructive command - double danger"
      :expect (:command-name "sudo"
               :subcommand nil
-              :flags ()
+              :flags nil
               :positional-args ("rm" "-rf" "/tmp/test")
-              :dangerous-p nil))
+              :dangerous-p t))
 
     (:id "llm-sudo-002"
      :command "sudo -u www-data php script.php"
@@ -303,16 +303,16 @@
               :subcommand nil
               :flags ("-u")
               :positional-args ("www-data" "php" "script.php")
-              :dangerous-p nil))
+              :dangerous-p t))
 
     (:id "llm-sudo-003"
      :command "sudo apt-get install -y package"
      :note "Package installation with automatic yes"
      :expect (:command-name "sudo"
               :subcommand nil
-              :flags ()
+              :flags nil
               :positional-args ("apt-get" "install" "-y" "package")
-              :dangerous-p nil))
+              :dangerous-p t))
 
     (:id "llm-sudo-004"
      :command "sudo -E env 'PATH=/custom/path' command"
@@ -321,7 +321,7 @@
               :subcommand nil
               :flags ("-E")
               :positional-args ("env" "PATH=/custom/path" "command")
-              :dangerous-p nil))
+              :dangerous-p t))
 
     ;; ============================================================
     ;; ADVANCED REDIRECTION PATTERNS

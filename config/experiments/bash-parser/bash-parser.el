@@ -22,6 +22,27 @@ Format: (command . ((:subcommand \"name\" :flags (list))
                     (:flags (list))
                     (:any-flag-contains (list))))")
 
+(defvar jf/bash-parser-wrapper-commands
+  '((sudo . (:flags-with-args ("-u" "-g" "-C" "--close-from" "-D" "-h" "-p" "-R" "-r" "-t" "-T" "-U")
+             :flags-no-args ("-A" "-b" "-E" "-e" "-H" "-i" "-K" "-k" "-l" "-n" "-P" "-S" "-s" "-V" "-v")
+             :dangerous t))
+    (env . (:flags-with-args ("-C" "--chdir" "-S" "--split-string" "-u" "--unset")
+            :flags-no-args ("-i" "--ignore-environment" "-0" "--null" "-v" "--debug")
+            :dangerous nil))
+    (time . (:flags-with-args ("-f" "--format" "-o" "--output")
+             :flags-no-args ("-a" "--append" "-v" "--verbose" "-p" "--portability")
+             :dangerous nil))
+    (nice . (:flags-with-args ("-n" "--adjustment")
+             :flags-no-args ()
+             :dangerous nil))
+    (nohup . (:flags-with-args ()
+              :flags-no-args ()
+              :dangerous nil)))
+  "Database of wrapper commands that execute other commands.
+Format: (command . (:flags-with-args (list-of-flags-that-take-arguments)
+                    :flags-no-args (list-of-flags-without-arguments)
+                    :dangerous t-or-nil))")
+
 (defun jf/bash-parse (command-string)
   "Parse COMMAND-STRING using tree-sitter with full pipeline/chain support.
 
@@ -256,6 +277,59 @@ Returns a command structure with :exec-blocks field containing parsed exec comma
         (setq result (plist-put result :redirections redirections)))
       result)))
 
+(defun jf/bash-parse--parse-wrapper-command (command-name wrapper-spec remaining-words redirections)
+  "Parse wrapper command like sudo, env, time, etc.
+COMMAND-NAME is the wrapper command name.
+WRAPPER-SPEC is the spec from jf/bash-parser-wrapper-commands.
+REMAINING-WORDS are all words after the command name.
+REDIRECTIONS are any redirections on the command.
+Returns command structure with wrapper's flags separated from wrapped command."
+  (let ((flags-with-args (plist-get wrapper-spec :flags-with-args))
+        (flags-no-args (plist-get wrapper-spec :flags-no-args))
+        (is-dangerous (plist-get wrapper-spec :dangerous))
+        (wrapper-flags '())
+        (positional-args '())
+        (i 0))
+
+    ;; Parse wrapper's flags
+    (while (< i (length remaining-words))
+      (let ((word (nth i remaining-words)))
+        (cond
+         ;; Flag that takes an argument
+         ((member word flags-with-args)
+          (push word wrapper-flags)
+          (setq i (1+ i))
+          ;; Also consume the argument
+          (when (< i (length remaining-words))
+            (push (nth i remaining-words) positional-args)
+            (setq i (1+ i))))
+
+         ;; Flag that doesn't take an argument
+         ((member word flags-no-args)
+          (push word wrapper-flags)
+          (setq i (1+ i)))
+
+         ;; Start of wrapped command (first non-wrapper-flag word)
+         (t
+          ;; Everything from here is the wrapped command
+          (while (< i (length remaining-words))
+            (push (nth i remaining-words) positional-args)
+            (setq i (1+ i)))))))
+
+    ;; Reverse lists to restore original order
+    (setq wrapper-flags (nreverse wrapper-flags))
+    (setq positional-args (nreverse positional-args))
+
+    ;; Build result
+    (let ((result (list :command-name command-name
+                       :subcommand nil
+                       :flags wrapper-flags
+                       :positional-args positional-args
+                       :dangerous-p is-dangerous)))
+      (when redirections
+        (setq result (plist-put result :redirections redirections)))
+      result)))
+
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
   "Parse COMMAND-OR-STATEMENT-NODE which may be command or redirected_statement.
 Returns command structure with optional :redirections field."
@@ -281,26 +355,31 @@ Returns command structure with optional :redirections field."
            (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
            (args-start (if subcommand (cdr remaining-words) remaining-words)))
 
-      ;; Check for find command with -exec blocks
-      (if (and (string= command-name "find")
-               (or (member "-exec" args-start)
-                   (member "-execdir" args-start)))
-          (jf/bash-parse--parse-find-with-exec command-name args-start redirections)
+      ;; Check for wrapper commands (sudo, env, time, etc.)
+      (if-let ((wrapper-spec (alist-get (intern command-name)
+                                        jf/bash-parser-wrapper-commands)))
+          (jf/bash-parse--parse-wrapper-command command-name wrapper-spec remaining-words redirections)
 
-        ;; Normal command processing
-        (let* ((flags (jf/bash-parse--extract-flags args-start))
-               (positional-args (jf/bash-parse--extract-positional-args args-start))
-               (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+        ;; Check for find command with -exec blocks
+        (if (and (string= command-name "find")
+                 (or (member "-exec" args-start)
+                     (member "-execdir" args-start)))
+            (jf/bash-parse--parse-find-with-exec command-name args-start redirections)
 
-          ;; Build result, only include redirections if present
-          (let ((result (list :command-name command-name
-                             :subcommand subcommand
-                             :flags flags
-                             :positional-args positional-args
-                             :dangerous-p dangerous-p)))
-            (when redirections
-              (setq result (plist-put result :redirections redirections)))
-            result))))))
+          ;; Normal command processing
+          (let* ((flags (jf/bash-parse--extract-flags args-start))
+                 (positional-args (jf/bash-parse--extract-positional-args args-start))
+                 (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+
+            ;; Build result, only include redirections if present
+            (let ((result (list :command-name command-name
+                               :subcommand subcommand
+                               :flags flags
+                               :positional-args positional-args
+                               :dangerous-p dangerous-p)))
+              (when redirections
+                (setq result (plist-put result :redirections redirections)))
+              result)))))))
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.
