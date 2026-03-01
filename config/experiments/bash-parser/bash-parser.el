@@ -180,14 +180,15 @@ Returns :pipeline, :list, or :simple."
 
 (defun jf/bash-parse--get-all-command-nodes (container-node)
   "Get all command nodes from CONTAINER-NODE (pipeline or list).
-Returns either command or redirected_statement nodes."
+Returns command, redirected_statement, or variable_assignment nodes."
   (let ((commands '()))
     (jf/bash-parse--visit-node
      container-node
      (lambda (node)
        (let ((node-type (treesit-node-type node)))
          (when (or (string= node-type "command")
-                   (string= node-type "redirected_statement"))
+                   (string= node-type "redirected_statement")
+                   (string= node-type "variable_assignment"))
            (push node commands)))))
     (nreverse commands)))
 
@@ -1622,15 +1623,21 @@ Operation spec format:
           (dolist (idx target-indices)
             (when (and (>= idx 0) (< idx (length positional-args)))
               (let* ((file-path (nth idx positional-args))
-                     (resolved-path (jf/bash--resolve-path-variables file-path var-context)))
-                ;; Create operation plist
-                (push (list :file (if (stringp resolved-path)
+                     (resolved-path (jf/bash--resolve-path-variables file-path var-context))
+                     ;; Extract path and unresolved metadata
+                     (final-path (if (stringp resolved-path)
                                     resolved-path
-                                  (plist-get resolved-path :path))
-                           :operation operation
-                           :confidence :high
-                           :source :positional-arg
-                           :command command-name)
+                                  (plist-get resolved-path :path)))
+                     (unresolved-vars (when (listp resolved-path)
+                                       (plist-get resolved-path :unresolved))))
+                ;; Create operation plist
+                (push (append (list :file final-path
+                                   :operation operation
+                                   :confidence :high
+                                   :source :positional-arg
+                                   :command command-name)
+                             (when unresolved-vars
+                               (list :unresolved unresolved-vars)))
                       operations)))))))
 
     (nreverse operations)))
@@ -1727,9 +1734,7 @@ Examples:
 
   (jf/bash--resolve-path-variables \"$WORKSPACE/$FILE\" nil)
     => (:path \"$WORKSPACE/$FILE\" :unresolved (\"WORKSPACE\" \"FILE\"))"
-  (if var-context
-      (jf/bash-resolve-variables file-path var-context)
-    file-path))
+  (jf/bash-resolve-variables file-path var-context))
 
 (defun jf/bash-extract-operations-from-redirections (parsed-command &optional var-context)
   "Extract file operations from :redirections field with high confidence.
@@ -1813,15 +1818,23 @@ Returns list of operation plists with resolved file paths."
           (let ((operation-type (jf/bash--map-redirect-operator-to-operation operator)))
             (when operation-type
               ;; Resolve variables in destination path
-              (let ((resolved-path (if var-context
-                                      (jf/bash-resolve-variables destination var-context)
-                                    destination)))
+              (let* ((resolved-path (if var-context
+                                       (jf/bash-resolve-variables destination var-context)
+                                     destination))
+                     ;; Extract path and unresolved metadata
+                     (file-path (if (stringp resolved-path)
+                                   resolved-path
+                                 (plist-get resolved-path :path)))
+                     (unresolved-vars (when (listp resolved-path)
+                                       (plist-get resolved-path :unresolved))))
                 ;; Build operation plist
-                (push (list :file resolved-path
-                           :operation operation-type
-                           :confidence :high
-                           :source :redirection
-                           :metadata redir)
+                (push (append (list :file file-path
+                                   :operation operation-type
+                                   :confidence :high
+                                   :source :redirection
+                                   :metadata redir)
+                             (when unresolved-vars
+                               (list :unresolved unresolved-vars)))
                       operations)))))))
     (nreverse operations)))
 
