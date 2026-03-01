@@ -2298,7 +2298,13 @@ Examples:
           (when-let ((redirections (plist-get cmd :redirections)))
             (setq operations
                   (append operations
-                         (jf/bash--extract-ops-from-redirect-list redirections var-context))))))))
+                         (jf/bash--extract-ops-from-redirect-list redirections var-context))))))
+
+       ;; Single command structure (no :type field)
+       ;; This happens when called from jf/bash--extract-from-single-command
+       ((null command-type)
+        (when-let ((redirections (plist-get parsed-command :redirections)))
+          (setq operations (jf/bash--extract-ops-from-redirect-list redirections var-context))))))
 
     operations))
 #+end_src
