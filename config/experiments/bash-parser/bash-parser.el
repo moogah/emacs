@@ -711,6 +711,38 @@ Returns t if PATH matches PATTERN, nil otherwise."
         (pattern-segments (split-string pattern "/" t)))
     (jf/bash--match-segments path-segments pattern-segments)))
 
+(defun jf/bash-match-rule (file-path rules)
+  "Find first rule in RULES matching FILE-PATH.
+Returns the matched rule plist or nil if no rules match.
+
+Uses first-match semantics: rules are evaluated in order,
+the first rule with any matching pattern is returned.
+
+FILE-PATH is matched against each pattern in each rule using
+glob pattern matching (see `jf/bash-glob-match-p').
+
+Example:
+  (defvar my-rules
+    \\='((:patterns (\"/workspace/temp/**\")
+        :operations (:read :write :delete))
+      (:patterns (\"/workspace/**\")
+        :operations (:read))))
+
+  (jf/bash-match-rule \"/workspace/temp/file.txt\" my-rules)
+    => (:patterns (\"/workspace/temp/**\")
+        :operations (:read :write :delete))
+
+  (jf/bash-match-rule \"/workspace/src/foo.el\" my-rules)
+    => (:patterns (\"/workspace/**\")
+        :operations (:read))
+
+  (jf/bash-match-rule \"/etc/passwd\" my-rules)
+    => nil"
+  (cl-loop for rule in rules
+           when (cl-loop for pattern in (plist-get rule :patterns)
+                         thereis (jf/bash-glob-match-p file-path pattern))
+           return rule))
+
 (defvar jf/bash-command-file-semantics
   '((cat . (:operations ((:source :positional-args :operation :read))))
     (head . (:operations ((:source :positional-args :operation :read))))
@@ -1805,6 +1837,133 @@ Examples:
                               :trigger-flag trigger-flag)))))))
 
     result))
+
+(defun jf/bash--strip-outer-quotes (str)
+  "Strip outer single or double quotes from STR.
+
+Preserves inner quotes - only removes matching outermost quote pair.
+
+Handles:
+  - Single quotes: 'cmd' -> cmd
+  - Double quotes: \"cmd\" -> cmd
+  - Preserved inner: 'grep \"pattern\" file' -> grep \"pattern\" file
+  - No quotes: Returns str unchanged
+  - Escaped quotes: Preserves escaped quotes in result
+
+Examples:
+  (jf/bash--strip-outer-quotes \"'rm file.txt'\")
+  => \"rm file.txt\"
+
+  (jf/bash--strip-outer-quotes \"\\\"cat file.txt\\\"\")
+  => \"cat file.txt\"
+
+  (jf/bash--strip-outer-quotes \"'grep \\\"pattern\\\" file'\")
+  => \"grep \\\"pattern\\\" file\"
+
+  (jf/bash--strip-outer-quotes \"no-quotes\")
+  => \"no-quotes\"
+
+Limitation: Does not handle escaped outer quotes (\\\\' or \\\\\\\") at the
+boundaries. These are rare in practice since bash command strings
+typically use different quote types for inner/outer levels."
+  (cond
+   ;; Single quotes - strip if both start and end match
+   ((and (>= (length str) 2)
+         (string-prefix-p "'" str)
+         (string-suffix-p "'" str))
+    (substring str 1 (1- (length str))))
+
+   ;; Double quotes - strip if both start and end match
+   ((and (>= (length str) 2)
+         (string-prefix-p "\"" str)
+         (string-suffix-p "\"" str))
+    (substring str 1 (1- (length str))))
+
+   ;; No outer quotes - return unchanged
+   (t str)))
+
+(defun jf/bash-parse-nested-command (nested-command-string &optional nesting-level parent-command)
+  "Parse nested command string recursively.
+
+NESTED-COMMAND-STRING is the command string to parse (may have outer quotes).
+NESTING-LEVEL is optional recursion depth counter (default 1).
+PARENT-COMMAND is optional reference to outer command structure.
+
+Returns parsed command structure with metadata:
+  :nested-level - Recursion depth (1 = first nested, 2+ = deeper)
+  :parent-command - Reference to outer command (optional)
+  :success - t if parsing succeeded
+  :error - Error message if parsing failed
+
+Recursion termination:
+  - Maximum depth: 10 levels (prevents infinite recursion)
+  - Detection failure: No more injection patterns found
+  - Parse failure: Command string is invalid
+
+Quote handling:
+  - Strips outer quotes before parsing: 'cat file' -> cat file
+  - Preserves inner quotes: 'grep \"pattern\" file' -> grep \"pattern\" file
+  - Handles both single and double quotes
+
+Examples:
+  ;; Single nesting
+  (jf/bash-parse-nested-command \"'rm file.txt'\")
+  => (:command-name \"rm\" :positional-args (\"file.txt\")
+      :nested-level 1 :success t ...)
+
+  ;; Multiple nesting
+  (jf/bash-parse-nested-command \"'bash -c \\\"rm file\\\"'\")
+  => (:command-name \"bash\" :flags (\"-c\")
+      :positional-args (\"rm file\")
+      :nested-command (:command-name \"rm\" :positional-args (\"file\")
+                       :nested-level 2 :success t ...)
+      :nested-level 1 :success t ...)
+
+  ;; Maximum depth exceeded
+  (jf/bash-parse-nested-command (deeply-nested-command) 11)
+  => (:success nil :error \"Maximum nesting depth exceeded\")
+
+Integration:
+  This function is called by file operation extraction to recursively
+  extract operations from nested commands. Operations from nested commands
+  are marked with :indirect t to indicate indirect execution.
+
+Nesting levels:
+  - 0: Top-level command (not nested, parsed via jf/bash-parse)
+  - 1: First level of nesting (bash -c 'cmd')
+  - 2+: Deeper nesting levels (bash -c \"bash -c 'cmd'\")"
+  (let ((level (or nesting-level 1)))
+    ;; Check recursion depth limit
+    (if (> level 10)
+        (list :success nil
+              :error "Maximum nesting depth exceeded (limit: 10)"
+              :nested-level level)
+
+      ;; Strip outer quotes and parse
+      (let* ((stripped (jf/bash--strip-outer-quotes nested-command-string))
+             (parsed (jf/bash-parse stripped)))
+
+        (when (plist-get parsed :success)
+          ;; Add nesting level metadata
+          (setq parsed (plist-put parsed :nested-level level))
+
+          ;; Add parent command reference if provided
+          (when parent-command
+            (setq parsed (plist-put parsed :parent-command parent-command)))
+
+          ;; Check if this parsed command itself contains injection
+          (when-let ((injection-info (jf/bash-detect-command-injection parsed)))
+            (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
+              ;; Recursively parse the nested injection
+              (when nested-cmd-string
+                (let ((nested-parsed (jf/bash-parse-nested-command
+                                     nested-cmd-string
+                                     (1+ level)
+                                     parsed)))
+                  ;; Add nested command to parsed structure
+                  (setq parsed (plist-put parsed :nested-command nested-parsed)))))))
+
+        parsed))))
 
 (provide 'bash-parser)
 ;;; bash-parser.el ends here
