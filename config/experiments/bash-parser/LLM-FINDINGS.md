@@ -22,35 +22,37 @@ Tested 4 representative LLM-generated commands. Results show the parser is **rob
 
 ---
 
-### ⚠️  Test 2: Sudo with Dangerous Command
+### ✅ Test 2: Sudo with Dangerous Command (FIXED 2026-03-01)
 
 **Command:** `sudo rm -rf /tmp/test`
 
 **Result:**
 ```elisp
 (:command-name "sudo"
- :flags ("-rf")
- :positional-args ("rm" "/tmp/test")
- :dangerous-p nil)
+ :flags nil
+ :positional-args ("rm" "-rf" "/tmp/test")
+ :dangerous-p t)
 ```
 
-**Status:** ⚠️ **CRITICAL ISSUE**
+**Status:** ✅ **FIXED** - Wrapper command support implemented
 
-**Problem:** Parser treats `sudo` as the command and `rm` as a positional argument!
-- The dangerous `rm -rf` is NOT detected
-- This is a **major security gap** for LLM-generated commands
-- `sudo` commands should ALWAYS be flagged as dangerous
+**Solution:** Added special handling for command wrappers (sudo, env, time, nice, nohup)
+- Sudo is now recognized as a wrapper command
+- Wrapper flags (like `-u`, `-E`) are correctly separated from wrapped command
+- All sudo commands are marked as dangerous (`:dangerous-p t`)
+- Nested command arguments preserved in `:positional-args`
 
-**Impact:** HIGH - Sudo commands commonly appear in LLM suggestions for:
+**Implementation Details:**
+- New database: `jf/bash-parser-wrapper-commands` with flag specifications
+- Special parser: `jf/bash-parse--parse-wrapper-command`
+- Tree-sitter limitation: bash grammar treats all words after command_name as flat structure
+- Our parser understands wrapper semantics and separates wrapper flags from wrapped command
+
+**Impact:** HIGH - Sudo commands now correctly flagged as dangerous for:
 - Package installation: `sudo apt-get install`
 - File operations: `sudo rm -rf`
 - System configuration: `sudo systemctl restart`
 - User management: `sudo useradd`
-
-**Recommendation:**
-1. Add `sudo` to dangerous patterns database (always dangerous)
-2. Consider recursive parsing of sudo's arguments to detect nested dangerous commands
-3. Add similar handling for: `doas`, `su`, `pkexec`
 
 ---
 
@@ -99,21 +101,25 @@ Tested 4 representative LLM-generated commands. Results show the parser is **rob
 
 ## Critical Security Gaps Discovered
 
-### 1. Sudo Commands Not Flagged
+### 1. Sudo Commands (FIXED 2026-03-01)
 
-**Missing dangerous patterns:**
+**Status:** ✅ FIXED - Wrapper command support implemented
+
+**Current implementation:**
 ```elisp
-(sudo . ((:any t)))  ; sudo ALWAYS requires approval
-(doas . ((:any t)))
-(su . ((:any t)))
+(sudo . (:flags-with-args ("-u" "-g" "-C" ...)
+         :flags-no-args ("-A" "-b" "-E" ...)
+         :dangerous t))
 ```
 
-**Common LLM-generated sudo commands:**
-- `sudo rm -rf /path`
-- `sudo apt-get install -y package`
-- `sudo systemctl restart service`
-- `sudo docker run ...`
-- `sudo chmod -R 777 .`
+**Working sudo commands:**
+- `sudo rm -rf /path` → correctly marked as dangerous
+- `sudo apt-get install -y package` → correctly parsed
+- `sudo systemctl restart service` → correctly parsed
+- `sudo -u www-data php script.php` → flags separated correctly
+- `sudo -E env PATH=... command` → complex wrapper chains work
+
+**Note:** Also implemented for `env`, `time`, `nice`, `nohup` wrappers
 
 ### 2. Flag Variation Gaps
 
@@ -181,12 +187,10 @@ Parser should detect and reject obviously malicious syntax patterns.
 
 ### Immediate Actions
 
-1. **Add sudo to dangerous patterns** (CRITICAL)
-   ```elisp
-   (sudo . ((:any t)))
-   (doas . ((:any t)))
-   (su . ((:any t)))
-   ```
+1. ~~**Add sudo to dangerous patterns**~~ (FIXED - 2026-03-01)
+   - ✅ Sudo wrapper support implemented
+   - ✅ All sudo commands marked as dangerous
+   - TODO: Consider adding `doas`, `su`, `pkexec` as wrappers
 
 2. **Fix git clean pattern** (HIGH)
    ```elisp
@@ -299,10 +303,11 @@ The bash parser is **structurally sound** - it correctly handles:
 - ✅ Multi-stage pipelines
 - ✅ Command chains
 - ✅ Nested operators
+- ✅ Wrapper commands (sudo, env, time, etc.) - FIXED 2026-03-01
 
-The critical gaps are in the **dangerous pattern database**:
-- ⚠️ Missing common dangerous commands (sudo, chmod, dd)
+The remaining gaps are in the **dangerous pattern database**:
+- ~~⚠️ Missing sudo command~~ (FIXED 2026-03-01)
+- ⚠️ Missing other dangerous commands (chmod, dd)
 - ⚠️ Too-specific flag matching (misses variations)
-- ⚠️ No recursive parsing for wrapper commands (sudo, env, etc.)
 
-**Bottom line:** Parser works great. Pattern database needs expansion to handle real-world LLM-generated commands safely.
+**Bottom line:** Parser works great for wrapper commands. Pattern database still needs expansion for other dangerous patterns (chmod, dd, docker system prune, etc.).

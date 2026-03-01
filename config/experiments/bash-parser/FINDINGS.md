@@ -2,7 +2,7 @@
 
 ## Summary
 
-Tested **60 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 brace expansion, 5 find -exec) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
+Tested **64 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 brace expansion, 5 find -exec, 4 wrapper commands) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
 
 **Update (2026-03-01)**:
 - Implemented full pipeline and command chain parsing. All commands in pipelines (|) and chains (&&, ||, ;) are now extracted and validated individually.
@@ -11,6 +11,7 @@ Tested **60 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 bra
 - **FIXED ANSI-C Quoting**: Added support for `ansi_c_string` node type. Commands like `echo $'text\n'` now parse correctly with escape sequences preserved.
 - **FIXED Brace Expansion**: Patterns like `*.{el,org}` and `{a,b,c}` are now correctly preserved as single tokens instead of being split. Modified visitor pattern to skip recursion into terminal node types (concatenation, string, expansion) to prevent duplicate extraction.
 - **FIXED Find -exec**: Added special handling for `find` command with `-exec` and `-execdir` blocks. Exec blocks are now parsed as separate commands with their own flags, arguments, and danger detection. Supports both `\;` and `+` terminators, and handles multiple exec blocks in a single find command.
+- **FIXED Wrapper Commands**: Added special handling for command wrappers (sudo, env, time, nice, nohup) that execute other commands. Wrapper flags are correctly separated from wrapped command arguments. Sudo is always marked as dangerous (dangerous-p t).
 - **CLARIFIED Escaped Quotes**: The command `echo 'it\'s working'` is **invalid bash syntax** - you cannot escape single quotes within single-quoted strings. This is not a parser bug but correct behavior. Use ANSI-C quoting (`$'it\'s'`) or double quotes instead.
 
 ## Critical Findings
@@ -31,6 +32,7 @@ Tested **60 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 bra
 12. **ANSI-C quoting**: `echo $'line1\nline2'` - escape sequences preserved with $'' wrapper ✓
 13. **Brace expansion**: `git add *.{el,org}`, `echo {a,b,c}` - patterns preserved as single tokens ✓
 14. **Find -exec blocks**: `find . -name '*.log' -exec rm {} \;` - exec blocks parsed as separate commands with danger detection ✓
+15. **Wrapper commands**: `sudo rm -rf /tmp`, `env -i command`, `time command` - wrapper flags separated from wrapped command, sudo always dangerous ✓
 
 
 ### ❌ Broken/Unexpected Behavior
@@ -66,6 +68,7 @@ echo 'it\'s working'
 | ANSI-C quoting | ✅ Perfect | $'string\n' with escape sequences fully supported |
 | Brace expansion | ✅ Perfect | `*.{el,org}`, `{a,b,c}` patterns preserved as single tokens |
 | Find -exec blocks | ✅ Perfect | Exec blocks parsed as separate commands with danger detection |
+| Wrapper commands | ✅ Perfect | sudo, env, time, nice, nohup - flags separated correctly |
 | Command substitution | ⚠️ Partial | Text extracted but not parsed recursively |
 | Escaped quotes in single quotes | 🚫 N/A | Invalid bash syntax (correctly rejected) |
 | Background `&` | 🚫 Ignored | Stripped but doesn't break |
