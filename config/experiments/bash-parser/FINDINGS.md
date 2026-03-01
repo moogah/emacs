@@ -2,13 +2,14 @@
 
 ## Summary
 
-Tested **51 commands** (11 baseline, 32 exploratory, 8 variable expansion) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
+Tested **55 commands** (11 baseline, 36 exploratory, 8 variable expansion, 4 brace expansion) with **100% parse success rate**. Tree-sitter bash grammar is robust and never crashes, but has specific behaviors for complex constructs.
 
 **Update (2026-03-01)**:
 - Implemented full pipeline and command chain parsing. All commands in pipelines (|) and chains (&&, ||, ;) are now extracted and validated individually.
 - Implemented full redirection parsing. All redirection operators (>, >>, <, 2>&1, etc.) with descriptors and targets are now extracted.
 - **FIXED Variable Expansion**: All variable expansion scenarios now work correctly. Added support for `simple_expansion` ($VAR) and `expansion` (${VAR}) node types, plus proper handling of concatenations to prevent duplication.
 - **FIXED ANSI-C Quoting**: Added support for `ansi_c_string` node type. Commands like `echo $'text\n'` now parse correctly with escape sequences preserved.
+- **FIXED Brace Expansion**: Patterns like `*.{el,org}` and `{a,b,c}` are now correctly preserved as single tokens instead of being split. Modified visitor pattern to skip recursion into terminal node types (concatenation, string, expansion) to prevent duplicate extraction.
 - **CLARIFIED Escaped Quotes**: The command `echo 'it\'s working'` is **invalid bash syntax** - you cannot escape single quotes within single-quoted strings. This is not a parser bug but correct behavior. Use ANSI-C quoting (`$'it\'s'`) or double quotes instead.
 
 ## Critical Findings
@@ -27,6 +28,7 @@ Tested **51 commands** (11 baseline, 32 exploratory, 8 variable expansion) with 
 10. **Redirections**: `echo 'hello' > output.txt` - operators, descriptors, targets extracted ✓
 11. **Multiple redirections**: `git log > /dev/null 2>&1` - all redirects parsed ✓
 12. **ANSI-C quoting**: `echo $'line1\nline2'` - escape sequences preserved with $'' wrapper ✓
+13. **Brace expansion**: `git add *.{el,org}`, `echo {a,b,c}` - patterns preserved as single tokens ✓
 
 
 ### ❌ Broken/Unexpected Behavior
@@ -44,15 +46,6 @@ echo 'it\'s working'
 - Concatenation: `echo 'it'\''s working'` ✓
 
 **Impact**: Parser correctly rejects invalid syntax. No fix needed.
-
-#### **Brace Expansion** - Splits Incorrectly
-```bash
-git add *.{el,org}
-# Sees: args=["*.{el,org}", "*.", "{", "el,org", "}"]
-# BUG: Splits into 5 tokens instead of treating as single pattern
-```
-
-**Impact**: Cannot handle brace expansion in glob patterns
 
 #### **Find -exec** - Misclassified
 ```bash
@@ -79,9 +72,9 @@ find . -name '*.log' -exec rm {} \;
 | Redirections | ✅ Perfect | Operators, descriptors, and targets extracted |
 | Variables | ✅ Perfect | $VAR, ${VAR}, concatenations all work correctly |
 | ANSI-C quoting | ✅ Perfect | $'string\n' with escape sequences fully supported |
+| Brace expansion | ✅ Perfect | `*.{el,org}`, `{a,b,c}` patterns preserved as single tokens |
 | Command substitution | ⚠️ Partial | Text extracted but not parsed recursively |
 | Escaped quotes in single quotes | 🚫 N/A | Invalid bash syntax (correctly rejected) |
-| Brace expansion | ❌ Broken | Splits into multiple tokens |
 | Find -exec | ❌ Broken | Misclassifies structure |
 | Background `&` | 🚫 Ignored | Stripped but doesn't break |
 | Heredocs | 🚫 Ignored | Stripped but doesn't break |
@@ -105,8 +98,8 @@ find . -name '*.log' -exec rm {} \;
 
 ### ❌ Don't Use For:
 
-1. **Script parsing** - Too many unsupported constructs
-2. **Complex find commands** - Structure not recognized
+1. **Script parsing** - Too many unsupported constructs (heredocs, complex command substitution)
+2. **Complex find commands** - Structure not recognized (-exec blocks misclassified)
 
 ## Security Implications
 
@@ -144,4 +137,4 @@ If you need full command parsing, consider:
 
 1. **Recursive command substitution**: Parse nested commands in $() and backticks
 2. **Advanced redirect validation**: Add security rules for dangerous file targets
-3. **Brace expansion**: Handle `{a,b,c}` patterns correctly
+3. **Find -exec parsing**: Properly handle -exec blocks as separate command structures
