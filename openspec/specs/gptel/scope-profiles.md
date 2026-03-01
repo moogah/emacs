@@ -133,6 +133,32 @@ Scope profiles SHALL be plain YAML files with no frontmatter delimiters.
 - **THEN** the profile is valid
 - **AND** missing sections treated as empty (deny-by-default)
 
+#### Scenario: Profile includes bash_tools section
+- **WHEN** a scope profile defines bash command permissions
+- **THEN** it includes a `bash_tools` top-level key with `categories` and `deny` subsections
+
+#### Scenario: Bash tools categories structure
+- **WHEN** bash_tools is present in a profile
+- **THEN** categories subsection includes `read_only`, `safe_write`, and `dangerous` keys
+- **AND** each category contains a `commands` array of command names
+
+#### Scenario: Bash tools deny list defined
+- **WHEN** bash_tools is present in a profile
+- **THEN** deny is an array of command names that are always rejected
+
+#### Scenario: Bash tools section is optional
+- **WHEN** a scope profile omits bash_tools
+- **THEN** sessions created from that profile have no bash command access (deny by default)
+
+#### Scenario: Bash tools config written to session scope.yml
+- **WHEN** creating a session from a profile with bash_tools
+- **THEN** the system writes the bash_tools section to the session's scope.yml
+- **AND** bash_tools undergoes same YAML parsing and normalization as other scope config
+
+#### Scenario: Variable expansion in bash_tools
+- **WHEN** bash_tools config is written to scope.yml
+- **THEN** any path variables are resolved (future enhancement; currently not used in bash_tools)
+
 ### Requirement: Profile directory and naming
 
 Scope profiles SHALL be stored in `config/gptel/scope-profiles/` with `.yml` extension. Profile name matches filename without extension.
@@ -151,6 +177,24 @@ Scope profiles SHALL be stored in `config/gptel/scope-profiles/` with `.yml` ext
 #### Scenario: Default profiles provided
 - **WHEN** gptel configuration is installed
 - **THEN** these profiles exist: `coding.yml` (broad read, project write), `research.yml` (read-only), `restricted.yml` (minimal), `bash-enabled.yml` (extended tools), `system-explorer.yml` (system inspection)
+
+### Requirement: Default bash-enabled profiles
+
+The system SHOULD provide default scope profiles that demonstrate bash tools configuration.
+
+#### Scenario: bash-enabled profile provided
+- **WHEN** the configuration is installed
+- **THEN** a `bash-enabled.yml` profile SHALL exist demonstrating comprehensive bash command categorization
+
+#### Scenario: restricted profile has no bash
+- **WHEN** using the `restricted.yml` profile
+- **THEN** bash_tools section is omitted (no bash command access)
+
+#### Scenario: coding profile has bash
+- **WHEN** using the `coding.yml` profile
+- **THEN** bash_tools section includes common development commands (ls, grep, find, git)
+
+**Related specs:** See `bash-tools.md` for bash tools behavior and validation requirements.
 
 ### Requirement: Variable expansion with ${project_root}
 
