@@ -210,61 +210,48 @@ Returns command structure with optional :redirections field."
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.
-Returns list of strings representing all words in the command.
-
-This function handles variable expansions and concatenations correctly:
-- simple_expansion ($VAR) - extracted as-is
-- expansion (${VAR}) - extracted as-is
-- concatenation ($VAR/path) - extracted as single unit, children NOT visited
-- string (\"text\") - extracted with quotes removed
-- ansi_c_string ($'text\\n') - extracted with $'' wrapper, content preserved
-- word, number - extracted as-is"
-  (let ((words '())
-        (visited-nodes (make-hash-table :test 'eq)))
-    (jf/bash-parse--visit-node-conditional
+Returns list of strings representing all words in the command."
+  (let ((words '()))
+    (jf/bash-parse--visit-node
      command-node
      (lambda (node)
-       ;; Skip if we've already processed this node
-       (unless (gethash node visited-nodes)
-         (let ((node-type (treesit-node-type node)))
-           (when (or (string= node-type "word")
-                     (string= node-type "string")
-                     (string= node-type "raw_string")
-                     (string= node-type "ansi_c_string")
-                     (string= node-type "concatenation")
-                     (string= node-type "simple_expansion")
-                     (string= node-type "expansion")
-                     (string= node-type "number"))
-             (let ((text (treesit-node-text node t)))
-               ;; Remove quotes from strings only
-               (when (and text (> (length text) 0))
-                 (setq text (string-trim text))
-                 ;; Remove surrounding quotes if present (only for regular string types)
-                 ;; ANSI-C strings ($'...') are kept as-is to preserve escape sequences
-                 (when (and (or (string= node-type "string")
-                               (string= node-type "raw_string"))
-                           (> (length text) 1)
-                           (or (and (string-prefix-p "\"" text)
-                                    (string-suffix-p "\"" text))
-                               (and (string-prefix-p "'" text)
-                                    (string-suffix-p "'" text))))
-                   (setq text (substring text 1 -1)))
-                 (unless (string-empty-p text)
-                   (push text words))))
+       (let ((node-type (treesit-node-type node)))
+         (cond
+          ;; Terminal nodes: extract text and skip children to prevent duplication
+          ((or (string= node-type "concatenation")
+               (string= node-type "string")
+               (string= node-type "raw_string")
+               (string= node-type "ansi_c_string")
+               (string= node-type "simple_expansion")
+               (string= node-type "expansion"))
+           (let ((text (treesit-node-text node t)))
+             (when (and text (> (length text) 0))
+               (setq text (string-trim text))
+               ;; Remove surrounding quotes for string types (not concatenation/expansion)
+               (when (and (> (length text) 1)
+                         (not (member node-type '("concatenation" "simple_expansion" "expansion")))
+                         (or (and (string-prefix-p "\"" text)
+                                  (string-suffix-p "\"" text))
+                             (and (string-prefix-p "'" text)
+                                  (string-suffix-p "'" text))))
+                 (setq text (substring text 1 -1)))
+               (unless (string-empty-p text)
+                 (push text words))))
+           ;; Return :skip-children to prevent recursing into components
+           :skip-children)
 
-             ;; Mark node as visited
-             (puthash node t visited-nodes)
+          ;; Leaf nodes: extract text and continue visiting siblings
+          ((or (string= node-type "word")
+               (string= node-type "number"))
+           (let ((text (treesit-node-text node t)))
+             (when (and text (> (length text) 0))
+               (setq text (string-trim text))
+               (unless (string-empty-p text)
+                 (push text words))))
+           nil)
 
-             ;; Return nil to skip visiting children for terminal node types
-             ;; These types should be extracted as atomic units
-             (when (or (string= node-type "concatenation")
-                       (string= node-type "string")
-                       (string= node-type "raw_string")
-                       (string= node-type "ansi_c_string")
-                       (string= node-type "simple_expansion")
-                       (string= node-type "expansion"))
-               'skip-children)))))
-     visited-nodes)
+          ;; Other nodes: just continue visiting children
+          (t nil)))))
     (nreverse words)))
 
 (defun jf/bash-parse--extract-redirections (statement-node)
@@ -372,29 +359,16 @@ Returns: (:type :heredoc :operator \"<<\" :descriptor nil :delimiter \"...\")"
           :delimiter delimiter)))
 
 (defun jf/bash-parse--visit-node (node visitor-fn)
-  "Visit NODE and all children, calling VISITOR-FN on each."
+  "Visit NODE and all children, calling VISITOR-FN on each.
+VISITOR-FN can return :skip-children to prevent recursion into children."
   (when node
-    (funcall visitor-fn node)
-    (let ((child-count (treesit-node-child-count node)))
-      (dotimes (i child-count)
-        (when-let ((child (treesit-node-child node i)))
-          (jf/bash-parse--visit-node child visitor-fn))))))
-
-(defun jf/bash-parse--visit-node-conditional (node visitor-fn &optional visited-nodes)
-  "Visit NODE and conditionally visit children based on VISITOR-FN return value.
-
-VISITOR-FN is called on each node. If it returns 'skip-children, children
-are not visited. VISITED-NODES is an optional hash table to track visited nodes."
-  (when node
-    ;; Check if already visited
-    (unless (and visited-nodes (gethash node visited-nodes))
-      (let ((result (funcall visitor-fn node)))
-        ;; Only visit children if visitor didn't return 'skip-children
-        (unless (eq result 'skip-children)
-          (let ((child-count (treesit-node-child-count node)))
-            (dotimes (i child-count)
-              (when-let ((child (treesit-node-child node i)))
-                (jf/bash-parse--visit-node-conditional child visitor-fn visited-nodes)))))))))
+    (let ((visitor-result (funcall visitor-fn node)))
+      ;; Only recurse if visitor didn't return :skip-children
+      (unless (eq visitor-result :skip-children)
+        (let ((child-count (treesit-node-child-count node)))
+          (dotimes (i child-count)
+            (when-let ((child (treesit-node-child node i)))
+              (jf/bash-parse--visit-node child visitor-fn))))))))
 
 (defun jf/bash-parse--detect-subcommand (command-name remaining-words)
   "Detect if COMMAND-NAME has a subcommand in REMAINING-WORDS.

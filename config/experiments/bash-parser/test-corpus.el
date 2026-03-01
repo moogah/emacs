@@ -495,8 +495,39 @@
 
     (:id "glob-003"
      :command "git add *.{el,org}"
-     :note "BROKEN: Brace expansion splits into multiple tokens"
-     :expect nil)
+     :note "Brace expansion with glob pattern - preserved as single token"
+     :expect (:command-name "git"
+              :subcommand "add"
+              :flags ()
+              :positional-args ("*.{el,org}")
+              :dangerous-p nil))
+
+    (:id "glob-004"
+     :command "echo {a,b,c}"
+     :note "Simple brace expansion - preserved as single token"
+     :expect (:command-name "echo"
+              :subcommand nil
+              :flags ()
+              :positional-args ("{a,b,c}")
+              :dangerous-p nil))
+
+    (:id "glob-005"
+     :command "ls file.{txt,md,json}"
+     :note "Brace expansion with multiple extensions - preserved as single token"
+     :expect (:command-name "ls"
+              :subcommand nil
+              :flags ()
+              :positional-args ("file.{txt,md,json}")
+              :dangerous-p nil))
+
+    (:id "glob-006"
+     :command "rm test.{1,2,3}.bak"
+     :note "Brace expansion in middle of filename - preserved as single token"
+     :expect (:command-name "rm"
+              :subcommand nil
+              :flags ()
+              :positional-args ("test.{1,2,3}.bak")
+              :dangerous-p nil))
 
     ;; ============================================================
     ;; BACKGROUND PROCESSES

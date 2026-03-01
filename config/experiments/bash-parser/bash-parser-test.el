@@ -268,6 +268,30 @@ TEST-CASE is a plist with :id, :command, and :expect."
    (seq-find (lambda (tc) (equal (plist-get tc :id) "glob-002"))
              jf/bash-parser-test-corpus)))
 
+(ert-deftest jf/bash-parser-test-glob-003 ()
+  "Test: glob-003 - git add *.{el,org}"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "glob-003"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-glob-004 ()
+  "Test: glob-004 - echo {a,b,c}"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "glob-004"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-glob-005 ()
+  "Test: glob-005 - ls file.{txt,md,json}"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "glob-005"))
+             jf/bash-parser-test-corpus)))
+
+(ert-deftest jf/bash-parser-test-glob-006 ()
+  "Test: glob-006 - rm test.{1,2,3}.bak"
+  (jf/bash-parser-test--run-corpus-test
+   (seq-find (lambda (tc) (equal (plist-get tc :id) "glob-006"))
+             jf/bash-parser-test-corpus)))
+
 (ert-deftest jf/bash-parser-test-background-001 ()
   "Test: background-001 - npm run build &"
   (jf/bash-parser-test--run-corpus-test

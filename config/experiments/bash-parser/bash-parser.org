@@ -290,24 +290,42 @@ Returns list of strings representing all words in the command."
      command-node
      (lambda (node)
        (let ((node-type (treesit-node-type node)))
-         (when (or (string= node-type "word")
-                   (string= node-type "string")
-                   (string= node-type "raw_string")
-                   (string= node-type "concatenation")
-                   (string= node-type "number"))
+         (cond
+          ;; Terminal nodes: extract text and skip children to prevent duplication
+          ((or (string= node-type "concatenation")
+               (string= node-type "string")
+               (string= node-type "raw_string")
+               (string= node-type "ansi_c_string")
+               (string= node-type "simple_expansion")
+               (string= node-type "expansion"))
            (let ((text (treesit-node-text node t)))
-             ;; Remove quotes from strings
              (when (and text (> (length text) 0))
                (setq text (string-trim text))
-               ;; Remove surrounding quotes if present (only if length > 2)
+               ;; Remove surrounding quotes for string types (not concatenation/expansion)
                (when (and (> (length text) 1)
+                         (not (member node-type '("concatenation" "simple_expansion" "expansion")))
                          (or (and (string-prefix-p "\"" text)
                                   (string-suffix-p "\"" text))
                              (and (string-prefix-p "'" text)
                                   (string-suffix-p "'" text))))
                  (setq text (substring text 1 -1)))
                (unless (string-empty-p text)
-                 (push text words))))))))
+                 (push text words))))
+           ;; Return :skip-children to prevent recursing into components
+           :skip-children)
+
+          ;; Leaf nodes: extract text and continue visiting siblings
+          ((or (string= node-type "word")
+               (string= node-type "number"))
+           (let ((text (treesit-node-text node t)))
+             (when (and text (> (length text) 0))
+               (setq text (string-trim text))
+               (unless (string-empty-p text)
+                 (push text words))))
+           nil)
+
+          ;; Other nodes: just continue visiting children
+          (t nil)))))
     (nreverse words)))
 #+end_src
 
@@ -423,13 +441,16 @@ Returns: (:type :heredoc :operator \"<<\" :descriptor nil :delimiter \"...\")"
 
 #+begin_src emacs-lisp
 (defun jf/bash-parse--visit-node (node visitor-fn)
-  "Visit NODE and all children, calling VISITOR-FN on each."
+  "Visit NODE and all children, calling VISITOR-FN on each.
+VISITOR-FN can return :skip-children to prevent recursion into children."
   (when node
-    (funcall visitor-fn node)
-    (let ((child-count (treesit-node-child-count node)))
-      (dotimes (i child-count)
-        (when-let ((child (treesit-node-child node i)))
-          (jf/bash-parse--visit-node child visitor-fn))))))
+    (let ((visitor-result (funcall visitor-fn node)))
+      ;; Only recurse if visitor didn't return :skip-children
+      (unless (eq visitor-result :skip-children)
+        (let ((child-count (treesit-node-child-count node)))
+          (dotimes (i child-count)
+            (when-let ((child (treesit-node-child node i)))
+              (jf/bash-parse--visit-node child visitor-fn))))))))
 #+end_src
 
 ** Detect Subcommand
