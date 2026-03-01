@@ -38,9 +38,11 @@ I'll walk you through a complete change cycle—from idea to implementation—us
 2. Explore the problem briefly
 3. Create a change (the container for our work)
 4. Build the artifacts: proposal → specs → design
-5. Create Beads (self-contained work items from design and specs)
+5. Create Beads (self-contained work items) from design and specs
 6. Implement the Beads
 7. Archive the completed change
+
+**Note:** We use Beads (not tasks.md) for implementation tracking. Beads are self-contained work items that embed all context from design and specs.
 
 **Time:** ~15-20 minutes
 
@@ -180,7 +182,7 @@ openspec/changes/<name>/
 └── specs/         ← Detailed requirements (empty)
 ```
 
-After creating these artifacts, we'll generate Beads (self-contained work items) from the design and specs for implementation.
+After creating these artifacts, we'll generate Beads (self-contained work items) from the design and specs. Beads replace tasks.md as the implementation tracking system.
 
 Now let's fill in the first artifact—the proposal.
 ```

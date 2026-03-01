@@ -127,6 +127,8 @@ Common artifact patterns:
 - Same as above but without architecture and tests artifacts
 - Skip directly from specs to design
 
+**IMPORTANT**: Beads are the only supported implementation tracking mechanism. Do NOT create tasks.md - all implementation work is tracked through Beads created with `/opsx:create-beads`.
+
 For other schemas, follow the `instruction` field from the CLI output.
 
 **Guardrails**
