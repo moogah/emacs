@@ -713,6 +713,339 @@ Returns t if dangerous, nil otherwise."
       nil)))
 #+end_src
 
+* Glob Pattern Matching
+
+This section implements glob pattern matching without filesystem access.
+Patterns are matched purely on string comparison using segment-based matching.
+
+** Overview
+
+The matcher supports standard glob patterns:
+- =*= - matches any characters within a single directory segment
+- =**= - matches zero or more complete directory segments (recursive)
+- =?= - matches exactly one character
+- =[abc]= - matches any character in the set
+
+Key characteristics:
+- O(n) complexity in path segments (not exponential)
+- No filesystem access - works on paths that don't exist yet
+- Single =*= does not cross directory boundaries
+- Double =**= consumes 0-to-N complete segments
+
+** Helper: Glob Pattern to Regex Conversion
+
+Convert a single glob pattern segment to a regex pattern.
+
+#+begin_src emacs-lisp
+(defun jf/bash--glob-segment-to-regex (glob-segment)
+  "Convert GLOB-SEGMENT to regex pattern.
+Handles *, ?, and [abc] character classes.
+Does not handle ** (that's handled at segment level).
+Escapes regex special characters."
+  (let ((regex "")
+        (i 0)
+        (len (length glob-segment)))
+    (while (< i len)
+      (let ((ch (aref glob-segment i)))
+        (cond
+         ;; Single-char wildcard
+         ((eq ch ??)
+          (setq regex (concat regex "."))
+          (setq i (1+ i)))
+
+         ;; Any-chars wildcard (within segment)
+         ((eq ch ?*)
+          (setq regex (concat regex "[^/]*"))
+          (setq i (1+ i)))
+
+         ;; Character class [abc]
+         ((eq ch ?\[)
+          (let ((class-start i)
+                (class-end nil))
+            ;; Find matching ]
+            (setq i (1+ i))
+            (while (and (< i len) (null class-end))
+              (when (eq (aref glob-segment i) ?\])
+                (setq class-end i))
+              (setq i (1+ i)))
+            (if class-end
+                ;; Valid character class found
+                (setq regex (concat regex
+                                   (substring glob-segment class-start (1+ class-end))))
+              ;; No closing ], treat [ as literal
+              (setq regex (concat regex "\\["))
+              (setq i (1+ class-start)))))
+
+         ;; Escape regex special characters
+         ((memq ch '(?\\ ?. ?+ ?^ ?$ ?\( ?\) ?{ ?} ?|))
+          (setq regex (concat regex "\\" (char-to-string ch)))
+          (setq i (1+ i)))
+
+         ;; Regular character
+         (t
+          (setq regex (concat regex (char-to-string ch)))
+          (setq i (1+ i))))))
+    regex))
+#+end_src
+
+** Helper: Segment Matcher
+
+Recursively match path segments against pattern segments.
+
+#+begin_src emacs-lisp
+(defun jf/bash--match-segments (path-segments pattern-segments)
+  "Match PATH-SEGMENTS against PATTERN-SEGMENTS recursively.
+Handles ** consuming 0-to-N segments. Returns t if match, nil otherwise."
+  (cond
+   ;; Both empty - successful match
+   ((and (null path-segments) (null pattern-segments))
+    t)
+
+   ;; Pattern empty but path has segments - no match
+   ((null pattern-segments)
+    nil)
+
+   ;; Path empty but pattern has non-** segments - no match
+   ((null path-segments)
+    ;; Only match if remaining patterns are all **
+    (seq-every-p (lambda (seg) (string= seg "**")) pattern-segments))
+
+   ;; Handle ** pattern (matches 0-to-N segments)
+   ((string= (car pattern-segments) "**")
+    (let ((rest-pattern (cdr pattern-segments)))
+      (or
+       ;; Try matching ** as zero segments (skip it)
+       (jf/bash--match-segments path-segments rest-pattern)
+       ;; Try matching ** as one or more segments (consume one path segment)
+       (jf/bash--match-segments (cdr path-segments) pattern-segments))))
+
+   ;; Handle regular segment matching
+   (t
+    (let* ((path-seg (car path-segments))
+           (pattern-seg (car pattern-segments))
+           (regex-pattern (concat "\\`" (jf/bash--glob-segment-to-regex pattern-seg) "\\'"))
+           (segment-matches (string-match-p regex-pattern path-seg)))
+      ;; Current segment must match, then recurse on rest
+      (and segment-matches
+           (jf/bash--match-segments (cdr path-segments) (cdr pattern-segments)))))))
+#+end_src
+
+** Main Entry Point
+
+Public function for glob pattern matching.
+
+#+begin_src emacs-lisp
+(defun jf/bash-glob-match-p (path pattern)
+  "Test if PATH matches PATTERN using glob semantics.
+No filesystem access - purely string-based matching.
+
+Supported patterns:
+  *     - matches any characters within a segment (doesn't cross /)
+  **    - matches zero or more complete segments (recursive)
+  ?     - matches exactly one character
+  [abc] - matches any character in the set
+
+Examples:
+  (jf/bash-glob-match-p \"/workspace/file.txt\" \"/workspace/*.txt\")
+    => t
+  (jf/bash-glob-match-p \"/workspace/src/foo.el\" \"/workspace/**/*.el\")
+    => t
+  (jf/bash-glob-match-p \"/workspace/file.txt\" \"/workspace/**/file.txt\")
+    => t (** matches zero segments)
+  (jf/bash-glob-match-p \"/tmp/foo.el\" \"/workspace/**/*.el\")
+    => nil
+
+Returns t if PATH matches PATTERN, nil otherwise."
+  (let ((path-segments (split-string path "/" t))
+        (pattern-segments (split-string pattern "/" t)))
+    (jf/bash--match-segments path-segments pattern-segments)))
+#+end_src
+
+* Command Semantics Database
+
+Define file operation semantics for core bash commands. This database maps command
+names to their file operation patterns, enabling extraction of file operations from
+parsed command structures.
+
+** Semantics Database Structure
+
+#+begin_src emacs-lisp
+(defvar jf/bash-command-file-semantics
+  '((cat . (:operations ((:source :positional-args :operation :read))))
+    (head . (:operations ((:source :positional-args :operation :read))))
+    (tail . (:operations ((:source :positional-args :operation :read))))
+    (less . (:operations ((:source :positional-args :operation :read))))
+    (more . (:operations ((:source :positional-args :operation :read))))
+    (wc . (:operations ((:source :positional-args :operation :read))))
+    (file . (:operations ((:source :positional-args :operation :read))))
+    (stat . (:operations ((:source :positional-args :operation :read))))
+    (grep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
+    (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
+    (fgrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
+    (touch . (:operations ((:source :positional-args :operation :create-or-modify))))
+    (mkdir . (:operations ((:source :positional-args :operation :create))))
+    (rm . (:operations ((:source :positional-args :operation :delete))))
+    (rmdir . (:operations ((:source :positional-args :operation :delete))))
+    (chmod . (:operations ((:source :positional-args :operation :modify :skip-indices (0)))))
+    (chown . (:operations ((:source :positional-args :operation :modify :skip-indices (0)))))
+    (chgrp . (:operations ((:source :positional-args :operation :modify :skip-indices (0)))))
+    (ln . (:operations ((:source :positional-args :indices (0 . -2) :operation :read)
+                        (:source :positional-args :index -1 :operation :write))))
+    (cp . (:operations ((:source :positional-args :indices (0 . -2) :operation :read)
+                        (:source :positional-args :index -1 :operation :write))))
+    (mv . (:operations ((:source :positional-args :indices (0 . -2) :operation :delete)
+                        (:source :positional-args :index -1 :operation :write))))
+    (tar . (:operations :flag-dependent
+            :flag-handlers ((("-x" "--extract" "--get") . ((:source :positional-args :operation :write)))
+                           (("-c" "--create") . ((:source :positional-args :operation :read))))))
+    (sed . (:operations :flag-dependent
+            :flag-handlers ((("-i" "--in-place") . ((:source :positional-args :operation :modify :skip-indices (0))))
+                           (() . ((:source :positional-args :operation :read :skip-indices (0)))))))
+    (find . (:operations ((:source :positional-args :operation :read))))
+    (tee . (:operations ((:source :positional-args :operation :write))))
+    (dd . (:operations ((:source :named-args :names ("if") :operation :read)
+                        (:source :named-args :names ("of") :operation :write))))
+    (git . (:operations :complex
+            :subcommand-handlers ((add . ((:source :positional-args :operation :read)))
+                                 (rm . ((:source :positional-args :operation :delete)))
+                                 (checkout . ((:source :positional-args :operation :modify)))
+                                 (restore . ((:source :positional-args :operation :modify)))
+                                 (mv . ((:source :positional-args :indices (0 . -2) :operation :delete)
+                                        (:source :positional-args :index -1 :operation :write)))
+                                 (diff . ((:source :positional-args :operation :read)))
+                                 (show . ((:source :positional-args :operation :read))))))
+    (docker . (:operations :complex
+               :subcommand-handlers ((cp . ((:source :positional-args :indices (0 . -2) :operation :read)
+                                            (:source :positional-args :index -1 :operation :write))))))
+    (npm . (:operations :complex
+            :subcommand-handlers ()))
+    (cargo . (:operations :complex
+              :subcommand-handlers ()))
+    (kubectl . (:operations :complex
+                :subcommand-handlers ())))
+  "Database mapping command names to file operation semantics.
+
+Each entry maps a command symbol to a plist describing how the command
+interacts with files:
+
+Simple commands:
+  (:operations ((operation-spec) ...))
+
+Flag-dependent commands (operation depends on flags):
+  (:operations :flag-dependent
+   :flag-handlers ((flag-list . operations) ...))
+
+Subcommand-based commands (operation depends on subcommand):
+  (:operations :complex
+   :subcommand-handlers ((subcommand . operations) ...))
+
+Operation spec format:
+  :source - Where file paths come from:
+    :positional-args - From positional arguments
+    :named-args - From named arguments (like dd if=/path of=/path)
+    :redirections - From shell redirections (handled separately)
+    :exec-blocks - From find -exec blocks (handled separately)
+
+  :operation - Type of file operation:
+    :read - Read file contents
+    :write - Create new file or overwrite existing
+    :delete - Remove file or directory
+    :modify - Change existing file in place
+    :create - Create new file (must not exist)
+    :create-or-modify - Create or update file
+
+  :index - Single positional argument index (0-based, -1 for last)
+  :indices - Range of positional arguments:
+    (0 . -2) means all arguments from first to second-to-last
+    (0 . -1) means all arguments from first to last
+    :all means all positional arguments
+
+  :skip-indices - List of argument indices to skip (e.g., (0) skips first arg)
+  :names - List of named argument names (for dd-style commands)")
+#+end_src
+
+** Semantics Lookup Function
+
+#+begin_src emacs-lisp
+(defun jf/bash-lookup-command-semantics (command-name)
+  "Look up file operation semantics for COMMAND-NAME.
+
+Returns semantics plist from `jf/bash-command-file-semantics', or nil
+if command is not in the database.
+
+The returned plist describes how the command interacts with files:
+- :operations - Operation specifications or :flag-dependent/:complex
+- :flag-handlers - For flag-dependent commands
+- :subcommand-handlers - For subcommand-based commands
+
+Example return values:
+
+Simple command:
+  (:operations ((:source :positional-args :operation :read)))
+
+Flag-dependent command:
+  (:operations :flag-dependent
+   :flag-handlers (((\"-i\") . ((:source :positional-args :operation :modify)))))
+
+Subcommand-based command:
+  (:operations :complex
+   :subcommand-handlers ((add . ((:source :positional-args :operation :read)))))"
+  (when command-name
+    (alist-get (intern command-name) jf/bash-command-file-semantics)))
+#+end_src
+
+* Variable Context Management
+
+Handle variable references in file paths for scope-aware file operations.
+
+** Variable Reference Detection
+
+Detect variable references in file paths without resolving them. This enables
+identification of paths that need context-aware resolution.
+
+#+begin_src emacs-lisp
+(defun jf/bash-detect-variable-references (file-path)
+  "Detect variable references in FILE-PATH.
+
+Identifies both simple $VAR and braced ${VAR} syntax without resolving them.
+Returns cons cell (HAS-VARS . VAR-NAMES) where:
+  HAS-VARS - t if any variables found, nil otherwise
+  VAR-NAMES - list of variable names (strings) in order of appearance
+
+Supported patterns:
+  $VAR       - Simple variable reference
+  ${VAR}     - Braced variable reference
+  $A/$B/$C   - Multiple variables in path
+
+Examples:
+  (jf/bash-detect-variable-references \"/workspace/file.txt\")
+    => (nil)
+  (jf/bash-detect-variable-references \"$WORKSPACE/file.txt\")
+    => (t . (\"WORKSPACE\"))
+  (jf/bash-detect-variable-references \"${TEMP_DIR}/output.txt\")
+    => (t . (\"TEMP_DIR\"))
+  (jf/bash-detect-variable-references \"$SRC/$FILE.txt\")
+    => (t . (\"SRC\" \"FILE\"))
+
+Variable names match pattern: [A-Za-z_][A-Za-z0-9_]*"
+  (let ((var-names nil))
+    (save-match-data
+      ;; Match ${VAR} or $VAR patterns
+      ;; Group 1: braced variable (${VAR})
+      ;; Group 2: simple variable ($VAR)
+      (let ((pos 0))
+        (while (string-match "\\${\\([A-Za-z_][A-Za-z0-9_]*\\)}\\|\\$\\([A-Za-z_][A-Za-z0-9_]*\\)"
+                            file-path pos)
+          (let ((var-name (or (match-string 1 file-path)
+                             (match-string 2 file-path))))
+            (push var-name var-names))
+          (setq pos (match-end 0)))))
+    ;; Return cons cell: (has-vars . var-names)
+    (if var-names
+        (cons t (nreverse var-names))
+      (cons nil nil))))
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp
