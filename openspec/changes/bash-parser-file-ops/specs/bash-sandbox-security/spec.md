@@ -145,3 +145,78 @@ The system SHALL convert glob patterns to regex patterns for segment matching, h
 #### Scenario: Escape special regex characters
 - **WHEN** converting glob with regex special characters like "." or "+"
 - **THEN** characters are escaped in resulting regex
+
+### Requirement: Reject cd commands
+The system SHALL reject all `cd` commands as a security policy decision to avoid working directory tracking complexity.
+
+#### Scenario: Reject simple cd command
+- **WHEN** checking "cd /tmp"
+- **THEN** validation returns `:allowed nil` with violation reason "cd commands are prohibited"
+
+#### Scenario: Reject cd in chain
+- **WHEN** checking "cd /tmp && rm file.txt"
+- **THEN** validation rejects entire chain due to cd command
+
+#### Scenario: Reject cd with options
+- **WHEN** checking "cd -L /path" or "cd -P /path"
+- **THEN** validation rejects command regardless of flags
+
+#### Scenario: Provide guidance in violation
+- **WHEN** cd command is rejected
+- **THEN** violation message includes "use absolute paths instead"
+
+### Requirement: Variable resolution in security context
+The system SHALL support variable resolution during security checking using provided variable context.
+
+#### Scenario: Resolve variables before path matching
+- **WHEN** checking "cat $WORKSPACE/file.txt" with context WORKSPACE="/workspace"
+- **THEN** validation resolves to "cat /workspace/file.txt" before pattern matching
+
+#### Scenario: Reject unresolved variables
+- **WHEN** checking command with unresolved variable "$UNKNOWN/file.txt"
+- **THEN** validation returns `:allowed nil` with violation reason "unresolved variable"
+
+#### Scenario: Partial resolution rejection
+- **WHEN** checking "$WORKSPACE/$FILE" with only WORKSPACE resolved
+- **THEN** validation rejects due to unresolved $FILE variable
+
+### Requirement: Indirect operation handling
+The system SHALL support stricter policies for indirect operations (operations from nested commands).
+
+#### Scenario: Apply policy to indirect operations
+- **WHEN** checking "bash -c 'rm file.txt'" with indirect operations
+- **THEN** validation marks operation as `:indirect t` for policy evaluation
+
+#### Scenario: Reject all indirect operations (optional strict mode)
+- **WHEN** security policy is `:reject-indirect t`
+- **THEN** any command with nested command injection is rejected
+
+#### Scenario: Allow indirect with same rules
+- **WHEN** security policy treats indirect operations normally
+- **THEN** nested command operations validated against same allowlist rules
+
+### Requirement: Variable context parameter
+The system SHALL accept optional variable context parameter for resolving variables during validation.
+
+#### Scenario: Provide variable context to checker
+- **WHEN** calling security checker with variable context {"DIR": "/workspace"}
+- **THEN** commands using $DIR are validated against resolved paths
+
+#### Scenario: Missing variable context
+- **WHEN** calling security checker without variable context
+- **THEN** any variables in commands are treated as unresolved and rejected
+
+### Requirement: Enhanced violation reporting
+The system SHALL include additional context in violations for variables, indirect operations, and cd commands.
+
+#### Scenario: Variable violation details
+- **WHEN** unresolved variable causes rejection
+- **THEN** violation includes `:unresolved-vars` list and suggestion to declare variables
+
+#### Scenario: Indirect operation violation details
+- **WHEN** indirect operation causes rejection
+- **THEN** violation includes `:indirect t` and `:nested-command` string
+
+#### Scenario: cd command violation details
+- **WHEN** cd command causes rejection
+- **THEN** violation includes guidance: "use absolute paths or configure runtime working directory"

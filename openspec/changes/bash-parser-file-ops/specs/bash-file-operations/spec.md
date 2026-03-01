@@ -129,3 +129,70 @@ The system SHALL provide a main entry point function that accepts a parsed comma
 #### Scenario: Extract from chain
 - **WHEN** calling extraction function with parsed chain
 - **THEN** function returns operations from all commands in chain
+
+### Requirement: Variable extraction
+The system SHALL extract variable references ($VAR, ${VAR}) from file paths and mark them with metadata.
+
+#### Scenario: Simple variable reference
+- **WHEN** extracting operations from "cat $FILE"
+- **THEN** file path is "$FILE" with `:variable` indicator
+
+#### Scenario: Variable with braces
+- **WHEN** extracting operations from "rm ${TEMP_DIR}/file.txt"
+- **THEN** file path is "${TEMP_DIR}/file.txt" with `:variable` indicator
+
+#### Scenario: Multiple variables in path
+- **WHEN** extracting operations from "cp $SRC/$FILE $DEST/"
+- **THEN** both source and destination paths marked with `:variable` indicator
+
+### Requirement: Variable resolution
+The system SHALL resolve variables against provided variable context when available.
+
+#### Scenario: Resolve declared variable
+- **WHEN** extracting operations from "cat $WORKSPACE/file.txt" with context WORKSPACE="/workspace"
+- **THEN** file path is resolved to "/workspace/file.txt"
+
+#### Scenario: Unresolved variable
+- **WHEN** extracting operations from "cat $UNKNOWN/file.txt" without variable context
+- **THEN** operation marked with `:unresolved t` metadata
+
+#### Scenario: Partial resolution
+- **WHEN** extracting operations from "cat $WORKSPACE/$FILE" with only WORKSPACE defined
+- **THEN** file path partially resolved to "/workspace/$FILE" with `:unresolved t`
+
+### Requirement: Variable assignment tracking
+The system SHALL track simple variable assignments (VAR=value) in command chains for subsequent resolution.
+
+#### Scenario: Assignment and usage in chain
+- **WHEN** extracting operations from "DIR=/tmp && cat $DIR/file.txt"
+- **THEN** second command resolves $DIR to "/tmp", file path is "/tmp/file.txt"
+
+#### Scenario: Multiple assignments
+- **WHEN** extracting operations from "A=/foo && B=$A/bar && cat $B/file.txt"
+- **THEN** variables resolve sequentially, final path is "/foo/bar/file.txt"
+
+#### Scenario: Assignment without usage
+- **WHEN** extracting operations from "VAR=/tmp && cat file.txt"
+- **THEN** VAR is tracked but not used in second command
+
+### Requirement: Variable context parameter
+The system SHALL accept optional variable context parameter mapping variable names to values.
+
+#### Scenario: Provide variable context
+- **WHEN** calling extraction function with variable context {"WORKSPACE": "/workspace"}
+- **THEN** variables in commands are resolved against provided context
+
+#### Scenario: Empty variable context
+- **WHEN** calling extraction function without variable context
+- **THEN** unresolved variables marked with `:unresolved t`
+
+### Requirement: Unresolved variable handling
+The system SHALL mark operations containing unresolved variables with metadata to enable fail-safe security policy.
+
+#### Scenario: Mark unresolved operation
+- **WHEN** extracting operations with unresolved variable
+- **THEN** operation includes `:unresolved t`, `:unresolved-vars` list
+
+#### Scenario: Confidence degradation for unresolved
+- **WHEN** operation would be `:high` confidence but contains unresolved variable
+- **THEN** confidence level is `:medium` or operation marked for review
