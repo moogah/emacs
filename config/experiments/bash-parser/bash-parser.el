@@ -752,7 +752,7 @@ MATCHED-RULE is a rule plist from `jf/bash-match-rule', or nil.
 
 Denial conditions:
   1. No rule matched (path not in allowlist)
-  2. Operation type not in rule's :operations list
+  2. Rule's :operations is not :all AND operation type not in list
 
 Violation plist contains:
   :file - The file path
@@ -765,6 +765,12 @@ Examples:
   (jf/bash-check-operation-permission
     \\='(:file \"/workspace/file.txt\" :operation :read)
     \\='(:patterns (\"/workspace/**\") :operations (:read :write)))
+  => nil
+
+  ;; Allowed: :all permits any operation
+  (jf/bash-check-operation-permission
+    \\='(:file \"/tmp/file.txt\" :operation :delete)
+    \\='(:patterns (\"/tmp/**\") :operations :all))
   => nil
 
   ;; Denied: operation not in rule
@@ -785,7 +791,8 @@ Examples:
       :matched-rule nil
       :reason \"No allowlist rule matches this file path\")"
   (let ((file (plist-get operation :file))
-        (op-type (plist-get operation :operation)))
+        (op-type (plist-get operation :operation))
+        (allowed-ops (plist-get matched-rule :operations)))
     (cond
      ;; No rule matched = violation (fail-safe: deny by default)
      ((null matched-rule)
@@ -794,13 +801,17 @@ Examples:
             :matched-rule nil
             :reason "No allowlist rule matches this file path"))
 
+     ;; Rule allows all operations
+     ((eq allowed-ops :all)
+      nil)  ; Allowed
+
      ;; Operation not in allowed list = violation
-     ((not (memq op-type (plist-get matched-rule :operations)))
+     ((not (memq op-type allowed-ops))
       (list :file file
             :operation op-type
             :matched-rule matched-rule
             :reason (format "Operation %s not allowed (rule permits: %s)"
-                           op-type (plist-get matched-rule :operations))))
+                           op-type allowed-ops)))
 
      ;; Allowed
      (t nil))))
