@@ -1,83 +1,111 @@
-# GPTEL PersistentAgent Tool
+# PersistentAgent Tool
 
-Behavioral specification for the PersistentAgent tool - a spawning and persistence mechanism that enables autonomous sub-agents with isolated configuration, full conversation history, and parent-child session relationships.
+## Purpose
 
-**Scope:** This spec covers agent creation, execution lifecycle, configuration isolation, persistence behavior, parent-child communication, and error handling. It does NOT cover branching (see sessions-branching.md) or preset definitions (see implementation .org files).
+Enables autonomous sub-agents with isolated configuration, full conversation history, and parent-child relationships. Agents execute asynchronously in their own buffers while providing non-intrusive progress feedback via overlays in the parent buffer.
+
+## Key Concepts
+
+### Configuration Isolation (Zero Inheritance)
+
+**CRITICAL PRINCIPLE**: Agents have ZERO inheritance from parent sessions.
+
+Agent configuration comes ONLY from:
+1. **Preset definition** (backend, model, tools, system message)
+2. **Explicit allowed_paths parameter** (scope permissions)
+
+Agents do NOT inherit:
+- Parent's scope.yml paths
+- Parent's backend/model/temperature
+- Parent's tools or system message
+
+**Path configuration**:
+- `allowed_paths` provided → agent uses exactly those patterns
+- `allowed_paths` nil/empty → agent gets `read: []` (no read permissions)
+- **Never** inherits parent's allowed paths
+
+### Agent Session Structure
+
+```
+<parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/
+├── session.md           # Agent conversation
+├── metadata.yml         # type="agent", parent_session_id
+├── scope.yml            # Explicit paths only
+└── tools.org            # Tool execution log
+```
+
+Agents do NOT have:
+- `branches/` subdirectory (no branching support)
+- `current` symlink (no branch tracking)
+
+### Execution Lifecycle
+
+1. **Creation**: Validate parent, create directory, write files
+2. **Initialization**: Set buffer-local vars, apply preset
+3. **Execution**: Insert prompt, initiate gptel-request with FSM
+4. **FSM States**: WAIT (overlay: "Waiting..."), TOOL (overlay: "Tools (+N)")
+5. **Accumulation**: Dual-duty callback (insert to buffer + accumulate for parent)
+6. **Auto-save**: After each response (incremental persistence)
+7. **Completion**: Delete overlay, invoke parent callback
+8. **Resumption**: Open session.md, auto-init, continue conversation
+
+### Parent-Child Communication
+
+**Overlay system**:
+- Created at marker position in parent buffer
+- Shows task description, preset name, progress status
+- Updates during WAIT and TOOL states
+- Displays cumulative tool count with formatted calls
+- Deleted on completion or error
+
+**Result accumulation**:
+- String responses accumulated for parent callback
+- Tool calls/results inserted to agent buffer (persistence)
+- Parent receives concatenated string result
 
 ## Requirements
 
 ### Requirement: Tool invocation and validation
 
-The PersistentAgent tool SHALL only operate within persistent session buffers and requires preset, description, and prompt parameters.
+PersistentAgent SHALL only operate within persistent session buffers with preset, description, and prompt parameters.
 
-Tool registration SHALL:
-- Declare :async t (non-blocking parent execution)
-- Declare :confirm t (requires user confirmation)
-- Declare :include t (results appear in parent buffer)
-- Set :category "gptel-persistent" (tool registered as persistent type)
-- Accept optional allowed_paths and denied_paths arrays for scope control
+**Tool registration**:
+- `:async t` (non-blocking parent)
+- `:confirm t` (requires user confirmation)
+- `:include t` (results appear in parent)
+- `:category "gptel-persistent"`
+- Optional: `allowed_paths`, `denied_paths` arrays
 
-The tool SHALL be categorized as "meta" in the scope system, bypassing scope validation for the tool invocation itself (but agent tools still respect agent's scope).
+**Categorized as "meta"**: Bypasses scope validation for tool invocation itself (agent's tools still respect agent's scope).
 
-#### Scenario: Parent session requirement enforced
-- **WHEN** PersistentAgent is invoked in a non-persistent gptel buffer (no jf/gptel--session-dir)
-- **THEN** the system SHALL raise a user-error: "PersistentAgent requires parent persistent session"
+#### Scenario: Parent session requirement
+- **WHEN** PersistentAgent invoked without `jf/gptel--session-dir`
+- **THEN** raises user-error: "PersistentAgent requires parent persistent session"
 
-#### Scenario: Tool parameters validated
-- **WHEN** invoking PersistentAgent
-- **THEN** the system requires preset (string from enum), description (string), and prompt (string) parameters
-- **AND** accepts optional allowed_paths (array of glob patterns) and denied_paths (array of glob patterns)
-
-#### Scenario: Explicit path configuration (no inheritance)
-- **WHEN** allowed_paths is not provided (nil)
-- **THEN** the agent has no read permissions (empty paths list)
-- **WHEN** allowed_paths is provided as empty array []
-- **THEN** the agent has no read permissions (empty paths list)
-- **WHEN** allowed_paths is provided with patterns
-- **THEN** the agent uses exactly those patterns
-- **AND** paths are never inherited from parent session
-
-#### Scenario: Meta tool bypasses scope validation
-- **WHEN** PersistentAgent is categorized as meta in the scope system
-- **THEN** the parent session can invoke PersistentAgent without scope checks on the tool itself
-- **AND** the spawned agent's tools still respect the agent's own scope configuration
-
-#### Scenario: Async and confirm flags respected
-- **WHEN** PersistentAgent is invoked
-- **THEN** the tool runs asynchronously (non-blocking parent)
-- **AND** prompts user for confirmation before executing
-- **AND** returns results to parent buffer when complete
+#### Scenario: Explicit path configuration (zero inheritance)
+- **WHEN** `allowed_paths` not provided (nil)
+- **THEN** agent has no read permissions (scope.yml has `read: []`)
+- **AND** paths NOT inherited from parent
+- **WHEN** `allowed_paths` is empty array `[]`
+- **THEN** agent has no read permissions
+- **WHEN** `allowed_paths` provided with patterns
+- **THEN** agent uses exactly those patterns
+- **AND** paths come exclusively from parameter, never from parent
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions under the parent's branch directory with their own metadata, preset, and scope configuration.
+The system SHALL create agent sessions under parent's branch directory with isolated configuration.
 
-Agent directory structure SHALL follow:
-```
-<parent-session-dir>/branches/<parent-branch-name>/agents/<preset>-<timestamp>-<slug>/
-├── session.md           (agent conversation history)
-├── preset.md            (agent configuration with YAML frontmatter and system message)
-├── scope-plan.yml       (agent metadata including type: "agent" and parent_session_id)
-└── tools.org            (agent tool execution log)
-```
+**Implementation**: `config/gptel/tools/persistent-agent.org`
 
-Agent sessions SHALL NOT have:
-- `branches/` subdirectory (agents don't support branching)
-- `current` symlink (no branching means no active branch tracking)
+#### Scenario: Agent directory created
+- **WHEN** creating agent with preset "researcher" and description "analyze code"
+- **THEN** creates `<parent-branch-dir>/agents/researcher-<timestamp>-analyze-code/`
+- **AND** directory under parent's current branch, not session root
 
-#### Scenario: Agent directory created under parent branch
-- **WHEN** creating a new agent with preset "researcher" and description "analyze code"
-- **THEN** the system creates directory: `<parent-branch-dir>/agents/researcher-<timestamp>-analyze-code/`
-- **AND** the directory is under the parent's **current branch** directory, not session root
-
-#### Scenario: Preset template copied to agent directory
-- **WHEN** creating an agent with preset "executor"
-- **THEN** the system copies `config/gptel/presets/executor.md` to `<agent-dir>/preset.md`
-- **AND** the copied file contains YAML frontmatter (backend, model, tools, etc.) and system message
-
-#### Scenario: Paths written to agent preset
-- **WHEN** creating an agent with allowed_paths ["/path/to/project/**"]
-- **THEN** the system updates `<agent-dir>/preset.md` with a paths section:
+#### Scenario: scope.yml with explicit paths only
+- **WHEN** creating agent with `allowed_paths ["/path/to/project/**"]`
+- **THEN** writes scope.yml:
 ```yaml
 paths:
   read:
@@ -91,648 +119,273 @@ paths:
     - "**/node_modules/**"
 ```
 
-#### Scenario: Empty paths when not specified
-- **WHEN** creating an agent without specifying allowed_paths (or with empty array)
-- **THEN** the system writes an empty paths.read section to agent's preset.md
-- **AND** agent has no read permissions (cannot read any files)
-- **AND** paths are never inherited from parent session
-
-#### Scenario: scope-plan.yml created with agent metadata
-- **WHEN** creating an agent session
-- **THEN** the system writes `scope-plan.yml` with:
-  - version: "3.0"
-  - session_id: "<agent-session-id>"
-  - created: "<ISO8601 timestamp>"
-  - updated: "<ISO8601 timestamp>"
-  - type: "agent"
-  - parent_session_id: "<parent-session-id>"
-  - preset: "<preset-name>"
-
-#### Scenario: Empty session.md created
-- **WHEN** creating an agent session
-- **THEN** the system creates an empty `session.md` file
-- **AND** associates the file with the agent buffer via set-visited-file-name
-
-#### Scenario: No current symlink for agents
-- **WHEN** creating an agent session
-- **THEN** the system SHALL NOT create a `current` symlink
-- **AND** agents do not support branching (single timeline only)
-
-#### Scenario: Agent session ID format
-- **WHEN** creating an agent with preset "explorer" and description "find module"
-- **THEN** the session ID follows format: `explorer-<timestamp>-find-module`
-- **AND** the ID is derived from the directory path (not stored separately)
-
-### Requirement: Configuration isolation
-
-The system SHALL enforce zero inheritance - agent configuration comes ONLY from the agent's preset.md file, never from parent session state.
-
-Configuration loading SHALL:
-1. Copy preset template to agent directory (file-first approach)
-2. Load preset YAML frontmatter from agent's preset.md (not from in-memory alist)
-3. Set buffer-local session variables BEFORE applying preset
-4. Apply preset configuration (backend, model, tools, system message)
-5. Capture tools from agent buffer context AFTER preset application
-6. Use captured tools for gptel-request (not parent's tools)
-
-#### Scenario: Preset loaded from file, not memory
-- **WHEN** initializing an agent buffer
-- **THEN** the system calls jf/gptel--load-preset-from-file on the agent's directory
-- **AND** loads configuration from agent's preset.md YAML frontmatter
-- **AND** does NOT use gptel-agent's in-memory agents alist
-
-#### Scenario: Buffer-local session variables set before preset
-- **WHEN** initializing an agent buffer
-- **THEN** the system sets buffer-local variables in this order:
-  1. jf/gptel--session-id (agent's session ID)
-  2. jf/gptel--session-dir (agent's directory path)
-  3. jf/gptel--branch-name ("main")
-  4. jf/gptel--branch-dir (same as session-dir, agents don't branch)
-  5. Apply preset configuration (which is dynamically scoped)
-- **AND** session variables persist outside preset's dynamic scope
-
-#### Scenario: Tools captured from agent buffer context
-- **WHEN** setting up gptel-request for the agent
-- **THEN** the system captures gptel-tools INSIDE the agent buffer's with-current-buffer
-- **AND** uses the captured tools list for gptel-request
-- **AND** does NOT use parent buffer's tools (context matters for buffer-local vars)
-
-#### Scenario: Backend, model, system message from preset YAML
-- **WHEN** agent preset.md contains:
+#### Scenario: Empty paths when not specified (zero inheritance)
+- **WHEN** creating agent without `allowed_paths`
+- **THEN** writes scope.yml:
 ```yaml
-backend: Claude
-model: claude-3-7-sonnet-20250219
-temperature: 0.3
+paths:
+  read: []
+  write:
+    - "/tmp/**"
+  deny:
+    - "**/.git/**"
+    - "**/runtime/**"
+    - "**/.env"
+    - "**/node_modules/**"
 ```
-- **THEN** the agent buffer uses those exact settings
-- **AND** does NOT inherit parent's backend/model/temperature
+- **AND** agent has no read permissions
+- **AND** paths never inherited from parent (zero inheritance)
 
-#### Scenario: Parent configuration never leaked
-- **WHEN** parent session uses different backend, model, tools, or system message
-- **THEN** the agent SHALL NOT inherit any of those settings
-- **AND** agent configuration comes exclusively from agent's preset.md
+#### Scenario: metadata.yml created
+- **WHEN** creating agent
+- **THEN** writes metadata.yml with `type: "agent"`, `parent_session_id`
+- **AND** includes `session_id`, `created`, `updated`, `preset`
 
-#### Scenario: gptel-with-preset isolation
-- **WHEN** executing the agent request
-- **THEN** the system uses gptel-with-preset to create a clean dynamic scope
-- **AND** passes :tools (captured from agent buffer), :use-tools t, :include-tool-results t
-- **AND** parent's preset scope does NOT affect agent execution
+#### Scenario: No branching support
+- **WHEN** creating agent
+- **THEN** no `branches/` subdirectory created
+- **AND** no `current` symlink
+- **AND** agents are single-timeline only
+
+### Requirement: Configuration isolation (zero inheritance)
+
+The system SHALL enforce zero inheritance - agent configuration ONLY from agent's scope.yml and preset definition.
+
+**Buffer-local vars setup**:
+1. Set `jf/gptel--session-id` (agent's ID)
+2. Set `jf/gptel--session-dir` (agent's directory)
+3. Set `jf/gptel--branch-name` to "main"
+4. Set `jf/gptel--branch-dir` (same as session-dir)
+5. Apply preset configuration (dynamically scoped)
+
+Variables persist OUTSIDE preset's dynamic scope.
+
+#### Scenario: Path configuration never inherited
+- **WHEN** parent has allowed paths in scope.yml
+- **AND** agent created without `allowed_paths`
+- **THEN** agent gets empty read paths `[]`
+- **AND** does NOT inherit parent's paths
+- **AND** agent only accesses files explicitly in `allowed_paths` parameter
+
+#### Scenario: Buffer-local vars set before preset
+- **WHEN** initializing agent buffer
+- **THEN** sets session vars first (session-id, session-dir, branch-name, branch-dir)
+- **AND** then applies preset configuration
+- **AND** session vars persist outside preset's dynamic scope
+
+#### Scenario: Agent uses own scope.yml
+- **WHEN** agent buffer configured
+- **THEN** scope system reads from `<agent-dir>/scope.yml`
+- **AND** NOT from parent's scope.yml
+- **AND** validates agent tools against agent's scope only
+
+#### Scenario: Backend/model from preset only
+- **WHEN** agent configured
+- **THEN** uses settings from preset in `gptel--known-presets`
+- **AND** does NOT inherit parent's backend/model/temperature/system-message
 
 ### Requirement: Execution lifecycle
 
 The system SHALL execute agents asynchronously with FSM state tracking and dual-duty response accumulation.
 
-Execution flow SHALL:
-1. Insert prompt into agent buffer (becomes part of conversation history)
-2. Initiate gptel-request with buffer, position, overlay context, and FSM handlers
-3. Transition through WAIT state (overlay shows "Waiting...")
-4. Transition through TOOL state on tool calls (overlay shows "Tools (+N)")
-5. Accumulate string responses for parent callback
-6. Insert responses into buffer for persistence
-7. Trigger auto-save after each response
-8. Delete overlay and invoke parent callback on completion
+**Execution flow**:
+1. Insert prompt into agent buffer
+2. Associate buffer with session.md file
+3. Set buffer as modified
+4. Initiate gptel-request with custom FSM
+5. WAIT state → overlay shows "Waiting..."
+6. TOOL state → overlay shows "Calling Tools (+N)"
+7. Accumulate string responses for parent
+8. Insert responses to buffer (persistence)
+9. Auto-save after each response
+10. Delete overlay and invoke parent callback on completion
 
-#### Scenario: Prompt inserted to buffer before request
-- **WHEN** launching an agent with a prompt
-- **THEN** the system inserts the prompt text into the agent buffer
-- **AND** appends "\n\n" after the prompt
-- **AND** sets buffer as modified
-- **AND** gptel-request reads from buffer (prompt=nil) rather than passing ephemeral prompt
+#### Scenario: Prompt inserted before request
+- **WHEN** launching agent with prompt
+- **THEN** inserts prompt text into agent buffer
+- **AND** appends "\n\n"
+- **AND** sets buffer modified
+- **AND** gptel-request reads from buffer (not ephemeral prompt)
 
-#### Scenario: gptel-request initiated with context
-- **WHEN** starting agent execution
-- **THEN** the system calls gptel-request with:
-  - :buffer agent-buffer (target buffer for responses)
-  - :position (point-max) (insert at end)
-  - :context overlay (for parent feedback)
-  - :fsm (custom FSM with WAIT and TOOL handlers)
-  - :callback (handles responses, accumulation, and parent return)
+#### Scenario: gptel-request initiated
+- **WHEN** starting execution
+- **THEN** calls gptel-request with:
+  - `:buffer` agent-buffer
+  - `:position` (point-max)
+  - `:context` overlay
+  - `:fsm` custom handlers
+  - `:callback` accumulation handler
+  - No `:prompt` (reads from buffer)
 
 #### Scenario: WAIT state updates overlay
-- **WHEN** agent enters WAIT state (waiting for API response)
-- **THEN** the custom FSM handler jf/gptel-persistent-agent--indicate-wait runs
-- **AND** updates overlay after 1.5 seconds with "Waiting..." message
-- **AND** checks overlay validity before updating (buffer may be killed)
+- **WHEN** agent enters WAIT state
+- **THEN** FSM handler uses run-at-time with 1.5 second delay
+- **AND** updates overlay with "Waiting..." message
+- **AND** checks overlay validity before update
 
-#### Scenario: TOOL state updates overlay with count
-- **WHEN** agent enters TOOL state (tool calls in progress)
-- **THEN** the custom FSM handler jf/gptel-persistent-agent--indicate-tool-call runs
-- **AND** increments overlay count by number of tool calls
-- **AND** displays "Calling Tools... (+N)" with cumulative tool count
-- **AND** shows formatted tool calls in overlay
+#### Scenario: TOOL state updates overlay
+- **WHEN** agent enters TOOL state
+- **THEN** FSM handler increments overlay count
+- **AND** displays "Calling Tools... (+N)" with cumulative count
+- **AND** shows formatted tool calls
 
-#### Scenario: String responses dual-duty behavior
-- **WHEN** agent receives a string response chunk
-- **THEN** the callback:
-  1. Inserts chunk into agent buffer with gptel 'response property (persistence)
-  2. Concatenates chunk to partial accumulator string (for parent callback)
-- **AND** performs BOTH operations for every string response (not tool-result)
+#### Scenario: String responses dual-duty
+- **WHEN** agent receives string response chunk
+- **THEN** callback:
+  1. Inserts chunk into agent buffer (persistence)
+  2. Concatenates chunk to accumulator (for parent callback)
+- **AND** performs BOTH for every non-raw string response
 
-#### Scenario: Completion deletes overlay and invokes callback
-- **WHEN** agent completes (no more tool-use in info)
-- **THEN** the system deletes the overlay from parent buffer
-- **AND** applies optional transformer to accumulated result
-- **AND** invokes parent callback (main-cb) with final accumulated string
+#### Scenario: Completion deletes overlay
+- **WHEN** agent completes
+- **THEN** deletes overlay from parent buffer
+- **AND** applies optional transformer to result
+- **AND** invokes parent callback with final accumulated string
 
-#### Scenario: Auto-save triggers after each response
-- **WHEN** agent receives any API response
-- **THEN** gptel's gptel-post-response-functions hook fires
-- **AND** jf/gptel--auto-save-session-buffer saves the buffer
-- **AND** session.md is persisted to disk (incremental saves, not just final)
-
-#### Scenario: FSM handlers chained with core handlers
-- **WHEN** agent FSM processes a state transition
-- **THEN** the custom handler runs FIRST (overlay update)
-- **AND** the core gptel handler runs SECOND (e.g., gptel--handle-wait, gptel--handle-tool-use)
+#### Scenario: Auto-save after each response
+- **WHEN** agent receives any response
+- **THEN** `gptel-post-response-functions` hook fires
+- **AND** `jf/gptel--auto-save-session-buffer` saves buffer
+- **AND** session.md persisted incrementally
 
 ### Requirement: Parent-child communication
 
-The system SHALL provide non-intrusive progress feedback via overlay in the parent buffer and return accumulated results via callback.
+The system SHALL provide non-intrusive feedback via overlay and return accumulated results via callback.
 
-Overlay system SHALL:
-- Create overlay at marker position in parent buffer
-- Display task description and preset name
-- Update overlay during WAIT and TOOL states
-- Show cumulative tool call count
-- Delete overlay on completion or error
-- Check overlay validity before updates (parent buffer may be killed)
+**Overlay system**:
+- Create at marker position in parent
+- Display task description and preset
+- Update during WAIT and TOOL states
+- Show cumulative tool count
+- Delete on completion/error
+- Check validity before updates
 
-#### Scenario: Overlay created at marker position
-- **WHEN** launching an agent
-- **THEN** the system captures (point-marker) in parent buffer
-- **AND** creates overlay spanning the current line (or inserts newline if at beginning)
-- **AND** sets overlay properties: gptel-persistent-agent t, count 0, msg (task header)
+#### Scenario: Overlay created at marker
+- **WHEN** launching agent
+- **THEN** captures (point-marker) in parent buffer
+- **AND** creates overlay spanning current line
+- **AND** sets properties: gptel-persistent-agent t, count 0, msg (header)
 
-#### Scenario: Overlay displays task description
-- **WHEN** overlay is created for preset "researcher" with description "analyze patterns"
-- **THEN** the overlay's after-string contains:
+#### Scenario: Overlay shows task info
+- **WHEN** overlay created for preset "researcher", description "analyze patterns"
+- **THEN** after-string contains:
   - Horizontal rule
-  - "Researcher Task: analyze patterns" (with faces)
-  - Progress status ("Waiting..." or "Calling Tools...")
+  - "Researcher Task: analyze patterns"
+  - Progress status ("Waiting..." or "Tools...")
   - Horizontal rule
 
-#### Scenario: Overlay synchronized with FSM states
-- **WHEN** agent transitions from WAIT to TOOL state
-- **THEN** overlay changes from "Waiting..." to "Calling Tools... (+N)"
+#### Scenario: Overlay synchronized with FSM
+- **WHEN** agent transitions WAIT → TOOL
+- **THEN** overlay updates from "Waiting..." to "Calling Tools... (+N)"
 - **AND** shows formatted tool calls
 
-#### Scenario: Final result accumulated from responses
-- **WHEN** agent receives multiple response chunks
-- **THEN** the callback concatenates chunks into partial variable (let-bound)
-- **AND** only NON-RAW string responses are accumulated (tool-results are raw)
-- **AND** parent receives complete concatenated string, not tool internals
+#### Scenario: Tool count accumulation
+- **WHEN** agent makes multiple tool calls
+- **THEN** overlay shows cumulative count: "Tools (+1)", "Tools (+2)", etc.
 
-#### Scenario: Parent callback receives string result
-- **WHEN** agent completes successfully
-- **THEN** the system invokes (funcall main-cb partial)
-- **AND** main-cb is the callback provided by gptel-agent package
-- **AND** result appears in parent buffer via gptel's tool result display
-
-#### Scenario: Overlay validity checked before updates
-- **WHEN** FSM handler tries to update overlay
-- **THEN** the system checks (overlay-buffer overlay) returns non-nil
-- **AND** skips update if parent buffer was killed
-- **AND** prevents crashes from dangling overlay references
-
-#### Scenario: Overlay deleted on all completion paths
-- **WHEN** agent completes with success, error, or abort
-- **THEN** the system calls (delete-overlay ov) in every terminal callback branch
-- **AND** ensures overlay is always cleaned up
+#### Scenario: Parent callback receives result
+- **WHEN** agent completes
+- **THEN** invokes parent callback with concatenated string
+- **AND** result appears in parent buffer via gptel's tool system
 
 ### Requirement: Persistence and resumption
 
-The system SHALL auto-save the agent buffer after every API response, preserving full conversation history including tool results.
+The system SHALL auto-save agent buffer after every API response, preserving full conversation.
 
-Persistence SHALL:
-- Register auto-save hook during agent buffer initialization
-- Trigger save after each response (not just final)
-- Include tool results in saved conversation via gptel-include-tool-results
-- Register session in global registry with branch info
-- Enable session resumption via find-file on session.md
+**Persistence**:
+- Register auto-save hook during init
+- Trigger save after each response
+- Include tool calls and results
+- Register in global registry
+- Enable resumption via find-file
 
-#### Scenario: Auto-save hook registered at creation
+#### Scenario: Auto-save hook registered
 - **WHEN** initializing agent buffer
-- **THEN** the system adds jf/gptel--auto-save-session-buffer to gptel-post-response-functions
-- **AND** makes the hook buffer-local (fifth argument t)
+- **THEN** adds `jf/gptel--auto-save-session-buffer` to `gptel-post-response-functions`
+- **AND** makes hook buffer-local
 
-#### Scenario: Every API response triggers buffer save
-- **WHEN** agent receives a response chunk, tool result, or final response
-- **THEN** gptel-post-response-functions hook fires
-- **AND** jf/gptel--auto-save-session-buffer checks jf/gptel--session-dir and buffer-file-name
-- **AND** calls (save-buffer) if both are non-nil
+#### Scenario: Every response triggers save
+- **WHEN** agent receives response chunk or tool result
+- **THEN** hook fires automatically
+- **AND** saves buffer
+- **AND** session.md updated incrementally
 
-#### Scenario: Tool results included in conversation
-- **WHEN** applying preset configuration to agent buffer
-- **THEN** the preset includes :include-tool-results t
-- **AND** gptel inserts tool calls and results into buffer
-- **AND** full conversation with tools is saved to session.md
+#### Scenario: Tool calls included
+- **WHEN** agent executes tools
+- **THEN** gptel inserts tool calls and results to buffer
+- **AND** written to session.md during auto-save
 
-#### Scenario: Session registered in global registry
-- **WHEN** creating an agent session
-- **THEN** the system calls jf/gptel--register-session with:
-  - session-dir (agent directory)
-  - agent-buffer (buffer reference)
-  - session-id (extracted from directory name)
-  - branch-name ("main")
-  - branch-dir (same as session-dir, agents don't branch)
-- **AND** registry stores plist with `:session-id`, `:session-dir`, `:branch-name`, `:branch-dir`, `:buffer`
+#### Scenario: Session registered
+- **WHEN** creating agent
+- **THEN** calls `jf/gptel--register-session` with session-dir, buffer, etc.
+- **AND** registry stores plist with paths and buffer reference
 
-#### Scenario: Conversation history fully preserved
-- **WHEN** agent executes multiple tool calls and receives multiple responses
-- **THEN** session.md contains:
-  - Original prompt (inserted before request)
-  - All tool calls (via gptel tool display)
-  - All tool results (via gptel-include-tool-results)
-  - All LLM responses (inserted by callback)
-- **AND** conversation is complete and resumable
-
-#### Scenario: Session resumable via find-file
-- **WHEN** user opens `<agent-dir>/session.md` via find-file
-- **THEN** the auto-initialization hook (jf/gptel--maybe-initialize-session-buffer) fires
-- **AND** detects the session file pattern (*/agents/*/session.md)
+#### Scenario: Session resumable
+- **WHEN** user opens `<agent-dir>/session.md`
+- **THEN** auto-init detects pattern `*/agents/*/session.md`
 - **AND** loads preset, sets buffer-local vars, enables gptel-mode
-- **AND** buffer is ready for continued conversation
+- **AND** buffer ready for continued conversation
 
-#### Scenario: scope-plan.yml updated timestamp is NOT managed by auto-save
-- **WHEN** agent buffer auto-saves
-- **THEN** the system only saves session.md
-- **AND** does NOT update scope-plan.yml's updated timestamp
-- **AND** scope-plan.yml timestamp is managed by scope commands, not persistence
+### Requirement: Error handling
 
-### Requirement: Error handling and recovery
+The system SHALL gracefully handle errors with consistent overlay cleanup.
 
-The system SHALL gracefully handle errors with consistent overlay cleanup and structured error reporting to parent.
+#### Scenario: Network error cleanup
+- **WHEN** gptel-request callback receives nil (network failure)
+- **THEN** deletes overlay from parent
+- **AND** invokes parent callback with error message
 
-Error handling SHALL:
-- Delete overlay on all error paths
-- Return structured error messages to parent callback
-- Handle network/API errors, user abort, filesystem errors
-- Catch exceptions in callback to prevent crashes
+#### Scenario: User abort
+- **WHEN** user denies tool confirmation
+- **THEN** deletes overlay
+- **AND** invokes parent callback: "Error: User aborted agent"
 
-#### Scenario: Network/API error cleanup
-- **WHEN** gptel-request callback receives resp=nil (network failure)
-- **THEN** the system:
-  1. Deletes overlay from parent buffer
-  2. Invokes parent callback with formatted error: "Error: Network failure\n%S" (includes :error plist)
-
-#### Scenario: User abort handled gracefully
-- **WHEN** user denies tool confirmation (resp='abort)
-- **THEN** the system:
-  1. Deletes overlay from parent buffer
-  2. Invokes parent callback with message: "Error: User aborted agent"
-
-#### Scenario: Missing preset.md reports clear error
-- **WHEN** jf/gptel--load-preset-from-file returns nil (file missing or unparseable)
-- **THEN** the system raises error: "Failed to load preset from %s"
-- **AND** does NOT silently fall back to defaults
-
-#### Scenario: Parent validation failure prevents creation
-- **WHEN** PersistentAgent invoked in buffer without jf/gptel--session-dir
-- **THEN** the system raises user-error before any directory creation
-- **AND** prevents partial state (no orphaned directories)
-
-#### Scenario: Filesystem errors logged and reported
-- **WHEN** directory creation, file copy, or metadata write fails
-- **THEN** the system logs error via jf/gptel--log at 'error level
-- **AND** propagates error to caller (does not silently continue)
-
-#### Scenario: Exception handling in callback
-- **WHEN** callback encounters unexpected exception during response processing
-- **THEN** the system should catch and handle gracefully
-- **AND** log error with context for debugging
-- **AND** invoke parent callback with error message (not crash)
+#### Scenario: Preset validation
+- **WHEN** invoked with preset not in `gptel--known-presets`
+- **THEN** raises user-error before directory creation
+- **AND** prevents partial state
 
 #### Scenario: Overlay always cleaned up
-- **WHEN** ANY terminal state is reached (success, error, abort)
-- **THEN** the callback MUST call (delete-overlay ov)
-- **AND** overlay is removed from parent buffer
-- **AND** no dangling overlays persist after completion
+- **WHEN** ANY terminal state reached (success, error, abort)
+- **THEN** callback MUST call `(delete-overlay ov)`
+- **AND** no dangling overlays persist
 
-### Requirement: Integration with sessions subsystem
-
-The PersistentAgent tool SHALL use the sessions filesystem, metadata, and registry modules for directory management and session tracking.
-
-Dependencies SHALL include:
-- gptel-session-filesystem: Directory creation, path resolution
-- gptel-session-metadata: Preset loading, scope-plan.yml reading
-- gptel-session-registry: Session registration and global tracking
-- gptel-session-logging: Structured logging
-
-#### Scenario: Agent directory created via filesystem module
-- **WHEN** creating an agent session
-- **THEN** the system calls jf/gptel--create-agent-directory from filesystem module
-- **AND** passes parent-branch-dir, preset, and description
-- **AND** returns agent directory path: `<parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/`
-
-#### Scenario: Preset template copied via filesystem helper
-- **WHEN** initializing agent configuration
-- **THEN** the system calls jf/gptel--copy-preset-template
-- **AND** copies from `config/gptel/presets/<preset>.md` to `<agent-dir>/preset.md`
-
-#### Scenario: Preset loaded via metadata module
-- **WHEN** loading agent configuration
-- **THEN** the system calls jf/gptel--load-preset-from-file
-- **AND** parses YAML frontmatter from `<agent-dir>/preset.md`
-- **AND** returns plist with :backend, :model, :temperature, :tools, etc.
-
-#### Scenario: Session metadata read from scope-plan.yml
-- **WHEN** registering agent session
-- **THEN** the system calls jf/gptel--read-session-metadata
-- **AND** parses scope-plan.yml for :created, :type, :parent-session-id, :preset
-- **AND** uses metadata for registry entry
-
-#### Scenario: Session registered via registry module
-- **WHEN** agent buffer is initialized
-- **THEN** the system calls jf/gptel--register-session
-- **AND** creates hash table entry with key `"<session-id>/main"`
-- **AND** stores plist with session paths and buffer reference
-
-#### Scenario: Logging via logging module
-- **WHEN** performing operations (directory creation, preset loading, etc.)
-- **THEN** the system calls jf/gptel--log with level and message
-- **AND** logs at INFO level for successful operations
-- **AND** logs at ERROR level for failures
-
-#### Scenario: Path resolution via constants
-- **WHEN** constructing file paths for agent session
-- **THEN** the system uses constants from gptel-session-constants module
-- **AND** calls helpers like jf/gptel--context-file-path, jf/gptel--preset-file-path
-- **AND** does NOT hardcode filenames
-
-### Requirement: Integration with scope subsystem
-
-The PersistentAgent tool SHALL integrate with the scope system through preset-based configuration and path inheritance.
-
-Scope integration SHALL:
-- Load scope patterns from agent's preset.md YAML frontmatter
-- Update preset.md with paths section (read, write, deny)
-- Support inheriting parent's allowed read paths
-- Validate agent tools against agent's scope (not parent's scope)
-
-#### Scenario: Agent scope loaded from preset.md
-- **WHEN** agent buffer is initialized and preset applied
-- **THEN** the scope system reads paths section from agent's preset.md:
-```yaml
-paths:
-  read:
-    - "/path/to/project/**"
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-```
-- **AND** validates agent tool calls against these patterns
-
-#### Scenario: Preset.md updated with path controls
-- **WHEN** creating agent with allowed_paths ["/project/**"]
-- **THEN** the system calls jf/gptel-scope--update-preset-paths
-- **AND** writes or updates the paths section in agent's preset.md
-- **AND** includes allowed (read), write defaults, and deny defaults
-
-#### Scenario: Agent inherits parent allowed paths
-- **WHEN** creating agent without specifying allowed_paths
-- **THEN** the system:
-  1. Reads parent's preset.md YAML frontmatter
-  2. Extracts paths.read patterns via jf/gptel-scope--parse-preset-config
-  3. Passes inherited patterns to jf/gptel-scope--update-preset-paths
-  4. Writes to agent's preset.md
-
-#### Scenario: scope-plan.yml contains metadata only
-- **WHEN** writing scope-plan.yml for agent
-- **THEN** the file contains session metadata (session_id, created, updated, type, parent_session_id, preset)
-- **AND** does NOT contain scope configuration (paths, org_roam_patterns, shell_commands)
-- **AND** scope config lives exclusively in preset.md (file format contract)
-
-#### Scenario: Agent tools validated against agent scope
-- **WHEN** agent executes a tool like Read or Edit
-- **THEN** the scope system checks buffer-local jf/gptel--branch-dir
-- **AND** loads scope config from agent's preset.md (not parent's)
-- **AND** validates path against agent's allowed/denied patterns
-
-#### Scenario: Meta tool bypasses scope validation
-- **WHEN** parent session invokes PersistentAgent tool
-- **THEN** the scope system categorizes PersistentAgent as meta
-- **AND** allows invocation without checking parent's scope patterns
-- **AND** agent's own tools still respect agent's scope
-
-### Requirement: Integration with gptel package
-
-The PersistentAgent tool SHALL extend gptel's FSM, request system, and hook infrastructure for async execution and persistence.
-
-gptel integration SHALL:
-- Use gptel-request for async API calls
-- Extend FSM with custom WAIT and TOOL state handlers
-- Hook into gptel-post-response-functions for auto-save
-- Use gptel-with-preset for dynamic scope configuration
-- Leverage gptel-include-tool-results for conversation preservation
-- Use gptel-make-tool for tool registration
-
-#### Scenario: Custom FSM handlers registered
-- **WHEN** creating FSM for agent request
-- **THEN** the system passes jf/gptel-persistent-agent--fsm-handlers to gptel-make-fsm
-- **AND** FSM contains tuples: (STATE UI-HANDLER CORE-HANDLER)
-  - WAIT: (jf/gptel-persistent-agent--indicate-wait, gptel--handle-wait)
-  - TOOL: (jf/gptel-persistent-agent--indicate-tool-call, gptel--handle-tool-use)
-
-#### Scenario: gptel-request executes async
-- **WHEN** agent launches
-- **THEN** the system calls gptel-request with nil prompt (reads buffer)
-- **AND** passes :buffer, :position, :context, :fsm, :callback
-- **AND** request executes asynchronously (non-blocking)
-
-#### Scenario: gptel-post-response-functions hook used
-- **WHEN** agent buffer receives a response
-- **THEN** gptel triggers gptel-post-response-functions hook
-- **AND** jf/gptel--auto-save-session-buffer runs as buffer-local hook
-- **AND** buffer is saved automatically
-
-#### Scenario: gptel-with-preset creates clean scope
-- **WHEN** executing agent request
-- **THEN** the system uses gptel-with-preset macro
-- **AND** passes plist with :use-tools t, :include-tool-results t, :tools (captured list)
-- **AND** preset scope applies only during gptel-request (dynamic binding)
-
-#### Scenario: gptel-include-tool-results preserves tools
-- **WHEN** agent preset includes :include-tool-results t
-- **THEN** gptel inserts tool calls and results into buffer as text
-- **AND** full conversation with tools is preserved in session.md
-
-#### Scenario: Tool registered via gptel-make-tool
-- **WHEN** PersistentAgent module loads
-- **THEN** the system calls gptel-make-tool with:
-  - :name "PersistentAgent"
-  - :description (tool description with usage guidance)
-  - :function #'jf/gptel-persistent-agent--task
-  - :args (preset, description, prompt, allowed_paths, denied_paths)
-  - :category "gptel-persistent"
-  - :async t, :confirm t, :include t
-
-### Requirement: Critical behavioral invariants
-
-The system SHALL maintain these invariants across all operations.
-
-#### Invariant: Parent session required
-- **AT ALL TIMES** when PersistentAgent is invoked
-- **IT MUST BE TRUE** that buffer-local jf/gptel--session-dir is non-nil
-- **VIOLATION** causes user-error before any side effects
-
-#### Invariant: Buffer-local vars set before preset scope
-- **AT ALL TIMES** when initializing agent buffer
-- **IT MUST BE TRUE** that session vars (jf/gptel--session-id, jf/gptel--session-dir, jf/gptel--branch-name, jf/gptel--branch-dir) are set BEFORE calling jf/gptel--apply-session-preset
-- **REASON** session vars must persist outside preset's dynamic scope
-
-#### Invariant: Tool results included
-- **AT ALL TIMES** when agent executes with tools
-- **IT MUST BE TRUE** that :include-tool-results t is set in preset
-- **REASON** tool I/O must be saved for complete conversation history
-
-#### Invariant: Auto-save triggers on response
-- **AT ALL TIMES** after agent receives API response
-- **IT MUST BE TRUE** that gptel-post-response-functions hook fires and saves buffer
-- **REASON** incremental persistence enables resumption from any point
-
-#### Invariant: Prompt inserted to buffer, request reads from buffer
-- **AT ALL TIMES** when launching agent
-- **IT MUST BE TRUE** that prompt is inserted to buffer BEFORE gptel-request(nil)
-- **REASON** prompt becomes part of persistent conversation, not ephemeral parameter
-
-#### Invariant: Tools captured in agent buffer context
-- **AT ALL TIMES** when setting up agent request
-- **IT MUST BE TRUE** that agent-tools is set INSIDE (with-current-buffer agent-buffer)
-- **REASON** gptel-tools is buffer-local, must be captured in correct context
-
-#### Invariant: Overlay cleaned up on all paths
-- **AT ALL TIMES** when callback reaches terminal state (success, error, abort)
-- **IT MUST BE TRUE** that (delete-overlay ov) is called
-- **REASON** prevents dangling overlays in parent buffer
-
-#### Invariant: Zero configuration inheritance
-- **AT ALL TIMES** when loading agent configuration
-- **IT MUST BE TRUE** that config comes ONLY from agent's preset.md file
-- **VIOLATION** would be reading from parent's buffer-local vars or in-memory state
-
-#### Invariant: Agent directory under parent branch
-- **AT ALL TIMES** when creating agent directory
-- **IT MUST BE TRUE** that path is `<parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/`
-- **REASON** agents are scoped to parent's branch, not session root
-
-#### Invariant: Agents do not branch
-- **AT ALL TIMES** for agent sessions
-- **IT MUST BE TRUE** that no `branches/` subdirectory or `current` symlink exists
-- **REASON** agents are single-timeline, no branching support
-
-## Critical Integration Boundaries
+## Integration Points
 
 ### With Sessions Subsystem
-- Uses filesystem module for directory creation: `jf/gptel--create-agent-directory`, `jf/gptel--agents-dir-path`
-- Uses metadata module for preset loading: `jf/gptel--load-preset-from-file`, `jf/gptel--read-session-metadata`
-- Uses registry module for session tracking: `jf/gptel--register-session`
-- Follows same directory structure conventions: preset.md, session.md, scope-plan.yml
+- Uses `jf/gptel--create-agent-directory` for directory creation
+- Writes metadata.yml directly (type="agent")
+- Registers via `jf/gptel--register-session`
+- Follows same file structure (session.md, scope.yml, metadata.yml)
 
 ### With Scope Subsystem
-- Loads scope configuration from agent's preset.md YAML frontmatter
-- Updates preset.md with path controls via `jf/gptel-scope--update-preset-paths`
-- Agent tools validated against agent's scope (not parent's)
-- Can inherit parent's allowed paths if not explicitly provided
-- Meta tool categorization bypasses scope checks for tool invocation
+- Writes scope.yml with explicit paths (from `allowed_paths` parameter)
+- NEVER reads parent's scope.yml
+- Agent tools validated against agent's scope.yml
+- Meta tool categorization bypasses parent scope checks
 
-### With gptel Package (upstream)
-- Extends FSM with custom WAIT and TOOL state handlers
-- Uses `gptel-request` for async execution with callback
+### With gptel Package
+- Extends FSM with custom WAIT/TOOL handlers
+- Uses `gptel-request` for async execution
 - Hooks into `gptel-post-response-functions` for auto-save
-- Uses `gptel-with-preset` for dynamic scope configuration
-- Leverages `gptel-include-tool-results` for conversation persistence
-- Uses `gptel-make-tool` for tool registration
+- Uses `gptel-make-tool` for registration
 
-## Lifecycle State Diagram
+## Critical Invariants
 
-```
-1. Creation
-   ├─ Validate parent session exists
-   ├─ Create directory: <parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/
-   ├─ Copy preset template → preset.md
-   ├─ Update preset.md with paths section
-   ├─ Write scope-plan.yml (metadata: type="agent", parent_session_id)
-   ├─ Create empty session.md
-   └─ Register in global registry
+1. **Parent session required**: `jf/gptel--session-dir` must be non-nil
+2. **Buffer-local vars before preset**: Set session vars BEFORE applying preset
+3. **Zero inheritance**: Paths ONLY from `allowed_paths` parameter, never parent
+4. **Auto-save on every response**: Incremental persistence enables resumption
+5. **Prompt inserted to buffer**: Request reads from buffer, not ephemeral parameter
+6. **Overlay cleanup on all paths**: Delete overlay on success, error, abort
+7. **No branching**: Agents are single-timeline, no branches/ subdirectory
 
-2. Execution
-   ├─ Create agent buffer (markdown-mode, gptel-mode)
-   ├─ Set buffer-local session vars (BEFORE preset scope)
-   ├─ Apply preset from file (backend, model, tools, system message)
-   ├─ Capture tools from agent buffer context
-   ├─ Register auto-save hook (gptel-post-response-functions)
-   ├─ Insert prompt to buffer
-   ├─ Associate buffer with session.md
-   └─ Launch gptel-request (async)
+## Summary
 
-3. Progress
-   ├─ Create overlay in parent buffer
-   ├─ WAIT state → update overlay ("Waiting...")
-   ├─ TOOL state → update overlay ("Tools (+N)")
-   └─ Check overlay validity before updates
-
-4. Persistence
-   ├─ Dual-duty callback: insert to buffer + accumulate for parent
-   ├─ Auto-save after EACH response (not just final)
-   ├─ Tool results included in saved conversation
-   └─ Session.md fully resumable
-
-5. Completion
-   ├─ Accumulate final result string
-   ├─ Delete overlay
-   ├─ Invoke parent callback with result
-   └─ Registry tracks session for discovery
-
-6. Error/Abort
-   ├─ Network error → delete overlay, return error to parent
-   ├─ User abort → delete overlay, return 'abort
-   ├─ Filesystem error → log and propagate error
-   └─ Overlay always cleaned up
-
-7. Resumption
-   ├─ Open session.md via find-file
-   ├─ Auto-initialization detects agent session pattern
-   ├─ Load preset, set buffer-local vars, enable gptel-mode
-   └─ Continue conversation from any point
-```
-
-## Verification Checklist
-
-After reviewing implementation:
-
-- [x] Spec captures tool invocation and validation (parent session requirement, meta categorization)
-- [x] Spec covers agent session creation (directory under parent branch, no branching support)
-- [x] Spec enforces configuration isolation (zero inheritance, preset-only config)
-- [x] Spec describes execution lifecycle (FSM states, overlay updates, dual-duty callback)
-- [x] Spec documents parent-child communication (overlay system, result accumulation)
-- [x] Spec covers persistence and resumption (auto-save, registry, find-file resumption)
-- [x] Spec handles error cases (network, abort, filesystem, overlay cleanup)
-- [x] Spec cross-references sessions-persistence.md (directory structure, metadata format)
-- [x] Spec cross-references scope.md (preset-based config, path inheritance)
-- [x] Spec uses SHALL language for requirements
-- [x] Critical invariants explicitly stated (tool capture, overlay cleanup, zero inheritance)
-
-## Test Questions
-
-**Q: If I wanted to add a new agent preset, what contract must I follow?**
-A: Create `config/gptel/presets/<preset-name>.md` with YAML frontmatter (backend, model, tools, temperature, etc.) and system message body. Add preset name to :enum in PersistentAgent :args. Preset will be copied to agent directory and loaded from file.
-
-**Q: What happens if parent buffer is killed while agent is running?**
-A: FSM handlers check `(overlay-buffer overlay)` before updates. If nil (buffer killed), handlers skip update. This prevents crashes from dangling overlay references.
-
-**Q: Can an agent spawn another agent?**
-A: Yes, if the spawned agent is itself a persistent session (has jf/gptel--session-dir set). PersistentAgent is categorized as meta, so agents with the PersistentAgent tool can spawn sub-agents. However, check preset definitions - not all presets include PersistentAgent.
-
-**Q: How does agent resume work?**
-A: Open `<agent-dir>/session.md` via find-file. Auto-initialization hook detects pattern `*/agents/*/session.md`, loads preset, sets buffer-local vars, enables gptel-mode. Full conversation history (including tools) is loaded, session is ready to continue.
-
-**Q: What's the difference between agent and branch sessions?**
-A: Agents live under `<parent-branch-dir>/agents/`, have `type: "agent"` in scope-plan.yml, include `parent_session_id`, and do NOT support branching (no branches/ subdirectory, no current symlink). Branch sessions live under `<session-dir>/branches/`, support branching and merging, and have `type: "branch"` (or unset).
-
-## Related Specs
-
-- **sessions-persistence.md** - Session directory structure, metadata format, registry, auto-save behavior
-- **sessions-branching.md** - Branch operations, not applicable to agents (agents don't branch)
-- **scope.md** - Preset-based scope configuration, path validation, tool categorization (meta tools)
-- **architecture.md** - Overall subsystem boundaries and integration points (when created)
+PersistentAgent provides autonomous sub-agents with:
+- **Zero inheritance** (isolated configuration)
+- **Explicit scope** (only allowed_paths parameter)
+- **Async execution** (non-blocking parent)
+- **Progress feedback** (overlays in parent)
+- **Full persistence** (resumable conversations)
+- **Parent-child tracking** (metadata.yml links)

@@ -1,409 +1,353 @@
-# GPTEL Sessions Persistence
+# Sessions Persistence
 
-Behavioral specification for gptel session lifecycle management, file-based persistence, metadata tracking, and auto-save behavior.
+## Purpose
 
-**Scope:** This spec covers persistence fundamentals only. Branching operations and PersistentAgent integration are documented in separate specs.
+Provides file-based persistence for gptel conversations across Emacs sessions. Enables long-lived conversations with:
+- Directory-based storage (introspectable on disk)
+- Branch support (fork conversations)
+- Auto-restoration (sessions initialize on file open)
+- Scope-based access control (declarative permissions)
+- Activities integration (project-isolated sessions)
 
-## ADDED Requirements
+## Key Concepts
 
-### Requirement: Session directory structure
-
-The system SHALL maintain a hierarchical directory structure for session storage with the following layout:
+### Directory Structure
 
 ```
-~/.gptel/sessions/
-└── <session-id>/
-    ├── branches/
-    │   └── <branch-name>/
-    │       ├── session.md          (conversation history, markdown)
-    │       ├── scope-plan.yml      (session metadata)
-    │       ├── preset.md           (configuration with YAML frontmatter)
-    │       ├── branch-metadata.yml (branch-specific metadata)
-    │       ├── tools.org           (tool execution log, org-mode)
-    │       └── system-prompts.org  (system prompt change log, org-mode)
-    └── current → branches/<branch-name>  (symlink to active branch)
+~/.gptel/sessions/<session-id>/
+├── branches/<branch-name>/
+│   ├── session.md          # Conversation history (markdown)
+│   ├── metadata.yml        # Session metadata
+│   ├── scope.yml           # Scope configuration
+│   ├── branch-metadata.yml # Branch info (non-main only)
+│   ├── tools.org           # Tool log (optional)
+│   ├── system-prompts.org  # Prompt log (optional)
+│   └── agents/             # Sub-agents (optional)
+└── current -> branches/<branch-name>  # Active branch symlink
 ```
 
-The root directory SHALL be configurable via `jf/gptel-sessions-directory`.
+### File Formats
 
-#### Scenario: Valid session directory structure
-- **WHEN** a session exists on disk
-- **THEN** it MUST contain a `branches/` subdirectory
-- **AND** at least one branch directory under `branches/`
-- **AND** each branch directory MUST contain `session.md`
+**session.md**:
+- Format: Markdown (gptel native format)
+- Content: Conversation history
+- Initial: `"###\n"` (markdown heading)
+- Local Variables: Added by upstream gptel on first save
 
-#### Scenario: Current branch symlink
-- **WHEN** a session has an active branch
-- **THEN** the `current` symlink MUST point to `branches/<branch-name>` using a relative path
-- **AND** following the symlink SHALL resolve to the active branch directory
-
-### Requirement: Session identification
-
-The system SHALL generate unique session identifiers using the format `<slug>-<timestamp>` where:
-- `<slug>` is a URL-friendly version of the session name
-- `<timestamp>` is in YYYYMMDDHHMMSS format
-
-Session IDs SHALL be immutable after creation.
-
-#### Scenario: Session ID generation
-- **WHEN** creating a new session with name "React Refactoring"
-- **THEN** the system generates an ID like `react-refactoring-20260205143052`
-- **AND** the ID uniquely identifies the session for its lifetime
-
-#### Scenario: Session ID immutability
-- **WHEN** a session is created with a specific ID
-- **THEN** that ID MUST NOT change even if the session name or metadata is modified
-
-### Requirement: File format contracts
-
-The system SHALL use the following file formats for session persistence:
-
-**session.md (Conversation History)**
-- Format: Markdown
-- Purpose: Store conversation content in gptel's native format
-- Location: `<session-dir>/branches/<branch-name>/session.md`
-
-**scope-plan.yml (Session Metadata)**
+**metadata.yml**:
 - Format: YAML
-- Required fields: `session_id`, `created`, `updated`, `preset`
-- Optional fields: `type` ("agent" or "branch"), `parent_session_id`
-- Location: `<session-dir>/branches/<branch-name>/scope-plan.yml`
+- Keys: `session_id`, `created`, `updated`, `preset`, `type` (optional), `parent_session_id` (optional)
+- Contains session-level metadata
 
-**preset.md (Configuration)**
-- Format: Markdown with YAML frontmatter
-- Frontmatter fields: `backend`, `model`, `temperature`, `include-tool-results`, `tools`
-- Body: System message content
-- Location: `<session-dir>/branches/<branch-name>/preset.md`
-
-**branch-metadata.yml (Branch Metadata)**
+**scope.yml**:
 - Format: YAML
-- Fields: `parent_branch`, `created`, `branch_point_position` (optional)
-- Location: `<session-dir>/branches/<branch-name>/branch-metadata.yml`
+- Content: Mutable scope configuration (paths, org-roam patterns, bash tools)
+- Generated from preset's scope profile at creation
 
-#### Scenario: scope-plan.yml required fields
-- **WHEN** reading session metadata from scope-plan.yml
-- **THEN** the file MUST contain `session_id`, `created`, `updated`, and `preset` fields
-- **AND** `session_id` MUST match the session directory name
-- **AND** `created` and `updated` MUST be ISO8601 timestamps
+**branch-metadata.yml**:
+- Format: YAML
+- Location: Non-main branches only
+- Keys: `parent_branch`, `created`, `branch_point_position` (optional)
 
-#### Scenario: preset.md YAML frontmatter
-- **WHEN** reading configuration from preset.md
-- **THEN** the YAML frontmatter MUST contain `backend` and `model` fields
-- **AND** the markdown body contains the system message
+### Session Identification
 
-#### Scenario: Backward compatibility with agent_type
-- **WHEN** reading an older scope-plan.yml that uses `agent_type` instead of `preset`
-- **THEN** the system SHALL accept `agent_type` as a fallback for the `preset` field
+**Format**: `<slug>-<timestamp>`
+- Slug: lowercased, alphanumeric-and-dash only
+- Timestamp: `%Y%m%d%H%M%S` (14 digits)
+- Example: `react-refactoring-20260120153042`
+- Immutable after creation
 
-### Requirement: Registry and filesystem separation
+### Registry
 
-The system SHALL maintain a clear separation between in-memory registry and on-disk persistence:
+**Data structure**: Hash table `jf/gptel--session-registry`
+- **Key**: `"session-id/branch-name"` (string)
+- **Value**: `(:session-id :session-dir :branch-name :branch-dir :buffer)` (plist)
+- **Important**: Metadata NOT cached - read from disk on-demand
+- **Source of truth**: Filesystem, not registry
 
-**Registry (Memory)**
-- Hash table with keys: `"<session-id>/<branch-name>"`
-- Values: Plists containing `:session-id`, `:session-dir`, `:branch-name`, `:branch-dir`, `:buffer`
-- Purpose: O(1) lookup and buffer association
+### Buffer-Local Variables
 
-**Filesystem (Source of Truth)**
-- Directory structure under `~/.gptel/sessions/`
-- Metadata files: scope-plan.yml, preset.md, branch-metadata.yml
-- Conversation history: session.md
-- Purpose: Persistent storage and source of truth
+Session buffers have these buffer-local vars:
+- `jf/gptel--session-id`
+- `jf/gptel--session-dir`
+- `jf/gptel--branch-name`
+- `jf/gptel--branch-dir`
+- `jf/gptel--parent-session-id` (for agents)
+- `jf/gptel-autosave-enabled`
+- `gptel-activity-worktrees` (for activities)
 
-Metadata SHALL be read from disk on-demand, NOT cached in the registry.
+## Requirements
 
-#### Scenario: Registry lookup performance
-- **WHEN** looking up a session by session-id and branch-name
-- **THEN** the registry SHALL provide O(1) lookup time
-- **AND** return a plist with session-dir, branch-dir, and buffer reference
+### Requirement: Directory structure initialization
 
-#### Scenario: Filesystem as source of truth
-- **WHEN** the system needs session metadata
-- **THEN** it MUST read from disk (scope-plan.yml, preset.md)
-- **AND** NOT rely on cached values in the registry
+The system SHALL create this hierarchy for each session:
 
-#### Scenario: Registry initialization from disk
-- **WHEN** Emacs starts or registry is refreshed
-- **THEN** the system SHALL scan `~/.gptel/sessions/` for all session directories
-- **AND** discover all branches within each session
-- **AND** populate the registry with session-id, branch-name, and paths
-- **AND** initialize buffer references to nil
+```
+<session-dir>/
+├── branches/<branch-name>/
+│   ├── session.md
+│   ├── metadata.yml
+│   ├── scope.yml
+│   └── branch-metadata.yml (if not main)
+└── current -> branches/<branch-name>
+```
 
-### Requirement: Session lifecycle - Create
+**Implementation**: `config/gptel/sessions/filesystem.org`
 
-The system SHALL support creating new sessions via `jf/gptel-persistent-session` or activities integration.
+#### Scenario: New session creation
+- **WHEN** running `M-x jf/gptel-persistent-session`
+- **THEN** creates `branches/main/` directory
+- **AND** `current` symlink points to `branches/main`
+- **AND** no `branch-metadata.yml` in main branch
 
-On session creation, the system SHALL:
-1. Generate a unique session ID
-2. Create directory structure: `<session-id>/branches/main/`
-3. Copy preset template to `preset.md`
-4. Write scope-plan.yml with session_id, created timestamp, and preset name
-5. Create empty `session.md` file
-6. Create `current` symlink pointing to `branches/main`
-7. Register the session in the in-memory registry
+#### Scenario: Branch creation
+- **WHEN** running `M-x jf/gptel-branch-session`
+- **THEN** creates `branches/<timestamp>-<name>/` directory
+- **AND** includes `branch-metadata.yml` with parent reference
+- **AND** updates `current` symlink to new branch
 
-#### Scenario: Standalone session creation
-- **WHEN** user invokes `jf/gptel-persistent-session` with name "API Integration"
-- **THEN** the system creates `~/.gptel/sessions/api-integration-<timestamp>/branches/main/`
-- **AND** writes scope-plan.yml with `session_id: "api-integration-<timestamp>"`
-- **AND** copies the default preset template to preset.md
-- **AND** creates empty session.md
-- **AND** creates symlink `current → branches/main`
-- **AND** opens session.md in a buffer
+#### Scenario: Agent session creation
+- **WHEN** PersistentAgent tool creates sub-agent
+- **THEN** creates `branches/<branch-name>/agents/<preset>-<timestamp>-<desc>/`
+- **AND** agent directory has session.md, scope.yml, metadata.yml
+- **AND** metadata.yml includes `type: "agent"` and `parent_session_id`
 
-#### Scenario: Activities-integrated session creation
-- **WHEN** creating a session via `activities-ext-create`
-- **THEN** the session SHALL be created at `~/emacs-activities/<activity-slug-date>/session/`
-- **AND** follow the same directory structure with `branches/main/`
-- **AND** be automatically registered and opened
+### Requirement: Session file formats
 
-### Requirement: Session lifecycle - Open
+#### metadata.yml format
 
-The system SHALL auto-initialize session buffers when opening session.md files via find-file-hook.
+SHALL contain:
+- `session_id`: Session identifier
+- `created`: ISO8601 timestamp
+- `updated`: ISO8601 timestamp
+- `preset`: Preset name (e.g., "executor")
+- `type`: Optional ("agent" for sub-agents, "branch" for branches)
+- `parent_session_id`: Optional (parent session for agents/branches)
 
-Auto-initialization SHALL:
-1. Detect files matching pattern `*/branches/*/session.md`
-2. Extract session-id and branch-name from path
-3. Look up session in registry (or create entry if missing)
-4. Load preset configuration from preset.md
-5. Set buffer-local variables: `jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`
-6. Enable gptel-mode
-7. Set `jf/gptel-autosave-enabled` to t
+**Implementation**: `config/gptel/sessions/metadata.org`
 
-#### Scenario: Opening existing session via find-file
-- **WHEN** user opens `~/.gptel/sessions/my-session-20260205/branches/main/session.md`
-- **THEN** the auto-initialization hook detects the session file
-- **AND** extracts session-id "my-session-20260205" and branch-name "main"
-- **AND** loads preset configuration from preset.md
-- **AND** sets buffer-local session variables
+##### Scenario: New session metadata
+- **WHEN** creating session
+- **THEN** writes metadata.yml with session_id, created, updated, preset
+- **AND** reads back as plist with kebab-case keys (`:session-id`, `:created`, etc.)
+
+##### Scenario: Agent session metadata
+- **WHEN** creating agent session
+- **THEN** metadata.yml includes `type: "agent"` and `parent_session_id`
+
+#### scope.yml format
+
+SHALL be plain YAML (no frontmatter) with scope configuration sections generated from preset's scope profile.
+
+**Implementation**: Generated by `config/gptel/scope-profiles.org`
+
+##### Scenario: Scope created from preset profile
+- **WHEN** creating session with preset "executor" (has `:scope-profile "coding"`)
+- **THEN** loads `config/gptel/scope-profiles/coding.yml`
+- **AND** expands `${project_root}` variables
+- **AND** writes to branch directory as `scope.yml`
+
+#### session.md format
+
+SHALL be markdown format with initial content `"###\n"`. Upstream gptel writes conversation history and Local Variables block.
+
+##### Scenario: Initial session.md
+- **WHEN** creating session
+- **THEN** session.md created with `"###\n"` content
+- **AND** file is valid markdown
+
+##### Scenario: Conversation persistence
+- **WHEN** user makes requests and saves (Ctrl+S)
+- **THEN** upstream gptel's before-save-hook writes conversation
+- **AND** Local Variables block appended with preset info
+
+### Requirement: Session discovery and registry
+
+The system SHALL maintain global in-memory registry for active sessions.
+
+**Registry structure**:
+- Key: `"session-id/branch-name"`
+- Value: `(:session-id :session-dir :branch-name :branch-dir :buffer)`
+- Metadata: NOT cached (read from disk on-demand)
+
+**Implementation**: `config/gptel/sessions/registry.org`
+
+#### Scenario: Registry initialization
+- **WHEN** gptel initializes
+- **THEN** `jf/gptel--init-registry` scans all session directories
+- **AND** creates entry for each session/branch pair
+- **AND** registry count matches number of valid branches
+
+#### Scenario: Registry lookup
+- **WHEN** looking up session
+- **THEN** `jf/gptel-session-find` returns plist for session-id/branch-name
+- **AND** returns nil if not found
+
+#### Scenario: Buffer association
+- **WHEN** session opened
+- **THEN** registry stores buffer reference
+- **AND** `jf/gptel--update-session-buffer` updates registry
+
+#### Scenario: Metadata read on-demand
+- **WHEN** need session metadata
+- **THEN** call `jf/gptel--read-session-metadata` to read from disk
+- **AND** metadata NOT cached in registry
+
+### Requirement: Buffer-local session state
+
+The system SHALL track session metadata in buffer-local variables for runtime access.
+
+#### Scenario: Buffer-local vars set on session open
+- **WHEN** user opens `branches/main/session.md`
+- **THEN** auto-init sets:
+  - `jf/gptel--session-id` (from directory name)
+  - `jf/gptel--session-dir` (absolute path to session)
+  - `jf/gptel--branch-name` (extracted from file path)
+  - `jf/gptel--branch-dir` (absolute path to branch)
+  - `jf/gptel--parent-session-id` (from metadata.yml if agent)
+
+#### Scenario: Agent session vars
+- **WHEN** opening agent session
+- **THEN** `jf/gptel--parent-session-id` set from metadata.yml
+- **AND** `jf/gptel--branch-name` set to "main" (agents don't branch)
+
+### Requirement: Auto-initialization on file open
+
+The system SHALL detect and auto-initialize session files when opened via any method (C-x C-f, dired, etc.).
+
+**Implementation**: `config/gptel/sessions/commands.org` - `jf/gptel--auto-init-session-buffer` via find-file-hook
+
+#### Scenario: Session file detection
+- **WHEN** file matches `*/branches/<branch-name>/session.md` pattern
+- **THEN** auto-init recognizes as branch session
+- **AND** extracts session-id and branch-name from path
+
+#### Scenario: Agent file detection
+- **WHEN** file matches `*/agents/<agent-name>/session.md` pattern
+- **THEN** auto-init recognizes as agent session
+- **AND** sets branch-name to "main"
+
+#### Scenario: Existing session (has Local Variables)
+- **WHEN** file has `gptel--preset` in Local Variables
+- **THEN** sets buffer-local session vars first
+- **AND** calls `jf/gptel--ensure-mode-once` (enables gptel-mode)
+- **AND** upstream `gptel--restore-state` applies preset and overrides
+
+#### Scenario: New session (no Local Variables yet)
+- **WHEN** file has no Local Variables block
+- **THEN** reads preset from metadata.yml
+- **AND** applies via `gptel--apply-preset` with buffer-local setter
 - **AND** enables gptel-mode
-- **AND** enables auto-save
+- **AND** on first save, upstream writes Local Variables block
 
-#### Scenario: Opening session with Local Variables
-- **WHEN** opening an existing session.md that contains Local Variables footer
-- **THEN** the system loads the preset system message
-- **AND** applies buffer-local settings from Local Variables
-- **AND** does NOT duplicate system message in Local Variables
+### Requirement: Session creation
 
-#### Scenario: Fast guard for non-session files
-- **WHEN** opening a file that is not a session.md
-- **THEN** the auto-initialization hook SHALL exit early (before expensive checks)
-- **AND** NOT impact file-open performance
+The system SHALL provide interactive command for creating persistent sessions.
 
-### Requirement: Session lifecycle - Save
+**Implementation**: `config/gptel/sessions/commands.org` - `jf/gptel-persistent-session`
 
-The system SHALL persist session state when the buffer is saved.
+#### Scenario: Create session with default preset
+- **WHEN** run `M-x jf/gptel-persistent-session`
+- **THEN** prompted for name
+- **AND** generates session-id with timestamp
+- **AND** creates directory structure
+- **AND** opens session.md
+- **AND** auto-init applies executor preset
 
-On save, the system SHALL:
-1. Trigger `gptel--save-state` hook to persist conversation history to session.md
-2. Write Local Variables footer with buffer-local settings (gptel-backend, gptel-model, gptel-tools)
-3. NOT persist system message in Local Variables (managed via preset.md only)
-4. NOT update scope-plan.yml (metadata is immutable except for `updated` timestamp)
+#### Scenario: Create session with selected preset
+- **WHEN** run `C-u M-x jf/gptel-persistent-session`
+- **THEN** prompted for preset selection
+- **AND** creates session with selected preset
+- **AND** scope from preset's profile written to scope.yml
 
-#### Scenario: Manual save via C-x C-s
-- **WHEN** user saves a session buffer with C-x C-s
-- **THEN** conversation history is written to session.md
-- **AND** Local Variables footer is updated with current buffer settings
-- **AND** system message is NOT included in Local Variables
-- **AND** scope-plan.yml is NOT modified
+#### Scenario: Create session with projects
+- **WHEN** user selects projects during creation
+- **THEN** first project used as project-root for scope expansion
+- **AND** `${project_root}` variables expanded to project path
 
-#### Scenario: System message isolation
-- **WHEN** saving a session with a large system message (>4000 chars)
-- **THEN** the system MUST NOT write the system message to Local Variables
-- **AND** prevent duplicate Local Variables blocks
-- **AND** keep system message managed via preset.md only
+### Requirement: Branch management
 
-### Requirement: Auto-save behavior
+The system SHALL support creating conversation branches within sessions.
 
-The system SHALL support automatic saving of session buffers after idle time.
+**Implementation**: `config/gptel/sessions/filesystem.org`
 
-Auto-save SHALL be controlled by:
-- `jf/gptel-autosave-idle-time` (default 0.5 seconds) - idle delay before auto-save
-- `jf/gptel-autosave-enabled` (buffer-local) - flag controlling whether auto-save is active
+#### Scenario: Current symlink tracking
+- **WHEN** new session created
+- **THEN** `current` symlink points to `branches/main`
+- **AND** `jf/gptel--get-current-branch-name` returns "main"
 
-Auto-save SHALL be enabled automatically when a session buffer is initialized.
+#### Scenario: Switch to another branch
+- **WHEN** user opens different branch
+- **THEN** auto-init calls `jf/gptel--update-current-symlink`
+- **AND** `current` now points to new branch
 
-#### Scenario: Auto-save after idle time
-- **WHEN** a session buffer is modified and Emacs is idle for 0.5 seconds
-- **THEN** the system automatically saves the buffer
-- **AND** triggers the same save behavior as manual save
+#### Scenario: List branches
+- **WHEN** calling `jf/gptel--list-branches`
+- **THEN** returns list of branch names
+- **AND** excludes hidden directories
 
-#### Scenario: Disabling auto-save
-- **WHEN** user sets `jf/gptel-autosave-idle-time` to 0
-- **THEN** auto-save SHALL be disabled
-- **AND** only manual saves (C-x C-s) persist changes
+### Requirement: Scope profile integration
 
-#### Scenario: Auto-save buffer-local control
-- **WHEN** `jf/gptel-autosave-enabled` is nil for a buffer
-- **THEN** that buffer SHALL NOT auto-save even if global idle time is configured
+The system SHALL write scope configuration from preset's scope profile on session creation.
 
-### Requirement: Metadata persistence and retrieval
+**Implementation**: Calls `jf/gptel-scope-profile--create-for-session` during session creation
 
-The system SHALL provide on-demand metadata reading from YAML files.
+#### Scenario: Scope created from preset
+- **WHEN** session created with preset "executor"
+- **THEN** calls scope profile module with preset-name, branch-dir, project-root
+- **AND** scope.yml written in branch-dir
+- **AND** contains paths from executor preset's scope profile
 
-Metadata reading SHALL:
-- Parse scope-plan.yml for session-level metadata (session_id, created, updated, type, parent_session_id, preset)
-- Parse preset.md YAML frontmatter for configuration (backend, model, temperature, tools)
-- Parse branch-metadata.yml for branch lineage (parent_branch, created)
-- Convert snake_case YAML keys to kebab-case keyword plists
-- Return nil for missing or unparseable files
+#### Scenario: Scope with variable expansion
+- **WHEN** selected project is `/Users/user/projects/my-project`
+- **AND** profile contains `${project_root}/src/**/*.ts`
+- **THEN** expanded to `/Users/user/projects/my-project/src/**/*.ts` in scope.yml
 
-#### Scenario: Reading session metadata
-- **WHEN** the system calls `jf/gptel--read-session-metadata` for a branch directory
-- **THEN** it reads scope-plan.yml and returns a plist
-- **AND** converts YAML keys like `session_id` to `:session-id`
-- **AND** returns nil if the file is missing or cannot be parsed
+### Requirement: Activities integration
 
-#### Scenario: Reading preset configuration
-- **WHEN** the system calls `jf/gptel--read-preset-metadata` for a branch directory
-- **THEN** it reads the YAML frontmatter from preset.md
-- **AND** returns a plist with `:backend` and `:model`
-- **AND** returns nil if the file is missing
+The system SHALL support creating sessions tied to activities with project isolation.
 
-#### Scenario: Type checking for agent sessions
-- **WHEN** the system calls `jf/gptel--is-agent-session-p` for a session
-- **THEN** it reads scope-plan.yml and checks if `:type` equals "agent"
-- **AND** returns t if type is "agent", nil otherwise
+#### Scenario: Activity session creation
+- **WHEN** creating session via activities-extensions
+- **THEN** session directory created in activity's session/ subdirectory
+- **AND** worktree paths stored in Local Variables (`gptel-activity-worktrees`)
+- **AND** auto-opens when activity resumed
 
-### Requirement: Session discovery
+#### Scenario: Worktree paths available
+- **WHEN** session created with activities integration
+- **AND** activity has worktree projects `/project-a`, `/project-b`
+- **THEN** Local Variables includes `gptel-activity-worktrees` list
+- **AND** tools can access via buffer-local variable
 
-The system SHALL support discovering all sessions and branches on disk.
+## Integration Points
 
-Discovery operations SHALL:
-- List all session directories under `~/.gptel/sessions/`
-- List all branch directories within a session
-- Filter out hidden files and invalid directories
-- Validate directory structure (sessions must have `branches/`, branches must have `session.md`)
+### With Upstream gptel
+- Uses `gptel--apply-preset` and `gptel-get-preset` for preset application
+- Upstream's `gptel--save-state` writes Local Variables
+- Upstream's `gptel--restore-state` restores preset on session open
+- Before-save-hook persists conversation
 
-#### Scenario: Discovering all sessions
-- **WHEN** the system calls `jf/gptel--list-session-directories`
-- **THEN** it returns a list of absolute paths to all valid session directories
-- **AND** excludes hidden directories (starting with ".")
-- **AND** excludes directories lacking a `branches/` subdirectory
+### With Scope Subsystem
+- Scope created via `jf/gptel-scope-profile--create-for-session`
+- scope.yml written during session creation
+- Scope system reads from session's scope.yml for enforcement
 
-#### Scenario: Discovering branches within a session
-- **WHEN** the system calls `jf/gptel--list-branches` for a session directory
-- **THEN** it returns a list of branch names (e.g., "main", "20260128153042-feature")
-- **AND** excludes hidden directories and non-directories
+### With Activities Integration
+- Activities creates sessions in activity directories
+- Provides worktree paths for scope isolation
+- Manages Local Variables for worktree tracking
 
-#### Scenario: Comprehensive branch discovery with agents
-- **WHEN** the system calls `jf/gptel--find-all-branches-with-agents`
-- **THEN** it scans all sessions and all branches
-- **AND** returns plists with `:session-dir`, `:session-id`, `:branch-dir`, `:branch-name`, `:agent-dirs`
-- **AND** discovers agent subdirectories within each branch's `agents/` directory
+### With File Discovery
+- Uses find-file-hook for auto-initialization
+- Sessions openable via C-x C-f, dired, recentf, command line
+- No special resume commands needed
 
-### Requirement: Logging and observability
+## Summary
 
-The system SHALL provide leveled logging for session operations with four levels: debug, info, warn, error.
-
-Logging SHALL:
-- Be controlled by `jf/gptel-log-level` (default: debug)
-- Write to Emacs `*Messages*` buffer (always)
-- Optionally write to `<session-dir>/session.log` when `jf/gptel-log-to-file` is enabled
-- Prefix messages with timestamp (for file log) and level (e.g., `[GPTEL-INFO]`)
-
-Key logged events:
-- **INFO**: Session/branch registration, directory creation, preset application
-- **DEBUG**: Current symlink updates, individual branch discovery, buffer initialization
-- **WARN**: Existing directory overwrites, missing metadata files, duplicate hooks
-- **ERROR**: Metadata parsing failures, session initialization errors
-
-#### Scenario: Logging session creation
-- **WHEN** creating a new session directory
-- **THEN** the system logs at INFO level: "Created session directory: <path>"
-
-#### Scenario: Logging registry initialization
-- **WHEN** initializing the registry from disk
-- **THEN** the system logs at INFO level: "Initialized registry with N branches"
-
-#### Scenario: Logging metadata parsing errors
-- **WHEN** scope-plan.yml cannot be parsed
-- **THEN** the system logs at ERROR level: "Failed to parse scope-plan.yml in <dir>: <error>"
-
-#### Scenario: Logging level filtering
-- **WHEN** `jf/gptel-log-level` is set to `info`
-- **THEN** DEBUG messages SHALL NOT be logged
-- **AND** INFO, WARN, and ERROR messages SHALL be logged
-
-### Requirement: Defensive behaviors
-
-The system SHALL detect and correct common configuration issues.
-
-Defensive behaviors SHALL include:
-- Detecting duplicate save hooks in `gptel--save-state`
-- Cleaning duplicate Local Variables blocks in session.md
-- Validating directory structure before operations
-
-#### Scenario: Duplicate save hook detection
-- **WHEN** a buffer has multiple `gptel--save-state` hooks registered
-- **THEN** the system logs a WARNING with the count of duplicates
-- **AND** removes the duplicate hooks
-- **AND** retains only one save hook
-
-#### Scenario: Duplicate Local Variables cleanup
-- **WHEN** session.md contains multiple Local Variables blocks
-- **THEN** the cleanup utility removes duplicates
-- **AND** retains only the last valid Local Variables block
-
-#### Scenario: Directory structure validation
-- **WHEN** checking if a path is a valid session directory
-- **THEN** the system verifies it contains a `branches/` subdirectory
-- **AND** returns nil if the structure is invalid
-
-### Requirement: Buffer-local state variables
-
-The system SHALL maintain buffer-local state to track session context in each gptel buffer.
-
-Required buffer-local variables:
-- `jf/gptel--session-id` - Unique session identifier
-- `jf/gptel--session-dir` - Absolute path to session directory
-- `jf/gptel--branch-name` - Current branch name (e.g., "main")
-- `jf/gptel--branch-dir` - Absolute path to branch directory
-- `jf/gptel-autosave-enabled` - Auto-save activation flag
-
-All five variables SHALL be set together during session initialization.
-
-#### Scenario: Buffer initialization sets all variables
-- **WHEN** auto-initialization runs for a session buffer
-- **THEN** all five buffer-local variables MUST be set
-- **AND** `jf/gptel--session-id` matches the session directory name
-- **AND** `jf/gptel--session-dir` is the absolute path to the session
-- **AND** `jf/gptel--branch-name` matches the branch directory name
-- **AND** `jf/gptel--branch-dir` is the absolute path to the branch
-- **AND** `jf/gptel-autosave-enabled` is set to t
-
-#### Scenario: Buffer-local variables mark session initialization
-- **WHEN** all five buffer-local variables are set in a buffer
-- **THEN** the buffer is considered "session-initialized"
-- **AND** subsequent auto-init hook invocations SHALL skip re-initialization
-
-### Requirement: Path resolution
-
-The system SHALL provide deterministic path construction for all session files.
-
-Path resolution SHALL:
-- Use computed paths (never hardcoded)
-- Accept directory paths as input, return absolute paths
-- Use constants for file names (session.md, scope-plan.yml, preset.md, etc.)
-
-Key path resolution functions:
-- `jf/gptel--branches-dir-path(session-dir)` → `session-dir/branches`
-- `jf/gptel--branch-dir-path(session-dir, branch-name)` → `session-dir/branches/branch-name`
-- `jf/gptel--context-file-path(branch-dir)` → `branch-dir/session.md`
-- `jf/gptel--scope-plan-file-path(branch-dir)` → `branch-dir/scope-plan.yml`
-- `jf/gptel--preset-file-path(branch-dir)` → `branch-dir/preset.md`
-
-#### Scenario: Computing branch directory path
-- **WHEN** the system needs the branch directory path for session "my-session" and branch "main"
-- **THEN** it calls `jf/gptel--branch-dir-path(session-dir, "main")`
-- **AND** returns `<session-dir>/branches/main` as an absolute path
-
-#### Scenario: Computing context file path
-- **WHEN** the system needs the conversation history file for a branch
-- **THEN** it calls `jf/gptel--context-file-path(branch-dir)`
-- **AND** returns `<branch-dir>/session.md`
-
-#### Scenario: File name constants
-- **WHEN** constructing any session file path
-- **THEN** the system MUST use constants from `constants.el`
-- **AND** NOT hardcode filenames like "session.md" in path construction logic
+The Sessions Persistence System provides directory-based storage for gptel conversations. Key characteristics:
+- **Filesystem as source of truth** (minimal caching)
+- **Auto-initialization** (no special resume commands)
+- **Branch support** (conversation forks)
+- **Scope-based access control** (via scope.yml)
+- **Activities integration** (project isolation)
+- **Introspectable storage** (plain text files)

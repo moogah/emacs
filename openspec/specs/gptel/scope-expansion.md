@@ -1,228 +1,264 @@
-# Gptel Scope Expansion - Permission Request UI Spec
+# Scope Expansion - Permission Request UI
 
 ## Purpose
 
-This spec defines the scope expansion workflow, where LLMs can request permission to access denied resources through the request_scope_expansion meta-tool. Users respond via a transient menu that offers temporary (allow-once) or permanent (add to preset) permission grants.
+Defines the scope expansion workflow where LLMs request permission to access denied resources through the request_scope_expansion meta-tool. Users respond via transient menu offering temporary (allow-once) or permanent (add to scope) permission grants.
 
 ## Requirements
 
 ### Requirement: request_scope_expansion meta-tool
-The scope system SHALL provide a request_scope_expansion tool that LLMs can invoke to request permission for denied operations.
+
+The scope system SHALL provide request_scope_expansion tool that LLMs invoke to request permission for denied operations.
+
+**Implementation**: `config/gptel/tools/scope-shell-tools.org`
 
 #### Scenario: LLM requests expansion after denial
-- **WHEN** a tool returns a scope violation error
-- **THEN** the LLM can invoke request_scope_expansion with tool name, resource, and reason
+- **WHEN** tool returns scope violation error
+- **THEN** LLM can invoke request_scope_expansion with tool_name, patterns, and justification
 
 #### Scenario: request_scope_expansion triggers UI
-- **WHEN** request_scope_expansion is invoked
-- **THEN** the system displays the transient expansion menu to the user
+- **WHEN** request_scope_expansion invoked
+- **THEN** system displays transient expansion menu
 
 #### Scenario: Meta-tool bypasses scope checks
-- **WHEN** request_scope_expansion is categorized
-- **THEN** it has validation strategy "meta" and always passes scope validation
+- **WHEN** request_scope_expansion categorized
+- **THEN** has validation strategy "meta" and always passes scope validation
 
-#### Scenario: Expansion request includes context
+#### Scenario: Expansion request context
 - **WHEN** LLM calls request_scope_expansion
-- **THEN** it provides tool name, resource identifier, and reason for the request
+- **THEN** provides tool_name, patterns (array), and justification
+- **AND** system adds validation-type automatically (not provided by LLM)
+
+**Note**: `validation-type` is inferred from tool_name by `jf/gptel-scope--infer-validation-type`, not provided in LLM request.
 
 ### Requirement: Transient menu three-choice UI
-The expansion UI SHALL present exactly three choices via a transient menu: Deny, Add to scope, and Allow once.
+
+Expansion UI SHALL present three choices via transient menu: Deny, Add to scope, Allow once.
 
 #### Scenario: Menu shows violation details
-- **WHEN** the expansion UI is displayed
-- **THEN** it shows tool name, resource identifier, and denial reason in the description
+- **WHEN** expansion UI displayed
+- **THEN** shows tool name, resource identifier, denial reason
 
 #### Scenario: Deny choice rejects permanently
 - **WHEN** user selects "Deny (reject tool call)"
-- **THEN** the tool fails and returns :success nil, :user_denied true to the LLM
+- **THEN** tool fails with `:success nil`, `:user_denied true`
 
-#### Scenario: Add to scope updates preset
+#### Scenario: Add to scope updates scope.yml
 - **WHEN** user selects "Add to scope (permanent)"
-- **THEN** the system updates preset.md to include the resource in appropriate patterns
+- **THEN** system updates scope.yml to include resource in appropriate patterns
 
 #### Scenario: Allow once grants temporary permission
 - **WHEN** user selects "Allow once (temporary)"
-- **THEN** the system adds the tool and resource to the allow-once list for the current turn
+- **THEN** system adds (tool-name . resource) to buffer-local allow-once list
 
-#### Scenario: Edit preset option available
-- **WHEN** the expansion menu is displayed
-- **THEN** a secondary option allows editing preset.md manually
+#### Scenario: Edit scope option available
+- **WHEN** expansion menu displayed
+- **THEN** secondary option allows editing scope.yml manually
 
 #### Scenario: Menu quits without action
-- **WHEN** user selects "Cancel" or quits the menu
-- **THEN** the tool call is treated as denied
+- **WHEN** user selects "Cancel" or quits menu
+- **THEN** tool call treated as denied
 
-### Requirement: Add to scope updates preset file
-When user approves permanent addition, the system SHALL update the preset.md YAML frontmatter to include the new pattern.
+### Requirement: Add to scope updates scope.yml
+
+When user approves permanent addition, system SHALL update scope.yml file to include new pattern.
+
+**Implementation**: `config/gptel/scope/scope-expansion.org`
 
 #### Scenario: Path added to appropriate section
-- **WHEN** adding a path-based resource to scope
-- **THEN** the system determines read vs write based on tool operation and adds to correct paths subsection
+- **WHEN** adding path-based resource to scope
+- **THEN** system determines read vs write based on tool operation
+- **AND** adds to correct paths subsection
 
 #### Scenario: Pattern added to org-roam section
-- **WHEN** adding an org-roam resource to scope
-- **THEN** the system parses the resource format (subdirectory:X or tags:Y) and adds to correct org_roam_patterns subsection
+- **WHEN** adding org-roam resource to scope
+- **THEN** system parses resource format (subdirectory:X or tags:Y)
+- **AND** adds to correct org_roam_patterns subsection
 
-#### Scenario: Command added to allowlist
-- **WHEN** adding a shell command to scope
-- **THEN** the system extracts the base command name and adds to shell_commands.allow array
+#### Scenario: Bash command added to bash_tools
+- **WHEN** adding bash command to scope
+- **THEN** system extracts command name
+- **AND** adds to appropriate bash_tools category
 
 #### Scenario: Duplicate patterns avoided
-- **WHEN** adding a pattern that already exists in the preset
-- **THEN** the system does not duplicate the entry
+- **WHEN** adding pattern that already exists
+- **THEN** system does not duplicate entry
 
 #### Scenario: Directory paths normalized
-- **WHEN** adding a directory path to scope
-- **THEN** the system appends /** suffix if the path ends with /
+- **WHEN** adding directory path
+- **THEN** system appends `/**` suffix if path ends with `/`
 
 #### Scenario: YAML structure preserved
-- **WHEN** updating preset.md frontmatter
-- **THEN** the system preserves existing YAML structure and only modifies the relevant section
+- **WHEN** updating scope.yml
+- **THEN** system preserves existing YAML structure, modifies only relevant section
 
 ### Requirement: Allow-once list management
-The expansion UI SHALL manage temporary permissions via the allow-once list with automatic cleanup.
+
+Expansion UI SHALL manage temporary permissions via buffer-local allow-once list with automatic cleanup.
+
+**Implementation**: `config/gptel/scope/scope-core.org` - `jf/gptel-scope--allow-once-list` (buffer-local)
 
 #### Scenario: Allow-once adds to buffer-local list
 - **WHEN** user selects "Allow once"
-- **THEN** the system adds (tool-name . resource) pair to jf/gptel-scope--allow-once-list
+- **THEN** system adds `(tool-name . resource)` pair to `jf/gptel-scope--allow-once-list` (buffer-local variable)
 
-#### Scenario: Allow-once permission single-use
-- **WHEN** a tool succeeds via allow-once
-- **THEN** the permission is immediately removed from the list
+#### Scenario: Allow-once permission consumed
+- **WHEN** tool succeeds via allow-once
+- **THEN** permission immediately removed from list
 
 #### Scenario: Allow-once cleared after response
 - **WHEN** LLM response completes
-- **THEN** the gptel-post-response-functions hook clears jf/gptel-scope--allow-once-list
+- **THEN** `gptel-post-response-functions` hook clears allow-once list
 
 #### Scenario: Multiple allow-once in same turn
 - **WHEN** LLM requests multiple expansions in one turn
-- **THEN** the allow-once list can contain multiple tool-resource pairs
+- **THEN** allow-once list can contain multiple tool-resource pairs
 
 #### Scenario: Allow-once survives tool retries
-- **WHEN** a tool is granted allow-once but hasn't executed yet
-- **THEN** the permission remains until the tool consumes it or the turn ends
+- **WHEN** tool granted allow-once but hasn't executed yet
+- **THEN** permission remains until tool consumes it or turn ends
+
+**Note**: Allow-once list is **buffer-local**, cleared via `gptel-post-response-functions` hook after each response.
 
 ### Requirement: Expansion callback integration
-The expansion UI SHALL integrate with gptel's async callback system to communicate results back to the LLM.
+
+Expansion UI SHALL integrate with gptel's async callback system to communicate results to LLM.
 
 #### Scenario: Deny invokes callback with failure
-- **WHEN** user denies the expansion request
-- **THEN** the callback receives JSON with :success nil and :user_denied true
+- **WHEN** user denies expansion request
+- **THEN** callback receives JSON with `:success nil`, `:user_denied true`
 
 #### Scenario: Add to scope invokes callback with success
 - **WHEN** user approves permanent addition
-- **THEN** the callback receives JSON with :success t and :patterns_added array
+- **THEN** callback receives JSON with `:success t`, `:patterns_added` array
 
 #### Scenario: Allow once invokes callback with success
 - **WHEN** user approves temporary permission
-- **THEN** the callback receives JSON with :success t and :allowed_once true
+- **THEN** callback receives JSON with `:success t`, `:allowed_once true`
 
 #### Scenario: Callback quits transient menu
-- **WHEN** any choice is selected
-- **THEN** the transient menu closes via transient-quit-one
+- **WHEN** any choice selected
+- **THEN** transient menu closes via `transient-quit-one`
 
 ### Requirement: Transient scope data passing
-The expansion UI SHALL use transient's scope mechanism to pass violation info and callbacks without buffer-local variables.
+
+Expansion UI SHALL use transient's scope mechanism to pass violation info and callbacks without buffer-local variables.
+
+**Implementation**: `config/gptel/scope/scope-expansion.org` - `jf/gptel-scope-prompt-expansion`
 
 #### Scenario: Violation data in transient scope
-- **WHEN** expansion menu is invoked
-- **THEN** violation details (:tool, :resource, :reason, :validation-type) are stored in transient scope
+- **WHEN** expansion menu invoked
+- **THEN** violation details (`:tool`, `:resource`, `:reason`, `:validation-type`) stored in transient scope
 
 #### Scenario: Callback stored in scope
-- **WHEN** expansion menu is invoked
-- **THEN** the gptel async callback function is stored in transient scope
+- **WHEN** expansion menu invoked
+- **THEN** gptel async callback function stored in transient scope
 
-#### Scenario: Context directory in scope
-- **WHEN** expansion menu needs to update preset
-- **THEN** the branch directory path is available in transient scope or via buffer-local variable
+#### Scenario: Patterns list stored in scope
+- **WHEN** expansion menu invoked
+- **THEN** patterns list from request_scope_expansion stored in transient scope
+- **AND** used by updater functions to determine what to add
 
 #### Scenario: Suffix commands access scope
-- **WHEN** user selects a menu option
-- **THEN** the suffix command retrieves violation and callback from (transient-scope)
+- **WHEN** user selects menu option
+- **THEN** suffix command retrieves violation and callback from `(transient-scope)`
+
+**Note**: Context directory is NOT passed in transient scope - it's resolved on-demand via fallback chain.
 
 ### Requirement: Validation type routing for updates
-When updating preset, the system SHALL route to appropriate updater functions based on validation type.
+
+When updating scope, system SHALL route to appropriate updater functions based on validation type.
+
+**Implementation**: `config/gptel/scope/scope-expansion.org` - routing via pcase
 
 #### Scenario: Path validation routes to path updater
-- **WHEN** adding a path-based resource (validation-type: path)
-- **THEN** the system calls jf/gptel-scope--add-path-to-preset
+- **WHEN** adding path-based resource (validation-type: path)
+- **THEN** system calls `jf/gptel-scope--add-path-to-scope`
 
 #### Scenario: Pattern validation routes to pattern updater
-- **WHEN** adding an org-roam resource (validation-type: pattern)
-- **THEN** the system calls jf/gptel-scope--add-pattern-to-preset
+- **WHEN** adding org-roam resource (validation-type: pattern)
+- **THEN** system calls `jf/gptel-scope--add-pattern-to-scope`
 
-#### Scenario: Command validation routes to command updater
-- **WHEN** adding a shell command (validation-type: command)
-- **THEN** the system calls jf/gptel-scope--add-command-to-preset
+#### Scenario: Bash validation routes to bash updater
+- **WHEN** adding bash command (validation-type: bash)
+- **THEN** system calls `jf/gptel-scope--add-bash-to-scope`
 
 #### Scenario: Unknown validation type errors
-- **WHEN** validation type is not recognized
-- **THEN** the system signals an error rather than updating incorrectly
+- **WHEN** validation type not recognized
+- **THEN** system signals error rather than updating incorrectly
 
-### Requirement: Preset file validation before update
-The expansion UI SHALL validate that preset.md exists and is writable before attempting updates.
+**Note**: Function names use `-scope` suffix (not `-preset`). Bash validation type is `bash` (not "command").
 
-#### Scenario: Missing preset errors cleanly
-- **WHEN** attempting to add to scope but preset.md does not exist
-- **THEN** the system signals a user-error with explanatory message
+### Requirement: Scope file validation before update
+
+Expansion UI SHALL validate scope.yml exists and is writable before attempting updates.
+
+#### Scenario: Missing scope file errors cleanly
+- **WHEN** attempting to add to scope but scope.yml doesn't exist
+- **THEN** system signals user-error with explanatory message
 
 #### Scenario: Context directory resolution
-- **WHEN** locating preset.md for update
-- **THEN** the system tries transient scope context-dir, then jf/gptel--branch-dir, then buffer-file-name directory
+- **WHEN** locating scope.yml for update
+- **THEN** system tries:
+  1. `jf/gptel--branch-dir` (buffer-local variable)
+  2. `buffer-file-name` directory
+- **AND** does NOT use transient scope context-dir (doesn't exist)
+
+**Implementation**: `config/gptel/scope/scope-expansion.org` - `jf/gptel-scope--get-scope-file-path`
 
 #### Scenario: YAML parsing errors handled
-- **WHEN** preset.md frontmatter has invalid YAML
-- **THEN** the system reports the parsing error rather than corrupting the file
+- **WHEN** scope.yml contains invalid YAML
+- **THEN** system reports parsing error rather than corrupting file
 
-### Requirement: Manual preset editing option
-The expansion UI SHALL provide an option to open preset.md for manual editing instead of automatic updates.
+### Requirement: Manual scope editing option
 
-#### Scenario: Edit preset opens file
-- **WHEN** user selects "Edit preset manually"
-- **THEN** the system opens preset.md in an Emacs buffer
+Expansion UI SHALL provide option to open scope.yml for manual editing instead of automatic updates.
+
+#### Scenario: Edit scope opens file
+- **WHEN** user selects "Edit scope manually"
+- **THEN** system opens scope.yml in Emacs buffer
 
 #### Scenario: Edit preserves transient state
-- **WHEN** editing preset manually
-- **THEN** the transient menu closes but the violation context is available if needed
+- **WHEN** editing scope manually
+- **THEN** transient menu closes but violation context available if needed
 
 #### Scenario: Edit does not invoke callback
 - **WHEN** user chooses manual editing
-- **THEN** the expansion callback is not invoked (user will handle the request manually)
+- **THEN** expansion callback not invoked (user handles request manually)
 
 ### Requirement: Structured error information for LLM
-Expansion denials SHALL return structured information that helps the LLM understand what happened and adjust its behavior.
+
+Expansion denials SHALL return structured information helping LLM understand what happened.
 
 #### Scenario: Denial includes user_denied flag
-- **WHEN** user denies an expansion request
-- **THEN** the response includes :user_denied true to distinguish from system errors
+- **WHEN** user denies expansion request
+- **THEN** response includes `:user_denied true` to distinguish from system errors
 
 #### Scenario: Success includes patterns_added
 - **WHEN** user approves permanent addition
-- **THEN** the response includes :patterns_added array showing what was added to the preset
+- **THEN** response includes `:patterns_added` array with patterns added to scope.yml
 
-#### Scenario: Success includes allowed_once flag
+#### Scenario: Allow-once success includes flag
 - **WHEN** user approves temporary permission
-- **THEN** the response includes :allowed_once true indicating the permission is temporary
+- **THEN** response includes `:allowed_once true`
 
-#### Scenario: Message explains the outcome
-- **WHEN** any expansion choice is made
-- **THEN** the response includes :message string explaining what happened
+## Integration Points
 
-### Requirement: Resource format preservation
-The expansion UI SHALL preserve resource format conventions when adding to presets to ensure validation compatibility.
+### With Scope Core
+- Uses `jf/gptel-scope--allow-once-list` (buffer-local)
+- Validation-type inferred via `jf/gptel-scope--infer-validation-type`
+- Scope file located via `jf/gptel--branch-dir`
 
-#### Scenario: Filepath expanded to absolute
-- **WHEN** adding a file path to preset
-- **THEN** the system uses expand-file-name to convert relative paths to absolute
+### With gptel Callback System
+- Expansion menu receives async callback from gptel
+- Invokes callback with JSON response on user choice
+- Transient menu integrates with gptel's async flow
 
-#### Scenario: Org-roam format parsed correctly
-- **WHEN** adding org-roam patterns from "subdirectory:gptel/**" format
-- **THEN** the system extracts "gptel/**" and adds to org_roam_patterns.subdirectory
+### With scope.yml Updates
+- Updater functions modify scope.yml directly
+- YAML structure preserved during updates
+- Deduplication prevents redundant patterns
 
-#### Scenario: Command base name extracted
-- **WHEN** adding shell command "git status -s" to allowlist
-- **THEN** the system extracts "git" as the base command name
+## Summary
 
-#### Scenario: Resource format matches validation
-- **WHEN** allow-once resource is converted to permanent pattern
-- **THEN** the added pattern matches the format that validation expects
+Scope expansion provides user-friendly permission management via transient UI. LLMs request access through request_scope_expansion meta-tool, users respond with deny/add-to-scope/allow-once choices. System routes updates to appropriate functions based on validation type, maintains buffer-local allow-once list, and returns structured results to LLM.
