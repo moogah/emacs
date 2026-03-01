@@ -194,6 +194,26 @@ Returns :pipeline, :list, or :simple."
          (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
                                   parsed-commands)))
 
+    ;; Check if pipeline is wrapped in redirected_statement
+    (when-let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
+                ;; Verify the redirected_statement's body is indeed the pipeline
+                (body-node (treesit-node-child-by-field-name redirected-stmt "body"))
+                ((string= (treesit-node-type body-node) "pipeline"))
+                ;; Extract redirections from the statement
+                (redirections (jf/bash-parse--extract-redirections redirected-stmt))
+                (redirections))
+      ;; Attach redirections to the last command in the pipeline
+      ;; (since that's whose output is being redirected)
+      (when (and parsed-commands (> (length parsed-commands) 0))
+        (let* ((last-cmd-index (1- (length parsed-commands)))
+               (last-cmd (nth last-cmd-index parsed-commands))
+               ;; Merge with any existing redirections on the last command
+               (existing-redirections (plist-get last-cmd :redirections))
+               (merged-redirections (append existing-redirections redirections)))
+          ;; Update the last command with merged redirections
+          (setf (nth last-cmd-index parsed-commands)
+                (plist-put last-cmd :redirections merged-redirections)))))
+
     (list :success t
           :type :pipeline
           :all-commands parsed-commands
@@ -1388,7 +1408,7 @@ parsed command structures.
     (grep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
     (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
     (fgrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
-    (touch . (:operations ((:source :positional-args :operation :create-or-modify))))
+    (touch . (:operations ((:source :positional-args :operation :create))))
     (mkdir . (:operations ((:source :positional-args :operation :create))))
     (rm . (:operations ((:source :positional-args :operation :delete))))
     (rmdir . (:operations ((:source :positional-args :operation :delete))))
