@@ -871,5 +871,83 @@ Variable names match pattern: [A-Za-z_][A-Za-z0-9_]*"
         (cons t (nreverse var-names))
       (cons nil nil))))
 
+(defun jf/bash-resolve-variables (file-path var-context)
+  "Resolve variables in FILE-PATH using VAR-CONTEXT.
+
+VAR-CONTEXT is an alist mapping variable names (as symbols) to string values:
+  ((VAR1 . \"value1\") (VAR2 . \"value2\") ...)
+
+Supports both $VAR and ${VAR} syntax. Performs partial resolution - some variables
+may be resolved while others remain unresolved.
+
+Return values:
+  - String: All variables resolved successfully
+  - Plist: Some variables remain unresolved
+    (:path \"partially/resolved/$PATH\" :unresolved (\"PATH\"))
+
+Resolution behavior:
+  - Resolved variables: Replaced with their values from context
+  - Unresolved variables: Preserved in original syntax ($ or ${})
+  - No variables: Returns original path unchanged
+
+Examples:
+  ;; All resolved - return simple string
+  (jf/bash-resolve-variables \"$WORKSPACE/file.txt\"
+                             '((WORKSPACE . \"/workspace\")))
+    => \"/workspace/file.txt\"
+
+  ;; Partial resolution - return plist with unresolved list
+  (jf/bash-resolve-variables \"$WORKSPACE/$FILE\"
+                             '((WORKSPACE . \"/workspace\")))
+    => (:path \"/workspace/$FILE\" :unresolved (\"FILE\"))
+
+  ;; No context - mark all as unresolved
+  (jf/bash-resolve-variables \"$UNKNOWN/file.txt\" nil)
+    => (:path \"$UNKNOWN/file.txt\" :unresolved (\"UNKNOWN\"))
+
+  ;; No variables - return unchanged
+  (jf/bash-resolve-variables \"/absolute/path.txt\" nil)
+    => \"/absolute/path.txt\"
+
+  ;; Both syntax forms
+  (jf/bash-resolve-variables \"$A/${B}/file\" '((A . \"/a\") (B . \"b\")))
+    => \"/a/b/file\"
+
+Security note: Unresolved variables should be treated as security risks since
+their runtime values cannot be validated against scope constraints."
+  (let* ((detection-result (jf/bash-detect-variable-references file-path))
+         (has-variables (car detection-result))
+         (var-names (cdr detection-result)))
+
+    ;; Fast path: no variables found
+    (if (not has-variables)
+        file-path
+
+      ;; Process each variable reference
+      (let ((resolved file-path)
+            (unresolved nil))
+        (dolist (var-name var-names)
+          (let ((value (alist-get (intern var-name) var-context)))
+            (if value
+                ;; Replace all occurrences of $VAR or ${VAR} with value
+                ;; Use word boundary \\b for $VAR to prevent partial matches
+                ;; (e.g., matching $VAR when the variable is $VARIABLE)
+                (setq resolved
+                      (replace-regexp-in-string
+                       (format "\\${%s}\\|\\$%s\\b" var-name var-name)
+                       value
+                       resolved
+                       t  ; fixedcase - preserve case
+                       t)) ; literal - treat replacement string literally
+              ;; Track unresolved variable
+              (push var-name unresolved))))
+
+        ;; Return format based on resolution status
+        (if unresolved
+            ;; Partial or no resolution - return plist with metadata
+            (list :path resolved :unresolved (nreverse unresolved))
+          ;; Full resolution - return simple string
+          resolved)))))
+
 (provide 'bash-parser)
 ;;; bash-parser.el ends here
