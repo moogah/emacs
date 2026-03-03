@@ -70,6 +70,7 @@ ATTENTION: org-noter-djvu needs the package ‘djvu’
 Loading /Users/jefffarr/emacs/config/major-modes/org-roam.el (source)...
 Clearing removed files... 
 Clearing removed files...done
+Processing modified files... 
 Processing modified files...done
 Loading /Users/jefffarr/emacs/config/major-modes/dirvish.el (source)...
 Loading /Users/jefffarr/emacs/config/major-modes/beads.el (source)...
@@ -127,75 +128,75 @@ Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-security-
 Loading test file: config/experiments/bash-parser/bash-parser-test.el
 Loading /Users/jefffarr/emacs/config/experiments/bash-parser/bash-parser-test.el (source)...
 Loaded 7 test files from config/experiments/bash-parser
-Running 286 tests (2026-03-03 12:18:49+0100, selector ‘t’)
-   passed    1/286  jf/bash-parser-test-background-001 (0.010005 sec)
-   passed    2/286  jf/bash-parser-test-background-002 (0.002154 sec)
-   passed    3/286  jf/bash-parser-test-chain-001 (0.002076 sec)
-   passed    4/286  jf/bash-parser-test-chain-002 (0.002127 sec)
-   passed    5/286  jf/bash-parser-test-chain-003 (0.002250 sec)
-   passed    6/286  jf/bash-parser-test-chain-004 (0.002123 sec)
-   passed    7/286  jf/bash-parser-test-complex-001 (0.002142 sec)
-   passed    8/286  jf/bash-parser-test-complex-004 (0.002088 sec)
-   passed    9/286  jf/bash-parser-test-complex-005 (0.002060 sec)
-   passed   10/286  jf/bash-parser-test-dangerous-001 (0.002018 sec)
-   passed   11/286  jf/bash-parser-test-dangerous-002 (0.002062 sec)
-   passed   12/286  jf/bash-parser-test-find-001 (0.002084 sec)
-   passed   13/286  jf/bash-parser-test-find-002 (0.002055 sec)
-   passed   14/286  jf/bash-parser-test-find-003 (0.002081 sec)
-   passed   15/286  jf/bash-parser-test-find-004 (0.002047 sec)
-   passed   16/286  jf/bash-parser-test-git-001 (0.002009 sec)
-   passed   17/286  jf/bash-parser-test-git-002 (0.002029 sec)
-   passed   18/286  jf/bash-parser-test-git-003 (0.002040 sec)
-   passed   19/286  jf/bash-parser-test-git-004 (0.002015 sec)
-   passed   20/286  jf/bash-parser-test-git-005 (0.002033 sec)
-   passed   21/286  jf/bash-parser-test-glob-001 (0.002023 sec)
-   passed   22/286  jf/bash-parser-test-glob-002 (0.002028 sec)
-   passed   23/286  jf/bash-parser-test-glob-003 (0.002030 sec)
-   passed   24/286  jf/bash-parser-test-glob-004 (0.002119 sec)
-   passed   25/286  jf/bash-parser-test-glob-005 (0.002022 sec)
-   passed   26/286  jf/bash-parser-test-glob-006 (0.002007 sec)
-   passed   27/286  jf/bash-parser-test-heredoc-001 (0.002056 sec)
-   passed   28/286  jf/bash-parser-test-manual-basic (0.002014 sec)
-   passed   29/286  jf/bash-parser-test-manual-dangerous-git-push (0.002004 sec)
-   passed   30/286  jf/bash-parser-test-manual-dangerous-rm (0.002003 sec)
-   passed   31/286  jf/bash-parser-test-manual-git-subcommand (0.002029 sec)
-   passed   32/286  jf/bash-parser-test-pipeline-001 (0.002090 sec)
-   passed   33/286  jf/bash-parser-test-pipeline-002 (0.002145 sec)
-   passed   34/286  jf/bash-parser-test-pipeline-003 (0.002038 sec)
-   passed   35/286  jf/bash-parser-test-quote-001 (0.002032 sec)
-   passed   36/286  jf/bash-parser-test-quote-003 (0.002040 sec)
-   passed   37/286  jf/bash-parser-test-quote-004 (0.002032 sec)
-   passed   38/286  jf/bash-parser-test-quote-005 (0.002080 sec)
-   passed   39/286  jf/bash-parser-test-redirect-001 (0.002063 sec)
-   passed   40/286  jf/bash-parser-test-redirect-002 (0.002039 sec)
-   passed   41/286  jf/bash-parser-test-redirect-003 (0.002033 sec)
-   passed   42/286  jf/bash-parser-test-redirect-004 (0.002035 sec)
-   passed   43/286  jf/bash-parser-test-redirect-005 (0.002024 sec)
-   passed   44/286  jf/bash-parser-test-redirect-006 (0.002022 sec)
-   passed   45/286  jf/bash-parser-test-simple-001 (0.002024 sec)
-   passed   46/286  jf/bash-parser-test-simple-002 (0.002018 sec)
-   passed   47/286  jf/bash-parser-test-simple-003 (0.002015 sec)
-   passed   48/286  jf/bash-parser-test-simple-004 (0.002019 sec)
-   passed   49/286  jf/bash-parser-test-variable-001 (0.002017 sec)
-   passed   50/286  jf/bash-parser-test-variable-002 (0.002072 sec)
-   passed   51/286  jf/bash-parser-test-variable-003 (0.002029 sec)
-   passed   52/286  jf/bash-parser-test-variable-004 (0.002042 sec)
-   passed   53/286  jf/bash-parser-test-variable-005 (0.002026 sec)
-   passed   54/286  jf/bash-parser-test-variable-006 (0.002030 sec)
-   passed   55/286  jf/bash-parser-test-variable-007 (0.002040 sec)
+Running 286 tests (2026-03-03 15:40:54+0100, selector ‘t’)
+   passed    1/286  jf/bash-parser-test-background-001 (0.010675 sec)
+   passed    2/286  jf/bash-parser-test-background-002 (0.002098 sec)
+   passed    3/286  jf/bash-parser-test-chain-001 (0.002027 sec)
+   passed    4/286  jf/bash-parser-test-chain-002 (0.002010 sec)
+   passed    5/286  jf/bash-parser-test-chain-003 (0.002028 sec)
+   passed    6/286  jf/bash-parser-test-chain-004 (0.002100 sec)
+   passed    7/286  jf/bash-parser-test-complex-001 (0.002032 sec)
+   passed    8/286  jf/bash-parser-test-complex-004 (0.002006 sec)
+   passed    9/286  jf/bash-parser-test-complex-005 (0.002047 sec)
+   passed   10/286  jf/bash-parser-test-dangerous-001 (0.002091 sec)
+   passed   11/286  jf/bash-parser-test-dangerous-002 (0.002029 sec)
+   passed   12/286  jf/bash-parser-test-find-001 (0.002045 sec)
+   passed   13/286  jf/bash-parser-test-find-002 (0.002108 sec)
+   passed   14/286  jf/bash-parser-test-find-003 (0.002064 sec)
+   passed   15/286  jf/bash-parser-test-find-004 (0.002049 sec)
+   passed   16/286  jf/bash-parser-test-git-001 (0.002019 sec)
+   passed   17/286  jf/bash-parser-test-git-002 (0.002012 sec)
+   passed   18/286  jf/bash-parser-test-git-003 (0.002024 sec)
+   passed   19/286  jf/bash-parser-test-git-004 (0.002033 sec)
+   passed   20/286  jf/bash-parser-test-git-005 (0.002048 sec)
+   passed   21/286  jf/bash-parser-test-glob-001 (0.002012 sec)
+   passed   22/286  jf/bash-parser-test-glob-002 (0.002019 sec)
+   passed   23/286  jf/bash-parser-test-glob-003 (0.002018 sec)
+   passed   24/286  jf/bash-parser-test-glob-004 (0.002019 sec)
+   passed   25/286  jf/bash-parser-test-glob-005 (0.002009 sec)
+   passed   26/286  jf/bash-parser-test-glob-006 (0.002141 sec)
+   passed   27/286  jf/bash-parser-test-heredoc-001 (0.002067 sec)
+   passed   28/286  jf/bash-parser-test-manual-basic (0.002061 sec)
+   passed   29/286  jf/bash-parser-test-manual-dangerous-git-push (0.002062 sec)
+   passed   30/286  jf/bash-parser-test-manual-dangerous-rm (0.002094 sec)
+   passed   31/286  jf/bash-parser-test-manual-git-subcommand (0.002025 sec)
+   passed   32/286  jf/bash-parser-test-pipeline-001 (0.002115 sec)
+   passed   33/286  jf/bash-parser-test-pipeline-002 (0.002098 sec)
+   passed   34/286  jf/bash-parser-test-pipeline-003 (0.002035 sec)
+   passed   35/286  jf/bash-parser-test-quote-001 (0.002053 sec)
+   passed   36/286  jf/bash-parser-test-quote-003 (0.002066 sec)
+   passed   37/286  jf/bash-parser-test-quote-004 (0.002023 sec)
+   passed   38/286  jf/bash-parser-test-quote-005 (0.002030 sec)
+   passed   39/286  jf/bash-parser-test-redirect-001 (0.002045 sec)
+   passed   40/286  jf/bash-parser-test-redirect-002 (0.002019 sec)
+   passed   41/286  jf/bash-parser-test-redirect-003 (0.002015 sec)
+   passed   42/286  jf/bash-parser-test-redirect-004 (0.002033 sec)
+   passed   43/286  jf/bash-parser-test-redirect-005 (0.002065 sec)
+   passed   44/286  jf/bash-parser-test-redirect-006 (0.002095 sec)
+   passed   45/286  jf/bash-parser-test-simple-001 (0.002028 sec)
+   passed   46/286  jf/bash-parser-test-simple-002 (0.002021 sec)
+   passed   47/286  jf/bash-parser-test-simple-003 (0.002010 sec)
+   passed   48/286  jf/bash-parser-test-simple-004 (0.002009 sec)
+   passed   49/286  jf/bash-parser-test-variable-001 (0.002014 sec)
+   passed   50/286  jf/bash-parser-test-variable-002 (0.002010 sec)
+   passed   51/286  jf/bash-parser-test-variable-003 (0.002028 sec)
+   passed   52/286  jf/bash-parser-test-variable-004 (0.002079 sec)
+   passed   53/286  jf/bash-parser-test-variable-005 (0.002176 sec)
+   passed   54/286  jf/bash-parser-test-variable-006 (0.002018 sec)
+   passed   55/286  jf/bash-parser-test-variable-007 (0.002013 sec)
    passed   56/286  jf/bash-parser-test-variable-008 (0.002039 sec)
-   passed   57/286  jf/bash-parser-test-wrapper-001 (0.002022 sec)
-   passed   58/286  jf/bash-parser-test-wrapper-002 (0.002014 sec)
-   passed   59/286  jf/bash-parser-test-wrapper-003 (0.002026 sec)
-   passed   60/286  jf/bash-parser-test-wrapper-004 (0.002031 sec)
+   passed   57/286  jf/bash-parser-test-wrapper-001 (0.002033 sec)
+   passed   58/286  jf/bash-parser-test-wrapper-002 (0.002037 sec)
+   passed   59/286  jf/bash-parser-test-wrapper-003 (0.002100 sec)
+   passed   60/286  jf/bash-parser-test-wrapper-004 (0.002094 sec)
 Test test-corpus-archive-001 backtrace:
   error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
   (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
   (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
   jf/test-run-corpus-case((:id "archive-001" :command "tar -czf archiv
   #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
+  #f(compiled-function () #<bytecode 0x17c6610203ba62ed>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x17c6610203ba62ed
   ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
   ert-run-test(#s(ert-test :name test-corpus-archive-001 :documentatio
   ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
@@ -210,15 +211,15 @@ Test test-corpus-archive-001 backtrace:
 Test test-corpus-archive-001 condition:
     (error
      "Test archive-001 (Create tar archive (reads source, writes archive)): expected 2 operations, got 0\nExpected: ((:file \"files/\" :operation :read :confidence :high :source :positional-arg) (:file \"archive.tar.gz\" :operation :write :confidence :high :source :positional-arg))\nActual: nil")
-   FAILED   61/286  test-corpus-archive-001 (0.002057 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:435
+   FAILED   61/286  test-corpus-archive-001 (0.002185 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:435
 Test test-corpus-archive-002 backtrace:
   error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
   (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
   (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
   jf/test-run-corpus-case((:id "archive-002" :command "tar -xzf archiv
   #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
+  #f(compiled-function () #<bytecode 0x17c6610203ba62ed>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x17c6610203ba62ed
   ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
   ert-run-test(#s(ert-test :name test-corpus-archive-002 :documentatio
   ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
@@ -233,15 +234,15 @@ Test test-corpus-archive-002 backtrace:
 Test test-corpus-archive-002 condition:
     (error
      "Test archive-002 (Extract tar archive (reads archive, writes files)): expected 1 operations, got 0\nExpected: ((:file \"archive.tar.gz\" :operation :read :confidence :high :source :positional-arg))\nActual: nil")
-   FAILED   62/286  test-corpus-archive-002 (0.002404 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:441
+   FAILED   62/286  test-corpus-archive-002 (0.002491 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:441
 Test test-corpus-archive-003 backtrace:
   error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
   (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
   (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
   jf/test-run-corpus-case((:id "archive-003" :command "zip -r backup.z
   #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
+  #f(compiled-function () #<bytecode 0x17c6610203ba62ed>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x17c6610203ba62ed
   ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
   ert-run-test(#s(ert-test :name test-corpus-archive-003 :documentatio
   ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
@@ -256,415 +257,67 @@ Test test-corpus-archive-003 backtrace:
 Test test-corpus-archive-003 condition:
     (error
      "Test archive-003 (Create zip archive): expected 2 operations, got 0\nExpected: ((:file \"src/\" :operation :read :confidence :high :source :positional-arg) (:file \"backup.zip\" :operation :write :confidence :high :source :positional-arg))\nActual: nil")
-   FAILED   63/286  test-corpus-archive-003 (0.002402 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:447
-Test test-corpus-chain-001 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "chain-001" :command "rm temp.txt && to
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-chain-001 :documentation 
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-chain-001 condition:
-    (error
-     "Test chain-001 (Delete then create in chain): expected operation not found\nExpected: (:file \"new.txt\" :operation :create :confidence :high :source :positional-arg)\nActual ops: ((:file \"temp.txt\" :operation :delete :confidence :high :source :positional-arg :command \"rm\") (:file \"new.txt\" :operation :create-or-modify :confidence :high :source :positional-arg :command \"touch\"))")
-   FAILED   64/286  test-corpus-chain-001 (0.002516 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:303
-   passed   65/286  test-corpus-chain-002 (0.002623 sec)
-   passed   66/286  test-corpus-chain-003 (0.002108 sec)
-   passed   67/286  test-corpus-copy-001 (0.002085 sec)
-   passed   68/286  test-corpus-copy-002 (0.002076 sec)
-   passed   69/286  test-corpus-copy-003 (0.002165 sec)
-   passed   70/286  test-corpus-delete-001 (0.002055 sec)
-   passed   71/286  test-corpus-delete-002 (0.002059 sec)
-   passed   72/286  test-corpus-delete-003 (0.002038 sec)
-   passed   73/286  test-corpus-delete-004 (0.002094 sec)
-   passed   74/286  test-corpus-directory-001 (0.002048 sec)
-   passed   75/286  test-corpus-directory-002 (0.002054 sec)
-Test test-corpus-find-001 backtrace:
-  error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
-  (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "find-001" :command "find . -name '*.lo
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-find-001 :documentation "
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-find-001 condition:
-    (error
-     "Test find-001 (Find and delete matching files): expected 2 operations, got 3\nExpected: ((:file \".\" :operation :read-directory :confidence :high :source :positional-arg) (:file \"{}\" :operation :delete :confidence :high :source :exec-block))\nActual: ((:file \".\" :operation :read :confidence :high :source :positional-arg :command \"find\") (:file \"*.log\" :operation :read :confidence :high :source :positional-arg :command \"find\") (:file \"{}\" :operation :delete :confidence :medium :source :exec-block :indirect t :exec-type \"-exec\" :command-name \"rm\"))")
-   FAILED   76/286  test-corpus-find-001 (0.002113 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:323
-Test test-corpus-find-002 backtrace:
-  error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
-  (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "find-002" :command "find /tmp -type f 
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-find-002 :documentation "
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-find-002 condition:
-    (error
-     "Test find-002 (Find, read files, redirect to output): expected 3 operations, got 4\nExpected: ((:file \"/tmp\" :operation :read-directory :confidence :high :source :positional-arg) (:file \"{}\" :operation :read :confidence :high :source :exec-block) (:file \"output.txt\" :operation :write :confidence :high :source :redirection))\nActual: ((:file \"output.txt\" :operation :write :confidence :high :source :redirection :metadata (:type :file :operator \">\" :descriptor nil :destination \"output.txt\")) (:file \"/tmp\" :operation :read :confidence :high :source :positional-arg :command \"find\") (:file \"f\" :operation :read :confidence :high :source :positional-arg :command \"find\") (:file \"{}\" :operation :read :confidence :medium :source :exec-block :indirect t :exec-type \"-exec\" :command-name \"cat\"))")
-   FAILED   77/286  test-corpus-find-002 (0.002378 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:329
-Test test-corpus-find-003 backtrace:
-  error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
-  (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "find-003" :command "find . -name '*.tx
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-find-003 :documentation "
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-find-003 condition:
-    (error
-     "Test find-003 (Find with multiple exec blocks): expected 2 operations, got 4\nExpected: ((:file \".\" :operation :read-directory :confidence :high :source :positional-arg) (:file \"{}\" :operation :read :confidence :high :source :exec-block))\nActual: ((:file \".\" :operation :read :confidence :high :source :positional-arg :command \"find\") (:file \"*.txt\" :operation :read :confidence :high :source :positional-arg :command \"find\") (:file \"pattern\" :operation :read :confidence :medium :source :exec-block :indirect t :exec-type \"-exec\" :command-name \"grep\") (:file \"{}\" :operation :read :confidence :medium :source :exec-block :indirect t :exec-type \"-exec\" :command-name \"grep\"))")
-   FAILED   78/286  test-corpus-find-003 (0.002378 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:335
-   passed   79/286  test-corpus-git-001 (0.002432 sec)
-Test test-corpus-git-002 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "git-002" :command "git add src/*.el" :
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-git-002 :documentation "F
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-git-002 condition:
-    (error
-     "Test git-002 (Git add with glob pattern): expected operation not found\nExpected: (:file \"src/*.el\" :operation :read :confidence :high :source :positional-arg :pattern t)\nActual ops: ((:file \"src/*.el\" :operation :read :confidence :high :source :positional-arg :command \"git\"))")
-   FAILED   80/286  test-corpus-git-002 (0.002096 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:401
-   passed   81/286  test-corpus-git-003 (0.002517 sec)
-   passed   82/286  test-corpus-git-004 (0.002145 sec)
-Test test-corpus-glob-001 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "glob-001" :command "rm *.txt" :note "G
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-glob-001 :documentation "
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-glob-001 condition:
-    (error
-     "Test glob-001 (Glob pattern in delete): expected operation not found\nExpected: (:file \"*.txt\" :operation :delete :confidence :high :source :positional-arg :pattern t)\nActual ops: ((:file \"*.txt\" :operation :delete :confidence :high :source :positional-arg :command \"rm\"))")
-   FAILED   83/286  test-corpus-glob-001 (0.002242 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:263
-Test test-corpus-glob-002 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "glob-002" :command "cat config/**/*.js
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-glob-002 :documentation "
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-glob-002 condition:
-    (error
-     "Test glob-002 (Recursive glob pattern): expected operation not found\nExpected: (:file \"config/**/*.json\" :operation :read :confidence :high :source :positional-arg :pattern t)\nActual ops: ((:file \"config/**/*.json\" :operation :read :confidence :high :source :positional-arg :command \"cat\"))")
-   FAILED   84/286  test-corpus-glob-002 (0.002581 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:269
-Test test-corpus-glob-003 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "glob-003" :command "cp *.el backup/" :
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-glob-003 :documentation "
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-glob-003 condition:
-    (error
-     "Test glob-003 (Copy with glob source): expected operation not found\nExpected: (:file \"*.el\" :operation :read :confidence :high :source :positional-arg :pattern t)\nActual ops: ((:file \"*.el\" :operation :read :confidence :high :source :positional-arg :command \"cp\") (:file \"backup/\" :operation :write :confidence :high :source :positional-arg :command \"cp\"))")
-   FAILED   85/286  test-corpus-glob-003 (0.002678 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:275
-   passed   86/286  test-corpus-glob-004 (0.002392 sec)
-   passed   87/286  test-corpus-modify-001 (0.002138 sec)
-   passed   88/286  test-corpus-modify-002 (0.002102 sec)
-   passed   89/286  test-corpus-modify-003 (0.002143 sec)
-   passed   90/286  test-corpus-modify-004 (0.002120 sec)
-   passed   91/286  test-corpus-move-001 (0.002102 sec)
-   passed   92/286  test-corpus-move-002 (0.002167 sec)
-   passed   93/286  test-corpus-no-ops-001 (0.002103 sec)
-   passed   94/286  test-corpus-no-ops-002 (0.002092 sec)
-   passed   95/286  test-corpus-no-ops-003 (0.002119 sec)
-   passed   96/286  test-corpus-no-ops-004 (0.002082 sec)
-   passed   97/286  test-corpus-pipeline-001 (0.002120 sec)
-   passed   98/286  test-corpus-pipeline-002 (0.002112 sec)
-   passed   99/286  test-corpus-read-001 (0.002114 sec)
-   passed  100/286  test-corpus-read-002 (0.002114 sec)
-Test test-corpus-read-003 backtrace:
-  error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
-  (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "read-003" :command "head -n 10 /tmp/lo
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-read-003 :documentation "
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-read-003 condition:
-    (error
-     "Test read-003 (Head reads file): expected 1 operations, got 2\nExpected: ((:file \"/tmp/log.txt\" :operation :read :confidence :high :source :positional-arg))\nActual: ((:file \"10\" :operation :read :confidence :high :source :positional-arg :command \"head\") (:file \"/tmp/log.txt\" :operation :read :confidence :high :source :positional-arg :command \"head\"))")
-   FAILED  101/286  test-corpus-read-003 (0.002129 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:99
-   passed  102/286  test-corpus-read-004 (0.002305 sec)
-   passed  103/286  test-corpus-read-005 (0.002110 sec)
-   passed  104/286  test-corpus-read-006 (0.002103 sec)
-   passed  105/286  test-corpus-redirect-001 (0.002117 sec)
-   passed  106/286  test-corpus-redirect-002 (0.002106 sec)
-   passed  107/286  test-corpus-redirect-003 (0.002125 sec)
-   passed  108/286  test-corpus-redirect-004 (0.002121 sec)
-Test test-corpus-variable-001 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "variable-001" :command "cat $FILE" :no
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-variable-001 :documentati
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-variable-001 condition:
-    (error
-     "Test variable-001 (Simple variable reference (unresolved)): expected operation not found\nExpected: (:file \"$FILE\" :operation :read :confidence :high :source :positional-arg :unresolved t :unresolved-vars (\"FILE\"))\nActual ops: ((:file \"$FILE\" :operation :read :confidence :high :source :positional-arg :command \"cat\" :unresolved (\"FILE\")))")
-   FAILED  109/286  test-corpus-variable-001 (0.002174 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:343
-Test test-corpus-variable-002 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "variable-002" :command "cat $FILE" :no
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-variable-002 :documentati
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-variable-002 condition:
-    (error
-     "Test variable-002 (Simple variable reference (resolved)): expected operation not found\nExpected: (:file \"/workspace/data.txt\" :operation :read :confidence :high :source :positional-arg)\nActual ops: ((:file \"$FILE\" :operation :read :confidence :high :source :positional-arg :command \"cat\" :unresolved (\"FILE\")))")
-   FAILED  110/286  test-corpus-variable-002 (0.002545 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:349
-Test test-corpus-variable-003 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "variable-003" :command "rm ${TEMP_DIR}
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-variable-003 :documentati
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-variable-003 condition:
-    (error
-     "Test variable-003 (Variable with braces (unresolved)): expected operation not found\nExpected: (:file \"${TEMP_DIR}/file.txt\" :operation :delete :confidence :high :source :positional-arg :unresolved t :unresolved-vars (\"TEMP_DIR\"))\nActual ops: ((:file \"${TEMP_DIR}/file.txt\" :operation :delete :confidence :high :source :positional-arg :command \"rm\" :unresolved (\"TEMP_DIR\")))")
-   FAILED  111/286  test-corpus-variable-003 (0.002508 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:355
-Test test-corpus-variable-004 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "variable-004" :command "rm ${TEMP_DIR}
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-variable-004 :documentati
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-variable-004 condition:
-    (error
-     "Test variable-004 (Variable with braces (resolved)): expected operation not found\nExpected: (:file \"/tmp/file.txt\" :operation :delete :confidence :high :source :positional-arg)\nActual ops: ((:file \"${TEMP_DIR}/file.txt\" :operation :delete :confidence :high :source :positional-arg :command \"rm\" :unresolved (\"TEMP_DIR\")))")
-   FAILED  112/286  test-corpus-variable-004 (0.002648 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:361
-Test test-corpus-variable-005 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "variable-005" :command "cp $SRC/$FILE 
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-variable-005 :documentati
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-variable-005 condition:
-    (error
-     "Test variable-005 (Multiple variables (partially resolved)): expected operation not found\nExpected: (:file \"/workspace/$FILE\" :operation :read :confidence :high :source :positional-arg :unresolved t :unresolved-vars (\"FILE\"))\nActual ops: ((:file \"$SRC/$FILE\" :operation :read :confidence :high :source :positional-arg :command \"cp\" :unresolved (\"SRC\" \"FILE\")) (:file \"$DEST/\" :operation :write :confidence :high :source :positional-arg :command \"cp\" :unresolved (\"DEST\")))")
-   FAILED  113/286  test-corpus-variable-005 (0.002850 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:367
-   passed  114/286  test-corpus-variable-chain-001 (0.002797 sec)
-   passed  115/286  test-corpus-variable-chain-002 (0.002234 sec)
+   FAILED   63/286  test-corpus-archive-003 (0.002389 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:447
+   passed   64/286  test-corpus-chain-001 (0.002587 sec)
+   passed   65/286  test-corpus-chain-002 (0.002264 sec)
+   passed   66/286  test-corpus-chain-003 (0.002326 sec)
+   passed   67/286  test-corpus-copy-001 (0.002140 sec)
+   passed   68/286  test-corpus-copy-002 (0.002142 sec)
+   passed   69/286  test-corpus-copy-003 (0.002166 sec)
+   passed   70/286  test-corpus-delete-001 (0.002110 sec)
+   passed   71/286  test-corpus-delete-002 (0.002095 sec)
+   passed   72/286  test-corpus-delete-003 (0.002124 sec)
+   passed   73/286  test-corpus-delete-004 (0.002131 sec)
+   passed   74/286  test-corpus-directory-001 (0.002155 sec)
+   passed   75/286  test-corpus-directory-002 (0.002131 sec)
+   passed   76/286  test-corpus-find-001 (0.002139 sec)
+   passed   77/286  test-corpus-find-002 (0.002139 sec)
+   passed   78/286  test-corpus-find-003 (0.002153 sec)
+   passed   79/286  test-corpus-git-001 (0.002095 sec)
+   passed   80/286  test-corpus-git-002 (0.002106 sec)
+   passed   81/286  test-corpus-git-003 (0.002176 sec)
+   passed   82/286  test-corpus-git-004 (0.002167 sec)
+   passed   83/286  test-corpus-glob-001 (0.002147 sec)
+   passed   84/286  test-corpus-glob-002 (0.002132 sec)
+   passed   85/286  test-corpus-glob-003 (0.002116 sec)
+   passed   86/286  test-corpus-glob-004 (0.002089 sec)
+   passed   87/286  test-corpus-modify-001 (0.002119 sec)
+   passed   88/286  test-corpus-modify-002 (0.002194 sec)
+   passed   89/286  test-corpus-modify-003 (0.002109 sec)
+   passed   90/286  test-corpus-modify-004 (0.002116 sec)
+   passed   91/286  test-corpus-move-001 (0.002127 sec)
+   passed   92/286  test-corpus-move-002 (0.002201 sec)
+   passed   93/286  test-corpus-no-ops-001 (0.002109 sec)
+   passed   94/286  test-corpus-no-ops-002 (0.002108 sec)
+   passed   95/286  test-corpus-no-ops-003 (0.002092 sec)
+   passed   96/286  test-corpus-no-ops-004 (0.002078 sec)
+   passed   97/286  test-corpus-pipeline-001 (0.002148 sec)
+   passed   98/286  test-corpus-pipeline-002 (0.002201 sec)
+   passed   99/286  test-corpus-read-001 (0.002099 sec)
+   passed  100/286  test-corpus-read-002 (0.002097 sec)
+   passed  101/286  test-corpus-read-003 (0.002168 sec)
+   passed  102/286  test-corpus-read-004 (0.002156 sec)
+   passed  103/286  test-corpus-read-005 (0.002087 sec)
+   passed  104/286  test-corpus-read-006 (0.002125 sec)
+   passed  105/286  test-corpus-redirect-001 (0.002116 sec)
+   passed  106/286  test-corpus-redirect-002 (0.002104 sec)
+   passed  107/286  test-corpus-redirect-003 (0.002089 sec)
+   passed  108/286  test-corpus-redirect-004 (0.002122 sec)
+   passed  109/286  test-corpus-variable-001 (0.002091 sec)
+   passed  110/286  test-corpus-variable-002 (0.002238 sec)
+   passed  111/286  test-corpus-variable-003 (0.002339 sec)
+   passed  112/286  test-corpus-variable-004 (0.002125 sec)
+   passed  113/286  test-corpus-variable-005 (0.002166 sec)
+   passed  114/286  test-corpus-variable-chain-001 (0.002153 sec)
+   passed  115/286  test-corpus-variable-chain-002 (0.002132 sec)
 Test test-corpus-variable-chain-003 backtrace:
   error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
   (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
   (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
   jf/test-run-corpus-case((:id "variable-chain-003" :command "WORKSPAC
   #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
+  #f(compiled-function () #<bytecode 0x17c6610203ba62ed>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x17c6610203ba62ed
   ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
   ert-run-test(#s(ert-test :name test-corpus-variable-chain-003 :docum
   ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
@@ -679,82 +332,56 @@ Test test-corpus-variable-chain-003 backtrace:
 Test test-corpus-variable-chain-003 condition:
     (error
      "Test variable-chain-003 (Variable used multiple times after assignment): expected 2 operations, got 1\nExpected: ((:file \"/workspace/data.txt\" :operation :read :confidence :high :source :positional-arg) (:file \"/workspace/output.txt\" :operation :write :confidence :high :source :redirection))\nActual: ((:file \"/workspace/data.txt\" :operation :read :confidence :high :source :positional-arg :command \"cat\"))")
-   FAILED  116/286  test-corpus-variable-chain-003 (0.002188 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:387
-Test test-corpus-write-001 backtrace:
-  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
-  (if matching-op nil (error "Test %s (%s): expected operation not fou
-  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
-  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
-  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
-  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
-  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
-  jf/test-run-corpus-case((:id "write-001" :command "touch newfile.txt
-  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-corpus-write-001 :documentation 
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-corpus-write-001 condition:
-    (error
-     "Test write-001 (Touch creates or updates file): expected operation not found\nExpected: (:file \"newfile.txt\" :operation :create :confidence :high :source :positional-arg)\nActual ops: ((:file \"newfile.txt\" :operation :create-or-modify :confidence :high :source :positional-arg :command \"touch\"))")
-   FAILED  117/286  test-corpus-write-001 (0.002578 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:125
-   passed  118/286  test-corpus-write-002 (0.003172 sec)
-   passed  119/286  test-corpus-write-003 (0.002146 sec)
+   FAILED  116/286  test-corpus-variable-chain-003 (0.002184 sec) at config/experiments/bash-parser/test/test-file-operations-corpus.el:387
+   passed  117/286  test-corpus-write-001 (0.002602 sec)
+   passed  118/286  test-corpus-write-002 (0.002142 sec)
+   passed  119/286  test-corpus-write-003 (0.002153 sec)
    passed  120/286  test-corpus-write-004 (0.002113 sec)
-   passed  121/286  test-extraction-absolute-path (0.002076 sec)
-   passed  122/286  test-extraction-append-redirection (0.002178 sec)
-   passed  123/286  test-extraction-command-chain (0.002143 sec)
+   passed  121/286  test-extraction-absolute-path (0.002126 sec)
+   passed  122/286  test-extraction-append-redirection (0.002135 sec)
+   passed  123/286  test-extraction-command-chain (0.002112 sec)
    passed  124/286  test-extraction-command-with-multiple-file-arguments (0.002207 sec)
-   passed  125/286  test-extraction-command-with-no-file-operations (0.002090 sec)
-   passed  126/286  test-extraction-duplicate-file-operations (0.002068 sec)
-   passed  127/286  test-extraction-high-confidence-from-known-command (0.002133 sec)
-   passed  128/286  test-extraction-high-confidence-from-redirection (0.002151 sec)
-   passed  129/286  test-extraction-input-redirection (0.002136 sec)
-   passed  130/286  test-extraction-main-function-chain (0.002137 sec)
-   passed  131/286  test-extraction-main-function-pipeline (0.002328 sec)
-   passed  132/286  test-extraction-main-function-simple-command (0.002093 sec)
-   passed  133/286  test-extraction-metadata-for-positional-arg (0.002170 sec)
-   passed  134/286  test-extraction-metadata-for-redirection (0.002007 sec)
-   passed  135/286  test-extraction-multiple-redirections (0.001984 sec)
-   passed  136/286  test-extraction-output-redirection (0.002018 sec)
-   passed  137/286  test-extraction-pipeline-with-multiple-file-operations (0.002038 sec)
-   passed  138/286  test-extraction-recursive-glob-pattern (0.002107 sec)
-   passed  139/286  test-extraction-relative-path (0.002041 sec)
-   passed  140/286  test-extraction-same-file-different-operations (0.002040 sec)
-   passed  141/286  test-extraction-simple-glob-pattern (0.002049 sec)
-   passed  142/286  test-extraction-simple-read-command (0.002048 sec)
-   passed  143/286  test-glob-character-class-letters (0.000044 sec)
-   passed  144/286  test-glob-character-class-match (0.000035 sec)
-   passed  145/286  test-glob-character-class-no-match (0.000031 sec)
-   passed  146/286  test-glob-combined-wildcards (0.000037 sec)
-   passed  147/286  test-glob-complex-pattern (0.000035 sec)
-   passed  148/286  test-glob-double-star-at-end (0.000032 sec)
-   passed  149/286  test-glob-double-star-at-start (0.000033 sec)
-   passed  150/286  test-glob-double-star-in-middle (0.000034 sec)
-   passed  151/286  test-glob-double-star-multiple-segments (0.000035 sec)
-   passed  152/286  test-glob-double-star-zero-segments (0.000031 sec)
+   passed  125/286  test-extraction-command-with-no-file-operations (0.002104 sec)
+   passed  126/286  test-extraction-duplicate-file-operations (0.002088 sec)
+   passed  127/286  test-extraction-high-confidence-from-known-command (0.002106 sec)
+   passed  128/286  test-extraction-high-confidence-from-redirection (0.002087 sec)
+   passed  129/286  test-extraction-input-redirection (0.002097 sec)
+   passed  130/286  test-extraction-main-function-chain (0.002121 sec)
+   passed  131/286  test-extraction-main-function-pipeline (0.002091 sec)
+   passed  132/286  test-extraction-main-function-simple-command (0.002170 sec)
+   passed  133/286  test-extraction-metadata-for-positional-arg (0.002106 sec)
+   passed  134/286  test-extraction-metadata-for-redirection (0.002093 sec)
+   passed  135/286  test-extraction-multiple-redirections (0.002132 sec)
+   passed  136/286  test-extraction-output-redirection (0.002082 sec)
+   passed  137/286  test-extraction-pipeline-with-multiple-file-operations (0.002131 sec)
+   passed  138/286  test-extraction-recursive-glob-pattern (0.002115 sec)
+   passed  139/286  test-extraction-relative-path (0.002107 sec)
+   passed  140/286  test-extraction-same-file-different-operations (0.002153 sec)
+   passed  141/286  test-extraction-simple-glob-pattern (0.002106 sec)
+   passed  142/286  test-extraction-simple-read-command (0.002110 sec)
+   passed  143/286  test-glob-character-class-letters (0.000073 sec)
+   passed  144/286  test-glob-character-class-match (0.000055 sec)
+   passed  145/286  test-glob-character-class-no-match (0.000042 sec)
+   passed  146/286  test-glob-combined-wildcards (0.000056 sec)
+   passed  147/286  test-glob-complex-pattern (0.000056 sec)
+   passed  148/286  test-glob-double-star-at-end (0.000045 sec)
+   passed  149/286  test-glob-double-star-at-start (0.000058 sec)
+   passed  150/286  test-glob-double-star-in-middle (0.000053 sec)
+   passed  151/286  test-glob-double-star-multiple-segments (0.000061 sec)
+   passed  152/286  test-glob-double-star-zero-segments (0.000043 sec)
    passed  153/286  test-glob-empty-path (0.000027 sec)
-   passed  154/286  test-glob-empty-pattern (0.000026 sec)
-   passed  155/286  test-glob-exact-match (0.000030 sec)
-   passed  156/286  test-glob-literal-dots (0.000030 sec)
+   passed  154/286  test-glob-empty-pattern (0.000024 sec)
+   passed  155/286  test-glob-exact-match (0.000042 sec)
+   passed  156/286  test-glob-literal-dots (0.000042 sec)
 Test test-glob-literal-parens backtrace:
   ert-fail(((should (jf/bash-glob-match-p "/workspace/file(1).txt" "/w
-  (if (unwind-protect (setq value-1249 (apply fn-1247 args-1248)) (set
-  (let (form-description-1251) (if (unwind-protect (setq value-1249 (a
-  (let ((value-1249 'ert-form-evaluation-aborted-1250)) (let (form-des
-  (let* ((fn-1247 #'jf/bash-glob-match-p) (args-1248 (condition-case e
-  #f(lambda () [t] (let* ((fn-1247 #'jf/bash-glob-match-p) (args-1248 
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
+  (if (unwind-protect (setq value-1254 (apply fn-1252 args-1253)) (set
+  (let (form-description-1256) (if (unwind-protect (setq value-1254 (a
+  (let ((value-1254 'ert-form-evaluation-aborted-1255)) (let (form-des
+  (let* ((fn-1252 #'jf/bash-glob-match-p) (args-1253 (condition-case e
+  #f(lambda () [t] (let* ((fn-1252 #'jf/bash-glob-match-p) (args-1253 
+  #f(compiled-function () #<bytecode 0x17c6610203ba62ed>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x17c6610203ba62ed
   ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
   ert-run-test(#s(ert-test :name test-glob-literal-parens :documentati
   ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
@@ -775,262 +402,144 @@ Test test-glob-literal-parens condition:
       (jf/bash-glob-match-p "/workspace/file(1).txt"
                             "/workspace/file(1).txt")
       :value nil))
-   FAILED  157/286  test-glob-literal-parens (0.000052 sec) at config/experiments/bash-parser/test/test-glob-matching.el:169
-   passed  158/286  test-glob-literal-plus-chars (0.000079 sec)
-   passed  159/286  test-glob-multiple-question-marks (0.000043 sec)
-   passed  160/286  test-glob-nested-double-stars (0.000037 sec)
-   passed  161/286  test-glob-no-match-different-directory (0.000034 sec)
-   passed  162/286  test-glob-path-must-match-from-start (0.000032 sec)
-   passed  163/286  test-glob-question-mark-no-match-two-chars (0.000028 sec)
-   passed  164/286  test-glob-question-mark-no-match-zero-chars (0.000025 sec)
-   passed  165/286  test-glob-question-mark-single-char (0.000032 sec)
-   passed  166/286  test-glob-recursive-wildcard-match (0.000034 sec)
-   passed  167/286  test-glob-root-path (0.000028 sec)
-   passed  168/286  test-glob-single-level-wildcard-match (0.000031 sec)
-   passed  169/286  test-glob-single-star-one-level-match (0.000031 sec)
-   passed  170/286  test-glob-single-star-rejects-multiple-levels (0.000032 sec)
-Test test-glob-to-regex-asterisk backtrace:
-  signal(void-function (jf/bash--glob-to-regex))
-  apply(signal (void-function (jf/bash--glob-to-regex)))
-  (setq value-1319 (apply fn-1317 args-1318))
-  (unwind-protect (setq value-1319 (apply fn-1317 args-1318)) (setq fo
-  (if (unwind-protect (setq value-1319 (apply fn-1317 args-1318)) (set
-  (let (form-description-1321) (if (unwind-protect (setq value-1319 (a
-  (let ((value-1319 'ert-form-evaluation-aborted-1320)) (let (form-des
-  (let* ((fn-1317 #'string-match-p) (args-1318 (condition-case err (li
-  #f(lambda () [t] (let* ((fn-1317 #'string-match-p) (args-1318 (condi
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-glob-to-regex-asterisk :document
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-glob-to-regex-asterisk condition:
-    (void-function jf/bash--glob-to-regex)
-   FAILED  171/286  test-glob-to-regex-asterisk (0.000058 sec) at config/experiments/bash-parser/test/test-glob-matching.el:221
-Test test-glob-to-regex-character-class backtrace:
-  signal(void-function (jf/bash--glob-to-regex))
-  apply(signal (void-function (jf/bash--glob-to-regex)))
-  (setq value-1349 (apply fn-1347 args-1348))
-  (unwind-protect (setq value-1349 (apply fn-1347 args-1348)) (setq fo
-  (if (unwind-protect (setq value-1349 (apply fn-1347 args-1348)) (set
-  (let (form-description-1351) (if (unwind-protect (setq value-1349 (a
-  (let ((value-1349 'ert-form-evaluation-aborted-1350)) (let (form-des
-  (let* ((fn-1347 #'string-match-p) (args-1348 (condition-case err (li
-  #f(lambda () [t] (let* ((fn-1347 #'string-match-p) (args-1348 (condi
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-glob-to-regex-character-class :d
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-glob-to-regex-character-class condition:
-    (void-function jf/bash--glob-to-regex)
-   FAILED  172/286  test-glob-to-regex-character-class (0.000068 sec) at config/experiments/bash-parser/test/test-glob-matching.el:237
-Test test-glob-to-regex-escapes-special-chars backtrace:
-  signal(void-function (jf/bash--glob-to-regex))
-  apply(signal (void-function (jf/bash--glob-to-regex)))
-  (setq value-1364 (apply fn-1362 args-1363))
-  (unwind-protect (setq value-1364 (apply fn-1362 args-1363)) (setq fo
-  (if (unwind-protect (setq value-1364 (apply fn-1362 args-1363)) (set
-  (let (form-description-1366) (if (unwind-protect (setq value-1364 (a
-  (let ((value-1364 'ert-form-evaluation-aborted-1365)) (let (form-des
-  (let* ((fn-1362 #'string-match-p) (args-1363 (condition-case err (li
-  #f(lambda () [t] (let* ((fn-1362 #'string-match-p) (args-1363 (condi
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-glob-to-regex-escapes-special-ch
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-glob-to-regex-escapes-special-chars condition:
-    (void-function jf/bash--glob-to-regex)
-   FAILED  173/286  test-glob-to-regex-escapes-special-chars (0.000067 sec) at config/experiments/bash-parser/test/test-glob-matching.el:245
-Test test-glob-to-regex-question backtrace:
-  signal(void-function (jf/bash--glob-to-regex))
-  apply(signal (void-function (jf/bash--glob-to-regex)))
-  (setq value-1334 (apply fn-1332 args-1333))
-  (unwind-protect (setq value-1334 (apply fn-1332 args-1333)) (setq fo
-  (if (unwind-protect (setq value-1334 (apply fn-1332 args-1333)) (set
-  (let (form-description-1336) (if (unwind-protect (setq value-1334 (a
-  (let ((value-1334 'ert-form-evaluation-aborted-1335)) (let (form-des
-  (let* ((fn-1332 #'string-match-p) (args-1333 (condition-case err (li
-  #f(lambda () [t] (let* ((fn-1332 #'string-match-p) (args-1333 (condi
-  #f(compiled-function () #<bytecode -0x1521dee479af4ff7>)()
-  handler-bind-1(#f(compiled-function () #<bytecode -0x1521dee479af4ff
-  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
-  ert-run-test(#s(ert-test :name test-glob-to-regex-question :document
-  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
-  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
-  ert-run-tests-batch(nil)
-  ert-run-tests-batch-and-exit()
-  jf/test-run-directory-batch("config/experiments/bash-parser")
-  eval((jf/test-run-directory-batch "config/experiments/bash-parser") 
-  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
-  command-line()
-  normal-top-level()
-Test test-glob-to-regex-question condition:
-    (void-function jf/bash--glob-to-regex)
-   FAILED  174/286  test-glob-to-regex-question (0.000063 sec) at config/experiments/bash-parser/test/test-glob-matching.el:229
-   passed  175/286  test-glob-trailing-slash-handling (0.000055 sec)
-   passed  176/286  test-parser-extension-already-marked-preserved (0.000037 sec)
-   passed  177/286  test-parser-extension-detect-bash-c-injection (0.002581 sec)
-   passed  178/286  test-parser-extension-detect-env-s-injection (0.002085 sec)
-   passed  179/286  test-parser-extension-detect-eval-injection (0.002067 sec)
-   passed  180/286  test-parser-extension-detect-python-c-injection (0.002064 sec)
-   passed  181/286  test-parser-extension-detect-sh-c-injection (0.002062 sec)
-   passed  182/286  test-parser-extension-direct-operation-unmarked (0.000030 sec)
-   passed  183/286  test-parser-extension-end-to-end-bash-c (0.004091 sec)
-   passed  184/286  test-parser-extension-existing-unchanged (0.002089 sec)
-   passed  185/286  test-parser-extension-injection-with-flags-before (0.002354 sec)
-   passed  186/286  test-parser-extension-leverage-parsed-data (0.006312 sec)
-   passed  187/286  test-parser-extension-mark-exec-block-indirect (0.000032 sec)
-   passed  188/286  test-parser-extension-mixed-operations (0.000032 sec)
-   passed  189/286  test-parser-extension-nested-max-depth (0.000033 sec)
-   passed  190/286  test-parser-extension-nested-with-variables (0.002071 sec)
-   passed  191/286  test-parser-extension-new-extraction-available (0.000031 sec)
-   passed  192/286  test-parser-extension-no-false-positives (0.006147 sec)
-   passed  193/286  test-parser-extension-parse-nested-command (0.002104 sec)
-   passed  194/286  test-parser-extension-parse-nested-multiple-levels (0.004141 sec)
-   passed  195/286  test-parser-extension-parse-nested-preserve-inner-quotes (0.002074 sec)
-   passed  196/286  test-parser-extension-parse-nested-strip-double-quotes (0.002067 sec)
-   passed  197/286  test-parser-extension-parse-nested-strip-single-quotes (0.002056 sec)
-   passed  198/286  test-parser-extension-parse-return-format (0.002055 sec)
-   passed  199/286  test-security-all-operations-allowed (0.008183 sec)
-   passed  200/286  test-security-allow-command-matching-rules (0.002055 sec)
-   passed  201/286  test-security-allow-indirect-with-same-rules (0.002181 sec)
-   passed  202/286  test-security-apply-policy-to-indirect-operations (0.002276 sec)
-   passed  203/286  test-security-cd-violation-includes-guidance (0.000033 sec)
-   passed  204/286  test-security-cd-violation-with-working-directory-guidance (0.000035 sec)
-   passed  205/286  test-security-character-class-match (0.002080 sec)
-   passed  206/286  test-security-define-operation-specific-permissions (0.000031 sec)
-   passed  207/286  test-security-define-rule-with-multiple-patterns (0.000032 sec)
-   passed  208/286  test-security-define-rule-with-single-pattern (0.000033 sec)
-   passed  209/286  test-security-deny-command-violating-rules (0.002092 sec)
-   passed  210/286  test-security-double-star-multiple-segments (0.002072 sec)
-   passed  211/286  test-security-double-star-zero-segments (0.002063 sec)
-   passed  212/286  test-security-first-matching-rule-applies (0.002172 sec)
-   passed  213/286  test-security-indirect-operation-violation-details (0.002059 sec)
-   passed  214/286  test-security-low-confidence-operation (0.002078 sec)
-   passed  215/286  test-security-missing-variable-context (0.002072 sec)
-   passed  216/286  test-security-more-specific-rule-before-general (0.004137 sec)
-   passed  217/286  test-security-multiple-violations (0.002093 sec)
-   passed  218/286  test-security-no-match-different-directory (0.002134 sec)
-   passed  219/286  test-security-partial-resolution-rejection (0.002082 sec)
-   passed  220/286  test-security-provide-variable-context (0.002087 sec)
-   passed  221/286  test-security-read-allowed-write-denied (0.004101 sec)
-   passed  222/286  test-security-recursive-wildcard-match (0.002061 sec)
-   passed  223/286  test-security-reject-all-indirect-strict-mode (0.002058 sec)
-   passed  224/286  test-security-reject-cd-in-chain (0.000030 sec)
-   passed  225/286  test-security-reject-cd-with-options (0.000031 sec)
-   passed  226/286  test-security-reject-simple-cd-command (0.000032 sec)
-   passed  227/286  test-security-reject-unresolved-variables (0.002079 sec)
-   passed  228/286  test-security-resolve-variables-before-matching (0.002077 sec)
-   passed  229/286  test-security-result-structure-allowed (0.002616 sec)
-   passed  230/286  test-security-result-structure-denied (0.002107 sec)
-   passed  231/286  test-security-single-level-wildcard-match (0.002088 sec)
-   passed  232/286  test-security-single-star-one-level (0.002082 sec)
-   passed  233/286  test-security-single-star-rejects-multiple-levels (0.002138 sec)
-   passed  234/286  test-security-unhandled-operations-fails-safely (0.001971 sec)
-   passed  235/286  test-security-variable-violation-details (0.001976 sec)
-   passed  236/286  test-security-violation-with-matched-rule (0.002118 sec)
-   passed  237/286  test-security-violation-with-no-matched-rule (0.002051 sec)
-   passed  238/286  test-security-warn-indirect-policy (0.002121 sec)
-   passed  239/286  test-security-write-allowed-delete-denied (0.004074 sec)
-   passed  240/286  test-semantics-core-command-chgrp (0.000031 sec)
+   FAILED  157/286  test-glob-literal-parens (0.000058 sec) at config/experiments/bash-parser/test/test-glob-matching.el:169
+   passed  158/286  test-glob-literal-plus-chars (0.000085 sec)
+   passed  159/286  test-glob-multiple-question-marks (0.000062 sec)
+   passed  160/286  test-glob-nested-double-stars (0.000056 sec)
+   passed  161/286  test-glob-no-match-different-directory (0.000044 sec)
+   passed  162/286  test-glob-path-must-match-from-start (0.000042 sec)
+   passed  163/286  test-glob-question-mark-no-match-two-chars (0.000035 sec)
+   passed  164/286  test-glob-question-mark-no-match-zero-chars (0.000034 sec)
+   passed  165/286  test-glob-question-mark-single-char (0.000055 sec)
+   passed  166/286  test-glob-recursive-wildcard-match (0.000056 sec)
+   passed  167/286  test-glob-root-path (0.000040 sec)
+   passed  168/286  test-glob-single-level-wildcard-match (0.000051 sec)
+   passed  169/286  test-glob-single-star-one-level-match (0.000047 sec)
+   passed  170/286  test-glob-single-star-rejects-multiple-levels (0.000044 sec)
+   passed  171/286  test-glob-to-regex-asterisk (0.000034 sec)
+   passed  172/286  test-glob-to-regex-character-class (0.000038 sec)
+   passed  173/286  test-glob-to-regex-escapes-special-chars (0.000030 sec)
+   passed  174/286  test-glob-to-regex-question (0.000029 sec)
+   passed  175/286  test-glob-trailing-slash-handling (0.000043 sec)
+   passed  176/286  test-parser-extension-already-marked-preserved (0.000023 sec)
+   passed  177/286  test-parser-extension-detect-bash-c-injection (0.002364 sec)
+   passed  178/286  test-parser-extension-detect-env-s-injection (0.002011 sec)
+   passed  179/286  test-parser-extension-detect-eval-injection (0.001998 sec)
+   passed  180/286  test-parser-extension-detect-python-c-injection (0.002025 sec)
+   passed  181/286  test-parser-extension-detect-sh-c-injection (0.002067 sec)
+   passed  182/286  test-parser-extension-direct-operation-unmarked (0.000025 sec)
+   passed  183/286  test-parser-extension-end-to-end-bash-c (0.003994 sec)
+   passed  184/286  test-parser-extension-existing-unchanged (0.002127 sec)
+   passed  185/286  test-parser-extension-injection-with-flags-before (0.002052 sec)
+   passed  186/286  test-parser-extension-leverage-parsed-data (0.006020 sec)
+   passed  187/286  test-parser-extension-mark-exec-block-indirect (0.000028 sec)
+   passed  188/286  test-parser-extension-mixed-operations (0.000028 sec)
+   passed  189/286  test-parser-extension-nested-max-depth (0.000028 sec)
+   passed  190/286  test-parser-extension-nested-with-variables (0.002164 sec)
+   passed  191/286  test-parser-extension-new-extraction-available (0.000029 sec)
+   passed  192/286  test-parser-extension-no-false-positives (0.006117 sec)
+   passed  193/286  test-parser-extension-parse-nested-command (0.002034 sec)
+   passed  194/286  test-parser-extension-parse-nested-multiple-levels (0.004109 sec)
+   passed  195/286  test-parser-extension-parse-nested-preserve-inner-quotes (0.002046 sec)
+   passed  196/286  test-parser-extension-parse-nested-strip-double-quotes (0.002031 sec)
+   passed  197/286  test-parser-extension-parse-nested-strip-single-quotes (0.002047 sec)
+   passed  198/286  test-parser-extension-parse-return-format (0.002038 sec)
+   passed  199/286  test-security-all-operations-allowed (0.008255 sec)
+   passed  200/286  test-security-allow-command-matching-rules (0.002059 sec)
+   passed  201/286  test-security-allow-indirect-with-same-rules (0.002046 sec)
+   passed  202/286  test-security-apply-policy-to-indirect-operations (0.002063 sec)
+   passed  203/286  test-security-cd-violation-includes-guidance (0.000027 sec)
+   passed  204/286  test-security-cd-violation-with-working-directory-guidance (0.000029 sec)
+   passed  205/286  test-security-character-class-match (0.002064 sec)
+   passed  206/286  test-security-define-operation-specific-permissions (0.000026 sec)
+   passed  207/286  test-security-define-rule-with-multiple-patterns (0.000024 sec)
+   passed  208/286  test-security-define-rule-with-single-pattern (0.000028 sec)
+   passed  209/286  test-security-deny-command-violating-rules (0.002120 sec)
+   passed  210/286  test-security-double-star-multiple-segments (0.002106 sec)
+   passed  211/286  test-security-double-star-zero-segments (0.002052 sec)
+   passed  212/286  test-security-first-matching-rule-applies (0.002069 sec)
+   passed  213/286  test-security-indirect-operation-violation-details (0.002086 sec)
+   passed  214/286  test-security-low-confidence-operation (0.002056 sec)
+   passed  215/286  test-security-missing-variable-context (0.002148 sec)
+   passed  216/286  test-security-more-specific-rule-before-general (0.004173 sec)
+   passed  217/286  test-security-multiple-violations (0.002216 sec)
+   passed  218/286  test-security-no-match-different-directory (0.002109 sec)
+   passed  219/286  test-security-partial-resolution-rejection (0.002121 sec)
+   passed  220/286  test-security-provide-variable-context (0.002068 sec)
+   passed  221/286  test-security-read-allowed-write-denied (0.004076 sec)
+   passed  222/286  test-security-recursive-wildcard-match (0.002218 sec)
+   passed  223/286  test-security-reject-all-indirect-strict-mode (0.002054 sec)
+   passed  224/286  test-security-reject-cd-in-chain (0.000028 sec)
+   passed  225/286  test-security-reject-cd-with-options (0.000027 sec)
+   passed  226/286  test-security-reject-simple-cd-command (0.000029 sec)
+   passed  227/286  test-security-reject-unresolved-variables (0.002227 sec)
+   passed  228/286  test-security-resolve-variables-before-matching (0.002170 sec)
+   passed  229/286  test-security-result-structure-allowed (0.002065 sec)
+   passed  230/286  test-security-result-structure-denied (0.002088 sec)
+   passed  231/286  test-security-single-level-wildcard-match (0.002062 sec)
+   passed  232/286  test-security-single-star-one-level (0.002066 sec)
+   passed  233/286  test-security-single-star-rejects-multiple-levels (0.002068 sec)
+   passed  234/286  test-security-unhandled-operations-fails-safely (0.002052 sec)
+   passed  235/286  test-security-variable-violation-details (0.002245 sec)
+   passed  236/286  test-security-violation-with-matched-rule (0.002062 sec)
+   passed  237/286  test-security-violation-with-no-matched-rule (0.002124 sec)
+   passed  238/286  test-security-warn-indirect-policy (0.002047 sec)
+   passed  239/286  test-security-write-allowed-delete-denied (0.004130 sec)
+   passed  240/286  test-semantics-core-command-chgrp (0.000030 sec)
    passed  241/286  test-semantics-core-command-find (0.000030 sec)
-   passed  242/286  test-semantics-core-command-mkdir (0.000030 sec)
-   passed  243/286  test-semantics-core-command-rmdir (0.000029 sec)
-   passed  244/286  test-semantics-core-command-tee (0.000029 sec)
-   passed  245/286  test-semantics-core-command-touch (0.000029 sec)
-   passed  246/286  test-semantics-create-operation-classification (0.000029 sec)
-   passed  247/286  test-semantics-create-or-modify-operation-classification (0.000028 sec)
-   passed  248/286  test-semantics-delete-operation-classification (0.000028 sec)
-   passed  249/286  test-semantics-docker-cp-subcommand (0.000030 sec)
-   passed  250/286  test-semantics-flag-dependent-sed (0.000031 sec)
-   passed  251/286  test-semantics-flag-dependent-tar (0.000033 sec)
-   passed  252/286  test-semantics-git-add-subcommand (0.000031 sec)
-   passed  253/286  test-semantics-git-checkout-subcommand (0.000031 sec)
-   passed  254/286  test-semantics-git-diff-subcommand (0.000029 sec)
-   passed  255/286  test-semantics-git-rm-subcommand (0.000029 sec)
-   passed  256/286  test-semantics-last-argument-specification (0.000029 sec)
-   passed  257/286  test-semantics-lookup-chmod-skip-rules (0.000031 sec)
-   passed  258/286  test-semantics-lookup-chown-skip-rules (0.000030 sec)
-   passed  259/286  test-semantics-lookup-command-with-skip-rules (0.000032 sec)
-   passed  260/286  test-semantics-lookup-egrep-skip-rules (0.000030 sec)
-   passed  261/286  test-semantics-lookup-head-command (0.000029 sec)
-   passed  262/286  test-semantics-lookup-less-command (0.000030 sec)
-   passed  263/286  test-semantics-lookup-simple-read-command (0.000031 sec)
-   passed  264/286  test-semantics-lookup-tail-command (0.000030 sec)
-   passed  265/286  test-semantics-lookup-unknown-command (0.000028 sec)
-   passed  266/286  test-semantics-lookup-wc-command (0.000029 sec)
-   passed  267/286  test-semantics-modify-operation-classification (0.000028 sec)
-   passed  268/286  test-semantics-multi-operation-cp (0.000034 sec)
-   passed  269/286  test-semantics-multi-operation-ln (0.000030 sec)
-   passed  270/286  test-semantics-multi-operation-mv (0.000032 sec)
-   passed  271/286  test-semantics-named-args-dd (0.000034 sec)
-   passed  272/286  test-semantics-range-specification (0.000028 sec)
-   passed  273/286  test-semantics-read-operation-classification (0.000028 sec)
-   passed  274/286  test-semantics-single-index-specification (0.000029 sec)
-   passed  275/286  test-semantics-write-operation-classification (0.000027 sec)
-   passed  276/286  test-variable-assignment-and-usage-in-chain (0.002071 sec)
-   passed  277/286  test-variable-assignment-without-usage (0.002064 sec)
-   passed  278/286  test-variable-empty-variable-context (0.002037 sec)
-   passed  279/286  test-variable-multiple-assignments (0.002122 sec)
-   passed  280/286  test-variable-multiple-variables-in-path (0.002161 sec)
-   passed  281/286  test-variable-partial-resolution (0.002047 sec)
-   passed  282/286  test-variable-provide-variable-context (0.002068 sec)
-   passed  283/286  test-variable-resolve-declared-variable (0.002048 sec)
-   passed  284/286  test-variable-simple-variable-reference (0.002059 sec)
-   passed  285/286  test-variable-unresolved-variable (0.002090 sec)
-   passed  286/286  test-variable-variable-with-braces (0.002057 sec)
+   passed  242/286  test-semantics-core-command-mkdir (0.000028 sec)
+   passed  243/286  test-semantics-core-command-rmdir (0.000026 sec)
+   passed  244/286  test-semantics-core-command-tee (0.000024 sec)
+   passed  245/286  test-semantics-core-command-touch (0.000025 sec)
+   passed  246/286  test-semantics-create-operation-classification (0.000022 sec)
+   passed  247/286  test-semantics-create-or-modify-operation-classification (0.000023 sec)
+   passed  248/286  test-semantics-delete-operation-classification (0.000025 sec)
+   passed  249/286  test-semantics-docker-cp-subcommand (0.000029 sec)
+   passed  250/286  test-semantics-flag-dependent-sed (0.000035 sec)
+   passed  251/286  test-semantics-flag-dependent-tar (0.000031 sec)
+   passed  252/286  test-semantics-git-add-subcommand (0.000036 sec)
+   passed  253/286  test-semantics-git-checkout-subcommand (0.000028 sec)
+   passed  254/286  test-semantics-git-diff-subcommand (0.000027 sec)
+   passed  255/286  test-semantics-git-rm-subcommand (0.000025 sec)
+   passed  256/286  test-semantics-last-argument-specification (0.000027 sec)
+   passed  257/286  test-semantics-lookup-chmod-skip-rules (0.000029 sec)
+   passed  258/286  test-semantics-lookup-chown-skip-rules (0.000027 sec)
+   passed  259/286  test-semantics-lookup-command-with-skip-rules (0.000030 sec)
+   passed  260/286  test-semantics-lookup-egrep-skip-rules (0.000027 sec)
+   passed  261/286  test-semantics-lookup-head-command (0.000027 sec)
+   passed  262/286  test-semantics-lookup-less-command (0.000023 sec)
+   passed  263/286  test-semantics-lookup-simple-read-command (0.000030 sec)
+   passed  264/286  test-semantics-lookup-tail-command (0.000027 sec)
+   passed  265/286  test-semantics-lookup-unknown-command (0.000025 sec)
+   passed  266/286  test-semantics-lookup-wc-command (0.000025 sec)
+   passed  267/286  test-semantics-modify-operation-classification (0.000021 sec)
+   passed  268/286  test-semantics-multi-operation-cp (0.000026 sec)
+   passed  269/286  test-semantics-multi-operation-ln (0.000028 sec)
+   passed  270/286  test-semantics-multi-operation-mv (0.000029 sec)
+   passed  271/286  test-semantics-named-args-dd (0.000037 sec)
+   passed  272/286  test-semantics-range-specification (0.000026 sec)
+   passed  273/286  test-semantics-read-operation-classification (0.000023 sec)
+   passed  274/286  test-semantics-single-index-specification (0.000023 sec)
+   passed  275/286  test-semantics-write-operation-classification (0.000023 sec)
+   passed  276/286  test-variable-assignment-and-usage-in-chain (0.002114 sec)
+   passed  277/286  test-variable-assignment-without-usage (0.002058 sec)
+   passed  278/286  test-variable-empty-variable-context (0.002106 sec)
+   passed  279/286  test-variable-multiple-assignments (0.002177 sec)
+   passed  280/286  test-variable-multiple-variables-in-path (0.002086 sec)
+   passed  281/286  test-variable-partial-resolution (0.002085 sec)
+   passed  282/286  test-variable-provide-variable-context (0.002079 sec)
+   passed  283/286  test-variable-resolve-declared-variable (0.002073 sec)
+   passed  284/286  test-variable-simple-variable-reference (0.002051 sec)
+   passed  285/286  test-variable-unresolved-variable (0.002042 sec)
+   passed  286/286  test-variable-variable-with-braces (0.002059 sec)
 
-Ran 286 tests, 262 results as expected, 24 unexpected (2026-03-03 12:18:51+0100, 1.278851 sec)
+Ran 286 tests, 281 results as expected, 5 unexpected (2026-03-03 15:40:55+0100, 0.738479 sec)
 
-24 unexpected results:
+5 unexpected results:
    FAILED  test-corpus-archive-001
    FAILED  test-corpus-archive-002
    FAILED  test-corpus-archive-003
-   FAILED  test-corpus-chain-001
-   FAILED  test-corpus-find-001
-   FAILED  test-corpus-find-002
-   FAILED  test-corpus-find-003
-   FAILED  test-corpus-git-002
-   FAILED  test-corpus-glob-001
-   FAILED  test-corpus-glob-002
-   FAILED  test-corpus-glob-003
-   FAILED  test-corpus-read-003
-   FAILED  test-corpus-variable-001
-   FAILED  test-corpus-variable-002
-   FAILED  test-corpus-variable-003
-   FAILED  test-corpus-variable-004
-   FAILED  test-corpus-variable-005
    FAILED  test-corpus-variable-chain-003
-   FAILED  test-corpus-write-001
    FAILED  test-glob-literal-parens
-   FAILED  test-glob-to-regex-asterisk
-   FAILED  test-glob-to-regex-character-class
-   FAILED  test-glob-to-regex-escapes-special-chars
-   FAILED  test-glob-to-regex-question
 
+make: *** [emacs-test-eval] Error 1
