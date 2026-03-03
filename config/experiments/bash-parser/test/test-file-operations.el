@@ -476,5 +476,78 @@ Test main extraction function with chain."
     (should (listp ops))
     (should (>= (length ops) 2))))
 
+;;; Self-Execution Detection Tests
+
+(ert-deftest test-self-execution-relative-path ()
+  "Scenario: bash-script-execution § 'Self-executing script with relative path'
+
+Test that ./script.sh is detected as self-execution."
+  (let* ((parsed (jf/bash-parse "./script.sh arg1 arg2"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (should (= (length ops) 1))
+    (let ((exec-op (car ops)))
+      (should (equal (plist-get exec-op :file) "./script.sh"))
+      (should (eq (plist-get exec-op :operation) :execute))
+      (should (eq (plist-get exec-op :source) :command-name))
+      (should (eq (plist-get exec-op :confidence) :low))
+      (should (eq (plist-get exec-op :self-executing) t))
+      (should (equal (plist-get exec-op :script-args) '("arg1" "arg2"))))))
+
+(ert-deftest test-self-execution-absolute-path ()
+  "Scenario: bash-script-execution § 'Self-executing binary with absolute path'
+
+Test that /usr/bin/tool is detected as self-execution."
+  (let* ((parsed (jf/bash-parse "/usr/bin/tool"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (should (= (length ops) 1))
+    (let ((exec-op (car ops)))
+      (should (equal (plist-get exec-op :file) "/usr/bin/tool"))
+      (should (eq (plist-get exec-op :operation) :execute))
+      (should (eq (plist-get exec-op :source) :command-name))
+      (should (eq (plist-get exec-op :confidence) :low))
+      (should (eq (plist-get exec-op :self-executing) t))
+      (should (null (plist-get exec-op :script-args))))))
+
+(ert-deftest test-self-execution-parent-directory ()
+  "Scenario: bash-script-execution § 'Self-executing script in parent directory'
+
+Test that ../bin/runner is detected as self-execution."
+  (let* ((parsed (jf/bash-parse "../bin/runner data.txt"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (should (= (length ops) 1))
+    (let ((exec-op (car ops)))
+      (should (equal (plist-get exec-op :file) "../bin/runner"))
+      (should (eq (plist-get exec-op :operation) :execute))
+      (should (eq (plist-get exec-op :source) :command-name))
+      (should (eq (plist-get exec-op :confidence) :low))
+      (should (eq (plist-get exec-op :self-executing) t))
+      (should (equal (plist-get exec-op :script-args) '("data.txt"))))))
+
+(ert-deftest test-self-execution-not-path-based ()
+  "Scenario: bash-script-execution § 'Non-path command should not trigger self-execution'
+
+Test that regular commands like 'cat' are not detected as self-execution."
+  (let* ((parsed (jf/bash-parse "cat file.txt"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should have read operation from cat, but no execute operation
+    (let ((exec-op (cl-find-if (lambda (op)
+                                  (eq (plist-get op :operation) :execute))
+                                ops)))
+      (should (null exec-op)))))
+
+(ert-deftest test-self-execution-helper-function ()
+  "Test jf/bash--command-executes-self-p helper function directly."
+  ;; Path-based commands
+  (should (jf/bash--command-executes-self-p "./script.sh"))
+  (should (jf/bash--command-executes-self-p "/usr/bin/tool"))
+  (should (jf/bash--command-executes-self-p "../bin/runner"))
+  ;; Non-path-based commands
+  (should-not (jf/bash--command-executes-self-p "cat"))
+  (should-not (jf/bash--command-executes-self-p "script.sh"))
+  (should-not (jf/bash--command-executes-self-p "python"))
+  ;; Edge cases
+  (should-not (jf/bash--command-executes-self-p nil))
+  (should-not (jf/bash--command-executes-self-p "")))
+
 (provide 'test-file-operations)
 ;;; test-file-operations.el ends here

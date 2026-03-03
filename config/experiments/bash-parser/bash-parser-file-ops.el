@@ -159,7 +159,9 @@ COMMAND is a single parsed command structure (from :all-commands or top-level).
 VAR-CONTEXT is an alist of variable bindings.
 
 Returns list of operation plists from all extraction sources."
-  (let ((operations nil))
+  (let ((operations nil)
+        (command-name (plist-get command :command-name))
+        (positional-args (plist-get command :positional-args)))
     ;; Extract from redirections (high confidence)
     (when-let ((redir-ops (jf/bash-extract-operations-from-redirections command var-context)))
       (setq operations (append operations redir-ops)))
@@ -171,6 +173,16 @@ Returns list of operation plists from all extraction sources."
     ;; Extract from exec blocks (find -exec)
     (when-let ((exec-ops (jf/bash-extract-from-exec-blocks command var-context)))
       (setq operations (append operations exec-ops)))
+
+    ;; Check for self-execution (path-based commands)
+    (when (and command-name (jf/bash--command-executes-self-p command-name))
+      (push (list :file command-name
+                  :operation :execute
+                  :source :command-name
+                  :confidence :low
+                  :self-executing t
+                  :script-args positional-args)
+            operations))
 
     operations))
 
@@ -192,6 +204,33 @@ Returns deduplicated list maintaining original order."
           (puthash key t seen)
           (push op result))))
     (nreverse result)))
+
+(defun jf/bash--command-executes-self-p (command-name)
+  "Return t if COMMAND-NAME is path-based executable.
+
+A command is considered self-executing if it starts with path
+prefixes that indicate direct file execution:
+  ./  - Relative to current directory
+  /   - Absolute path
+  ../ - Relative to parent directory
+
+This heuristic detects common shell idioms for executing scripts
+and binaries without using an explicit interpreter.
+
+COMMAND-NAME is the command name string from parsed command.
+
+Returns t if path-based, nil otherwise.
+
+Examples:
+  (jf/bash--command-executes-self-p \"./script.sh\")      => t
+  (jf/bash--command-executes-self-p \"/usr/bin/tool\")   => t
+  (jf/bash--command-executes-self-p \"../bin/runner\")   => t
+  (jf/bash--command-executes-self-p \"cat\")            => nil
+  (jf/bash--command-executes-self-p \"script.sh\")      => nil"
+  (and (stringp command-name)
+       (or (string-prefix-p "./" command-name)
+           (string-prefix-p "/" command-name)
+           (string-prefix-p "../" command-name))))
 
 (defun jf/bash-extract-operations-from-positional-args (parsed-command &optional var-context)
   "Extract file operations from positional arguments in PARSED-COMMAND.
