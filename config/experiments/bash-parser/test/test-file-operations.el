@@ -313,9 +313,9 @@ Test that unresolved variable is marked with metadata."
          (ops (jf/bash-extract-file-operations parsed)))
     (should (= (length ops) 1))
     ;; Should be marked as unresolved
-    (should (plist-get (car ops) :unresolved))
+    (should (eq (plist-get (car ops) :unresolved) t))
     ;; Should include list of unresolved variables
-    (let ((unresolved-vars (plist-get (car ops) :unresolved)))
+    (let ((unresolved-vars (plist-get (car ops) :unresolved-vars)))
       (should (or (member "UNKNOWN" unresolved-vars)
                   (member 'UNKNOWN unresolved-vars))))))
 

@@ -38,6 +38,24 @@ Examples:
            (string-match-p "\\[.*\\]" file-path)
            (string-match-p "{.*,.*}" file-path))))
 
+(defun jf/bash--normalize-var-context (var-context)
+  "Normalize VAR-CONTEXT to use symbol keys.
+
+VAR-CONTEXT can have either string or symbol keys. This function
+ensures all keys are symbols for consistent lookup.
+
+Examples:
+  ((\"FILE\" . \"/path\"))     => ((FILE . \"/path\"))
+  ((FILE . \"/path\"))       => ((FILE . \"/path\"))
+  ((\"A\" . \"1\") (B . \"2\")) => ((A . \"1\") (B . \"2\"))"
+  (when var-context
+    (mapcar (lambda (binding)
+              (let ((key (car binding))
+                    (value (cdr binding)))
+                (cons (if (stringp key) (intern key) key)
+                      value)))
+            var-context)))
+
 (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
   "Extract all file operations from PARSED-COMMAND.
 
@@ -48,7 +66,7 @@ extraction from all sources:
 - Exec blocks (find -exec ... \\;)
 
 PARSED-COMMAND is the output from `jf/bash-parse'.
-VAR-CONTEXT is an optional alist mapping variable names (symbols) to values (strings).
+VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values (strings).
 
 Returns a list of operation plists, each containing:
   :file - File path (may contain unresolved variables)
@@ -56,7 +74,8 @@ Returns a list of operation plists, each containing:
   :confidence - Confidence level (:high, :medium, :low, :unknown)
   :source - Source of operation (:redirection, :positional-arg, :exec-block)
   :indirect - t if from nested command (optional)
-  :unresolved - List of unresolved variable names (optional)
+  :unresolved - t if contains unresolved variables (optional)
+  :unresolved-vars - List of unresolved variable names (optional)
 
 Handles multi-command constructs:
 - Pipelines: Extract from each command in the pipeline
@@ -91,7 +110,7 @@ Examples:
     '((WORKSPACE . \"/workspace\")))
   => ((:file \"/workspace/file.txt\" :operation :read ...))"
   (let ((operations nil)
-        (context (or var-context nil))
+        (context (jf/bash--normalize-var-context var-context))
         (command-type (plist-get parsed-command :type))
         (all-commands (plist-get parsed-command :all-commands)))
 
@@ -328,7 +347,7 @@ Operation spec format:
                                    :source :positional-arg
                                    :command command-name)
                              (when unresolved-vars
-                               (list :unresolved unresolved-vars))
+                               (list :unresolved t :unresolved-vars unresolved-vars))
                              (when has-pattern
                                (list :pattern t)))
                       operations)))))))
@@ -533,7 +552,7 @@ Returns list of operation plists with resolved file paths."
                                    :source :redirection
                                    :metadata redir)
                              (when unresolved-vars
-                               (list :unresolved unresolved-vars)))
+                               (list :unresolved t :unresolved-vars unresolved-vars)))
                       operations)))))))
     (nreverse operations)))
 
