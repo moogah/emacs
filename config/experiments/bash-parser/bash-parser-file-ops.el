@@ -378,7 +378,12 @@ Operation spec format:
                                   (plist-get resolved-path :path)))
                      (unresolved-vars (when (listp resolved-path)
                                        (plist-get resolved-path :unresolved)))
-                     (has-pattern (jf/bash--has-glob-pattern-p final-path)))
+                     (has-pattern (jf/bash--has-glob-pattern-p final-path))
+                     ;; Capture script arguments for execute operations at index 0
+                     ;; Always use a list, even if empty (nil and '() are equivalent in Elisp)
+                     (script-args (when (and (eq operation :execute)
+                                            (eq index 0))
+                                   (or (cdr positional-args) '()))))
                 ;; Create operation plist
                 (push (append (list :file final-path
                                    :operation operation
@@ -388,7 +393,10 @@ Operation spec format:
                              (when unresolved-vars
                                (list :unresolved t :unresolved-vars unresolved-vars))
                              (when has-pattern
-                               (list :pattern t)))
+                               (list :pattern t))
+                             ;; Always include :script-args for execute operations
+                             (when (eq operation :execute)
+                               (list :script-args (or script-args '()))))
                       operations)))))))
 
     (nreverse operations)))
