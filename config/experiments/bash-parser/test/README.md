@@ -19,8 +19,7 @@ This directory contains ERT (Emacs Regression Testing) tests for the bash-parser
 
 ### Test Results
 - `CORPUS-TEST-RESULTS.md` - Detailed analysis of corpus test results
-- `test-results-*.txt` - Timestamped snapshots of all test runs
-- `test-results-latest.txt` - Symlink to most recent test run
+- `test-results.txt` - Complete test suite results (tracked in git)
 
 ## Running Tests
 
@@ -35,19 +34,24 @@ The easiest way to run the complete test suite (286 tests) and capture results:
 
 This will:
 - Run all 286 tests across all test files
-- Capture output to a timestamped file (`test-results-YYYYMMDD-HHMMSS.txt`)
-- Create/update `test-results-latest.txt` symlink
+- Capture output to `test-results.txt` (tracked in git)
 - Display summary with pass/fail counts
 - Exit with code 0 if all pass, 1 if any fail
 
-**View latest results:**
+**View results:**
 ```bash
-cat config/experiments/bash-parser/test/test-results-latest.txt
+cat config/experiments/bash-parser/test/test-results.txt
 ```
 
-**Compare snapshots to detect regressions:**
+**See what changed after making modifications:**
 ```bash
-diff test/test-results-20260303-091658.txt test/test-results-20260303-120000.txt
+git diff config/experiments/bash-parser/test/test-results.txt
+```
+
+**Commit baseline or updated results:**
+```bash
+git add config/experiments/bash-parser/test/test-results.txt
+git commit -m "Update test results baseline"
 ```
 
 **Current Status:**

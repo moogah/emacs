@@ -8,12 +8,8 @@ PARSER_DIR="$(dirname "$SCRIPT_DIR")"
 REPO_ROOT="$(cd "$PARSER_DIR/../../.." && pwd)"
 TREESIT_DIR="${REPO_ROOT}/runtime/tree-sitter"
 
-# Output file with timestamp
-TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-OUTPUT_FILE="${SCRIPT_DIR}/test-results-${TIMESTAMP}.txt"
-
-# Also create a symlink to latest
-LATEST_LINK="${SCRIPT_DIR}/test-results-latest.txt"
+# Output file (tracked in git)
+OUTPUT_FILE="${SCRIPT_DIR}/test-results.txt"
 
 echo "=========================================="
 echo "Bash Parser - Comprehensive Test Suite"
@@ -42,9 +38,6 @@ fi
     -l "${SCRIPT_DIR}/test-file-operations-corpus.el" \
     -f ert-run-tests-batch-and-exit \
     2>&1 | tee "$OUTPUT_FILE"
-
-# Update latest symlink
-ln -sf "$(basename "$OUTPUT_FILE")" "$LATEST_LINK"
 
 echo ""
 echo "=========================================="
@@ -80,8 +73,8 @@ else
 fi
 
 echo ""
-echo "Full output saved to: ${OUTPUT_FILE}"
-echo "Latest results: ${LATEST_LINK}"
+echo "Results saved to: ${OUTPUT_FILE}"
+echo "Use 'git diff ${OUTPUT_FILE}' to see what changed"
 echo ""
 
 exit $EXIT_CODE
