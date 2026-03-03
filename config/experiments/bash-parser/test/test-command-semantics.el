@@ -24,19 +24,19 @@
 
 (ert-deftest test-semantics-lookup-head-command ()
   "Scenario: bash-command-semantics § 'File reading commands' - head"
-  (let* ((result (jf/bash-lookup-command-semantics "head"))
-         (ops (plist-get result :operations)))
+  (let ((result (jf/bash-lookup-command-semantics "head")))
     (should result)
-    (should (= (length ops) 1))
-    (should (eq (plist-get (car ops) :operation) :read))))
+    ;; head now uses custom handler for flag argument skipping
+    (should (eq (plist-get result :operations) :custom))
+    (should (eq (plist-get result :handler) 'jf/bash--extract-head-tail-operations))))
 
 (ert-deftest test-semantics-lookup-tail-command ()
   "Scenario: bash-command-semantics § 'File reading commands' - tail"
-  (let* ((result (jf/bash-lookup-command-semantics "tail"))
-         (ops (plist-get result :operations)))
+  (let ((result (jf/bash-lookup-command-semantics "tail")))
     (should result)
-    (should (= (length ops) 1))
-    (should (eq (plist-get (car ops) :operation) :read))))
+    ;; tail now uses custom handler for flag argument skipping
+    (should (eq (plist-get result :operations) :custom))
+    (should (eq (plist-get result :handler) 'jf/bash--extract-head-tail-operations))))
 
 (ert-deftest test-semantics-lookup-less-command ()
   "Scenario: bash-command-semantics § 'File reading commands' - less"

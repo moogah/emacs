@@ -32,8 +32,10 @@ Setup lexical binding.
 #+begin_src emacs-lisp
 (defvar jf/bash-command-file-semantics
   '((cat . (:operations ((:source :positional-args :operation :read))))
-    (head . (:operations ((:source :positional-args :operation :read))))
-    (tail . (:operations ((:source :positional-args :operation :read))))
+    (head . (:operations :custom
+             :handler jf/bash--extract-head-tail-operations))
+    (tail . (:operations :custom
+             :handler jf/bash--extract-head-tail-operations))
     (less . (:operations ((:source :positional-args :operation :read))))
     (more . (:operations ((:source :positional-args :operation :read))))
     (wc . (:operations ((:source :positional-args :operation :read))))
@@ -211,6 +213,64 @@ Returns list of operation plists."
                          (when unresolved-vars
                            (list :unresolved unresolved-vars)))
                   operations)))))
+
+    (nreverse operations)))
+#+end_src
+
+** Head/Tail Command Custom Handler
+
+The head and tail commands have flags that consume numeric arguments:
+- -n NUM (number of lines)
+- -c NUM (number of bytes)
+
+These numeric arguments end up in positional-args and should be skipped.
+
+#+begin_src emacs-lisp
+(defun jf/bash--extract-head-tail-operations (parsed-command var-context)
+  "Custom extraction for head/tail command operations.
+
+PARSED-COMMAND is the parsed command structure.
+VAR-CONTEXT is the variable resolution context.
+
+Head/tail have flags that consume numeric arguments (-n NUM, -c NUM).
+These arguments end up in positional-args and should be skipped.
+
+Strategy: count how many flags that take arguments are present,
+then skip that many positional args from the beginning.
+
+Returns list of operation plists."
+  (let* ((positional-args (plist-get parsed-command :positional-args))
+         (flags (plist-get parsed-command :flags))
+         (command-name (plist-get parsed-command :command-name))
+         (operations nil))
+
+    ;; Flags that consume the next argument
+    (let ((arg-consuming-flags '("-n" "-c"))
+          (num-args-to-skip 0))
+
+      ;; Count how many positional args are consumed by flags
+      (dolist (flag flags)
+        (when (member flag arg-consuming-flags)
+          (setq num-args-to-skip (1+ num-args-to-skip))))
+
+      ;; Extract file operations from remaining positional args
+      (when positional-args
+        (let ((file-args (nthcdr num-args-to-skip positional-args)))
+          (dolist (arg file-args)
+            (let* ((resolved-path (jf/bash--resolve-path-variables arg var-context))
+                   (final-path (if (stringp resolved-path)
+                                  resolved-path
+                                (plist-get resolved-path :path)))
+                   (unresolved-vars (when (listp resolved-path)
+                                     (plist-get resolved-path :unresolved))))
+              (push (append (list :file final-path
+                                 :operation :read
+                                 :confidence :high
+                                 :source :positional-arg
+                                 :command command-name)
+                           (when unresolved-vars
+                             (list :unresolved unresolved-vars)))
+                    operations))))))
 
     (nreverse operations)))
 #+end_src
