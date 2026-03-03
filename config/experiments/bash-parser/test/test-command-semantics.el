@@ -250,7 +250,9 @@
   "Scenario: bash-command-semantics § 'Core command coverage' - find"
   (let ((result (jf/bash-lookup-command-semantics "find")))
     (should result)
-    (should (eq (plist-get (car (plist-get result :operations)) :operation) :read))))
+    ;; find now uses custom handler, check that it's properly configured
+    (should (eq (plist-get result :operations) :custom))
+    (should (eq (plist-get result :handler) 'jf/bash--extract-find-operations))))
 
 (ert-deftest test-semantics-core-command-tee ()
   "Scenario: bash-command-semantics § 'File writing commands' - tee"

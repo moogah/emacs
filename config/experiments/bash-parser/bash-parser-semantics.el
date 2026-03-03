@@ -31,7 +31,8 @@
     (sed . (:operations :flag-dependent
             :flag-handlers ((("-i" "--in-place") . ((:source :positional-args :operation :modify :skip-indices (0))))
                            (() . ((:source :positional-args :operation :read :skip-indices (0)))))))
-    (find . (:operations ((:source :positional-args :operation :read))))
+    (find . (:operations :custom
+             :handler jf/bash--extract-find-operations))
     (tee . (:operations ((:source :positional-args :operation :write))))
     (dd . (:operations ((:source :named-args :names ("if") :operation :read)
                         (:source :named-args :names ("of") :operation :write))))
@@ -118,6 +119,54 @@ Subcommand-based command:
    :subcommand-handlers ((add . ((:source :positional-args :operation :read)))))"
   (when command-name
     (alist-get (intern command-name) jf/bash-command-file-semantics)))
+
+(defun jf/bash--extract-find-operations (parsed-command var-context)
+  "Custom extraction for find command operations.
+
+PARSED-COMMAND is the parsed command structure.
+VAR-CONTEXT is the variable resolution context.
+
+Find has special argument handling:
+- Initial directory paths are classified as :read-directory
+- Flag arguments (after -name, -type, etc.) are skipped from extraction
+- When flags are present, only first positional arg is treated as directory
+- When no flags, all positional args are directory paths
+
+Returns list of operation plists."
+  (let* ((positional-args (plist-get parsed-command :positional-args))
+         (flags (plist-get parsed-command :flags))
+         (command-name (plist-get parsed-command :command-name))
+         (operations nil))
+
+    ;; Find argument structure: find [paths...] [expression...]
+    ;; The parser puts directory paths AND flag argument values in positional-args
+    ;; Flags themselves go into the :flags list
+
+    ;; Strategy: if find has any expression flags, we assume only the first
+    ;; positional arg is a directory path, and the rest are flag arguments
+    ;; (e.g., find . -name '*.log' → positional-args is ("." "*.log"))
+
+    (when positional-args
+      (let ((num-paths-to-extract (if flags 1 (length positional-args))))
+        ;; Extract only the first N positional args as directory paths
+        (dotimes (idx num-paths-to-extract)
+          (let* ((arg (nth idx positional-args))
+                 (resolved-path (jf/bash--resolve-path-variables arg var-context))
+                 (final-path (if (stringp resolved-path)
+                                resolved-path
+                              (plist-get resolved-path :path)))
+                 (unresolved-vars (when (listp resolved-path)
+                                   (plist-get resolved-path :unresolved))))
+            (push (append (list :file final-path
+                               :operation :read-directory
+                               :confidence :high
+                               :source :positional-arg
+                               :command command-name)
+                         (when unresolved-vars
+                           (list :unresolved unresolved-vars)))
+                  operations)))))
+
+    (nreverse operations)))
 
 (provide 'bash-parser-semantics)
 ;;; bash-parser-semantics.el ends here
