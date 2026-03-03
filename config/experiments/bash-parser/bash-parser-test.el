@@ -5,8 +5,8 @@
 (require 'ert)
 (require 'bash-parser (expand-file-name "bash-parser.el"
                                         (file-name-directory load-file-name)))
-(require 'test-corpus (expand-file-name "test-corpus.el"
-                                        (file-name-directory load-file-name)))
+(require 'bash-parser-corpus (expand-file-name "bash-parser-corpus.el"
+                                               (file-name-directory load-file-name)))
 
 ;;; Helper Functions
 

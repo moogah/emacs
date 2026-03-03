@@ -1,10 +1,10 @@
-;;; test-llm-scenarios.el --- Test runner for LLM scenarios -*- lexical-binding: t; -*-
+;;; llm-scenario-runner.el --- Test runner for LLM scenarios -*- lexical-binding: t; -*-
 
 ;; Interactive test runner for exploring how the bash parser handles
 ;; complex LLM-generated commands
 
 (require 'bash-parser)
-(require 'test-corpus-llm-scenarios)
+(require 'corpus-llm-scenarios)
 
 (defun jf/bash-parser-test-llm-scenario (test-case)
   "Test a single LLM scenario TEST-CASE and return results.
@@ -198,5 +198,5 @@ TEST-CASE is a plist from jf/bash-parser-test-corpus-llm."
 
     (pop-to-buffer buffer)))
 
-(provide 'test-llm-scenarios)
-;;; test-llm-scenarios.el ends here
+(provide 'llm-scenario-runner)
+;;; llm-scenario-runner.el ends here

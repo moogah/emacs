@@ -710,5 +710,5 @@
 Each entry has :id, :command, and :expect plist.
 Entries with :expect nil are exploratory - we don't know how the parser handles them yet.")
 
-(provide 'test-corpus)
-;;; test-corpus.el ends here
+(provide 'bash-parser-corpus)
+;;; bash-parser-corpus.el ends here

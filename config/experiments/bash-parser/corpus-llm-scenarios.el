@@ -574,5 +574,5 @@ Focuses on complex scenarios an LLM might generate when helping with:
 - Container orchestration
 - System administration tasks")
 
-(provide 'test-corpus-llm-scenarios)
-;;; test-corpus-llm-scenarios.el ends here
+(provide 'corpus-llm-scenarios)
+;;; corpus-llm-scenarios.el ends here

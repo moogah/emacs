@@ -104,6 +104,7 @@ Handles both 'dir/name' format and 'name' format."
     ("core/completion"    "Modern completion framework")
     ("core/window-management"    "Save and restore window configs")
     ("core/yasnippet"     "Snippet system for templates")
+    ("core/testing"       "ERT test infrastructure")
 
     ;; Feature modules
     ("look-and-feel/look-and-feel" "UI appearance and behavior")
