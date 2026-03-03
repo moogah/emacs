@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Emacs Test Runner with automatic test discovery
 #
+# This script provides a user-friendly CLI for running ERT tests.
+# It delegates Emacs invocation to Makefile targets (single source of truth).
+#
 # Usage:
 #   ./bin/run-tests.sh                    # Run all tests
 #   ./bin/run-tests.sh -p "^test-glob-"   # Run tests matching pattern
@@ -151,23 +154,17 @@ if [ "$SNAPSHOT" = true ]; then
     echo ""
 fi
 
-# Run tests using emacs-isolated.sh
+# Run tests using make (eliminates dependency on emacs-isolated.sh)
+# Makefile provides emacs-test-eval target with proper environment setup
 if [ "$SNAPSHOT" = true ]; then
     # Snapshot mode: capture output with tee
-    "$REPO_ROOT/bin/emacs-isolated.sh" -batch \
-        -l "$REPO_ROOT/config/core/testing.el" \
-        --eval "$TEST_COMMAND" \
-        2>&1 | tee "$SNAPSHOT_FILE"
+    make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$TEST_COMMAND" 2>&1 | tee "$SNAPSHOT_FILE"
     EXIT_CODE=${PIPESTATUS[0]}
 elif [ "$VERBOSE" = true ]; then
-    "$REPO_ROOT/bin/emacs-isolated.sh" -batch \
-        -l "$REPO_ROOT/config/core/testing.el" \
-        --eval "$TEST_COMMAND" 2>&1
+    make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$TEST_COMMAND" 2>&1
     EXIT_CODE=$?
 else
-    "$REPO_ROOT/bin/emacs-isolated.sh" -batch \
-        -l "$REPO_ROOT/config/core/testing.el" \
-        --eval "$TEST_COMMAND"
+    make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$TEST_COMMAND"
     EXIT_CODE=$?
 fi
 

@@ -211,21 +211,28 @@ v0.3.0      Promote to stable, update production
 
 ```
 emacs/
+├── Makefile                # Test infrastructure (single source of truth)
 ├── bin/                    # Helper scripts
-│   ├── emacs-isolated.sh   # Launch wrapper (sets EMACS_USER_DIRECTORY)
+│   ├── emacs-isolated.sh   # GUI launcher (interactive use)
+│   ├── run-tests.sh        # Test runner CLI (calls make targets)
 │   ├── tangle-org.sh       # Tangle .org files to .el
 │   └── get-machine-role.sh # Read machine role from ~/.machine-role
 ├── config/                 # Configuration files
 │   ├── init.org/.el        # Main entry point (source/tangled)
 │   ├── early-init.el       # Early initialization (pre-UI)
 │   ├── core/               # Core functionality (17+ modules)
+│   │   ├── testing.org/el  # ERT test framework and discovery
+│   │   └── ...             # Other core modules
 │   ├── look-and-feel/      # UI theming and appearance
 │   ├── language-modes/     # Programming language support
 │   ├── major-modes/        # Major mode configurations
 │   ├── experiments/        # Experimental/disabled modules
+│   │   └── bash-parser/    # Example module with tests
+│   │       ├── test/       # Test files (*-test.el)
+│   │       └── test-results.txt  # Snapshot (git-tracked)
 │   └── local/              # Machine-specific configs (*.el)
 └── runtime/                # Isolated runtime (not in ~/.emacs.d)
-    ├── packages/           # straight.el packages
+    ├── straight/           # straight.el packages
     ├── cache/              # Emacs cache files
     ├── data/               # Persistent data
     ├── state/              # Transient state
@@ -276,6 +283,110 @@ All configuration lives in `.org` files with these properties:
 - Tangling generates clean `.el` files
 - Validation catches syntax errors immediately
 - Both files in git preserve history and allow diffs
+
+## Testing
+
+This configuration includes a comprehensive ERT (Emacs Lisp Regression Testing) infrastructure with automatic test discovery and Makefile-based invocation.
+
+### Running Tests
+
+**Via Make** (recommended for simplicity):
+```bash
+make test                             # Run all tests (auto-discovery)
+make test-bash-parser                 # Run bash-parser module tests
+make test-directory DIR=config/gptel  # Run tests in specific directory
+make test-pattern PATTERN='^test-foo-' # Run tests matching pattern
+```
+
+**Via CLI Script** (for advanced features):
+```bash
+./bin/run-tests.sh                           # All tests
+./bin/run-tests.sh -d config/experiments/bash-parser  # Directory-scoped
+./bin/run-tests.sh -p '^test-glob-'          # Pattern matching
+./bin/run-tests.sh -d config/foo --snapshot  # Capture output for git tracking
+./bin/run-tests.sh -v                        # Verbose output
+./bin/run-tests.sh -h                        # Show help
+```
+
+### Test Organization
+
+Tests are co-located with the modules they test:
+```
+config/
+├── experiments/
+│   └── bash-parser/
+│       ├── test/
+│       │   ├── test-glob-matching.el
+│       │   └── test-command-parsing.el
+│       └── bash-parser.org
+├── core/
+│   ├── testing.el          # Test framework and discovery
+│   └── testing.org         # Source for testing.el
+└── gptel/
+    └── sessions-test.el    # Future: co-located with sessions.el
+```
+
+**Test file naming:** `*-test.el` suffix (e.g., `glob-matching-test.el`, `sessions-test.el`)
+
+### Snapshot Testing
+
+Capture test output to git-tracked files for regression monitoring:
+```bash
+# Capture baseline
+make test-bash-parser-snapshot
+
+# Or with run-tests.sh
+./bin/run-tests.sh -d config/experiments/bash-parser --snapshot
+
+# Compare after changes
+git diff config/experiments/bash-parser/test-results.txt
+```
+
+**Use cases:**
+- Track test progress over time
+- Catch unexpected changes in test results
+- Document known failures during development
+- CI/CD regression detection
+
+### Writing Tests
+
+Tests use standard ERT conventions:
+```elisp
+;; -*- lexical-binding: t; -*-
+
+(require 'ert)
+(require 'the-module-being-tested)
+
+(ert-deftest test-my-feature ()
+  "Test that my-feature does what it should."
+  (should (equal (my-function "input") "expected-output")))
+
+(ert-deftest test-my-feature-edge-case ()
+  "Test edge case handling."
+  (should-error (my-function nil)))
+```
+
+**Test discovery:** No manual registration needed - tests are automatically discovered by searching for `*-test.el` files.
+
+### Architecture
+
+The testing infrastructure uses a **Makefile-based architecture** to avoid script coupling:
+
+```
+Makefile               # Single source of truth for Emacs invocation
+├── Variables          # EMACS, RUNTIME_DIR, test invocation patterns
+├── Low-level targets  # emacs-test-eval, emacs-isolated
+└── High-level targets # test, test-pattern, test-directory, etc.
+
+bin/run-tests.sh       # User-friendly CLI (calls make targets)
+bin/emacs-isolated.sh  # Interactive GUI launcher (independent)
+```
+
+**Benefits:**
+- No script-to-script dependencies (eliminated coupling)
+- Single place to change Emacs binary path or environment setup
+- Easy to extend with new make targets
+- Works in both development and CI environments
 
 ## Usage
 

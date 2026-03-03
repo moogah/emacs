@@ -76,6 +76,60 @@ Uses straight.el (not package.el). Storage in `runtime/straight/`.
   :config (setq package-setting value))
 ```
 
+### Testing Infrastructure
+
+**Framework:** ERT (Emacs Lisp Regression Testing) with automatic test discovery.
+
+**Architecture:** Makefile provides single source of truth for Emacs invocation. No script-to-script dependencies.
+
+```
+Makefile (core)          - Emacs detection, environment setup, low-level targets
+  ↓
+run-tests.sh (CLI)       - User-friendly interface, argument parsing, snapshots
+emacs-isolated.sh (GUI)  - Interactive launches (independent)
+```
+
+**Test organization:**
+- Test files: `*-test.el` suffix alongside modules
+- Framework: `config/core/testing.el` provides discovery and runner functions
+- Location: `config/*/test/` or co-located with modules
+
+**Running tests:**
+```bash
+# Via make (direct)
+make test                                # All tests
+make test-bash-parser                    # Module shortcut
+make test-directory DIR=config/gptel     # Custom directory
+make test-pattern PATTERN='^test-foo-'   # Pattern matching
+
+# Via run-tests.sh (user-friendly CLI)
+./bin/run-tests.sh                       # All tests
+./bin/run-tests.sh -d config/gptel       # Directory-scoped
+./bin/run-tests.sh -p '^test-glob-'      # Pattern-scoped
+./bin/run-tests.sh -d config/foo -s      # With snapshot
+
+# Via make low-level target (for scripts)
+make emacs-test-eval EVAL_CMD="(jf/test-run-all-batch)"
+```
+
+**Test discovery functions** (in `config/core/testing.el`):
+- `jf/test-run-all-batch` - Discover and run all `*-test.el` files
+- `jf/test-run-directory-batch DIR` - Run tests in specific directory
+- `jf/test-run-pattern-batch PATTERN` - Run tests matching regexp
+- `jf/test-load-all-test-files DIR` - Load tests for custom filtering
+
+**Snapshot testing:**
+- Capture test output to git-tracked files for regression tracking
+- Default location: `DIR/test-results.txt` for directory-scoped tests
+- Compare changes: `git diff config/foo/test-results.txt`
+- Use for: Monitoring test progress, catching regressions in CI
+
+**Key principles:**
+- Makefile owns Emacs invocation (single source of truth)
+- Scripts are thin wrappers (no coupling)
+- Tests co-located with modules (easy navigation)
+- Automatic discovery (no manual test registration)
+
 ### GPTEL Architecture
 
 Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
@@ -106,9 +160,17 @@ gptel/
 # Tangle and validate
 ./bin/tangle-org.sh config/core/defaults.org
 
-# Test configuration
-./bin/emacs-isolated.sh
-./bin/emacs-isolated.sh -nw  # Terminal mode
+# Test configuration (interactive)
+./bin/emacs-isolated.sh              # GUI mode
+./bin/emacs-isolated.sh -nw          # Terminal mode
+./bin/emacs-isolated.sh myfile.txt   # Open file
+
+# Run tests (Makefile-based)
+make test                                    # All tests (auto-discovery)
+make test-bash-parser                        # Module-specific tests
+make test-directory DIR=config/gptel         # Custom directory
+make test-pattern PATTERN='^test-glob-'      # Pattern matching
+./bin/run-tests.sh -d config/foo --snapshot  # With CLI and snapshot
 
 # Worktree workflow
 git worktree add ~/emacs-feature-name -b feature-name
@@ -295,9 +357,11 @@ Use **Beads** for tracking implementation work:
 
 ## Key Locations
 
-**Root:** `early-init.el`, `init.el`, `init.org` (MUST be at root)
+**Root:** `early-init.el`, `init.el`, `init.org` (MUST be at root), `Makefile` (test infrastructure)
 **Config:** `config/core/`, `config/gptel/`, `config/major-modes/`, `config/language-modes/`, `config/local/`
+**Tests:** `config/*/test/` or `config/*-test.el` (co-located with modules)
 **Runtime:** `runtime/straight/`, `runtime/cache/`, `runtime/state/` (gitignored)
+**Bin:** `bin/run-tests.sh` (test CLI), `bin/emacs-isolated.sh` (GUI launcher), `bin/tangle-org.sh` (literate programming)
 
 **Machine roles:** `~/.machine-role` → `config/local/<role>.el` (apploi-mac, personal-mac, personal-mac-air)
 
