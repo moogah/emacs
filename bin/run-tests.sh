@@ -15,6 +15,8 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 PATTERN=""
 DIRECTORY=""
 VERBOSE=false
+SNAPSHOT=false
+SNAPSHOT_FILE=""
 
 show_help() {
     cat << EOF
@@ -26,6 +28,8 @@ USAGE:
 OPTIONS:
     -d, --directory DIR     Run tests only in specified directory
     -p, --pattern PATTERN   Run tests matching regexp pattern
+    -s, --snapshot [FILE]   Capture output to snapshot file (for git tracking)
+                           Default: test-results.txt in test directory
     -v, --verbose           Show verbose output
     -h, --help              Show this help message
 
@@ -42,6 +46,10 @@ EXAMPLES:
 
     # Combine directory and pattern
     $(basename "$0") -d config/experiments/bash-parser -p "^test-glob-"
+
+    # Capture output to snapshot file
+    $(basename "$0") -d config/experiments/bash-parser --snapshot
+    $(basename "$0") -s custom-results.txt
 
     # Verbose mode
     $(basename "$0") -v
@@ -68,6 +76,16 @@ while [[ $# -gt 0 ]]; do
         -p|--pattern)
             PATTERN="$2"
             shift 2
+            ;;
+        -s|--snapshot)
+            SNAPSHOT=true
+            # Check if next arg is a filename (not a flag)
+            if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                SNAPSHOT_FILE="$2"
+                shift 2
+            else
+                shift
+            fi
             ;;
         -v|--verbose)
             VERBOSE=true
@@ -112,26 +130,90 @@ else
     TEST_COMMAND="(jf/test-run-all-batch)"
 fi
 
+# Determine snapshot file location
+if [ "$SNAPSHOT" = true ]; then
+    if [ -z "$SNAPSHOT_FILE" ]; then
+        # Default location based on directory or config root
+        if [ -n "$DIRECTORY" ]; then
+            SNAPSHOT_FILE="$REPO_ROOT/$DIRECTORY/test-results.txt"
+        else
+            SNAPSHOT_FILE="$REPO_ROOT/test-results.txt"
+        fi
+    elif [[ ! "$SNAPSHOT_FILE" = /* ]]; then
+        # Make relative paths absolute
+        SNAPSHOT_FILE="$REPO_ROOT/$SNAPSHOT_FILE"
+    fi
+
+    # Ensure directory exists
+    mkdir -p "$(dirname "$SNAPSHOT_FILE")"
+
+    echo "Capturing output to: $(realpath --relative-to="$REPO_ROOT" "$SNAPSHOT_FILE" 2>/dev/null || basename "$SNAPSHOT_FILE")"
+    echo ""
+fi
+
 # Run tests using emacs-isolated.sh
-if [ "$VERBOSE" = true ]; then
+if [ "$SNAPSHOT" = true ]; then
+    # Snapshot mode: capture output with tee
+    "$REPO_ROOT/bin/emacs-isolated.sh" -batch \
+        -l "$REPO_ROOT/config/core/testing.el" \
+        --eval "$TEST_COMMAND" \
+        2>&1 | tee "$SNAPSHOT_FILE"
+    EXIT_CODE=${PIPESTATUS[0]}
+elif [ "$VERBOSE" = true ]; then
     "$REPO_ROOT/bin/emacs-isolated.sh" -batch \
         -l "$REPO_ROOT/config/core/testing.el" \
         --eval "$TEST_COMMAND" 2>&1
+    EXIT_CODE=$?
 else
     "$REPO_ROOT/bin/emacs-isolated.sh" -batch \
         -l "$REPO_ROOT/config/core/testing.el" \
         --eval "$TEST_COMMAND"
+    EXIT_CODE=$?
 fi
-
-EXIT_CODE=$?
 
 echo ""
 echo "========================================"
-if [ $EXIT_CODE -eq 0 ]; then
-    echo "✓ All tests passed"
+
+# Extract summary if in snapshot mode
+if [ "$SNAPSHOT" = true ] && [ -f "$SNAPSHOT_FILE" ]; then
+    echo "Test Results Summary"
+    echo "========================================"
+    echo ""
+
+    # Extract summary statistics
+    TOTAL_TESTS=$(grep -E "^Ran [0-9]+ tests" "$SNAPSHOT_FILE" | head -1 | awk '{print $2}')
+    EXPECTED=$(grep -E "^Ran [0-9]+ tests" "$SNAPSHOT_FILE" | head -1 | awk '{print $4}')
+    UNEXPECTED=$(grep -E "^Ran [0-9]+ tests" "$SNAPSHOT_FILE" | head -1 | awk '{print $8}')
+
+    if [ -n "$TOTAL_TESTS" ]; then
+        echo "Total tests run: $TOTAL_TESTS"
+        echo "Expected results: $EXPECTED"
+        echo "Unexpected results: $UNEXPECTED"
+        echo ""
+    fi
+
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "✓ All tests passed"
+    else
+        echo "✗ Some tests failed"
+        if [ -n "$UNEXPECTED" ] && [ "$UNEXPECTED" != "0" ]; then
+            echo ""
+            echo "Failed tests:"
+            grep "^   FAILED" "$SNAPSHOT_FILE" | head -10 || true
+        fi
+    fi
+
+    echo ""
+    echo "Results saved to: $(realpath --relative-to="$REPO_ROOT" "$SNAPSHOT_FILE" 2>/dev/null || basename "$SNAPSHOT_FILE")"
+    echo "Use 'git diff $(realpath --relative-to="$REPO_ROOT" "$SNAPSHOT_FILE" 2>/dev/null || basename "$SNAPSHOT_FILE")' to see changes"
 else
-    echo "✗ Some tests failed (exit code: $EXIT_CODE)"
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "✓ All tests passed"
+    else
+        echo "✗ Some tests failed (exit code: $EXIT_CODE)"
+    fi
 fi
+
 echo "========================================"
 
 exit $EXIT_CODE
