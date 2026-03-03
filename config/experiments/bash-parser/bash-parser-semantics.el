@@ -55,7 +55,19 @@
     (cargo . (:operations :complex
               :subcommand-handlers ()))
     (kubectl . (:operations :complex
-                :subcommand-handlers ())))
+                :subcommand-handlers ()))
+    (python . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (python3 . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (node . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (bash . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (sh . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (zsh . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (source . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (\. . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (go . (:operations :complex
+           :subcommand-handlers ((run . ((:source :positional-args :operation :execute :index 0)))
+                                (test . ((:source :positional-args :operation :execute :index 0)))
+                                (build . ((:source :positional-args :operation :read :index 0)))))))
   "Database mapping command names to file operation semantics.
 
 Each entry maps a command symbol to a plist describing how the command
@@ -86,6 +98,7 @@ Operation spec format:
     :modify - Change existing file in place
     :create - Create new file (must not exist)
     :create-or-modify - Create or update file
+    :execute - Execute file as script or binary
 
   :index - Single positional argument index (0-based, -1 for last)
   :indices - Range of positional arguments:

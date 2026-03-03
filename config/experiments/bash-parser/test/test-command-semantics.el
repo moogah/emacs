@@ -226,6 +226,11 @@
   (let ((result (jf/bash-lookup-command-semantics "touch")))
     (should (eq (plist-get (car (plist-get result :operations)) :operation) :create-or-modify))))
 
+(ert-deftest test-semantics-execute-operation-classification ()
+  "Scenario: bash-command-semantics § 'Operation type classification' - execute"
+  (let ((result (jf/bash-lookup-command-semantics "python")))
+    (should (eq (plist-get (car (plist-get result :operations)) :operation) :execute))))
+
 ;;; Core Command Coverage
 
 (ert-deftest test-semantics-core-command-touch ()
@@ -340,6 +345,116 @@
       (should (eq (plist-get write-op :operation) :write))
       (should (eq (plist-get write-op :source) :named-args))
       (should (equal (plist-get write-op :names) '("of"))))))
+
+;;; Script Execution Commands
+
+(ert-deftest test-semantics-python-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - python interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "python"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (= (length ops) 1))
+    (should (eq (plist-get op :operation) :execute))
+    (should (eq (plist-get op :source) :positional-args))
+    (should (= (plist-get op :index) 0))))
+
+(ert-deftest test-semantics-python3-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - python3 interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "python3"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :execute))
+    (should (= (plist-get op :index) 0))))
+
+(ert-deftest test-semantics-node-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - node interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "node"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :execute))
+    (should (= (plist-get op :index) 0))))
+
+(ert-deftest test-semantics-bash-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - bash interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "bash"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :execute))
+    (should (= (plist-get op :index) 0))))
+
+(ert-deftest test-semantics-sh-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - sh interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "sh"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (eq (plist-get (car ops) :operation) :execute))))
+
+(ert-deftest test-semantics-zsh-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - zsh interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "zsh"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (eq (plist-get (car ops) :operation) :execute))))
+
+(ert-deftest test-semantics-source-builtin ()
+  "Scenario: bash-command-semantics § 'Script execution' - source builtin"
+  (let* ((result (jf/bash-lookup-command-semantics "source"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :execute))
+    (should (= (plist-get op :index) 0))))
+
+(ert-deftest test-semantics-dot-builtin ()
+  "Scenario: bash-command-semantics § 'Script execution' - dot builtin"
+  (let* ((result (jf/bash-lookup-command-semantics "."))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :execute))
+    (should (= (plist-get op :index) 0))))
+
+;;; Go Subcommands
+
+(ert-deftest test-semantics-go-run-subcommand ()
+  "Scenario: bash-command-semantics § 'Go subcommands' - go run executes code"
+  (let* ((result (jf/bash-lookup-command-semantics "go"))
+         (handlers (plist-get result :subcommand-handlers))
+         (run-spec (alist-get 'run handlers)))
+    (should result)
+    (should (eq (plist-get result :operations) :complex))
+    (should run-spec)
+    (should (= (length run-spec) 1))
+    (let ((op (car run-spec)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (eq (plist-get op :source) :positional-args))
+      (should (= (plist-get op :index) 0)))))
+
+(ert-deftest test-semantics-go-test-subcommand ()
+  "Scenario: bash-command-semantics § 'Go subcommands' - go test executes tests"
+  (let* ((result (jf/bash-lookup-command-semantics "go"))
+         (handlers (plist-get result :subcommand-handlers))
+         (test-spec (alist-get 'test handlers)))
+    (should test-spec)
+    (should (= (length test-spec) 1))
+    (let ((op (car test-spec)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (= (plist-get op :index) 0)))))
+
+(ert-deftest test-semantics-go-build-subcommand ()
+  "Scenario: bash-command-semantics § 'Go subcommands' - go build reads source"
+  (let* ((result (jf/bash-lookup-command-semantics "go"))
+         (handlers (plist-get result :subcommand-handlers))
+         (build-spec (alist-get 'build handlers)))
+    (should build-spec)
+    (should (= (length build-spec) 1))
+    (let ((op (car build-spec)))
+      (should (eq (plist-get op :operation) :read))
+      (should (= (plist-get op :index) 0)))))
 
 ;;; Test Suite Summary
 
