@@ -176,10 +176,10 @@ Test that command chain extracts operations from all commands."
                                          (eq (plist-get op :operation) :delete)))
                                   ops)))
       (should delete-op))
-    ;; Check for create operation from touch
+    ;; Check for create-or-modify operation from touch
     (let ((create-op (cl-find-if (lambda (op)
                                     (and (equal (plist-get op :file) "new.txt")
-                                         (eq (plist-get op :operation) :create)))
+                                         (eq (plist-get op :operation) :create-or-modify)))
                                   ops)))
       (should create-op))))
 

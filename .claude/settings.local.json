@@ -37,7 +37,12 @@
       "Bash(/Users/jefffarr/emacs/bin/tangle-org.sh:*)",
       "WebFetch(domain:news.ycombinator.com)",
       "Bash(./bin/emacs-isolated.sh:*)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(emacs:*)",
+      "Bash(/Users/jefffarr/emacs/bin/emacs-isolated.sh:*)",
+      "Bash(git commit:*)",
+      "Bash(/Users/jefffarr/emacs/config/experiments/bash-parser/test/run-parser-extension-tests.sh:*)",
+      "Bash(curl:*)"
     ]
   }
 }

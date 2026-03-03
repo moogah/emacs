@@ -30,8 +30,6 @@
   "Scenario: bash-sandbox-security § 'Single-level wildcard match'
 
 Test that * matches any characters within a single path segment."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file.txt" "/workspace/*.txt"))
   (should (jf/bash-glob-match-p "/workspace/foo.txt" "/workspace/*.txt"))
   (should (jf/bash-glob-match-p "/workspace/README.txt" "/workspace/*.txt")))
@@ -40,8 +38,6 @@ Test that * matches any characters within a single path segment."
   "Scenario: bash-sandbox-security § 'Single star rejects multiple levels'
 
 Test that * does NOT cross directory boundaries (matches within segment only)."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "/workspace/a/b/foo.el" "/workspace/*/foo.el"))
   (should-not (jf/bash-glob-match-p "/workspace/src/foo.txt" "/workspace/*.txt")))
 
@@ -49,8 +45,6 @@ Test that * does NOT cross directory boundaries (matches within segment only)."
   "Scenario: bash-sandbox-security § 'Single star does not cross directory boundaries'
 
 Test that * matches exactly one directory level."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/src/foo.el" "/workspace/*/foo.el"))
   (should (jf/bash-glob-match-p "/workspace/lib/bar.el" "/workspace/*/bar.el")))
 
@@ -60,8 +54,6 @@ Test that * matches exactly one directory level."
   "Scenario: bash-sandbox-security § 'Recursive wildcard match'
 
 Test that ** matches zero or more directory levels."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/src/foo.el" "/workspace/**/*.el"))
   (should (jf/bash-glob-match-p "/workspace/a/b/c/d/foo.el" "/workspace/**/*.el")))
 
@@ -69,8 +61,6 @@ Test that ** matches zero or more directory levels."
   "Scenario: bash-sandbox-security § 'Match with double-star consuming zero segments'
 
 Test that ** can match zero directory levels."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file.txt" "/workspace/**/file.txt"))
   (should (jf/bash-glob-match-p "/workspace/README.md" "/workspace/**/*.md")))
 
@@ -78,29 +68,21 @@ Test that ** can match zero directory levels."
   "Scenario: bash-sandbox-security § 'Match with double-star consuming multiple segments'
 
 Test that ** can match multiple directory levels."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/a/b/c/file.txt" "/workspace/**/file.txt"))
   (should (jf/bash-glob-match-p "/workspace/src/util/helpers/foo.el" "/workspace/**/*.el")))
 
 (ert-deftest test-glob-double-star-at-start ()
   "Test that ** works at the beginning of a pattern."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/a/b/file.txt" "**/file.txt"))
   (should (jf/bash-glob-match-p "/a/b/c/d/e/foo.el" "**/*.el")))
 
 (ert-deftest test-glob-double-star-in-middle ()
   "Test that ** works in the middle of a pattern."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/src/foo/bar.el" "/workspace/**/bar.el"))
   (should (jf/bash-glob-match-p "/a/b/c/d/e.txt" "/a/**/e.txt")))
 
 (ert-deftest test-glob-double-star-at-end ()
   "Test that ** works at the end of a pattern."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/src/foo.el" "/workspace/**"))
   (should (jf/bash-glob-match-p "/workspace/a/b/c/d/e.txt" "/workspace/**")))
 
@@ -110,23 +92,17 @@ Test that ** can match multiple directory levels."
   "Scenario: bash-sandbox-security § 'Character class match'
 
 Test that character classes [abc] work correctly."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file1.txt" "/workspace/file[0-9].txt"))
   (should (jf/bash-glob-match-p "/workspace/file5.txt" "/workspace/file[0-9].txt"))
   (should (jf/bash-glob-match-p "/workspace/file9.txt" "/workspace/file[0-9].txt")))
 
 (ert-deftest test-glob-character-class-no-match ()
   "Test that character classes reject non-matching characters."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "/workspace/filea.txt" "/workspace/file[0-9].txt"))
   (should-not (jf/bash-glob-match-p "/workspace/fileX.txt" "/workspace/file[0-9].txt")))
 
 (ert-deftest test-glob-character-class-letters ()
   "Test character classes with letter ranges."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/filea.txt" "/workspace/file[abc].txt"))
   (should (jf/bash-glob-match-p "/workspace/fileb.txt" "/workspace/file[abc].txt"))
   (should (jf/bash-glob-match-p "/workspace/filec.txt" "/workspace/file[abc].txt"))
@@ -138,28 +114,20 @@ Test that character classes [abc] work correctly."
   "Scenario: bash-sandbox-security § 'Question mark to regex'
 
 Test that ? matches exactly one character."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file1.txt" "/workspace/file?.txt"))
   (should (jf/bash-glob-match-p "/workspace/fileA.txt" "/workspace/file?.txt"))
   (should (jf/bash-glob-match-p "/workspace/file-.txt" "/workspace/file?.txt")))
 
 (ert-deftest test-glob-question-mark-no-match-zero-chars ()
   "Test that ? does NOT match zero characters."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "/workspace/file.txt" "/workspace/file?.txt")))
 
 (ert-deftest test-glob-question-mark-no-match-two-chars ()
   "Test that ? does NOT match two characters."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "/workspace/fileAB.txt" "/workspace/file?.txt")))
 
 (ert-deftest test-glob-multiple-question-marks ()
   "Test multiple ? wildcards in a pattern."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file12.txt" "/workspace/file??.txt"))
   (should (jf/bash-glob-match-p "/workspace/fileAB.txt" "/workspace/file??.txt"))
   (should-not (jf/bash-glob-match-p "/workspace/file1.txt" "/workspace/file??.txt")))
@@ -170,23 +138,17 @@ Test that ? matches exactly one character."
   "Scenario: bash-sandbox-security § 'No match for different directory'
 
 Test that patterns don't match paths in different directories."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "/etc/passwd" "/workspace/**"))
   (should-not (jf/bash-glob-match-p "/tmp/file.txt" "/workspace/*.txt"))
   (should-not (jf/bash-glob-match-p "/home/user/doc.md" "/workspace/**/*.md")))
 
 (ert-deftest test-glob-path-must-match-from-start ()
   "Test that patterns must match from the beginning of the path."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "/home/workspace/file.txt" "/workspace/*.txt"))
   (should (jf/bash-glob-match-p "/workspace/file.txt" "/workspace/*.txt")))
 
 (ert-deftest test-glob-trailing-slash-handling ()
   "Test handling of trailing slashes in paths and patterns."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/dir/" "/workspace/**/"))
   (should (jf/bash-glob-match-p "/workspace/dir" "/workspace/**")))
 
@@ -196,30 +158,22 @@ Test that patterns don't match paths in different directories."
   "Scenario: bash-sandbox-security § 'Escape special regex characters'
 
 Test that literal dots in patterns are matched as dots, not regex wildcards."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file.txt" "/workspace/file.txt"))
   (should-not (jf/bash-glob-match-p "/workspace/filextxt" "/workspace/file.txt")))
 
 (ert-deftest test-glob-literal-plus-chars ()
   "Test that literal + characters don't act as regex quantifiers."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file+name.txt" "/workspace/file+name.txt"))
   (should-not (jf/bash-glob-match-p "/workspace/fileee.txt" "/workspace/file+.txt")))
 
 (ert-deftest test-glob-literal-parens ()
   "Test that literal parentheses are handled correctly."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file(1).txt" "/workspace/file(1).txt")))
 
 ;;; Combined Wildcard Tests
 
 (ert-deftest test-glob-combined-wildcards ()
   "Test patterns combining multiple wildcard types."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   ;; Combine * and **
   (should (jf/bash-glob-match-p "/workspace/src/foo.el" "/workspace/**/*.el"))
   ;; Combine ? and *
@@ -229,8 +183,6 @@ Test that literal dots in patterns are matched as dots, not regex wildcards."
 
 (ert-deftest test-glob-complex-pattern ()
   "Test complex patterns with multiple wildcards."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/src/util/v2/helper.el"
                                 "/workspace/**/v[0-9]/*.el"))
   (should-not (jf/bash-glob-match-p "/workspace/src/util/vX/helper.el"
@@ -240,34 +192,24 @@ Test that literal dots in patterns are matched as dots, not regex wildcards."
 
 (ert-deftest test-glob-empty-path ()
   "Test handling of empty path."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "" "/workspace/*")))
 
 (ert-deftest test-glob-empty-pattern ()
   "Test handling of empty pattern."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should-not (jf/bash-glob-match-p "/workspace/file.txt" "")))
 
 (ert-deftest test-glob-root-path ()
   "Test matching against root path."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/file.txt" "/*.txt"))
   (should (jf/bash-glob-match-p "/a/b/c.txt" "/**/*.txt")))
 
 (ert-deftest test-glob-exact-match ()
   "Test exact path matching (no wildcards)."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/workspace/file.txt" "/workspace/file.txt"))
   (should-not (jf/bash-glob-match-p "/workspace/other.txt" "/workspace/file.txt")))
 
 (ert-deftest test-glob-nested-double-stars ()
   "Test patterns with multiple ** wildcards."
-  ;; PENDING: Waiting for jf/bash-glob-match-p implementation
-  :expected-result :failed
   (should (jf/bash-glob-match-p "/a/b/c/d/e/f.txt" "/**/c/**/*.txt"))
   (should (jf/bash-glob-match-p "/workspace/src/a/b/test/foo.el"
                                 "/workspace/**/test/**/*.el")))
@@ -280,8 +222,6 @@ Test that literal dots in patterns are matched as dots, not regex wildcards."
   "Scenario: bash-sandbox-security § 'Asterisk to regex'
 
 Test conversion of * to regex pattern."
-  ;; PENDING: Waiting for jf/bash--glob-to-regex implementation
-  :expected-result :failed
   (should (string-match-p (jf/bash--glob-to-regex "file*") "file"))
   (should (string-match-p (jf/bash--glob-to-regex "file*") "filename"))
   (should (string-match-p (jf/bash--glob-to-regex "file*") "file.txt")))
@@ -290,8 +230,6 @@ Test conversion of * to regex pattern."
   "Scenario: bash-sandbox-security § 'Question mark to regex'
 
 Test conversion of ? to regex pattern."
-  ;; PENDING: Waiting for jf/bash--glob-to-regex implementation
-  :expected-result :failed
   (should (string-match-p (jf/bash--glob-to-regex "file?") "file1"))
   (should (string-match-p (jf/bash--glob-to-regex "file?") "fileA"))
   (should-not (string-match-p (jf/bash--glob-to-regex "file?") "file")))
@@ -300,8 +238,6 @@ Test conversion of ? to regex pattern."
   "Scenario: bash-sandbox-security § 'Character class preserved'
 
 Test that character classes are preserved in regex conversion."
-  ;; PENDING: Waiting for jf/bash--glob-to-regex implementation
-  :expected-result :failed
   (should (string-match-p (jf/bash--glob-to-regex "file[abc]") "filea"))
   (should (string-match-p (jf/bash--glob-to-regex "file[abc]") "fileb"))
   (should-not (string-match-p (jf/bash--glob-to-regex "file[abc]") "filed")))
@@ -310,8 +246,6 @@ Test that character classes are preserved in regex conversion."
   "Scenario: bash-sandbox-security § 'Escape special regex characters'
 
 Test that regex special characters are properly escaped."
-  ;; PENDING: Waiting for jf/bash--glob-to-regex implementation
-  :expected-result :failed
   (should (string-match-p (jf/bash--glob-to-regex "file.txt") "file.txt"))
   (should-not (string-match-p (jf/bash--glob-to-regex "file.txt") "filextxt"))
   (should (string-match-p (jf/bash--glob-to-regex "file+name") "file+name")))

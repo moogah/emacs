@@ -12,7 +12,7 @@
     (grep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
     (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
     (fgrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
-    (touch . (:operations ((:source :positional-args :operation :create))))
+    (touch . (:operations ((:source :positional-args :operation :create-or-modify))))
     (mkdir . (:operations ((:source :positional-args :operation :create))))
     (rm . (:operations ((:source :positional-args :operation :delete))))
     (rmdir . (:operations ((:source :positional-args :operation :delete))))
