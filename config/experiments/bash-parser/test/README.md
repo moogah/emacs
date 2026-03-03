@@ -4,13 +4,62 @@ This directory contains ERT (Emacs Regression Testing) tests for the bash-parser
 
 ## Test Files
 
-- `test-glob-matching.el` - Tests for glob pattern matching (wildcards, character classes, path boundaries)
-- `test-command-semantics.el` - Tests for command semantics database (PENDING)
-- `test-file-operations.el` - Tests for file operations extraction (COMPLETED - 25/33 passing, see known issues)
-- `test-security-validator.el` - Tests for sandbox security validation (PENDING)
-- `test-parser-extension.el` - Tests for parser backward compatibility (PENDING)
+### Core Parser Tests
+- `bash-parser-test.el` - Original parser tests using `test-corpus.el` (60 tests)
+- `test-corpus.el` - Test corpus for basic parsing (commands, flags, args, dangerous patterns)
+
+### Semantic Analysis Tests
+- `test-file-operations-corpus.el` - Corpus-based file operations tests (60 tests)
+- `file-operations-corpus.el` - Test corpus showing which files are created/read/modified/deleted
+- `test-file-operations.el` - Core file operations extraction tests (33 tests)
+- `test-command-semantics.el` - Command semantics database tests
+- `test-security-validator.el` - Sandbox security validation tests
+- `test-parser-extension.el` - Parser backward compatibility tests
+- `test-glob-matching.el` - Glob pattern matching tests
+
+### Test Results
+- `CORPUS-TEST-RESULTS.md` - Detailed analysis of corpus test results
+- `test-results-*.txt` - Timestamped snapshots of all test runs
+- `test-results-latest.txt` - Symlink to most recent test run
 
 ## Running Tests
+
+### Recommended: Run All Tests with Snapshot
+
+The easiest way to run the complete test suite (286 tests) and capture results:
+
+```bash
+# From repository root
+./config/experiments/bash-parser/test/run-all-tests-snapshot.sh
+```
+
+This will:
+- Run all 286 tests across all test files
+- Capture output to a timestamped file (`test-results-YYYYMMDD-HHMMSS.txt`)
+- Create/update `test-results-latest.txt` symlink
+- Display summary with pass/fail counts
+- Exit with code 0 if all pass, 1 if any fail
+
+**View latest results:**
+```bash
+cat config/experiments/bash-parser/test/test-results-latest.txt
+```
+
+**Compare snapshots to detect regressions:**
+```bash
+diff test/test-results-20260303-091658.txt test/test-results-20260303-120000.txt
+```
+
+**Current Status:**
+- **286 total tests**
+- **262 passing (91.6%)**
+- **24 failing (8.4%)**
+
+Test suite includes:
+- ✅ Original parser tests (60/60 passing) - Basic parsing, pipelines, chains
+- ✅ Core extraction tests (most passing) - File operations, redirections
+- ⚠️ Some corpus tests (41/60 passing) - Archives, variables need work
+- ⚠️ Some glob tests failing - Pattern metadata edge cases
 
 ### Run All Tests
 
@@ -24,10 +73,13 @@ This directory contains ERT (Emacs Regression Testing) tests for the bash-parser
 ### Run Specific Test Suite
 
 ```bash
+# Run file operations corpus tests (60 tests - clear examples)
+./config/experiments/bash-parser/test/run-file-operations-corpus-tests.sh
+
 # Run glob matching tests
 ./config/experiments/bash-parser/test/run-glob-tests.sh
 
-# Run file operations tests
+# Run file operations tests (33 core tests)
 ./config/experiments/bash-parser/test/run-file-operations-tests.sh
 
 # Run specific test pattern manually
