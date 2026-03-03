@@ -1,25 +1,34 @@
-(defun jf/test-find-test-files ()
-  "Find all test files in config directory.
+(defun jf/test-find-test-files (&optional directory)
+  "Find all test files in config directory or DIRECTORY.
+DIRECTORY can be absolute or relative to repository root.
 Returns list of absolute paths to test-*.el or *-test.el files."
-  (let* ((config-dir (expand-file-name "config" jf/emacs-dir))
+  (let* ((search-dir (if directory
+                         (expand-file-name directory jf/emacs-dir)
+                       (expand-file-name "config" jf/emacs-dir)))
          (test-files '()))
-    (dolist (file (directory-files-recursively config-dir "\\.el$"))
+    (unless (file-directory-p search-dir)
+      (user-error "Directory does not exist: %s" search-dir))
+    (dolist (file (directory-files-recursively search-dir "\\.el$"))
       (when (or (string-match-p "-test\\.el$" file)
                 (string-match-p "/test-[^/]+\\.el$" file))
         (push file test-files)))
     (nreverse test-files)))
 
-(defun jf/test-load-all-test-files ()
-  "Load all test files in config directory.
+(defun jf/test-load-all-test-files (&optional directory)
+  "Load all test files in config directory or DIRECTORY.
+DIRECTORY can be absolute or relative to repository root.
 Fails immediately if any file has syntax errors."
   (interactive)
-  (let ((test-files (jf/test-find-test-files))
+  (let ((test-files (jf/test-find-test-files directory))
         (loaded-count 0))
+    (when directory
+      (message "Loading tests from: %s" directory))
     (dolist (file test-files)
       (message "Loading test file: %s" (file-relative-name file jf/emacs-dir))
       (load-file file)
       (setq loaded-count (1+ loaded-count)))
-    (message "Loaded %d test files" loaded-count)
+    (message "Loaded %d test files%s" loaded-count
+             (if directory (format " from %s" directory) ""))
     loaded-count))
 
 (defun jf/test-load-module-under-test (test-file)
@@ -123,6 +132,21 @@ MODULE-NAME should match the test prefix (e.g., 'glob' for 'test-glob-*')."
     (message "Running tests matching: %s" pattern)
     (ert pattern)))
 
+(defun jf/test-run-directory (directory)
+  "Run all tests in DIRECTORY.
+DIRECTORY can be absolute or relative to repository root.
+Useful for testing specific modules like 'config/experiments/bash-parser'."
+  (interactive
+   (list (read-directory-name "Test directory: "
+                              (expand-file-name "config" jf/emacs-dir)
+                              nil t)))
+  (let ((dir (if (file-name-absolute-p directory)
+                 directory
+               (expand-file-name directory jf/emacs-dir))))
+    (message "Running tests in: %s" (file-relative-name dir jf/emacs-dir))
+    (jf/test-load-all-test-files dir)
+    (ert t)))
+
 (defun jf/test-run-all-batch ()
   "Run all tests in batch mode (non-interactive).
 Exits with code 0 if all tests pass, 1 otherwise.
@@ -138,6 +162,12 @@ For use in scripts and CI."
 PATTERN is a regexp matched against test names."
   (jf/test-load-all-test-files)
   (ert-run-tests-batch-and-exit pattern))
+
+(defun jf/test-run-directory-batch (directory)
+  "Run all tests in DIRECTORY in batch mode.
+DIRECTORY should be relative to repository root."
+  (jf/test-load-all-test-files directory)
+  (ert-run-tests-batch-and-exit))
 
 (with-eval-after-load 'transient
   (defun jf/test--bash-parser-file-operations ()
@@ -178,7 +208,8 @@ PATTERN is a regexp matched against test names."
     ("t" "Test at point" jf/test-run-at-point)]
    [("r" "Re-run failed" jf/test-rerun-failed)
     ("p" "Pattern..." jf/test-run-pattern)
-    ("m" "Module..." jf/test-run-module)]]
+    ("m" "Module..." jf/test-run-module)
+    ("d" "Directory..." jf/test-run-directory)]]
   ["Bash Parser Tests"
    [("bx" "File operations" jf/test--bash-parser-file-operations)
     ("bg" "Glob matching" jf/test--bash-parser-glob)]

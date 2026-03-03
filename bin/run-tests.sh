@@ -13,6 +13,7 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Parse command line arguments
 PATTERN=""
+DIRECTORY=""
 VERBOSE=false
 
 show_help() {
@@ -23,6 +24,7 @@ USAGE:
     $(basename "$0") [OPTIONS]
 
 OPTIONS:
+    -d, --directory DIR     Run tests only in specified directory
     -p, --pattern PATTERN   Run tests matching regexp pattern
     -v, --verbose           Show verbose output
     -h, --help              Show this help message
@@ -31,18 +33,22 @@ EXAMPLES:
     # Run all tests (discovers all *-test.el files)
     $(basename "$0")
 
+    # Run tests in specific directory (module)
+    $(basename "$0") -d config/experiments/bash-parser
+    $(basename "$0") -d config/gptel
+
     # Run tests matching pattern
     $(basename "$0") -p "^test-glob-"
 
-    # Run specific module tests
-    $(basename "$0") -p "^test-extraction-"
+    # Combine directory and pattern
+    $(basename "$0") -d config/experiments/bash-parser -p "^test-glob-"
 
     # Verbose mode
     $(basename "$0") -v
 
 DISCOVERY:
     Automatically discovers all *-test.el files in config/ directory.
-    No need to manually list test files.
+    Use -d to limit discovery to a specific module directory.
 
 TEST ORGANIZATION:
     Place test files alongside modules with -test.el suffix:
@@ -55,6 +61,10 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -d|--directory)
+            DIRECTORY="$2"
+            shift 2
+            ;;
         -p|--pattern)
             PATTERN="$2"
             shift 2
@@ -83,7 +93,16 @@ echo "========================================"
 echo ""
 
 # Build the elisp command
-if [ -n "$PATTERN" ]; then
+if [ -n "$DIRECTORY" ] && [ -n "$PATTERN" ]; then
+    echo "Running tests in: $DIRECTORY"
+    echo "Matching pattern: $PATTERN"
+    echo ""
+    TEST_COMMAND="(progn (jf/test-load-all-test-files \"$DIRECTORY\") (ert-run-tests-batch-and-exit \"$PATTERN\"))"
+elif [ -n "$DIRECTORY" ]; then
+    echo "Running tests in: $DIRECTORY"
+    echo ""
+    TEST_COMMAND="(jf/test-run-directory-batch \"$DIRECTORY\")"
+elif [ -n "$PATTERN" ]; then
     echo "Running tests matching: $PATTERN"
     echo ""
     TEST_COMMAND="(jf/test-run-pattern-batch \"$PATTERN\")"
