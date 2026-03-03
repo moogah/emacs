@@ -1,7 +1,12 @@
 schema: spec-driven-beads
 created: 2026-03-03
 beads:
+  # Core implementation (completed)
   - emacs-edh7  # Extend semantics database with execute operation type
   - emacs-ayur  # Implement self-execution detection
   - emacs-j5d4  # Capture script arguments metadata
   - emacs-qfb3  # Create comprehensive test suite for script execution
+  # Follow-up improvements (from test failures)
+  - emacs-qz38  # Fix flag argument handling in script-args extraction
+  - emacs-galf  # Debug and fix go subcommand routing
+  - emacs-ebcl  # Implement indirect execution marking for nested commands
