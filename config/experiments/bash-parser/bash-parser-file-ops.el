@@ -13,6 +13,31 @@
 
 (require 'cl-lib)
 
+(defun jf/bash--has-glob-pattern-p (file-path)
+  "Return t if FILE-PATH contains glob pattern metacharacters.
+
+Detects glob patterns:
+  * - matches any characters (except /)
+  ? - matches single character
+  [abc] - character class
+  {a,b} - brace expansion
+  ** - recursive directory match
+
+Returns t if any glob metacharacters are found, nil otherwise.
+
+Examples:
+  (jf/bash--has-glob-pattern-p \"file.txt\")       => nil
+  (jf/bash--has-glob-pattern-p \"*.txt\")          => t
+  (jf/bash--has-glob-pattern-p \"file?.txt\")      => t
+  (jf/bash--has-glob-pattern-p \"file[0-9].txt\")  => t
+  (jf/bash--has-glob-pattern-p \"**/*.el\")        => t
+  (jf/bash--has-glob-pattern-p \"{a,b}.txt\")      => t"
+  (and (stringp file-path)
+       (or (string-match-p "\\*" file-path)
+           (string-match-p "\\?" file-path)
+           (string-match-p "\\[.*\\]" file-path)
+           (string-match-p "{.*,.*}" file-path))))
+
 (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
   "Extract all file operations from PARSED-COMMAND.
 
@@ -224,6 +249,12 @@ Example:
                         (jf/bash--extract-ops-from-positional-specs
                          matched-handler positional-args command-name var-context)))))
 
+             ;; Custom command handler - delegate to custom function
+             ((eq ops-spec :custom)
+              (let ((custom-handler (plist-get semantics :handler)))
+                (when (and custom-handler (fboundp custom-handler))
+                  (setq operations (funcall custom-handler parsed-command var-context)))))
+
              ;; Simple command - direct operation specs
              ((listp ops-spec)
               (setq operations
@@ -288,7 +319,8 @@ Operation spec format:
                                     resolved-path
                                   (plist-get resolved-path :path)))
                      (unresolved-vars (when (listp resolved-path)
-                                       (plist-get resolved-path :unresolved))))
+                                       (plist-get resolved-path :unresolved)))
+                     (has-pattern (jf/bash--has-glob-pattern-p final-path)))
                 ;; Create operation plist
                 (push (append (list :file final-path
                                    :operation operation
@@ -296,7 +328,9 @@ Operation spec format:
                                    :source :positional-arg
                                    :command command-name)
                              (when unresolved-vars
-                               (list :unresolved unresolved-vars)))
+                               (list :unresolved unresolved-vars))
+                             (when has-pattern
+                               (list :pattern t)))
                       operations)))))))
 
     (nreverse operations)))
@@ -581,22 +615,36 @@ Examples:
         (let* ((exec-type (plist-get exec-block :type))
                (exec-cmd-name (plist-get exec-block :command-name))
                (exec-flags (plist-get exec-block :flags))
-               (exec-positional (plist-get exec-block :positional-args)))
+               (exec-positional (plist-get exec-block :positional-args))
+               (semantics (jf/bash-lookup-command-semantics exec-cmd-name)))
 
-          ;; Build operation for each positional arg in exec command
-          ;; This uses the simplified inference - full extraction would use semantics database
-          (dolist (file-path exec-positional)
-            (let ((operation-type (jf/bash--infer-operation-type exec-cmd-name)))
+          ;; Use full semantics database if available, otherwise fall back to inference
+          (if semantics
+              ;; Use semantics database for proper operation extraction
+              (let ((ops-spec (plist-get semantics :operations)))
+                (when (listp ops-spec)
+                  ;; Apply operation specs to exec block's positional args
+                  (let ((extracted-ops (jf/bash--extract-ops-from-positional-specs
+                                       ops-spec exec-positional exec-cmd-name var-context)))
+                    ;; Adjust metadata for exec-block source
+                    (dolist (op extracted-ops)
+                      (plist-put op :source :exec-block)
+                      (plist-put op :indirect t)
+                      (plist-put op :exec-type exec-type)
+                      (push op operations)))))
 
-              (when operation-type
-                (push (list :file file-path
-                           :operation operation-type
-                           :confidence :medium  ; indirect operations have medium confidence
-                           :source :exec-block
-                           :indirect t
-                           :exec-type exec-type
-                           :command-name exec-cmd-name)
-                      operations)))))))
+            ;; Fall back to simplified inference if command not in semantics database
+            (dolist (file-path exec-positional)
+              (let ((operation-type (jf/bash--infer-operation-type exec-cmd-name)))
+                (when operation-type
+                  (push (list :file file-path
+                             :operation operation-type
+                             :confidence :high
+                             :source :exec-block
+                             :indirect t
+                             :exec-type exec-type
+                             :command-name exec-cmd-name)
+                        operations))))))))
 
     (nreverse operations)))
 
