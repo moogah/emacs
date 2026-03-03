@@ -1,5 +1,58 @@
 ;;; bash-parser-glob.el --- Glob pattern matching for bash parser -*- lexical-binding: t; -*-
 
+(defun jf/bash--glob-to-regex (glob-pattern)
+  "Convert GLOB-PATTERN to regex pattern.
+Handles *, ?, and [abc] character classes.
+Escapes regex special characters.
+
+This is a simpler version than `jf/bash--glob-segment-to-regex' that
+treats * as matching any character (including /), suitable for simple
+filename matching."
+  (let ((regex "")
+        (i 0)
+        (len (length glob-pattern)))
+    (while (< i len)
+      (let ((ch (aref glob-pattern i)))
+        (cond
+         ;; Single-char wildcard
+         ((eq ch ??)
+          (setq regex (concat regex "[^/]"))
+          (setq i (1+ i)))
+
+         ;; Any-chars wildcard
+         ((eq ch ?*)
+          (setq regex (concat regex "[^/]*"))
+          (setq i (1+ i)))
+
+         ;; Character class [abc]
+         ((eq ch ?\[)
+          (let ((class-start i)
+                (class-end nil))
+            ;; Find matching ]
+            (setq i (1+ i))
+            (while (and (< i len) (null class-end))
+              (when (eq (aref glob-pattern i) ?\])
+                (setq class-end i))
+              (setq i (1+ i)))
+            (if class-end
+                ;; Valid character class found
+                (setq regex (concat regex
+                                   (substring glob-pattern class-start (1+ class-end))))
+              ;; No closing ], treat [ as literal
+              (setq regex (concat regex "\\["))
+              (setq i (1+ class-start)))))
+
+         ;; Escape regex special characters
+         ((memq ch '(?\\ ?. ?+ ?^ ?$ ?\( ?\) ?{ ?} ?|))
+          (setq regex (concat regex "\\" (char-to-string ch)))
+          (setq i (1+ i)))
+
+         ;; Regular character
+         (t
+          (setq regex (concat regex (char-to-string ch)))
+          (setq i (1+ i))))))
+    regex))
+
 (defun jf/bash--glob-segment-to-regex (glob-segment)
   "Convert GLOB-SEGMENT to regex pattern.
 Handles *, ?, and [abc] character classes.
