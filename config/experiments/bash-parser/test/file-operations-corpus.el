@@ -64,7 +64,7 @@
      :command "touch newfile.txt"
      :note "Touch creates or updates file"
      :expect-ops ((:file "newfile.txt"
-                   :operation :create
+                   :operation :create-or-modify
                    :confidence :high
                    :source :positional-arg)))
 
@@ -368,7 +368,7 @@
                    :confidence :high
                    :source :positional-arg)
                   (:file "new.txt"
-                   :operation :create
+                   :operation :create-or-modify
                    :confidence :high
                    :source :positional-arg)))
 
