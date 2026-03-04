@@ -5,12 +5,17 @@
 
 ;;; Commentary:
 
-;; Phase 2 analysis: Compute parse coverage for all research commands
-;; to identify commands where parser misses significant portions of input.
+;; Phase 2 analysis: Compute parse coverage AND semantic gap detection
+;; for all research commands.
+;;
+;; Two-layer analysis:
+;;   Layer 1: Text coverage - measures token capture completeness
+;;   Layer 2: Semantic gaps - detects structures in AST missing from parser output
 ;;
 ;; Output format: TSV with columns:
 ;; command | parse_status | coverage_pct | missing_count | file_ops_count |
-;; command_type | dangerous | missing_tokens
+;; command_type | dangerous | missing_tokens | semantic_gap_count |
+;; critical_gaps | gap_types
 
 ;;; Code:
 
@@ -30,6 +35,7 @@
 
 (require 'bash-parser)
 (require 'compute-parse-coverage)
+(require 'semantic-gap-detection)
 
 (defun jf/bash-coverage-research--escape-field (text)
   "Escape TEXT for TSV output (replace tabs and newlines)."
@@ -45,8 +51,16 @@
         (mapconcat #'identity display-tokens ", "))
     ""))
 
+(defun jf/bash-coverage-research--format-gap-types (gaps)
+  "Format semantic GAPS as comma-separated type list."
+  (if gaps
+      (mapconcat (lambda (gap)
+                   (symbol-name (plist-get gap :type)))
+                 gaps ", ")
+    ""))
+
 (defun jf/bash-coverage-research--analyze-command (command-string)
-  "Analyze COMMAND-STRING with coverage metrics.
+  "Analyze COMMAND-STRING with coverage metrics AND semantic gap detection.
 Returns TSV line with all analysis data."
   (condition-case err
       (let* ((parse-result (jf/bash-parse command-string))
@@ -55,11 +69,23 @@ Returns TSV line with all analysis data."
              (command-type (plist-get parse-result :type))
              (is-dangerous (plist-get parse-result :dangerous-p))
 
-             ;; Compute coverage
+             ;; Layer 1: Text coverage
              (coverage-result (jf/bash-parse-coverage--compute command-string))
              (coverage-pct (plist-get coverage-result :coverage-percentage))
              (missing-count (plist-get coverage-result :missing-count))
              (missing-tokens (plist-get coverage-result :missing-tokens))
+
+             ;; Layer 2: Semantic gap detection
+             (semantic-gaps (if parse-success
+                               (jf/bash-parse-semantic--detect-gaps command-string parse-result)
+                             nil))
+             (gap-count (length semantic-gaps))
+             (critical-gaps (if semantic-gaps
+                               (length (seq-filter
+                                       (lambda (g) (eq (plist-get g :severity) 'critical))
+                                       semantic-gaps))
+                             0))
+             (gap-types (jf/bash-coverage-research--format-gap-types semantic-gaps))
 
              ;; File operations (if parse succeeded)
              (file-ops (if parse-success
@@ -69,7 +95,7 @@ Returns TSV line with all analysis data."
                         nil))
              (file-ops-count (if file-ops (length file-ops) 0)))
 
-        (format "%s\t%s\t%.1f\t%d\t%d\t%s\t%s\t%s"
+        (format "%s\t%s\t%.1f\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%s"
                 (jf/bash-coverage-research--escape-field command-string)
                 (if parse-success "SUCCESS" "FAILURE")
                 coverage-pct
@@ -77,10 +103,13 @@ Returns TSV line with all analysis data."
                 file-ops-count
                 (if command-type (symbol-name command-type) "")
                 (if is-dangerous "dangerous" "")
-                (jf/bash-coverage-research--format-token-list missing-tokens)))
+                (jf/bash-coverage-research--format-token-list missing-tokens)
+                gap-count          ; NEW: Total semantic gaps
+                critical-gaps      ; NEW: Critical severity gaps
+                gap-types))        ; NEW: Gap type list
 
     (error
-     (format "%s\tERROR\t0.0\t0\t0\t\t\t%s"
+     (format "%s\tERROR\t0.0\t0\t0\t\t\t%s\t0\t0\t"
              (jf/bash-coverage-research--escape-field command-string)
              (jf/bash-coverage-research--escape-field (error-message-string err))))))
 
@@ -124,14 +153,19 @@ Writes: config/experiments/bash-parser/research/coverage-analysis.tsv"
           (medium-coverage 0)  ; >= 70%
           (low-coverage 0)     ; < 70%
           (coverage-values '())
+          ;; NEW: Semantic gap tracking
+          (commands-with-semantic-gaps 0)
+          (commands-with-critical-gaps 0)
+          (total-semantic-gaps 0)
+          (total-critical-gaps 0)
           (coding-system-for-write 'utf-8-unix))
 
       (setq total-count (length commands))
       (message "Processing %d commands..." total-count)
 
       (with-temp-file output-file
-        ;; Write header
-        (insert "command\tparse_status\tcoverage_pct\tmissing_count\tfile_ops_count\tcommand_type\tdangerous\tmissing_tokens\n")
+        ;; Write header (updated with semantic gap columns)
+        (insert "command\tparse_status\tcoverage_pct\tmissing_count\tfile_ops_count\tcommand_type\tdangerous\tmissing_tokens\tsemantic_gap_count\tcritical_gaps\tgap_types\n")
 
         ;; Process each command
         (dolist (command commands)
@@ -152,7 +186,21 @@ Writes: config/experiments/bash-parser/research/coverage-analysis.tsv"
                  ((= coverage 100.0) (setq perfect-coverage (1+ perfect-coverage)))
                  ((>= coverage 90.0) (setq high-coverage (1+ high-coverage)))
                  ((>= coverage 70.0) (setq medium-coverage (1+ medium-coverage)))
-                 (t (setq low-coverage (1+ low-coverage)))))))))
+                 (t (setq low-coverage (1+ low-coverage))))))
+
+            ;; Extract semantic gap counts for statistics
+            ;; Line format: ...missing_tokens\tsemantic_gap_count\tcritical_gaps\tgap_types
+            ;; Split by tabs and get fields 9 (semantic_gap_count) and 10 (critical_gaps)
+            (let ((fields (split-string line "\t")))
+              (when (>= (length fields) 11)  ; Ensure we have all fields
+                (let ((gap-count (string-to-number (nth 8 fields)))      ; Column 9 (0-indexed)
+                      (critical-count (string-to-number (nth 9 fields)))) ; Column 10 (0-indexed)
+                  (setq total-semantic-gaps (+ total-semantic-gaps gap-count))
+                  (setq total-critical-gaps (+ total-critical-gaps critical-count))
+                  (when (> gap-count 0)
+                    (setq commands-with-semantic-gaps (1+ commands-with-semantic-gaps)))
+                  (when (> critical-count 0)
+                    (setq commands-with-critical-gaps (1+ commands-with-critical-gaps)))))))))
 
       ;; Compute statistics
       (setq coverage-values (nreverse coverage-values))
@@ -162,7 +210,7 @@ Writes: config/experiments/bash-parser/research/coverage-analysis.tsv"
 
         (message "\n=== Coverage Analysis Complete ===")
         (message "Total commands: %d" total-count)
-        (message "\nCoverage Distribution:")
+        (message "\nText Coverage Distribution:")
         (message "  Perfect (100%%):     %4d (%.1f%%)"
                  perfect-coverage
                  (* 100.0 (/ (float perfect-coverage) total-count)))
@@ -175,14 +223,24 @@ Writes: config/experiments/bash-parser/research/coverage-analysis.tsv"
         (message "  Low (<70%%):         %4d (%.1f%%)"
                  low-coverage
                  (* 100.0 (/ (float low-coverage) total-count)))
-        (message "\nStatistics:")
+        (message "\nText Coverage Statistics:")
         (message "  Mean coverage:   %.1f%%" mean)
         (message "  Median coverage: %.1f%%" median)
+        (message "\nSemantic Gap Analysis:")
+        (message "  Commands with semantic gaps:    %4d (%.1f%%)"
+                 commands-with-semantic-gaps
+                 (* 100.0 (/ (float commands-with-semantic-gaps) total-count)))
+        (message "  Commands with CRITICAL gaps:    %4d (%.1f%%) ⚠️"
+                 commands-with-critical-gaps
+                 (* 100.0 (/ (float commands-with-critical-gaps) total-count)))
+        (message "  Total semantic gaps detected:   %4d" total-semantic-gaps)
+        (message "  Total CRITICAL gaps detected:   %4d" total-critical-gaps)
         (message "\nOutput file: %s" output-file)
         (message "\nNext steps:")
-        (message "  1. Sort by coverage_pct to find worst cases")
-        (message "  2. Filter to missing_count > 0 to see all gaps")
-        (message "  3. Examine missing_tokens for patterns")))))
+        (message "  1. Filter critical_gaps > 0 to find security-critical gaps")
+        (message "  2. Filter semantic_gap_count > 0 AND coverage_pct = 100 for invisible gaps")
+        (message "  3. Group by gap_types to identify patterns")
+        (message "  4. Sort by coverage_pct to find text capture issues")))))
 
 ;; Batch mode support
 (defun jf/bash-coverage-research-analyze-batch ()
