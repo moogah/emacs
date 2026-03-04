@@ -1,4 +1,4 @@
-;;; command-substitution-corpus.el --- Test corpus for command substitution parsing -*- lexical-binding: t; -*-
+;;; corpus-parse-command-substitution.el --- Test corpus for command substitution parsing -*- lexical-binding: t; -*-
 
 ;; Test corpus for command substitution with $(...) and backtick syntax
 ;; Covers: simple, nested, quoted, piped, backtick, multiple, and complex patterns
@@ -308,5 +308,5 @@ NOTE: Expected parse results assume command substitution extraction
 is implemented in bash-parser. Current implementation may not
 extract :command-substitutions field yet.")
 
-(provide 'command-substitution-corpus)
-;;; command-substitution-corpus.el ends here
+(provide 'corpus-parse-command-substitution)
+;;; corpus-parse-command-substitution.el ends here

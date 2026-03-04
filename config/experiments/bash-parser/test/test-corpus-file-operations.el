@@ -1,4 +1,4 @@
-;;; test-file-operations-corpus.el --- Corpus-based tests for file operations -*- lexical-binding: t; -*-
+;;; test-corpus-file-operations.el --- Corpus-based tests for file operations -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -8,7 +8,7 @@
 ;;; Commentary:
 
 ;; Corpus-based ERT tests for file operations extraction.
-;; Uses file-operations-corpus.el to provide clear, example-driven test cases.
+;; Uses corpus-semantic-file-operations.el to provide clear, example-driven test cases.
 ;;
 ;; Each test case clearly shows:
 ;; - The bash command
@@ -25,8 +25,8 @@
 (require 'ert)
 (require 'bash-parser (expand-file-name "../bash-parser.el"
                                         (file-name-directory load-file-name)))
-(require 'file-operations-corpus (expand-file-name "file-operations-corpus.el"
-                                                    (file-name-directory load-file-name)))
+(require 'corpus-semantic-file-operations (expand-file-name "corpus-semantic-file-operations.el"
+                                                            (file-name-directory load-file-name)))
 
 ;;; Helper Functions
 
@@ -514,5 +514,5 @@ Optional VAR-CONTEXT is an alist of variable bindings."
       (goto-char (point-min))
       (display-buffer (current-buffer)))))
 
-(provide 'test-file-operations-corpus)
-;;; test-file-operations-corpus.el ends here
+(provide 'test-corpus-file-operations)
+;;; test-corpus-file-operations.el ends here

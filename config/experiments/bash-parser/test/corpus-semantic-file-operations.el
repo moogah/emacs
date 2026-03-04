@@ -1,4 +1,4 @@
-;;; file-operations-corpus.el --- Test corpus for bash file operations extraction -*- lexical-binding: t; -*-
+;;; corpus-semantic-file-operations.el --- Test corpus for bash file operations extraction -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -660,5 +660,5 @@
 
     ))
 
-(provide 'file-operations-corpus)
-;;; file-operations-corpus.el ends here
+(provide 'corpus-semantic-file-operations)
+;;; corpus-semantic-file-operations.el ends here

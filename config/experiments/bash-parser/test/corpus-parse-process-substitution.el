@@ -1,4 +1,4 @@
-;;; process-substitution-corpus.el --- Test corpus for process substitution parsing -*- lexical-binding: t; -*-
+;;; corpus-parse-process-substitution.el --- Test corpus for process substitution parsing -*- lexical-binding: t; -*-
 
 ;; Test corpus for process substitution with <(...) syntax
 ;; Covers: basic diff, single input, pipes, real-world patterns, and edge cases
@@ -216,5 +216,5 @@ NOTE: Expected parse results assume process substitution extraction
 is implemented in bash-parser. Current implementation may not
 extract :process-substitutions field yet.")
 
-(provide 'process-substitution-corpus)
-;;; process-substitution-corpus.el ends here
+(provide 'corpus-parse-process-substitution)
+;;; corpus-parse-process-substitution.el ends here

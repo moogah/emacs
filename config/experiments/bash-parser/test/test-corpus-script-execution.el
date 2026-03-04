@@ -1,4 +1,4 @@
-;;; test-script-execution.el --- Tests for script execution detection -*- lexical-binding: t; -*-
+;;; test-corpus-script-execution.el --- Tests for script execution detection -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -29,8 +29,8 @@
 (require 'ert)
 (require 'bash-parser (expand-file-name "../bash-parser.el"
                                        (file-name-directory load-file-name)))
-(require 'script-execution-corpus (expand-file-name "script-execution-corpus.el"
-                                                    (file-name-directory load-file-name)))
+(require 'corpus-semantic-script-execution (expand-file-name "corpus-semantic-script-execution.el"
+                                                             (file-name-directory load-file-name)))
 
 ;;; Python Interpreter Tests
 

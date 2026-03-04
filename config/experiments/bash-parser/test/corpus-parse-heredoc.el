@@ -1,4 +1,4 @@
-;;; heredoc-corpus.el --- Test corpus for heredoc parsing -*- lexical-binding: t; -*-
+;;; corpus-parse-heredoc.el --- Test corpus for heredoc parsing -*- lexical-binding: t; -*-
 
 ;; Test corpus for heredoc patterns with various delimiters, quoting, and contexts
 ;; Covers: basic heredoc, quoted delimiters, indented heredoc, in contexts, and complex patterns
@@ -289,5 +289,5 @@ NOTE: Expected parse results assume heredoc extraction is implemented
 in bash-parser. Current implementation may not extract :heredoc-*
 fields yet.")
 
-(provide 'heredoc-corpus)
-;;; heredoc-corpus.el ends here
+(provide 'corpus-parse-heredoc)
+;;; corpus-parse-heredoc.el ends here

@@ -1,4 +1,4 @@
-;;; combined-patterns-corpus.el --- Test corpus for combined semantic gap patterns -*- lexical-binding: t; -*-
+;;; corpus-parse-combined-patterns.el --- Test corpus for combined semantic gap patterns -*- lexical-binding: t; -*-
 
 ;; Test corpus for commands combining multiple semantic gap types (integration tests)
 ;; Covers: command-substitution+heredoc, for-loop+command-substitution, conditional+command-substitution,
@@ -391,5 +391,5 @@ implemented in bash-parser. Current implementation may not extract
 all :command-substitutions, :heredocs, :loop-body, :test-condition
 fields yet. These tests guide incremental implementation.")
 
-(provide 'combined-patterns-corpus)
-;;; combined-patterns-corpus.el ends here
+(provide 'corpus-parse-combined-patterns)
+;;; corpus-parse-combined-patterns.el ends here

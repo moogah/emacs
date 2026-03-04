@@ -1,4 +1,4 @@
-;;; test-corpus-llm-scenarios.el --- LLM-specific test cases -*- lexical-binding: t; -*-
+;;; corpus-parse-llm-scenarios.el --- LLM-specific test cases -*- lexical-binding: t; -*-
 
 ;; Extended test corpus focusing on complex commands that LLMs might generate
 ;; when assisting with software development, testing, and repository management.
@@ -574,5 +574,5 @@ Focuses on complex scenarios an LLM might generate when helping with:
 - Container orchestration
 - System administration tasks")
 
-(provide 'corpus-llm-scenarios)
-;;; corpus-llm-scenarios.el ends here
+(provide 'corpus-parse-llm-scenarios)
+;;; corpus-parse-llm-scenarios.el ends here

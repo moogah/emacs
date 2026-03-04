@@ -1,4 +1,4 @@
-;;; script-execution-corpus.el --- Test corpus for bash script execution detection -*- lexical-binding: t; -*-
+;;; corpus-semantic-script-execution.el --- Test corpus for bash script execution detection -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -411,5 +411,5 @@
 
     ))
 
-(provide 'script-execution-corpus)
-;;; script-execution-corpus.el ends here
+(provide 'corpus-semantic-script-execution)
+;;; corpus-semantic-script-execution.el ends here

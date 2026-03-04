@@ -33,12 +33,12 @@
 ;; ============================================================
 
 (defvar jf/bash-corpus-files
-  '((command-substitution . "command-substitution-corpus.el")
-    (heredoc . "heredoc-corpus.el")
-    (for-loop . "for-loop-corpus.el")
-    (conditional . "conditional-corpus.el")
-    (process-substitution . "process-substitution-corpus.el")
-    (combined-patterns . "combined-patterns-corpus.el"))
+  '((command-substitution . "corpus-parse-command-substitution.el")
+    (heredoc . "corpus-parse-heredoc.el")
+    (for-loop . "corpus-parse-for-loop.el")
+    (conditional . "corpus-parse-conditional.el")
+    (process-substitution . "corpus-parse-process-substitution.el")
+    (combined-patterns . "corpus-parse-combined-patterns.el"))
   "Alist mapping corpus types to filenames.")
 
 (defvar jf/bash-corpus-loaded nil

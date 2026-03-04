@@ -1,4 +1,4 @@
-;;; conditional-corpus.el --- Test corpus for conditional parsing -*- lexical-binding: t; -*-
+;;; corpus-parse-conditional.el --- Test corpus for conditional parsing -*- lexical-binding: t; -*-
 
 ;; Test corpus for conditional patterns (if/then/else, test operators, [[ ]] syntax)
 ;; Covers: simple conditionals, test operators, complex real-world patterns, and edge cases
@@ -394,5 +394,5 @@ NOTE: Expected parse results assume conditional extraction is implemented
 in bash-parser. Current implementation may not extract :test-condition,
 :then-branch, :else-branch fields yet.")
 
-(provide 'conditional-corpus)
-;;; conditional-corpus.el ends here
+(provide 'corpus-parse-conditional)
+;;; corpus-parse-conditional.el ends here

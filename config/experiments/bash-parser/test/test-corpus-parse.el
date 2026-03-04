@@ -1,11 +1,11 @@
-;;; bash-parser-test.el --- Tests for bash-parser -*- lexical-binding: t; -*-
+;;; test-corpus-parse.el --- Tests for bash-parser corpus -*- lexical-binding: t; -*-
 
-;; ERT tests for bash command parsing
+;; ERT tests for bash command parsing using parse-only corpus
 
 (require 'ert)
-(require 'bash-parser (expand-file-name "bash-parser.el"
+(require 'bash-parser (expand-file-name "../bash-parser.el"
                                         (file-name-directory load-file-name)))
-(require 'bash-parser-corpus (expand-file-name "bash-parser-corpus.el"
+(require 'bash-parser-corpus (expand-file-name "../bash-parser-corpus.el"
                                                (file-name-directory load-file-name)))
 
 ;;; Helper Functions

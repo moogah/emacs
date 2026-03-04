@@ -1,4 +1,4 @@
-;;; for-loop-corpus.el --- Test corpus for for-loop parsing -*- lexical-binding: t; -*-
+;;; corpus-parse-for-loop.el --- Test corpus for for-loop parsing -*- lexical-binding: t; -*-
 
 ;; Test corpus for for-loop patterns with various iteration lists, bodies, and contexts
 ;; Covers: basic iteration, expansions, command substitution, nested patterns, and real-world examples
@@ -371,5 +371,5 @@ Expected parse structure fields:
 NOTE: Expected parse results assume for-loop extraction is implemented
 in bash-parser. Current implementation may not extract all :loop-* fields yet.")
 
-(provide 'for-loop-corpus)
-;;; for-loop-corpus.el ends here
+(provide 'corpus-parse-for-loop)
+;;; corpus-parse-for-loop.el ends here

@@ -4,18 +4,35 @@ This directory contains ERT (Emacs Regression Testing) tests for the bash-parser
 
 ## Test Files
 
-### Core Parser Tests
-- `bash-parser-test.el` - Original parser tests using `test-corpus.el` (60 tests)
-- `test-corpus.el` - Test corpus for basic parsing (commands, flags, args, dangerous patterns)
-
-### Semantic Analysis Tests
-- `test-file-operations-corpus.el` - Corpus-based file operations tests (60 tests)
-- `file-operations-corpus.el` - Test corpus showing which files are created/read/modified/deleted
+### Unit Tests
 - `test-file-operations.el` - Core file operations extraction tests (33 tests)
 - `test-command-semantics.el` - Command semantics database tests
 - `test-security-validator.el` - Sandbox security validation tests
 - `test-parser-extension.el` - Parser backward compatibility tests
 - `test-glob-matching.el` - Glob pattern matching tests
+- `test-command-substitution.el` - Command substitution parsing tests
+
+### Corpus Data Files
+#### Parse-Only Corpus (test parsing structure)
+- `corpus-parse-command-substitution.el` - Command substitution patterns
+- `corpus-parse-heredoc.el` - Heredoc patterns
+- `corpus-parse-for-loop.el` - For-loop patterns
+- `corpus-parse-conditional.el` - Conditional patterns
+- `corpus-parse-process-substitution.el` - Process substitution patterns
+- `corpus-parse-combined-patterns.el` - Combined pattern integration tests
+- `corpus-parse-llm-scenarios.el` - LLM-generated complex scenarios
+
+#### Semantic Corpus (test file operations extraction)
+- `corpus-semantic-file-operations.el` - File operations test cases (60 tests)
+- `corpus-semantic-script-execution.el` - Script execution test cases
+
+### Corpus Test Runners
+- `test-corpus-parse.el` - Parse-only corpus test runner (153+ tests)
+- `test-corpus-file-operations.el` - File operations corpus tests (60 tests)
+- `test-corpus-script-execution.el` - Script execution corpus tests
+
+### Infrastructure
+- `corpus-index.el` - Unified index for all parse corpus files
 
 ### Test Results
 - `CORPUS-TEST-RESULTS.md` - Detailed analysis of corpus test results
@@ -78,7 +95,7 @@ Test suite includes:
 
 ```bash
 # Run file operations corpus tests (60 tests - clear examples)
-./config/experiments/bash-parser/test/run-file-operations-corpus-tests.sh
+# Note: Shell script may need updating for new file names
 
 # Run glob matching tests
 ./config/experiments/bash-parser/test/run-glob-tests.sh
