@@ -355,10 +355,218 @@
               :loop-body "echo \"$file\"")
      :notes "For-loop list from command substitution containing heredoc (3-level nesting)")
 
+    ;; ============================================================
+    ;; CATEGORY 6: XARGS PATTERNS (pipeline + batch operations)
+    ;; ============================================================
+    ;; CRITICAL GAP: xargs is extremely common in LLM-generated commands
+    ;; Pattern: Pipeline feeds list to xargs which executes operation on each item
+    ;; File impact: Indirect batch file operations (read/write/delete)
+
+    (:id "combined-xargs-001"
+     :category "pipeline-xargs"
+     :command "find . -name '*.tmp' | xargs rm -f"
+     :expect (:type :pipeline
+              :commands ((:command-name "find"
+                          :positional-args ("." "-name" "*.tmp"))
+                         (:command-name "xargs"
+                          :xargs-command "rm"
+                          :xargs-flags ("-f"))))
+     :notes "REAL: From LLM scenarios - Batch delete temporary files (critical file impact)")
+
+    (:id "combined-xargs-002"
+     :category "pipeline-xargs"
+     :command "find . -name '*.log' -print0 | xargs -0 rm -f"
+     :expect (:type :pipeline
+              :commands ((:command-name "find"
+                          :positional-args ("." "-name" "*.log")
+                          :flags ("-print0"))
+                         (:command-name "xargs"
+                          :flags ("-0")
+                          :xargs-command "rm"
+                          :xargs-flags ("-f"))))
+     :notes "REAL: From LLM scenarios - Null-separated xargs (handles spaces in filenames)")
+
+    (:id "combined-xargs-003"
+     :category "pipeline-xargs"
+     :command "git ls-files -d | xargs git rm"
+     :expect (:type :pipeline
+              :commands ((:command-name "git"
+                          :subcommand "ls-files"
+                          :flags ("-d"))
+                         (:command-name "xargs"
+                          :xargs-command "git"
+                          :xargs-args ("rm"))))
+     :notes "REAL: From LLM scenarios - Git operation via xargs (stage deleted files)")
+
+    (:id "combined-xargs-004"
+     :category "pipeline-xargs"
+     :command "ls *.el | xargs -I {} emacs --batch -l {} -f byte-compile-file"
+     :expect (:type :pipeline
+              :commands ((:command-name "ls"
+                          :positional-args ("*.el"))
+                         (:command-name "xargs"
+                          :flags ("-I")
+                          :xargs-placeholder "{}"
+                          :xargs-command "emacs"
+                          :xargs-args ("--batch" "-l" "{}" "-f" "byte-compile-file"))))
+     :notes "REAL: From LLM scenarios - Xargs with placeholder (byte compile elisp files)")
+
+    (:id "combined-xargs-005"
+     :category "pipeline-xargs"
+     :command "find . -name '*.txt' | xargs -n 1 cat"
+     :expect (:type :pipeline
+              :commands ((:command-name "find"
+                          :positional-args ("." "-name" "*.txt"))
+                         (:command-name "xargs"
+                          :flags ("-n")
+                          :xargs-batch-size 1
+                          :xargs-command "cat")))
+     :notes "Process files one at a time with xargs (file read operations)")
+
+    ;; ============================================================
+    ;; CATEGORY 7: COMMAND-SUBSTITUTION IN REDIRECTS
+    ;; ============================================================
+    ;; CRITICAL GAP: Dynamic filename generation in redirects
+    ;; Pattern: Redirect target contains command substitution
+    ;; File impact: Writes to dynamically-named files (critical for detection)
+
+    (:id "combined-cmdsub-redirect-001"
+     :category "command-substitution-redirect"
+     :command "echo 'data' > log-$(date +%Y-%m-%d).txt"
+     :expect (:command-name "echo"
+              :positional-args ("data")
+              :redirects ((:type "file"
+                          :operator ">"
+                          :target "log-$(date +%Y-%m-%d).txt"
+                          :target-has-substitution t))
+              :command-substitutions ((:syntax "$()"
+                                      :content "date +%Y-%m-%d"
+                                      :context :redirect-target)))
+     :notes "CRITICAL GAP: Dynamic filename from command substitution in redirect")
+
+    (:id "combined-cmdsub-redirect-002"
+     :category "command-substitution-redirect"
+     :command "cat data.txt > backup-$(whoami)-$(date +%s).txt"
+     :expect (:command-name "cat"
+              :positional-args ("data.txt")
+              :redirects ((:type "file"
+                          :operator ">"
+                          :target "backup-$(whoami)-$(date +%s).txt"
+                          :target-has-substitution t))
+              :command-substitutions ((:syntax "$()" :content "whoami" :context :redirect-target)
+                                     (:syntax "$()" :content "date +%s" :context :redirect-target)))
+     :notes "Multiple command substitutions in single redirect target")
+
+    (:id "combined-cmdsub-redirect-003"
+     :category "command-substitution-redirect"
+     :command "cat <<'EOF' > config-$(date +%Y-%m-%d).yml\nkey: value\nEOF"
+     :expect (:command-name "cat"
+              :heredocs ((:delimiter "EOF"
+                         :quoted t
+                         :content "key: value\n"))
+              :redirects ((:type "file"
+                          :operator ">"
+                          :target "config-$(date +%Y-%m-%d).yml"
+                          :target-has-substitution t))
+              :command-substitutions ((:syntax "$()"
+                                      :content "date +%Y-%m-%d"
+                                      :context :redirect-target)))
+     :notes "Heredoc + command-substitution in redirect target (config file generation)")
+
+    (:id "combined-cmdsub-redirect-004"
+     :category "command-substitution-redirect"
+     :command "grep ERROR server.log > errors-$(basename $(pwd)).txt"
+     :expect (:command-name "grep"
+              :positional-args ("ERROR" "server.log")
+              :redirects ((:type "file"
+                          :operator ">"
+                          :target "errors-$(basename $(pwd)).txt"
+                          :target-has-substitution t))
+              :command-substitutions ((:syntax "$()"
+                                      :content "basename $(pwd)"
+                                      :nesting-level 1
+                                      :context :redirect-target)
+                                     (:syntax "$()"
+                                      :content "pwd"
+                                      :nesting-level 2
+                                      :context :redirect-target)))
+     :notes "Nested command substitution in redirect target")
+
+    ;; ============================================================
+    ;; CATEGORY 8: FIND-EXEC PATTERNS (improved expectations)
+    ;; ============================================================
+    ;; Pattern: find with -exec performing file operations on each match
+    ;; File impact: Critical - operations on EACH found file
+    ;; Improvement: Clarify -exec is a BLOCK not a FLAG
+
+    (:id "combined-find-exec-001"
+     :category "find-exec"
+     :command "find . -name '*.txt' -exec cp {} backup/ \\;"
+     :expect (:command-name "find"
+              :positional-args ("." "-name" "*.txt")
+              :exec-blocks ((:exec-operator "-exec"
+                            :exec-command "cp"
+                            :exec-args ("{}" "backup/")
+                            :exec-terminator "\\;"
+                            :placeholder "{}")))
+     :notes "Find with -exec copy (creates backup of each .txt file)")
+
+    (:id "combined-find-exec-002"
+     :category "find-exec"
+     :command "find . -name '*.log' -exec rm {} \\;"
+     :expect (:command-name "find"
+              :positional-args ("." "-name" "*.log")
+              :exec-blocks ((:exec-operator "-exec"
+                            :exec-command "rm"
+                            :exec-args ("{}")
+                            :exec-terminator "\\;"
+                            :placeholder "{}")))
+     :notes "Find with -exec delete (critical file impact - deletes ALL .log files)")
+
+    (:id "combined-find-exec-003"
+     :category "find-exec"
+     :command "find . -type f -name '*.txt' -exec grep pattern {} \\; -exec echo {} \\;"
+     :expect (:command-name "find"
+              :positional-args ("." "-type" "f" "-name" "*.txt")
+              :exec-blocks ((:exec-operator "-exec"
+                            :exec-command "grep"
+                            :exec-args ("pattern" "{}")
+                            :exec-terminator "\\;")
+                           (:exec-operator "-exec"
+                            :exec-command "echo"
+                            :exec-args ("{}")
+                            :exec-terminator "\\;")))
+     :notes "Multiple -exec blocks (both read files)")
+
+    (:id "combined-find-exec-004"
+     :category "find-exec"
+     :command "find . -name '*.txt' -exec sh -c 'cat \"$1\" > \"$1.bak\"' _ {} \\;"
+     :expect (:command-name "find"
+              :positional-args ("." "-name" "*.txt")
+              :exec-blocks ((:exec-operator "-exec"
+                            :exec-command "sh"
+                            :exec-args ("-c" "cat \"$1\" > \"$1.bak\"" "_" "{}")
+                            :exec-terminator "\\;"
+                            :exec-contains-redirect t)))
+     :notes "Find -exec with shell script (creates .bak file for each .txt)")
+
+    (:id "combined-find-exec-005"
+     :category "find-exec"
+     :command "find . -name '*.org' -exec cp {} backup/{} \\;"
+     :expect (:command-name "find"
+              :positional-args ("." "-name" "*.org")
+              :exec-blocks ((:exec-operator "-exec"
+                            :exec-command "cp"
+                            :exec-args ("{}" "backup/{}")
+                            :exec-terminator "\\;"
+                            :placeholder "{}"
+                            :placeholder-in-target t)))
+     :notes "Placeholder in both source and target (preserves directory structure)")
+
     )
   "Test corpus for combined semantic gap patterns (integration tests).
 
-Total: 25 test cases covering commands with 2+ semantic gap types
+Total: 44 test cases covering commands with 2+ semantic gap types
 
 Category distribution:
 - Category 1 (command-substitution + heredoc): 8 tests - Dominant real-world pattern (84% of combined commands)
@@ -366,6 +574,9 @@ Category distribution:
 - Category 3 (conditional + command-substitution): 2 tests - Dynamic test conditions
 - Category 4 (multi-feature, 3+ gap types): 4 tests - Maximum complexity stress tests
 - Category 5 (edge cases): 5 tests - Unusual but valid combinations
+- Category 6 (pipeline + xargs): 5 tests - **NEW** Batch file operations via xargs
+- Category 7 (command-substitution in redirects): 4 tests - **NEW** Dynamic filename generation
+- Category 8 (find -exec patterns): 5 tests - **NEW** Improved exec block parsing
 
 Real-world distribution from research (68 commands):
 - command-substitution + heredoc: 57 commands (84%)
@@ -373,6 +584,11 @@ Real-world distribution from research (68 commands):
 - conditional + command-substitution: 2 commands (3%)
 - process-substitution + heredoc: 1 command (1%)
 - for-loop + conditional: 1 command (1%)
+
+NEW PATTERNS ADDED (19 tests):
+- Xargs patterns: 5 tests - Critical for file impact detection (batch operations)
+- Command-sub in redirects: 4 tests - Dynamic filenames (previously missing!)
+- Find -exec improvements: 5 tests - Clarified exec blocks vs flags
 
 Test focus:
 - Feature INTERACTION not isolation (these are integration tests)

@@ -233,14 +233,8 @@
     ;; TIER 3: EDGE CASES
     ;; ============================================================
 
-    (:id "heredoc-edge-001"
-     :category "edge"
-     :command "cat <<''\nContent with empty delimiter\n"
-     :expect (:command-name "cat"
-              :heredoc-delimiter ""
-              :heredoc-content "Content with empty delimiter\n"
-              :heredoc-quoted t)
-     :notes "Empty string as delimiter (unusual but valid)")
+    ;; REMOVED: heredoc-edge-001 (empty delimiter) - no file impact, invalid in practice
+    ;; REMOVED: heredoc-edge-003 (special chars in delimiter) - delimiter format doesn't affect file detection
 
     (:id "heredoc-edge-002"
      :category "edge"
@@ -250,15 +244,6 @@
               :heredoc-content "Content\n"
               :heredoc-quoted nil)
      :notes "Delimiter with underscores (common convention)")
-
-    (:id "heredoc-edge-003"
-     :category "edge"
-     :command "cat <<'E!O@F#'\nSpecial $chars @everywhere\nE!O@F#"
-     :expect (:command-name "cat"
-              :heredoc-delimiter "E!O@F#"
-              :heredoc-content "Special $chars @everywhere\n"
-              :heredoc-quoted t)
-     :notes "Delimiter with special characters")
 
     (:id "heredoc-edge-004"
      :category "edge"
@@ -270,11 +255,11 @@
     )
   "Test corpus for heredoc patterns.
 
-Total: 25 test cases
+Total: 23 test cases (removed 2 edge cases with no file impact)
 - 6 basic heredoc patterns (simple, quoted, empty, multi-line)
 - 8 heredoc in contexts (git commit, command substitution, pipes, redirects, sequences)
 - 7 complex patterns (indented, nested quotes, multi-stage pipelines, real examples)
-- 4 edge cases (empty delimiter, special chars, invalid syntax)
+- 2 edge cases (removed: empty delimiter, special chars in delimiter)
 
 Categories by tier:
 - Tier 1 (basic): 6 tests - Core heredoc mechanics

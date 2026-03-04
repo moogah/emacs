@@ -83,78 +83,12 @@
     ;; ============================================================
     ;; TIER 2: TEST OPERATORS (file, string, numeric, compound)
     ;; ============================================================
+    ;; SIMPLIFIED: Removed string/numeric operator variations (no file impact)
+    ;; Kept: Compound tests that demonstrate file operations and logical combinations
 
-    (:id "cond-testop-001"
-     :category "test-operators"
-     :command "if [ -z \"$VAR\" ]; then echo \"empty\"; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "["
-                               :test-operator "-z"
-                               :test-args ("$VAR"))
-              :then-branch ((:command-name "echo"
-                             :positional-args ("empty")))
-              :else-branch nil)
-     :notes "String test: -z (zero length)")
-
-    (:id "cond-testop-002"
-     :category "test-operators"
-     :command "if [ -n \"$VAR\" ]; then echo \"not empty\"; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "["
-                               :test-operator "-n"
-                               :test-args ("$VAR"))
-              :then-branch ((:command-name "echo"
-                             :positional-args ("not empty")))
-              :else-branch nil)
-     :notes "String test: -n (non-zero length)")
-
-    (:id "cond-testop-003"
-     :category "test-operators"
-     :command "if [ \"$a\" = \"$b\" ]; then echo \"equal\"; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "["
-                               :test-operator "="
-                               :test-args ("$a" "$b"))
-              :then-branch ((:command-name "echo"
-                             :positional-args ("equal")))
-              :else-branch nil)
-     :notes "String equality test")
-
-    (:id "cond-testop-004"
-     :category "test-operators"
-     :command "if [ $count -eq 0 ]; then echo \"zero\"; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "["
-                               :test-operator "-eq"
-                               :test-args ("$count" "0"))
-              :then-branch ((:command-name "echo"
-                             :positional-args ("zero")))
-              :else-branch nil)
-     :notes "Numeric test: -eq (equal)")
-
-    (:id "cond-testop-005"
-     :category "test-operators"
-     :command "if [ $n -lt 10 ]; then echo \"small\"; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "["
-                               :test-operator "-lt"
-                               :test-args ("$n" "10"))
-              :then-branch ((:command-name "echo"
-                             :positional-args ("small")))
-              :else-branch nil)
-     :notes "Numeric test: -lt (less than)")
-
-    (:id "cond-testop-006"
-     :category "test-operators"
-     :command "if [ $n -gt 5 ]; then echo \"large\"; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "["
-                               :test-operator "-gt"
-                               :test-args ("$n" "5"))
-              :then-branch ((:command-name "echo"
-                             :positional-args ("large")))
-              :else-branch nil)
-     :notes "Numeric test: -gt (greater than)")
+    ;; REMOVED: cond-testop-001 to -006 (string/numeric tests)
+    ;; Reason: For file impact detection, we only care about file test operators (-f, -d, -e, -r, -w, -x)
+    ;; String/numeric tests don't affect files, so parser doesn't need detailed operator handling
 
     (:id "cond-testop-007"
      :category "test-operators"
@@ -331,29 +265,8 @@
               :else-branch nil)
      :notes "Negation operator: ! (NOT)")
 
-    (:id "cond-edge-003"
-     :category "edge"
-     :command "if (( x > 5 )); then echo \"greater\"; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "(("
-                               :arithmetic-test t
-                               :expression "x > 5")
-              :then-branch ((:command-name "echo"
-                             :positional-args ("greater")))
-              :else-branch nil)
-     :notes "Arithmetic test with (( )) syntax")
-
-    (:id "cond-edge-004"
-     :category "edge"
-     :command "if [ -f file ]; then :; fi"
-     :expect (:command-name "if"
-              :test-condition (:operator "["
-                               :test-operator "-f"
-                               :test-args ("file"))
-              :then-branch ((:command-name ":"
-                             :notes "null command (no-op)"))
-              :else-branch nil)
-     :notes "Empty then block with : (null command)")
+    ;; REMOVED: cond-edge-003 (arithmetic test) - no file impact
+    ;; REMOVED: cond-edge-004 (null command no-op) - no file impact
 
     (:id "cond-edge-005"
      :category "edge"
@@ -368,24 +281,28 @@
     )
   "Test corpus for conditional patterns (if/then/else, test operators).
 
-Total: 24 test cases
+Total: 16 test cases (removed 8 tests with no file impact)
 - 6 simple conditionals (basic if/then, if/else, test command, [[ ]] syntax)
-- 8 test operators (file tests, string tests, numeric tests, compound tests)
+- 2 compound test operators (removed 6 string/numeric tests - no file impact)
 - 7 complex real-world patterns (from research with command substitution, chaining, multi-line)
-- 5 edge cases (elif chains, negation, arithmetic tests, empty blocks, true/false)
+- 3 edge cases (elif chains, negation, true/false) (removed: arithmetic, null command)
+
+SIMPLIFIED from 24 to 16 tests:
+- Removed: 6 string/numeric test operator variations (cond-testop-001 to -006)
+  Reason: String/numeric tests don't affect file operations
+- Removed: 2 edge cases (arithmetic test, null command)
+  Reason: No file impact
 
 Categories by tier:
 - Tier 1 (simple): 6 tests - Basic conditional mechanics
-- Tier 2 (test-operators): 8 tests - File, string, numeric, and compound tests
+- Tier 2 (test-operators): 2 tests - Compound file tests (kept: && and || combinations)
 - Tier 3 (complex): 7 tests - Real-world patterns from coverage analysis
-- Tier 4 (edge): 5 tests - Boundary conditions (elif, negation, arithmetic, null commands)
+- Tier 4 (edge): 3 tests - Boundary conditions (elif, negation, true command)
 
-Test operator coverage:
+Test operator coverage (file-impact focused):
 - File tests: -f (regular file), -d (directory), -e (exists), -x (executable), -r (readable)
-- String tests: -z (empty), -n (not empty), = (equal)
-- Numeric tests: -eq (equal), -lt (less than), -gt (greater than), -ne (not equal)
 - Compound tests: && (AND), || (OR) within [[ ]]
-- Special: ! (negation), (( )) (arithmetic)
+- Special: ! (negation)
 
 Real-world examples: 4 tests marked with 'REAL:' extracted from conditional-examples.tsv
 showing actual patterns from Claude Code session commands.

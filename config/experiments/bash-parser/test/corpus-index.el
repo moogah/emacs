@@ -295,8 +295,13 @@ Columns: id, corpus_type, category, command (truncated), has_real_marker."
 ;; Corpus Index Summary
 ;; ============================================================
 
-(defvar jf/bash-corpus-version "1.0"
-  "Version of the bash parser corpus.")
+(defvar jf/bash-corpus-version "1.1"
+  "Version of the bash parser corpus.
+v1.1 (2026-03-04): Added 19 critical file-impact tests:
+  - 5 xargs patterns (batch operations)
+  - 4 command-substitution in redirects (dynamic filenames)
+  - 5 find -exec improvements (exec blocks vs flags)
+  - 5 deprecated edge cases marked for removal")
 
 (defun jf/bash-corpus-summary ()
   "Return a summary string of the corpus."

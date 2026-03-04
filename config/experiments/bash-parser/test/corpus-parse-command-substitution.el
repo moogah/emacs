@@ -276,33 +276,20 @@
                                      (:syntax "`" :content "date" :nesting-level 2)))
      :notes "Nested backticks with escaping")
 
-    (:id "cmdsub-edge-004"
-     :category "edge"
-     :command "echo $()"
-     :expect (:command-name "echo"
-              :positional-args ("$()")
-              :command-substitutions ((:syntax "$()" :content "" :nesting-level 1)))
-     :notes "Empty substitution")
-
-    (:id "cmdsub-edge-005"
-     :category "edge"
-     :command "echo \\$(not-a-substitution)"
-     :expect (:command-name "echo"
-              :positional-args ("\\$(not-a-substitution)")
-              :command-substitutions ())
-     :notes "Escaped substitution (literal)")
+    ;; REMOVED: cmdsub-edge-004 (empty substitution) - no file impact
+    ;; REMOVED: cmdsub-edge-005 (escaped substitution) - no file impact
 
     )
   "Test corpus for command substitution patterns.
 
-Total: 30 test cases
+Total: 28 test cases (removed 2 edge cases with no file impact)
 - 6 simple/basic patterns
 - 4 nested substitutions
 - 4 quoted contexts
 - 4 pipe/redirect patterns
 - 4 multiple substitutions
 - 4 complex real-world patterns
-- 4 edge cases
+- 2 edge cases (removed: empty substitution, escaped substitution)
 
 NOTE: Expected parse results assume command substitution extraction
 is implemented in bash-parser. Current implementation may not
