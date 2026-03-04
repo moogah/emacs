@@ -227,7 +227,20 @@
               :glob-pattern t
               :parameter-expansion t
               :file-operations ((:operation "copy" :flags ("-r"))))
-     :notes "REAL: From research - Directory sync with parameter expansion and file ops")
+     :expect-file-ops (;; cp reads source
+                       (:file "*/"
+                        :operation :read
+                        :command "cp"
+                        :pattern t
+                        :loop-context t
+                        :loop-variable "dir")
+                       ;; cp writes destination
+                       (:file "../../../specs/"
+                        :operation :write
+                        :command "cp"
+                        :loop-context t
+                        :loop-variable "dir"))
+     :notes "REAL: From research - Directory sync with parameter expansion and file ops. Loop iterates over directories, cp operations in loop context")
 
     ;; ============================================================
     ;; TIER 3: NESTED AND COMPOUND PATTERNS

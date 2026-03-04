@@ -143,7 +143,11 @@
                              :positional-args ("1")))
               :else-branch ((:command-name "echo"
                              :positional-args ("Archive path is available"))))
-     :notes "REAL: From research - Multi-line conditional with exit in then branch")
+     :expect-file-ops ((:file "openspec/changes/archive/2026-03-03-bash-script-execution"
+                        :operation :read-metadata
+                        :test-condition t
+                        :test-operator "-d"))
+     :notes "REAL: From research - Multi-line conditional with exit in then branch. Test checks directory existence, branches don't affect files")
 
     (:id "cond-complex-002"
      :category "complex"

@@ -747,6 +747,117 @@
                    :confidence :high
                    :source :positional-arg)))
 
+    ;; ============================================================
+    ;; INTEGRATION: LOOP + SUBSTITUTION + CONDITIONAL
+    ;; ============================================================
+    (:id "integration-001"
+     :command "for file in $(find . -name '*.log'); do if [ -f \"$file\" ]; then cat \"$file\" > backup/$(basename \"$file\"); fi; done"
+     :note "Complex: loop + substitution + conditional + nested substitution"
+     :expect-ops (;; find operations
+                  (:file "."
+                   :operation :read-directory
+                   :command "find"
+                   :from-substitution t)
+                  (:file "*.log"
+                   :operation :match-pattern
+                   :command "find"
+                   :pattern t
+                   :from-substitution t)
+                  ;; test operation in loop
+                  (:file "*.log"
+                   :operation :read-metadata
+                   :test-condition t
+                   :loop-context t
+                   :test-operator "-f"
+                   :pattern t)
+                  ;; cat reads in conditional then branch
+                  (:file "*.log"
+                   :operation :read
+                   :command "cat"
+                   :conditional t
+                   :branch :then
+                   :loop-context t
+                   :pattern t)
+                  ;; redirect writes with dynamic filename (from basename substitution)
+                  (:file "backup/{dynamic}"
+                   :operation :write
+                   :source :redirection
+                   :conditional t
+                   :branch :then
+                   :loop-context t
+                   :dynamic t)))
+
+    (:id "integration-002"
+     :command "cat $(find . -name '*.txt') | grep -E '^ERROR' > errors.log"
+     :note "Pipeline with pattern substitution and redirect"
+     :expect-ops ((:file "."
+                   :operation :read-directory
+                   :command "find"
+                   :from-substitution t)
+                  (:file "*.txt"
+                   :operation :match-pattern
+                   :command "find"
+                   :pattern t
+                   :from-substitution t)
+                  (:file "*.txt"
+                   :operation :read
+                   :command "cat"
+                   :pattern t
+                   :pattern-source (:command "find"))
+                  (:file "errors.log"
+                   :operation :write
+                   :source :redirection)))
+
+    (:id "integration-003"
+     :command "for dir in */; do if [ -d \"$dir/config\" ]; then cp -r \"$dir/config\" backup/; fi; done"
+     :note "Loop + conditional + directory operations"
+     :expect-ops ((:file "*/"
+                   :operation :read-metadata
+                   :test-condition t
+                   :loop-context t
+                   :test-operator "-d"
+                   :pattern t)
+                  (:file "*/"
+                   :operation :read
+                   :command "cp"
+                   :conditional t
+                   :branch :then
+                   :loop-context t
+                   :pattern t)
+                  (:file "backup/"
+                   :operation :write
+                   :command "cp"
+                   :conditional t
+                   :branch :then
+                   :loop-context t)))
+
+    (:id "integration-004"
+     :command "cat <<'EOF' | while read line; do echo \"$line\" > output/$line.txt; done\nfile1\nfile2\nEOF"
+     :note "Heredoc piped to while loop with dynamic file writes"
+     :expect-ops ((:file "output/{dynamic}.txt"
+                   :operation :write
+                   :source :redirection
+                   :loop-context t
+                   :dynamic t)))
+
+    (:id "integration-005"
+     :command "if [ -f config.yml ]; then cat config.yml | grep pattern > filtered.yml; fi"
+     :note "Conditional with pipeline and file operations"
+     :expect-ops ((:file "config.yml"
+                   :operation :read-metadata
+                   :test-condition t
+                   :test-operator "-f")
+                  (:file "config.yml"
+                   :operation :read
+                   :command "cat"
+                   :conditional t
+                   :branch :then)
+                  (:file "filtered.yml"
+                   :operation :write
+                   :source :redirection
+                   :conditional t
+                   :branch :then)))
+
     ))
 
 
@@ -837,6 +948,118 @@ Generates one `ert-deftest' per corpus case at macro expansion time."
   jf/bash-file-operations-test-corpus
   "test-corpus-"
   jf/test-run-corpus-case)
+;;; Corpus Validation Functions
+
+(defun jf/test-corpus-file-ops-validate-file (corpus-file)
+  "Validate all test cases with :expect-file-ops in CORPUS-FILE.
+
+CORPUS-FILE should be a symbol naming a loaded corpus variable.
+Returns list of failures or nil if all tests passed."
+  (let ((corpus-var (intern (format "jf/bash-%s-corpus" corpus-file)))
+        (failures nil))
+    (unless (boundp corpus-var)
+      (error "Corpus variable %s not bound. Load corpus file first." corpus-var))
+    (dolist (test-case (symbol-value corpus-var))
+      (when-let ((expected-ops (plist-get test-case :expect-file-ops)))
+        (let* ((test-id (plist-get test-case :id))
+               (command (plist-get test-case :command))
+               (parsed (jf/bash-parse command))
+               (actual-ops (jf/bash-extract-file-operations parsed)))
+          ;; Check if parsing succeeded
+          (unless (plist-get parsed :success)
+            (push (list :id test-id
+                       :error "Parse failed"
+                       :command command)
+                  failures))
+          ;; Check operation count
+          (unless (= (length expected-ops) (length actual-ops))
+            (push (list :id test-id
+                       :error "Operation count mismatch"
+                       :expected-count (length expected-ops)
+                       :actual-count (length actual-ops)
+                       :expected expected-ops
+                       :actual actual-ops)
+                  failures))
+          ;; Check each expected operation
+          (dolist (expected-op expected-ops)
+            (unless (jf/test-find-matching-op expected-op actual-ops)
+              (push (list :id test-id
+                         :error "Expected operation not found"
+                         :expected expected-op
+                         :actual actual-ops)
+                    failures))))))
+    failures))
+
+(defun jf/test-corpus-file-ops-validate-all ()
+  "Run all corpus tests with :expect-file-ops validation.
+Returns summary of results."
+  (interactive)
+  (let ((corpus-files '("command-substitution"
+                       "combined-patterns"
+                       "conditional"
+                       "for-loop"
+                       "heredoc"))
+        (all-failures nil)
+        (total-tests 0)
+        (tests-with-expectations 0))
+
+    ;; Load all corpus files
+    (dolist (corpus-file corpus-files)
+      (require (intern (format "corpus-parse-%s" corpus-file))
+               (expand-file-name (format "corpus-parse-%s.el" corpus-file)
+                                (file-name-directory load-file-name))))
+
+    ;; Run validation for each corpus
+    (dolist (corpus-file corpus-files)
+      (let* ((corpus-var (intern (format "jf/bash-%s-corpus" corpus-file)))
+             (corpus-cases (when (boundp corpus-var) (symbol-value corpus-var)))
+             (cases-with-expectations
+              (seq-count (lambda (tc) (plist-get tc :expect-file-ops))
+                        corpus-cases))
+             (failures (jf/test-corpus-file-ops-validate-file corpus-file)))
+        (setq total-tests (+ total-tests (length corpus-cases)))
+        (setq tests-with-expectations (+ tests-with-expectations cases-with-expectations))
+        (when failures
+          (push (cons corpus-file failures) all-failures))))
+
+    ;; Display results
+    (with-current-buffer (get-buffer-create "*corpus-file-ops-validation*")
+      (erase-buffer)
+      (insert (format "Corpus File Operations Validation\n"))
+      (insert (format "===================================\n\n"))
+      (insert (format "Total corpus tests: %d\n" total-tests))
+      (insert (format "Tests with :expect-file-ops: %d\n\n" tests-with-expectations))
+
+      (if all-failures
+          (progn
+            (insert (format "FAILURES: %d corpus files with failures\n\n"
+                           (length all-failures)))
+            (dolist (corpus-failure all-failures)
+              (let ((corpus-file (car corpus-failure))
+                    (failures (cdr corpus-failure)))
+                (insert (format "\n%s: %d failures\n" corpus-file (length failures)))
+                (insert (make-string 60 ?-))
+                (insert "\n")
+                (dolist (failure failures)
+                  (insert (format "\n  Test: %s\n" (plist-get failure :id)))
+                  (insert (format "  Error: %s\n" (plist-get failure :error)))
+                  (when (plist-get failure :expected)
+                    (insert (format "  Expected: %S\n" (plist-get failure :expected))))
+                  (when (plist-get failure :actual)
+                    (insert (format "  Actual: %S\n" (plist-get failure :actual))))))))
+        (insert "SUCCESS: All corpus file operations tests passed!\n"))
+
+      (goto-char (point-min))
+      (display-buffer (current-buffer)))
+
+    ;; Return summary
+    (if all-failures
+        (message "FAILURES: %d corpus files with failures. See *corpus-file-ops-validation* buffer."
+                (length all-failures))
+      (message "SUCCESS: All %d tests with file operations expectations passed!"
+              tests-with-expectations))
+    all-failures))
+
 ;;; Interactive Test Runner
 
 (defun jf/file-operations-corpus-run-all ()

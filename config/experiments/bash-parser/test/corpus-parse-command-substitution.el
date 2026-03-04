@@ -76,6 +76,20 @@
               :command-substitutions ((:syntax "$()"
                                       :content "find . -name config.yml"
                                       :nesting-level 1)))
+     :expect-file-ops ((:file "."
+                        :operation :read-directory
+                        :command "find"
+                        :from-substitution t)
+                       (:file "config.yml"
+                        :operation :match-pattern
+                        :command "find"
+                        :pattern t
+                        :from-substitution t)
+                       (:file "config.yml"
+                        :operation :read
+                        :command "cat"
+                        :pattern t
+                        :pattern-source (:command "find")))
      :notes "Find and read file - cat reads file from find result, :parsed field is generated automatically")
 
     (:id "cmdsub-nested-004"
@@ -173,6 +187,16 @@
               :positional-args ("$(which oldcmd)" "$(which newcmd)")
               :command-substitutions ((:syntax "$()" :content "which oldcmd" :nesting-level 1)
                                      (:syntax "$()" :content "which newcmd" :nesting-level 1)))
+     :expect-file-ops ((:file "{which-result}"
+                        :operation :read
+                        :command "cp"
+                        :from-substitution t
+                        :dynamic t)
+                       (:file "{which-result}"
+                        :operation :write
+                        :command "cp"
+                        :from-substitution t
+                        :dynamic t))
      :notes "Two substitutions as copy source and dest - cp performs file copy")
 
     (:id "cmdsub-multiple-004"

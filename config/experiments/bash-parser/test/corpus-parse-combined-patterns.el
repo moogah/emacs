@@ -146,7 +146,23 @@
                                       :nesting-level 1
                                       :context :loop-body))
               :loop-body "echo \"=== $(basename \"$file\") ===\"")
-     :notes "REAL: From research - Command substitution in both loop list AND body")
+     :expect-file-ops ((:file "."
+                        :operation :read-directory
+                        :command "find"
+                        :from-substitution t)
+                       (:file "*.el"
+                        :operation :match-pattern
+                        :command "find"
+                        :pattern t
+                        :from-substitution t)
+                       (:file "*.el"  ; Resolved from $file variable
+                        :operation :read
+                        :command "basename"
+                        :loop-context t
+                        :loop-variable "file"
+                        :pattern t
+                        :from-substitution t))
+     :notes "REAL: From research - Command substitution in both loop list AND body. Pattern flows from find through loop variable to basename")
 
     (:id "combined-for-cmdsub-002"
      :category "for-loop-command-substitution"

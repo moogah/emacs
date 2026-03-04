@@ -82,7 +82,8 @@
               :heredoc-delimiter "EOF"
               :heredoc-content "Add feature X\n\nDetailed description here.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\n"
               :heredoc-quoted t)
-     :notes "REAL: Git commit with heredoc inside command substitution")
+     :expect-file-ops ()  ; No file operations - heredoc is commit message content, not file creation
+     :notes "REAL: Git commit with heredoc inside command substitution. Heredoc in git commit substitution - content only, not file creation")
 
     (:id "heredoc-context-002"
      :category "context"
@@ -144,7 +145,11 @@
               :heredoc-content "No expansion here: $HOME\n"
               :heredoc-quoted t
               :redirects ((:type "file" :operator ">" :target "output.txt")))
-     :notes "Heredoc with file redirection")
+     :expect-file-ops ((:file "output.txt"
+                        :operation :write
+                        :source :redirection
+                        :heredoc-content t))
+     :notes "Heredoc with file redirection. Heredoc with redirect - creates file")
 
     (:id "heredoc-context-008"
      :category "context"
