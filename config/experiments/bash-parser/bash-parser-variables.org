@@ -231,9 +231,21 @@ COMMAND is a single parsed command (from :all-commands or a simple command).
 Returns alist of (VAR-SYMBOL . VALUE-STRING) for each assignment found,
 or nil if no assignments detected.
 
-Detects assignments by checking if the command name matches the pattern
-VAR=value. Tree-sitter parses these as variable_assignment nodes, but
-they may also appear in the word list.
+Detects assignments in two patterns:
+
+1. Unified pattern: VAR=value in command-name field
+   Example: (:command-name "DIR=/tmp" ...) => ((DIR . "/tmp"))
+
+2. Split pattern: VAR in command-name, value in first positional-arg
+   This occurs when tree-sitter parses assignments in chains
+   Example: (:command-name "DIR" :positional-args ("/tmp") ...)
+   => ((DIR . "/tmp"))
+
+The split pattern is detected by:
+- Command name matches valid variable name pattern (^[A-Za-z_][A-Za-z0-9_]*$)
+- Exactly one positional argument
+- Command name not in semantics database (excludes known commands like 'cat')
+- Value doesn't start with '-' (excludes flags)
 
 This function only handles simple assignments (no complex expansions).
 
@@ -261,6 +273,21 @@ Examples:
       (let ((var-name (match-string 1 command-name))
             (var-value (match-string 2 command-name)))
         (push (cons (intern var-name) var-value) assignments)))
+
+    ;; Check for split assignment pattern: command-name is variable name only,
+    ;; first positional arg is the value. This happens when tree-sitter parses
+    ;; assignments in chains (e.g., "DIR=/tmp && cmd" becomes command-name="DIR", args=("/tmp"))
+    (when (and command-name
+               (string-match "^[A-Za-z_][A-Za-z0-9_]*$" command-name)  ; Valid var name (no =)
+               positional-args
+               (= (length positional-args) 1)  ; Exactly one positional arg
+               ;; Heuristic: if command is in semantics DB, it's not an assignment
+               (not (jf/bash-lookup-command-semantics command-name)))
+      (let ((var-name command-name)
+            (var-value (car positional-args)))
+        ;; Only treat as assignment if value doesn't look like a flag
+        (unless (string-prefix-p "-" var-value)
+          (push (cons (intern var-name) var-value) assignments))))
 
     ;; Also check positional args for assignment patterns
     ;; (in case tree-sitter includes them there)
