@@ -1,3 +1,40 @@
+#+title: Bash Parser - Recursive Semantic Analysis
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle bash-parser-recursive.el
+#+auto_tangle: t
+
+* Introduction
+
+Recursive tree traversal engine for semantic analysis of bash commands.
+
+This module provides the core recursive analyzer that extracts file operations
+from all nesting levels of bash command structures, including:
+- Command substitutions (~$(...)~ and backticks)
+- Pipeline commands (~|~)
+- Command chains (~&&~, ~||~, ~;~)
+- Loop bodies (~for~ loops with variable binding)
+- Conditional branches (~if/then/else~ with context tracking)
+- Nested combinations of the above
+
+The recursive analyzer coordinates with the semantic database to understand
+what operations each command performs, then recursively descends into nested
+structures to extract operations at all levels.
+
+** Key Features
+
+- **Pattern Flow Tracking**: Detects when patterns flow from producer commands
+  (~find~, ~ls~, ~grep -l~) to consumer commands (~cat~, ~rm~, etc.)
+- **Loop Context**: Binds loop variables to their sources and tracks operations
+  within loop bodies
+- **Conditional Context**: Distinguishes test operations from branch operations
+- **Depth Limiting**: Prevents infinite recursion with configurable max depth
+- **Variable Tracking**: Maintains variable context across command chains
+
+* Basic Configuration
+
+Setup lexical binding and file header.
+
+#+begin_src emacs-lisp
 ;;; bash-parser-recursive.el --- Recursive semantic analysis -*- lexical-binding: t; -*-
 
 ;; Author: Jeff Farr
@@ -15,13 +52,33 @@
 ;; - Conditional branches (with context markers)
 
 ;;; Code:
+#+end_src
 
+* Dependencies
+
+#+begin_src emacs-lisp
 (require 'cl-lib)
+#+end_src
 
+* Configuration
+
+** Maximum Recursion Depth
+
+#+begin_src emacs-lisp
 (defvar jf/bash-recursive-max-depth 10
   "Maximum recursion depth for semantic analysis.
 Prevents infinite recursion in pathological cases.")
+#+end_src
 
+* Main Recursive Analyzer
+
+** Core Recursive Function
+
+The heart of the recursive semantic analyzer. This function extracts file
+operations from a parsed command and recursively descends into nested
+structures.
+
+#+begin_src emacs-lisp
 (defun jf/bash-analyze-file-operations-recursive (parsed-command var-context &optional depth)
   "Recursively extract file operations from PARSED-COMMAND at all nesting levels.
 
@@ -187,7 +244,15 @@ Example:
         (setq operations (append operations conditional-ops))))
 
     operations))
+#+end_src
 
+* Conditional Context Tracking
+
+Functions for tracking operations within conditional structures (~if/then/else~).
+
+** Main Conditional Extraction Function
+
+#+begin_src emacs-lisp
 (defun jf/bash--extract-conditional-context-operations (parsed-conditional var-context depth)
   "Extract file operations from PARSED-CONDITIONAL with context tracking.
 
@@ -225,7 +290,11 @@ Returns list of operations with conditional context markers."
         (setq operations (append operations else-ops))))
 
     operations))
+#+end_src
 
+** Test Condition Extraction
+
+#+begin_src emacs-lisp
 (defun jf/bash--extract-test-condition-operations-from-text (condition-text var-context depth)
   "Extract operations from test CONDITION-TEXT.
 
@@ -276,7 +345,11 @@ Returns list of operations marked with :test-condition t."
               (plist-put marked-op :test-condition t)
               (push marked-op operations))))))
     (nreverse operations)))
+#+end_src
 
+** Then Branch Extraction
+
+#+begin_src emacs-lisp
 (defun jf/bash--extract-then-branch-operations-from-text (then-text var-context depth)
   "Extract operations from THEN-TEXT.
 
@@ -305,7 +378,11 @@ Returns list of operations marked with :conditional t :branch :then."
             (plist-put marked-op :branch :then)
             (push marked-op operations)))))
     (nreverse operations)))
+#+end_src
 
+** Else Branch Extraction
+
+#+begin_src emacs-lisp
 (defun jf/bash--extract-else-branch-operations-from-text (else-text var-context depth)
   "Extract operations from ELSE-TEXT if present.
 
@@ -334,6 +411,11 @@ Returns list of operations marked with :conditional t :branch :else."
             (plist-put marked-op :branch :else)
             (push marked-op operations)))))
     (nreverse operations)))
+#+end_src
 
+* Module Completion
+
+#+begin_src emacs-lisp
 (provide 'bash-parser-recursive)
 ;;; bash-parser-recursive.el ends here
+#+end_src
