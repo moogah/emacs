@@ -59,11 +59,9 @@ Examples:
 (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
   "Extract all file operations from PARSED-COMMAND.
 
-This is the main entry point for file operation extraction. It coordinates
-extraction from all sources:
-- Redirections (>, >>, <, 2>, etc.)
-- Positional arguments (based on command semantics)
-- Exec blocks (find -exec ... \\;)
+This is the main entry point for file operation extraction. Now uses recursive
+analysis to extract operations from all nesting levels including command
+substitutions, loops, conditionals, pipelines, and chains.
 
 PARSED-COMMAND is the output from `jf/bash-parse'.
 VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values (strings).
@@ -74,13 +72,9 @@ Returns a list of operation plists, each containing:
   :confidence - Confidence level (:high, :medium, :low, :unknown)
   :source - Source of operation (:redirection, :positional-arg, :exec-block)
   :indirect - t if from nested command (optional)
+  :from-substitution - t if from command substitution (optional)
   :unresolved - t if contains unresolved variables (optional)
   :unresolved-vars - List of unresolved variable names (optional)
-
-Handles multi-command constructs:
-- Pipelines: Extract from each command in the pipeline
-- Chains: Extract from each command, tracking variable assignments
-- Simple: Extract from the single command
 
 Operations are deduplicated: if the same file appears with the same operation
 type multiple times, only one entry is returned.
@@ -92,25 +86,40 @@ Examples:
   => ((:file \"/workspace/file.txt\" :operation :read
        :confidence :high :source :positional-arg))
 
-  ;; Multiple sources
+  ;; Command substitution (recursive)
   (jf/bash-extract-file-operations
-    (jf/bash-parse \"cat input.txt > output.txt\"))
-  => ((:file \"input.txt\" :operation :read :confidence :high :source :positional-arg)
-      (:file \"output.txt\" :operation :write :confidence :high :source :redirection))
-
-  ;; Pipeline
-  (jf/bash-extract-file-operations
-    (jf/bash-parse \"cat file.txt | grep pattern > output.txt\"))
-  => ((:file \"file.txt\" :operation :read ...)
-      (:file \"output.txt\" :operation :write ...))
+    (jf/bash-parse \"cat $(find . -name '*.log')\"))
+  => ((:file \".\" :operation :read-directory :from-substitution t ...)
+      (:file \"*.log\" :operation :match-pattern :from-substitution t ...)
+      (:file \"$(find . -name '*.log')\" :operation :read ...))
 
   ;; Variable resolution
   (jf/bash-extract-file-operations
     (jf/bash-parse \"cat $WORKSPACE/file.txt\")
     '((WORKSPACE . \"/workspace\")))
   => ((:file \"/workspace/file.txt\" :operation :read ...))"
+  (let ((context (jf/bash--normalize-var-context var-context)))
+    ;; Use recursive analyzer if available (bash-parser-recursive loaded)
+    (if (fboundp 'jf/bash-analyze-file-operations-recursive)
+        (let ((all-ops (jf/bash-analyze-file-operations-recursive
+                       parsed-command context 0)))
+          ;; Deduplicate operations
+          (jf/bash--deduplicate-operations all-ops))
+      ;; Fallback to old flat extraction if recursive module not loaded
+      (jf/bash--extract-file-operations-flat parsed-command context))))
+
+(defun jf/bash--extract-file-operations-flat (parsed-command var-context)
+  "Flat (non-recursive) file operation extraction.
+
+This is the fallback implementation used when bash-parser-recursive
+is not loaded. It extracts operations from the top level only,
+without recursing into command substitutions.
+
+PARSED-COMMAND is the output from `jf/bash-parse'.
+VAR-CONTEXT is an alist mapping variable names to values.
+
+Returns list of operation plists (not deduplicated)."
   (let ((operations nil)
-        (context (jf/bash--normalize-var-context var-context))
         (command-type (plist-get parsed-command :type))
         (all-commands (plist-get parsed-command :all-commands)))
 
@@ -126,7 +135,7 @@ Examples:
                           (let* ((var-name (car assignment))
                                  (var-value (cdr assignment))
                                  (resolved-value (if (string-match-p "\\$" var-value)
-                                                   (jf/bash-resolve-variables var-value context)
+                                                   (jf/bash-resolve-variables var-value var-context)
                                                    var-value)))
                             ;; If resolution returns a plist, extract the path
                             (cons var-name
@@ -134,23 +143,22 @@ Examples:
                                       (plist-get resolved-value :path)
                                     resolved-value))))
                         assignments))
-          (setq context (append assignments context)))
+          (setq var-context (append assignments var-context)))
         ;; Extract operations from this command
-        (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
+        (let ((cmd-ops (jf/bash--extract-from-single-command cmd var-context)))
           (setq operations (append operations cmd-ops)))))
 
      ;; Pipeline: process each command independently
      ((eq command-type :pipeline)
       (dolist (cmd all-commands)
-        (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
+        (let ((cmd-ops (jf/bash--extract-from-single-command cmd var-context)))
           (setq operations (append operations cmd-ops)))))
 
      ;; Simple: extract from single command
      ((eq command-type :simple)
-      (setq operations (jf/bash--extract-from-single-command parsed-command context))))
+      (setq operations (jf/bash--extract-from-single-command parsed-command var-context))))
 
-    ;; Deduplicate: same file + operation
-    (jf/bash--deduplicate-operations operations)))
+    operations))
 
 (defun jf/bash--extract-from-single-command (command var-context)
   "Extract file operations from a single COMMAND with VAR-CONTEXT.
