@@ -1,0 +1,112 @@
+# Heredoc Corpus Summary
+
+## File Location
+/Users/jefffarr/emacs/config/experiments/bash-parser/heredoc-corpus.el
+
+## Structure
+Following command-substitution-corpus.el template:
+- defvar jf/bash-heredoc-corpus with list of test cases
+- Each test: :id, :category, :command, :expect, :notes
+- Comprehensive docstring with category breakdown
+- Emacs Lisp file with proper provide statement
+
+## Test Counts (Total: 25)
+
+### By Category
+- basic: 6 tests
+- context: 8 tests  
+- complex: 7 tests
+- edge: 4 tests
+
+### By Tier
+- Tier 1 (basic): 6 tests - Core heredoc mechanics
+- Tier 2 (context): 8 tests - Heredoc combined with other features
+- Tier 3 (complex): 7 tests - Real-world patterns
+- Edge cases: 4 tests - Boundary conditions
+
+### Real Examples
+5 tests marked with "REAL:" extracted from coverage-analysis.tsv:
+- heredoc-context-001: Git commit with heredoc in command substitution
+- heredoc-context-008: Chained git commands with heredoc
+- heredoc-complex-005: Multi-line commit with bullet points
+- heredoc-complex-007: Heredoc containing markdown with code fences
+
+## Test Coverage
+
+### Tier 1: Basic Heredoc (6 tests)
+- heredoc-basic-001: Simple unquoted heredoc (<<EOF)
+- heredoc-basic-002: Single-quoted delimiter (<<'EOF') - no expansion
+- heredoc-basic-003: Double-quoted delimiter (<<"EOF") - allows expansion
+- heredoc-basic-004: Variable expansion in heredoc content
+- heredoc-basic-005: Empty heredoc
+- heredoc-basic-006: Multi-line with custom delimiter
+
+### Tier 2: Heredoc in Contexts (8 tests)
+- heredoc-context-001: Git commit with heredoc in $(cat <<'EOF')
+- heredoc-context-002: Command substitution inside heredoc content
+- heredoc-context-003: Heredoc piped to grep
+- heredoc-context-004: Multiple heredocs in sequence
+- heredoc-context-005: Heredoc feeding mysql input
+- heredoc-context-006: Heredoc with inline Python script
+- heredoc-context-007: Heredoc with file redirection (> output.txt)
+- heredoc-context-008: Chained commands with heredoc in middle
+
+### Tier 3: Complex Patterns (7 tests)
+- heredoc-complex-001: Indented heredoc (<<-EOF) strips leading tabs
+- heredoc-complex-002: Nested quotes inside heredoc
+- heredoc-complex-003: Heredoc with multiple redirects (> file 2>&1)
+- heredoc-complex-004: Heredoc in multi-stage pipeline
+- heredoc-complex-005: Multi-line commit message with bullets
+- heredoc-complex-006: Escaped special characters (\` and \$)
+- heredoc-complex-007: Markdown with code fences in heredoc
+
+### Edge Cases (4 tests)
+- heredoc-edge-001: Empty string delimiter
+- heredoc-edge-002: Delimiter with underscores (END_OF_FILE)
+- heredoc-edge-003: Delimiter with special characters (E!O@F#)
+- heredoc-edge-004: Invalid multiple heredoc redirects (error case)
+
+## Expected Parse Structure
+
+Key fields in :expect:
+- :heredoc-delimiter - The end marker (e.g., "EOF")
+- :heredoc-content - The actual content between delimiters
+- :heredoc-quoted - Boolean: true for <<'EOF', false for <<EOF
+- :heredoc-indented - Boolean: true for <<-EOF (strips tabs)
+- :variable-expansions - List of $VAR found in content
+- :command-substitutions - List of $(cmd) found in content
+- :redirects - File redirects after heredoc
+- :pipeline - Boolean: heredoc output piped to another command
+
+## Key Heredoc Patterns Covered
+
+1. Delimiter Quoting Styles:
+   - <<EOF (unquoted - allows expansion)
+   - <<'EOF' (single-quoted - literal, no expansion)
+   - <<"EOF" (double-quoted - allows expansion, same as unquoted)
+
+2. Special Heredoc Features:
+   - <<-EOF (indented heredoc - strips leading tabs)
+   - Empty heredoc (delimiter immediately follows)
+   - Custom delimiters (END, MARKER, SQL, PYTHON, etc.)
+
+3. Integration with Other Features:
+   - Inside command substitution $(cat <<'EOF')
+   - With command substitution in content
+   - With pipes (cat <<EOF | grep)
+   - With file redirects (cat <<EOF > file)
+   - In chained commands (&&)
+
+4. Real-World Use Cases:
+   - Git commit messages (multi-line with co-author)
+   - SQL/Python scripts fed to interpreters
+   - Markdown/documentation generation
+   - Configuration file generation
+
+## Validation
+
+File syntax validated with Emacs batch mode:
+✓ Loads successfully
+✓ All 25 tests counted correctly
+✓ Proper provide statement
+✓ Follows command-substitution-corpus.el structure exactly

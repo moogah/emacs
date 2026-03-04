@@ -1,0 +1,17 @@
+# Pattern: for-loop
+# Description: For-loop patterns
+# Total commands: 8
+# Coverage range: 36.8% - 90.9%
+# Average coverage: 55.6%
+#
+# Commands sorted by coverage_pct (ascending) to prioritize gaps
+#
+command	parse_status	coverage_pct	missing_count	file_ops_count	command_type	dangerous	missing_tokens	semantic_gap_count	critical_gaps	gap_types
+for bead in emacs-ags emacs-1n7 emacs-blx emacs-eii emacs-crn emacs-ckg emacs-rqp emacs-dw4 emacs-48j emacs-s75; do echo "=== $bead ==="; bd show "$bead" 2>/dev/null | head -5; done	SUCCESS	36.8	12	1	:pipeline		emacs-ags, emacs-1n7, emacs-blx, emacs-eii, emacs-crn, emacs-ckg, emacs-rqp, emacs-dw4, emacs-48j, emacs-s75	1	0	for-loop
+for id in emacs-aa89 emacs-jv63 emacs-nldf emacs-b01z emacs-8oyz emacs-gaah emacs-wxn1 emacs-85i3; do\n  echo "=== $id ==="\n  bd show $id --format '{{.Description}}' 2>&1\n  echo ""\ndone	SUCCESS	38.9	11	0	:simple		emacs-aa89, emacs-jv63, emacs-nldf, emacs-b01z, emacs-8oyz, emacs-gaah, emacs-wxn1, emacs-85i3, echo, === $id ===	1	0	for-loop
+for commit in 00950fb 7abad63 b7d3bec d93c732 9862675 6d84cfd; do\n  echo "=== $commit ==="\n  git show --stat --format="%s%n%b" $commit | head -30\n  echo ""\ndone	SUCCESS	43.8	9	1	:pipeline		00950fb, 7abad63, b7d3bec, d93c732, 9862675, 6d84cfd, echo, === $commit ===, echo	1	0	for-loop
+for change in scoped-bash-command-execution gptel-preset-upstream-alignment gptel-preset-refactor; do\n  echo "=== $change ==="\n  if [ -d "openspec/changes/$change/specs" ]; then\n    find "openspec/changes/$change/specs" -name "spec.md" -type f | sed 's|^openspec/changes/[^/]*/specs/||' || echo "  (no spec.md files)"\n  else\n    echo "  (no specs directory)"\n  fi\ndone	SUCCESS	50.0	9	1	:pipeline		scoped-bash-command-execution, gptel-preset-upstream-alignment, gptel-preset-refactor, echo, === $change ===, echo,   (no spec.md files), echo,   (no specs directory)	2	0	for-loop, conditional
+for bead_id in emacs-7jj emacs-7xb emacs-qwu emacs-9lu emacs-9hs emacs-oyg emacs-u5z; do\n  bd show "$bead_id" 2>&1 | grep -E "^\S" | head -1\ndone	SUCCESS	58.8	7	0	:pipeline		emacs-7jj, emacs-7xb, emacs-qwu, emacs-9lu, emacs-9hs, emacs-oyg, emacs-u5z	1	0	for-loop
+for change in scoped-bash-command-execution gptel-preset-upstream-alignment gptel-preset-refactor; do echo "=== $change ==="; find "openspec/changes/$change/specs" -name "spec.md" 2>/dev/null | head -5; done	SUCCESS	61.5	5	2	:pipeline		scoped-bash-command-execution, gptel-preset-upstream-alignment, gptel-preset-refactor, echo, === $change ===	1	0	for-loop
+for preset in explore executor research plan; do echo "=== $preset.md ==="; grep -E "^(use-tools|include-tool-results):" /Users/jefffarr/emacs/config/gptel/presets/$preset.md 2>/dev/null || echo "NOT FOUND"; done	SUCCESS	64.3	5	2	:chain		explore, executor, research, plan, === $preset.md ===	1	0	for-loop
+cd openspec/changes/bash-parser-file-ops/specs && for dir in */; do\n  echo "Copying ${dir%/}..."\n  cp -r "$dir" "../../../specs/"\ndone && echo "Sync complete"	SUCCESS	90.9	1	2	:chain		*/	1	0	for-loop
