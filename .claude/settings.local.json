@@ -42,7 +42,11 @@
       "Bash(/Users/jefffarr/emacs/bin/emacs-isolated.sh:*)",
       "Bash(git commit:*)",
       "Bash(/Users/jefffarr/emacs/config/experiments/bash-parser/test/run-parser-extension-tests.sh:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(make test-directory:*)",
+      "Bash(make test-pattern:*)",
+      "Bash(./bin/run-tests.sh:*)",
+      "Bash(python3:*)"
     ]
   }
 }
