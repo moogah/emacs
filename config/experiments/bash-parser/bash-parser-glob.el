@@ -43,7 +43,9 @@ filename matching."
               (setq i (1+ class-start)))))
 
          ;; Escape regex special characters
-         ((memq ch '(?\\ ?. ?+ ?^ ?$ ?\( ?\) ?{ ?} ?|))
+         ;; Note: In Emacs regex, \( and \) are group markers, not literals.
+         ;; Plain ( and ) are literal parentheses, so we DON'T escape them.
+         ((memq ch '(?\\ ?. ?+ ?^ ?$ ?{ ?} ?|))
           (setq regex (concat regex "\\" (char-to-string ch)))
           (setq i (1+ i)))
 
@@ -93,7 +95,9 @@ Escapes regex special characters."
               (setq i (1+ class-start)))))
 
          ;; Escape regex special characters
-         ((memq ch '(?\\ ?. ?+ ?^ ?$ ?\( ?\) ?{ ?} ?|))
+         ;; Note: In Emacs regex, \( and \) are group markers, not literals.
+         ;; Plain ( and ) are literal parentheses, so we DON'T escape them.
+         ((memq ch '(?\\ ?. ?+ ?^ ?$ ?{ ?} ?|))
           (setq regex (concat regex "\\" (char-to-string ch)))
           (setq i (1+ i)))
 
