@@ -1,16 +1,50 @@
 # Bash Command Parser
 
-A standalone bash command parser using tree-sitter for semantic analysis.
+A standalone bash command parser using tree-sitter for semantic analysis with recursive file operations extraction.
 
 ## What We Built
 
-A literate programming module (`bash-parser.org`) that parses bash command strings and extracts:
+A literate programming module that parses bash command strings and extracts:
 
 - **Command names**: Base executable (e.g., `git`, `ls`, `python`)
 - **Subcommands**: Secondary command for multi-command tools (e.g., `log` in `git log`)
 - **Flags**: Arguments starting with `-` or `--`
 - **Positional arguments**: Non-flag arguments
+- **File operations**: Recursive extraction from all nesting levels
 - **Dangerous pattern detection**: Matches commands against a database of risky operations
+
+## Features
+
+### Recursive Analysis
+Extracts file operations from nested command substitutions, loops, and conditionals:
+- **Command substitutions**: `cat $(find . -name '*.log')`
+- **For-loops**: `for f in *.txt; do rm $f; done`
+- **Conditionals**: `if [ -f file.txt ]; then cat file.txt; fi`
+- **Nested execution**: `bash -c "cat file.txt"`
+
+### Pattern Flow Tracking
+Links pattern producers (find, ls) to pattern consumers (cat, rm):
+```bash
+cat $(find . -name '*.log')
+# => file operations include:
+#    - find reads directory "."
+#    - find matches pattern "*.log"
+#    - cat reads pattern "*.log" (linked to find)
+```
+
+### Loop Context
+Resolves loop variables to understand batch operations:
+```bash
+for f in *.txt; do rm $f; done
+# => rm operates on "*.txt" pattern (loop variable resolved)
+```
+
+### Conditional Context
+Marks operations in conditional branches and test expressions:
+```bash
+if [ -f file.txt ]; then cat file.txt; fi
+# => both test metadata read and conditional read marked
+```
 
 ## Files
 
@@ -117,6 +151,8 @@ M-x jf/bash-parser-test-command RET git log --oneline RET
 
 ## Usage Examples
 
+### Basic Parsing
+
 ```elisp
 ;; Parse a command
 (jf/bash-parse "git log --oneline -10")
@@ -137,10 +173,46 @@ M-x jf/bash-parser-test-command RET git log --oneline RET
 ;     :positional-args ("/tmp/test")
 ;     :dangerous-p t
 ;     :ast #<treesit-node>)
+```
 
-;; Handle parse errors gracefully
-(jf/bash-parse "invalid ||| syntax")
-; => (:success nil :error "...")
+### File Operations Extraction
+
+```elisp
+;; Simple command
+(jf/bash-extract-file-operations (jf/bash-parse "cat file.txt"))
+; => ((:file "file.txt" :operation :read :confidence :high
+;      :source :positional-arg :command "cat"))
+
+;; Nested substitution with pattern flow
+(jf/bash-extract-file-operations (jf/bash-parse "cat $(find . -name '*.log')"))
+; => ((:file "." :operation :read-directory :from-substitution t :command "find")
+;     (:file "*.log" :operation :match-pattern :pattern t :from-substitution t :command "find")
+;     (:file "*.log" :operation :read :pattern t :pattern-source (:command "find" ...) :command "cat"))
+
+;; Loop with variable resolution
+(jf/bash-extract-file-operations (jf/bash-parse "for f in *.txt; do rm $f; done"))
+; => ((:file "*.txt" :operation :delete :loop-context t :pattern t :command "rm"))
+
+;; Conditional with test
+(jf/bash-extract-file-operations (jf/bash-parse "if [ -f file.txt ]; then cat file.txt; fi"))
+; => ((:file "file.txt" :operation :read-metadata :test-condition t ...)
+;     (:file "file.txt" :operation :read :conditional t :branch :then ...))
+```
+
+### Feature Detection
+
+```elisp
+;; Check if recursive analysis is available
+(jf/bash-parser-has-feature-p :recursive-analysis)
+; => t
+
+;; Check if pattern flow tracking is available
+(jf/bash-parser-has-feature-p :pattern-flow)
+; => t
+
+;; Check for unknown feature
+(jf/bash-parser-has-feature-p :nonexistent)
+; => nil
 ```
 
 ## Dangerous Pattern Database
@@ -162,16 +234,34 @@ Pattern format:
             (:any-flag-contains (list))))
 ```
 
-## What We Haven't Tackled Yet
+## Operation Types
 
-These were in our exploration but not implemented yet:
+The parser extracts these operation types:
 
-1. **Pipelines**: `ls | grep foo` - Multiple commands
-2. **Command chains**: `git add . && git commit -m 'test'`
-3. **Redirections**: `echo foo > file.txt`
-4. **Command substitution**: `echo $(date)`
-5. **Path target validation**: Check if paths are within allowed scope
-6. **Script execution detection**: Special handling for `python script.py`
+- **:read** - Read file contents
+- **:write** - Create or overwrite file
+- **:delete** - Remove file
+- **:modify** - Modify file in-place
+- **:append** - Append to file
+- **:create-or-modify** - Create new file or update timestamp
+- **:match-pattern** - Search for files matching pattern
+- **:read-directory** - Read directory to find files
+- **:read-metadata** - Read file metadata (test operators)
+- **:execute** - Execute script file
+
+## Context Flags
+
+Operations include optional context flags:
+
+- **:from-substitution** - Operation from command substitution
+- **:loop-context** - Operation in loop body
+- **:loop-variable** - Loop variable name if in loop
+- **:conditional** - Operation in conditional branch
+- **:branch** - :then or :else if in conditional
+- **:test-condition** - Operation in test expression
+- **:pattern** - File path is a glob pattern
+- **:pattern-source** - Link to pattern producer command
+- **:indirect** - From nested/indirect execution
 
 ## Next Steps
 

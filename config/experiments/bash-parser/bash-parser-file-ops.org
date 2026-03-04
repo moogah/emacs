@@ -108,98 +108,79 @@ and handles deduplication.
 (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
   "Extract all file operations from PARSED-COMMAND.
 
-This is the main entry point for file operation extraction. It coordinates
-extraction from all sources:
-- Redirections (>, >>, <, 2>, etc.)
-- Positional arguments (based on command semantics)
-- Exec blocks (find -exec ... \\;)
+This is the main entry point for file operation extraction. Now uses
+recursive semantic analysis to extract operations from all nesting levels.
 
 PARSED-COMMAND is the output from `jf/bash-parse'.
-VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values (strings).
+VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
 
-Returns a list of operation plists, each containing:
-  :file - File path (may contain unresolved variables)
-  :operation - Operation type (:read, :write, :delete, :modify, :create, :append)
-  :confidence - Confidence level (:high, :medium, :low, :unknown)
-  :source - Source of operation (:redirection, :positional-arg, :exec-block)
-  :indirect - t if from nested command (optional)
-  :unresolved - t if contains unresolved variables (optional)
-  :unresolved-vars - List of unresolved variable names (optional)
+Returns a flat list of operation plists, each containing:
+  :file - File path (may contain unresolved variables or patterns)
+  :operation - Operation type (:read, :write, :delete, :modify, :create, :append,
+                                :match-pattern, :read-directory, :read-metadata)
+  :confidence - Confidence level (:high, :medium, :low)
+  :source - Source of operation (:redirection, :positional-arg, :exec-block, etc.)
+  :command - Command name that performs the operation
 
-Handles multi-command constructs:
-- Pipelines: Extract from each command in the pipeline
-- Chains: Extract from each command, tracking variable assignments
-- Simple: Extract from the single command
+  Context flags (optional):
+  :from-substitution - t if from command substitution
+  :loop-context - t if in loop body
+  :loop-variable - Loop variable name if in loop
+  :conditional - t if in conditional branch
+  :branch - :then or :else if in conditional
+  :test-condition - t if in conditional test
+  :pattern - t if file path is a glob pattern
+  :pattern-source - Plist identifying pattern producer if applicable
+  :heredoc-content - t if from heredoc with redirect
+  :indirect - t if from nested/indirect execution
 
-Operations are deduplicated: if the same file appears with the same operation
-type multiple times, only one entry is returned.
+Handles arbitrary nesting depth up to 10 levels (configurable).
+Operations are deduplicated by file+operation pair.
 
 Examples:
-  ;; Simple read
-  (jf/bash-extract-file-operations
-    (jf/bash-parse \"cat /workspace/file.txt\"))
-  => ((:file \"/workspace/file.txt\" :operation :read
-       :confidence :high :source :positional-arg))
+  Simple: (jf/bash-extract-file-operations (jf/bash-parse \"cat file.txt\"))
+  => ((:file \"file.txt\" :operation :read :confidence :high :command \"cat\"))
 
-  ;; Multiple sources
-  (jf/bash-extract-file-operations
-    (jf/bash-parse \"cat input.txt > output.txt\"))
-  => ((:file \"input.txt\" :operation :read :confidence :high :source :positional-arg)
-      (:file \"output.txt\" :operation :write :confidence :high :source :redirection))
+  Nested: (jf/bash-extract-file-operations (jf/bash-parse \"cat $(find . -name '*.log')\"))
+  => ((:file \".\" :operation :read-directory :command \"find\" :from-substitution t)
+      (:file \"*.log\" :operation :match-pattern :command \"find\" :pattern t :from-substitution t)
+      (:file \"*.log\" :operation :read :command \"cat\" :pattern t :pattern-source (...)))
 
-  ;; Pipeline
-  (jf/bash-extract-file-operations
-    (jf/bash-parse \"cat file.txt | grep pattern > output.txt\"))
-  => ((:file \"file.txt\" :operation :read ...)
-      (:file \"output.txt\" :operation :write ...))
+  Loop: (jf/bash-extract-file-operations (jf/bash-parse \"for f in *.txt; do rm $f; done\"))
+  => ((:file \"*.txt\" :operation :delete :command \"rm\" :pattern t :loop-context t))"
+  ;; Normalize var-context
+  (let ((context (jf/bash--normalize-var-context var-context)))
+    ;; Use recursive analyzer (requires bash-parser-recursive)
+    (require 'bash-parser-recursive)
+    (let ((all-ops (jf/bash-analyze-file-operations-recursive
+                   parsed-command context 0)))
+      ;; Deduplicate and return
+      (jf/bash--deduplicate-operations all-ops))))
+#+end_src
 
-  ;; Variable resolution
-  (jf/bash-extract-file-operations
-    (jf/bash-parse \"cat $WORKSPACE/file.txt\")
-    '((WORKSPACE . \"/workspace\")))
-  => ((:file \"/workspace/file.txt\" :operation :read ...))"
-  (let ((operations nil)
-        (context (jf/bash--normalize-var-context var-context))
-        (command-type (plist-get parsed-command :type))
-        (all-commands (plist-get parsed-command :all-commands)))
+** Feature Detection
 
-    (cond
-     ;; Chain: process sequentially, tracking variable assignments
-     ((eq command-type :chain)
-      (dolist (cmd all-commands)
-        ;; Track assignments from this command
-        (when-let ((assignments (jf/bash--extract-assignments-from-command cmd)))
-          ;; Resolve variables in assignment values using current context
-          (setq assignments
-                (mapcar (lambda (assignment)
-                          (let* ((var-name (car assignment))
-                                 (var-value (cdr assignment))
-                                 (resolved-value (if (string-match-p "\\$" var-value)
-                                                   (jf/bash-resolve-variables var-value context)
-                                                   var-value)))
-                            ;; If resolution returns a plist, extract the path
-                            (cons var-name
-                                  (if (listp resolved-value)
-                                      (plist-get resolved-value :path)
-                                    resolved-value))))
-                        assignments))
-          (setq context (append assignments context)))
-        ;; Extract operations from this command
-        (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
-          (setq operations (append operations cmd-ops)))))
+Check if bash-parser has specific features enabled.
 
-     ;; Pipeline: process each command independently
-     ((eq command-type :pipeline)
-      (dolist (cmd all-commands)
-        (let ((cmd-ops (jf/bash--extract-from-single-command cmd context)))
-          (setq operations (append operations cmd-ops)))))
+#+begin_src emacs-lisp
+(defun jf/bash-parser-has-feature-p (feature)
+  "Check if bash-parser has FEATURE enabled.
 
-     ;; Simple: extract from single command
-     ((eq command-type :simple)
-      (setq operations (jf/bash--extract-from-single-command parsed-command context))))
+Features:
+  :recursive-analysis - Recursive semantic analysis
+  :pattern-flow - Pattern flow tracking through substitutions
+  :loop-context - Loop variable binding and context tracking
+  :conditional-context - Conditional branch context tracking
+  :heredoc-context - Heredoc context disambiguation
 
-    ;; Deduplicate: same file + operation
-    (jf/bash--deduplicate-operations operations)))
+Returns t if feature is available, nil otherwise."
+  (pcase feature
+    (:recursive-analysis (fboundp 'jf/bash-analyze-file-operations-recursive))
+    (:pattern-flow (fboundp 'jf/bash--extract-pattern-flow-operations))
+    (:loop-context (fboundp 'jf/bash--resolve-loop-variable))
+    (:conditional-context (fboundp 'jf/bash--extract-file-test-operations))
+    (:heredoc-context (fboundp 'jf/bash--determine-heredoc-context))
+    (_ nil)))
 #+end_src
 
 *** Extract from Single Command
