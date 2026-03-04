@@ -174,6 +174,12 @@ Returns list of operation plists from all extraction sources."
     (when-let ((redir-ops (jf/bash-extract-operations-from-redirections command var-context)))
       (setq operations (append operations redir-ops)))
 
+    ;; Extract from heredoc file creation (heredoc with redirect)
+    (when (and (fboundp 'jf/bash--heredoc-has-file-redirect-p)
+               (jf/bash--heredoc-has-file-redirect-p command))
+      (when-let ((heredoc-ops (jf/bash-extract-operations-from-heredoc command var-context)))
+        (setq operations (append operations heredoc-ops))))
+
     ;; Extract from positional arguments (command semantics)
     (when-let ((pos-ops (jf/bash-extract-operations-from-positional-args command var-context)))
       (setq operations (append operations pos-ops)))
@@ -602,7 +608,10 @@ REDIRECTIONS is a list of redirection plists from the parser.
 VAR-CONTEXT is optional variable resolution context.
 
 Returns list of operation plists with resolved file paths."
-  (let ((operations nil))
+  (let ((operations nil)
+        ;; Check if there's a heredoc in the redirections
+        (has-heredoc (seq-find (lambda (r) (eq (plist-get r :type) :heredoc))
+                              redirections)))
     (dolist (redir redirections)
       (let* ((redir-type (plist-get redir :type))
              (operator (plist-get redir :operator))
@@ -623,12 +632,14 @@ Returns list of operation plists with resolved file paths."
                                  (plist-get resolved-path :path)))
                      (unresolved-vars (when (listp resolved-path)
                                        (plist-get resolved-path :unresolved))))
-                ;; Build operation plist
+                ;; Build operation plist with heredoc marker if heredoc present
                 (push (append (list :file file-path
                                    :operation operation-type
                                    :confidence :high
                                    :source :redirection
                                    :metadata redir)
+                             (when has-heredoc
+                               (list :heredoc-content t))
                              (when unresolved-vars
                                (list :unresolved t :unresolved-vars unresolved-vars)))
                       operations)))))))
@@ -783,6 +794,141 @@ Unknown commands return nil."
 
        ;; Unknown or non-file-operation command
        (t nil)))))
+
+(defun jf/bash--extract-pattern-flow-operations (parsed-command subst-patterns var-context)
+  "Extract operations when outer command receives pattern from substitution.
+
+PARSED-COMMAND is the outer command structure.
+SUBST-PATTERNS is list of patterns produced by substitutions.
+VAR-CONTEXT is the variable resolution context.
+
+Pattern flow example: In 'cat \\$(find . -name \"*.log\")', this creates a :read
+operation for the *.log pattern since cat receives the find results.
+
+Returns list of operation plists with :pattern-source metadata linking to
+the command that produced the pattern.
+
+Each pattern-info in SUBST-PATTERNS has:
+  :substitution-content - The substitution string (e.g., \"\\$(find . -name '*.log')\")
+  :pattern - The pattern matched (e.g., \"*.log\")
+  :search-scope - Directory scope if available (e.g., \".\")
+  :command - Command that produced pattern (e.g., \"find\")
+
+Returns operation plists with:
+  :file - The pattern
+  :operation - Operation type from outer command semantics
+  :confidence - :high (from semantics database)
+  :source - :positional-arg
+  :command - Outer command name
+  :pattern - t
+  :pattern-source - Plist with :command, :search-scope, :from-substitution t"
+  (let ((operations nil)
+        (command-name (plist-get parsed-command :command-name))
+        (positional-args (plist-get parsed-command :positional-args)))
+
+    ;; Check if outer command has substitutions in positional args
+    (dolist (arg positional-args)
+      ;; If arg is a substitution (contains $(...))
+      (when (string-match-p "\\$(" arg)
+        ;; Find matching pattern from substitution
+        (dolist (pattern-info subst-patterns)
+          (let ((subst-content (plist-get pattern-info :substitution-content)))
+            (when (string-match-p (regexp-quote subst-content) arg)
+              ;; Found matching substitution - check outer command semantics
+              (let* ((semantics (jf/bash-lookup-command-semantics command-name))
+                     (pattern (plist-get pattern-info :pattern))
+                     (search-scope (plist-get pattern-info :search-scope)))
+
+                ;; If outer command operates on files from positional args, apply pattern
+                (when semantics
+                  (let ((ops-spec (plist-get semantics :operations)))
+                    ;; Handle simple operation specs (list of operation plists)
+                    (when (listp ops-spec)
+                      (dolist (spec ops-spec)
+                        (when (eq (plist-get spec :source) :positional-args)
+                          ;; Extract the operation type from the spec
+                          (let ((operation-type (plist-get spec :operation)))
+                            (when operation-type
+                              ;; Create pattern flow operation with same operation type
+                              (push (list :file pattern
+                                         :operation operation-type
+                                         :confidence :high
+                                         :source :positional-arg
+                                         :command command-name
+                                         :pattern t
+                                         :pattern-source (list :command (plist-get pattern-info :command)
+                                                              :search-scope search-scope
+                                                              :from-substitution t))
+                                    operations))))))
+
+                    ;; Handle custom handler commands (head, tail, tar, etc.)
+                    ;; These will have their own operations extracted, but we mark them with pattern source
+                    (when (eq ops-spec :custom)
+                      ;; For custom handlers, we need to let the handler run and then
+                      ;; annotate the results. This is handled by calling the normal
+                      ;; extraction and then post-processing. For now, skip custom handlers
+                      ;; as they're more complex.
+                      nil)))))))))
+
+    operations))
+
+(defun jf/bash-extract-operations-from-heredoc (parsed-command var-context)
+  "Extract file operations from heredoc with file redirect in PARSED-COMMAND.
+
+This function handles heredocs that create files via output redirection:
+  cat <<EOF > config.yml    - Creates/writes file
+  cat <<EOF >> log.txt      - Appends to file
+
+Heredocs without file redirects (command input, pipe input, substitution content)
+do NOT create file operations and are not handled here.
+
+PARSED-COMMAND is a single command structure with :redirections field.
+VAR-CONTEXT is optional variable resolution context.
+
+Returns list of operation plists with:
+  :file - File path from redirect target
+  :operation - Operation type (:write, :append based on redirect operator)
+  :confidence - Always :high (explicit grammar construct)
+  :source - Always :heredoc-redirect
+  :heredoc-content - Always t (marks as heredoc-based)
+
+Returns nil if:
+  - No heredoc in command
+  - Heredoc has no file redirect (stdin usage only)
+
+Example:
+  (jf/bash-extract-operations-from-heredoc
+    (jf/bash-parse \"cat <<EOF > config.yml\nkey: value\nEOF\")
+    nil)
+  => ((:file \"config.yml\" :operation :write :confidence :high
+       :source :heredoc-redirect :heredoc-content t))"
+  (when (and (fboundp 'jf/bash--heredoc-has-file-redirect-p)
+             (fboundp 'jf/bash--extract-heredoc-redirect-target)
+             (jf/bash--heredoc-has-file-redirect-p parsed-command))
+    (when-let* ((redirections (plist-get parsed-command :redirections))
+                (file-redir (seq-find (lambda (r) (eq (plist-get r :type) :file))
+                                     redirections))
+                (target-path (plist-get file-redir :destination))
+                (operator (plist-get file-redir :operator)))
+      ;; Resolve variables in target path
+      (let* ((resolved-path (if var-context
+                               (jf/bash-resolve-variables target-path var-context)
+                             target-path))
+             (file-path (if (stringp resolved-path)
+                           resolved-path
+                         (plist-get resolved-path :path)))
+             (unresolved-vars (when (listp resolved-path)
+                               (plist-get resolved-path :unresolved)))
+             ;; Determine operation type from redirect operator
+             (operation-type (jf/bash--map-redirect-operator-to-operation operator)))
+        (when operation-type
+          (list (append (list :file file-path
+                             :operation operation-type
+                             :confidence :high
+                             :source :heredoc-redirect
+                             :heredoc-content t)
+                       (when unresolved-vars
+                         (list :unresolved t :unresolved-vars unresolved-vars)))))))))
 
 (provide 'bash-parser-file-ops)
 ;;; bash-parser-file-ops.el ends here

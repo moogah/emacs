@@ -411,6 +411,69 @@ Returns nesting level starting from 1 for outermost substitution."
       (setq parent (treesit-node-parent parent)))
     level))
 
+(defun jf/bash-parse--parse-for-loop (for-statement-node)
+  "Parse for-loop from FOR-STATEMENT-NODE with loop source tracking.
+Returns plist with:
+  :command-name - Always \"for\"
+  :loop-variable - Variable name (e.g., \"file\")
+  :loop-list - Items to iterate (string, may contain globs or substitutions)
+  :loop-source-type - :literal, :glob, or :substitution
+  :loop-source-substitution - Substitution content if type is :substitution
+  :loop-body - Body command string
+  :command-substitutions - Any substitutions found in the structure"
+  (let ((loop-var nil)
+        (loop-list nil)
+        (loop-body nil)
+        (loop-source-type :literal)
+        (loop-source-subst nil)
+        (command-substitutions nil))
+
+    ;; Extract loop variable from variable_name field
+    (when-let ((var-node (treesit-node-child-by-field-name for-statement-node "variable")))
+      (setq loop-var (treesit-node-text var-node t)))
+
+    ;; Extract loop list from value field
+    ;; This contains the items after "in" keyword
+    (when-let ((value-node (treesit-node-child-by-field-name for-statement-node "value")))
+      (setq loop-list (treesit-node-text value-node t))
+
+      ;; Determine loop source type
+      (cond
+       ;; Check for command substitution
+       ((string-match-p "\\$(" (or loop-list ""))
+        (setq loop-source-type :substitution)
+        ;; Extract the substitution content
+        (when (string-match "\\$(\\(.*\\))" loop-list)
+          (setq loop-source-subst (match-string 1 loop-list))))
+
+       ;; Check for glob pattern
+       ((jf/bash--has-glob-pattern-p loop-list)
+        (setq loop-source-type :glob))
+
+       ;; Otherwise literal list
+       (t
+        (setq loop-source-type :literal))))
+
+    ;; Extract loop body from body field
+    (when-let ((body-node (treesit-node-child-by-field-name for-statement-node "body")))
+      (setq loop-body (treesit-node-text body-node t)))
+
+    ;; Extract command substitutions from the entire for-statement
+    (setq command-substitutions
+          (jf/bash-parse--extract-command-substitutions for-statement-node))
+
+    ;; Build result
+    (let ((result (list :command-name "for"
+                       :loop-variable loop-var
+                       :loop-list loop-list
+                       :loop-source-type loop-source-type
+                       :loop-body loop-body)))
+      (when loop-source-subst
+        (setq result (plist-put result :loop-source-substitution loop-source-subst)))
+      (when command-substitutions
+        (setq result (plist-put result :command-substitutions command-substitutions)))
+      result)))
+
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
   "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, or variable_assignment.
 Returns command structure with optional :redirections and :command-substitutions fields."
@@ -434,8 +497,12 @@ Returns command structure with optional :redirections and :command-substitutions
       ;; Not a redirected statement, use node as-is
       (setq command-node command-or-statement-node))
 
-    ;; Handle variable_assignment nodes specially
-    (if (string= (treesit-node-type command-node) "variable_assignment")
+    ;; Handle for_statement nodes specially
+    (if (string= (treesit-node-type command-node) "for_statement")
+        (jf/bash-parse--parse-for-loop command-node)
+
+      ;; Handle variable_assignment nodes specially
+      (if (string= (treesit-node-type command-node) "variable_assignment")
         (let* ((name-node (treesit-node-child-by-field-name command-node "name"))
                (value-node (treesit-node-child-by-field-name command-node "value"))
                (var-name (treesit-node-text name-node))
@@ -492,7 +559,7 @@ Returns command structure with optional :redirections and :command-substitutions
                 (setq result (plist-put result :redirections redirections)))
               (when command-substitutions
                 (setq result (plist-put result :command-substitutions command-substitutions)))
-              result))))))))
+              result)))))))))
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.
@@ -617,10 +684,13 @@ Returns: (:type :herestring :operator \"<<<\" :descriptor nil :value \"...\")"
 
 (defun jf/bash-parse--parse-heredoc-redirect (redirect-node)
   "Parse a heredoc_redirect REDIRECT-NODE into plist.
-Returns: (:type :heredoc :operator \"<<\" :descriptor nil :delimiter \"...\")"
+Returns: (:type :heredoc :operator \"<<\" :descriptor nil :delimiter \"...\"
+          :content \"...\" :quoted t/nil)"
   (let ((descriptor nil)
         (operator nil)
-        (delimiter nil))
+        (delimiter nil)
+        (content nil)
+        (quoted nil))
 
     ;; Extract descriptor (optional field)
     (when-let ((desc-node (treesit-node-child-by-field-name redirect-node "descriptor")))
@@ -634,16 +704,30 @@ Returns: (:type :heredoc :operator \"<<\" :descriptor nil :delimiter \"...\")"
                     (member text '("<<" "<<-")))
             (setq operator text)))))
 
-    ;; Extract delimiter (heredoc_start)
+    ;; Extract delimiter (heredoc_start) and check if quoted
     (dotimes (i (treesit-node-child-count redirect-node))
       (when-let ((child (treesit-node-child redirect-node i)))
         (when (string= (treesit-node-type child) "heredoc_start")
-          (setq delimiter (treesit-node-text child t)))))
+          (let ((delimiter-text (treesit-node-text child t)))
+            (setq delimiter delimiter-text)
+            ;; Check if delimiter is quoted (single or double quotes)
+            (setq quoted (or (and (string-prefix-p "'" delimiter-text)
+                                 (string-suffix-p "'" delimiter-text))
+                            (and (string-prefix-p "\"" delimiter-text)
+                                 (string-suffix-p "\"" delimiter-text))))))))
+
+    ;; Extract content (heredoc_body)
+    (dotimes (i (treesit-node-child-count redirect-node))
+      (when-let ((child (treesit-node-child redirect-node i)))
+        (when (string= (treesit-node-type child) "heredoc_body")
+          (setq content (treesit-node-text child t)))))
 
     (list :type :heredoc
           :operator operator
           :descriptor descriptor
-          :delimiter delimiter)))
+          :delimiter delimiter
+          :content content
+          :quoted quoted)))
 
 (defun jf/bash-parse--visit-node (node visitor-fn)
   "Visit NODE and all children, calling VISITOR-FN on each.
@@ -713,6 +797,98 @@ Returns t if dangerous, nil otherwise."
                   (when (string-match-p dangerous-substr flag)
                     (throw 'dangerous t))))))))
       nil)))
+
+(defun jf/bash--extract-heredoc-from-command (parsed-command)
+  "Extract heredoc information from PARSED-COMMAND if present.
+
+Returns heredoc plist with :delimiter, :content, :quoted, or nil if no heredoc.
+
+Checks :redirections field for heredoc_redirect entries."
+  (when-let ((redirections (plist-get parsed-command :redirections)))
+    (seq-find (lambda (redir)
+               (eq (plist-get redir :type) :heredoc))
+             redirections)))
+
+(defun jf/bash--heredoc-has-file-redirect-p (parsed-command)
+  "Check if PARSED-COMMAND has a file redirect alongside heredoc.
+
+Returns t if heredoc is combined with file redirect (>, >>, etc.).
+This indicates heredoc content is being written to a file.
+
+Example: cat <<EOF > config.yml creates a file"
+  (when-let ((redirections (plist-get parsed-command :redirections)))
+    (and (seq-find (lambda (r) (eq (plist-get r :type) :heredoc)) redirections)
+         (seq-find (lambda (r) (eq (plist-get r :type) :file)) redirections))))
+
+(defun jf/bash--extract-heredoc-redirect-target (parsed-command)
+  "Extract file redirect target from PARSED-COMMAND if present.
+
+Returns file path string or nil if no file redirect."
+  (when-let ((redirections (plist-get parsed-command :redirections)))
+    (when-let ((file-redir (seq-find (lambda (r)
+                                      (eq (plist-get r :type) :file))
+                                    redirections)))
+      (plist-get file-redir :destination))))
+
+(defun jf/bash--determine-heredoc-context (parsed-command)
+  "Determine the context/purpose of a heredoc in PARSED-COMMAND.
+
+Returns one of:
+  :file-creation - Heredoc with redirect creates a file
+  :command-input - Heredoc provides input to command (cat, python, mysql)
+  :substitution-content - Heredoc inside command substitution (git commit message)
+  :pipe-input - Heredoc piped to another command
+
+PARSED-COMMAND is a single command structure (not pipeline/chain)."
+  (cond
+   ;; Has output redirect - creates file
+   ((jf/bash--heredoc-has-file-redirect-p parsed-command)
+    :file-creation)
+
+   ;; In command substitution context (check if we have :from-substitution marker)
+   ((plist-get parsed-command :from-substitution)
+    :substitution-content)
+
+   ;; Default - provides input to command
+   (t :command-input)))
+
+(defun jf/bash--extract-embedded-substitutions (content)
+  "Extract command substitutions from heredoc CONTENT string.
+
+Returns list of substitution plists with :syntax, :content.
+Only extracts if content contains $() or backtick patterns."
+  (when (and content (stringp content))
+    (let ((substitutions nil)
+          (pos 0))
+      ;; Find $(...) substitutions
+      (while (string-match "\\$(" content pos)
+        (let* ((start (match-beginning 0))
+               (end (jf/bash--find-matching-paren content (match-end 0)))
+               (subst-content (when end
+                               (substring content (match-end 0) end))))
+          (when subst-content
+            (push (list :syntax "$()"
+                       :content subst-content)
+                  substitutions)
+            (setq pos (or end (1+ start))))))
+      (nreverse substitutions))))
+
+(defun jf/bash--find-matching-paren (string start-pos)
+  "Find matching closing paren in STRING starting at START-POS.
+
+Returns position of matching ) or nil if not found.
+Handles nested parentheses."
+  (let ((depth 1)
+        (pos start-pos)
+        (len (length string)))
+    (while (and (< pos len) (> depth 0))
+      (let ((char (aref string pos)))
+        (cond
+         ((= char ?\() (setq depth (1+ depth)))
+         ((= char ?\)) (setq depth (1- depth)))))
+      (setq pos (1+ pos)))
+    (when (= depth 0)
+      (1- pos))))
 
 (provide 'bash-parser-core)
 ;;; bash-parser-core.el ends here
