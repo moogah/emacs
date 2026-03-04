@@ -91,9 +91,10 @@ Additional fields:
 #+begin_src emacs-lisp
 (defun jf/bash-parse--detect-structure-type (root-node)
   "Detect the structure type from ROOT-NODE.
-Returns :pipeline, :list, or :simple."
-  (let ((pipeline-node (jf/bash-parse--find-node-by-type root-node "pipeline"))
-        (list-node (jf/bash-parse--find-node-by-type root-node "list")))
+Returns :pipeline, :list, or :simple.
+Only checks direct children to avoid detecting nested structures inside command substitutions."
+  (let ((pipeline-node (jf/bash-parse--find-direct-child-by-type root-node "pipeline"))
+        (list-node (jf/bash-parse--find-direct-child-by-type root-node "list")))
     (cond
      (pipeline-node :pipeline)
      (list-node :list)
@@ -112,8 +113,22 @@ Returns :pipeline, :list, or :simple."
             (setq count (1+ count))))))
     count))
 
+(defun jf/bash-parse--find-direct-child-by-type (node target-type)
+  "Find first direct child of NODE with TARGET-TYPE.
+Only checks immediate children, does not recurse into descendants."
+  (when node
+    (let ((child-count (treesit-node-child-count node))
+          (result nil))
+      (dotimes (i child-count)
+        (when (null result)
+          (when-let ((child (treesit-node-child node i)))
+            (when (string= (treesit-node-type child) target-type)
+              (setq result child)))))
+      result)))
+
 (defun jf/bash-parse--find-node-by-type (node target-type)
-  "Find first node of TARGET-TYPE in tree starting from NODE."
+  "Find first node of TARGET-TYPE in tree starting from NODE.
+Recursively searches all descendants."
   (when node
     (if (string= (treesit-node-type node) target-type)
         node
@@ -194,6 +209,7 @@ Returns :pipeline, :list, or :simple."
 (defun jf/bash-parse--handle-simple-command (root-node)
   "Handle simple (single) command from ROOT-NODE."
   (let* ((command-or-redir (or (jf/bash-parse--find-node-by-type root-node "redirected_statement")
+                               (jf/bash-parse--find-node-by-type root-node "variable_assignment")
                                (jf/bash-parse--find-node-by-type root-node "command"))))
 
     (if (null command-or-redir)
@@ -376,14 +392,78 @@ Returns command structure with wrapper's flags separated from wrapped command."
       result)))
 #+end_src
 
+** Extract Command Substitutions
+
+#+begin_src emacs-lisp
+(defun jf/bash-parse--extract-command-substitutions (command-or-statement-node)
+  "Extract all command substitutions from COMMAND-OR-STATEMENT-NODE.
+Returns list of plists with :syntax, :content, :nesting-level.
+Handles both $(...) and backtick syntax, tracks nesting levels."
+  (let ((substitutions '()))
+    ;; Find all command_substitution nodes in the tree
+    (jf/bash-parse--visit-node
+     command-or-statement-node
+     (lambda (node)
+       (when (string= (treesit-node-type node) "command_substitution")
+         ;; Extract the full text including delimiters
+         (let* ((full-text (treesit-node-text node t))
+                (syntax (cond
+                        ;; Check for $() syntax
+                        ((and (string-prefix-p "$(" full-text)
+                              (string-suffix-p ")" full-text))
+                         "$()")
+                        ;; Check for backtick syntax
+                        ((and (string-prefix-p "`" full-text)
+                              (string-suffix-p "`" full-text))
+                         "`")
+                        ;; Default to $() if we can't determine
+                        (t "$()")))
+                ;; Extract content without delimiters
+                (content (cond
+                         ((string= syntax "$()")
+                          (substring full-text 2 -1))
+                         ((string= syntax "`")
+                          (substring full-text 1 -1))
+                         (t full-text)))
+                ;; Calculate nesting level by counting parent command_substitution nodes
+                (nesting-level (jf/bash-parse--calculate-nesting-level node)))
+
+           ;; Add to substitutions list
+           (push (list :syntax syntax
+                      :content content
+                      :nesting-level nesting-level)
+                 substitutions))
+         ;; Continue visiting children to find nested substitutions
+         nil)))
+    ;; Return in order encountered (reverse the accumulated list)
+    (nreverse substitutions)))
+
+(defun jf/bash-parse--calculate-nesting-level (node)
+  "Calculate nesting level for NODE by counting parent command_substitution nodes.
+Returns nesting level starting from 1 for outermost substitution."
+  (let ((level 1)
+        (parent (treesit-node-parent node)))
+    ;; Walk up the tree counting command_substitution ancestors
+    (while parent
+      (when (string= (treesit-node-type parent) "command_substitution")
+        (setq level (1+ level)))
+      (setq parent (treesit-node-parent parent)))
+    level))
+#+end_src
+
 ** Parse Single Command Node
 
 #+begin_src emacs-lisp
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
   "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, or variable_assignment.
-Returns command structure with optional :redirections field."
+Returns command structure with optional :redirections and :command-substitutions fields."
   (let ((command-node nil)
-        (redirections nil))
+        (redirections nil)
+        (command-substitutions nil))
+
+    ;; Extract command substitutions from the entire node tree
+    (setq command-substitutions
+          (jf/bash-parse--extract-command-substitutions command-or-statement-node))
 
     ;; Check if this is a redirected_statement wrapper
     (if (string= (treesit-node-type command-or-statement-node) "redirected_statement")
@@ -402,14 +482,17 @@ Returns command structure with optional :redirections field."
         (let* ((name-node (treesit-node-child-by-field-name command-node "name"))
                (value-node (treesit-node-child-by-field-name command-node "value"))
                (var-name (treesit-node-text name-node))
-               (var-value (treesit-node-text value-node))
-               (assignment-str (format "%s=%s" var-name var-value)))
-          ;; Return as a simple command with assignment in command-name
-          (list :command-name assignment-str
-                :subcommand nil
-                :flags nil
-                :positional-args nil
-                :dangerous-p nil))
+               (var-value (treesit-node-text value-node)))
+          ;; Return with variable name as command-name and value as positional arg
+          (let ((result (list :command-name var-name
+                             :subcommand nil
+                             :flags nil
+                             :positional-args (list var-value)
+                             :dangerous-p nil)))
+            ;; Add command-substitutions if present
+            (when command-substitutions
+              (setq result (plist-put result :command-substitutions command-substitutions)))
+            result))
 
       ;; Parse regular command
       (let* ((words (jf/bash-parse--extract-words command-node))
@@ -421,13 +504,19 @@ Returns command structure with optional :redirections field."
       ;; Check for wrapper commands (sudo, env, time, etc.)
       (if-let ((wrapper-spec (alist-get (intern command-name)
                                         jf/bash-parser-wrapper-commands)))
-          (jf/bash-parse--parse-wrapper-command command-name wrapper-spec remaining-words redirections)
+          (let ((result (jf/bash-parse--parse-wrapper-command command-name wrapper-spec remaining-words redirections)))
+            (when command-substitutions
+              (setq result (plist-put result :command-substitutions command-substitutions)))
+            result)
 
         ;; Check for find command with -exec blocks
         (if (and (string= command-name "find")
                  (or (member "-exec" args-start)
                      (member "-execdir" args-start)))
-            (jf/bash-parse--parse-find-with-exec command-name args-start redirections)
+            (let ((result (jf/bash-parse--parse-find-with-exec command-name args-start redirections)))
+              (when command-substitutions
+                (setq result (plist-put result :command-substitutions command-substitutions)))
+              result)
 
           ;; Normal command processing
           (let* ((flags (jf/bash-parse--extract-flags args-start))
@@ -442,6 +531,8 @@ Returns command structure with optional :redirections field."
                                :dangerous-p dangerous-p)))
               (when redirections
                 (setq result (plist-put result :redirections redirections)))
+              (when command-substitutions
+                (setq result (plist-put result :command-substitutions command-substitutions)))
               result))))))))
 #+end_src
 
@@ -463,13 +554,14 @@ Returns list of strings representing all words in the command."
                (string= node-type "raw_string")
                (string= node-type "ansi_c_string")
                (string= node-type "simple_expansion")
-               (string= node-type "expansion"))
+               (string= node-type "expansion")
+               (string= node-type "command_substitution"))
            (let ((text (treesit-node-text node t)))
              (when (and text (> (length text) 0))
                (setq text (string-trim text))
-               ;; Remove surrounding quotes for string types (not concatenation/expansion)
+               ;; Remove surrounding quotes for string types (not concatenation/expansion/substitution)
                (when (and (> (length text) 1)
-                         (not (member node-type '("concatenation" "simple_expansion" "expansion")))
+                         (not (member node-type '("concatenation" "simple_expansion" "expansion" "command_substitution")))
                          (or (and (string-prefix-p "\"" text)
                                   (string-suffix-p "\"" text))
                              (and (string-prefix-p "'" text)
