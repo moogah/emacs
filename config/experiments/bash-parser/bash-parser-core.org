@@ -57,9 +57,22 @@ For pipelines/chains:
 
 Additional fields:
   :ast - tree-sitter root node (for debugging)
-  :error - error message if parsing failed"
+  :error - error message if parsing failed
+
+Recursion depth is limited by jf/bash--max-parse-depth to prevent
+infinite loops in pathological cases."
   (condition-case err
-      (jf/bash-parse--internal command-string)
+      (progn
+        ;; Increment depth first
+        (setq jf/bash--parse-depth (1+ jf/bash--parse-depth))
+        (unwind-protect
+            (progn
+              ;; Check recursion depth after incrementing
+              (when (> jf/bash--parse-depth jf/bash--max-parse-depth)
+                (error "Max parse depth exceeded: possible recursion cycle"))
+              (jf/bash-parse--internal command-string))
+          ;; Always decrement depth, even if error occurs
+          (setq jf/bash--parse-depth (1- jf/bash--parse-depth))))
     (error (list :success nil
                  :error (error-message-string err)))))
 #+end_src
@@ -396,13 +409,26 @@ Returns command structure with wrapper's flags separated from wrapped command."
       result)))
 #+end_src
 
+** Recursion Depth Control
+
+#+begin_src emacs-lisp
+(defvar jf/bash--parse-depth 0
+  "Current parsing depth for recursion limiting.
+Incremented each time jf/bash-parse is called recursively.")
+
+(defvar jf/bash--max-parse-depth 10
+  "Maximum parsing depth to prevent infinite recursion.
+When exceeded, jf/bash-parse will signal an error.")
+#+end_src
+
 ** Extract Command Substitutions
 
 #+begin_src emacs-lisp
 (defun jf/bash-parse--extract-command-substitutions (command-or-statement-node)
   "Extract all command substitutions from COMMAND-OR-STATEMENT-NODE.
-Returns list of plists with :syntax, :content, :nesting-level.
-Handles both $(...) and backtick syntax, tracks nesting levels."
+Returns list of plists with :syntax, :content, :nesting-level, :parsed.
+Handles both $(...) and backtick syntax, tracks nesting levels, and
+recursively parses substitution content."
   (let ((substitutions '()))
     ;; Find all command_substitution nodes in the tree
     (jf/bash-parse--visit-node
@@ -430,12 +456,16 @@ Handles both $(...) and backtick syntax, tracks nesting levels."
                           (substring full-text 1 -1))
                          (t full-text)))
                 ;; Calculate nesting level by counting parent command_substitution nodes
-                (nesting-level (jf/bash-parse--calculate-nesting-level node)))
+                (nesting-level (jf/bash-parse--calculate-nesting-level node))
+                ;; Recursively parse the substitution content
+                (parsed-subst (when (and content (> (length content) 0))
+                               (jf/bash-parse content))))
 
-           ;; Add to substitutions list
+           ;; Add to substitutions list with parsed field
            (push (list :syntax syntax
                       :content content
-                      :nesting-level nesting-level)
+                      :nesting-level nesting-level
+                      :parsed parsed-subst)
                  substitutions))
          ;; Continue visiting children to find nested substitutions
          nil)))

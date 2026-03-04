@@ -11,6 +11,31 @@
 
 ;;; Helper Functions
 
+(defun jf/bash-parser-test-cmdsub--substitution-matches-p (expected actual)
+  "Check if ACTUAL substitution matches EXPECTED substitution.
+Only checks fields that are explicitly present in EXPECTED.
+This allows ACTUAL to have additional fields like :parsed."
+  (catch 'mismatch
+    (dolist (key '(:syntax :content :nesting-level :parsed))
+      (when (plist-member expected key)
+        (let ((expected-val (plist-get expected key))
+              (actual-val (plist-get actual key)))
+          (unless (equal expected-val actual-val)
+            (throw 'mismatch nil)))))
+    t))
+
+(defun jf/bash-parser-test-cmdsub--substitutions-match-p (expected-list actual-list)
+  "Check if ACTUAL-LIST of substitutions matches EXPECTED-LIST.
+Only checks fields that are explicitly present in expected substitutions."
+  (and (= (length expected-list) (length actual-list))
+       (catch 'mismatch
+         (dotimes (i (length expected-list))
+           (unless (jf/bash-parser-test-cmdsub--substitution-matches-p
+                   (nth i expected-list)
+                   (nth i actual-list))
+             (throw 'mismatch nil)))
+         t)))
+
 (defun jf/bash-parser-test-cmdsub--run-corpus-test (test-case)
   "Run a single command substitution test case from corpus.
 TEST-CASE is a plist with :id, :command, :category, :expect, and :notes."
@@ -37,7 +62,7 @@ TEST-CASE is a plist with :id, :command, :category, :expect, and :notes."
     (when (plist-member expected :command-substitutions)
       (let ((expected-subs (plist-get expected :command-substitutions))
             (actual-subs (plist-get result :command-substitutions)))
-        (unless (equal expected-subs actual-subs)
+        (unless (jf/bash-parser-test-cmdsub--substitutions-match-p expected-subs actual-subs)
           (ert-fail (format "Test %s (%s) failed for :command-substitutions: expected %S, got %S\nNotes: %s"
                             test-id category expected-subs actual-subs notes)))))))
 
@@ -254,6 +279,99 @@ Legacy syntax with escaping for nesting."
 ;; REMOVED TESTS (corpus refinement 2026-03-04):
 ;; - test-cmdsub-empty (cmdsub-edge-004) - previously removed from corpus, no file impact
 ;; - test-cmdsub-escaped (cmdsub-edge-005) - previously removed from corpus, no file impact
+
+;; ============================================================
+;; TIER 3: RECURSIVE PARSING
+;; ============================================================
+
+(ert-deftest test-cmdsub-recursive-parsing-simple ()
+  "Test that single-level substitution has :parsed field.
+Scenario: bash-parser § 'Recursive parsing of command substitutions'
+Verifies :parsed field is populated for simple substitutions."
+  (let* ((result (jf/bash-parse "echo $(pwd)"))
+         (subs (plist-get result :command-substitutions)))
+    (should (plist-get result :success))
+    (should (= (length subs) 1))
+    (let* ((sub (car subs))
+           (parsed (plist-get sub :parsed)))
+      (should parsed)
+      (should (plist-get parsed :success))
+      (should (equal (plist-get parsed :command-name) "pwd")))))
+
+(ert-deftest test-cmdsub-recursive-parsing-nested ()
+  "Test nested substitution has parsed at each level.
+Scenario: bash-parser § 'Recursive parsing of nested substitutions'
+Verifies $(basename $(pwd)) has :parsed field at both levels."
+  (let* ((result (jf/bash-parse "echo $(basename $(pwd))"))
+         (subs (plist-get result :command-substitutions)))
+    (should (plist-get result :success))
+    (should (= (length subs) 2))
+    ;; Check outer substitution (basename $(pwd))
+    (let* ((outer-sub (car subs))
+           (outer-parsed (plist-get outer-sub :parsed)))
+      (should outer-parsed)
+      (should (plist-get outer-parsed :success))
+      (should (equal (plist-get outer-parsed :command-name) "basename"))
+      ;; Check that outer substitution also has nested substitutions
+      (let ((outer-subs (plist-get outer-parsed :command-substitutions)))
+        (should (= (length outer-subs) 1))))
+    ;; Check inner substitution (pwd)
+    (let* ((inner-sub (cadr subs))
+           (inner-parsed (plist-get inner-sub :parsed)))
+      (should inner-parsed)
+      (should (plist-get inner-parsed :success))
+      (should (equal (plist-get inner-parsed :command-name) "pwd")))))
+
+(ert-deftest test-cmdsub-recursive-parsing-empty ()
+  "Test empty substitution $() doesn't break parser.
+Scenario: bash-parser § 'Empty command substitution'
+Verifies parser handles empty substitutions gracefully."
+  (let* ((result (jf/bash-parse "echo $()"))
+         (subs (plist-get result :command-substitutions)))
+    (should (plist-get result :success))
+    (should (= (length subs) 1))
+    (let* ((sub (car subs))
+           (content (plist-get sub :content))
+           (parsed (plist-get sub :parsed)))
+      (should (equal content ""))
+      ;; Empty content should not have parsed field or should have failed parse
+      (when parsed
+        (should (not (plist-get parsed :success)))))))
+
+(ert-deftest test-cmdsub-recursive-depth-limiting ()
+  "Test depth limiting triggers at level 10.
+Scenario: bash-parser § 'Recursion depth limiting'
+Verifies parser prevents infinite loops with depth limit."
+  ;; Manually set depth to 9, then parse a command with substitution
+  ;; The outer parse should succeed, but the substitution parse should fail
+  (let ((jf/bash--parse-depth 9))
+    (let* ((result (jf/bash-parse "echo $(pwd)"))
+           (subs (plist-get result :command-substitutions))
+           (sub (car subs))
+           (parsed (plist-get sub :parsed)))
+      ;; Outer parse should succeed
+      (should (plist-get result :success))
+      ;; But the substitution's recursive parse should have hit depth limit
+      (should parsed)
+      (should (not (plist-get parsed :success)))
+      (should (string-match-p "Max parse depth exceeded"
+                             (plist-get parsed :error))))))
+
+(ert-deftest test-cmdsub-recursive-find-parse ()
+  "Test find command inside substitution is properly parsed.
+Scenario: bash-parser § 'Recursive parsing extracts command structure'
+Verifies cat $(find . -name config.yml) has fully parsed find command."
+  (let* ((result (jf/bash-parse "cat $(find . -name config.yml)"))
+         (subs (plist-get result :command-substitutions)))
+    (should (plist-get result :success))
+    (should (= (length subs) 1))
+    (let* ((sub (car subs))
+           (parsed (plist-get sub :parsed)))
+      (should parsed)
+      (should (plist-get parsed :success))
+      (should (equal (plist-get parsed :command-name) "find"))
+      ;; Verify find has positional args (the details may vary)
+      (should (plist-get parsed :positional-args)))))
 
 ;;; Summary Function
 

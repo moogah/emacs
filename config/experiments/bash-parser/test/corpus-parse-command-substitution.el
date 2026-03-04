@@ -73,8 +73,10 @@
      :command "cat $(find . -name config.yml)"
      :expect (:command-name "cat"
               :positional-args ("$(find . -name config.yml)")
-              :command-substitutions ((:syntax "$()" :content "find . -name config.yml" :nesting-level 1)))
-     :notes "Find and read file - cat reads file from find result")
+              :command-substitutions ((:syntax "$()"
+                                      :content "find . -name config.yml"
+                                      :nesting-level 1)))
+     :notes "Find and read file - cat reads file from find result, :parsed field is generated automatically")
 
     (:id "cmdsub-nested-004"
      :category "nested"
