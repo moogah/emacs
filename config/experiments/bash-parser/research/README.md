@@ -1,144 +1,78 @@
-# Bash Command Research Corpus
-
-This directory contains a corpus of actual bash commands executed by LLM agents (Claude Code sessions), extracted for studying command patterns, edge cases, and complexity.
+# Bash Parser Research Infrastructure
 
 ## Purpose
 
-To build a library of real-world bash commands that LLM agents construct and execute, focusing on:
-- Command chaining (`&&`, `||`, `;`)
-- Pipes (`|`)
-- Redirection (`>`, `>>`, `<`, `2>`, `2>&1`, `&>`)
-- Here-documents (`<<EOF`)
-- Command/process substitution (`$(...)`, `<(...)`)
-- Loops and conditionals
-- Complex quoting and escaping
-- Variable expansion and glob patterns
+Research infrastructure to evaluate bash parser completeness using real-world LLM agent commands.
+
+## Three-Stage Analysis Pipeline
+
+### Stage 1: Command Extraction
+- **Tool:** `extract-bash-commands.py`
+- **Input:** Claude Code session histories (`~/.claude/projects/-Users-jefffarr-emacs/*.jsonl`)
+- **Output:** `bash-commands-from-sessions.jsonl` (JSONL database)
+- **Format:** Each line contains: session, timestamp, gitBranch, command, description
+
+### Stage 2: Parse Analysis
+- **Tools:** `analyze-with-coverage.el` + `run-coverage-analysis.sh`
+- **Input:** `bash-commands-from-sessions.jsonl`
+- **Output:** `coverage-analysis.tsv` (TSV with metrics)
+- **Columns:** command, parse_status, coverage_pct, missing_count, file_ops_count, command_type, dangerous, missing_tokens, semantic_gap_count, critical_gaps, gap_types
+
+### Stage 3: Gap Evaluation
+Two complementary analyses:
+
+**Token-based Coverage** (`compute-parse-coverage.el`):
+- Extracts tokens from tree-sitter AST (input)
+- Extracts tokens from parser output (structured result)
+- Computes coverage percentage (how much text was captured)
+- Identifies missing tokens
+
+**Semantic Gap Detection** (`semantic-gap-detection.el`):
+- Detects semantic structures in AST (command substitution, loops, conditionals, etc.)
+- Verifies parser output contains corresponding semantic fields
+- Reports gaps with severity (critical/medium/low) and security impact
+- Example: `echo $(whoami)` may have 100% text coverage but critical semantic gap if nested command not extracted
+
+## Usage
+
+### Extract Commands
+```bash
+./config/experiments/bash-parser/research/extract-bash-commands.py
+```
+Re-scans all session files and regenerates corpus.
+
+### Analyze Corpus
+```bash
+./config/experiments/bash-parser/research/run-coverage-analysis.sh
+```
+Runs both coverage and semantic gap detection on all commands, outputs TSV.
+
+### Query Results
+```bash
+# Commands with semantic gaps
+awk -F'\t' '$9 > 0' coverage-analysis.tsv
+
+# Commands with critical gaps
+awk -F'\t' '$10 > 0' coverage-analysis.tsv
+
+# Commands with perfect coverage but semantic gaps
+awk -F'\t' '$3 == 100.0 && $9 > 0' coverage-analysis.tsv
+```
+
+## Testing
+
+Run semantic gap detection tests:
+```bash
+emacs -Q --batch -l test-semantic-gaps.el
+```
 
 ## Files
 
-### bash-commands-from-sessions.jsonl (~973KB)
-Raw data in JSONL format. Each line is a JSON object with:
-```json
-{
-  "session": "session-uuid",
-  "timestamp": "2026-03-03T19:08:42.123Z",
-  "gitBranch": "branch-name",
-  "command": "the actual bash command",
-  "description": "what the command does",
-  "complexity_score": 5.8,
-  "complexity_patterns": {
-    "pipe": true,
-    "redirect_stderr": true,
-    "loop": true,
-    ...
-  }
-}
-```
-
-**Query examples:**
-```bash
-# Find all commands with pipes
-jq -r 'select(.complexity_patterns.pipe) | .command' bash-commands-from-sessions.jsonl
-
-# High complexity commands (score >= 7)
-jq -r 'select(.complexity_score >= 7) | .command' bash-commands-from-sessions.jsonl
-
-# Commands with here-docs
-jq -r 'select(.complexity_patterns.heredoc) | .command' bash-commands-from-sessions.jsonl
-
-# Count commands by pattern
-jq -r '.complexity_patterns | keys[]' bash-commands-from-sessions.jsonl | sort | uniq -c | sort -rn
-```
-
-### bash-commands-summary.md (~10KB)
-Overview statistics:
-- Total commands extracted (1,552 from 90 sessions)
-- Command categories (git, filesystem, custom scripts, etc.)
-- Most common command patterns
-- Examples by category
-- Complexity score distribution
-
-### bash-commands-complexity-analysis.md (~195KB)
-Detailed complexity analysis:
-- Complexity score distribution (0-10 scale)
-- Pattern frequency (pipes, redirection, loops, etc.)
-- Examples grouped by complexity pattern
-- **Top 20 most complex commands** with full pattern breakdowns
-
-## Complexity Scoring
-
-Commands are scored 0-10 based on detected patterns:
-
-| Pattern | Weight | Example |
-|---------|--------|---------|
-| Function definition | 3.0 | `function foo() { ... }` |
-| Here-document | 2.0 | `cat <<EOF` |
-| Process substitution | 2.0 | `diff <(cmd1) <(cmd2)` |
-| Loops | 2.0 | `for x in *; do ... done` |
-| Conditionals | 2.0 | `if [ -f file ]; then ... fi` |
-| Stderr redirection | 1.5 | `cmd 2>&1` |
-| Command substitution | 1.5 | `$(command)` |
-| Multiline | 1.5 | Commands with `\` continuation |
-| Test constructs | 1.0 | `[[ condition ]]` |
-| Pipes | 1.0 | `cmd1 \| cmd2` |
-| And/or chains | 1.0 | `cmd1 && cmd2`, `cmd1 \|\| cmd2` |
-| Background jobs | 1.0 | `cmd &` |
-| Brace expansion | 1.0 | `{a,b,c}` |
-| Glob patterns | 0.5 | `*.txt`, `[a-z]*` |
-| Variable expansion | 0.5 | `$VAR`, `${VAR}` |
-| Redirection | 0.5 | `>`, `>>`, `<` |
-| Semicolon chains | 0.5 | `cmd1; cmd2` |
-| Escapes/quotes | 0.25-0.5 | `\`, `'...'`, `"..."` |
-
-## Regenerating the Corpus
-
-The extraction script is in this directory:
-
-```bash
-# From this directory
-./extract-bash-commands.py
-
-# Or from repository root
-./config/experiments/bash-parser/research/extract-bash-commands.py
-
-# Or run from anywhere
-~/emacs/config/experiments/bash-parser/research/extract-bash-commands.py
-```
-
-This will re-scan all Claude Code session files at `~/.claude/projects/-Users-jefffarr-emacs/*.jsonl` and regenerate all three files.
-
-## Dataset Statistics
-
-**Current corpus (as of 2026-03-03):**
-- 1,552 total commands
-- 90 sessions with bash usage
-- 881 unique command patterns
-- Date range: Feb 5 - Mar 3, 2026 (26 days)
-- Average complexity: 2.47/10
-
-**Complexity distribution:**
-- Simple (0): 37.6%
-- Low (1-2): 27.6%
-- Medium (2-4): 8.4%
-- High (4-6): 11.8%
-- Very high (6+): 14.7%
-
-**Top complexity patterns:**
-1. Double quotes: 45.2%
-2. Pipes: 23.1%
-3. Output redirection: 22.9%
-4. Multiline: 18.8%
-5. Stderr redirection: 15.1%
-6. Loops: 12.4%
-7. Command substitution: 11.8%
-8. Here-docs: 7.9%
-
-## Use Cases
-
-This corpus is useful for:
-- Training bash parsers on real-world LLM-generated commands
-- Testing command execution validators
-- Understanding LLM agent bash usage patterns
-- Studying edge cases in command construction
-- Building safety/security filters for agent tool use
-- Analyzing common vs. rare bash idioms
+- `extract-bash-commands.py` - Command extraction from session histories
+- `bash-commands-from-sessions.jsonl` - Corpus database (1,552 commands)
+- `compute-parse-coverage.el` - Token-based coverage computation
+- `semantic-gap-detection.el` - Semantic structure gap detection
+- `analyze-with-coverage.el` - Integrated analysis (both layers)
+- `run-coverage-analysis.sh` - Analysis runner
+- `coverage-analysis.tsv` - Current analysis results
+- `test-semantic-gaps.el` - Test utilities
