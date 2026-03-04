@@ -46,7 +46,9 @@
       "Bash(make test-directory:*)",
       "Bash(make test-pattern:*)",
       "Bash(./bin/run-tests.sh:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git mv:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

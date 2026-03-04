@@ -1,0 +1,1351 @@
+Loading /Users/jefffarr/emacs/config/core/defaults.el (source)...
+Loading /Users/jefffarr/emacs/config/core/auth.el (source)...
+Loading /Users/jefffarr/emacs/config/core/avy.el (source)...
+Loading /Users/jefffarr/emacs/config/core/browser-hist.el (source)...
+Loading /Users/jefffarr/emacs/config/core/ripgrep.el (source)...
+Loading /Users/jefffarr/emacs/config/core/ultra-scroll.el (source)...
+Loading /Users/jefffarr/emacs/config/core/expand-region.el (source)...
+Loading /Users/jefffarr/emacs/config/core/evil.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/vertico.el (source)...
+Loading /Users/jefffarr/emacs/runtime/recentf...
+Cleaning up the recentf list...
+Cleaning up the recentf list...done (0 removed)
+Loading /Users/jefffarr/emacs/config/core/completion/consult.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/marginalia.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/embark.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/corfu-company.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/mini-frame.el (source)...
+Loading /Users/jefffarr/emacs/config/core/window-management.el (source)...
+Loading /Users/jefffarr/emacs/config/core/yasnippet.el (source)...
+[yas] Prepared just-in-time loading of snippets successfully.
+Loading /Users/jefffarr/emacs/config/core/testing.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/look-and-feel.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/base-ui.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/frame-and-lines.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/modeline.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/themes.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/org-faces.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/terminal.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/vim-tab.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/imenu.el (source)...
+Loading /Users/jefffarr/emacs/config/transient.el (source)...
+=== TRANSIENT DEBUG ===
+Before: transient loaded? nil
+After: transient loaded from /Users/jefffarr/emacs/runtime/straight/build/transient/transient.elc
+After: transient-version = undefined
+After: has transient--set-layout? t
+=== END TRANSIENT DEBUG ===
+Loading /Users/jefffarr/emacs/config/activities/activities.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/core.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/projectile.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/org-roam.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/transient.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/language-modes.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/gtags.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/tree-sitter.el (source)...
+tsc-dyn-get: Using source :github (:loaded nil :recorded 0.19.4 :requested 0.19.4)
+tsc-dyn-get: Recorded version already satifies requested -> loading
+tree-sitter-langs: Grammar bundle v0.13.17 was already installed; skipped
+Loading /Users/jefffarr/emacs/config/language-modes/lsp-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/projectile.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/copilot.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/yaml.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/json.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/markdown-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/terraform.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/puppet-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/python.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/typescript.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/javascript.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/golang.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/sql.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/docker.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/magit.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/org.el (source)...
+org-super-agenda-mode enabled.
+ATTENTION: org-noter-pdf has many featues that depend on the package ‘pdf-tools’
+ATTENTION: org-noter-nov needs the package ‘nov’
+ATTENTION: org-noter-djvu needs the package ‘djvu’
+Loading /Users/jefffarr/emacs/config/major-modes/org-roam.el (source)...
+Clearing removed files... 
+Clearing removed files...done
+Processing modified files... 
+Processing modified files...done
+Loading /Users/jefffarr/emacs/config/major-modes/dirvish.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/beads.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/gptel.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-core.el (source)...
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 13 skill(s) total (13 markdown, 0 org-roam)
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 13 skill(s) total (13 markdown, 0 org-roam)
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-roam.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-transient.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/constants.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/logging.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/preset-registration.el (source)...
+[GPTEL-INFO] Registered 9 presets from /Users/jefffarr/emacs/config/gptel/presets/
+Loading /Users/jefffarr/emacs/config/gptel/scope-profiles.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-core.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/projectile-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/ggtags-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/treesitter-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/sql-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/meta-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/community-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/transient-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/filesystem.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/registry.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/metadata.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/branching.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-commands.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-expansion.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/scope-shell-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/persistent-agent.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/commands.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/activities-integration.el (source)...
+Loading /Users/jefffarr/emacs/config/local/personal.el (source)...
+Loading tests from: config/experiments/bash-parser/test
+Loading test file: config/experiments/bash-parser/test/test-command-semantics.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-semantics.el (source)...
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/bash-parser.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-command-substitution.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-substitution.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-corpus-file-operations.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-file-operations.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-corpus-parse.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-parse.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-corpus-script-execution.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-script-execution.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-file-operations.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-file-operations.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-glob-matching.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-glob-matching.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-parser-extension.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-parser-extension.el (source)...
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/bash-parser.el (source)...
+Loading test file: config/experiments/bash-parser/test/test-security-validator.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-security-validator.el (source)...
+Loaded 9 test files from config/experiments/bash-parser/test
+Running 370 tests (2026-03-04 19:16:48+0100, selector ‘t’)
+   passed    1/370  jf/bash-parser-test-background-001 (0.010978 sec)
+   passed    2/370  jf/bash-parser-test-background-002 (0.002218 sec)
+   passed    3/370  jf/bash-parser-test-chain-001 (0.002152 sec)
+Test jf/bash-parser-test-chain-002 backtrace:
+  error("Test %s failed for :all-commands: expected %S, got %S" "chain
+  (if (equal expected-commands actual-commands) nil (error "Test %s fa
+  (let ((expected-commands (plist-get expected :all-commands)) (actual
+  (progn (let ((expected-commands (plist-get expected :all-commands)) 
+  (if (plist-member expected :all-commands) (progn (let ((expected-com
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "chain-002" :command "rm f
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-chain-002 :docume
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-chain-002 condition:
+    (error
+     "Test chain-002 failed for :all-commands: expected ((:command-name \"rm\" :subcommand nil :flags nil :positional-args (\"file.txt\") :dangerous-p nil) (:command-name \"echo\" :subcommand nil :flags nil :positional-args (\"failed to delete\") :dangerous-p nil)), got ((:command-name \"rm\" :subcommand nil :flags nil :positional-args (\"file.txt\") :args (\"file.txt\") :dangerous-p nil) (:command-name \"echo\" :subcommand nil :flags nil :positional-args (\"failed to delete\") :args (\"failed to delete\") :dangerous-p nil))")
+   FAILED    4/370  jf/bash-parser-test-chain-002 (0.002152 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+Test jf/bash-parser-test-chain-003 backtrace:
+  error("Test %s failed for :all-commands: expected %S, got %S" "chain
+  (if (equal expected-commands actual-commands) nil (error "Test %s fa
+  (let ((expected-commands (plist-get expected :all-commands)) (actual
+  (progn (let ((expected-commands (plist-get expected :all-commands)) 
+  (if (plist-member expected :all-commands) (progn (let ((expected-com
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "chain-003" :command "cd /
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-chain-003 :docume
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-chain-003 condition:
+    (error
+     "Test chain-003 failed for :all-commands: expected ((:command-name \"cd\" :subcommand nil :flags nil :positional-args (\"/tmp\") :dangerous-p nil) (:command-name \"ls\" :subcommand nil :flags (\"-la\") :positional-args nil :dangerous-p nil) (:command-name \"pwd\" :subcommand nil :flags nil :positional-args nil :dangerous-p nil)), got ((:command-name \"cd\" :subcommand nil :flags nil :positional-args (\"/tmp\") :args (\"/tmp\") :dangerous-p nil) (:command-name \"ls\" :subcommand nil :flags (\"-la\") :positional-args nil :args (\"-la\") :dangerous-p nil) (:command-name \"pwd\" :subcommand nil :flags nil :positional-args nil :args nil :dangerous-p nil))")
+   FAILED    5/370  jf/bash-parser-test-chain-003 (0.002663 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+Test jf/bash-parser-test-chain-004 backtrace:
+  error("Test %s failed for :all-commands: expected %S, got %S" "chain
+  (if (equal expected-commands actual-commands) nil (error "Test %s fa
+  (let ((expected-commands (plist-get expected :all-commands)) (actual
+  (progn (let ((expected-commands (plist-get expected :all-commands)) 
+  (if (plist-member expected :all-commands) (progn (let ((expected-com
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "chain-004" :command "git 
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-chain-004 :docume
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-chain-004 condition:
+    (error
+     "Test chain-004 failed for :all-commands: expected ((:command-name \"git\" :subcommand \"add\" :flags nil :positional-args (\".\") :dangerous-p nil) (:command-name \"git\" :subcommand \"commit\" :flags (\"-m\") :positional-args (\"fix\") :dangerous-p nil) (:command-name \"git\" :subcommand \"push\" :flags nil :positional-args nil :dangerous-p nil)), got ((:command-name \"git\" :subcommand \"add\" :flags nil :positional-args (\".\") :args (\".\") :dangerous-p nil) (:command-name \"git\" :subcommand \"commit\" :flags (\"-m\") :positional-args (\"fix\") :args (\"-m\" \"fix\") :dangerous-p nil) (:command-name \"git\" :subcommand \"push\" :flags nil :positional-args nil :args nil :dangerous-p nil))")
+   FAILED    6/370  jf/bash-parser-test-chain-004 (0.002651 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+Test jf/bash-parser-test-complex-001 backtrace:
+  error("Test %s failed for %s: expected %S, got %S" "complex-001" :ex
+  (if (equal expected-val actual-val) nil (error "Test %s failed for %
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args :dan
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "complex-001" :command "fi
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-complex-001 :docu
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-complex-001 condition:
+    (error
+     "Test complex-001 failed for :exec-blocks: expected ((:type \"-exec\" :terminator \"\\\\;\" :command-name \"rm\" :flags nil :positional-args (\"{}\") :dangerous-p nil)), got ((:type \"-exec\" :terminator \"\\\\;\" :command-name \"rm\" :flags nil :positional-args (\"{}\") :args (\"{}\") :dangerous-p nil))")
+   FAILED    7/370  jf/bash-parser-test-complex-001 (0.002689 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+   passed    8/370  jf/bash-parser-test-complex-002 (0.002532 sec)
+   passed    9/370  jf/bash-parser-test-complex-003 (0.002181 sec)
+   passed   10/370  jf/bash-parser-test-complex-004 (0.002142 sec)
+   passed   11/370  jf/bash-parser-test-complex-005 (0.002147 sec)
+   passed   12/370  jf/bash-parser-test-dangerous-001 (0.002137 sec)
+   passed   13/370  jf/bash-parser-test-dangerous-002 (0.002143 sec)
+Test jf/bash-parser-test-find-001 backtrace:
+  error("Test %s failed for %s: expected %S, got %S" "find-001" :exec-
+  (if (equal expected-val actual-val) nil (error "Test %s failed for %
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args :dan
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "find-001" :command "find 
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-find-001 :documen
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-find-001 condition:
+    (error
+     "Test find-001 failed for :exec-blocks: expected ((:type \"-exec\" :terminator \"+\" :command-name \"chmod\" :flags nil :positional-args (\"644\" \"{}\") :dangerous-p nil)), got ((:type \"-exec\" :terminator \"+\" :command-name \"chmod\" :flags nil :positional-args (\"644\" \"{}\") :args (\"644\" \"{}\") :dangerous-p nil))")
+   FAILED   14/370  jf/bash-parser-test-find-001 (0.002249 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+Test jf/bash-parser-test-find-002 backtrace:
+  error("Test %s failed for %s: expected %S, got %S" "find-002" :exec-
+  (if (equal expected-val actual-val) nil (error "Test %s failed for %
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args :dan
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "find-002" :command "find 
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-find-002 :documen
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-find-002 condition:
+    (error
+     "Test find-002 failed for :exec-blocks: expected ((:type \"-execdir\" :terminator \"\\\\;\" :command-name \"rm\" :flags (\"-rf\") :positional-args (\"{}\") :dangerous-p t)), got ((:type \"-execdir\" :terminator \"\\\\;\" :command-name \"rm\" :flags (\"-rf\") :positional-args (\"{}\") :args (\"-rf\" \"{}\") :dangerous-p t))")
+   FAILED   15/370  jf/bash-parser-test-find-002 (0.002595 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+Test jf/bash-parser-test-find-003 backtrace:
+  error("Test %s failed for %s: expected %S, got %S" "find-003" :exec-
+  (if (equal expected-val actual-val) nil (error "Test %s failed for %
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args :dan
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "find-003" :command "find 
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-find-003 :documen
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-find-003 condition:
+    (error
+     "Test find-003 failed for :exec-blocks: expected ((:type \"-exec\" :terminator \"\\\\;\" :command-name \"grep\" :flags nil :positional-args (\"pattern\" \"{}\") :dangerous-p nil) (:type \"-exec\" :terminator \"\\\\;\" :command-name \"echo\" :flags nil :positional-args (\"{}\") :dangerous-p nil)), got ((:type \"-exec\" :terminator \"\\\\;\" :command-name \"grep\" :flags nil :positional-args (\"pattern\" \"{}\") :args (\"pattern\" \"{}\") :dangerous-p nil) (:type \"-exec\" :terminator \"\\\\;\" :command-name \"echo\" :flags nil :positional-args (\"{}\") :args (\"{}\") :dangerous-p nil))")
+   FAILED   16/370  jf/bash-parser-test-find-003 (0.002542 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+   passed   17/370  jf/bash-parser-test-find-004 (0.002746 sec)
+   passed   18/370  jf/bash-parser-test-git-001 (0.002154 sec)
+   passed   19/370  jf/bash-parser-test-git-002 (0.002142 sec)
+   passed   20/370  jf/bash-parser-test-git-003 (0.002119 sec)
+   passed   21/370  jf/bash-parser-test-git-004 (0.002147 sec)
+   passed   22/370  jf/bash-parser-test-git-005 (0.002135 sec)
+   passed   23/370  jf/bash-parser-test-glob-001 (0.002133 sec)
+   passed   24/370  jf/bash-parser-test-glob-002 (0.002147 sec)
+   passed   25/370  jf/bash-parser-test-glob-003 (0.002153 sec)
+   passed   26/370  jf/bash-parser-test-glob-004 (0.002235 sec)
+   passed   27/370  jf/bash-parser-test-glob-005 (0.002142 sec)
+   passed   28/370  jf/bash-parser-test-glob-006 (0.002137 sec)
+   passed   29/370  jf/bash-parser-test-heredoc-001 (0.002166 sec)
+   passed   30/370  jf/bash-parser-test-manual-basic (0.002140 sec)
+   passed   31/370  jf/bash-parser-test-manual-dangerous-git-push (0.002134 sec)
+   passed   32/370  jf/bash-parser-test-manual-dangerous-rm (0.002144 sec)
+   passed   33/370  jf/bash-parser-test-manual-git-subcommand (0.002143 sec)
+Test jf/bash-parser-test-pipeline-001 backtrace:
+  error("Test %s failed for :all-commands: expected %S, got %S" "pipel
+  (if (equal expected-commands actual-commands) nil (error "Test %s fa
+  (let ((expected-commands (plist-get expected :all-commands)) (actual
+  (progn (let ((expected-commands (plist-get expected :all-commands)) 
+  (if (plist-member expected :all-commands) (progn (let ((expected-com
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "pipeline-001" :command "l
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-pipeline-001 :doc
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-pipeline-001 condition:
+    (error
+     "Test pipeline-001 failed for :all-commands: expected ((:command-name \"ls\" :subcommand nil :flags (\"-la\") :positional-args nil :dangerous-p nil) (:command-name \"grep\" :subcommand nil :flags nil :positional-args (\"test\") :dangerous-p nil)), got ((:command-name \"ls\" :subcommand nil :flags (\"-la\") :positional-args nil :args (\"-la\") :dangerous-p nil) (:command-name \"grep\" :subcommand nil :flags nil :positional-args (\"test\") :args (\"test\") :dangerous-p nil))")
+   FAILED   34/370  jf/bash-parser-test-pipeline-001 (0.002263 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+Test jf/bash-parser-test-pipeline-002 backtrace:
+  error("Test %s failed for :all-commands: expected %S, got %S" "pipel
+  (if (equal expected-commands actual-commands) nil (error "Test %s fa
+  (let ((expected-commands (plist-get expected :all-commands)) (actual
+  (progn (let ((expected-commands (plist-get expected :all-commands)) 
+  (if (plist-member expected :all-commands) (progn (let ((expected-com
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "pipeline-002" :command "c
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-pipeline-002 :doc
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-pipeline-002 condition:
+    (error
+     "Test pipeline-002 failed for :all-commands: expected ((:command-name \"cat\" :subcommand nil :flags nil :positional-args (\"file.txt\") :dangerous-p nil) (:command-name \"sort\" :subcommand nil :flags nil :positional-args nil :dangerous-p nil) (:command-name \"uniq\" :subcommand nil :flags (\"-c\") :positional-args nil :dangerous-p nil)), got ((:command-name \"cat\" :subcommand nil :flags nil :positional-args (\"file.txt\") :args (\"file.txt\") :dangerous-p nil) (:command-name \"sort\" :subcommand nil :flags nil :positional-args nil :args nil :dangerous-p nil) (:command-name \"uniq\" :subcommand nil :flags (\"-c\") :positional-args nil :args (\"-c\") :dangerous-p nil))")
+   FAILED   35/370  jf/bash-parser-test-pipeline-002 (0.002982 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+Test jf/bash-parser-test-pipeline-003 backtrace:
+  error("Test %s failed for :all-commands: expected %S, got %S" "pipel
+  (if (equal expected-commands actual-commands) nil (error "Test %s fa
+  (let ((expected-commands (plist-get expected :all-commands)) (actual
+  (progn (let ((expected-commands (plist-get expected :all-commands)) 
+  (if (plist-member expected :all-commands) (progn (let ((expected-com
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test--run-corpus-test((:id "pipeline-003" :command "g
+  #f(lambda () [t] (jf/bash-parser-test--run-corpus-test (seq-find #'(
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name jf/bash-parser-test-pipeline-003 :doc
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test jf/bash-parser-test-pipeline-003 condition:
+    (error
+     "Test pipeline-003 failed for :all-commands: expected ((:command-name \"git\" :subcommand \"log\" :flags (\"--oneline\") :positional-args nil :dangerous-p nil) (:command-name \"head\" :subcommand nil :flags (\"-10\") :positional-args nil :dangerous-p nil)), got ((:command-name \"git\" :subcommand \"log\" :flags (\"--oneline\") :positional-args nil :args (\"--oneline\") :dangerous-p nil) (:command-name \"head\" :subcommand nil :flags (\"-10\") :positional-args nil :args (\"-10\") :dangerous-p nil))")
+   FAILED   36/370  jf/bash-parser-test-pipeline-003 (0.002497 sec) at config/experiments/bash-parser/test/test-corpus-parse.el:1
+   passed   37/370  jf/bash-parser-test-quote-001 (0.002525 sec)
+   passed   38/370  jf/bash-parser-test-quote-002 (0.002169 sec)
+   passed   39/370  jf/bash-parser-test-quote-003 (0.002125 sec)
+   passed   40/370  jf/bash-parser-test-quote-004 (0.002105 sec)
+   passed   41/370  jf/bash-parser-test-quote-005 (0.002108 sec)
+   passed   42/370  jf/bash-parser-test-redirect-001 (0.002262 sec)
+   passed   43/370  jf/bash-parser-test-redirect-002 (0.002147 sec)
+   passed   44/370  jf/bash-parser-test-redirect-003 (0.002125 sec)
+   passed   45/370  jf/bash-parser-test-redirect-004 (0.002119 sec)
+   passed   46/370  jf/bash-parser-test-redirect-005 (0.002144 sec)
+   passed   47/370  jf/bash-parser-test-redirect-006 (0.002120 sec)
+   passed   48/370  jf/bash-parser-test-simple-001 (0.002121 sec)
+   passed   49/370  jf/bash-parser-test-simple-002 (0.002105 sec)
+   passed   50/370  jf/bash-parser-test-simple-003 (0.002148 sec)
+   passed   51/370  jf/bash-parser-test-simple-004 (0.002099 sec)
+   passed   52/370  jf/bash-parser-test-substitution-001 (0.002132 sec)
+   passed   53/370  jf/bash-parser-test-substitution-002 (0.002125 sec)
+   passed   54/370  jf/bash-parser-test-substitution-003 (0.002156 sec)
+   passed   55/370  jf/bash-parser-test-variable-001 (0.002113 sec)
+   passed   56/370  jf/bash-parser-test-variable-002 (0.002155 sec)
+   passed   57/370  jf/bash-parser-test-variable-003 (0.002136 sec)
+   passed   58/370  jf/bash-parser-test-variable-004 (0.002151 sec)
+   passed   59/370  jf/bash-parser-test-variable-005 (0.002142 sec)
+   passed   60/370  jf/bash-parser-test-variable-006 (0.002108 sec)
+   passed   61/370  jf/bash-parser-test-variable-007 (0.002108 sec)
+   passed   62/370  jf/bash-parser-test-variable-008 (0.002125 sec)
+   passed   63/370  jf/bash-parser-test-wrapper-001 (0.002126 sec)
+   passed   64/370  jf/bash-parser-test-wrapper-002 (0.002145 sec)
+   passed   65/370  jf/bash-parser-test-wrapper-003 (0.002104 sec)
+   passed   66/370  jf/bash-parser-test-wrapper-004 (0.002122 sec)
+   passed   67/370  test-cmdsub-backtick-syntax (0.002101 sec)
+   passed   68/370  test-cmdsub-cat-wc (0.002101 sec)
+   passed   69/370  test-cmdsub-conditional-inside (0.002131 sec)
+   passed   70/370  test-cmdsub-cp-two-which (0.002130 sec)
+Test test-cmdsub-empty backtrace:
+  ert-fail(((should (plist-get result :success)) :form (plist-get (:su
+  (if (unwind-protect (setq value-756 (apply fn-754 args-755)) (setq f
+  (let (form-description-758) (if (unwind-protect (setq value-756 (app
+  (let ((value-756 'ert-form-evaluation-aborted-757)) (let (form-descr
+  (let* ((fn-754 #'plist-get) (args-755 (condition-case err (list resu
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test-cmdsub--run-corpus-test(nil)
+  #f(lambda () [t] (jf/bash-parser-test-cmdsub--run-corpus-test (jf/ba
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-cmdsub-empty :documentation "Tes
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-cmdsub-empty condition:
+    (ert-test-failed
+     ((should (plist-get result :success)) :form
+      (plist-get
+       (:success nil :error "Wrong type argument: char-or-string-p, nil")
+       :success)
+      :value nil))
+   FAILED   71/370  test-cmdsub-empty (0.000064 sec) at config/experiments/bash-parser/test/test-command-substitution.el:282
+Test test-cmdsub-escaped backtrace:
+  ert-fail(((should (plist-get result :success)) :form (plist-get (:su
+  (if (unwind-protect (setq value-756 (apply fn-754 args-755)) (setq f
+  (let (form-description-758) (if (unwind-protect (setq value-756 (app
+  (let ((value-756 'ert-form-evaluation-aborted-757)) (let (form-descr
+  (let* ((fn-754 #'plist-get) (args-755 (condition-case err (list resu
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test-cmdsub--run-corpus-test(nil)
+  #f(lambda () [t] (jf/bash-parser-test-cmdsub--run-corpus-test (jf/ba
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-cmdsub-escaped :documentation "T
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-cmdsub-escaped condition:
+    (ert-test-failed
+     ((should (plist-get result :success)) :form
+      (plist-get
+       (:success nil :error "Wrong type argument: char-or-string-p, nil")
+       :success)
+      :value nil))
+   FAILED   72/370  test-cmdsub-escaped (0.000115 sec) at config/experiments/bash-parser/test/test-command-substitution.el:289
+   passed   73/370  test-cmdsub-find-pipe-wc (0.002678 sec)
+   passed   74/370  test-cmdsub-find-sort (0.002148 sec)
+Test test-cmdsub-for-loop-basename backtrace:
+  ert-fail("Test cmdsub-complex-002 (complex) failed for :command-name
+  (if (equal expected-val actual-val) nil (ert-fail (format "Test %s (
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args))) (
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test-cmdsub--run-corpus-test((:id "cmdsub-complex-002
+  #f(lambda () [t] (jf/bash-parser-test-cmdsub--run-corpus-test (jf/ba
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-cmdsub-for-loop-basename :docume
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-cmdsub-for-loop-basename condition:
+    (ert-test-failed
+     "Test cmdsub-complex-002 (complex) failed for :command-name: expected \"for\", got \"echo\"\nNotes: REAL: From research - loop with basename substitution")
+   FAILED   75/370  test-cmdsub-for-loop-basename (0.002263 sec) at config/experiments/bash-parser/test/test-command-substitution.el:236
+Test test-cmdsub-for-loop-find backtrace:
+  ert-fail("Test cmdsub-complex-001 (complex) failed for :command-name
+  (if (equal expected-val actual-val) nil (ert-fail (format "Test %s (
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args))) (
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test-cmdsub--run-corpus-test((:id "cmdsub-complex-001
+  #f(lambda () [t] (jf/bash-parser-test-cmdsub--run-corpus-test (jf/ba
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-cmdsub-for-loop-find :documentat
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-cmdsub-for-loop-find condition:
+    (ert-test-failed
+     "Test cmdsub-complex-001 (complex) failed for :command-name: expected \"for\", got \"find\"\nNotes: REAL: From research - substitution feeds for loop")
+   FAILED   76/370  test-cmdsub-for-loop-find (0.002577 sec) at config/experiments/bash-parser/test/test-command-substitution.el:229
+   passed   77/370  test-cmdsub-git-commit-message (0.002481 sec)
+Test test-cmdsub-in-arithmetic backtrace:
+  ert-fail("Test cmdsub-edge-001 (edge) failed for :positional-args: e
+  (if (equal expected-val actual-val) nil (ert-fail (format "Test %s (
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args))) (
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test-cmdsub--run-corpus-test((:id "cmdsub-edge-001" :
+  #f(lambda () [t] (jf/bash-parser-test-cmdsub--run-corpus-test (jf/ba
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-cmdsub-in-arithmetic :documentat
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-cmdsub-in-arithmetic condition:
+    (ert-test-failed
+     "Test cmdsub-edge-001 (edge) failed for :positional-args: expected (\"$(($(date +%s) + 3600))\"), got (\"$(date +%s)\" \"3600\")\nNotes: Substitution inside arithmetic expansion")
+   FAILED   78/370  test-cmdsub-in-arithmetic (0.002253 sec) at config/experiments/bash-parser/test/test-command-substitution.el:261
+   passed   79/370  test-cmdsub-in-double-quotes (0.002516 sec)
+   passed   80/370  test-cmdsub-in-heredoc (0.002197 sec)
+Test test-cmdsub-in-test-conditional backtrace:
+  ert-fail("Test cmdsub-complex-003 (complex) failed for :command-name
+  (if (equal expected-val actual-val) nil (ert-fail (format "Test %s (
+  (let ((expected-val (plist-get expected key)) (actual-val (plist-get
+  (progn (let ((expected-val (plist-get expected key)) (actual-val (pl
+  (if (plist-member expected key) (progn (let ((expected-val (plist-ge
+  (let ((key (car tail))) (if (plist-member expected key) (progn (let 
+  (while tail (let ((key (car tail))) (if (plist-member expected key) 
+  (let ((tail '(:command-name :subcommand :flags :positional-args))) (
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test-cmdsub--run-corpus-test((:id "cmdsub-complex-003
+  #f(lambda () [t] (jf/bash-parser-test-cmdsub--run-corpus-test (jf/ba
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-cmdsub-in-test-conditional :docu
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-cmdsub-in-test-conditional condition:
+    (ert-test-failed
+     "Test cmdsub-complex-003 (complex) failed for :command-name: expected \"test\", got nil\nNotes: Substitution in conditional test")
+   FAILED   81/370  test-cmdsub-in-test-conditional (0.002280 sec) at config/experiments/bash-parser/test/test-command-substitution.el:243
+   passed   82/370  test-cmdsub-multi-stage-pipe (0.002666 sec)
+Test test-cmdsub-nested-backticks backtrace:
+  ert-fail("Test cmdsub-edge-003 (edge) failed for :command-substituti
+  (if (equal expected-subs actual-subs) nil (ert-fail (format "Test %s
+  (let ((expected-subs (plist-get expected :command-substitutions)) (a
+  (progn (let ((expected-subs (plist-get expected :command-substitutio
+  (if (plist-member expected :command-substitutions) (progn (let ((exp
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/bash-parser-test-cmdsub--run-corpus-test((:id "cmdsub-edge-003" :
+  #f(lambda () [t] (jf/bash-parser-test-cmdsub--run-corpus-test (jf/ba
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-cmdsub-nested-backticks :documen
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-cmdsub-nested-backticks condition:
+    (ert-test-failed
+     "Test cmdsub-edge-003 (edge) failed for :command-substitutions: expected ((:syntax \"`\" :content \"echo \\\\`date\\\\`\" :nesting-level 1) (:syntax \"`\" :content \"date\" :nesting-level 2)), got ((:syntax \"`\" :content \"echo \\\\`date\\\\`\" :nesting-level 1))\nNotes: Nested backticks with escaping")
+   FAILED   83/370  test-cmdsub-nested-backticks (0.002206 sec) at config/experiments/bash-parser/test/test-command-substitution.el:275
+   passed   84/370  test-cmdsub-nested-basename (0.002444 sec)
+   passed   85/370  test-cmdsub-nested-dirname-which (0.002180 sec)
+   passed   86/370  test-cmdsub-nested-find (0.002150 sec)
+   passed   87/370  test-cmdsub-nested-quotes (0.002180 sec)
+   passed   88/370  test-cmdsub-simple-date (0.002159 sec)
+   passed   89/370  test-cmdsub-simple-pwd (0.002144 sec)
+   passed   90/370  test-cmdsub-simple-whoami (0.002182 sec)
+   passed   91/370  test-cmdsub-single-quotes-literal (0.002174 sec)
+   passed   92/370  test-cmdsub-three-in-string (0.002201 sec)
+   passed   93/370  test-cmdsub-triple-nesting (0.002165 sec)
+   passed   94/370  test-cmdsub-two-independent (0.002198 sec)
+   passed   95/370  test-cmdsub-two-with-globs (0.002175 sec)
+   passed   96/370  test-cmdsub-variable-assignment (0.002133 sec)
+   passed   97/370  test-cmdsub-with-pipe-inside (0.002126 sec)
+   passed   98/370  test-corpus-archive-001 (0.002191 sec)
+   passed   99/370  test-corpus-archive-002 (0.002145 sec)
+   passed  100/370  test-corpus-archive-003 (0.002171 sec)
+   passed  101/370  test-corpus-chain-001 (0.002219 sec)
+   passed  102/370  test-corpus-chain-002 (0.002403 sec)
+   passed  103/370  test-corpus-chain-003 (0.002211 sec)
+   passed  104/370  test-corpus-copy-001 (0.002165 sec)
+   passed  105/370  test-corpus-copy-002 (0.002270 sec)
+   passed  106/370  test-corpus-copy-003 (0.002220 sec)
+   passed  107/370  test-corpus-delete-001 (0.002234 sec)
+   passed  108/370  test-corpus-delete-002 (0.002179 sec)
+   passed  109/370  test-corpus-delete-003 (0.002148 sec)
+   passed  110/370  test-corpus-delete-004 (0.002178 sec)
+   passed  111/370  test-corpus-directory-001 (0.002156 sec)
+   passed  112/370  test-corpus-directory-002 (0.002133 sec)
+   passed  113/370  test-corpus-find-001 (0.002210 sec)
+   passed  114/370  test-corpus-find-002 (0.002272 sec)
+   passed  115/370  test-corpus-find-003 (0.002290 sec)
+   passed  116/370  test-corpus-git-001 (0.002151 sec)
+   passed  117/370  test-corpus-git-002 (0.002144 sec)
+   passed  118/370  test-corpus-git-003 (0.002135 sec)
+   passed  119/370  test-corpus-git-004 (0.002157 sec)
+   passed  120/370  test-corpus-glob-001 (0.002159 sec)
+   passed  121/370  test-corpus-glob-002 (0.002164 sec)
+   passed  122/370  test-corpus-glob-003 (0.002159 sec)
+   passed  123/370  test-corpus-glob-004 (0.002140 sec)
+   passed  124/370  test-corpus-modify-001 (0.002215 sec)
+   passed  125/370  test-corpus-modify-002 (0.002149 sec)
+   passed  126/370  test-corpus-modify-003 (0.002162 sec)
+   passed  127/370  test-corpus-modify-004 (0.002143 sec)
+   passed  128/370  test-corpus-move-001 (0.002174 sec)
+   passed  129/370  test-corpus-move-002 (0.002158 sec)
+   passed  130/370  test-corpus-no-ops-001 (0.002129 sec)
+   passed  131/370  test-corpus-no-ops-002 (0.002137 sec)
+   passed  132/370  test-corpus-no-ops-003 (0.002124 sec)
+   passed  133/370  test-corpus-no-ops-004 (0.002117 sec)
+Test test-corpus-pipeline-001 backtrace:
+  error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
+  (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/test-run-corpus-case((:id "pipeline-001" :command "cat file.txt |
+  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-corpus-pipeline-001 :documentati
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-corpus-pipeline-001 condition:
+    (error
+     "Test pipeline-001 (Pipeline with read and write): expected 2 operations, got 4\nExpected: ((:file \"file.txt\" :operation :read :confidence :high :source :positional-arg) (:file \"output.txt\" :operation :write :confidence :high :source :redirection))\nActual: ((:file \"output.txt\" :operation :write :confidence :high :source :redirection :metadata (:type :file :operator \">\" :descriptor nil :destination \"output.txt\")) (:file \"file.txt\" :operation :read :confidence :high :source :positional-arg :command \"cat\") (:file \"grep\" :operation :read :confidence :high :source :positional-arg :command \"cat\") (:file \"pattern\" :operation :read :confidence :high :source :positional-arg :command \"cat\"))")
+   FAILED  134/370  test-corpus-pipeline-001 (0.002211 sec) at config/experiments/bash-parser/test/test-corpus-file-operations.el:1
+Test test-corpus-pipeline-002 backtrace:
+  error("Test %s (%s): expected %d operations, got %d\nExpected: %S\nA
+  (if (= (length expected-ops) (length actual-ops)) nil (error "Test %
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/test-run-corpus-case((:id "pipeline-002" :command "cat input.txt 
+  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-corpus-pipeline-002 :documentati
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-corpus-pipeline-002 condition:
+    (error
+     "Test pipeline-002 (Three-stage pipeline): expected 2 operations, got 4\nExpected: ((:file \"input.txt\" :operation :read :confidence :high :source :positional-arg) (:file \"unique.txt\" :operation :write :confidence :high :source :redirection))\nActual: ((:file \"unique.txt\" :operation :write :confidence :high :source :redirection :metadata (:type :file :operator \">\" :descriptor nil :destination \"unique.txt\")) (:file \"input.txt\" :operation :read :confidence :high :source :positional-arg :command \"cat\") (:file \"sort\" :operation :read :confidence :high :source :positional-arg :command \"cat\") (:file \"uniq\" :operation :read :confidence :high :source :positional-arg :command \"cat\"))")
+   FAILED  135/370  test-corpus-pipeline-002 (0.002713 sec) at config/experiments/bash-parser/test/test-corpus-file-operations.el:1
+   passed  136/370  test-corpus-read-001 (0.002654 sec)
+   passed  137/370  test-corpus-read-002 (0.002147 sec)
+   passed  138/370  test-corpus-read-003 (0.002191 sec)
+   passed  139/370  test-corpus-read-004 (0.002108 sec)
+   passed  140/370  test-corpus-read-005 (0.002137 sec)
+   passed  141/370  test-corpus-read-006 (0.002137 sec)
+   passed  142/370  test-corpus-redirect-001 (0.002142 sec)
+   passed  143/370  test-corpus-redirect-002 (0.002120 sec)
+   passed  144/370  test-corpus-redirect-003 (0.002126 sec)
+   passed  145/370  test-corpus-redirect-004 (0.002165 sec)
+   passed  146/370  test-corpus-variable-001 (0.002135 sec)
+   passed  147/370  test-corpus-variable-002 (0.002110 sec)
+   passed  148/370  test-corpus-variable-003 (0.002120 sec)
+   passed  149/370  test-corpus-variable-004 (0.002113 sec)
+   passed  150/370  test-corpus-variable-005 (0.002167 sec)
+   passed  151/370  test-corpus-variable-chain-001 (0.002170 sec)
+   passed  152/370  test-corpus-variable-chain-002 (0.002202 sec)
+Test test-corpus-variable-chain-003 backtrace:
+  error("Test %s (%s): expected operation not found\nExpected: %S\nAct
+  (if matching-op nil (error "Test %s (%s): expected operation not fou
+  (let ((matching-op (jf/test-find-matching-op expected-op actual-ops)
+  (let ((expected-op (car tail))) (let ((matching-op (jf/test-find-mat
+  (while tail (let ((expected-op (car tail))) (let ((matching-op (jf/t
+  (let ((tail expected-ops)) (while tail (let ((expected-op (car tail)
+  (let* ((test-id (plist-get test-case :id)) (command (plist-get test-
+  jf/test-run-corpus-case((:id "variable-chain-003" :command "WORKSPAC
+  #f(lambda () [t] (jf/test-run-corpus-case (seq-find #'(lambda ... ..
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-corpus-variable-chain-003 :docum
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-corpus-variable-chain-003 condition:
+    (error
+     "Test variable-chain-003 (Variable used multiple times after assignment): expected operation not found\nExpected: (:file \"/workspace/data.txt\" :operation :read :confidence :high :source :positional-arg)\nActual ops: ((:file \"/workspace\" :operation :execute :source :command-name :confidence :low :self-executing t :script-args (\"cat\" \"$WORKSPACE/data.txt\")) (:file \"$WORKSPACE/output.txt\" :operation :write :confidence :high :source :redirection :metadata (:type :file :operator \">\" :descriptor nil :destination \"$WORKSPACE/output.txt\")))")
+   FAILED  153/370  test-corpus-variable-chain-003 (0.002195 sec) at config/experiments/bash-parser/test/test-corpus-file-operations.el:1
+   passed  154/370  test-corpus-write-001 (0.002533 sec)
+   passed  155/370  test-corpus-write-002 (0.002148 sec)
+   passed  156/370  test-corpus-write-003 (0.002150 sec)
+   passed  157/370  test-corpus-write-004 (0.002111 sec)
+   passed  158/370  test-extraction-absolute-path (0.002110 sec)
+   passed  159/370  test-extraction-append-redirection (0.002145 sec)
+   passed  160/370  test-extraction-command-chain (0.002135 sec)
+   passed  161/370  test-extraction-command-with-multiple-file-arguments (0.002107 sec)
+   passed  162/370  test-extraction-command-with-no-file-operations (0.002093 sec)
+   passed  163/370  test-extraction-duplicate-file-operations (0.002106 sec)
+   passed  164/370  test-extraction-high-confidence-from-known-command (0.002107 sec)
+   passed  165/370  test-extraction-high-confidence-from-redirection (0.002112 sec)
+   passed  166/370  test-extraction-input-redirection (0.002102 sec)
+   passed  167/370  test-extraction-main-function-chain (0.002169 sec)
+   passed  168/370  test-extraction-main-function-pipeline (0.002187 sec)
+   passed  169/370  test-extraction-main-function-simple-command (0.002088 sec)
+   passed  170/370  test-extraction-metadata-for-positional-arg (0.002092 sec)
+   passed  171/370  test-extraction-metadata-for-redirection (0.002098 sec)
+   passed  172/370  test-extraction-multiple-redirections (0.002130 sec)
+   passed  173/370  test-extraction-output-redirection (0.002119 sec)
+   passed  174/370  test-extraction-pipeline-with-multiple-file-operations (0.002139 sec)
+   passed  175/370  test-extraction-recursive-glob-pattern (0.002088 sec)
+   passed  176/370  test-extraction-relative-path (0.002095 sec)
+   passed  177/370  test-extraction-same-file-different-operations (0.002098 sec)
+   passed  178/370  test-extraction-simple-glob-pattern (0.002107 sec)
+   passed  179/370  test-extraction-simple-read-command (0.002105 sec)
+   passed  180/370  test-glob-character-class-letters (0.000071 sec)
+   passed  181/370  test-glob-character-class-match (0.000055 sec)
+   passed  182/370  test-glob-character-class-no-match (0.000046 sec)
+   passed  183/370  test-glob-combined-wildcards (0.000054 sec)
+   passed  184/370  test-glob-complex-pattern (0.000059 sec)
+   passed  185/370  test-glob-double-star-at-end (0.000043 sec)
+   passed  186/370  test-glob-double-star-at-start (0.000056 sec)
+   passed  187/370  test-glob-double-star-in-middle (0.000054 sec)
+   passed  188/370  test-glob-double-star-multiple-segments (0.000061 sec)
+   passed  189/370  test-glob-double-star-zero-segments (0.000041 sec)
+   passed  190/370  test-glob-empty-path (0.000028 sec)
+   passed  191/370  test-glob-empty-pattern (0.000026 sec)
+   passed  192/370  test-glob-exact-match (0.000040 sec)
+   passed  193/370  test-glob-literal-dots (0.000041 sec)
+   passed  194/370  test-glob-literal-parens (0.000033 sec)
+   passed  195/370  test-glob-literal-plus-chars (0.000043 sec)
+   passed  196/370  test-glob-multiple-question-marks (0.000051 sec)
+   passed  197/370  test-glob-nested-double-stars (0.000054 sec)
+   passed  198/370  test-glob-no-match-different-directory (0.000039 sec)
+   passed  199/370  test-glob-path-must-match-from-start (0.000037 sec)
+   passed  200/370  test-glob-question-mark-no-match-two-chars (0.000033 sec)
+   passed  201/370  test-glob-question-mark-no-match-zero-chars (0.000034 sec)
+   passed  202/370  test-glob-question-mark-single-char (0.000052 sec)
+   passed  203/370  test-glob-recursive-wildcard-match (0.000052 sec)
+   passed  204/370  test-glob-root-path (0.000039 sec)
+   passed  205/370  test-glob-single-level-wildcard-match (0.000049 sec)
+   passed  206/370  test-glob-single-star-one-level-match (0.000044 sec)
+   passed  207/370  test-glob-single-star-rejects-multiple-levels (0.000044 sec)
+   passed  208/370  test-glob-to-regex-asterisk (0.000034 sec)
+   passed  209/370  test-glob-to-regex-character-class (0.000036 sec)
+   passed  210/370  test-glob-to-regex-escapes-special-chars (0.000038 sec)
+   passed  211/370  test-glob-to-regex-question (0.000033 sec)
+   passed  212/370  test-glob-trailing-slash-handling (0.000041 sec)
+   passed  213/370  test-parser-extension-already-marked-preserved (0.000030 sec)
+   passed  214/370  test-parser-extension-detect-bash-c-injection (0.002137 sec)
+   passed  215/370  test-parser-extension-detect-env-s-injection (0.002082 sec)
+   passed  216/370  test-parser-extension-detect-eval-injection (0.002127 sec)
+   passed  217/370  test-parser-extension-detect-python-c-injection (0.002108 sec)
+   passed  218/370  test-parser-extension-detect-sh-c-injection (0.002090 sec)
+   passed  219/370  test-parser-extension-direct-operation-unmarked (0.000028 sec)
+   passed  220/370  test-parser-extension-end-to-end-bash-c (0.004158 sec)
+   passed  221/370  test-parser-extension-existing-unchanged (0.002090 sec)
+   passed  222/370  test-parser-extension-injection-with-flags-before (0.002109 sec)
+   passed  223/370  test-parser-extension-leverage-parsed-data (0.006242 sec)
+   passed  224/370  test-parser-extension-mark-exec-block-indirect (0.000031 sec)
+   passed  225/370  test-parser-extension-mixed-operations (0.000030 sec)
+   passed  226/370  test-parser-extension-nested-max-depth (0.000030 sec)
+   passed  227/370  test-parser-extension-nested-with-variables (0.002090 sec)
+   passed  228/370  test-parser-extension-new-extraction-available (0.000030 sec)
+   passed  229/370  test-parser-extension-no-false-positives (0.006209 sec)
+   passed  230/370  test-parser-extension-parse-nested-command (0.002080 sec)
+   passed  231/370  test-parser-extension-parse-nested-multiple-levels (0.004209 sec)
+   passed  232/370  test-parser-extension-parse-nested-preserve-inner-quotes (0.002088 sec)
+   passed  233/370  test-parser-extension-parse-nested-strip-double-quotes (0.002087 sec)
+   passed  234/370  test-parser-extension-parse-nested-strip-single-quotes (0.002088 sec)
+   passed  235/370  test-parser-extension-parse-return-format (0.002088 sec)
+   passed  236/370  test-script-execution-bash-interpreter (0.002117 sec)
+   passed  237/370  test-script-execution-chain (0.002160 sec)
+   passed  238/370  test-script-execution-confidence-high-builtin (0.002085 sec)
+   passed  239/370  test-script-execution-confidence-high-interpreter (0.002080 sec)
+   passed  240/370  test-script-execution-confidence-low-path (0.002078 sec)
+
+=== CORPUS TEST FAILURES ===
+
+FAIL: exec-edge-002 - Python -c with inline code (no file operation)
+  Error: Operation count mismatch
+  Command: python -c 'print(1)'
+
+FAIL: exec-nested-003 - Nested execution with arguments
+  Error: Expected operation not found
+  Command: bash -c 'node server.js --port 3000'
+
+FAIL: exec-nested-002 - Nested self-execution
+  Error: Field mismatch: :indirect
+  Command: sh -c './deploy.sh'
+  Expected: t
+
+FAIL: exec-nested-002 - Nested self-execution
+  Error: Field mismatch: :self-executing
+  Command: sh -c './deploy.sh'
+  Expected: t
+
+FAIL: exec-nested-002 - Nested self-execution
+  Error: Field mismatch: :source
+  Command: sh -c './deploy.sh'
+  Expected: :command-name
+  Actual: :positional-arg
+
+FAIL: exec-nested-002 - Nested self-execution
+  Error: Field mismatch: :confidence
+  Command: sh -c './deploy.sh'
+  Expected: :low
+  Actual: :high
+
+FAIL: exec-nested-001 - Nested python execution
+  Error: Expected operation not found
+  Command: bash -c 'python script.py'
+
+FAIL: exec-pipeline-002 - Pipeline with self-execution and write
+  Error: Expected operation not found
+  Command: ./script.sh | python filter.py > output.txt
+
+FAIL: exec-pipeline-002 - Pipeline with self-execution and write
+  Error: Operation count mismatch
+  Command: ./script.sh | python filter.py > output.txt
+
+FAIL: exec-variable-003 - Self-executing with variable (unresolved)
+  Error: Field mismatch: :unresolved
+  Command: ./$SCRIPT_NAME input.txt
+  Expected: t
+
+FAIL: exec-go-run-002 - Go run with script arguments
+  Error: Expected operation not found
+  Command: go run cmd/server/main.go --config prod.yaml
+
+FAIL: exec-go-run-002 - Go run with script arguments
+  Error: Operation count mismatch
+  Command: go run cmd/server/main.go --config prod.yaml
+
+FAIL: exec-go-build-001 - Go build does NOT execute (reads only)
+  Error: Expected operation not found
+  Command: go build main.go
+
+FAIL: exec-go-build-001 - Go build does NOT execute (reads only)
+  Error: Operation count mismatch
+  Command: go build main.go
+
+FAIL: exec-go-test-001 - Go test subcommand executes
+  Error: Expected operation not found
+  Command: go test ./...
+
+FAIL: exec-go-test-001 - Go test subcommand executes
+  Error: Operation count mismatch
+  Command: go test ./...
+
+FAIL: exec-go-run-001 - Go run subcommand executes
+  Error: Expected operation not found
+  Command: go run main.go
+
+FAIL: exec-go-run-001 - Go run subcommand executes
+  Error: Operation count mismatch
+  Command: go run main.go
+
+Test test-script-execution-corpus backtrace:
+  ert-fail(((should (null failures)) :form (null ((:id "exec-edge-002"
+  (if (unwind-protect (setq value-1415 (apply fn-1413 args-1414)) (set
+  (let (form-description-1417) (if (unwind-protect (setq value-1415 (a
+  (let ((value-1415 'ert-form-evaluation-aborted-1416)) (let (form-des
+  (let* ((fn-1413 #'null) (args-1414 (condition-case err (list failure
+  (let ((failures nil)) (let ((tail jf/bash-script-execution-test-corp
+  #f(lambda () [t] (let ((failures nil)) (let ((tail jf/bash-script-ex
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test ... :result
+  ert-run-test(#s(ert-test :name test-script-execution-corpus :documen
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-script-execution-corpus condition:
+    (ert-test-failed
+     ((should (null failures)) :form
+      (null
+       ((:id "exec-edge-002" :note
+             "Python -c with inline code (no file operation)" :error
+             "Operation count mismatch" :expected-count 0 :actual-count 1
+             ...)
+        (:id "exec-nested-003" :note "Nested execution with arguments"
+             :error "Expected operation not found" :expected-op
+             ... :actual-ops ... ...)
+        (:id "exec-nested-002" :note "Nested self-execution" :error
+             "Field mismatch: :indirect" :expected t :actual nil ...)
+        (:id "exec-nested-002" :note "Nested self-execution" :error
+             "Field mismatch: :self-executing" :expected t :actual nil ...)
+        (:id "exec-nested-002" :note "Nested self-execution" :error
+             "Field mismatch: :source" :expected :command-name :actual
+             :positional-arg ...)
+        (:id "exec-nested-002" :note "Nested self-execution" :error
+             "Field mismatch: :confidence" :expected :low :actual :high
+             ...)
+        (:id "exec-nested-001" :note "Nested python execution" :error
+             "Expected operation not found" :expected-op ... :actual-ops
+             ... ...)
+        (:id "exec-pipeline-002" :note
+             "Pipeline with self-execution and write" :error
+             "Expected operation not found" :expected-op ... :actual-ops
+             ... ...)
+        (:id "exec-pipeline-002" :note
+             "Pipeline with self-execution and write" :error
+             "Operation count mismatch" :expected-count 3 :actual-count 2
+             ...)
+        (:id "exec-variable-003" :note
+             "Self-executing with variable (unresolved)" :error
+             "Field mismatch: :unresolved" :expected t :actual nil ...)
+        ...))
+      :value nil))
+   FAILED  241/370  test-script-execution-corpus (0.077429 sec) at config/experiments/bash-parser/test/test-corpus-script-execution.el:820
+Test test-script-execution-go-build-not-execute backtrace:
+  ert-fail(((should (= (length ops) 1)) :form (= 0 1) :value nil))
+  (if (unwind-protect (setq value-1101 (apply fn-1099 args-1100)) (set
+  (let (form-description-1103) (if (unwind-protect (setq value-1101 (a
+  (let ((value-1101 'ert-form-evaluation-aborted-1102)) (let (form-des
+  (let* ((fn-1099 #'=) (args-1100 (condition-case err (list (length op
+  (let* ((parsed (jf/bash-parse "go build main.go")) (ops (jf/bash-ext
+  #f(lambda () [t] (let* ((parsed (jf/bash-parse "go build main.go")) 
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-script-execution-go-build-not-ex
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-script-execution-go-build-not-execute condition:
+    (ert-test-failed
+     ((should (= (length ops) 1)) :form (= 0 1) :value nil))
+   FAILED  242/370  test-script-execution-go-build-not-execute (0.002511 sec) at config/experiments/bash-parser/test/test-corpus-script-execution.el:572
+Test test-script-execution-go-run-subcommand backtrace:
+  ert-fail(((should (= (length ops) 1)) :form (= 0 1) :value nil))
+  (if (unwind-protect (setq value-1051 (apply fn-1049 args-1050)) (set
+  (let (form-description-1053) (if (unwind-protect (setq value-1051 (a
+  (let ((value-1051 'ert-form-evaluation-aborted-1052)) (let (form-des
+  (let* ((fn-1049 #'=) (args-1050 (condition-case err (list (length op
+  (let* ((parsed (jf/bash-parse "go run main.go")) (ops (jf/bash-extra
+  #f(lambda () [t] (let* ((parsed (jf/bash-parse "go run main.go")) (o
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-script-execution-go-run-subcomma
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-script-execution-go-run-subcommand condition:
+    (ert-test-failed
+     ((should (= (length ops) 1)) :form (= 0 1) :value nil))
+   FAILED  243/370  test-script-execution-go-run-subcommand (0.002663 sec) at config/experiments/bash-parser/test/test-corpus-script-execution.el:546
+Test test-script-execution-go-test-subcommand backtrace:
+  ert-fail(((should (= (length ops) 1)) :form (= 0 1) :value nil))
+  (if (unwind-protect (setq value-1081 (apply fn-1079 args-1080)) (set
+  (let (form-description-1083) (if (unwind-protect (setq value-1081 (a
+  (let ((value-1081 'ert-form-evaluation-aborted-1082)) (let (form-des
+  (let* ((fn-1079 #'=) (args-1080 (condition-case err (list (length op
+  (let* ((parsed (jf/bash-parse "go test ./...")) (ops (jf/bash-extrac
+  #f(lambda () [t] (let* ((parsed (jf/bash-parse "go test ./...")) (op
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-script-execution-go-test-subcomm
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-script-execution-go-test-subcommand condition:
+    (ert-test-failed
+     ((should (= (length ops) 1)) :form (= 0 1) :value nil))
+   FAILED  244/370  test-script-execution-go-test-subcommand (0.002616 sec) at config/experiments/bash-parser/test/test-corpus-script-execution.el:560
+Test test-script-execution-nested-python backtrace:
+  ert-fail(((should exec-op) :form exec-op :value nil))
+  (if (unwind-protect (setq value-1379 exec-op) (setq form-description
+  (let (form-description-1380) (if (unwind-protect (setq value-1379 ex
+  (let ((value-1379 (gensym "ert-form-evaluation-aborted-"))) (let (fo
+  (let ((exec-op (cl-find-if #'(lambda (op) (equal (plist-get op :file
+  (let* ((parsed (jf/bash-parse "bash -c 'python script.py'")) (ops (j
+  #f(lambda () [t] (let* ((parsed (jf/bash-parse "bash -c 'python scri
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-script-execution-nested-python :
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-script-execution-nested-python condition:
+    (ert-test-failed ((should exec-op) :form exec-op :value nil))
+   FAILED  245/370  test-script-execution-nested-python (0.002636 sec) at config/experiments/bash-parser/test/test-corpus-script-execution.el:789
+Test test-script-execution-nested-self-executing backtrace:
+  ert-fail(((should (eq (plist-get exec-op :indirect) t)) :form (eq ni
+  (if (unwind-protect (setq value-1405 (apply fn-1403 args-1404)) (set
+  (let (form-description-1407) (if (unwind-protect (setq value-1405 (a
+  (let ((value-1405 'ert-form-evaluation-aborted-1406)) (let (form-des
+  (let* ((fn-1403 #'eq) (args-1404 (condition-case err (list (plist-ge
+  (let ((exec-op (cl-find-if #'(lambda (op) (equal (plist-get op :file
+  (let* ((parsed (jf/bash-parse "sh -c './deploy.sh'")) (ops (jf/bash-
+  #f(lambda () [t] (let* ((parsed (jf/bash-parse "sh -c './deploy.sh'"
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-script-execution-nested-self-exe
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-script-execution-nested-self-executing condition:
+    (ert-test-failed
+     ((should (eq (plist-get exec-op :indirect) t)) :form (eq nil t)
+      :value nil))
+   FAILED  246/370  test-script-execution-nested-self-executing (0.002700 sec) at config/experiments/bash-parser/test/test-corpus-script-execution.el:803
+   passed  247/370  test-script-execution-node-interpreter (0.002602 sec)
+   passed  248/370  test-script-execution-node-with-flags (0.002184 sec)
+   passed  249/370  test-script-execution-not-self-executing (0.002166 sec)
+   passed  250/370  test-script-execution-pipeline (0.002303 sec)
+   passed  251/370  test-script-execution-python-interpreter (0.002158 sec)
+   passed  252/370  test-script-execution-python3-with-args (0.002146 sec)
+   passed  253/370  test-script-execution-script-args-files (0.002145 sec)
+   passed  254/370  test-script-execution-script-args-flags (0.002160 sec)
+   passed  255/370  test-script-execution-script-args-none (0.002149 sec)
+   passed  256/370  test-script-execution-script-args-self-executing (0.002170 sec)
+   passed  257/370  test-script-execution-self-executing-absolute (0.002146 sec)
+   passed  258/370  test-script-execution-self-executing-parent (0.002122 sec)
+   passed  259/370  test-script-execution-self-executing-relative (0.002196 sec)
+   passed  260/370  test-script-execution-sh-interpreter (0.002156 sec)
+   passed  261/370  test-script-execution-shell-builtin-dot (0.002138 sec)
+   passed  262/370  test-script-execution-shell-builtin-source (0.002138 sec)
+   passed  263/370  test-script-execution-variable-resolved (0.002169 sec)
+   passed  264/370  test-script-execution-variable-unresolved (0.002179 sec)
+   passed  265/370  test-script-execution-zsh-interpreter (0.002141 sec)
+   passed  266/370  test-security-all-operations-allowed (0.008495 sec)
+   passed  267/370  test-security-allow-command-matching-rules (0.002160 sec)
+   passed  268/370  test-security-allow-indirect-with-same-rules (0.002153 sec)
+   passed  269/370  test-security-apply-policy-to-indirect-operations (0.002164 sec)
+   passed  270/370  test-security-cd-violation-includes-guidance (0.000037 sec)
+   passed  271/370  test-security-cd-violation-with-working-directory-guidance (0.000033 sec)
+   passed  272/370  test-security-character-class-match (0.002148 sec)
+   passed  273/370  test-security-define-operation-specific-permissions (0.000033 sec)
+   passed  274/370  test-security-define-rule-with-multiple-patterns (0.000032 sec)
+   passed  275/370  test-security-define-rule-with-single-pattern (0.000037 sec)
+   passed  276/370  test-security-deny-command-violating-rules (0.002202 sec)
+   passed  277/370  test-security-double-star-multiple-segments (0.002164 sec)
+   passed  278/370  test-security-double-star-zero-segments (0.002148 sec)
+   passed  279/370  test-security-first-matching-rule-applies (0.002153 sec)
+   passed  280/370  test-security-indirect-operation-violation-details (0.002154 sec)
+   passed  281/370  test-security-low-confidence-operation (0.002136 sec)
+   passed  282/370  test-security-missing-variable-context (0.002158 sec)
+   passed  283/370  test-security-more-specific-rule-before-general (0.004248 sec)
+   passed  284/370  test-security-multiple-violations (0.002151 sec)
+   passed  285/370  test-security-no-match-different-directory (0.002145 sec)
+   passed  286/370  test-security-partial-resolution-rejection (0.002177 sec)
+   passed  287/370  test-security-provide-variable-context (0.002199 sec)
+   passed  288/370  test-security-read-allowed-write-denied (0.004265 sec)
+   passed  289/370  test-security-recursive-wildcard-match (0.002186 sec)
+   passed  290/370  test-security-reject-all-indirect-strict-mode (0.002150 sec)
+   passed  291/370  test-security-reject-cd-in-chain (0.000034 sec)
+   passed  292/370  test-security-reject-cd-with-options (0.000031 sec)
+   passed  293/370  test-security-reject-simple-cd-command (0.000032 sec)
+   passed  294/370  test-security-reject-unresolved-variables (0.002191 sec)
+   passed  295/370  test-security-resolve-variables-before-matching (0.002181 sec)
+   passed  296/370  test-security-result-structure-allowed (0.002166 sec)
+   passed  297/370  test-security-result-structure-denied (0.002174 sec)
+   passed  298/370  test-security-single-level-wildcard-match (0.002143 sec)
+   passed  299/370  test-security-single-star-one-level (0.002157 sec)
+   passed  300/370  test-security-single-star-rejects-multiple-levels (0.002133 sec)
+   passed  301/370  test-security-unhandled-operations-fails-safely (0.002130 sec)
+   passed  302/370  test-security-variable-violation-details (0.002151 sec)
+   passed  303/370  test-security-violation-with-matched-rule (0.002160 sec)
+   passed  304/370  test-security-violation-with-no-matched-rule (0.002145 sec)
+   passed  305/370  test-security-warn-indirect-policy (0.002175 sec)
+   passed  306/370  test-security-write-allowed-delete-denied (0.004285 sec)
+   passed  307/370  test-self-execution-absolute-path (0.002136 sec)
+   passed  308/370  test-self-execution-helper-function (0.000038 sec)
+   passed  309/370  test-self-execution-not-path-based (0.002140 sec)
+   passed  310/370  test-self-execution-parent-directory (0.002132 sec)
+   passed  311/370  test-self-execution-relative-path (0.002146 sec)
+   passed  312/370  test-semantics-bash-interpreter (0.000034 sec)
+   passed  313/370  test-semantics-core-command-chgrp (0.000032 sec)
+   passed  314/370  test-semantics-core-command-find (0.000032 sec)
+   passed  315/370  test-semantics-core-command-mkdir (0.000031 sec)
+   passed  316/370  test-semantics-core-command-rmdir (0.000031 sec)
+   passed  317/370  test-semantics-core-command-tee (0.000031 sec)
+   passed  318/370  test-semantics-core-command-touch (0.000030 sec)
+   passed  319/370  test-semantics-create-operation-classification (0.000029 sec)
+   passed  320/370  test-semantics-create-or-modify-operation-classification (0.000030 sec)
+   passed  321/370  test-semantics-delete-operation-classification (0.000030 sec)
+   passed  322/370  test-semantics-docker-cp-subcommand (0.000032 sec)
+   passed  323/370  test-semantics-dot-builtin (0.000032 sec)
+   passed  324/370  test-semantics-execute-operation-classification (0.000030 sec)
+   passed  325/370  test-semantics-flag-dependent-sed (0.000036 sec)
+Test test-semantics-flag-dependent-tar backtrace:
+  ert-fail(((should (eq (plist-get result :operations) :flag-dependent
+  (if (unwind-protect (setq value-541 (apply fn-539 args-540)) (setq f
+  (let (form-description-543) (if (unwind-protect (setq value-541 (app
+  (let ((value-541 'ert-form-evaluation-aborted-542)) (let (form-descr
+  (let* ((fn-539 #'eq) (args-540 (condition-case err (list (plist-get 
+  (let ((result (jf/bash-lookup-command-semantics "tar"))) (let ((valu
+  #f(lambda () [t] (let ((result (jf/bash-lookup-command-semantics "ta
+  #f(compiled-function () #<bytecode 0x15f9932a8cfbaee2>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x15f9932a8cfbaee2
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-semantics-flag-dependent-tar :do
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/te
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-semantics-flag-dependent-tar condition:
+    (ert-test-failed
+     ((should (eq (plist-get result :operations) :flag-dependent)) :form
+      (eq :custom :flag-dependent) :value nil))
+   FAILED  326/370  test-semantics-flag-dependent-tar (0.000053 sec) at config/experiments/bash-parser/test/test-command-semantics.el:315
+   passed  327/370  test-semantics-git-add-subcommand (0.000077 sec)
+   passed  328/370  test-semantics-git-checkout-subcommand (0.000046 sec)
+   passed  329/370  test-semantics-git-diff-subcommand (0.000034 sec)
+   passed  330/370  test-semantics-git-rm-subcommand (0.000034 sec)
+   passed  331/370  test-semantics-go-build-subcommand (0.000033 sec)
+   passed  332/370  test-semantics-go-run-subcommand (0.000035 sec)
+   passed  333/370  test-semantics-go-test-subcommand (0.000036 sec)
+   passed  334/370  test-semantics-last-argument-specification (0.000031 sec)
+   passed  335/370  test-semantics-lookup-chmod-skip-rules (0.000034 sec)
+   passed  336/370  test-semantics-lookup-chown-skip-rules (0.000030 sec)
+   passed  337/370  test-semantics-lookup-command-with-skip-rules (0.000042 sec)
+   passed  338/370  test-semantics-lookup-egrep-skip-rules (0.000035 sec)
+   passed  339/370  test-semantics-lookup-head-command (0.000037 sec)
+   passed  340/370  test-semantics-lookup-less-command (0.000029 sec)
+   passed  341/370  test-semantics-lookup-simple-read-command (0.000036 sec)
+   passed  342/370  test-semantics-lookup-tail-command (0.000034 sec)
+   passed  343/370  test-semantics-lookup-unknown-command (0.000033 sec)
+   passed  344/370  test-semantics-lookup-wc-command (0.000032 sec)
+   passed  345/370  test-semantics-modify-operation-classification (0.000033 sec)
+   passed  346/370  test-semantics-multi-operation-cp (0.000037 sec)
+   passed  347/370  test-semantics-multi-operation-ln (0.000034 sec)
+   passed  348/370  test-semantics-multi-operation-mv (0.000035 sec)
+   passed  349/370  test-semantics-named-args-dd (0.000036 sec)
+   passed  350/370  test-semantics-node-interpreter (0.000028 sec)
+   passed  351/370  test-semantics-python-interpreter (0.000033 sec)
+   passed  352/370  test-semantics-python3-interpreter (0.000029 sec)
+   passed  353/370  test-semantics-range-specification (0.000028 sec)
+   passed  354/370  test-semantics-read-operation-classification (0.000029 sec)
+   passed  355/370  test-semantics-sh-interpreter (0.000029 sec)
+   passed  356/370  test-semantics-single-index-specification (0.000033 sec)
+   passed  357/370  test-semantics-source-builtin (0.000034 sec)
+   passed  358/370  test-semantics-write-operation-classification (0.000031 sec)
+   passed  359/370  test-semantics-zsh-interpreter (0.000030 sec)
+   passed  360/370  test-variable-assignment-and-usage-in-chain (0.002620 sec)
+   passed  361/370  test-variable-assignment-without-usage (0.002266 sec)
+   passed  362/370  test-variable-empty-variable-context (0.002184 sec)
+   passed  363/370  test-variable-multiple-assignments (0.002234 sec)
+   passed  364/370  test-variable-multiple-variables-in-path (0.002200 sec)
+   passed  365/370  test-variable-partial-resolution (0.002178 sec)
+   passed  366/370  test-variable-provide-variable-context (0.002272 sec)
+   passed  367/370  test-variable-resolve-declared-variable (0.002174 sec)
+   passed  368/370  test-variable-simple-variable-reference (0.002142 sec)
+   passed  369/370  test-variable-unresolved-variable (0.002149 sec)
+   passed  370/370  test-variable-variable-with-braces (0.002152 sec)
+
+Ran 370 tests, 343 results as expected, 27 unexpected (2026-03-04 19:16:50+0100, 2.109559 sec)
+
+27 unexpected results:
+   FAILED  jf/bash-parser-test-chain-002
+   FAILED  jf/bash-parser-test-chain-003
+   FAILED  jf/bash-parser-test-chain-004
+   FAILED  jf/bash-parser-test-complex-001
+   FAILED  jf/bash-parser-test-find-001
+   FAILED  jf/bash-parser-test-find-002
+   FAILED  jf/bash-parser-test-find-003
+   FAILED  jf/bash-parser-test-pipeline-001
+   FAILED  jf/bash-parser-test-pipeline-002
+   FAILED  jf/bash-parser-test-pipeline-003
+   FAILED  test-cmdsub-empty
+   FAILED  test-cmdsub-escaped
+   FAILED  test-cmdsub-for-loop-basename
+   FAILED  test-cmdsub-for-loop-find
+   FAILED  test-cmdsub-in-arithmetic
+   FAILED  test-cmdsub-in-test-conditional
+   FAILED  test-cmdsub-nested-backticks
+   FAILED  test-corpus-pipeline-001
+   FAILED  test-corpus-pipeline-002
+   FAILED  test-corpus-variable-chain-003
+   FAILED  test-script-execution-corpus
+   FAILED  test-script-execution-go-build-not-execute
+   FAILED  test-script-execution-go-run-subcommand
+   FAILED  test-script-execution-go-test-subcommand
+   FAILED  test-script-execution-nested-python
+   FAILED  test-script-execution-nested-self-executing
+   FAILED  test-semantics-flag-dependent-tar
+
+make: *** [emacs-test-eval] Error 1
