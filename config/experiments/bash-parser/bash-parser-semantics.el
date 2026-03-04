@@ -27,9 +27,10 @@
                         (:source :positional-args :index -1 :operation :write))))
     (mv . (:operations ((:source :positional-args :indices (0 . -2) :operation :delete)
                         (:source :positional-args :index -1 :operation :write))))
-    (tar . (:operations :flag-dependent
-            :flag-handlers ((("-x" "--extract" "--get") . ((:source :positional-args :operation :write)))
-                           (("-c" "--create") . ((:source :positional-args :operation :read))))))
+    (tar . (:operations :custom
+            :handler jf/bash--extract-tar-operations))
+    (zip . (:operations :custom
+            :handler jf/bash--extract-zip-operations))
     (sed . (:operations :flag-dependent
             :flag-handlers ((("-i" "--in-place") . ((:source :positional-args :operation :modify :skip-indices (0))))
                            (() . ((:source :positional-args :operation :read :skip-indices (0)))))))
@@ -228,6 +229,148 @@ Returns list of operation plists."
                            (when unresolved-vars
                              (list :unresolved unresolved-vars)))
                     operations))))))
+
+    (nreverse operations)))
+
+(defun jf/bash--extract-tar-operations (parsed-command var-context)
+  "Custom extraction for tar command operations.
+
+PARSED-COMMAND is the parsed command structure.
+VAR-CONTEXT is the variable resolution context.
+
+Tar has flag-dependent behavior:
+- -c (create): reads source files, writes archive
+- -x (extract): reads archive
+- -f FILE: next positional arg is the archive file
+- Other args are source files/directories (for create)
+
+Flags are often bundled: -czf = -c -z -f
+
+Returns list of operation plists."
+  (let* ((positional-args (plist-get parsed-command :positional-args))
+         (flags (plist-get parsed-command :flags))
+         (command-name (plist-get parsed-command :command-name))
+         (operations nil))
+
+    (when positional-args
+      ;; Determine operation mode from flags
+      (let* ((all-flags (string-join flags ""))
+             (is-create (or (string-match-p "c" all-flags)
+                           (member "--create" flags)))
+             (is-extract (or (string-match-p "x" all-flags)
+                            (member "--extract" flags)
+                            (member "--get" flags)))
+             (has-file-flag (or (string-match-p "f" all-flags)
+                               (member "--file" flags)))
+             ;; For tar with -f, first positional arg is archive file
+             (archive-file (when has-file-flag (car positional-args)))
+             (source-files (when has-file-flag (cdr positional-args))))
+
+        ;; Create mode: read sources, write archive
+        (when (and is-create archive-file)
+          ;; Write the archive file
+          (let* ((resolved-path (jf/bash--resolve-path-variables archive-file var-context))
+                 (final-path (if (stringp resolved-path)
+                                resolved-path
+                              (plist-get resolved-path :path)))
+                 (unresolved-vars (when (listp resolved-path)
+                                   (plist-get resolved-path :unresolved))))
+            (push (append (list :file final-path
+                               :operation :write
+                               :confidence :high
+                               :source :positional-arg
+                               :command command-name)
+                         (when unresolved-vars
+                           (list :unresolved unresolved-vars)))
+                  operations))
+
+          ;; Read the source files
+          (dolist (source source-files)
+            (let* ((resolved-path (jf/bash--resolve-path-variables source var-context))
+                   (final-path (if (stringp resolved-path)
+                                  resolved-path
+                                (plist-get resolved-path :path)))
+                   (unresolved-vars (when (listp resolved-path)
+                                     (plist-get resolved-path :unresolved))))
+              (push (append (list :file final-path
+                                 :operation :read
+                                 :confidence :high
+                                 :source :positional-arg
+                                 :command command-name)
+                           (when unresolved-vars
+                             (list :unresolved unresolved-vars)))
+                    operations))))
+
+        ;; Extract mode: read archive
+        (when (and is-extract archive-file)
+          (let* ((resolved-path (jf/bash--resolve-path-variables archive-file var-context))
+                 (final-path (if (stringp resolved-path)
+                                resolved-path
+                              (plist-get resolved-path :path)))
+                 (unresolved-vars (when (listp resolved-path)
+                                   (plist-get resolved-path :unresolved))))
+            (push (append (list :file final-path
+                               :operation :read
+                               :confidence :high
+                               :source :positional-arg
+                               :command command-name)
+                         (when unresolved-vars
+                           (list :unresolved unresolved-vars)))
+                  operations)))))
+
+    (nreverse operations)))
+
+(defun jf/bash--extract-zip-operations (parsed-command var-context)
+  "Custom extraction for zip command operations.
+
+PARSED-COMMAND is the parsed command structure.
+VAR-CONTEXT is the variable resolution context.
+
+Zip structure:
+- First positional arg is the zip file (write)
+- Remaining args are source files/directories (read)
+
+Returns list of operation plists."
+  (let* ((positional-args (plist-get parsed-command :positional-args))
+         (command-name (plist-get parsed-command :command-name))
+         (operations nil))
+
+    (when positional-args
+      (let ((zip-file (car positional-args))
+            (source-files (cdr positional-args)))
+
+        ;; Write the zip file
+        (let* ((resolved-path (jf/bash--resolve-path-variables zip-file var-context))
+               (final-path (if (stringp resolved-path)
+                              resolved-path
+                            (plist-get resolved-path :path)))
+               (unresolved-vars (when (listp resolved-path)
+                                 (plist-get resolved-path :unresolved))))
+          (push (append (list :file final-path
+                             :operation :write
+                             :confidence :high
+                             :source :positional-arg
+                             :command command-name)
+                       (when unresolved-vars
+                         (list :unresolved unresolved-vars)))
+                operations))
+
+        ;; Read the source files
+        (dolist (source source-files)
+          (let* ((resolved-path (jf/bash--resolve-path-variables source var-context))
+                 (final-path (if (stringp resolved-path)
+                                resolved-path
+                              (plist-get resolved-path :path)))
+                 (unresolved-vars (when (listp resolved-path)
+                                   (plist-get resolved-path :unresolved))))
+            (push (append (list :file final-path
+                               :operation :read
+                               :confidence :high
+                               :source :positional-arg
+                               :command command-name)
+                         (when unresolved-vars
+                           (list :unresolved unresolved-vars)))
+                  operations)))))
 
     (nreverse operations)))
 
