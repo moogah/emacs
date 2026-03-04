@@ -195,20 +195,63 @@ Recursively searches all descendants."
   "Handle conditional (if/then/else) from ROOT-NODE.
 
 Extracts test condition, then branch, and else branch as text strings
-while the buffer is still alive. Returns structured conditional data."
+while the buffer is still alive. Returns structured conditional data.
+
+Bash tree-sitter structure for if_statement:
+  [0] 'if' keyword
+  [1] condition (with field name 'condition')
+  [2] ';' or newline
+  [3] 'then' keyword
+  [4..n] then-branch commands
+  [...] optional 'elif' or 'else' keywords with branches
+  [last] 'fi' keyword"
   (let* ((if-node (jf/bash-parse--find-node-by-type root-node "if_statement"))
          (condition-node (when if-node
                           (treesit-node-child-by-field-name if-node "condition")))
-         (then-node (when if-node
-                     (treesit-node-child-by-field-name if-node "consequence")))
-         (else-node (when if-node
-                     (treesit-node-child-by-field-name if-node "alternative")))
          (condition-text (when condition-node
                           (treesit-node-text condition-node t)))
-         (then-text (when then-node
-                     (treesit-node-text then-node t)))
-         (else-text (when else-node
-                     (treesit-node-text else-node t))))
+         (then-text nil)
+         (else-text nil))
+
+    ;; Extract then and else branches
+    (when if-node
+      (let ((child-count (treesit-node-child-count if-node))
+            (collecting-then nil)
+            (then-nodes '()))
+        ;; Collect then-branch nodes (between 'then' and 'else_clause'/'elif_clause'/'fi')
+        (dotimes (i child-count)
+          (let* ((child (treesit-node-child if-node i))
+                 (child-type (treesit-node-type child)))
+            (cond
+             ;; Start collecting then branch after 'then' keyword
+             ((string= child-type "then")
+              (setq collecting-then t))
+             ;; Stop at else_clause, elif_clause, or fi
+             ((or (string= child-type "else_clause")
+                  (string= child-type "elif_clause")
+                  (string= child-type "fi"))
+              (setq collecting-then nil)
+              ;; Extract else branch text from else_clause node
+              (when (string= child-type "else_clause")
+                ;; else_clause contains 'else' keyword + commands
+                ;; Extract text after the 'else' keyword
+                (let ((else-clause-text (treesit-node-text child t)))
+                  ;; Strip leading 'else' keyword and whitespace
+                  (when (string-match "^else\\s-*\\(.*\\)$" else-clause-text)
+                    (setq else-text (string-trim (match-string 1 else-clause-text)))
+                    ;; Remove trailing semicolon if present
+                    (when (string-suffix-p ";" else-text)
+                      (setq else-text (substring else-text 0 -1)))))))
+             ;; Collect then-branch command nodes (skip semicolons and keywords)
+             (collecting-then
+              (unless (member child-type '(";" "if" "then"))
+                (push child then-nodes))))))
+
+        ;; Convert then-branch node list to text
+        (when then-nodes
+          (setq then-text (mapconcat (lambda (node) (treesit-node-text node t))
+                                    (nreverse then-nodes)
+                                    "; ")))))
 
     (list :success t
           :type :conditional

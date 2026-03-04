@@ -93,6 +93,8 @@ infinite loops in pathological cases."
          (jf/bash-parse--handle-pipeline root-node))
         (:list
          (jf/bash-parse--handle-list root-node))
+        (:conditional
+         (jf/bash-parse--handle-conditional root-node))
         (:simple
          (jf/bash-parse--handle-simple-command root-node))
         (_
@@ -105,13 +107,15 @@ infinite loops in pathological cases."
 #+begin_src emacs-lisp
 (defun jf/bash-parse--detect-structure-type (root-node)
   "Detect the structure type from ROOT-NODE.
-Returns :pipeline, :list, or :simple.
+Returns :pipeline, :list, :conditional, or :simple.
 Only checks direct children to avoid detecting nested structures inside command substitutions."
   (let ((pipeline-node (jf/bash-parse--find-direct-child-by-type root-node "pipeline"))
-        (list-node (jf/bash-parse--find-direct-child-by-type root-node "list")))
+        (list-node (jf/bash-parse--find-direct-child-by-type root-node "list"))
+        (if-node (jf/bash-parse--find-direct-child-by-type root-node "if_statement")))
     (cond
      (pipeline-node :pipeline)
      (list-node :list)
+     (if-node :conditional)
      ;; Check if program has multiple command children (semicolon-separated)
      ((> (jf/bash-parse--count-command-children root-node) 1) :list)
      (t :simple))))
@@ -239,6 +243,80 @@ Recursively searches all descendants."
                       :ast root-node)
                 ;; Flatten first command's fields to top level
                 parsed-cmd)))))
+#+end_src
+
+** Conditional Handler
+
+#+begin_src emacs-lisp
+(defun jf/bash-parse--handle-conditional (root-node)
+  "Handle conditional (if/then/else) from ROOT-NODE.
+
+Extracts test condition, then branch, and else branch as text strings
+while the buffer is still alive. Returns structured conditional data.
+
+Bash tree-sitter structure for if_statement:
+  [0] 'if' keyword
+  [1] condition (with field name 'condition')
+  [2] ';' or newline
+  [3] 'then' keyword
+  [4..n] then-branch commands
+  [...] optional 'elif' or 'else' keywords with branches
+  [last] 'fi' keyword"
+  (let* ((if-node (jf/bash-parse--find-node-by-type root-node "if_statement"))
+         (condition-node (when if-node
+                          (treesit-node-child-by-field-name if-node "condition")))
+         (condition-text (when condition-node
+                          (treesit-node-text condition-node t)))
+         (then-text nil)
+         (else-text nil))
+
+    ;; Extract then and else branches
+    (when if-node
+      (let ((child-count (treesit-node-child-count if-node))
+            (collecting-then nil)
+            (then-nodes '()))
+        ;; Collect then-branch nodes (between 'then' and 'else_clause'/'elif_clause'/'fi')
+        (dotimes (i child-count)
+          (let* ((child (treesit-node-child if-node i))
+                 (child-type (treesit-node-type child)))
+            (cond
+             ;; Start collecting then branch after 'then' keyword
+             ((string= child-type "then")
+              (setq collecting-then t))
+             ;; Stop at else_clause, elif_clause, or fi
+             ((or (string= child-type "else_clause")
+                  (string= child-type "elif_clause")
+                  (string= child-type "fi"))
+              (setq collecting-then nil)
+              ;; Extract else branch text from else_clause node
+              (when (string= child-type "else_clause")
+                ;; else_clause contains 'else' keyword + commands
+                ;; Extract text after the 'else' keyword
+                (let ((else-clause-text (treesit-node-text child t)))
+                  ;; Strip leading 'else' keyword and whitespace
+                  (when (string-match "^else\\s-*\\(.*\\)$" else-clause-text)
+                    (setq else-text (string-trim (match-string 1 else-clause-text)))
+                    ;; Remove trailing semicolon if present
+                    (when (string-suffix-p ";" else-text)
+                      (setq else-text (substring else-text 0 -1)))))))
+             ;; Collect then-branch command nodes (skip semicolons and keywords)
+             (collecting-then
+              (unless (member child-type '(";" "if" "then"))
+                (push child then-nodes))))))
+
+        ;; Convert then-branch node list to text
+        (when then-nodes
+          (setq then-text (mapconcat (lambda (node) (treesit-node-text node t))
+                                    (nreverse then-nodes)
+                                    "; ")))))
+
+    (list :success t
+          :type :conditional
+          :command-name "if"
+          :condition-text condition-text
+          :then-text then-text
+          :else-text else-text
+          :ast root-node)))
 #+end_src
 
 ** Get All Command Nodes
