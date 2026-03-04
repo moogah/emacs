@@ -187,7 +187,9 @@ Flag-dependent command:
 Subcommand-based command:
   (:operations :complex
    :subcommand-handlers ((add . ((:source :positional-args :operation :read)))))"
-  (when command-name
+  (when (and command-name
+             ;; Don't try to intern assignment strings like "DIR=/tmp"
+             (not (string-match-p "=" command-name)))
     (alist-get (intern command-name) jf/bash-command-file-semantics)))
 #+end_src
 

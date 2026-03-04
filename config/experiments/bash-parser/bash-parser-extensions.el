@@ -119,7 +119,7 @@ Examples:
          (result nil))
 
     ;; Look up command in injection patterns database
-    (when cmd-name
+    (when (and cmd-name (not (string-match-p "=" cmd-name)))
       (setq pattern (alist-get (intern cmd-name) jf/bash-command-injection-patterns)))
 
     ;; If pattern found, check if conditions are met

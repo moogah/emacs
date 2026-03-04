@@ -534,8 +534,9 @@ Returns command structure with optional :redirections and :command-substitutions
              (args-start (if subcommand (cdr remaining-words) remaining-words)))
 
       ;; Check for wrapper commands (sudo, env, time, etc.)
-      (if-let ((wrapper-spec (alist-get (intern command-name)
-                                        jf/bash-parser-wrapper-commands)))
+      (if-let ((wrapper-spec (and (not (string-match-p "=" command-name))
+                                  (alist-get (intern command-name)
+                                             jf/bash-parser-wrapper-commands))))
           (let ((result (jf/bash-parse--parse-wrapper-command command-name wrapper-spec remaining-words redirections)))
             (when command-substitutions
               (setq result (plist-put result :command-substitutions command-substitutions)))
@@ -762,8 +763,9 @@ COMMAND-NAME is the base command.
 SUBCOMMAND is the subcommand (or nil).
 FLAGS is list of flag strings.
 Returns t if dangerous, nil otherwise."
-  (when-let ((patterns (alist-get (intern command-name)
-                                   jf/bash-parser-dangerous-patterns)))
+  (when-let ((patterns (and (not (string-match-p "=" command-name))
+                            (alist-get (intern command-name)
+                                       jf/bash-parser-dangerous-patterns))))
     (catch 'dangerous
       (dolist (pattern patterns)
         (let ((pattern-subcommand (plist-get pattern :subcommand))

@@ -896,7 +896,9 @@ Recognized patterns:
   - Modify operations: chmod, chown, chgrp, sed -i
 
 Unknown commands return nil."
-  (when command-name
+  (when (and command-name
+             ;; Don't try to intern assignment strings like "DIR=/tmp"
+             (not (string-match-p "=" command-name)))
     (let ((cmd (intern command-name)))
       (cond
        ;; Read operations

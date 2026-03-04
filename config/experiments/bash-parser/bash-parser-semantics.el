@@ -16,34 +16,22 @@
     (file . (:operations ((:source :positional-args :operation :read))))
     (stat . (:operations ((:source :positional-args :operation :read))))
     (ls . (:operations :custom
-           :handler jf/bash--extract-ls-operations
-           :produces-file-list t
-           :pattern-source :positional-args
-           :search-scope-arg :implicit))
+           :handler jf/bash--extract-ls-operations))
     (grep . (:operations :flag-dependent
              :flag-handlers ((("-l" "--files-with-matches")
                              . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
                             (()
-                             . ((:source :positional-args :operation :read :skip-indices (0)))))
-             :produces-file-list t
-             :pattern-source :positional-args
-             :pattern-requires-flag ("-l" "--files-with-matches")))
+                             . ((:source :positional-args :operation :read :skip-indices (0)))))))
     (egrep . (:operations :flag-dependent
               :flag-handlers ((("-l" "--files-with-matches")
                               . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
                              (()
-                              . ((:source :positional-args :operation :read :skip-indices (0)))))
-              :produces-file-list t
-              :pattern-source :positional-args
-              :pattern-requires-flag ("-l" "--files-with-matches")))
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))))
     (fgrep . (:operations :flag-dependent
               :flag-handlers ((("-l" "--files-with-matches")
                               . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
                              (()
-                              . ((:source :positional-args :operation :read :skip-indices (0)))))
-              :produces-file-list t
-              :pattern-source :positional-args
-              :pattern-requires-flag ("-l" "--files-with-matches")))
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))))
     (touch . (:operations ((:source :positional-args :operation :create-or-modify))))
     (mkdir . (:operations ((:source :positional-args :operation :create))))
     (rm . (:operations ((:source :positional-args :operation :delete))))
@@ -65,10 +53,7 @@
             :flag-handlers ((("-i" "--in-place") . ((:source :positional-args :operation :modify :skip-indices (0))))
                            (() . ((:source :positional-args :operation :read :skip-indices (0)))))))
     (find . (:operations :custom
-             :handler jf/bash--extract-find-operations
-             :produces-file-list t
-             :pattern-source :flag-arg
-             :search-scope-arg :first-positional))
+             :handler jf/bash--extract-find-operations))
     (tee . (:operations ((:source :positional-args :operation :write))))
     (dd . (:operations ((:source :named-args :names ("if") :operation :read)
                         (:source :named-args :names ("of") :operation :write))))
@@ -80,11 +65,7 @@
                                  (mv . ((:source :positional-args :indices (0 . -2) :operation :delete)
                                         (:source :positional-args :index -1 :operation :write)))
                                  (diff . ((:source :positional-args :operation :read)))
-                                 (show . ((:source :positional-args :operation :read)))
-                                 (ls-files . (:operations ((:source :positional-args :operation :match-pattern))
-                                              :produces-file-list t
-                                              :pattern-source :positional-args
-                                              :search-scope-arg :implicit)))))
+                                 (show . ((:source :positional-args :operation :read))))))
     (docker . (:operations :complex
                :subcommand-handlers ((cp . ((:source :positional-args :indices (0 . -2) :operation :read)
                                             (:source :positional-args :index -1 :operation :write))))))
@@ -113,12 +94,6 @@ interacts with files:
 
 Simple commands:
   (:operations ((operation-spec) ...))
-
-Pattern-producing commands (NEW):
-  (:operations ((operation-spec) ...)
-   :produces-file-list t
-   :pattern-source :flag-arg | :positional-args | :implicit
-   :search-scope-arg :first-positional | :implicit)
 
 Flag-dependent commands (operation depends on flags):
   (:operations :flag-dependent
@@ -178,7 +153,9 @@ Flag-dependent command:
 Subcommand-based command:
   (:operations :complex
    :subcommand-handlers ((add . ((:source :positional-args :operation :read)))))"
-  (when command-name
+  (when (and command-name
+             ;; Don't try to intern assignment strings like "DIR=/tmp"
+             (not (string-match-p "=" command-name)))
     (alist-get (intern command-name) jf/bash-command-file-semantics)))
 
 (defun jf/bash--extract-find-operations (parsed-command var-context)
@@ -485,39 +462,6 @@ Returns list of operation plists."
                   operations)))))
 
     (nreverse operations)))
-
-(defun jf/bash--command-produces-file-list-p (command-name &optional subcommand flags)
-  "Return t if COMMAND-NAME produces a file list.
-
-For complex commands, SUBCOMMAND is required.
-For flag-dependent commands, FLAGS may affect behavior.
-
-Examples:
-  (jf/bash--command-produces-file-list-p \"find\") => t
-  (jf/bash--command-produces-file-list-p \"ls\") => t
-  (jf/bash--command-produces-file-list-p \"grep\" nil '(\"-l\")) => t
-  (jf/bash--command-produces-file-list-p \"grep\" nil '(\"-n\")) => nil
-  (jf/bash--command-produces-file-list-p \"git\" \"ls-files\") => t
-  (jf/bash--command-produces-file-list-p \"git\" \"status\") => nil"
-  (when-let ((semantics (jf/bash-lookup-command-semantics command-name)))
-    (let ((produces (plist-get semantics :produces-file-list)))
-      (cond
-       ;; Complex command - check subcommand
-       ((eq (plist-get semantics :operations) :complex)
-        (when subcommand
-          (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
-            (when-let ((subcommand-spec (cdr (assoc (intern subcommand) subcommand-handlers))))
-              (plist-get subcommand-spec :produces-file-list)))))
-
-       ;; Flag-dependent command - check if required flag present
-       ((eq (plist-get semantics :operations) :flag-dependent)
-        (when-let ((required-flags (plist-get semantics :pattern-requires-flag)))
-          (seq-some (lambda (flag) (member flag flags)) required-flags)))
-
-       ;; Simple command with :produces-file-list t
-       ((eq produces t) t)
-
-       (t nil)))))
 
 (provide 'bash-parser-semantics)
 ;;; bash-parser-semantics.el ends here
