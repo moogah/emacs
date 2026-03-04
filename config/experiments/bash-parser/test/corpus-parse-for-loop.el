@@ -2,6 +2,10 @@
 
 ;; Test corpus for for-loop patterns with various iteration lists, bodies, and contexts
 ;; Covers: basic iteration, expansions, command substitution, nested patterns, and real-world examples
+;;
+;; CORPUS REFINEMENT (2026-03-04): Removed 2 test cases with zero file impact
+;; Goal: Focus on loops that perform file operations or iterate over file-related lists
+;; Removed: Pure echo loops with no file context
 
 (defvar jf/bash-for-loop-corpus
   '(
@@ -9,33 +13,19 @@
     ;; TIER 1: SIMPLE FOR-LOOPS (pedagogical)
     ;; ============================================================
 
-    (:id "forloop-simple-001"
-     :category "simple"
-     :command "for x in a b c; do echo $x; done"
-     :expect (:command-name "for"
-              :loop-variable "x"
-              :loop-list ("a" "b" "c")
-              :loop-body "echo $x")
-     :notes "Simplest case: iterate over literal list with single command")
-
-    (:id "forloop-simple-002"
-     :category "simple"
-     :command "for i in {1..5}; do echo $i; done"
-     :expect (:command-name "for"
-              :loop-variable "i"
-              :loop-list ("{1..5}")
-              :loop-body "echo $i"
-              :brace-expansion t)
-     :notes "Number range using brace expansion")
+    ;; REMOVED CASES (non-file-impacting):
+    ;; - forloop-simple-001: for x in a b c; do echo $x; done - pure output, no file context
+    ;; - forloop-simple-002: for i in {1..5}; do echo $i; done - pure output, no file context
 
     (:id "forloop-simple-003"
      :category "simple"
+     :file-ops-impact :direct  ; cat reads each file
      :command "for file in file1 file2 file3; do cat $file; done"
      :expect (:command-name "for"
               :loop-variable "file"
               :loop-list ("file1" "file2" "file3")
               :loop-body "cat $file")
-     :notes "File list iteration with simple body command")
+     :notes "File list iteration with simple body command - cat reads files")
 
     (:id "forloop-simple-004"
      :category "simple"
@@ -48,12 +38,13 @@
 
     (:id "forloop-simple-005"
      :category "simple"
+     :file-ops-impact :direct  ; ls reads directory structure
      :command "for dir in src test lib; do ls $dir; done"
      :expect (:command-name "for"
               :loop-variable "dir"
               :loop-list ("src" "test" "lib")
               :loop-body "ls $dir")
-     :notes "Directory iteration with ls command")
+     :notes "Directory iteration with ls command - reads directory contents")
 
     ;; ============================================================
     ;; TIER 2: FOR-LOOPS WITH EXPANSIONS
@@ -333,9 +324,15 @@
     )
   "Test corpus for for-loop patterns.
 
-Total: 26 test cases
-- 5 simple patterns (basic iteration with literal lists)
-- 8 expansion patterns (globs, brace expansion, command substitution)
+Total: 24 test cases (removed 2 non-file-impacting cases)
+
+REMOVED CASES (non-file-impacting):
+- forloop-simple-001: for x in a b c; do echo $x; done - pure output, no file context
+- forloop-simple-002: for i in {1..5}; do echo $i; done - pure output, no file context
+
+Current distribution:
+- 3 simple patterns (kept: file iteration with cat, ls on directories)
+- 8 expansion patterns (globs, brace expansion, command substitution - all with file context)
 - 8 complex real-world patterns (extracted from research data)
 - 3 nested/compound patterns (multi-command bodies, nested substitution)
 - 2 edge cases (empty list, single item, loop control)

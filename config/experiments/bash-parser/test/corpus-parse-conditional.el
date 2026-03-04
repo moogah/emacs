@@ -2,6 +2,10 @@
 
 ;; Test corpus for conditional patterns (if/then/else, test operators, [[ ]] syntax)
 ;; Covers: simple conditionals, test operators, complex real-world patterns, and edge cases
+;;
+;; CORPUS REFINEMENT (2026-03-04): REVIEWED - Already refined (24→16 tests)
+;; Previous refinement removed 8 string/numeric/arithmetic tests with no file impact
+;; All remaining tests check file properties (-f, -d, -e, -r, -w, -x) or use file-reading commands
 
 (defvar jf/bash-conditional-corpus
   '(

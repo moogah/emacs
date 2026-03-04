@@ -2,6 +2,10 @@
 
 ;; Test corpus for heredoc patterns with various delimiters, quoting, and contexts
 ;; Covers: basic heredoc, quoted delimiters, indented heredoc, in contexts, and complex patterns
+;;
+;; CORPUS REFINEMENT (2026-03-04): REVIEWED - Already refined (25→23 tests)
+;; Previous refinement removed 2 edge cases (empty delimiter, special chars in delimiter)
+;; All remaining tests either create files (redirects), feed commands, or demonstrate git commit patterns
 
 (defvar jf/bash-heredoc-corpus
   '(

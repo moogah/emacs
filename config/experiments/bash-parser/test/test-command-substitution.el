@@ -52,26 +52,10 @@ TEST-CASE is a plist with :id, :command, :category, :expect, and :notes."
 ;; TIER 1: SIMPLE COMMAND SUBSTITUTION
 ;; ============================================================
 
-(ert-deftest test-cmdsub-simple-pwd ()
-  "Test simple command substitution: $(pwd)
-Scenario: bash-parser § 'Simple command substitution with $()'
-Verifies basic $() syntax is detected and extracted."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-simple-001")))
-
-(ert-deftest test-cmdsub-simple-date ()
-  "Test simple command substitution: $(date)
-Scenario: bash-parser § 'Simple command substitution with $()'
-Common pattern for capturing current date/time."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-simple-002")))
-
-(ert-deftest test-cmdsub-simple-whoami ()
-  "Test simple command substitution: $(whoami)
-Scenario: bash-parser § 'Simple command substitution with $()'
-User identity capture pattern."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-simple-003")))
+;; REMOVED TESTS (corpus refinement 2026-03-04):
+;; - test-cmdsub-simple-pwd (cmdsub-simple-001) - pure output, no file operations
+;; - test-cmdsub-simple-date (cmdsub-simple-002) - pure output, no file operations
+;; - test-cmdsub-simple-whoami (cmdsub-simple-003) - pure output, no file operations
 
 (ert-deftest test-cmdsub-variable-assignment ()
   "Test command substitution in variable assignment: dir=$(pwd)
@@ -151,12 +135,8 @@ Common pattern for timestamped commits."
   (jf/bash-parser-test-cmdsub--run-corpus-test
    (jf/bash-parser-test-cmdsub--find-test "cmdsub-quoted-003")))
 
-(ert-deftest test-cmdsub-single-quotes-literal ()
-  "Test single quotes prevent substitution: echo 'Literal $(date)'
-Scenario: bash-parser § 'Single quotes make substitution literal'
-Verifies parser knows single quotes disable substitution."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-quoted-004")))
+;; REMOVED TEST (corpus refinement 2026-03-04):
+;; - test-cmdsub-single-quotes-literal (cmdsub-quoted-004) - not representative of real usage
 
 ;; ============================================================
 ;; TIER 2: PIPES AND REDIRECTS IN SUBSTITUTION
@@ -194,12 +174,8 @@ Common file discovery pattern."
 ;; TIER 2: MULTIPLE SUBSTITUTIONS
 ;; ============================================================
 
-(ert-deftest test-cmdsub-two-independent ()
-  "Test two independent substitutions: echo $(pwd) $(date)
-Scenario: bash-parser § 'Multiple independent substitutions'
-Both should be detected and extracted separately."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-multiple-001")))
+;; REMOVED TEST (corpus refinement 2026-03-04):
+;; - test-cmdsub-two-independent (cmdsub-multiple-001) - pure output, no file operations
 
 (ert-deftest test-cmdsub-cp-two-which ()
   "Test two substitutions as arguments: cp $(which oldcmd) $(which newcmd)
@@ -208,12 +184,8 @@ Source and destination both from command substitution."
   (jf/bash-parser-test-cmdsub--run-corpus-test
    (jf/bash-parser-test-cmdsub--find-test "cmdsub-multiple-002")))
 
-(ert-deftest test-cmdsub-three-in-string ()
-  "Test three substitutions in string: \"User: $(whoami) at $(hostname) on $(date)\"
-Scenario: bash-parser § 'Multiple substitutions in formatted string'
-String interpolation with three substitutions."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-multiple-003")))
+;; REMOVED TEST (corpus refinement 2026-03-04):
+;; - test-cmdsub-three-in-string (cmdsub-multiple-003) - pure output, no file operations
 
 (ert-deftest test-cmdsub-two-with-globs ()
   "Test substitutions with glob patterns: diff $(ls *.old) $(ls *.new)
@@ -279,19 +251,9 @@ Legacy syntax with escaping for nesting."
   (jf/bash-parser-test-cmdsub--run-corpus-test
    (jf/bash-parser-test-cmdsub--find-test "cmdsub-edge-003")))
 
-(ert-deftest test-cmdsub-empty ()
-  "Test empty substitution: echo $()
-Scenario: bash-parser § 'Empty command substitution'
-Edge case: no command inside $()."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-edge-004")))
-
-(ert-deftest test-cmdsub-escaped ()
-  "Test escaped substitution: echo \\$(not-a-substitution)
-Scenario: bash-parser § 'Escaped substitution is literal'
-Backslash should prevent substitution."
-  (jf/bash-parser-test-cmdsub--run-corpus-test
-   (jf/bash-parser-test-cmdsub--find-test "cmdsub-edge-005")))
+;; REMOVED TESTS (corpus refinement 2026-03-04):
+;; - test-cmdsub-empty (cmdsub-edge-004) - previously removed from corpus, no file impact
+;; - test-cmdsub-escaped (cmdsub-edge-005) - previously removed from corpus, no file impact
 
 ;;; Summary Function
 

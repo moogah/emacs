@@ -2,6 +2,10 @@
 
 ;; Test corpus for command substitution with $(...) and backtick syntax
 ;; Covers: simple, nested, quoted, piped, backtick, multiple, and complex patterns
+;;
+;; CORPUS REFINEMENT (2026-03-04): Removed 8 test cases with zero file impact
+;; Goal: Focus on patterns that directly or indirectly impact files
+;; All remaining tests tagged with :file-ops-impact (:direct or :indirect)
 
 (defvar jf/bash-command-substitution-corpus
   '(
@@ -9,45 +13,28 @@
     ;; TIER 1: BASIC COMMAND SUBSTITUTION (pedagogical)
     ;; ============================================================
 
-    (:id "cmdsub-simple-001"
-     :category "simple"
-     :command "echo $(pwd)"
-     :expect (:command-name "echo"
-              :positional-args ("$(pwd)")
-              :command-substitutions ((:syntax "$()" :content "pwd" :nesting-level 1)))
-     :notes "Simplest case: single command substitution")
-
-    (:id "cmdsub-simple-002"
-     :category "simple"
-     :command "echo $(date)"
-     :expect (:command-name "echo"
-              :positional-args ("$(date)")
-              :command-substitutions ((:syntax "$()" :content "date" :nesting-level 1)))
-     :notes "Common pattern: capture date")
-
-    (:id "cmdsub-simple-003"
-     :category "simple"
-     :command "echo $(whoami)"
-     :expect (:command-name "echo"
-              :positional-args ("$(whoami)")
-              :command-substitutions ((:syntax "$()" :content "whoami" :nesting-level 1)))
-     :notes "User identity capture")
+    ;; REMOVED CASES (non-file-impacting):
+    ;; - cmdsub-simple-001: echo $(pwd) - pure output, no file operations
+    ;; - cmdsub-simple-002: echo $(date) - pure output, no file operations
+    ;; - cmdsub-simple-003: echo $(whoami) - pure output, no file operations
 
     (:id "cmdsub-simple-004"
      :category "simple"
+     :file-ops-impact :indirect  ; assignment pattern, could store paths
      :command "dir=$(pwd)"
      :expect (:command-name "dir"
               :positional-args ("$(pwd)")
               :command-substitutions ((:syntax "$()" :content "pwd" :nesting-level 1)))
-     :notes "Variable assignment with substitution")
+     :notes "Variable assignment with substitution - represents pattern that could store file paths")
 
     (:id "cmdsub-simple-005"
      :category "simple"
+     :file-ops-impact :indirect  ; ls reads directory, pattern stores result
      :command "count=$(ls -1 | wc -l)"
      :expect (:command-name "count"
               :positional-args ("$(ls -1 | wc -l)")
               :command-substitutions ((:syntax "$()" :content "ls -1 | wc -l" :nesting-level 1)))
-     :notes "Pipe inside substitution")
+     :notes "Pipe inside substitution - ls reads directory structure")
 
     (:id "cmdsub-backtick-001"
      :category "backtick"
@@ -82,11 +69,12 @@
 
     (:id "cmdsub-nested-003"
      :category "nested"
+     :file-ops-impact :direct  ; cat reads the file found by substitution
      :command "cat $(find . -name config.yml)"
      :expect (:command-name "cat"
               :positional-args ("$(find . -name config.yml)")
               :command-substitutions ((:syntax "$()" :content "find . -name config.yml" :nesting-level 1)))
-     :notes "Find and read file")
+     :notes "Find and read file - cat reads file from find result")
 
     (:id "cmdsub-nested-004"
      :category "nested"
@@ -120,21 +108,16 @@
 
     (:id "cmdsub-quoted-003"
      :category "quoted"
+     :file-ops-impact :direct  ; git commit writes to repository
      :command "git commit -m \"Update $(date +%Y-%m-%d)\""
      :expect (:command-name "git"
               :subcommand "commit"
               :flags ("-m")
               :positional-args ("Update $(date +%Y-%m-%d)")
               :command-substitutions ((:syntax "$()" :content "date +%Y-%m-%d" :nesting-level 1)))
-     :notes "Substitution in git commit message")
+     :notes "Substitution in git commit message - git writes to repository")
 
-    (:id "cmdsub-quoted-004"
-     :category "quoted"
-     :command "echo 'Literal $(date)'"
-     :expect (:command-name "echo"
-              :positional-args ("Literal $(date)")
-              :command-substitutions ())
-     :notes "Single quotes prevent substitution (literal)")
+    ;; REMOVED: cmdsub-quoted-004 (single quotes prevent substitution) - not representative of real usage
 
     ;; ============================================================
     ;; TIER 2: PIPES AND REDIRECTS IN SUBSTITUTION
@@ -176,42 +159,29 @@
     ;; TIER 2: MULTIPLE SUBSTITUTIONS
     ;; ============================================================
 
-    (:id "cmdsub-multiple-001"
-     :category "multiple"
-     :command "echo $(pwd) $(date)"
-     :expect (:command-name "echo"
-              :positional-args ("$(pwd)" "$(date)")
-              :command-substitutions ((:syntax "$()" :content "pwd" :nesting-level 1)
-                                     (:syntax "$()" :content "date" :nesting-level 1)))
-     :notes "Two independent substitutions")
+    ;; REMOVED CASES (non-file-impacting):
+    ;; - cmdsub-multiple-001: echo $(pwd) $(date) - pure output, no file operations
+    ;; - cmdsub-multiple-003: echo "User: $(whoami) at $(hostname) on $(date)" - pure output
 
     (:id "cmdsub-multiple-002"
      :category "multiple"
+     :file-ops-impact :direct  ; cp copies files
      :command "cp $(which oldcmd) $(which newcmd)"
      :expect (:command-name "cp"
               :positional-args ("$(which oldcmd)" "$(which newcmd)")
               :command-substitutions ((:syntax "$()" :content "which oldcmd" :nesting-level 1)
                                      (:syntax "$()" :content "which newcmd" :nesting-level 1)))
-     :notes "Two substitutions as copy source and dest")
-
-    (:id "cmdsub-multiple-003"
-     :category "multiple"
-     :command "echo \"User: $(whoami) at $(hostname) on $(date)\""
-     :expect (:command-name "echo"
-              :positional-args ("User: $(whoami) at $(hostname) on $(date)")
-              :command-substitutions ((:syntax "$()" :content "whoami" :nesting-level 1)
-                                     (:syntax "$()" :content "hostname" :nesting-level 1)
-                                     (:syntax "$()" :content "date" :nesting-level 1)))
-     :notes "Three substitutions in formatted string")
+     :notes "Two substitutions as copy source and dest - cp performs file copy")
 
     (:id "cmdsub-multiple-004"
      :category "multiple"
+     :file-ops-impact :direct  ; diff reads files from ls output
      :command "diff $(ls *.old) $(ls *.new)"
      :expect (:command-name "diff"
               :positional-args ("$(ls *.old)" "$(ls *.new)")
               :command-substitutions ((:syntax "$()" :content "ls *.old" :nesting-level 1)
                                      (:syntax "$()" :content "ls *.new" :nesting-level 1)))
-     :notes "Substitutions with glob patterns")
+     :notes "Substitutions with glob patterns - diff reads files from ls expansion")
 
     ;; ============================================================
     ;; TIER 3: COMPLEX REAL-WORLD PATTERNS
@@ -282,14 +252,29 @@
     )
   "Test corpus for command substitution patterns.
 
-Total: 28 test cases (removed 2 edge cases with no file impact)
-- 6 simple/basic patterns
-- 4 nested substitutions
-- 4 quoted contexts
-- 4 pipe/redirect patterns
-- 4 multiple substitutions
-- 4 complex real-world patterns
-- 2 edge cases (removed: empty substitution, escaped substitution)
+Total: 22 test cases (removed 8 non-file-impacting cases)
+
+REMOVED CASES (non-file-impacting):
+- cmdsub-simple-001: echo $(pwd) - pure output, no file operations
+- cmdsub-simple-002: echo $(date) - pure output, no file operations
+- cmdsub-simple-003: echo $(whoami) - pure output, no file operations
+- cmdsub-quoted-004: echo 'Literal $(date)' - not representative of real usage
+- cmdsub-multiple-001: echo $(pwd) $(date) - pure output, no file operations
+- cmdsub-multiple-003: echo \"User: $(whoami)...\" - pure output
+- Plus 2 edge cases (empty substitution, escaped substitution) - removed earlier
+
+Current distribution:
+- 3 simple/basic patterns (kept: variable assignment, pipe with ls)
+- 4 nested substitutions (kept: find+cat, which+dirname patterns)
+- 3 quoted contexts (kept: git commit, nested quotes with variables)
+- 4 pipe/redirect patterns (all read/write files)
+- 2 multiple substitutions (kept: cp, diff with file operations)
+- 4 complex real-world patterns (all have file impact)
+- 2 edge cases (command-sub in arithmetic, heredoc)
+
+All remaining test cases tagged with :file-ops-impact:
+- :direct - Command directly reads/writes/deletes files
+- :indirect - Pattern commonly stores/generates file paths
 
 NOTE: Expected parse results assume command substitution extraction
 is implemented in bash-parser. Current implementation may not

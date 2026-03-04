@@ -11,6 +11,9 @@
 ;; Data source: research/pattern-extracts/combined-patterns.tsv (68 commands with 2+ gap types)
 ;; Selection strategy: Diverse examples sorted by coverage_pct (worst gaps first)
 ;; All examples marked "REAL: From research" with coverage and gap metadata
+;;
+;; CORPUS REFINEMENT (2026-03-04): REVIEWED - No removals needed
+;; All 44 test cases have direct file impact (git commits, xargs+rm, find -exec, heredoc redirects, etc.)
 
 (defvar jf/bash-combined-patterns-corpus
   '(
