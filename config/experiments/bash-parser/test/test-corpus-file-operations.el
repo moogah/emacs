@@ -669,6 +669,84 @@
      :note "Git status reads repo but not user files"
      :expect-ops ())
 
+    ;; ============================================================
+    ;; MATCH-PATTERN OPERATIONS (find, ls, grep -l)
+    ;; ============================================================
+    (:id "match-pattern-001"
+     :command "find . -name '*.log'"
+     :note "Find searches for pattern"
+     :expect-ops ((:file "."
+                   :operation :read-directory
+                   :confidence :high
+                   :source :positional-arg)
+                  (:file "*.log"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :flag-arg
+                   :pattern t)))
+
+    (:id "match-pattern-002"
+     :command "ls *.txt"
+     :note "Ls with glob pattern"
+     :expect-ops ((:file "*.txt"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :positional-arg
+                   :pattern t)))
+
+    (:id "match-pattern-003"
+     :command "grep -l pattern *.el"
+     :note "Grep -l searches for matching files"
+     :expect-ops ((:file "*.el"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :positional-arg
+                   :pattern t)))
+
+    (:id "match-pattern-004"
+     :command "ls /tmp"
+     :note "Ls without glob - no operations (just lists)"
+     :expect-ops ())
+
+    (:id "match-pattern-005"
+     :command "find /var/log -name 'error*.log'"
+     :note "Find with absolute path and pattern"
+     :expect-ops ((:file "/var/log"
+                   :operation :read-directory
+                   :confidence :high
+                   :source :positional-arg)
+                  (:file "error*.log"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :flag-arg
+                   :pattern t)))
+
+    (:id "match-pattern-006"
+     :command "ls config/**/*.json"
+     :note "Ls with recursive glob pattern"
+     :expect-ops ((:file "config/**/*.json"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :positional-arg
+                   :pattern t)))
+
+    (:id "match-pattern-007"
+     :command "grep --files-with-matches TODO *.md"
+     :note "Grep with long form flag searches for matching files"
+     :expect-ops ((:file "*.md"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :positional-arg
+                   :pattern t)))
+
+    (:id "match-pattern-008"
+     :command "grep pattern file.txt"
+     :note "Grep without -l reads file (not match-pattern)"
+     :expect-ops ((:file "file.txt"
+                   :operation :read
+                   :confidence :high
+                   :source :positional-arg)))
+
     ))
 
 

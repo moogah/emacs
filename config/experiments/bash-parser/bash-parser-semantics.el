@@ -1,5 +1,9 @@
 ;;; bash-parser-semantics.el --- Command semantics database -*- lexical-binding: t; -*-
 
+;; Forward declaration for function defined in bash-parser-file-ops.el
+(declare-function jf/bash--has-glob-pattern-p "bash-parser-file-ops")
+(declare-function jf/bash--resolve-path-variables "bash-parser-file-ops")
+
 (defvar jf/bash-command-file-semantics
   '((cat . (:operations ((:source :positional-args :operation :read))))
     (head . (:operations :custom
@@ -11,9 +15,23 @@
     (wc . (:operations ((:source :positional-args :operation :read))))
     (file . (:operations ((:source :positional-args :operation :read))))
     (stat . (:operations ((:source :positional-args :operation :read))))
-    (grep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
-    (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
-    (fgrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
+    (ls . (:operations :custom
+           :handler jf/bash--extract-ls-operations))
+    (grep . (:operations :flag-dependent
+             :flag-handlers ((("-l" "--files-with-matches")
+                             . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
+                            (()
+                             . ((:source :positional-args :operation :read :skip-indices (0)))))))
+    (egrep . (:operations :flag-dependent
+              :flag-handlers ((("-l" "--files-with-matches")
+                              . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
+                             (()
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))))
+    (fgrep . (:operations :flag-dependent
+              :flag-handlers ((("-l" "--files-with-matches")
+                              . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
+                             (()
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))))
     (touch . (:operations ((:source :positional-args :operation :create-or-modify))))
     (mkdir . (:operations ((:source :positional-args :operation :create))))
     (rm . (:operations ((:source :positional-args :operation :delete))))
@@ -100,6 +118,8 @@ Operation spec format:
     :create - Create new file (must not exist)
     :create-or-modify - Create or update file
     :execute - Execute file as script or binary
+    :match-pattern - Search for files matching pattern
+    :read-directory - Read directory contents to find matches
 
   :index - Single positional argument index (0-based, -1 for last)
   :indices - Range of positional arguments:
@@ -144,42 +164,109 @@ VAR-CONTEXT is the variable resolution context.
 
 Find has special argument handling:
 - Initial directory paths are classified as :read-directory
-- Flag arguments (after -name, -type, etc.) are skipped from extraction
+- Flag arguments (after -name, -type, etc.) are patterns with :match-pattern
 - When flags are present, only first positional arg is treated as directory
 - When no flags, all positional args are directory paths
 
-Returns list of operation plists."
+Returns list of operation plists with :read-directory for search paths
+and :match-pattern for -name patterns."
   (let* ((positional-args (plist-get parsed-command :positional-args))
          (flags (plist-get parsed-command :flags))
          (command-name (plist-get parsed-command :command-name))
-         (operations nil))
+         (operations nil)
+         (search-dir nil)
+         (name-pattern nil))
 
     ;; Find argument structure: find [paths...] [expression...]
     ;; The parser puts directory paths AND flag argument values in positional-args
     ;; Flags themselves go into the :flags list
 
-    ;; Strategy: if find has any expression flags, we assume only the first
-    ;; positional arg is a directory path, and the rest are flag arguments
-    ;; (e.g., find . -name '*.log' → positional-args is ("." "*.log"))
+    ;; Extract search directory (first positional arg before flags)
+    (when positional-args
+      (setq search-dir (car positional-args)))
+
+    ;; Find -name argument (pattern after -name flag)
+    ;; The pattern is in positional-args after the directory
+    (let ((i 0))
+      (while (< i (length positional-args))
+        (when (and (> i 0)  ; Skip first arg (directory)
+                   (member "-name" flags))
+          ;; If we have -name flag, the second positional arg is the pattern
+          (setq name-pattern (nth 1 positional-args)))
+        (setq i (1+ i))))
+
+    ;; Add :read-directory operation for search location
+    (when search-dir
+      (let* ((resolved-path (jf/bash--resolve-path-variables search-dir var-context))
+             (final-path (if (stringp resolved-path)
+                            resolved-path
+                          (plist-get resolved-path :path)))
+             (unresolved-vars (when (listp resolved-path)
+                               (plist-get resolved-path :unresolved))))
+        (push (append (list :file final-path
+                           :operation :read-directory
+                           :confidence :high
+                           :source :positional-arg
+                           :command command-name)
+                     (when unresolved-vars
+                       (list :unresolved t :unresolved-vars unresolved-vars)))
+              operations)))
+
+    ;; Add :match-pattern operation for the pattern
+    (when name-pattern
+      (let* ((resolved-path (jf/bash--resolve-path-variables name-pattern var-context))
+             (final-path (if (stringp resolved-path)
+                            resolved-path
+                          (plist-get resolved-path :path)))
+             (unresolved-vars (when (listp resolved-path)
+                               (plist-get resolved-path :unresolved))))
+        (push (append (list :file final-path
+                           :operation :match-pattern
+                           :confidence :high
+                           :source :flag-arg
+                           :pattern t
+                           :search-scope search-dir
+                           :command command-name)
+                     (when unresolved-vars
+                       (list :unresolved t :unresolved-vars unresolved-vars)))
+              operations)))
+
+    (nreverse operations)))
+
+(defun jf/bash--extract-ls-operations (parsed-command var-context)
+  "Custom extraction for ls command operations.
+
+PARSED-COMMAND is the parsed command structure.
+VAR-CONTEXT is the variable resolution context.
+
+Ls without args lists current directory (no operation).
+Ls with glob patterns searches for matching files (:match-pattern).
+Ls with literal paths just lists (no operation).
+
+Returns list of operation plists."
+  (let* ((positional-args (plist-get parsed-command :positional-args))
+         (command-name (plist-get parsed-command :command-name))
+         (operations nil))
 
     (when positional-args
-      (let ((num-paths-to-extract (if flags 1 (length positional-args))))
-        ;; Extract only the first N positional args as directory paths
-        (dotimes (idx num-paths-to-extract)
-          (let* ((arg (nth idx positional-args))
-                 (resolved-path (jf/bash--resolve-path-variables arg var-context))
-                 (final-path (if (stringp resolved-path)
-                                resolved-path
-                              (plist-get resolved-path :path)))
-                 (unresolved-vars (when (listp resolved-path)
-                                   (plist-get resolved-path :unresolved))))
+      ;; Check each arg for glob patterns
+      (dolist (arg positional-args)
+        (let* ((resolved-path (jf/bash--resolve-path-variables arg var-context))
+               (final-path (if (stringp resolved-path)
+                              resolved-path
+                            (plist-get resolved-path :path)))
+               (unresolved-vars (when (listp resolved-path)
+                                 (plist-get resolved-path :unresolved))))
+          (when (jf/bash--has-glob-pattern-p final-path)
+            ;; Glob pattern - match-pattern operation
             (push (append (list :file final-path
-                               :operation :read-directory
+                               :operation :match-pattern
                                :confidence :high
                                :source :positional-arg
+                               :pattern t
                                :command command-name)
                          (when unresolved-vars
-                           (list :unresolved unresolved-vars)))
+                           (list :unresolved t :unresolved-vars unresolved-vars)))
                   operations)))))
 
     (nreverse operations)))
