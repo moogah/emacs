@@ -239,6 +239,23 @@ Returns list of operation plists from all extraction sources."
                   :script-args positional-args)
             operations))
 
+    ;; Extract from nested commands (bash -c, sh -c, etc.)
+    ;; Only if bash-parser-extensions is loaded
+    (when (and (fboundp 'jf/bash-detect-command-injection)
+               (fboundp 'jf/bash-parse-nested-command))
+      ;; Detect command injection and recursively extract operations
+      (when-let ((injection-info (jf/bash-detect-command-injection command)))
+        (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
+          (when nested-cmd-string
+            ;; Parse nested command and extract operations
+            (let* ((nested-parsed (jf/bash-parse-nested-command nested-cmd-string))
+                   (nested-ops (jf/bash-extract-file-operations nested-parsed var-context)))
+              ;; Mark all nested operations as indirect
+              (dolist (op nested-ops)
+                (let ((indirect-op (copy-sequence op)))
+                  (plist-put indirect-op :indirect t)
+                  (push indirect-op operations))))))))
+
     operations))
 #+end_src
 
