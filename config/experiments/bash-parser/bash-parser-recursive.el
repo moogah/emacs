@@ -37,6 +37,10 @@ Returns flat list of all operations including nested operations from:
 
 Operations from command substitutions are marked with :from-substitution t.
 
+Pattern flow tracking: When a substitution produces a pattern (via find, ls, grep -l),
+and the outer command operates on that pattern, a :pattern-source field is added
+to link the pattern producer to the pattern consumer.
+
 This is the core recursive engine that powers the semantic analysis system.
 It coordinates with jf/bash--extract-from-single-command to extract operations
 at each level, then recursively descends into nested structures.
@@ -49,10 +53,11 @@ Example:
   => (;; Operations from find (marked :from-substitution t)
       (:file \".\" :operation :read-directory :from-substitution t ...)
       (:file \"*.log\" :operation :match-pattern :from-substitution t ...)
-      ;; Operation from cat
-      (:file \"$(find . -name '*.log')\" :operation :read ...))"
+      ;; Operation from cat (with pattern flow)
+      (:file \"*.log\" :operation :read :pattern-source (:command \"find\" ...) ...))"
   (let ((depth (or depth 0))
-        (operations nil))
+        (operations nil)
+        (substitution-patterns nil))  ; Track patterns from substitutions
 
     ;; Depth check - prevent infinite recursion
     (when (>= depth jf/bash-recursive-max-depth)
@@ -65,13 +70,26 @@ Example:
                              parsed-command var-context)))
         (setq operations (append operations this-level-ops))))
 
-    ;; 2. Recursively process command substitutions
+    ;; 2. Recursively process command substitutions and track pattern output
     (when-let ((substs (plist-get parsed-command :command-substitutions)))
       (dolist (subst substs)
         (when-let ((parsed-subst (plist-get subst :parsed)))
           (when (plist-get parsed-subst :success)  ; Only if parse succeeded
             (let ((subst-ops (jf/bash-analyze-file-operations-recursive
                              parsed-subst var-context (1+ depth))))
+              ;; Check if substitution produces a file pattern
+              (let ((pattern-op (seq-find
+                                (lambda (op)
+                                  (eq (plist-get op :operation) :match-pattern))
+                                subst-ops)))
+                (when pattern-op
+                  ;; Track this substitution's pattern output
+                  (push (list :substitution-content (plist-get subst :content)
+                             :pattern (plist-get pattern-op :file)
+                             :search-scope (plist-get pattern-op :search-scope)
+                             :command (plist-get pattern-op :command))
+                        substitution-patterns)))
+
               ;; Mark all nested operations as from-substitution
               ;; Use copy-tree for deep copy of plist structure
               (let ((marked-ops nil))
@@ -81,14 +99,21 @@ Example:
                     (push marked-op marked-ops)))
                 (setq operations (append operations (nreverse marked-ops)))))))))
 
-    ;; 3. Recursively process pipeline commands
+    ;; 3. Add operations for outer command operating on substitution results
+    (when substitution-patterns
+      (when (fboundp 'jf/bash--extract-pattern-flow-operations)
+        (let ((pattern-flow-ops (jf/bash--extract-pattern-flow-operations
+                                parsed-command substitution-patterns var-context)))
+          (setq operations (append operations pattern-flow-ops)))))
+
+    ;; 4. Recursively process pipeline commands
     (when (eq (plist-get parsed-command :type) :pipeline)
       (dolist (cmd (plist-get parsed-command :all-commands))
         (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
                        cmd var-context (1+ depth))))
           (setq operations (append operations cmd-ops)))))
 
-    ;; 4. Recursively process chain commands (with variable tracking)
+    ;; 5. Recursively process chain commands (with variable tracking)
     (when (eq (plist-get parsed-command :type) :chain)
       (let ((chain-context var-context))
         (dolist (cmd (plist-get parsed-command :all-commands))
@@ -102,13 +127,208 @@ Example:
                          cmd chain-context (1+ depth))))
             (setq operations (append operations cmd-ops))))))
 
-    ;; Future: Add loop body and conditional branch traversal here
-    ;; (when-let ((loop-body (plist-get parsed-command :loop-body-parsed)))
-    ;;   ...)
-    ;; (when-let ((then-branch (plist-get parsed-command :then-branch-parsed)))
-    ;;   ...)
+    ;; 6. Process for-loops with variable binding
+    (when (string= (plist-get parsed-command :command-name) "for")
+      (let* ((loop-var (plist-get parsed-command :loop-variable))
+             (loop-source-type (plist-get parsed-command :loop-source-type))
+             (loop-body (plist-get parsed-command :loop-body))
+             (loop-var-value nil))
+
+        ;; Determine what the loop variable represents
+        (cond
+         ;; Loop source is substitution - bind to pattern from substitution
+         ((eq loop-source-type :substitution)
+          ;; Find the pattern produced by the substitution
+          (let ((pattern-op (seq-find
+                            (lambda (op)
+                              (and (eq (plist-get op :operation) :match-pattern)
+                                   (plist-get op :from-substitution)))
+                            operations)))
+            (when pattern-op
+              (setq loop-var-value (plist-get pattern-op :file)))))
+
+         ;; Loop source is glob - bind to glob pattern
+         ((eq loop-source-type :glob)
+          (setq loop-var-value (plist-get parsed-command :loop-list)))
+
+         ;; Loop source is literal - bind to literal values
+         ((eq loop-source-type :literal)
+          (setq loop-var-value :literal-list)))
+
+        ;; Parse and analyze loop body with loop variable in context
+        (when loop-body
+          (let* ((loop-body-parsed-raw (jf/bash-parse loop-body))
+                 ;; Remove :ast field to prevent accessing killed buffer nodes
+                 (loop-body-parsed (when (plist-get loop-body-parsed-raw :success)
+                                    (let ((clean-parsed (copy-sequence loop-body-parsed-raw)))
+                                      (setq clean-parsed (plist-put clean-parsed :ast nil))
+                                      clean-parsed)))
+                 ;; Add loop variable to context
+                 (loop-context (if loop-var-value
+                                  (append (list (cons (intern loop-var) loop-var-value))
+                                          var-context)
+                                var-context))
+                 (loop-ops (when loop-body-parsed
+                            (jf/bash-analyze-file-operations-recursive
+                             loop-body-parsed loop-context (1+ depth)))))
+            ;; Mark all loop operations with :loop-context metadata
+            (when loop-ops
+              (dolist (op loop-ops)
+                (plist-put op :loop-context t)
+                (plist-put op :loop-variable loop-var))
+              (setq operations (append operations loop-ops)))))))
+
+    ;; 7. Process conditional branches (if/then/else)
+    ;; Check if this is a conditional structure
+    (when (eq (plist-get parsed-command :type) :conditional)
+      (let ((conditional-ops (jf/bash--extract-conditional-context-operations
+                             parsed-command var-context (1+ depth))))
+        (setq operations (append operations conditional-ops))))
 
     operations))
+
+;;; Conditional Context Tracking
+
+(defun jf/bash--extract-conditional-context-operations (parsed-conditional var-context depth)
+  "Extract file operations from PARSED-CONDITIONAL with context tracking.
+
+Processes if/then/else structures, marking operations:
+- Test condition operations: :test-condition t
+- Then branch operations: :conditional t :branch :then
+- Else branch operations: :conditional t :branch :else
+
+PARSED-CONDITIONAL is a parsed command with :type :conditional.
+VAR-CONTEXT is variable bindings alist.
+DEPTH is current recursion depth.
+
+Returns list of operations with conditional context markers."
+  (let ((operations nil)
+        (condition-text (plist-get parsed-conditional :condition-text))
+        (then-text (plist-get parsed-conditional :then-text))
+        (else-text (plist-get parsed-conditional :else-text)))
+
+    ;; Extract test condition operations
+    (when condition-text
+      (let ((test-ops (jf/bash--extract-test-condition-operations-from-text
+                      condition-text var-context depth)))
+        (setq operations (append operations test-ops))))
+
+    ;; Extract then branch operations
+    (when then-text
+      (let ((then-ops (jf/bash--extract-then-branch-operations-from-text
+                      then-text var-context depth)))
+        (setq operations (append operations then-ops))))
+
+    ;; Extract else branch operations
+    (when else-text
+      (let ((else-ops (jf/bash--extract-else-branch-operations-from-text
+                      else-text var-context depth)))
+        (setq operations (append operations else-ops))))
+
+    operations))
+
+(defun jf/bash--extract-test-condition-operations (if-node var-context depth)
+  "Extract operations from test condition in IF-NODE.
+
+Handles two types of test conditions:
+1. File test operators: [ -f file ], [[ -d dir ]]
+2. Command-based tests: grep -q pattern file
+
+All extracted operations are marked with :test-condition t.
+
+IF-NODE is the if_statement tree-sitter node.
+VAR-CONTEXT is variable bindings alist.
+DEPTH is current recursion depth.
+
+Returns list of operations marked with :test-condition t."
+  (let ((operations nil))
+    ;; Get the condition field from if_statement
+    (when-let ((condition-node (treesit-node-child-by-field-name if-node "condition")))
+      (let ((condition-text (treesit-node-text condition-node t)))
+        ;; Check if it's a file test operator
+        (if (string-match "\\[\\[?\\s-*\\(-[fderswx]\\)\\s-+\\([^]]+\\)\\s-*\\]\\]?" condition-text)
+            ;; Extract file test operation
+            (let* ((test-operator (match-string 1 condition-text))
+                   (file-path (string-trim (match-string 2 condition-text)))
+                   (resolved-path (if var-context
+                                     (jf/bash-resolve-variables file-path var-context)
+                                   file-path))
+                   (final-path (if (stringp resolved-path)
+                                  resolved-path
+                                (plist-get resolved-path :path))))
+              (push (list :file final-path
+                         :operation :read-metadata
+                         :confidence :high
+                         :source :test-expression
+                         :test-operator test-operator
+                         :test-condition t)
+                    operations))
+          ;; Otherwise, parse as command and mark operations
+          (when (fboundp 'jf/bash-parse)
+            (let* ((parsed-test (jf/bash-parse condition-text))
+                   (test-ops (when (fboundp 'jf/bash-analyze-file-operations-recursive)
+                              (jf/bash-analyze-file-operations-recursive
+                               parsed-test var-context depth))))
+              ;; Mark all test command operations with :test-condition
+              (dolist (op test-ops)
+                (let ((marked-op (copy-tree op)))
+                  (plist-put marked-op :test-condition t)
+                  (push marked-op operations))))))))
+    (nreverse operations)))
+
+(defun jf/bash--extract-then-branch-operations (if-node var-context depth)
+  "Extract operations from then branch in IF-NODE.
+
+All extracted operations are marked with :conditional t and :branch :then.
+
+IF-NODE is the if_statement tree-sitter node.
+VAR-CONTEXT is variable bindings alist.
+DEPTH is current recursion depth.
+
+Returns list of operations marked with :conditional t :branch :then."
+  (let ((operations nil))
+    ;; Get the consequence field (then branch) from if_statement
+    (when-let ((then-node (treesit-node-child-by-field-name if-node "consequence")))
+      (let ((then-text (treesit-node-text then-node t)))
+        (when (fboundp 'jf/bash-parse)
+          (let* ((parsed-then (jf/bash-parse then-text))
+                 (then-ops (when (fboundp 'jf/bash-analyze-file-operations-recursive)
+                            (jf/bash-analyze-file-operations-recursive
+                             parsed-then var-context depth))))
+            ;; Mark all then branch operations
+            (dolist (op then-ops)
+              (let ((marked-op (copy-tree op)))
+                (plist-put marked-op :conditional t)
+                (plist-put marked-op :branch :then)
+                (push marked-op operations)))))))
+    (nreverse operations)))
+
+(defun jf/bash--extract-else-branch-operations (if-node var-context depth)
+  "Extract operations from else branch in IF-NODE if present.
+
+All extracted operations are marked with :conditional t and :branch :else.
+
+IF-NODE is the if_statement tree-sitter node.
+VAR-CONTEXT is variable bindings alist.
+DEPTH is current recursion depth.
+
+Returns list of operations marked with :conditional t :branch :else."
+  (let ((operations nil))
+    ;; Get the alternative field (else branch) from if_statement
+    (when-let ((else-node (treesit-node-child-by-field-name if-node "alternative")))
+      (let ((else-text (treesit-node-text else-node t)))
+        (when (fboundp 'jf/bash-parse)
+          (let* ((parsed-else (jf/bash-parse else-text))
+                 (else-ops (when (fboundp 'jf/bash-analyze-file-operations-recursive)
+                            (jf/bash-analyze-file-operations-recursive
+                             parsed-else var-context depth))))
+            ;; Mark all else branch operations
+            (dolist (op else-ops)
+              (let ((marked-op (copy-tree op)))
+                (plist-put marked-op :conditional t)
+                (plist-put marked-op :branch :else)
+                (push marked-op operations)))))))
+    (nreverse operations)))
 
 (provide 'bash-parser-recursive)
 ;;; bash-parser-recursive.el ends here
