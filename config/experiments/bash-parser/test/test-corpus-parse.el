@@ -184,11 +184,13 @@
                               :subcommand "add"
                               :flags ()
                               :positional-args (".")
+                              :args (".")
                               :dangerous-p nil)
                             (:command-name "git"
                               :subcommand "commit"
                               :flags ("-m")
                               :positional-args ("test")
+                              :args ("-m" "test")
                               :dangerous-p nil))))
 
     (:id "chain-002"

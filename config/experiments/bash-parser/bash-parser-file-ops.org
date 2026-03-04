@@ -355,6 +355,7 @@ Example:
          (subcommand (plist-get parsed-command :subcommand))
          (flags (plist-get parsed-command :flags))
          (positional-args (plist-get parsed-command :positional-args))
+         (args (plist-get parsed-command :args))
          (operations nil))
 
     ;; Only proceed if we have a command and positional args
@@ -370,7 +371,7 @@ Example:
                   (when-let ((handler-spec (alist-get (intern subcommand) subcommand-handlers)))
                     (setq operations
                           (jf/bash--extract-ops-from-positional-specs
-                           handler-spec positional-args command-name var-context))))))
+                           handler-spec positional-args command-name var-context args))))))
 
              ;; Flag-dependent command (tar, sed, etc.) - check flags
              ((eq ops-spec :flag-dependent)
@@ -388,7 +389,7 @@ Example:
                 (when matched-handler
                   (setq operations
                         (jf/bash--extract-ops-from-positional-specs
-                         matched-handler positional-args command-name var-context)))))
+                         matched-handler positional-args command-name var-context args)))))
 
              ;; Custom command handler - delegate to custom function
              ((eq ops-spec :custom)
@@ -400,7 +401,7 @@ Example:
              ((listp ops-spec)
               (setq operations
                     (jf/bash--extract-ops-from-positional-specs
-                     ops-spec positional-args command-name var-context))))))))
+                     ops-spec positional-args command-name var-context args))))))))
 
     operations))
 #+end_src
@@ -410,13 +411,14 @@ Example:
 Helper function to apply operation specifications to positional arguments.
 
 #+begin_src emacs-lisp
-(defun jf/bash--extract-ops-from-positional-specs (op-specs positional-args command-name var-context)
+(defun jf/bash--extract-ops-from-positional-specs (op-specs positional-args command-name var-context &optional args)
   "Apply OP-SPECS to POSITIONAL-ARGS to extract file operations.
 
- OP-SPECS is a list of operation specification plists.
+OP-SPECS is a list of operation specification plists.
 POSITIONAL-ARGS is list of argument strings.
 COMMAND-NAME is the command performing the operations.
 VAR-CONTEXT is optional variable resolution context.
+ARGS is the original argument list (preserves flags and order).
 
 Returns list of operation plists.
 
@@ -469,10 +471,14 @@ Operation spec format:
                                        (plist-get resolved-path :unresolved)))
                      (has-pattern (jf/bash--has-glob-pattern-p final-path))
                      ;; Capture script arguments for execute operations at index 0
-                     ;; Always use a list, even if empty (nil and '() are equivalent in Elisp)
+                     ;; Use :args to preserve flag arguments in original order
                      (script-args (when (and (eq operation :execute)
-                                            (eq index 0))
-                                   (or (cdr positional-args) '()))))
+                                            (eq index 0)
+                                            args)
+                                   (let ((script-pos (cl-position file-path args :test #'equal)))
+                                     (if script-pos
+                                         (nthcdr (1+ script-pos) args)
+                                       '())))))
                 ;; Create operation plist
                 (push (append (list :file final-path
                                    :operation operation
@@ -835,6 +841,7 @@ Examples:
                (exec-cmd-name (plist-get exec-block :command-name))
                (exec-flags (plist-get exec-block :flags))
                (exec-positional (plist-get exec-block :positional-args))
+               (exec-args (plist-get exec-block :args))
                (semantics (jf/bash-lookup-command-semantics exec-cmd-name)))
 
           ;; Use full semantics database if available, otherwise fall back to inference
@@ -844,7 +851,7 @@ Examples:
                 (when (listp ops-spec)
                   ;; Apply operation specs to exec block's positional args
                   (let ((extracted-ops (jf/bash--extract-ops-from-positional-specs
-                                       ops-spec exec-positional exec-cmd-name var-context)))
+                                       ops-spec exec-positional exec-cmd-name var-context exec-args)))
                     ;; Adjust metadata for exec-block source
                     (dolist (op extracted-ops)
                       (plist-put op :source :exec-block)

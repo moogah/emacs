@@ -16,6 +16,7 @@ For simple commands, also includes (for backward compatibility):
   :subcommand - subcommand if detected
   :flags - list of flags
   :positional-args - list of non-flag arguments
+  :args - original argument list (preserves order, includes flags)
   :dangerous-p - t if command matches dangerous patterns
 
 For pipelines/chains:
@@ -235,6 +236,7 @@ Returns a command structure with :exec-blocks field containing parsed exec comma
                            :command-name exec-cmd-name
                            :flags exec-flags
                            :positional-args exec-positional
+                           :args exec-args
                            :dangerous-p exec-dangerous)
                       exec-blocks)))
 
@@ -264,6 +266,7 @@ Returns a command structure with :exec-blocks field containing parsed exec comma
                        :subcommand nil
                        :flags flags
                        :positional-args positional-args
+                       :args args
                        :exec-blocks exec-blocks
                        :dangerous-p (or (seq-some (lambda (block)
                                                    (plist-get block :dangerous-p))
@@ -321,6 +324,7 @@ Returns command structure with wrapper's flags separated from wrapped command."
                        :subcommand nil
                        :flags wrapper-flags
                        :positional-args positional-args
+                       :args remaining-words
                        :dangerous-p is-dangerous)))
       (when redirections
         (setq result (plist-put result :redirections redirections)))
@@ -415,6 +419,7 @@ Returns command structure with optional :redirections and :command-substitutions
                              :subcommand nil
                              :flags nil
                              :positional-args (list var-value)
+                             :args (list var-value)
                              :dangerous-p nil)))
             ;; Add command-substitutions if present
             (when command-substitutions
@@ -455,6 +460,7 @@ Returns command structure with optional :redirections and :command-substitutions
                                :subcommand subcommand
                                :flags flags
                                :positional-args positional-args
+                               :args args-start
                                :dangerous-p dangerous-p)))
               (when redirections
                 (setq result (plist-put result :redirections redirections)))
