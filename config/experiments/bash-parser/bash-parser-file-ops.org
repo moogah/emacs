@@ -995,39 +995,14 @@ Examples:
     (when exec-blocks
       (dolist (exec-block exec-blocks)
         (let* ((exec-type (plist-get exec-block :type))
-               (exec-cmd-name (plist-get exec-block :command-name))
-               (exec-flags (plist-get exec-block :flags))
-               (exec-positional (plist-get exec-block :positional-args))
-               (exec-args (plist-get exec-block :args))
-               (semantics (jf/bash-lookup-command-semantics exec-cmd-name)))
-
-          ;; Use full semantics database if available, otherwise fall back to inference
-          (if semantics
-              ;; Use semantics database for proper operation extraction
-              (let ((ops-spec (plist-get semantics :operations)))
-                (when (listp ops-spec)
-                  ;; Apply operation specs to exec block's positional args
-                  (let ((extracted-ops (jf/bash--extract-ops-from-positional-specs
-                                       ops-spec exec-positional exec-cmd-name var-context exec-args)))
-                    ;; Adjust metadata for exec-block source
-                    (dolist (op extracted-ops)
-                      (plist-put op :source :exec-block)
-                      (plist-put op :indirect t)
-                      (plist-put op :exec-type exec-type)
-                      (push op operations)))))
-
-            ;; Fall back to simplified inference if command not in semantics database
-            (dolist (file-path exec-positional)
-              (let ((operation-type (jf/bash--infer-operation-type exec-cmd-name)))
-                (when operation-type
-                  (push (list :file file-path
-                             :operation operation-type
-                             :confidence :high
-                             :source :exec-block
-                             :indirect t
-                             :exec-type exec-type
-                             :command-name exec-cmd-name)
-                        operations))))))))
+               ;; Extract operations using full semantics-aware extraction
+               (extracted-ops (jf/bash-extract-operations-from-positional-args exec-block var-context)))
+          ;; Adjust metadata for exec-block source
+          (dolist (op extracted-ops)
+            (plist-put op :source :exec-block)
+            (plist-put op :indirect t)
+            (plist-put op :exec-type exec-type)
+            (push op operations)))))
 
     (nreverse operations)))
 #+end_src

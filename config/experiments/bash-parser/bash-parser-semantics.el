@@ -3,6 +3,7 @@
 ;; Forward declaration for function defined in bash-parser-file-ops.el
 (declare-function jf/bash--has-glob-pattern-p "bash-parser-file-ops")
 (declare-function jf/bash--resolve-path-variables "bash-parser-file-ops")
+(declare-function jf/bash-extract-from-exec-blocks "bash-parser-file-ops")
 
 (defvar jf/bash-command-file-semantics
   '((cat . (:operations ((:source :positional-args :operation :read))))
@@ -200,11 +201,12 @@ VAR-CONTEXT is the variable resolution context.
 Find has special argument handling:
 - Initial directory paths are classified as :read-directory
 - Flag arguments (after -name, -type, etc.) are patterns with :match-pattern
+- Exec blocks (-exec, -execdir) are recursively parsed for operations
 - When flags are present, only first positional arg is treated as directory
 - When no flags, all positional args are directory paths
 
-Returns list of operation plists with :read-directory for search paths
-and :match-pattern for -name patterns."
+Returns list of operation plists with :read-directory for search paths,
+:match-pattern for -name patterns, and operations from -exec blocks."
   (let* ((positional-args (plist-get parsed-command :positional-args))
          (flags (plist-get parsed-command :flags))
          (command-name (plist-get parsed-command :command-name))
@@ -272,6 +274,10 @@ and :match-pattern for -name patterns."
                      (when unresolved-vars
                        (list :unresolved t :unresolved-vars unresolved-vars)))
               operations)))
+
+    ;; Extract operations from -exec blocks
+    (when-let ((exec-ops (jf/bash-extract-from-exec-blocks parsed-command var-context)))
+      (setq operations (append operations exec-ops)))
 
     (nreverse operations)))
 
