@@ -80,7 +80,11 @@
                                  (mv . ((:source :positional-args :indices (0 . -2) :operation :delete)
                                         (:source :positional-args :index -1 :operation :write)))
                                  (diff . ((:source :positional-args :operation :read)))
-                                 (show . ((:source :positional-args :operation :read))))))
+                                 (show . ((:source :positional-args :operation :read)))
+                                 (ls-files . (:operations ((:source :positional-args :operation :read))
+                                             :produces-file-list t
+                                             :pattern-source :positional-args
+                                             :search-scope-arg :implicit)))))
     (docker . (:operations :complex
                :subcommand-handlers ((cp . ((:source :positional-args :indices (0 . -2) :operation :read)
                                             (:source :positional-args :index -1 :operation :write))))))
@@ -90,12 +94,24 @@
               :subcommand-handlers ()))
     (kubectl . (:operations :complex
                 :subcommand-handlers ()))
-    (python . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (python3 . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (node . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (bash . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (sh . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (zsh . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (python . (:operations :flag-dependent
+               :flag-handlers ((("-c" "-m") . ())  ; -c and -m execute inline code/module, no file operation
+                              (() . ((:source :positional-args :operation :execute :index 0))))))
+    (python3 . (:operations :flag-dependent
+                :flag-handlers ((("-c" "-m") . ())  ; -c and -m execute inline code/module, no file operation
+                               (() . ((:source :positional-args :operation :execute :index 0))))))
+    (node . (:operations :flag-dependent
+             :flag-handlers ((("-e" "--eval" "-p" "--print") . ())  ; -e/-p execute inline code, no file operation
+                            (() . ((:source :positional-args :operation :execute :index 0))))))
+    (bash . (:operations :flag-dependent
+             :flag-handlers ((("-c") . ())  ; -c executes inline code, no file operation
+                            (() . ((:source :positional-args :operation :execute :index 0))))))
+    (sh . (:operations :flag-dependent
+           :flag-handlers ((("-c") . ())  ; -c executes inline code, no file operation
+                          (() . ((:source :positional-args :operation :execute :index 0))))))
+    (zsh . (:operations :flag-dependent
+            :flag-handlers ((("-c") . ())  ; -c executes inline code, no file operation
+                           (() . ((:source :positional-args :operation :execute :index 0))))))
     (source . (:operations ((:source :positional-args :operation :execute :index 0))))
     (\. . (:operations ((:source :positional-args :operation :execute :index 0))))
     (go . (:operations :complex
@@ -573,6 +589,40 @@ Returns list of operation plists."
                   operations)))))
 
     (nreverse operations)))
+
+(defun jf/bash--command-produces-file-list-p (command-name &optional subcommand flags)
+  "Check if COMMAND-NAME produces a list of file paths as output.
+
+SUBCOMMAND is an optional subcommand name (for commands like git).
+FLAGS is an optional list of flags passed to the command.
+
+Pattern-producing commands include:
+- ls, find, locate (always produce file lists)
+- grep, egrep, fgrep (only with -l or --files-with-matches)
+- git ls-files (specific subcommand)
+
+Returns non-nil if the command produces a file list, nil otherwise."
+  (let ((semantics (jf/bash-lookup-command-semantics command-name)))
+    (when semantics
+      (cond
+       ;; Handle subcommand-based commands (like git ls-files)
+       ((eq (plist-get semantics :operations) :complex)
+        (let* ((subcommand-handlers (plist-get semantics :subcommand-handlers))
+               (subcommand-spec (when subcommand
+                                 (cdr (assoc (intern subcommand) subcommand-handlers)))))
+          (and subcommand-spec
+               (plist-get subcommand-spec :produces-file-list))))
+
+       ;; Handle flag-dependent commands (like grep -l)
+       ((plist-get semantics :pattern-requires-flag)
+        (let ((required-flags (plist-get semantics :pattern-requires-flag)))
+          ;; Command produces file list only if one of the required flags is present
+          (and flags
+               (seq-some (lambda (flag) (member flag flags)) required-flags))))
+
+       ;; Simple commands with produces-file-list metadata
+       (t
+        (plist-get semantics :produces-file-list))))))
 
 (provide 'bash-parser-semantics)
 ;;; bash-parser-semantics.el ends here
