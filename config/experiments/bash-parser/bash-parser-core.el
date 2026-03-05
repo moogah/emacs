@@ -375,18 +375,37 @@ Bash tree-sitter structure for for_statement:
                 (mapcar (lambda (node) (treesit-node-text node t))
                        (nreverse value-nodes))))))
 
-    ;; Build result
-    (let ((result (list :success t
-                       :type :for-loop
-                       :command-name "for"
-                       :variable variable-name
-                       :iteration-values iteration-values
-                       :body-text body-text
-                       :ast root-node)))
-      ;; Only add command-substitutions if present
-      (when command-substitutions
-        (setq result (plist-put result :command-substitutions command-substitutions)))
-      result)))
+    ;; Determine loop source type
+    (let ((loop-source-type
+           (cond
+            ;; If there are command substitutions in the iteration values, it's from substitution
+            (command-substitutions :substitution)
+            ;; If the first iteration value contains glob characters, it's a glob
+            ((and iteration-values
+                  (string-match-p "[*?]\\|\\[.*\\]" (car iteration-values)))
+             :glob)
+            ;; Otherwise, it's a literal list
+            (iteration-values :literal)
+            (t nil))))
+
+      ;; Build result with both old field names (for compatibility) and new field names (for recursive analysis)
+      (let ((result (list :success t
+                         :type :for-loop
+                         :command-name "for"
+                         ;; Original field names
+                         :variable variable-name
+                         :iteration-values iteration-values
+                         :body-text body-text
+                         ;; Alias field names for recursive analysis
+                         :loop-variable variable-name
+                         :loop-body body-text
+                         :loop-list (car iteration-values)  ; First value (often a glob pattern)
+                         :loop-source-type loop-source-type
+                         :ast root-node)))
+        ;; Only add command-substitutions if present
+        (when command-substitutions
+          (setq result (plist-put result :command-substitutions command-substitutions)))
+        result))))
 
 (defun jf/bash-parse--get-all-command-nodes (container-node)
   "Get all command nodes from CONTAINER-NODE (pipeline or list).

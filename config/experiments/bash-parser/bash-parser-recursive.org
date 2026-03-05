@@ -222,8 +222,10 @@ Example:
                                     (let ((clean-parsed (copy-sequence loop-body-parsed-raw)))
                                       (setq clean-parsed (plist-put clean-parsed :ast nil))
                                       clean-parsed)))
-                 ;; Add loop variable to context
-                 (loop-context (if loop-var-value
+                 ;; Add loop variable to context only if it has a resolvable value
+                 ;; Skip keyword markers like :literal-list which can't be used in resolution
+                 (loop-context (if (and loop-var-value
+                                       (not (keywordp loop-var-value)))
                                   (append (list (cons (intern loop-var) loop-var-value))
                                           var-context)
                                 var-context))
