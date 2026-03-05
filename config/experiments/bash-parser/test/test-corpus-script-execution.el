@@ -167,12 +167,13 @@
                    :script-args ("--config" "prod.yaml"))))
 
     ;; ============================================================
-    ;; SELF-EXECUTING SCRIPTS - Relative paths
+    ;; SELF-EXECUTING SCRIPTS - Relative paths (PWD-resolved)
     ;; ============================================================
     (:id "exec-self-relative-001"
      :command "./script.sh"
-     :note "Self-executing relative path"
-     :expect-ops ((:file "./script.sh"
+     :note "Self-executing relative path (PWD-resolved)"
+     :var-context ((PWD . "/project/bin"))
+     :expect-ops ((:file "/project/bin/script.sh"
                    :operation :execute
                    :confidence :low
                    :source :command-name
@@ -181,8 +182,9 @@
 
     (:id "exec-self-relative-002"
      :command "./script.sh arg1 arg2"
-     :note "Self-executing with arguments"
-     :expect-ops ((:file "./script.sh"
+     :note "Self-executing with arguments (PWD-resolved)"
+     :var-context ((PWD . "/project/bin"))
+     :expect-ops ((:file "/project/bin/script.sh"
                    :operation :execute
                    :confidence :low
                    :source :command-name
@@ -191,7 +193,44 @@
 
     (:id "exec-self-relative-003"
      :command "./deploy.sh staging us-west-2"
-     :note "Self-executing deploy script"
+     :note "Self-executing deploy script (PWD-resolved)"
+     :var-context ((PWD . "/project/bin"))
+     :expect-ops ((:file "/project/bin/deploy.sh"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ("staging" "us-west-2"))))
+
+    ;; ============================================================
+    ;; SELF-EXECUTING SCRIPTS - Relative paths (no PWD context)
+    ;; ============================================================
+    (:id "exec-self-relative-001-no-pwd"
+     :command "./script.sh"
+     :note "Self-executing relative path (unresolved, no PWD)"
+     :var-context nil
+     :expect-ops ((:file "./script.sh"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ())))
+
+    (:id "exec-self-relative-002-no-pwd"
+     :command "./script.sh arg1 arg2"
+     :note "Self-executing with arguments (unresolved, no PWD)"
+     :var-context nil
+     :expect-ops ((:file "./script.sh"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ("arg1" "arg2"))))
+
+    (:id "exec-self-relative-003-no-pwd"
+     :command "./deploy.sh staging us-west-2"
+     :note "Self-executing deploy script (unresolved, no PWD)"
+     :var-context nil
      :expect-ops ((:file "./deploy.sh"
                    :operation :execute
                    :confidence :low
@@ -223,12 +262,13 @@
                    :script-args ("/data" "/backup"))))
 
     ;; ============================================================
-    ;; SELF-EXECUTING SCRIPTS - Parent directory
+    ;; SELF-EXECUTING SCRIPTS - Parent directory (PWD-resolved)
     ;; ============================================================
     (:id "exec-self-parent-001"
      :command "../bin/runner"
-     :note "Parent directory execution"
-     :expect-ops ((:file "../bin/runner"
+     :note "Parent directory execution (PWD-resolved)"
+     :var-context ((PWD . "/project/sub/dir"))
+     :expect-ops ((:file "/project/sub/bin/runner"
                    :operation :execute
                    :confidence :low
                    :source :command-name
@@ -237,7 +277,33 @@
 
     (:id "exec-self-parent-002"
      :command "../bin/runner data.txt"
-     :note "Parent directory with argument"
+     :note "Parent directory with argument (PWD-resolved)"
+     :var-context ((PWD . "/project/sub/dir"))
+     :expect-ops ((:file "/project/sub/bin/runner"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ("data.txt"))))
+
+    ;; ============================================================
+    ;; SELF-EXECUTING SCRIPTS - Parent directory (no PWD context)
+    ;; ============================================================
+    (:id "exec-self-parent-001-no-pwd"
+     :command "../bin/runner"
+     :note "Parent directory execution (unresolved, no PWD)"
+     :var-context nil
+     :expect-ops ((:file "../bin/runner"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ())))
+
+    (:id "exec-self-parent-002-no-pwd"
+     :command "../bin/runner data.txt"
+     :note "Parent directory with argument (unresolved, no PWD)"
+     :var-context nil
      :expect-ops ((:file "../bin/runner"
                    :operation :execute
                    :confidence :low
@@ -288,7 +354,7 @@
 
     (:id "exec-variable-003"
      :command "./$SCRIPT_NAME input.txt"
-     :note "Self-executing with variable (unresolved)"
+     :note "Self-executing with variable (unresolved, no PWD)"
      :var-context nil
      :expect-ops ((:file "./$SCRIPT_NAME"
                    :operation :execute
@@ -297,6 +363,17 @@
                    :self-executing t
                    :unresolved t
                    :unresolved-vars ("SCRIPT_NAME")
+                   :script-args ("input.txt"))))
+
+    (:id "exec-variable-004"
+     :command "./$SCRIPT_NAME input.txt"
+     :note "Self-executing with variable (resolved with PWD)"
+     :var-context ((SCRIPT_NAME . "deploy.sh") (PWD . "/project/scripts"))
+     :expect-ops ((:file "/project/scripts/deploy.sh"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
                    :script-args ("input.txt"))))
 
     ;; ============================================================
@@ -318,7 +395,28 @@
 
     (:id "exec-pipeline-002"
      :command "./script.sh | python filter.py > output.txt"
-     :note "Pipeline with self-execution and write"
+     :note "Pipeline with self-execution and write (PWD-resolved)"
+     :var-context ((PWD . "/project/bin"))
+     :expect-ops ((:file "/project/bin/script.sh"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ())
+                  (:file "filter.py"
+                   :operation :execute
+                   :confidence :high
+                   :source :positional-arg
+                   :script-args ())
+                  (:file "output.txt"
+                   :operation :write
+                   :confidence :high
+                   :source :redirection)))
+
+    (:id "exec-pipeline-002-no-pwd"
+     :command "./script.sh | python filter.py > output.txt"
+     :note "Pipeline with self-execution and write (unresolved, no PWD)"
+     :var-context nil
      :expect-ops ((:file "./script.sh"
                    :operation :execute
                    :confidence :low
@@ -354,7 +452,25 @@
 
     (:id "exec-chain-002"
      :command "./configure && make && ./bin/app"
-     :note "Chain with self-executing scripts"
+     :note "Chain with self-executing scripts (PWD-resolved)"
+     :var-context ((PWD . "/project"))
+     :expect-ops ((:file "/project/configure"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ())
+                  (:file "/project/bin/app"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :script-args ())))
+
+    (:id "exec-chain-002-no-pwd"
+     :command "./configure && make && ./bin/app"
+     :note "Chain with self-executing scripts (unresolved, no PWD)"
+     :var-context nil
      :expect-ops ((:file "./configure"
                    :operation :execute
                    :confidence :low
@@ -383,7 +499,20 @@
 
     (:id "exec-nested-002"
      :command "sh -c './deploy.sh'"
-     :note "Nested self-execution"
+     :note "Nested self-execution (PWD-resolved)"
+     :var-context ((PWD . "/project/bin"))
+     :expect-ops ((:file "/project/bin/deploy.sh"
+                   :operation :execute
+                   :confidence :low
+                   :source :command-name
+                   :self-executing t
+                   :indirect t
+                   :script-args ())))
+
+    (:id "exec-nested-002-no-pwd"
+     :command "sh -c './deploy.sh'"
+     :note "Nested self-execution (unresolved, no PWD)"
+     :var-context nil
      :expect-ops ((:file "./deploy.sh"
                    :operation :execute
                    :confidence :low
