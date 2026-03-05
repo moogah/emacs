@@ -250,6 +250,7 @@
               :flags ("-f")
               :positional-args ("$(which emacs)")
               :args ("-f" "$(which emacs)")
+              :command-count 2  ; Should only count "test" and "echo", not nested "which"
               :command-substitutions ((:syntax "$()" :content "which emacs" :nesting-level 1)))
      :notes "Substitution in conditional test")
 

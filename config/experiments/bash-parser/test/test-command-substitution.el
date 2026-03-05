@@ -50,7 +50,7 @@ TEST-CASE is a plist with :id, :command, :category, :expect, and :notes."
     (should (plist-get result :success))
 
     ;; Check basic command structure fields
-    (dolist (key '(:command-name :subcommand :flags :positional-args))
+    (dolist (key '(:command-name :subcommand :flags :positional-args :command-count))
       (when (plist-member expected key)
         (let ((expected-val (plist-get expected key))
               (actual-val (plist-get result key)))

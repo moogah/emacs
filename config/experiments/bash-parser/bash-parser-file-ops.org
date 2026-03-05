@@ -195,49 +195,152 @@ COMMAND is a single parsed command structure (from :all-commands or top-level).
 VAR-CONTEXT is an alist of variable bindings.
 
 Returns list of operation plists from all extraction sources."
+  ;; Skip compound command types - they're handled by recursive analyzer
+  (let ((command-type (plist-get command :type)))
+    (if (memq command-type '(:chain :pipeline))
+        nil  ; Return nil for compound types
+      ;; Process single command
+      (let ((operations nil)
+            (command-name (plist-get command :command-name))
+            (positional-args (plist-get command :positional-args)))
+        ;; Extract from redirections (high confidence)
+        (when-let ((redir-ops (jf/bash-extract-operations-from-redirections command var-context)))
+          (setq operations (append operations redir-ops)))
+
+        ;; Extract from positional arguments (command semantics)
+        (when-let ((pos-ops (jf/bash-extract-operations-from-positional-args command var-context)))
+          (setq operations (append operations pos-ops)))
+
+        ;; Extract from exec blocks (find -exec)
+        (when-let ((exec-ops (jf/bash-extract-from-exec-blocks command var-context)))
+          (setq operations (append operations exec-ops)))
+
+        ;; Check for self-execution (path-based commands)
+        (when (and command-name (jf/bash--command-executes-self-p command-name))
+          (push (list :file command-name
+                      :operation :execute
+                      :source :command-name
+                      :confidence :low
+                      :self-executing t
+                      :script-args positional-args)
+                operations))
+
+        ;; Extract from nested commands (bash -c, sh -c, etc.)
+        ;; Only if bash-parser-extensions is loaded
+        (when (and (fboundp 'jf/bash-detect-command-injection)
+                   (fboundp 'jf/bash-parse-nested-command))
+          ;; Detect command injection and recursively extract operations
+          (when-let ((injection-info (jf/bash-detect-command-injection command)))
+            (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
+              (when nested-cmd-string
+                ;; Parse nested command and extract operations
+                (let* ((nested-parsed (jf/bash-parse-nested-command nested-cmd-string))
+                       (nested-ops (jf/bash-extract-file-operations nested-parsed var-context)))
+                  ;; Mark all nested operations as indirect
+                  (dolist (op nested-ops)
+                    (let ((indirect-op (copy-sequence op)))
+                      (plist-put indirect-op :indirect t)
+                      (push indirect-op operations))))))))
+
+        operations))))
+#+end_src
+
+*** Extract Pattern Flow Operations
+
+Create operations for outer commands consuming patterns from substitutions.
+
+#+begin_src emacs-lisp
+(defun jf/bash--extract-pattern-flow-operations (parsed-command substitution-patterns var-context)
+  "Create operations for outer command consuming pattern from substitution.
+
+PARSED-COMMAND: Top-level parsed command containing substitution
+SUBSTITUTION-PATTERNS: List of patterns produced by substitutions
+  Each element is a plist with:
+    :substitution-content - Original $(command) string
+    :pattern - File pattern from command (e.g. '*.log')
+    :search-scope - Directory being searched (e.g. '.')
+    :command - Command that produced pattern (e.g. 'find')
+VAR-CONTEXT: Variable bindings
+
+Returns list of operations for outer command operating on substitution patterns."
   (let ((operations nil)
-        (command-name (plist-get command :command-name))
-        (positional-args (plist-get command :positional-args)))
-    ;; Extract from redirections (high confidence)
-    (when-let ((redir-ops (jf/bash-extract-operations-from-redirections command var-context)))
-      (setq operations (append operations redir-ops)))
+        (command-name (plist-get parsed-command :command-name))
+        (positional-args (plist-get parsed-command :positional-args)))
 
-    ;; Extract from positional arguments (command semantics)
-    (when-let ((pos-ops (jf/bash-extract-operations-from-positional-args command var-context)))
-      (setq operations (append operations pos-ops)))
+    ;; For each positional arg containing a substitution
+    (dolist (arg positional-args)
+      (when (and arg (string-prefix-p "$(" arg))
+        ;; Find matching substitution pattern
+        (when-let ((pattern-info (seq-find
+                                  (lambda (p)
+                                    (string-match-p
+                                     (regexp-quote (plist-get p :substitution-content))
+                                     arg))
+                                  substitution-patterns)))
+          ;; Create operation using pattern instead of literal
+          (let* ((pattern (plist-get pattern-info :pattern))
+                 (operation (jf/bash--infer-operation-from-command
+                            command-name pattern)))
+            ;; Only create operation if command actually operates on files
+            (when (and pattern operation)
+              (push (list :file pattern
+                         :operation operation
+                         :confidence :high
+                         :source :positional-arg
+                         :command command-name
+                         :pattern t
+                         :pattern-source pattern-info)
+                    operations))))))
 
-    ;; Extract from exec blocks (find -exec)
-    (when-let ((exec-ops (jf/bash-extract-from-exec-blocks command var-context)))
-      (setq operations (append operations exec-ops)))
+    (nreverse operations)))
+#+end_src
 
-    ;; Check for self-execution (path-based commands)
-    (when (and command-name (jf/bash--command-executes-self-p command-name))
-      (push (list :file command-name
-                  :operation :execute
-                  :source :command-name
-                  :confidence :low
-                  :self-executing t
-                  :script-args positional-args)
-            operations))
+*** Helper: Infer Operation From Command
 
-    ;; Extract from nested commands (bash -c, sh -c, etc.)
-    ;; Only if bash-parser-extensions is loaded
-    (when (and (fboundp 'jf/bash-detect-command-injection)
-               (fboundp 'jf/bash-parse-nested-command))
-      ;; Detect command injection and recursively extract operations
-      (when-let ((injection-info (jf/bash-detect-command-injection command)))
-        (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
-          (when nested-cmd-string
-            ;; Parse nested command and extract operations
-            (let* ((nested-parsed (jf/bash-parse-nested-command nested-cmd-string))
-                   (nested-ops (jf/bash-extract-file-operations nested-parsed var-context)))
-              ;; Mark all nested operations as indirect
-              (dolist (op nested-ops)
-                (let ((indirect-op (copy-sequence op)))
-                  (plist-put indirect-op :indirect t)
-                  (push indirect-op operations))))))))
+Helper function to infer file operation type from command name and file context.
 
-    operations))
+#+begin_src emacs-lisp
+(defun jf/bash--infer-operation-from-command (command-name file-path)
+  "Infer operation type from COMMAND-NAME and FILE-PATH context.
+
+Returns operation type symbol (:read, :write, :delete, :modify) based on
+common command semantics. This is used for pattern flow when we need to
+determine what operation the outer command performs on the pattern.
+
+Returns nil for commands that don't operate on files (echo, printf, etc).
+
+Examples:
+  (jf/bash--infer-operation-from-command \"cat\" \"*.log\")    => :read
+  (jf/bash--infer-operation-from-command \"rm\" \"*.tmp\")     => :delete
+  (jf/bash--infer-operation-from-command \"chmod\" \"*.sh\")   => :modify
+  (jf/bash--infer-operation-from-command \"echo\" \"*.log\")   => nil"
+  (when (and command-name
+             ;; Don't try to intern assignment strings like "DIR=/tmp"
+             (not (string-match-p "=" command-name)))
+    (let ((cmd (intern command-name)))
+      (cond
+       ;; Read operations
+       ((memq cmd '(cat head tail less more grep egrep fgrep wc file stat))
+        :read)
+
+       ;; Write operations
+       ((memq cmd '(cp mv tee))
+        :write)
+
+       ;; Delete operations
+       ((memq cmd '(rm rmdir))
+        :delete)
+
+       ;; Modify operations
+       ((memq cmd '(chmod chown chgrp))
+        :modify)
+
+       ;; Commands that don't operate on files - no pattern flow
+       ((memq cmd '(echo printf))
+        nil)
+
+       ;; Unknown commands - no pattern flow
+       (t nil)))))
 #+end_src
 
 *** Deduplicate Operations

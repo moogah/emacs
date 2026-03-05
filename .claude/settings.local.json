@@ -53,7 +53,9 @@
       "Bash(bd label add:*)",
       "Bash(make test-bash-parser-semantics:*)",
       "Bash(make emacs-test-eval:*)",
-      "Bash(EMACS_USER_DIRECTORY=\"/Users/jefffarr/emacs/runtime\" /Applications/Emacs.app/Contents/MacOS/Emacs:*)"
+      "Bash(EMACS_USER_DIRECTORY=\"/Users/jefffarr/emacs/runtime\" /Applications/Emacs.app/Contents/MacOS/Emacs:*)",
+      "Bash(make emacs-batch:*)",
+      "Bash(tee:*)"
     ]
   }
 }

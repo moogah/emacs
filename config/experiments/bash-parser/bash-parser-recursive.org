@@ -145,7 +145,8 @@ Example:
                   (push (list :substitution-content (plist-get subst :content)
                              :pattern (plist-get pattern-op :file)
                              :search-scope (plist-get pattern-op :search-scope)
-                             :command (plist-get pattern-op :command))
+                             :command (plist-get pattern-op :command)
+                             :from-substitution t)
                         substitution-patterns)))
 
               ;; Mark all nested operations as from-substitution
