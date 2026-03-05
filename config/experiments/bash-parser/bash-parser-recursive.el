@@ -118,7 +118,8 @@ Example:
     ;; 5. Recursively process chain commands (with variable tracking and directory tracking)
     (when (eq (plist-get parsed-command :type) :chain)
       (let ((chain-context var-context)
-            (current-pwd (or (alist-get 'PWD var-context) "/")))
+            (current-pwd (or (alist-get 'PWD var-context) "/"))
+            (dir-stack nil))  ; Initialize directory stack for pushd/popd
         (dolist (cmd (plist-get parsed-command :all-commands))
           ;; Extract variable assignments from this command with resolution
           ;; Pass current chain-context so assignments can resolve using earlier assignments
@@ -144,6 +145,30 @@ Example:
                                            (assq-delete-all 'PWD chain-context)))
                   (setq chain-context (cons (cons 'OLDPWD old-pwd)
                                            (assq-delete-all 'OLDPWD chain-context)))))))
+
+          ;; Check for pushd command and update directory context + stack
+          (when (and (fboundp 'jf/bash--is-pushd-command-p)
+                     (jf/bash--is-pushd-command-p cmd))
+            (when-let ((new-pwd (jf/bash--extract-pushd-target cmd chain-context current-pwd)))
+              (unless (eq new-pwd :unresolved)
+                ;; Push current directory onto stack
+                (push current-pwd dir-stack)
+                ;; Update current directory
+                (setq current-pwd new-pwd)
+                ;; Update PWD in context for subsequent commands
+                (setq chain-context (cons (cons 'PWD current-pwd)
+                                         (assq-delete-all 'PWD chain-context))))))
+
+          ;; Check for popd command and restore from directory stack
+          (when (and (fboundp 'jf/bash--is-popd-command-p)
+                     (jf/bash--is-popd-command-p cmd))
+            ;; Only pop if stack is not empty
+            (when dir-stack
+              (let ((popped-pwd (pop dir-stack)))
+                (setq current-pwd popped-pwd)
+                ;; Update PWD in context for subsequent commands
+                (setq chain-context (cons (cons 'PWD current-pwd)
+                                         (assq-delete-all 'PWD chain-context))))))
 
           ;; Extract operations with updated context (PWD now reflects current-pwd)
           (let ((cmd-ops (jf/bash-analyze-file-operations-recursive

@@ -391,8 +391,7 @@ SECURITY: PWD assignment with variable must resolve variable first."
   "Test pushd /new/dir && cat file.txt
 
 SECURITY: pushd changes directory like cd but also pushes to stack.
-DESIGN QUESTION: Low priority - pushd/popd less common than cd."
-  :expected-result :failed
+Implemented by bead emacs-6xjh: Directory stack tracking for pushd/popd."
   (let* ((parsed (jf/bash-parse "pushd /new/dir && cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -406,8 +405,7 @@ DESIGN QUESTION: Low priority - pushd/popd less common than cd."
   "Test pushd /new && pushd /other && popd && cat file.txt
 
 SECURITY: popd should return to previous directory in stack.
-DESIGN QUESTION: Low priority - requires full directory stack tracking."
-  :expected-result :failed
+Implemented by bead emacs-6xjh: Directory stack tracking for pushd/popd."
   (let* ((parsed (jf/bash-parse "pushd /new && pushd /other && popd && cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))

@@ -924,6 +924,218 @@ Examples:
                 path-resolved)))))))))))
 #+end_src
 
+** pushd Command Detection
+
+Detect if a parsed command structure represents a pushd command.
+
+#+begin_src emacs-lisp
+(defun jf/bash--is-pushd-command-p (command)
+  "Return t if COMMAND structure represents a pushd command.
+
+Takes a parsed command structure (plist) and returns t if it represents
+a pushd command, nil otherwise.
+
+Detection logic:
+  - Checks :command-name equals \"pushd\"
+  - Handles 'builtin pushd' invocations
+  - Ignores pushd as part of other commands
+
+Examples:
+  (jf/bash--is-pushd-command-p '(:command-name \"pushd\" :positional-args (\"/tmp\")))
+    => t
+
+  (jf/bash--is-pushd-command-p '(:command-name \"builtin\" :positional-args (\"pushd\" \"/tmp\")))
+    => t
+
+  (jf/bash--is-pushd-command-p '(:command-name \"ls\" :positional-args (\"/tmp\")))
+    => nil
+
+This function operates on parsed command structures."
+  (let ((command-name (plist-get command :command-name))
+        (positional-args (plist-get command :positional-args)))
+    (cond
+     ;; Direct pushd command
+     ((equal command-name "pushd")
+      t)
+
+     ;; Builtin pushd invocation: builtin pushd /path
+     ((and (equal command-name "builtin")
+           positional-args
+           (equal (car positional-args) "pushd"))
+      t)
+
+     ;; Not a pushd command
+     (t nil))))
+#+end_src
+
+** popd Command Detection
+
+Detect if a parsed command structure represents a popd command.
+
+#+begin_src emacs-lisp
+(defun jf/bash--is-popd-command-p (command)
+  "Return t if COMMAND structure represents a popd command.
+
+Takes a parsed command structure (plist) and returns t if it represents
+a popd command, nil otherwise.
+
+Detection logic:
+  - Checks :command-name equals \"popd\"
+  - Handles 'builtin popd' invocations
+  - Ignores popd as part of other commands
+
+Examples:
+  (jf/bash--is-popd-command-p '(:command-name \"popd\" :positional-args nil))
+    => t
+
+  (jf/bash--is-popd-command-p '(:command-name \"builtin\" :positional-args (\"popd\")))
+    => t
+
+  (jf/bash--is-popd-command-p '(:command-name \"ls\" :positional-args (\"/tmp\")))
+    => nil
+
+This function operates on parsed command structures."
+  (let ((command-name (plist-get command :command-name))
+        (positional-args (plist-get command :positional-args)))
+    (cond
+     ;; Direct popd command
+     ((equal command-name "popd")
+      t)
+
+     ;; Builtin popd invocation: builtin popd
+     ((and (equal command-name "builtin")
+           positional-args
+           (equal (car positional-args) "popd"))
+      t)
+
+     ;; Not a popd command
+     (t nil))))
+#+end_src
+
+** pushd Target Extraction and Resolution
+
+Extract target directory from pushd command and resolve it to an absolute path.
+
+#+begin_src emacs-lisp
+(defun jf/bash--extract-pushd-target (command var-context current-pwd)
+  "Extract and resolve target directory from pushd COMMAND.
+
+Takes a parsed pushd command structure, VAR-CONTEXT for variable resolution,
+and CURRENT-PWD for relative path resolution. Returns resolved absolute
+path or :unresolved marker if resolution fails.
+
+COMMAND is a parsed command plist with :command-name and :positional-args.
+VAR-CONTEXT is an alist of (SYMBOL . VALUE) for variable resolution.
+CURRENT-PWD is the current working directory as an absolute path string.
+
+Extraction logic:
+  - Gets target from first positional arg
+  - For 'builtin pushd', skips first arg and uses second
+  - Returns nil if no target provided (pushd with no args is complex - swaps dirs)
+
+Resolution follows same logic as cd command:
+  a. Handle special forms (~, -, no args)
+  b. Resolve variables
+  c. Resolve command substitutions
+  d. Resolve relative paths
+  e. Return absolute paths as-is
+
+Examples:
+  ;; Absolute path
+  (jf/bash--extract-pushd-target
+    '(:command-name \"pushd\" :positional-args (\"/tmp\"))
+    nil \"/original\")
+  => \"/tmp\"
+
+  ;; Relative path
+  (jf/bash--extract-pushd-target
+    '(:command-name \"pushd\" :positional-args (\"subdir\"))
+    '((PWD . \"/base\")) \"/base\")
+  => \"/base/subdir\"
+
+  ;; Variable expansion
+  (jf/bash--extract-pushd-target
+    '(:command-name \"pushd\" :positional-args (\"$DIR\"))
+    '((DIR . \"/target\")) \"/original\")
+  => \"/target\"
+
+  ;; builtin pushd invocation
+  (jf/bash--extract-pushd-target
+    '(:command-name \"builtin\" :positional-args (\"pushd\" \"/tmp\"))
+    nil \"/original\")
+  => \"/tmp\"
+
+  ;; pushd with no args (swaps top two dirs - complex, skip for now)
+  (jf/bash--extract-pushd-target
+    '(:command-name \"pushd\" :positional-args nil)
+    nil \"/original\")
+  => :unresolved"
+  (let* ((command-name (plist-get command :command-name))
+         (positional-args (plist-get command :positional-args))
+         (flags (plist-get command :flags))
+         ;; Extract target - handle builtin pushd specially
+         (target (cond
+                  ;; builtin pushd: skip "pushd" arg, use second arg
+                  ((equal command-name "builtin")
+                   (when (and positional-args
+                              (>= (length positional-args) 2))
+                     (nth 1 positional-args)))
+                  ;; Regular pushd: check positional args first, then flags
+                  (t
+                   (or (car positional-args)
+                       (car flags)))))
+         ;; Extract HOME from var-context for special form handling
+         (home (alist-get 'HOME var-context)))
+
+    (cond
+     ;; No target provided (pushd with no args) - complex directory swap, skip for now
+     ((null target)
+      :unresolved)
+
+     ;; Empty string target
+     ((string-empty-p target)
+      :unresolved)
+
+     ;; pushd ~ (go to HOME)
+     ((equal target "~")
+      (if home
+          home
+        :unresolved))
+
+     ;; pushd ~/path (expand ~ to HOME, then append path)
+     ((string-prefix-p "~/" target)
+      (if home
+          (let ((remainder (substring target 2)))  ; Remove "~/" prefix
+            (expand-file-name (concat home "/" remainder)))
+        :unresolved))
+
+     ;; Have a regular target - resolve it (same logic as cd)
+     (t
+      ;; Step 1: Resolve variables
+      (let ((var-resolved (jf/bash-resolve-variables target var-context)))
+        (cond
+         ;; Partial variable resolution - return :unresolved
+         ((and (listp var-resolved)
+               (plist-get var-resolved :unresolved))
+          :unresolved)
+
+         ;; Variables resolved - continue with path resolution
+         (t
+          ;; Step 2: Resolve command substitutions
+          (let ((cmd-resolved (jf/bash-resolve-command-substitution var-resolved var-context)))
+            (cond
+             ;; Command substitution could not be resolved
+             ((eq cmd-resolved :unresolved)
+              :unresolved)
+
+             ;; Command substitution resolved - continue with relative path resolution
+             (t
+              ;; Step 3: Resolve relative paths using current-pwd
+              (let ((path-resolved (jf/bash-resolve-relative-path cmd-resolved var-context current-pwd)))
+                ;; Return the fully resolved path
+                path-resolved)))))))))))
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp
