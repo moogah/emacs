@@ -838,7 +838,9 @@ Validates that all scenarios in the corpus produce expected operations."
                       :error "Operation count mismatch"
                       :expected-count (length expected)
                       :actual-count (length actual)
-                      :command cmd)
+                      :command cmd
+                      :expected-ops expected
+                      :actual-ops actual)
                 failures))
 
         ;; For each expected operation, verify it exists in actual
@@ -885,6 +887,10 @@ Validates that all scenarios in the corpus produce expected operations."
           (message "  Expected: %S" (plist-get failure :expected)))
         (when (plist-get failure :actual)
           (message "  Actual: %S" (plist-get failure :actual)))
+        (when (plist-get failure :expected-ops)
+          (message "  Expected ops: %S" (plist-get failure :expected-ops)))
+        (when (plist-get failure :actual-ops)
+          (message "  Actual ops: %S" (plist-get failure :actual-ops)))
         (message "")))
 
     ;; Assert no failures

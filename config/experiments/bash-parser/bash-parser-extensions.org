@@ -142,7 +142,7 @@ Define patterns that indicate command execution via string arguments.
 (defvar jf/bash-command-injection-patterns
   '((bash . (:flags ("-c") :arg-after-flag t))
     (sh . (:flags ("-c") :arg-after-flag t))
-    (python . (:flags ("-c") :arg-after-flag t))
+    (zsh . (:flags ("-c") :arg-after-flag t))
     (env . (:flags ("-S" "--split-string") :arg-after-flag t))
     (eval . (:no-flag-required t :first-arg t)))
   "Database of command injection patterns.
@@ -153,11 +153,17 @@ Each entry maps a command symbol to detection parameters:
   :no-flag-required - If t, command doesn't need a flag (like eval)
   :first-arg - If t, first positional arg is the nested command
 
+Command injection detection is for SHELL commands that execute nested shell code.
+Non-shell interpreters (python -c, node -e, etc.) are NOT injection because they
+execute code in their own language, not bash.
+
 Examples:
-  bash -c 'rm file.txt'     - Flag: -c, nested: 'rm file.txt'
-  python -c 'import os'     - Flag: -c, nested: 'import os'
-  env -S 'prog arg'         - Flag: -S, nested: 'prog arg'
-  eval 'rm file.txt'        - No flag, nested: 'rm file.txt'")
+  bash -c 'rm file.txt'     - Flag: -c, nested: 'rm file.txt' (shell injection)
+  sh -c 'cat file'          - Flag: -c, nested: 'cat file' (shell injection)
+  env -S 'prog arg'         - Flag: -S, nested: 'prog arg' (shell injection)
+  eval 'rm file.txt'        - No flag, nested: 'rm file.txt' (shell injection)
+  python -c 'print(1)'      - NOT injection (Python code, not bash)
+  node -e 'console.log(1)'  - NOT injection (JavaScript code, not bash)")
 #+end_src
 
 *** Detection Function

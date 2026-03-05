@@ -101,15 +101,15 @@ Test detection of sh -c command injection."
     (should (eq (plist-get injection :injection-type) :flag-based))))
 
 (ert-deftest test-parser-extension-detect-python-c-injection ()
-  "Scenario: bash-parser § 'Detect python -c pattern'
+  "Scenario: bash-parser § 'Python -c does NOT inject bash code'
 
-Test detection of python -c command injection."
+Test that python -c is NOT detected as command injection.
+Python -c executes Python code, not bash, so it should not be
+detected as bash command injection."
   (let* ((parsed (jf/bash-parse "python -c 'import os; os.remove(file)'"))
          (injection (jf/bash-detect-command-injection parsed)))
-    (should injection)
-    (should (plist-get injection :command-injection))
-    (should (equal (plist-get injection :nested-command-string) "import os; os.remove(file)"))
-    (should (eq (plist-get injection :injection-type) :flag-based))))
+    ;; Should NOT detect as injection since it's Python code, not bash
+    (should-not injection)))
 
 (ert-deftest test-parser-extension-detect-env-s-injection ()
   "Scenario: bash-parser § 'Detect env -S pattern'
