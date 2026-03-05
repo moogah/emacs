@@ -58,6 +58,8 @@ infinite loops in pathological cases."
          (jf/bash-parse--handle-list root-node))
         (:conditional
          (jf/bash-parse--handle-conditional root-node))
+        (:for-loop
+         (jf/bash-parse--handle-for-loop root-node))
         (:simple
          (jf/bash-parse--handle-simple-command root-node))
         (_
@@ -66,18 +68,23 @@ infinite loops in pathological cases."
 
 (defun jf/bash-parse--detect-structure-type (root-node)
   "Detect the structure type from ROOT-NODE.
-Returns :pipeline, :list, :conditional, or :simple.
+Returns :pipeline, :list, :conditional, :for-loop, or :simple.
 Only checks direct children to avoid detecting nested structures inside command substitutions."
   (let ((pipeline-node (jf/bash-parse--find-direct-child-by-type root-node "pipeline"))
         (list-node (jf/bash-parse--find-direct-child-by-type root-node "list"))
         (if-node (jf/bash-parse--find-direct-child-by-type root-node "if_statement"))
+        (for-node (jf/bash-parse--find-direct-child-by-type root-node "for_statement"))
         (redirected-stmt (jf/bash-parse--find-direct-child-by-type root-node "redirected_statement")))
     (cond
      (pipeline-node :pipeline)
      (list-node :list)
      (if-node :conditional)
+     (for-node :for-loop)
+     ;; Check for semicolon-separated commands BEFORE redirected_statement
+     ;; This handles chains like "cat a.txt > b.txt; cat c.txt >> b.txt"
+     ((> (jf/bash-parse--count-command-children root-node) 1) :list)
      ;; Check if redirected_statement wraps a list or pipeline
-     ;; This happens when a chain/pipeline has a redirection: "A && B > file"
+     ;; This handles chains/pipelines with redirections: "A && B > file"
      (redirected-stmt
       (when-let ((body-node (treesit-node-child-by-field-name redirected-stmt "body")))
         (let ((body-type (treesit-node-type body-node)))
@@ -85,8 +92,6 @@ Only checks direct children to avoid detecting nested structures inside command 
            ((string= body-type "pipeline") :pipeline)
            ((string= body-type "list") :list)
            (t :simple)))))
-     ;; Check if program has multiple command children (semicolon-separated)
-     ((> (jf/bash-parse--count-command-children root-node) 1) :list)
      (t :simple))))
 
 (defun jf/bash-parse--count-command-children (node)
@@ -194,12 +199,25 @@ Recursively searches all descendants."
           (setf (nth last-cmd-index parsed-commands)
                 (plist-put last-cmd :redirections merged-redirections)))))
 
-    (list :success t
-          :type :chain
-          :all-commands parsed-commands
-          :command-count (length parsed-commands)
-          :dangerous-p any-dangerous
-          :ast root-node)))
+    ;; Return flattened structure for backward compatibility
+    ;; Flatten first command's fields to top level (similar to simple-command handler)
+    (if (null parsed-commands)
+        ;; Empty chain - shouldn't happen but handle defensively
+        (list :success t
+              :type :chain
+              :all-commands nil
+              :command-count 0
+              :dangerous-p nil
+              :ast root-node)
+      ;; Normal case: flatten first command's fields to top level
+      (append (list :success t
+                    :type :chain
+                    :all-commands parsed-commands
+                    :command-count (length parsed-commands)
+                    :dangerous-p any-dangerous
+                    :ast root-node)
+              ;; Flatten first command's fields to top level
+              (car parsed-commands)))))
 
 (defun jf/bash-parse--handle-simple-command (root-node)
   "Handle simple (single) command from ROOT-NODE."
@@ -291,18 +309,108 @@ Bash tree-sitter structure for if_statement:
           :else-text else-text
           :ast root-node)))
 
+(defun jf/bash-parse--handle-for-loop (root-node)
+  "Handle for-loop from ROOT-NODE.
+
+Extracts loop variable, iteration values, body, and command substitutions.
+Returns structured for-loop data.
+
+Bash tree-sitter structure for for_statement:
+  [0] 'for' keyword
+  [1] variable (with field name 'variable')
+  [2] 'in' keyword (optional - may use default $@)
+  [3] value nodes (with field name 'value')
+  [4] do_group with 'do' keyword and body commands
+  [last] 'done' keyword"
+  (let* ((for-node (jf/bash-parse--find-node-by-type root-node "for_statement"))
+         (variable-node (when for-node
+                         (treesit-node-child-by-field-name for-node "variable")))
+         (variable-name (when variable-node
+                         (treesit-node-text variable-node t)))
+         (body-text nil)
+         (iteration-values nil)
+         (command-substitutions nil))
+
+    ;; Extract command substitutions from the entire for-loop node
+    (when for-node
+      (setq command-substitutions
+            (jf/bash-parse--extract-command-substitutions for-node)))
+
+    ;; Extract iteration values and body
+    (when for-node
+      (let ((child-count (treesit-node-child-count for-node))
+            (collecting-values nil)
+            (collecting-body nil)
+            (value-nodes '())
+            (body-nodes '()))
+        ;; Collect value nodes and body nodes
+        (dotimes (i child-count)
+          (let* ((child (treesit-node-child for-node i))
+                 (child-type (treesit-node-type child)))
+            (cond
+             ;; Start collecting values after 'in' keyword
+             ((string= child-type "in")
+              (setq collecting-values t))
+             ;; Start collecting body at do_group
+             ((string= child-type "do_group")
+              (setq collecting-values nil)
+              (setq collecting-body t)
+              ;; Extract body text from do_group node
+              ;; do_group contains 'do' keyword + commands + 'done'
+              (let ((do-group-text (treesit-node-text child t)))
+                ;; Strip 'do' and 'done' keywords
+                (when (string-match "^do\\s-+\\(.*\\)\\s-+done$" do-group-text)
+                  (setq body-text (string-trim (match-string 1 do-group-text))))))
+             ;; Stop at 'done' keyword
+             ((string= child-type "done")
+              (setq collecting-body nil))
+             ;; Collect value nodes (between 'in' and 'do_group')
+             (collecting-values
+              (unless (member child-type '(";" "in"))
+                (push child value-nodes))))))
+
+        ;; Convert value nodes to text list
+        (when value-nodes
+          (setq iteration-values
+                (mapcar (lambda (node) (treesit-node-text node t))
+                       (nreverse value-nodes))))))
+
+    ;; Build result
+    (let ((result (list :success t
+                       :type :for-loop
+                       :command-name "for"
+                       :variable variable-name
+                       :iteration-values iteration-values
+                       :body-text body-text
+                       :ast root-node)))
+      ;; Only add command-substitutions if present
+      (when command-substitutions
+        (setq result (plist-put result :command-substitutions command-substitutions)))
+      result)))
+
 (defun jf/bash-parse--get-all-command-nodes (container-node)
   "Get all command nodes from CONTAINER-NODE (pipeline or list).
-Returns command, redirected_statement, or variable_assignment nodes."
+Returns command, redirected_statement, or variable_assignment nodes.
+Only collects top-level commands - does not descend into command substitutions."
   (let ((commands '()))
     (jf/bash-parse--visit-node
      container-node
      (lambda (node)
        (let ((node-type (treesit-node-type node)))
-         (when (or (string= node-type "command")
-                   (string= node-type "redirected_statement")
-                   (string= node-type "variable_assignment"))
-           (push node commands)))))
+         (cond
+          ;; Skip command substitutions - don't collect nested commands
+          ((string= node-type "command_substitution")
+           :skip-children)
+          ;; Collect redirected_statement nodes and skip their children
+          ;; (the nested command node would be a duplicate)
+          ((string= node-type "redirected_statement")
+           (push node commands)
+           :skip-children)
+          ;; Collect command and variable_assignment nodes
+          ((or (string= node-type "command")
+               (string= node-type "variable_assignment"))
+           (push node commands)
+           nil)))))
     (nreverse commands)))
 
 (defun jf/bash-parse--parse-find-with-exec (command-name args redirections)
