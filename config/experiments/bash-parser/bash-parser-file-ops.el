@@ -156,13 +156,22 @@ Returns list of operation plists from all extraction sources."
 
         ;; Check for self-execution (path-based commands)
         (when (and command-name (jf/bash--command-executes-self-p command-name))
-          (push (list :file command-name
-                      :operation :execute
-                      :source :command-name
-                      :confidence :low
-                      :self-executing t
-                      :script-args positional-args)
-                operations))
+          ;; Resolve variables in command name
+          (let* ((resolved-path (jf/bash--resolve-path-variables command-name var-context))
+                 (final-path (if (stringp resolved-path)
+                                resolved-path
+                              (plist-get resolved-path :path)))
+                 (unresolved-vars (when (listp resolved-path)
+                                   (plist-get resolved-path :unresolved))))
+            (push (append (list :file final-path
+                               :operation :execute
+                               :source :command-name
+                               :confidence :low
+                               :self-executing t
+                               :script-args positional-args)
+                         (when unresolved-vars
+                           (list :unresolved t :unresolved-vars unresolved-vars)))
+                  operations)))
 
         ;; Extract from nested commands (bash -c, sh -c, etc.)
         ;; Only if bash-parser-extensions is loaded
@@ -382,20 +391,22 @@ Example:
              ;; Flag-dependent command (tar, sed, etc.) - check flags
              ((eq ops-spec :flag-dependent)
               (let* ((flag-handlers (plist-get semantics :flag-handlers))
-                     (matched-handler nil))
+                     (matched-handler :not-matched))  ; Use sentinel value
                 ;; Find first matching flag handler
                 (dolist (handler flag-handlers)
-                  (when (null matched-handler)
+                  (when (eq matched-handler :not-matched)
                     (let ((trigger-flags (car handler))
                           (handler-spec (cdr handler)))
                       ;; Check if any trigger flag is present
                       (when (or (null trigger-flags)  ; Empty trigger matches always
                                 (seq-some (lambda (f) (member f flags)) trigger-flags))
                         (setq matched-handler handler-spec)))))
-                (when matched-handler
-                  (setq operations
-                        (jf/bash--extract-ops-from-positional-specs
-                         matched-handler positional-args command-name var-context args)))))
+                ;; matched-handler can be nil (no operations), a list (operations), or :not-matched
+                (unless (eq matched-handler :not-matched)
+                  (when matched-handler
+                    (setq operations
+                          (jf/bash--extract-ops-from-positional-specs
+                           matched-handler positional-args command-name var-context args))))))
 
              ;; Custom command handler - delegate to custom function
              ((eq ops-spec :custom)

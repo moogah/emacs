@@ -228,8 +228,15 @@
 
 (ert-deftest test-semantics-execute-operation-classification ()
   "Scenario: bash-command-semantics § 'Operation type classification' - execute"
-  (let ((result (jf/bash-lookup-command-semantics "python")))
-    (should (eq (plist-get (car (plist-get result :operations)) :operation) :execute))))
+  (let* ((result (jf/bash-lookup-command-semantics "python"))
+         (ops-spec (plist-get result :operations)))
+    ;; Python is now flag-dependent
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute)))))
 
 ;;; Core Command Coverage
 
@@ -351,54 +358,85 @@
 (ert-deftest test-semantics-python-interpreter ()
   "Scenario: bash-command-semantics § 'Script execution' - python interpreter"
   (let* ((result (jf/bash-lookup-command-semantics "python"))
-         (ops (plist-get result :operations))
-         (op (car ops)))
+         (ops-spec (plist-get result :operations)))
     (should result)
-    (should (= (length ops) 1))
-    (should (eq (plist-get op :operation) :execute))
-    (should (eq (plist-get op :source) :positional-args))
-    (should (= (plist-get op :index) 0))))
+    ;; Python is now flag-dependent to handle -c flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (eq (plist-get op :source) :positional-args))
+      (should (= (plist-get op :index) 0)))))
 
 (ert-deftest test-semantics-python3-interpreter ()
   "Scenario: bash-command-semantics § 'Script execution' - python3 interpreter"
   (let* ((result (jf/bash-lookup-command-semantics "python3"))
-         (ops (plist-get result :operations))
-         (op (car ops)))
+         (ops-spec (plist-get result :operations)))
     (should result)
-    (should (eq (plist-get op :operation) :execute))
-    (should (= (plist-get op :index) 0))))
+    ;; Python3 is now flag-dependent to handle -c flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (= (plist-get op :index) 0)))))
 
 (ert-deftest test-semantics-node-interpreter ()
   "Scenario: bash-command-semantics § 'Script execution' - node interpreter"
   (let* ((result (jf/bash-lookup-command-semantics "node"))
-         (ops (plist-get result :operations))
-         (op (car ops)))
+         (ops-spec (plist-get result :operations)))
     (should result)
-    (should (eq (plist-get op :operation) :execute))
-    (should (= (plist-get op :index) 0))))
+    ;; Node is now flag-dependent to handle -e flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (= (plist-get op :index) 0)))))
 
 (ert-deftest test-semantics-bash-interpreter ()
   "Scenario: bash-command-semantics § 'Script execution' - bash interpreter"
   (let* ((result (jf/bash-lookup-command-semantics "bash"))
-         (ops (plist-get result :operations))
-         (op (car ops)))
+         (ops-spec (plist-get result :operations)))
     (should result)
-    (should (eq (plist-get op :operation) :execute))
-    (should (= (plist-get op :index) 0))))
+    ;; Bash is now flag-dependent to handle -c flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (= (plist-get op :index) 0)))))
 
 (ert-deftest test-semantics-sh-interpreter ()
   "Scenario: bash-command-semantics § 'Script execution' - sh interpreter"
   (let* ((result (jf/bash-lookup-command-semantics "sh"))
-         (ops (plist-get result :operations)))
+         (ops-spec (plist-get result :operations)))
     (should result)
-    (should (eq (plist-get (car ops) :operation) :execute))))
+    ;; Sh is now flag-dependent to handle -c flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute)))))
 
 (ert-deftest test-semantics-zsh-interpreter ()
   "Scenario: bash-command-semantics § 'Script execution' - zsh interpreter"
   (let* ((result (jf/bash-lookup-command-semantics "zsh"))
-         (ops (plist-get result :operations)))
+         (ops-spec (plist-get result :operations)))
     (should result)
-    (should (eq (plist-get (car ops) :operation) :execute))))
+    ;; Zsh is now flag-dependent to handle -c flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute)))))
 
 (ert-deftest test-semantics-source-builtin ()
   "Scenario: bash-command-semantics § 'Script execution' - source builtin"

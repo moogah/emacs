@@ -77,12 +77,24 @@
               :subcommand-handlers ()))
     (kubectl . (:operations :complex
                 :subcommand-handlers ()))
-    (python . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (python3 . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (node . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (bash . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (sh . (:operations ((:source :positional-args :operation :execute :index 0))))
-    (zsh . (:operations ((:source :positional-args :operation :execute :index 0))))
+    (python . (:operations :flag-dependent
+               :flag-handlers ((("-c" "-m") . ())  ; -c and -m execute inline code/module, no file operation
+                              (() . ((:source :positional-args :operation :execute :index 0))))))
+    (python3 . (:operations :flag-dependent
+                :flag-handlers ((("-c" "-m") . ())  ; -c and -m execute inline code/module, no file operation
+                               (() . ((:source :positional-args :operation :execute :index 0))))))
+    (node . (:operations :flag-dependent
+             :flag-handlers ((("-e" "--eval" "-p" "--print") . ())  ; -e/-p execute inline code, no file operation
+                            (() . ((:source :positional-args :operation :execute :index 0))))))
+    (bash . (:operations :flag-dependent
+             :flag-handlers ((("-c") . ())  ; -c executes inline code, no file operation
+                            (() . ((:source :positional-args :operation :execute :index 0))))))
+    (sh . (:operations :flag-dependent
+           :flag-handlers ((("-c") . ())  ; -c executes inline code, no file operation
+                          (() . ((:source :positional-args :operation :execute :index 0))))))
+    (zsh . (:operations :flag-dependent
+            :flag-handlers ((("-c") . ())  ; -c executes inline code, no file operation
+                           (() . ((:source :positional-args :operation :execute :index 0))))))
     (source . (:operations ((:source :positional-args :operation :execute :index 0))))
     (\. . (:operations ((:source :positional-args :operation :execute :index 0))))
     (go . (:operations :complex
