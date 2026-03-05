@@ -360,8 +360,8 @@ SECURITY: export PWD updates context for subsequent commands."
 (ert-deftest test-pwd-assignment-simple ()
   "Test PWD=/new/path; cat file.txt (simple assignment).
 
-SECURITY: Simple assignment updates PWD for subsequent commands."
-  :expected-result :failed
+SECURITY: Simple assignment updates PWD for subsequent commands.
+Fixed by bead emacs-wpa0: semicolon-separated assignments now parsed as chains."
   (let* ((parsed (jf/bash-parse "PWD=/new/path; cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
