@@ -172,10 +172,9 @@ Example:
                        cmd var-context (1+ depth))))
           (setq operations (append operations cmd-ops)))))
 
-    ;; 5. Recursively process chain commands (with variable tracking and directory tracking)
+    ;; 5. Recursively process chain commands (with variable tracking)
     (when (eq (plist-get parsed-command :type) :chain)
-      (let ((chain-context var-context)
-            (current-pwd (or (alist-get 'PWD var-context) "/")))
+      (let ((chain-context var-context))
         (dolist (cmd (plist-get parsed-command :all-commands))
           ;; Extract variable assignments from this command with resolution
           ;; Pass current chain-context so assignments can resolve using earlier assignments
@@ -183,22 +182,8 @@ Example:
             (let ((assignments (jf/bash--extract-assignments-from-command cmd chain-context)))
               (when assignments
                 ;; Assignments are already fully resolved (variables, pwd, relative paths)
-                (setq chain-context (append assignments chain-context))
-                ;; Check if PWD was assigned - this updates directory context
-                (when-let ((new-pwd (alist-get 'PWD assignments)))
-                  (setq current-pwd new-pwd)))))
-
-          ;; Check for cd command and update directory context
-          (when (and (fboundp 'jf/bash--is-cd-command-p)
-                     (jf/bash--is-cd-command-p cmd))
-            (when-let ((new-pwd (jf/bash--extract-cd-target cmd chain-context current-pwd)))
-              (unless (eq new-pwd :unresolved)
-                (setq current-pwd new-pwd)
-                ;; Update PWD in context for subsequent commands
-                (setq chain-context (cons (cons 'PWD current-pwd)
-                                         (assq-delete-all 'PWD chain-context))))))
-
-          ;; Extract operations with updated context (PWD now reflects current-pwd)
+                (setq chain-context (append assignments chain-context)))))
+          ;; Extract operations with updated context
           (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
                          cmd chain-context (1+ depth))))
             (setq operations (append operations cmd-ops))))))
@@ -263,23 +248,7 @@ Example:
                              parsed-command var-context (1+ depth))))
         (setq operations (append operations conditional-ops))))
 
-    ;; 8. Process subshells with isolated context
-    ;; Subshells create isolated variable and directory contexts.
-    ;; Changes within subshell (cd, PWD=, variable assignments) do not affect parent.
-    (when (eq (plist-get parsed-command :type) :subshell)
-      (when-let ((subshell-body (plist-get parsed-command :subshell-body)))
-        (when (plist-get subshell-body :success)
-          ;; Create isolated context by copying var-context
-          ;; This ensures cd and PWD changes in subshell don't affect parent
-          (let ((isolated-context (copy-alist var-context)))
-            (let ((subshell-ops (jf/bash-analyze-file-operations-recursive
-                                subshell-body isolated-context (1+ depth))))
-              ;; Mark all subshell operations for tracing
-              (dolist (op subshell-ops)
-                (plist-put op :subshell-context t))
-              (setq operations (append operations subshell-ops)))))))
-
-    ;; 9. Post-process: Normalize dynamic file paths
+    ;; 8. Post-process: Normalize dynamic file paths
     ;; Handle multiple sources of dynamic content:
     ;; - Heredoc + while loop: cat <<EOF | while read x; do op $x; done
     ;; - Command substitutions in loops: cat $file > backup/$(basename $file)
