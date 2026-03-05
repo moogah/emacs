@@ -48,10 +48,11 @@ Expected: Operations from both find AND cat."
                             (plist-get op :from-substitution)))
                      ops))
 
-    ;; cat reads pattern result (the substitution itself)
+    ;; cat reads the pattern result from substitution
     (should (seq-find (lambda (op)
-                       (and (string-match "find" (plist-get op :file))
-                            (eq (plist-get op :operation) :read)))
+                       (and (string= (plist-get op :file) "config.yml")
+                            (eq (plist-get op :operation) :read)
+                            (string= (plist-get op :command) "cat")))
                      ops))))
 
 (ert-deftest test-recursive-substitution-with-flags ()
