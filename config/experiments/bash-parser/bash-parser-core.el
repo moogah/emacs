@@ -582,6 +582,71 @@ Incremented each time jf/bash-parse is called recursively.")
   "Maximum parsing depth to prevent infinite recursion.
 When exceeded, jf/bash-parse will signal an error.")
 
+(defun jf/bash-parse--unescape-backtick-content (content)
+  "Unescape backtick content by one level.
+Converts \\` to `, \\\\ to \\, etc."
+  (let ((result "")
+        (pos 0))
+    (while (< pos (length content))
+      (if (and (< pos (1- (length content)))
+               (= (aref content pos) ?\\))
+          ;; Found backslash - check what follows
+          (let ((next-char (aref content (1+ pos))))
+            (cond
+             ;; \\` becomes `
+             ((= next-char ?`)
+              (setq result (concat result "`"))
+              (setq pos (+ pos 2)))
+             ;; \\\\ becomes \\
+             ((= next-char ?\\)
+              (setq result (concat result "\\"))
+              (setq pos (+ pos 2)))
+             ;; Other escaped chars - keep the backslash
+             (t
+              (setq result (concat result (char-to-string (aref content pos))))
+              (setq pos (1+ pos)))))
+        ;; Regular character
+        (setq result (concat result (char-to-string (aref content pos))))
+        (setq pos (1+ pos))))
+    result))
+
+(defun jf/bash-parse--extract-nested-backticks (content parent-nesting-level)
+  "Extract nested backtick command substitutions from CONTENT string.
+PARENT-NESTING-LEVEL is the nesting level of the parent backtick substitution.
+Returns list of plists with :syntax, :content, :nesting-level, :parsed.
+
+Backtick nesting uses backslash escaping: outer ` contains \\` for inner.
+At each level, we need to unescape by one level (remove one backslash)."
+  (let ((substitutions '())
+        (pos 0))
+    ;; Search for escaped backticks: \\`...\\`
+    ;; At this level, nested backticks appear as \\`
+    (while (string-match "\\\\`\\(\\(?:[^`\\]\\|\\\\\\(.\\)\\)*?\\)\\\\`" content pos)
+      (let* ((nested-content-raw (match-string 1 content))
+             ;; Unescape by one level: \\` becomes `, \\\\ becomes \\, etc.
+             (nested-content (jf/bash-parse--unescape-backtick-content nested-content-raw))
+             (nested-level (1+ parent-nesting-level))
+             ;; Recursively parse the nested substitution content
+             (parsed-subst (when (and nested-content (> (length nested-content) 0))
+                            (jf/bash-parse nested-content))))
+
+        ;; Add this nested substitution
+        (push (list :syntax "`"
+                   :content nested-content
+                   :nesting-level nested-level
+                   :parsed parsed-subst)
+              substitutions)
+
+        ;; Recursively extract deeper nesting
+        (let ((deeper-nested (jf/bash-parse--extract-nested-backticks nested-content nested-level)))
+          (dolist (deep deeper-nested)
+            (push deep substitutions)))
+
+        ;; Move position forward
+        (setq pos (match-end 0))))
+
+    (nreverse substitutions)))
+
 (defun jf/bash-parse--extract-command-substitutions (command-or-statement-node)
   "Extract all command substitutions from COMMAND-OR-STATEMENT-NODE.
 Returns list of plists with :syntax, :content, :nesting-level, :parsed.
@@ -619,12 +684,22 @@ recursively parses substitution content."
                 (parsed-subst (when (and content (> (length content) 0))
                                (jf/bash-parse content))))
 
-           ;; Add to substitutions list with parsed field
+           ;; Add this substitution to the list first
            (push (list :syntax syntax
                       :content content
                       :nesting-level nesting-level
                       :parsed parsed-subst)
-                 substitutions))
+                 substitutions)
+
+           ;; For backtick syntax, manually extract nested backticks from content
+           ;; and add them after this substitution
+           ;; Tree-sitter doesn't parse nested backticks, they appear as escaped text
+           (when (string= syntax "`")
+             (let ((nested-backticks (jf/bash-parse--extract-nested-backticks content nesting-level)))
+               ;; Add nested substitutions to the list
+               ;; They're already in the right order, so we prepend them (will be reversed later)
+               (dolist (nested (reverse nested-backticks))
+                 (push nested substitutions)))))
          ;; Continue visiting children to find nested substitutions
          nil)))
     ;; Return in order encountered (reverse the accumulated list)
@@ -742,13 +817,14 @@ Returns list of strings representing all words in the command."
                (string= node-type "ansi_c_string")
                (string= node-type "simple_expansion")
                (string= node-type "expansion")
-               (string= node-type "command_substitution"))
+               (string= node-type "command_substitution")
+               (string= node-type "arithmetic_expansion"))
            (let ((text (treesit-node-text node t)))
              (when (and text (> (length text) 0))
                (setq text (string-trim text))
                ;; Remove surrounding quotes for string types (not concatenation/expansion/substitution)
                (when (and (> (length text) 1)
-                         (not (member node-type '("concatenation" "simple_expansion" "expansion" "command_substitution")))
+                         (not (member node-type '("concatenation" "simple_expansion" "expansion" "command_substitution" "arithmetic_expansion")))
                          (or (and (string-prefix-p "\"" text)
                                   (string-suffix-p "\"" text))
                              (and (string-prefix-p "'" text)
