@@ -88,7 +88,9 @@
     (go . (:operations :complex
            :subcommand-handlers ((run . ((:source :positional-args :operation :execute :index 0)))
                                 (test . ((:source :positional-args :operation :execute :index 0)))
-                                (build . ((:source :positional-args :operation :read :index 0)))))))
+                                (build . ((:source :positional-args :operation :read :index 0))))))
+    (which . (:operations ((:source :positional-args :operation :read-metadata))))
+    (dirname . (:operations ((:source :positional-args :operation :read-metadata)))))
   "Database mapping command names to file operation semantics.
 
 Each entry maps a command symbol to a plist describing how the command
@@ -190,14 +192,21 @@ and :match-pattern for -name patterns."
       (setq search-dir (car positional-args)))
 
     ;; Find -name argument (pattern after -name flag)
-    ;; The pattern is in positional-args after the directory
-    (let ((i 0))
-      (while (< i (length positional-args))
-        (when (and (> i 0)  ; Skip first arg (directory)
-                   (member "-name" flags))
-          ;; If we have -name flag, the second positional arg is the pattern
-          (setq name-pattern (nth 1 positional-args)))
-        (setq i (1+ i))))
+    ;; Need to skip arguments consumed by other flags like -type
+    ;; Flags that consume an argument: -name, -type, -path, -iname, -ipath, etc.
+    (let ((arg-consuming-flags '("-name" "-type" "-path" "-iname" "-ipath" "-regex"
+                                 "-iregex" "-size" "-user" "-group" "-perm" "-mtime"
+                                 "-atime" "-ctime" "-newer"))
+          (arg-index 1))  ; Start after directory (index 0)
+      ;; Walk through flags and their arguments
+      (dolist (flag flags)
+        (when (member flag arg-consuming-flags)
+          (if (string= flag "-name")
+              ;; This is the -name flag, save its argument
+              (when (< arg-index (length positional-args))
+                (setq name-pattern (nth arg-index positional-args)))
+            ;; Other flag with argument, skip it
+            (setq arg-index (1+ arg-index))))))
 
     ;; Add :read-directory operation for search location
     (when search-dir
