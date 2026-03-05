@@ -467,12 +467,18 @@ Example:
             (cond
              ;; Complex command (git, docker, etc.) - handle subcommand
              ((eq ops-spec :complex)
-              (when subcommand
-                (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
-                  (when-let ((handler-spec (alist-get (intern subcommand) subcommand-handlers)))
-                    (setq operations
-                          (jf/bash--extract-ops-from-positional-specs
-                           handler-spec positional-args command-name var-context args))))))
+              ;; For complex commands, subcommand is either explicitly set
+              ;; or the first positional arg
+              (let* ((effective-subcommand (or subcommand (car positional-args)))
+                     (subcommand-args (if subcommand
+                                         positional-args
+                                       (cdr positional-args))))
+                (when effective-subcommand
+                  (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
+                    (when-let ((handler-spec (alist-get (intern effective-subcommand) subcommand-handlers)))
+                      (setq operations
+                            (jf/bash--extract-ops-from-positional-specs
+                             handler-spec subcommand-args command-name var-context args)))))))
 
              ;; Flag-dependent command (tar, sed, etc.) - check flags
              ((eq ops-spec :flag-dependent)
@@ -812,7 +818,14 @@ REDIRECTIONS is a list of redirection plists from the parser.
 VAR-CONTEXT is optional variable resolution context.
 
 Returns list of operation plists with resolved file paths."
-  (let ((operations nil))
+  (let ((operations nil)
+        (has-heredoc nil))
+    ;; First pass: check if there's a heredoc redirect
+    (dolist (redir redirections)
+      (when (eq (plist-get redir :type) :heredoc)
+        (setq has-heredoc t)))
+
+    ;; Second pass: extract file operations
     (dolist (redir redirections)
       (let* ((redir-type (plist-get redir :type))
              (operator (plist-get redir :operator))
@@ -840,7 +853,9 @@ Returns list of operation plists with resolved file paths."
                                    :source :redirection
                                    :metadata redir)
                              (when unresolved-vars
-                               (list :unresolved t :unresolved-vars unresolved-vars)))
+                               (list :unresolved t :unresolved-vars unresolved-vars))
+                             (when has-heredoc
+                               (list :heredoc-content t)))
                       operations)))))))
     (nreverse operations)))
 #+end_src
