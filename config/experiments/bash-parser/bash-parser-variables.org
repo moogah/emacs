@@ -288,7 +288,68 @@ path for security checks to work correctly."
 
 ** Command Substitution Resolution
 
-Resolve command substitutions like $(pwd) and `pwd` using PWD from var-context.
+Resolve command substitutions like $(pwd), $(dirname $VAR), and `pwd` using static evaluation.
+
+*** Static Command Evaluation Helpers
+
+Helper functions for static evaluation of deterministic commands.
+
+#+begin_src emacs-lisp
+(defun jf/bash--static-dirname (path)
+  "Static evaluation of dirname command on PATH.
+
+Returns the directory component of PATH using Emacs file-name-directory.
+This is the static equivalent of the bash dirname command.
+
+Examples:
+  (jf/bash--static-dirname \"/path/to/file.txt\")
+    => \"/path/to/\"
+
+  (jf/bash--static-dirname \"/path/to/\")
+    => \"/path/\"
+
+  (jf/bash--static-dirname \"file.txt\")
+    => \"\"
+
+  (jf/bash--static-dirname \"/\")
+    => \"/\"
+
+Note: Returns empty string for bare filenames without directory component."
+  (let ((dir (file-name-directory path)))
+    (if dir
+        ;; Remove trailing slash for consistency with bash dirname
+        (directory-file-name dir)
+      "")))
+
+(defun jf/bash--static-basename (path &optional suffix)
+  "Static evaluation of basename command on PATH, optionally removing SUFFIX.
+
+Returns the filename component of PATH using Emacs file-name-nondirectory.
+If SUFFIX is provided and PATH ends with it, removes the suffix.
+
+This is the static equivalent of the bash basename command.
+
+Examples:
+  (jf/bash--static-basename \"/path/to/file.txt\")
+    => \"file.txt\"
+
+  (jf/bash--static-basename \"/path/to/file.txt\" \".txt\")
+    => \"file\"
+
+  (jf/bash--static-basename \"/path/to/\")
+    => \"\"
+
+  (jf/bash--static-basename \"file.txt\")
+    => \"file.txt\""
+  (let ((base (file-name-nondirectory (directory-file-name path))))
+    (if (and suffix (string-suffix-p suffix base))
+        (substring base 0 (- (length base) (length suffix)))
+      base)))
+#+end_src
+
+*** General Command Substitution Resolution
+
+Resolve command substitutions with static evaluation for deterministic commands.
 
 #+begin_src emacs-lisp
 (defun jf/bash-resolve-pwd-substitution (file-path var-context)
@@ -346,6 +407,153 @@ dir. The parser must extract the same value for security checks to work correctl
                       result
                       t))    ; fixed-case (literal replacement)
         result))))
+
+(defun jf/bash-resolve-command-substitution (file-path var-context)
+  "Resolve command substitutions in FILE-PATH using static evaluation.
+
+VAR-CONTEXT is an alist mapping variable names to values. This function
+attempts to statically evaluate command substitutions for deterministic
+commands. Complex runtime commands remain unresolved.
+
+Supported commands:
+  $(pwd)              - Returns PWD from var-context
+  $(dirname PATH)     - Returns directory component of PATH
+  $(basename PATH)    - Returns filename component of PATH
+
+Resolution process:
+  1. Detect command substitution patterns: $(command args) or `command args`
+  2. Resolve any variables in arguments using var-context
+  3. Attempt static evaluation of known commands
+  4. If successful, replace substitution with result
+  5. If command is unknown or arguments unresolved, return :unresolved marker
+
+Examples:
+  ;; dirname with variable argument
+  (jf/bash-resolve-command-substitution
+    \"$(dirname $FILE)\"
+    '((FILE . \"/path/to/file.txt\")))
+  => \"/path/to\"
+
+  ;; dirname with literal argument
+  (jf/bash-resolve-command-substitution
+    \"$(dirname /path/to/file.txt)\"
+    nil)
+  => \"/path/to\"
+
+  ;; basename with suffix removal
+  (jf/bash-resolve-command-substitution
+    \"$(basename $FILE .txt)\"
+    '((FILE . \"/path/to/file.txt\")))
+  => \"file\"
+
+  ;; pwd substitution
+  (jf/bash-resolve-command-substitution
+    \"$(pwd)/file.txt\"
+    '((PWD . \"/base/dir\")))
+  => \"/base/dir/file.txt\"
+
+  ;; Complex nested substitution
+  (jf/bash-resolve-command-substitution
+    \"$(dirname $(dirname $FILE))\"
+    '((FILE . \"/a/b/c/file.txt\")))
+  => \"/a/b\"
+
+  ;; Unknown command - return :unresolved
+  (jf/bash-resolve-command-substitution
+    \"$(find . -name *.txt)\"
+    nil)
+  => :unresolved
+
+  ;; Unresolved variable in argument - return :unresolved
+  (jf/bash-resolve-command-substitution
+    \"$(dirname $UNKNOWN)\"
+    nil)
+  => :unresolved
+
+Security note: Only deterministic commands are evaluated. Runtime commands
+like find, ls, or which cannot be statically evaluated and return :unresolved."
+  (let ((result file-path)
+        (max-iterations 10)  ; Prevent infinite loops in nested substitutions
+        (iteration 0)
+        (changed t))
+
+    ;; Iterate until no more substitutions can be resolved
+    (while (and changed (< iteration max-iterations))
+      (setq iteration (1+ iteration))
+      (setq changed nil)
+
+      ;; Match $(command args...) or `command args...`
+      ;; Process one substitution at a time (innermost first for nested cases)
+      (when (string-match "\\$([^)]+)\\|`[^`]+`" result)
+        (let* ((match-start (match-beginning 0))
+               (match-end (match-end 0))
+               (substitution (match-string 0 result))
+               ;; Extract command and args from substitution
+               (inner-cmd (cond
+                           ;; $(command args) - extract between $( and )
+                           ((string-prefix-p "$(" substitution)
+                            (substring substitution 2 -1))
+                           ;; `command args` - extract between ` and `
+                           ((string-prefix-p "`" substitution)
+                            (substring substitution 1 -1))
+                           (t nil))))
+
+          (when inner-cmd
+            ;; Parse command and arguments
+            (let* ((parts (split-string inner-cmd))
+                   (cmd (car parts))
+                   (args (cdr parts)))
+
+              ;; Attempt to evaluate the command
+              (let ((evaluation-result
+                     (cond
+                      ;; pwd command
+                      ((equal cmd "pwd")
+                       (alist-get 'PWD var-context))
+
+                      ;; dirname command with one argument
+                      ((and (equal cmd "dirname") (= (length args) 1))
+                       (let* ((arg (car args))
+                              ;; Resolve variables in argument
+                              (resolved-arg (jf/bash-resolve-variables arg var-context)))
+                         (cond
+                          ;; Argument fully resolved
+                          ((stringp resolved-arg)
+                           (jf/bash--static-dirname resolved-arg))
+                          ;; Argument has unresolved variables
+                          (t :unresolved))))
+
+                      ;; basename command with one or two arguments
+                      ((and (equal cmd "basename") (or (= (length args) 1) (= (length args) 2)))
+                       (let* ((arg (car args))
+                              (suffix (when (= (length args) 2) (cadr args)))
+                              ;; Resolve variables in argument
+                              (resolved-arg (jf/bash-resolve-variables arg var-context)))
+                         (cond
+                          ;; Argument fully resolved
+                          ((stringp resolved-arg)
+                           (jf/bash--static-basename resolved-arg suffix))
+                          ;; Argument has unresolved variables
+                          (t :unresolved))))
+
+                      ;; Unknown or unsupported command
+                      (t :unresolved))))
+
+                (cond
+                 ;; Successfully evaluated - replace substitution with result
+                 ((and evaluation-result (not (eq evaluation-result :unresolved)))
+                  (setq result (concat
+                                (substring result 0 match-start)
+                                evaluation-result
+                                (substring result match-end)))
+                  (setq changed t))
+
+                 ;; Could not evaluate - return :unresolved for entire path
+                 (t
+                  (setq result :unresolved)
+                  (setq changed nil)))))))))
+
+    result))
 #+end_src
 
 ** Variable Assignment Tracking
@@ -559,8 +767,10 @@ Resolution steps (in order):
      - cd ~/path => expand ~ to HOME, then append path
   b. Resolve variables using jf/bash-resolve-variables
      Example: cd $DIR where DIR=/tmp => /tmp
-  c. Resolve command substitutions using jf/bash-resolve-pwd-substitution
+  c. Resolve command substitutions using jf/bash-resolve-command-substitution
      Example: cd $(pwd)/sub => /current/sub
+     Example: cd $(dirname $FILE) where FILE=/path/to/file.txt => /path/to
+     Example: cd $(basename $DIR) => filename part of $DIR
   d. Resolve relative paths using jf/bash-resolve-relative-path
      Example: cd subdir with current-pwd=/base => /base/subdir
      Example: cd ../other with current-pwd=/base/sub => /base/other
@@ -674,12 +884,19 @@ Examples:
 
          ;; Variables resolved - continue with path resolution
          (t
-          ;; Step 2: Resolve command substitutions ($(pwd), `pwd`)
-          (let ((cmd-resolved (jf/bash-resolve-pwd-substitution var-resolved var-context)))
-            ;; Step 3: Resolve relative paths using current-pwd
-            (let ((path-resolved (jf/bash-resolve-relative-path cmd-resolved var-context current-pwd)))
-              ;; Return the fully resolved path
-              path-resolved)))))))))
+          ;; Step 2: Resolve command substitutions ($(pwd), $(dirname $VAR), etc.)
+          (let ((cmd-resolved (jf/bash-resolve-command-substitution var-resolved var-context)))
+            (cond
+             ;; Command substitution could not be resolved
+             ((eq cmd-resolved :unresolved)
+              :unresolved)
+
+             ;; Command substitution resolved - continue with relative path resolution
+             (t
+              ;; Step 3: Resolve relative paths using current-pwd
+              (let ((path-resolved (jf/bash-resolve-relative-path cmd-resolved var-context current-pwd)))
+                ;; Return the fully resolved path
+                path-resolved)))))))))))
 #+end_src
 
 * Provide

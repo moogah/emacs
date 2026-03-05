@@ -600,8 +600,7 @@ DESIGN: Low priority - complex runtime behavior."
   "Test cd $(dirname $FILE) && cat base.txt
 
 SECURITY: cd with command substitution needs full substitution resolution.
-DESIGN: Complex - may need substitution evaluation first."
-  :expected-result :failed
+IMPLEMENTATION: Fixed by emacs-n1jk - static evaluation of dirname/basename commands."
   (let* ((parsed (jf/bash-parse "cd $(dirname $FILE) && cat base.txt"))
          (var-context '((PWD . "/original")
                        (FILE . "/path/to/file.txt")))
