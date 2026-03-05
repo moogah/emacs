@@ -289,7 +289,7 @@ VAR-CONTEXT is the variable resolution context.
 
 Ls without args lists current directory (no operation).
 Ls with glob patterns searches for matching files (:match-pattern).
-Ls with literal paths just lists (no operation).
+Ls with literal directory paths (like .) creates :read-directory operations.
 
 Returns list of operation plists."
   (let* ((positional-args (plist-get parsed-command :positional-args))
@@ -297,7 +297,7 @@ Returns list of operation plists."
          (operations nil))
 
     (when positional-args
-      ;; Check each arg for glob patterns
+      ;; Check each arg
       (dolist (arg positional-args)
         (let* ((resolved-path (jf/bash--resolve-path-variables arg var-context))
                (final-path (if (stringp resolved-path)
@@ -305,8 +305,9 @@ Returns list of operation plists."
                             (plist-get resolved-path :path)))
                (unresolved-vars (when (listp resolved-path)
                                  (plist-get resolved-path :unresolved))))
-          (when (jf/bash--has-glob-pattern-p final-path)
-            ;; Glob pattern - match-pattern operation
+          (cond
+           ;; Glob pattern - match-pattern operation
+           ((jf/bash--has-glob-pattern-p final-path)
             (push (append (list :file final-path
                                :operation :match-pattern
                                :confidence :high
@@ -315,7 +316,17 @@ Returns list of operation plists."
                                :command command-name)
                          (when unresolved-vars
                            (list :unresolved t :unresolved-vars unresolved-vars)))
-                  operations)))))
+                  operations))
+           ;; Literal directory reference (. before resolution)
+           ;; Check original arg since jf/bash--resolve-path-variables already resolved it
+           ((equal arg ".")
+            ;; final-path already has . resolved to PWD by jf/bash--resolve-path-variables
+            (push (list :file final-path
+                       :operation :read-directory
+                       :confidence :high
+                       :source :positional-arg
+                       :command command-name)
+                  operations))))))
 
     (nreverse operations)))
 

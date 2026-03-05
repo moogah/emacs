@@ -122,7 +122,6 @@ IMPLEMENTATION: Parser needs to resolve . using PWD from var-context."
   "Test ls . resolves to PWD.
 
 SECURITY: ls . must validate against PWD's scope, not literal '.'."
-  :expected-result :failed  ; ls semantics don't produce operations for directory arguments yet
   (let* ((parsed (jf/bash-parse "ls ."))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))

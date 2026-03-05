@@ -427,7 +427,8 @@ like find, ls, or which cannot be statically evaluated and return :unresolved."
 
       ;; Match $(command args...) or `command args...`
       ;; Process one substitution at a time (innermost first for nested cases)
-      (when (string-match "\\$([^)]+)\\|`[^`]+`" result)
+      ;; Use non-greedy match [^)$]+ to stop at nested $( and avoid matching outer substitution
+      (when (string-match "\\$([^)$]+)\\|`[^`]+`" result)
         (let* ((match-start (match-beginning 0))
                (match-end (match-end 0))
                (substitution (match-string 0 result))
