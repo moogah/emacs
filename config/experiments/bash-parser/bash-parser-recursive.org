@@ -262,6 +262,28 @@ Example:
                              parsed-command var-context (1+ depth))))
         (setq operations (append operations conditional-ops))))
 
+    ;; 8. Post-process: Mark heredoc + while loop operations
+    ;; Heredoc piped to while loop: cat <<EOF | while read x; do op $x; done
+    ;; Operations with :heredoc-content and variable expansion need loop context
+    (setq operations
+          (mapcar (lambda (op)
+                    (let ((file (plist-get op :file))
+                          (has-heredoc (plist-get op :heredoc-content)))
+                      (when (and has-heredoc
+                                file
+                                (string-match-p "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}" file))
+                        ;; Mark as loop context and dynamic
+                        (plist-put op :loop-context t)
+                        (plist-put op :dynamic t)
+                        ;; Normalize variable paths: output/$var.txt -> output/{dynamic}.txt
+                        (let ((normalized (replace-regexp-in-string
+                                          "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}"
+                                          "{dynamic}"
+                                          file)))
+                          (plist-put op :file normalized))))
+                    op)
+                  operations))
+
     operations))
 #+end_src
 
