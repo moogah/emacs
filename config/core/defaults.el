@@ -88,8 +88,11 @@
 (setq backup-directory-alist
       `(("." . ,(expand-file-name "backups" user-emacs-directory))))
 
-;; Make backup files even when under version control
-(setq vc-make-backup-files t)
+;; Don't make backup files for version-controlled repos.
+;; Backup renames (file.ts → file.ts~) trigger lsp-mode's rename-file advice,
+;; which sends workspace/willRenameFiles to the language server, causing
+;; cascading edits across the project. VC provides its own history.
+(setq vc-make-backup-files nil)
 
 ;; Set auto-save location
 (setq auto-save-file-name-transforms
