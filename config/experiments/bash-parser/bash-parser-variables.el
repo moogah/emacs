@@ -122,6 +122,108 @@ their runtime values cannot be validated against scope constraints."
           ;; Full resolution - return simple string
           resolved)))))
 
+(defun jf/bash--navigate-parent-path (base-path levels)
+  "Navigate up LEVELS directories from BASE-PATH.
+
+Uses `file-name-directory' repeatedly to go up the directory tree.
+Going up past root stops at \"/\".
+
+Examples:
+  (jf/bash--navigate-parent-path \"/a/b/c\" 1)  => \"/a/b/\"
+  (jf/bash--navigate-parent-path \"/a/b/c\" 2)  => \"/a/\"
+  (jf/bash--navigate-parent-path \"/a\" 5)      => \"/\"
+  (jf/bash--navigate-parent-path \"/a/b/\" 1)   => \"/a/\""
+  (let ((result base-path))
+    (dotimes (_ levels)
+      (let ((parent (file-name-directory (directory-file-name result))))
+        (if (or (null parent) (equal parent result))
+            ;; Reached root, stop navigating
+            (setq result "/")
+          (setq result parent))))
+    result))
+
+(defun jf/bash-resolve-relative-path (file-path var-context)
+  "Resolve relative path (., ./, ../) in FILE-PATH using PWD from VAR-CONTEXT.
+
+VAR-CONTEXT is an alist mapping variable names to values. Extracts PWD value
+to resolve relative paths. If PWD is not in context, returns file-path unchanged.
+
+Handles three relative path patterns:
+  .           - Returns PWD value directly
+  ./path      - Concatenates PWD with path after ./
+  ../path     - Navigates up from PWD, then appends remaining path
+
+Resolution behavior:
+  - PWD in context: Resolves relative paths to absolute paths
+  - No PWD in context: Returns original path unchanged (unresolved)
+  - Absolute path: Returns original path unchanged (no resolution needed)
+
+The function normalizes the result using `expand-file-name' to clean up
+multiple slashes and resolve . components.
+
+Examples:
+  (jf/bash-resolve-relative-path \".\" '((PWD . \"/base/dir\")))
+    => \"/base/dir\"
+
+  (jf/bash-resolve-relative-path \"./file.txt\" '((PWD . \"/base/dir\")))
+    => \"/base/dir/file.txt\"
+
+  (jf/bash-resolve-relative-path \"../other/file.txt\" '((PWD . \"/base/dir/sub\")))
+    => \"/base/dir/other/file.txt\"
+
+  (jf/bash-resolve-relative-path \"../../file.txt\" '((PWD . \"/a/b/c\")))
+    => \"/a/file.txt\"
+
+  (jf/bash-resolve-relative-path \"./file.txt\" nil)
+    => \"./file.txt\"  ; unchanged - no PWD context
+
+  (jf/bash-resolve-relative-path \"/absolute/path.txt\" '((PWD . \"/base\")))
+    => \"/absolute/path.txt\"  ; unchanged - already absolute
+
+Security note: Relative paths must be resolved for scope validation. When
+run_bash_command(cmd, dir) executes with PWD=dir, the shell resolves ./file.txt
+to /dir/file.txt. The parser must extract the same absolute path for security
+checks to work correctly."
+  (let ((pwd (alist-get 'PWD var-context)))
+    (cond
+     ;; No PWD in context - return unchanged
+     ((null pwd)
+      file-path)
+
+     ;; Already absolute path - return unchanged
+     ((string-prefix-p "/" file-path)
+      file-path)
+
+     ;; Case 1: "." alone - return PWD directly
+     ((equal file-path ".")
+      pwd)
+
+     ;; Case 2: "./" prefix - concat PWD with remainder
+     ((string-prefix-p "./" file-path)
+      (let ((remainder (substring file-path 2)))
+        (expand-file-name (concat pwd "/" remainder))))
+
+     ;; Case 3: "../" prefix - navigate up from PWD
+     ((string-prefix-p "../" file-path)
+      (let* ((components (split-string file-path "/" t))
+             (parent-count 0)
+             (remaining-components nil))
+        ;; Count leading ".." components
+        (while (and components (equal (car components) ".."))
+          (setq parent-count (1+ parent-count))
+          (setq components (cdr components)))
+        ;; Remaining components are the path after all ../
+        (setq remaining-components components)
+        ;; Navigate up from PWD
+        (let ((base (jf/bash--navigate-parent-path pwd parent-count)))
+          (if remaining-components
+              (expand-file-name (concat base (string-join remaining-components "/")))
+            ;; No remaining components - just return the parent directory
+            base))))
+
+     ;; Not a relative path pattern we handle - return unchanged
+     (t file-path))))
+
 (defun jf/bash-track-assignments (parsed-command &optional initial-context)
   "Track variable assignments from PARSED-COMMAND, merging with INITIAL-CONTEXT.
 

@@ -743,18 +743,22 @@ Resolve variables in file path using context.
 
 #+begin_src emacs-lisp
 (defun jf/bash--resolve-path-variables (file-path var-context)
-  "Resolve variables in FILE-PATH using VAR-CONTEXT.
+  "Resolve variables and relative paths in FILE-PATH using VAR-CONTEXT.
 
-This is a wrapper around `jf/bash-resolve-variables' for use in
-file operations extraction.
+This function performs two-stage resolution:
+  1. Variable resolution ($VAR, ${VAR}) using `jf/bash-resolve-variables'
+  2. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
 
-FILE-PATH is the file path string (may contain variables).
+FILE-PATH is the file path string (may contain variables and/or relative paths).
 VAR-CONTEXT is optional alist mapping variable names to values.
 
+The resolution order matters:
+  - Variables are resolved first: $PWD/./file.txt → /base/dir/./file.txt
+  - Then relative paths: /base/dir/./file.txt → /base/dir/file.txt
+
 Returns:
-  - String: Fully resolved path (if all variables resolved)
-  - Plist: Partially resolved path with :unresolved metadata
-  - Original path: If no variables or no context
+  - String: Fully resolved path (all variables and relative paths resolved)
+  - Plist: Partially resolved with :unresolved metadata (some variables unresolved)
 
 Examples:
   (jf/bash--resolve-path-variables \"/workspace/file.txt\" nil)
@@ -765,8 +769,26 @@ Examples:
     => \"/workspace/file.txt\"
 
   (jf/bash--resolve-path-variables \"$WORKSPACE/$FILE\" nil)
-    => (:path \"$WORKSPACE/$FILE\" :unresolved (\"WORKSPACE\" \"FILE\"))"
-  (jf/bash-resolve-variables file-path var-context))
+    => (:path \"$WORKSPACE/$FILE\" :unresolved (\"WORKSPACE\" \"FILE\"))
+
+  (jf/bash--resolve-path-variables \"./file.txt\" '((PWD . \"/base/dir\")))
+    => \"/base/dir/file.txt\"
+
+  (jf/bash--resolve-path-variables \"../other/file.txt\" '((PWD . \"/base/dir/sub\")))
+    => \"/base/dir/other/file.txt\""
+  ;; Stage 1: Resolve variables
+  (let ((var-resolved (jf/bash-resolve-variables file-path var-context)))
+    ;; Stage 2: Resolve relative paths
+    ;; Handle both simple string results and plist results from variable resolution
+    (if (stringp var-resolved)
+        ;; All variables resolved - apply relative path resolution
+        (jf/bash-resolve-relative-path var-resolved var-context)
+      ;; Partial variable resolution - still apply relative path resolution to :path
+      (let* ((path (plist-get var-resolved :path))
+             (unresolved-vars (plist-get var-resolved :unresolved))
+             (resolved-path (jf/bash-resolve-relative-path path var-context)))
+        ;; Return plist with resolved path and unresolved variables
+        (list :path resolved-path :unresolved unresolved-vars)))))
 #+end_src
 
 ** Extraction from Redirections
@@ -889,10 +911,8 @@ Returns list of operation plists with resolved file paths."
           ;; Map operator to operation type
           (let ((operation-type (jf/bash--map-redirect-operator-to-operation operator)))
             (when operation-type
-              ;; Resolve variables in destination path
-              (let* ((resolved-path (if var-context
-                                       (jf/bash-resolve-variables destination var-context)
-                                     destination))
+              ;; Resolve variables and relative paths in destination path
+              (let* ((resolved-path (jf/bash--resolve-path-variables destination var-context))
                      ;; Extract path and unresolved metadata
                      (file-path (if (stringp resolved-path)
                                    resolved-path

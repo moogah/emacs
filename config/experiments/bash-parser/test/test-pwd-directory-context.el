@@ -108,7 +108,6 @@ SECURITY: Unresolved variables should be detectable for validation rejection."
 
 SECURITY: find . must resolve to exact directory for scope validation.
 IMPLEMENTATION: Parser needs to resolve . using PWD from var-context."
-  :expected-result :failed  ; Feature not implemented yet
   (let* ((parsed (jf/bash-parse "find . -name '*.txt'"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -123,7 +122,7 @@ IMPLEMENTATION: Parser needs to resolve . using PWD from var-context."
   "Test ls . resolves to PWD.
 
 SECURITY: ls . must validate against PWD's scope, not literal '.'."
-  :expected-result :failed
+  :expected-result :failed  ; ls semantics don't produce operations for directory arguments yet
   (let* ((parsed (jf/bash-parse "ls ."))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -134,7 +133,6 @@ SECURITY: ls . must validate against PWD's scope, not literal '.'."
   "Test . in pipeline context.
 
 SECURITY: grep pattern . | head must resolve . to PWD."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "grep pattern . | head -10"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -155,7 +153,6 @@ SECURITY: grep pattern . | head must resolve . to PWD."
   "Test ./file.txt resolves to PWD/file.txt.
 
 SECURITY: cat ./file.txt must resolve to /base/dir/file.txt for validation."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cat ./file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -166,7 +163,6 @@ SECURITY: cat ./file.txt must resolve to /base/dir/file.txt for validation."
   "Test ./subdir/file.txt resolves correctly.
 
 SECURITY: ./subdir/file.txt → /base/dir/subdir/file.txt"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cat ./subdir/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -178,7 +174,6 @@ SECURITY: ./subdir/file.txt → /base/dir/subdir/file.txt"
 
 SECURITY: ./script.sh must resolve to /base/dir/script.sh.
 FUTURE: When :execute operations implemented, verify operation type."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "./script.sh"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -192,7 +187,6 @@ FUTURE: When :execute operations implemented, verify operation type."
   "Test ./script.sh with arguments.
 
 SECURITY: ./deploy.sh staging must resolve script path, not arguments."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "./deploy.sh staging us-west-2"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -211,7 +205,6 @@ SECURITY: ./deploy.sh staging must resolve script path, not arguments."
   "Test ../file.txt resolves to parent directory.
 
 SECURITY: cat ../file.txt with PWD=/base/dir/sub → /base/dir/file.txt"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cat ../file.txt"))
          (var-context '((PWD . "/base/dir/sub")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -222,7 +215,6 @@ SECURITY: cat ../file.txt with PWD=/base/dir/sub → /base/dir/file.txt"
   "Test ../../file.txt resolves correctly.
 
 SECURITY: ../../file.txt with PWD=/a/b/c → /a/file.txt"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cat ../../file.txt"))
          (var-context '((PWD . "/a/b/c")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -233,7 +225,6 @@ SECURITY: ../../file.txt with PWD=/a/b/c → /a/file.txt"
   "Test ../other/file.txt navigation pattern.
 
 SECURITY: ../other/file.txt with PWD=/base/dir/sub → /base/dir/other/file.txt"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cat ../other/file.txt"))
          (var-context '((PWD . "/base/dir/sub")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -244,7 +235,6 @@ SECURITY: ../other/file.txt with PWD=/base/dir/sub → /base/dir/other/file.txt"
   "Test ../bin/runner script execution.
 
 SECURITY: ../bin/runner with PWD=/base/project → /base/bin/runner"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "../bin/runner"))
          (var-context '((PWD . "/base/project")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -261,7 +251,7 @@ SECURITY: ../bin/runner with PWD=/base/project → /base/bin/runner"
 
 SECURITY: BASE=$PWD; cat $BASE/file.txt must resolve to /base/dir/file.txt
 IMPLEMENTATION: May require command chain analysis."
-  :expected-result :failed
+  :expected-result :failed  ; Requires variable chain tracking (bead emacs-1op2)
   (let* ((parsed (jf/bash-parse "BASE=$PWD; cat $BASE/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -277,7 +267,7 @@ IMPLEMENTATION: May require command chain analysis."
 
 SECURITY: DIR=./sub; cat $DIR/file.txt → /base/dir/sub/file.txt
 IMPLEMENTATION: Requires both relative path and variable resolution."
-  :expected-result :failed
+  :expected-result :failed  ; Requires variable chain tracking (bead emacs-1op2)
   (let* ((parsed (jf/bash-parse "DIR=./sub; cat $DIR/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -291,7 +281,7 @@ IMPLEMENTATION: Requires both relative path and variable resolution."
   "Test PATH=../other assignment with parent directory.
 
 SECURITY: PATH=../other; cat $PATH/file.txt with PWD=/dir/sub → /dir/other/file.txt"
-  :expected-result :failed
+  :expected-result :failed  ; Requires variable chain tracking (bead emacs-1op2)
   (let* ((parsed (jf/bash-parse "PATH=../other; cat $PATH/file.txt"))
          (var-context '((PWD . "/dir/sub")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -309,7 +299,6 @@ SECURITY: PATH=../other; cat $PATH/file.txt with PWD=/dir/sub → /dir/other/fil
   "Test for loop with relative path pattern.
 
 SECURITY: for f in ./src/*.txt must resolve ./src to /base/dir/src"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "for f in ./src/*.txt; do cat \"$f\"; done"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -325,7 +314,7 @@ SECURITY: for f in ./src/*.txt must resolve ./src to /base/dir/src"
   "Test if statement with relative path test.
 
 SECURITY: if [ -f ./config ] must resolve ./config to /base/dir/config"
-  :expected-result :failed
+  :expected-result :failed  ; Test extraction from conditionals needs more work
   (let* ((parsed (jf/bash-parse "if [ -f ./config ]; then cat ./config; fi"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -338,7 +327,6 @@ SECURITY: if [ -f ./config ] must resolve ./config to /base/dir/config"
   "Test find -exec with relative paths in both positions.
 
 SECURITY: find . -exec cat {} must resolve . to /base/dir"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "find . -name '*.txt' -exec cat {} \\;"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -359,7 +347,7 @@ SECURITY: find . -exec cat {} must resolve . to /base/dir"
 
 SECURITY: $(pwd) should resolve to PWD from var-context.
 DESIGN QUESTION: Is static analysis of pwd feasible?"
-  :expected-result :failed
+  :expected-result :failed  ; $(pwd) substitution not yet implemented
   (let* ((parsed (jf/bash-parse "cat $(pwd)/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -371,7 +359,7 @@ DESIGN QUESTION: Is static analysis of pwd feasible?"
 
 SECURITY: $(basename $(pwd)) with PWD=/Users/name/project → project/file.txt
 DESIGN QUESTION: How deep should substitution analysis go?"
-  :expected-result :failed
+  :expected-result :failed  ; $(pwd) substitution not yet implemented
   (let* ((parsed (jf/bash-parse "cat $(basename $(pwd))/file.txt"))
          (var-context '((PWD . "/Users/name/project")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -382,7 +370,7 @@ DESIGN QUESTION: How deep should substitution analysis go?"
   "Test backtick pwd substitution: cat `pwd`/file.txt
 
 SECURITY: Backtick and $() forms should behave identically."
-  :expected-result :failed
+  :expected-result :failed  ; `pwd` substitution not yet implemented
   (let* ((parsed (jf/bash-parse "cat `pwd`/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -395,7 +383,6 @@ SECURITY: Backtick and $() forms should behave identically."
   "Test multiple file operations with PWD context.
 
 SECURITY: All operations in pipeline must use same PWD for resolution."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cat ./input.txt | grep pattern > ./output.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -418,7 +405,6 @@ SECURITY: All operations in pipeline must use same PWD for resolution."
   "Test command with both absolute and relative paths.
 
 SECURITY: cp /tmp/file.txt ./dest.txt must preserve absolute and resolve relative."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cp /tmp/file.txt ./dest.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -464,7 +450,6 @@ SECURITY: Empty context should leave paths unresolved."
   "Verify parser extraction matches actual execution for relative paths.
 
 SECURITY: Parser must extract EXACTLY the path that execution accesses."
-  :expected-result :failed
   (let* ((test-dir (make-temp-file "bash-parser-test-" t))
          (test-file (expand-file-name "test.txt" test-dir))
          (command "cat ./test.txt")
