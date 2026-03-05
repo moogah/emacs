@@ -255,6 +255,7 @@ Returns list of operations for outer command operating on substitution patterns.
                          :source :positional-arg
                          :command command-name
                          :pattern t
+                         :from-substitution t
                          :pattern-source pattern-info)
                     operations))))))
 
