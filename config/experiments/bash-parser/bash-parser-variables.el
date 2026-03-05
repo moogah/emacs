@@ -224,6 +224,62 @@ checks to work correctly."
      ;; Not a relative path pattern we handle - return unchanged
      (t file-path))))
 
+(defun jf/bash-resolve-pwd-substitution (file-path var-context)
+  "Resolve $(pwd) and `pwd` command substitutions in FILE-PATH using VAR-CONTEXT.
+
+VAR-CONTEXT is an alist mapping variable names to values. Extracts PWD value
+to resolve pwd command substitutions. If PWD is not in context, returns
+file-path unchanged.
+
+Handles two pwd substitution patterns:
+  $(pwd)/path   - Modern command substitution syntax
+  `pwd`/path    - Legacy backtick syntax
+
+Resolution behavior:
+  - PWD in context: Replaces pwd substitutions with PWD value
+  - No PWD in context: Returns original path unchanged (unresolved)
+  - No pwd substitution: Returns original path unchanged
+
+Examples:
+  (jf/bash-resolve-pwd-substitution \"$(pwd)/file.txt\" '((PWD . \"/base/dir\")))
+    => \"/base/dir/file.txt\"
+
+  (jf/bash-resolve-pwd-substitution \"`pwd`/file.txt\" '((PWD . \"/base/dir\")))
+    => \"/base/dir/file.txt\"
+
+  (jf/bash-resolve-pwd-substitution \"$(pwd)\" '((PWD . \"/base/dir\")))
+    => \"/base/dir\"
+
+  (jf/bash-resolve-pwd-substitution \"cat $(pwd)/file.txt\" '((PWD . \"/base/dir\")))
+    => \"cat /base/dir/file.txt\"
+
+  (jf/bash-resolve-pwd-substitution \"$(pwd)/file.txt\" nil)
+    => \"$(pwd)/file.txt\"  ; unchanged - no PWD context
+
+Security note: $(pwd) substitutions must be resolved for scope validation. When
+run_bash_command(cmd, dir) executes with PWD=dir, the shell evaluates $(pwd) to
+dir. The parser must extract the same value for security checks to work correctly."
+  (let ((pwd (alist-get 'PWD var-context)))
+    (if (null pwd)
+        ;; No PWD in context - return unchanged
+        file-path
+      ;; PWD available - resolve pwd substitutions
+      (let ((result file-path))
+        ;; Replace $(pwd) with PWD value
+        ;; Use regexp-quote to properly escape the literal string
+        (setq result (replace-regexp-in-string
+                      (regexp-quote "$(pwd)")
+                      pwd
+                      result
+                      t))    ; fixed-case (literal replacement)
+        ;; Replace `pwd` with PWD value
+        (setq result (replace-regexp-in-string
+                      (regexp-quote "`pwd`")
+                      pwd
+                      result
+                      t))    ; fixed-case (literal replacement)
+        result))))
+
 (defun jf/bash-track-assignments (parsed-command &optional initial-context)
   "Track variable assignments from PARSED-COMMAND, merging with INITIAL-CONTEXT.
 

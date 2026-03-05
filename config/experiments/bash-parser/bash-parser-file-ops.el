@@ -504,11 +504,17 @@ Operation spec format:
           ;; Extract file paths at target indices
           (dolist (idx target-indices)
             (when (and (>= idx 0) (< idx (length positional-args)))
-              (let* ((file-path (nth idx positional-args)))
+              (let* ((file-path (nth idx positional-args))
+                     ;; Pre-resolve pwd substitutions before checking for command substitutions
+                     ;; This allows $(pwd) to be statically resolved and not skipped
+                     (pwd-resolved (if var-context
+                                       (jf/bash-resolve-pwd-substitution file-path var-context)
+                                     file-path)))
                 ;; Skip command substitutions - they are processed recursively
                 ;; and handled by pattern flow operations
-                (unless (and file-path (string-prefix-p "$(" file-path))
-                  (let* ((resolved-path (jf/bash--resolve-path-variables file-path var-context))
+                ;; Note: $(pwd) is already resolved above, so won't be skipped
+                (unless (and pwd-resolved (string-prefix-p "$(" pwd-resolved))
+                  (let* ((resolved-path (jf/bash--resolve-path-variables pwd-resolved var-context))
                          ;; Extract path and unresolved metadata
                          (final-path (if (stringp resolved-path)
                                         resolved-path
@@ -611,21 +617,23 @@ Examples:
    (t nil)))
 
 (defun jf/bash--resolve-path-variables (file-path var-context)
-  "Resolve variables and relative paths in FILE-PATH using VAR-CONTEXT.
+  "Resolve variables, command substitutions, and relative paths in FILE-PATH.
 
-This function performs two-stage resolution:
+This function performs three-stage resolution:
   1. Variable resolution ($VAR, ${VAR}) using `jf/bash-resolve-variables'
-  2. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
+  2. Command substitution ($(pwd), `pwd`) using `jf/bash-resolve-pwd-substitution'
+  3. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
 
-FILE-PATH is the file path string (may contain variables and/or relative paths).
-VAR-CONTEXT is optional alist mapping variable names to values.
+FILE-PATH is the file path string (may contain variables, substitutions, and/or
+relative paths). VAR-CONTEXT is optional alist mapping variable names to values.
 
 The resolution order matters:
-  - Variables are resolved first: $PWD/./file.txt → /base/dir/./file.txt
+  - Variables first: $PWD/./file.txt → /base/dir/./file.txt
+  - Then command substitutions: $(pwd)/file.txt → /base/dir/file.txt
   - Then relative paths: /base/dir/./file.txt → /base/dir/file.txt
 
 Returns:
-  - String: Fully resolved path (all variables and relative paths resolved)
+  - String: Fully resolved path (all variables, substitutions, and relative paths resolved)
   - Plist: Partially resolved with :unresolved metadata (some variables unresolved)
 
 Examples:
@@ -636,8 +644,8 @@ Examples:
                                    '((WORKSPACE . \"/workspace\")))
     => \"/workspace/file.txt\"
 
-  (jf/bash--resolve-path-variables \"$WORKSPACE/$FILE\" nil)
-    => (:path \"$WORKSPACE/$FILE\" :unresolved (\"WORKSPACE\" \"FILE\"))
+  (jf/bash--resolve-path-variables \"$(pwd)/file.txt\" '((PWD . \"/base/dir\")))
+    => \"/base/dir/file.txt\"
 
   (jf/bash--resolve-path-variables \"./file.txt\" '((PWD . \"/base/dir\")))
     => \"/base/dir/file.txt\"
@@ -646,17 +654,27 @@ Examples:
     => \"/base/dir/other/file.txt\""
   ;; Stage 1: Resolve variables
   (let ((var-resolved (jf/bash-resolve-variables file-path var-context)))
-    ;; Stage 2: Resolve relative paths
+    ;; Stage 2: Resolve command substitutions (pwd)
     ;; Handle both simple string results and plist results from variable resolution
-    (if (stringp var-resolved)
-        ;; All variables resolved - apply relative path resolution
-        (jf/bash-resolve-relative-path var-resolved var-context)
-      ;; Partial variable resolution - still apply relative path resolution to :path
-      (let* ((path (plist-get var-resolved :path))
-             (unresolved-vars (plist-get var-resolved :unresolved))
-             (resolved-path (jf/bash-resolve-relative-path path var-context)))
-        ;; Return plist with resolved path and unresolved variables
-        (list :path resolved-path :unresolved unresolved-vars)))))
+    (let ((pwd-resolved
+           (if (stringp var-resolved)
+               ;; All variables resolved - apply pwd substitution
+               (jf/bash-resolve-pwd-substitution var-resolved var-context)
+             ;; Partial variable resolution - still apply pwd substitution to :path
+             (let* ((path (plist-get var-resolved :path))
+                    (unresolved-vars (plist-get var-resolved :unresolved))
+                    (resolved-path (jf/bash-resolve-pwd-substitution path var-context)))
+               (list :path resolved-path :unresolved unresolved-vars)))))
+      ;; Stage 3: Resolve relative paths
+      (if (stringp pwd-resolved)
+          ;; All substitutions resolved - apply relative path resolution
+          (jf/bash-resolve-relative-path pwd-resolved var-context)
+        ;; Still has unresolved variables - apply relative path to :path
+        (let* ((path (plist-get pwd-resolved :path))
+               (unresolved-vars (plist-get pwd-resolved :unresolved))
+               (resolved-path (jf/bash-resolve-relative-path path var-context)))
+          ;; Return plist with resolved path and unresolved variables
+          (list :path resolved-path :unresolved unresolved-vars))))))
 
 (defun jf/bash-extract-operations-from-redirections (parsed-command &optional var-context)
   "Extract file operations from :redirections field with high confidence.

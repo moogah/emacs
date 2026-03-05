@@ -347,7 +347,6 @@ SECURITY: find . -exec cat {} must resolve . to /base/dir"
 
 SECURITY: $(pwd) should resolve to PWD from var-context.
 DESIGN QUESTION: Is static analysis of pwd feasible?"
-  :expected-result :failed  ; $(pwd) substitution not yet implemented
   (let* ((parsed (jf/bash-parse "cat $(pwd)/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -370,7 +369,6 @@ DESIGN QUESTION: How deep should substitution analysis go?"
   "Test backtick pwd substitution: cat `pwd`/file.txt
 
 SECURITY: Backtick and $() forms should behave identically."
-  :expected-result :failed  ; `pwd` substitution not yet implemented
   (let* ((parsed (jf/bash-parse "cat `pwd`/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
