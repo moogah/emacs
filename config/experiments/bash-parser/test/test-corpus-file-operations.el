@@ -817,7 +817,12 @@
                    :operation :read
                    :command "cat"
                    :pattern t
-                   :pattern-source (:command "find"))
+                   :from-substitution t
+                   :pattern-source (:substitution-content "find . -name '*.txt'"
+                                   :pattern "*.txt"
+                                   :search-scope "."
+                                   :command "find"
+                                   :from-substitution t))
                   (:file "errors.log"
                    :operation :write
                    :source :redirection)))

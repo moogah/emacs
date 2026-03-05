@@ -609,38 +609,41 @@ Operation spec format:
           ;; Extract file paths at target indices
           (dolist (idx target-indices)
             (when (and (>= idx 0) (< idx (length positional-args)))
-              (let* ((file-path (nth idx positional-args))
-                     (resolved-path (jf/bash--resolve-path-variables file-path var-context))
-                     ;; Extract path and unresolved metadata
-                     (final-path (if (stringp resolved-path)
-                                    resolved-path
-                                  (plist-get resolved-path :path)))
-                     (unresolved-vars (when (listp resolved-path)
-                                       (plist-get resolved-path :unresolved)))
-                     (has-pattern (jf/bash--has-glob-pattern-p final-path))
-                     ;; Capture script arguments for execute operations at index 0
-                     ;; Use :args to preserve flag arguments in original order
-                     (script-args (when (and (eq operation :execute)
-                                            (eq index 0)
-                                            args)
-                                   (let ((script-pos (cl-position file-path args :test #'equal)))
-                                     (if script-pos
-                                         (nthcdr (1+ script-pos) args)
-                                       '())))))
-                ;; Create operation plist
-                (push (append (list :file final-path
-                                   :operation operation
-                                   :confidence :high
-                                   :source :positional-arg
-                                   :command command-name)
-                             (when unresolved-vars
-                               (list :unresolved t :unresolved-vars unresolved-vars))
-                             (when has-pattern
-                               (list :pattern t))
-                             ;; Always include :script-args for execute operations
-                             (when (eq operation :execute)
-                               (list :script-args (or script-args '()))))
-                      operations)))))))
+              (let* ((file-path (nth idx positional-args)))
+                ;; Skip command substitutions - they are processed recursively
+                ;; and handled by pattern flow operations
+                (unless (and file-path (string-prefix-p "$(" file-path))
+                  (let* ((resolved-path (jf/bash--resolve-path-variables file-path var-context))
+                         ;; Extract path and unresolved metadata
+                         (final-path (if (stringp resolved-path)
+                                        resolved-path
+                                      (plist-get resolved-path :path)))
+                         (unresolved-vars (when (listp resolved-path)
+                                           (plist-get resolved-path :unresolved)))
+                         (has-pattern (jf/bash--has-glob-pattern-p final-path))
+                         ;; Capture script arguments for execute operations at index 0
+                         ;; Use :args to preserve flag arguments in original order
+                         (script-args (when (and (eq operation :execute)
+                                                (eq index 0)
+                                                args)
+                                       (let ((script-pos (cl-position file-path args :test #'equal)))
+                                         (if script-pos
+                                             (nthcdr (1+ script-pos) args)
+                                           '())))))
+                    ;; Create operation plist
+                    (push (append (list :file final-path
+                                       :operation operation
+                                       :confidence :high
+                                       :source :positional-arg
+                                       :command command-name)
+                                 (when unresolved-vars
+                                   (list :unresolved t :unresolved-vars unresolved-vars))
+                                 (when has-pattern
+                                   (list :pattern t))
+                                 ;; Always include :script-args for execute operations
+                                 (when (eq operation :execute)
+                                   (list :script-args (or script-args '()))))
+                          operations)))))))))
 
     (nreverse operations)))
 #+end_src
