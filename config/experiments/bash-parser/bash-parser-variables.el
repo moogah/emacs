@@ -142,16 +142,21 @@ Examples:
           (setq result parent))))
     result))
 
-(defun jf/bash-resolve-relative-path (file-path var-context)
-  "Resolve relative path (., ./, ../) in FILE-PATH using PWD from VAR-CONTEXT.
+(defun jf/bash-resolve-relative-path (file-path var-context &optional current-pwd)
+  "Resolve relative path (., ./, ../) and bare filenames in FILE-PATH.
 
 VAR-CONTEXT is an alist mapping variable names to values. Extracts PWD value
 to resolve relative paths. If PWD is not in context, returns file-path unchanged.
 
-Handles three relative path patterns:
-  .           - Returns PWD value directly
-  ./path      - Concatenates PWD with path after ./
-  ../path     - Navigates up from PWD, then appends remaining path
+CURRENT-PWD is an optional override for the directory context. If provided,
+it takes precedence over PWD from VAR-CONTEXT.
+
+Handles four relative path patterns:
+  .             - Returns PWD value directly
+  ./path        - Concatenates PWD with path after ./
+  ../path       - Navigates up from PWD, then appends remaining path
+  file.txt      - Bare filename: concatenates PWD with file path (NEW)
+  subdir/file   - Relative path without ./ prefix: resolved against PWD (NEW)
 
 Resolution behavior:
   - PWD in context: Resolves relative paths to absolute paths
@@ -174,17 +179,28 @@ Examples:
   (jf/bash-resolve-relative-path \"../../file.txt\" '((PWD . \"/a/b/c\")))
     => \"/a/file.txt\"
 
+  ;; NEW: Bare filenames resolved against PWD
+  (jf/bash-resolve-relative-path \"file.txt\" '((PWD . \"/base/dir\")))
+    => \"/base/dir/file.txt\"
+
+  (jf/bash-resolve-relative-path \"subdir/file.txt\" '((PWD . \"/base/dir\")))
+    => \"/base/dir/subdir/file.txt\"
+
+  ;; Using current-pwd parameter
+  (jf/bash-resolve-relative-path \"file.txt\" nil \"/base/dir\")
+    => \"/base/dir/file.txt\"
+
   (jf/bash-resolve-relative-path \"./file.txt\" nil)
     => \"./file.txt\"  ; unchanged - no PWD context
 
   (jf/bash-resolve-relative-path \"/absolute/path.txt\" '((PWD . \"/base\")))
     => \"/absolute/path.txt\"  ; unchanged - already absolute
 
-Security note: Relative paths must be resolved for scope validation. When
-run_bash_command(cmd, dir) executes with PWD=dir, the shell resolves ./file.txt
-to /dir/file.txt. The parser must extract the same absolute path for security
-checks to work correctly."
-  (let ((pwd (alist-get 'PWD var-context)))
+Security note: Relative paths and bare filenames must be resolved for scope
+validation. When run_bash_command(cmd, dir) executes with PWD=dir, the shell
+resolves file.txt to /dir/file.txt. The parser must extract the same absolute
+path for security checks to work correctly."
+  (let ((pwd (or current-pwd (alist-get 'PWD var-context))))
     (cond
      ;; No PWD in context - return unchanged
      ((null pwd)
@@ -221,8 +237,12 @@ checks to work correctly."
             ;; No remaining components - just return the parent directory
             base))))
 
-     ;; Not a relative path pattern we handle - return unchanged
-     (t file-path))))
+     ;; Case 4: Bare filename or relative path (no ./ or ../ prefix)
+     ;; NEW: Resolve against PWD for security validation
+     ;; Examples: "file.txt" -> "/pwd/file.txt"
+     ;;           "subdir/file.txt" -> "/pwd/subdir/file.txt"
+     (t
+      (expand-file-name (concat pwd "/" file-path))))))
 
 (defun jf/bash-resolve-pwd-substitution (file-path var-context)
   "Resolve $(pwd) and `pwd` command substitutions in FILE-PATH using VAR-CONTEXT.
@@ -396,6 +416,193 @@ If resolution results in :unresolved, the value is marked with :unresolved flag.
           (push (cons (intern var-name) resolved-value) assignments))))
 
     (nreverse assignments)))
+
+(defun jf/bash--is-cd-command-p (command)
+  "Return t if COMMAND structure represents a cd command.
+
+Takes a parsed command structure (plist) and returns t if it represents
+a cd command, nil otherwise.
+
+Detection logic:
+  - Checks :command-name equals \"cd\"
+  - Handles 'builtin cd' invocations
+  - Ignores cd as part of other commands (cdrom, abcd)
+
+Examples:
+  (jf/bash--is-cd-command-p '(:command-name \"cd\" :positional-args (\"/tmp\")))
+    => t
+
+  (jf/bash--is-cd-command-p '(:command-name \"builtin\" :positional-args (\"cd\" \"/tmp\")))
+    => t
+
+  (jf/bash--is-cd-command-p '(:command-name \"cdrom\" :positional-args (\"/dev\")))
+    => nil
+
+  (jf/bash--is-cd-command-p '(:command-name \"ls\" :positional-args (\"/tmp\")))
+    => nil
+
+This function operates on parsed command structures, unlike
+`jf/bash-contains-cd-command-p' which operates on raw command strings."
+  (let ((command-name (plist-get command :command-name))
+        (positional-args (plist-get command :positional-args)))
+    (cond
+     ;; Direct cd command
+     ((equal command-name "cd")
+      t)
+
+     ;; Builtin cd invocation: builtin cd /path
+     ((and (equal command-name "builtin")
+           positional-args
+           (equal (car positional-args) "cd"))
+      t)
+
+     ;; Not a cd command
+     (t nil))))
+
+(defun jf/bash--extract-cd-target (command var-context current-pwd)
+  "Extract and resolve target directory from cd COMMAND.
+
+Takes a parsed cd command structure, VAR-CONTEXT for variable resolution,
+and CURRENT-PWD for relative path resolution. Returns resolved absolute
+path or :unresolved marker if resolution fails.
+
+COMMAND is a parsed command plist with :command-name and :positional-args.
+VAR-CONTEXT is an alist of (SYMBOL . VALUE) for variable resolution.
+CURRENT-PWD is the current working directory as an absolute path string.
+
+Extraction logic:
+  - Gets target from first positional arg
+  - For 'builtin cd', skips first arg and uses second
+  - Returns nil if no target provided (to be handled by HOME expansion below)
+
+Resolution steps (in order):
+  a. Handle special forms:
+     - cd (no args) => expand to HOME
+     - cd ~ => expand to HOME
+     - cd ~/path => expand ~ to HOME, then append path
+  b. Resolve variables using jf/bash-resolve-variables
+     Example: cd $DIR where DIR=/tmp => /tmp
+  c. Resolve command substitutions using jf/bash-resolve-pwd-substitution
+     Example: cd $(pwd)/sub => /current/sub
+  d. Resolve relative paths using jf/bash-resolve-relative-path
+     Example: cd subdir with current-pwd=/base => /base/subdir
+     Example: cd ../other with current-pwd=/base/sub => /base/other
+  e. If absolute path, return as-is
+
+Edge cases:
+  - cd . => returns current-pwd unchanged
+  - cd '' => returns :unresolved marker
+  - cd (no args) => returns HOME
+  - cd ~ => returns HOME
+  - cd ~/subdir => returns HOME/subdir
+  - Unresolved variables => returns :unresolved marker
+  - No HOME in context => returns :unresolved
+
+Examples:
+  ;; Absolute path
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"/tmp\"))
+    nil \"/original\")
+  => \"/tmp\"
+
+  ;; Relative path
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"subdir\"))
+    '((PWD . \"/base\")) \"/base\")
+  => \"/base/subdir\"
+
+  ;; Variable expansion
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"$DIR\"))
+    '((DIR . \"/target\")) \"/original\")
+  => \"/target\"
+
+  ;; builtin cd invocation
+  (jf/bash--extract-cd-target
+    '(:command-name \"builtin\" :positional-args (\"cd\" \"/tmp\"))
+    nil \"/original\")
+  => \"/tmp\"
+
+  ;; cd with no args (go to HOME)
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args nil)
+    '((HOME . \"/home/user\")) \"/original\")
+  => \"/home/user\"
+
+  ;; cd ~ (go to HOME)
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"~\"))
+    '((HOME . \"/home/user\")) \"/original\")
+  => \"/home/user\"
+
+  ;; cd ~/subdir (HOME expansion with path)
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"~/subdir\"))
+    '((HOME . \"/home/user\")) \"/original\")
+  => \"/home/user/subdir\"
+
+  ;; Unresolved variable
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"$UNKNOWN\"))
+    nil \"/original\")
+  => :unresolved"
+  (let* ((command-name (plist-get command :command-name))
+         (positional-args (plist-get command :positional-args))
+         ;; Extract target - handle builtin cd specially
+         (target (cond
+                  ;; builtin cd: skip "cd" arg, use second arg
+                  ((equal command-name "builtin")
+                   (when (and positional-args
+                              (>= (length positional-args) 2))
+                     (nth 1 positional-args)))
+                  ;; Regular cd: use first arg
+                  (t
+                   (car positional-args))))
+         ;; Extract HOME from var-context for special form handling
+         (home (alist-get 'HOME var-context)))
+
+    (cond
+     ;; No target provided (cd with no args) - go to HOME
+     ((null target)
+      (if home
+          home
+        :unresolved))
+
+     ;; Empty string target
+     ((string-empty-p target)
+      :unresolved)
+
+     ;; cd ~ (go to HOME)
+     ((equal target "~")
+      (if home
+          home
+        :unresolved))
+
+     ;; cd ~/path (expand ~ to HOME, then append path)
+     ((string-prefix-p "~/" target)
+      (if home
+          (let ((remainder (substring target 2)))  ; Remove "~/" prefix
+            (expand-file-name (concat home "/" remainder)))
+        :unresolved))
+
+     ;; Have a regular target - resolve it
+     (t
+      ;; Step 1: Resolve variables
+      (let ((var-resolved (jf/bash-resolve-variables target var-context)))
+        (cond
+         ;; Partial variable resolution - return :unresolved
+         ((and (listp var-resolved)
+               (plist-get var-resolved :unresolved))
+          :unresolved)
+
+         ;; Variables resolved - continue with path resolution
+         (t
+          ;; Step 2: Resolve command substitutions ($(pwd), `pwd`)
+          (let ((cmd-resolved (jf/bash-resolve-pwd-substitution var-resolved var-context)))
+            ;; Step 3: Resolve relative paths using current-pwd
+            (let ((path-resolved (jf/bash-resolve-relative-path cmd-resolved var-context current-pwd)))
+              ;; Return the fully resolved path
+              path-resolved)))))))))
 
 (provide 'bash-parser-variables)
 ;;; bash-parser-variables.el ends here

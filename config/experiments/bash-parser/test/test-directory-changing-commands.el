@@ -66,7 +66,6 @@
 
 SECURITY: After 'cd /new/dir', relative paths must resolve against /new/dir.
 IMPLEMENTATION: Parser must track cd command and update directory context."
-  :expected-result :failed  ; Directory context tracking not yet implemented
   (let* ((parsed (jf/bash-parse "cd /new/dir && cat file.txt"))
          (var-context '((PWD . "/original/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -81,7 +80,6 @@ IMPLEMENTATION: Parser must track cd command and update directory context."
   "Test cd /path && cat ./file.txt resolves ./ against new directory.
 
 SECURITY: ./file.txt must resolve to /new/dir/file.txt after cd /new/dir."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /new/dir && cat ./file.txt"))
          (var-context '((PWD . "/original/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -95,7 +93,6 @@ SECURITY: ./file.txt must resolve to /new/dir/file.txt after cd /new/dir."
   "Test cd /path && cat file1.txt && grep pattern file2.txt
 
 SECURITY: All operations after cd must use the new directory context."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /new/dir && cat file1.txt && grep pattern file2.txt"))
          (var-context '((PWD . "/original/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -120,7 +117,6 @@ SECURITY: All operations after cd must use the new directory context."
 
 SECURITY: cd subdir with PWD=/base → new PWD=/base/subdir
          Then file.txt → /base/subdir/file.txt"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd subdir && cat file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -134,7 +130,6 @@ SECURITY: cd subdir with PWD=/base → new PWD=/base/subdir
   "Test cd ./subdir && cat file.txt
 
 SECURITY: cd ./subdir resolves against current PWD first."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd ./subdir && cat file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -149,7 +144,6 @@ SECURITY: cd ./subdir resolves against current PWD first."
 
 SECURITY: cd ../other with PWD=/base/dir/sub → /base/dir/other
          Then file.txt → /base/dir/other/file.txt"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd ../other && cat file.txt"))
          (var-context '((PWD . "/base/dir/sub")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -163,7 +157,6 @@ SECURITY: cd ../other with PWD=/base/dir/sub → /base/dir/other
   "Test cd . && cat file.txt (stays in same directory).
 
 SECURITY: cd . should be a no-op, PWD remains unchanged."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd . && cat file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -181,7 +174,6 @@ SECURITY: cd . should be a no-op, PWD remains unchanged."
   "Test cd $DIR && cat file.txt where DIR is absolute path.
 
 SECURITY: $DIR must be resolved before cd updates context."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd $DIR && cat file.txt"))
          (var-context '((PWD . "/original")
                        (DIR . "/target/dir")))
@@ -196,7 +188,6 @@ SECURITY: $DIR must be resolved before cd updates context."
   "Test cd $SUBDIR && cat file.txt where SUBDIR is relative.
 
 SECURITY: Relative $SUBDIR resolves against current PWD, then cd updates context."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd $SUBDIR && cat file.txt"))
          (var-context '((PWD . "/base/dir")
                        (SUBDIR . "sub")))
@@ -211,7 +202,6 @@ SECURITY: Relative $SUBDIR resolves against current PWD, then cd updates context
   "Test cd $PWD/sub && cat file.txt
 
 SECURITY: cd $PWD/sub should resolve $PWD then navigate to subdirectory."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd $PWD/sub && cat file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -247,7 +237,6 @@ DESIGN QUESTION: Should parser track OLDPWD? Mark as low-priority."
 
 SECURITY: cd ~ uses HOME from environment. Parser must resolve $HOME.
 IMPLEMENTATION: Treat ~ as $HOME variable reference."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd ~ && cat file.txt"))
          (var-context '((PWD . "/some/dir")
                        (HOME . "/home/user")))
@@ -262,7 +251,6 @@ IMPLEMENTATION: Treat ~ as $HOME variable reference."
   "Test cd && cat file.txt (changes to home directory).
 
 SECURITY: cd with no args behaves like cd ~, goes to $HOME."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd && cat file.txt"))
          (var-context '((PWD . "/some/dir")
                        (HOME . "/home/user")))
@@ -281,7 +269,6 @@ SECURITY: cd with no args behaves like cd ~, goes to $HOME."
   "Test cd /first && cd /second && cat file.txt
 
 SECURITY: Last cd wins - file.txt should resolve in /second."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /first && cd /second && cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -295,7 +282,6 @@ SECURITY: Last cd wins - file.txt should resolve in /second."
   "Test cd /base && cd subdir && cat file.txt
 
 SECURITY: cd subdir resolves against /base → /base/subdir."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /base && cd subdir && cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -309,7 +295,6 @@ SECURITY: cd subdir resolves against /base → /base/subdir."
   "Test cd /dir1 && cat file1.txt && cd /dir2 && cat file2.txt
 
 SECURITY: Each file operation uses directory context at its position in chain."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /dir1 && cat file1.txt && cd /dir2 && cat file2.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -330,7 +315,6 @@ SECURITY: Each file operation uses directory context at its position in chain."
 
 SECURITY: Semicolon separation should behave like && for cd context tracking.
 NOTE: Parser may have existing issues with semicolon parsing."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /new/dir; cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -364,7 +348,6 @@ DESIGN QUESTION: Should this update context for subsequent commands?"
   "Test export PWD=/new/path && cat file.txt
 
 SECURITY: export PWD updates context for subsequent commands."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "export PWD=/new/path && cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -392,7 +375,6 @@ SECURITY: Simple assignment updates PWD for subsequent commands."
   "Test PWD=$NEWDIR && cat file.txt
 
 SECURITY: PWD assignment with variable must resolve variable first."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "PWD=$NEWDIR && cat file.txt"))
          (var-context '((PWD . "/original")
                        (NEWDIR . "/target")))
@@ -549,7 +531,6 @@ SECURITY: cd in if condition updates context for then block."
 
 SECURITY: Each branch has different directory context.
          Both possibilities should be tracked."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "if [ -d /dir ]; then cd /dir && cat a.txt; else cd /other && cat b.txt; fi"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -573,7 +554,6 @@ SECURITY: Each branch has different directory context.
   "Test cd '' && cat file.txt (cd to empty string).
 
 SECURITY: cd '' typically fails or goes to PWD. Assume no change."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd '' && cat file.txt"))
          (var-context '((PWD . "/base")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -590,7 +570,6 @@ SECURITY: cd '' typically fails or goes to PWD. Assume no change."
 
 SECURITY: cd to file would fail at runtime, but static analysis may not know.
          For scope validation, assume it could succeed (conservative)."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd file.txt && cat other.txt"))
          (var-context '((PWD . "/base")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -607,7 +586,6 @@ SECURITY: cd to file would fail at runtime, but static analysis may not know.
 
 SECURITY: cd with globs typically expands to first match.
 DESIGN: Low priority - complex runtime behavior."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /a*/b* && cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -644,7 +622,6 @@ DESIGN: Complex - may need substitution evaluation first."
   "Test cd /project && ./run-tests.sh pattern.
 
 SECURITY: Script execution path must resolve in new directory."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /project && ./run-tests.sh"))
          (var-context '((PWD . "/home/user")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -674,7 +651,6 @@ SECURITY: Both glob pattern and loop variable resolve in /logs."
   "Test cd /deploy && ./build.sh && cd /target && ./install.sh
 
 SECURITY: Common deployment pattern with multiple cd and script executions."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /deploy && ./build.sh && cd /target && ./install.sh"))
          (var-context '((PWD . "/home")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
