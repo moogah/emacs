@@ -166,30 +166,52 @@ Returns t if feature is available, nil otherwise."
 COMMAND is a single parsed command structure (from :all-commands or top-level).
 VAR-CONTEXT is an alist of variable bindings.
 
-Returns list of operation plists from all extraction sources."
+Returns list of operation plists from all extraction sources.
+
+Inline environment variables (from :env-vars field) are applied to var-context
+for this command only. This implements bash semantics where env var prefixes
+like 'PWD=/path cmd' only affect that specific command."
   ;; Skip compound command types - they're handled by recursive analyzer
   (let ((command-type (plist-get command :type)))
     (if (memq command-type '(:chain :pipeline))
         nil  ; Return nil for compound types
       ;; Process single command
-      (let ((operations nil)
-            (command-name (plist-get command :command-name))
-            (positional-args (plist-get command :positional-args)))
+      (let* (;; Apply inline env vars to context for this command only
+             (env-vars (plist-get command :env-vars))
+             ;; Resolve env var values (they might contain variables like $PWD)
+             (resolved-env-vars
+              (when (and env-vars (fboundp 'jf/bash--resolve-assignment-value))
+                (mapcar (lambda (env-var)
+                          (let* ((var-name (car env-var))
+                                 (var-value (cdr env-var))
+                                 ;; Resolve value using current context (before env vars)
+                                 (resolved-value (jf/bash--resolve-assignment-value
+                                                 var-value var-context)))
+                            (cons var-name resolved-value)))
+                        env-vars)))
+             ;; Merge resolved env vars into context (env vars shadow existing vars)
+             (effective-context (if resolved-env-vars
+                                   (append resolved-env-vars var-context)
+                                 var-context))
+             (operations nil)
+             (command-name (plist-get command :command-name))
+             (positional-args (plist-get command :positional-args)))
+
         ;; Extract from redirections (high confidence)
-        (when-let ((redir-ops (jf/bash-extract-operations-from-redirections command var-context)))
+        (when-let ((redir-ops (jf/bash-extract-operations-from-redirections command effective-context)))
           (setq operations (append operations redir-ops)))
 
         ;; Extract from positional arguments (command semantics)
-        (when-let ((pos-ops (jf/bash-extract-operations-from-positional-args command var-context)))
+        (when-let ((pos-ops (jf/bash-extract-operations-from-positional-args command effective-context)))
           (setq operations (append operations pos-ops)))
 
         ;; Extract from exec blocks (find -exec)
-        (when-let ((exec-ops (jf/bash-extract-from-exec-blocks command var-context)))
+        (when-let ((exec-ops (jf/bash-extract-from-exec-blocks command effective-context)))
           (setq operations (append operations exec-ops)))
 
         ;; Check for self-execution (path-based commands)
         (when (and command-name (jf/bash--command-executes-self-p command-name))
-          (let* ((resolved-path (jf/bash--resolve-path-variables command-name var-context))
+          (let* ((resolved-path (jf/bash--resolve-path-variables command-name effective-context))
                  (final-path (if (stringp resolved-path)
                                 resolved-path
                               (plist-get resolved-path :path)))
@@ -215,7 +237,7 @@ Returns list of operation plists from all extraction sources."
               (when nested-cmd-string
                 ;; Parse nested command and extract operations
                 (let* ((nested-parsed (jf/bash-parse-nested-command nested-cmd-string))
-                       (nested-ops (jf/bash-extract-file-operations nested-parsed var-context)))
+                       (nested-ops (jf/bash-extract-file-operations nested-parsed effective-context)))
                   ;; Mark all nested operations as indirect
                   (dolist (op nested-ops)
                     (let ((indirect-op (copy-sequence op)))

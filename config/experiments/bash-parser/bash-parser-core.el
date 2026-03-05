@@ -222,9 +222,18 @@ Recursively searches all descendants."
 
 (defun jf/bash-parse--handle-simple-command (root-node)
   "Handle simple (single) command from ROOT-NODE."
-  (let* ((command-or-redir (or (jf/bash-parse--find-node-by-type root-node "redirected_statement")
-                               (jf/bash-parse--find-node-by-type root-node "variable_assignment")
-                               (jf/bash-parse--find-node-by-type root-node "command"))))
+  (let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
+         ;; Use direct child search to avoid finding commands inside substitutions
+         (command-node (jf/bash-parse--find-direct-child-by-type root-node "command"))
+         (var-assign-node (jf/bash-parse--find-node-by-type root-node "variable_assignment"))
+         ;; Prioritize command over variable_assignment ONLY if it has a direct command_name child
+         ;; This handles inline env vars (PWD=/path cmd) while preserving standalone assignments (VAR=$(cmd))
+         (command-or-redir (or redirected-stmt
+                               (when (and command-node
+                                         (jf/bash-parse--find-direct-child-by-type command-node "command_name"))
+                                 command-node)
+                               var-assign-node
+                               command-node)))
 
     (if (null command-or-redir)
         (list :success nil
@@ -685,7 +694,8 @@ Returns command structure with optional :redirections and :command-substitutions
             result))
 
       ;; Parse regular command
-      (let* ((words (jf/bash-parse--extract-words command-node))
+      (let* ((env-vars (jf/bash-parse--extract-env-vars command-node))
+             (words (jf/bash-parse--extract-words command-node))
              (command-name (car words))
              (remaining-words (cdr words))
              (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
@@ -698,6 +708,8 @@ Returns command structure with optional :redirections and :command-substitutions
           (let ((result (jf/bash-parse--parse-wrapper-command command-name wrapper-spec remaining-words redirections)))
             (when command-substitutions
               (setq result (plist-put result :command-substitutions command-substitutions)))
+            (when env-vars
+              (setq result (plist-put result :env-vars env-vars)))
             result)
 
         ;; Check for find command with -exec blocks
@@ -707,6 +719,8 @@ Returns command structure with optional :redirections and :command-substitutions
             (let ((result (jf/bash-parse--parse-find-with-exec command-name args-start redirections)))
               (when command-substitutions
                 (setq result (plist-put result :command-substitutions command-substitutions)))
+              (when env-vars
+                (setq result (plist-put result :env-vars env-vars)))
               result)
 
           ;; Normal command processing
@@ -725,17 +739,43 @@ Returns command structure with optional :redirections and :command-substitutions
                 (setq result (plist-put result :redirections redirections)))
               (when command-substitutions
                 (setq result (plist-put result :command-substitutions command-substitutions)))
+              (when env-vars
+                (setq result (plist-put result :env-vars env-vars)))
               result))))))))
+
+(defun jf/bash-parse--extract-env-vars (command-node)
+  "Extract inline environment variable assignments from COMMAND-NODE.
+Returns alist of (VAR-SYMBOL . VALUE-STRING) for inline assignments like PWD=/path.
+These assignments only affect the command they prefix, not subsequent commands."
+  (let ((env-vars '()))
+    ;; Only process command nodes (not variable_assignment nodes)
+    (when (string= (treesit-node-type command-node) "command")
+      ;; Check direct children for variable_assignment nodes
+      (dotimes (i (treesit-node-child-count command-node))
+        (when-let ((child (treesit-node-child command-node i)))
+          (when (string= (treesit-node-type child) "variable_assignment")
+            (let* ((name-node (treesit-node-child-by-field-name child "name"))
+                   (value-node (treesit-node-child-by-field-name child "value"))
+                   (var-name (treesit-node-text name-node t))
+                   (var-value (treesit-node-text value-node t)))
+              (push (cons (intern var-name) var-value) env-vars))))))
+    (nreverse env-vars)))
 
 (defun jf/bash-parse--extract-words (command-node)
   "Extract all word nodes from COMMAND-NODE as strings.
-Returns list of strings representing all words in the command."
+Returns list of strings representing all words in the command.
+Skips variable_assignment nodes (inline env vars like PWD=/path cmd)."
   (let ((words '()))
     (jf/bash-parse--visit-node
      command-node
      (lambda (node)
        (let ((node-type (treesit-node-type node)))
          (cond
+          ;; Skip variable_assignment nodes (inline env vars)
+          ;; These are handled separately by jf/bash-parse--extract-env-vars
+          ((string= node-type "variable_assignment")
+           :skip-children)
+
           ;; Terminal nodes: extract text and skip children to prevent duplication
           ((or (string= node-type "concatenation")
                (string= node-type "string")

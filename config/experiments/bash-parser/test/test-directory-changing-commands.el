@@ -332,8 +332,7 @@ NOTE: Parser may have existing issues with semicolon parsing."
   "Test PWD=/new/path cat file.txt (inline environment variable).
 
 SECURITY: Inline PWD assignment affects only the single command.
-DESIGN QUESTION: Should this update context for subsequent commands?"
-  :expected-result :failed
+Fixed by bead emacs-6ysw: Parser now extracts inline env vars and applies them."
   (let* ((parsed (jf/bash-parse "PWD=/new/path cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
