@@ -89,95 +89,97 @@
                            (?C . (:foreground "OliveDrab"))))
 
 ;; Central category definitions - used by super-agenda, capture, and housekeeping
-(defvar jf/org-categories
-  '(("gtd"   . "Getting Things Done")
-    ("pkm"   . "Personal Knowledge Management")
-    ("gptel" . "GPTel")
-    ("emacs" . "Emacs"))
-  "Alist of (KEY . DISPLAY-NAME) for org agenda categories.")
+  ;; Each entry: (CATEGORY-ID DISPLAY-NAME CAPTURE-KEY HEADING)
+  (defconst jf/org-categories
+    '(("gtd"   "Getting Things Done" "d" "Tasks")
+      ("pkm"   "Personal Knowledge Management" "p" "PKM")
+      ("gptel" "GPTel" "g" "GPTel")
+      ("emacs" "Emacs" "e" "Emacs"))
+    "List of org agenda categories.
+Each entry is (CATEGORY-ID DISPLAY-NAME CAPTURE-KEY HEADING).")
 
-;; Agenda key binding
-(global-set-key (kbd "C-c a") 'org-agenda)
+  ;; Agenda key binding
+  (global-set-key (kbd "C-c a") 'org-agenda)
 
-;; Function to refresh agenda files - recursively find all .org files in multiple directories
-(defun jf/refresh-org-agenda-files ()
-  "Refresh org-agenda-files by rescanning jf/org-directory and ~/emacs/config for .org files."
-  (interactive)
-  (setq org-agenda-files
-        (append (directory-files-recursively jf/org-directory "\\.org$")
-                (directory-files-recursively (expand-file-name "config" jf/emacs-dir) "\\.org$")))
-  (when (called-interactively-p 'interactive)
-    (message "Refreshed org-agenda-files: found %d files" (length org-agenda-files))))
+  ;; Function to refresh agenda files - recursively find all .org files in multiple directories
+  (defun jf/refresh-org-agenda-files ()
+    "Refresh org-agenda-files by rescanning jf/org-directory and ~/emacs/config for .org files."
+    (interactive)
+    (setq org-agenda-files
+          (append (directory-files-recursively jf/org-directory "\\.org$")
+                  (directory-files-recursively (expand-file-name "config" jf/emacs-dir) "\\.org$")))
+    (when (called-interactively-p 'interactive)
+      (message "Refreshed org-agenda-files: found %d files" (length org-agenda-files))))
 
-;; Initialize agenda files
-(jf/refresh-org-agenda-files)
+  ;; Initialize agenda files
+  (jf/refresh-org-agenda-files)
 
-;; Display sorting for TODO items
+  ;; Display sorting for TODO items
 
-(setq org-agenda-sorting-strategy
-      '((agenda time-up priority-down category-up)
-        (todo priority-down alpha-up)
-        (tags priority-down category-up alpha-up)
-        (search category-up)))
+  (setq org-agenda-sorting-strategy
+        '((agenda time-up priority-down category-up)
+          (todo priority-down alpha-up)
+          (tags priority-down category-up alpha-up)
+          (search category-up)))
 
-;; Open agenda in current window
-(setq org-agenda-window-setup (quote current-window))
+  ;; Open agenda in current window
+  (setq org-agenda-window-setup (quote current-window))
 
-;; Helper to build super-agenda groups from jf/org-categories
-(defun jf/build-super-agenda-groups ()
-  "Build org-super-agenda groups from `jf/org-categories'."
-  (append '((:name "High Priority"
-             :priority "A"
-             :order 1))
-          (cl-loop for (key . name) in jf/org-categories
-                   for order from 2
-                   collect `(:name ,name :category ,key :order ,order))
-          '((:name "Everything Else"
-             :anything t
-             :order 99))))
+  ;; Helper to build super-agenda groups from jf/org-categories
+  (defun jf/build-super-agenda-groups ()
+    "Build org-super-agenda groups from `jf/org-categories'."
+    (append '((:name "High Priority"
+               :priority "A"
+               :order 1))
+            (cl-loop for (id name _key _heading) in jf/org-categories
+                     for order from 2
+                     collect `(:name ,name :category ,id :order ,order))
+            '((:name "Everything Else"
+               :anything t
+               :order 99))))
 
-;; Custom agenda views
-;; From https://blog.aaronbieber.com/2016/09/24/an-agenda-for-life-with-org-mode.html
-(setq org-agenda-custom-commands
-      `(("c" "Simple agenda view"
-         ((tags "PRIORITY=\"A\""
-                ((org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
-                 (org-agenda-overriding-header "High Priority Tasks:")))
-          (agenda "")
-          (alltodo "")))
-        ("n" "Enhanced TODO view with newest/oldest"
-         ((alltodo ""
-                   ((org-agenda-overriding-header "📅 3 Most Recent TODOs")
-                    (org-agenda-sorting-strategy '(timestamp-down))
-                    (org-agenda-skip-function
-                     '(or (org-agenda-skip-entry-if 'notregexp ":CREATED:")
-                          (when (> (org-current-line)
-                                  (+ (org-current-line) 3))
-                            (point-max))))
-                    (org-super-agenda-groups nil)))
-          (alltodo ""
-                   ((org-agenda-overriding-header "⏳ 10 Oldest TODOs")
-                    (org-agenda-sorting-strategy '(timestamp-up))
-                    (org-agenda-skip-function
-                     '(or (org-agenda-skip-entry-if 'notregexp ":CREATED:")
-                          (when (> (org-current-line)
-                                  (+ (org-current-line) 10))
-                            (point-max))))
-                    (org-super-agenda-groups nil)))
-          (alltodo ""
-                   ((org-agenda-overriding-header "All TODOs")
-                    (org-super-agenda-groups
-                     ',(jf/build-super-agenda-groups))))))))
+  ;; Custom agenda views
+  ;; From https://blog.aaronbieber.com/2016/09/24/an-agenda-for-life-with-org-mode.html
+  (setq org-agenda-custom-commands
+        `(("c" "Simple agenda view"
+           ((tags "PRIORITY=\"A\""
+                  ((org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
+                   (org-agenda-overriding-header "High Priority Tasks:")))
+            (agenda "")
+            (alltodo "")))
+          ("n" "Enhanced TODO view with newest/oldest"
+           ((alltodo ""
+                     ((org-agenda-overriding-header "📅 3 Most Recent TODOs")
+                      (org-agenda-sorting-strategy '(timestamp-down))
+                      (org-agenda-skip-function
+                       '(or (org-agenda-skip-entry-if 'notregexp ":CREATED:")
+                            (when (> (org-current-line)
+                                    (+ (org-current-line) 3))
+                              (point-max))))
+                      (org-super-agenda-groups nil)))
+            (alltodo ""
+                     ((org-agenda-overriding-header "⏳ 10 Oldest TODOs")
+                      (org-agenda-sorting-strategy '(timestamp-up))
+                      (org-agenda-skip-function
+                       '(or (org-agenda-skip-entry-if 'notregexp ":CREATED:")
+                            (when (> (org-current-line)
+                                    (+ (org-current-line) 10))
+                              (point-max))))
+                      (org-super-agenda-groups nil)))
+            (alltodo ""
+                     ((org-agenda-overriding-header "All TODOs")
+                      (org-super-agenda-groups
+                       ',(jf/build-super-agenda-groups))))))))
 
-;; Automatically refresh agenda files when entering agenda mode
-(add-hook 'org-agenda-mode-hook 'jf/refresh-org-agenda-files)
+  ;; Automatically refresh agenda files when entering agenda mode
+  (add-hook 'org-agenda-mode-hook 'jf/refresh-org-agenda-files)
 
-;; Refresh after org-roam operations that might create new files
-(with-eval-after-load 'org-roam
-  (add-hook 'org-roam-capture-new-node-hook 'jf/refresh-org-agenda-files))
+  ;; Refresh after org-roam operations that might create new files
+  (with-eval-after-load 'org-roam
+    (add-hook 'org-roam-capture-new-node-hook 'jf/refresh-org-agenda-files))
 
-;; Manual refresh key binding
-(global-set-key (kbd "C-c r") 'jf/refresh-org-agenda-files)
+  ;; Manual refresh key binding
+  (global-set-key (kbd "C-c r") 'jf/refresh-org-agenda-files)
 
 ;; org-ql for powerful agenda queries
 (use-package org-ql
@@ -224,7 +226,7 @@ in its original tab."
   (interactive)
   (let* ((marker (or (org-get-at-bol 'org-marker)
                      (org-agenda-error)))
-         (cat (completing-read "Category: " (mapcar #'car jf/org-categories) nil nil)))
+         (cat (completing-read "Category: " (mapcar #'car jf/org-categories) nil t)))
     (org-with-point-at marker
       (org-set-property "CATEGORY" cat))
     (org-agenda-redo-all)))
@@ -246,27 +248,26 @@ in its original tab."
   "Default capture file for TODO items.")
 
 
-;; Capture templates
+;; Build capture templates from jf/org-categories
 (setq org-capture-templates
-      `(("t" "TODO" entry (file+headline ,jf/capture-file "Tasks")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
-         :empty-lines-before 1)
-
-        ("T" "TODO with deadline" entry (file+headline ,jf/capture-file "Tasks")
-         "* TODO [#B] %?\nDEADLINE: %^t\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
-         :empty-lines-before 1)
-
-        ("p" "PKM task" entry (file+headline ,jf/capture-file "PKM")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: pkm\n:END:"
-         :empty-lines-before 1)
-
-        ("g" "GPTel task" entry (file+headline ,jf/capture-file "GPTel")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gptel\n:END:"
-         :empty-lines-before 1)
-
-        ("n" "Note" entry (file+headline ,jf/capture-file "Notes")
-         "* %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
-         :empty-lines-before 1)))
+      (append
+       ;; Quick TODO (defaults to gtd/Tasks)
+       `(("t" "TODO" entry (file+headline ,jf/capture-file "Tasks")
+          "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1)
+         ("T" "TODO with deadline" entry (file+headline ,jf/capture-file "Tasks")
+          "* TODO [#B] %?\nDEADLINE: %^t\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1))
+       ;; Per-category templates generated from jf/org-categories
+       (cl-loop for (id name key heading) in jf/org-categories
+                collect `(,key ,(format "%s task" name)
+                          entry (file+headline ,jf/capture-file ,heading)
+                          ,(format "* TODO [#B] %%?\n:PROPERTIES:\n:CATEGORY: %s\n:END:" id)
+                          :empty-lines-before 1))
+       ;; Note capture
+       `(("n" "Note" entry (file+headline ,jf/capture-file "Notes")
+          "* %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1))))
 
 ;; Git integration for Org
 (use-package orgit

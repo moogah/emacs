@@ -155,12 +155,14 @@ Setup for Org agenda views and files.
 
 #+begin_src emacs-lisp
   ;; Central category definitions - used by super-agenda, capture, and housekeeping
-  (defvar jf/org-categories
-    '(("gtd"   . "Getting Things Done")
-      ("pkm"   . "Personal Knowledge Management")
-      ("gptel" . "GPTel")
-      ("emacs" . "Emacs"))
-    "Alist of (KEY . DISPLAY-NAME) for org agenda categories.")
+  ;; Each entry: (CATEGORY-ID DISPLAY-NAME CAPTURE-KEY HEADING)
+  (defconst jf/org-categories
+    '(("gtd"   "Getting Things Done" "d" "Tasks")
+      ("pkm"   "Personal Knowledge Management" "p" "PKM")
+      ("gptel" "GPTel" "g" "GPTel")
+      ("emacs" "Emacs" "e" "Emacs"))
+    "List of org agenda categories.
+Each entry is (CATEGORY-ID DISPLAY-NAME CAPTURE-KEY HEADING).")
 
   ;; Agenda key binding
   (global-set-key (kbd "C-c a") 'org-agenda)
@@ -195,9 +197,9 @@ Setup for Org agenda views and files.
     (append '((:name "High Priority"
                :priority "A"
                :order 1))
-            (cl-loop for (key . name) in jf/org-categories
+            (cl-loop for (id name _key _heading) in jf/org-categories
                      for order from 2
-                     collect `(:name ,name :category ,key :order ,order))
+                     collect `(:name ,name :category ,id :order ,order))
             '((:name "Everything Else"
                :anything t
                :order 99))))
@@ -352,7 +354,7 @@ Functions for managing tasks directly from the agenda view.
   (interactive)
   (let* ((marker (or (org-get-at-bol 'org-marker)
                      (org-agenda-error)))
-         (cat (completing-read "Category: " (mapcar #'car jf/org-categories) nil nil)))
+         (cat (completing-read "Category: " (mapcar #'car jf/org-categories) nil t)))
     (org-with-point-at marker
       (org-set-property "CATEGORY" cat))
     (org-agenda-redo-all)))
@@ -396,27 +398,26 @@ Each template sets a CATEGORY property for org-super-agenda grouping.
   "Default capture file for TODO items.")
 
 
-;; Capture templates
+;; Build capture templates from jf/org-categories
 (setq org-capture-templates
-      `(("t" "TODO" entry (file+headline ,jf/capture-file "Tasks")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
-         :empty-lines-before 1)
-
-        ("T" "TODO with deadline" entry (file+headline ,jf/capture-file "Tasks")
-         "* TODO [#B] %?\nDEADLINE: %^t\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
-         :empty-lines-before 1)
-
-        ("p" "PKM task" entry (file+headline ,jf/capture-file "PKM")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: pkm\n:END:"
-         :empty-lines-before 1)
-
-        ("g" "GPTel task" entry (file+headline ,jf/capture-file "GPTel")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gptel\n:END:"
-         :empty-lines-before 1)
-
-        ("n" "Note" entry (file+headline ,jf/capture-file "Notes")
-         "* %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
-         :empty-lines-before 1)))
+      (append
+       ;; Quick TODO (defaults to gtd/Tasks)
+       `(("t" "TODO" entry (file+headline ,jf/capture-file "Tasks")
+          "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1)
+         ("T" "TODO with deadline" entry (file+headline ,jf/capture-file "Tasks")
+          "* TODO [#B] %?\nDEADLINE: %^t\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1))
+       ;; Per-category templates generated from jf/org-categories
+       (cl-loop for (id name key heading) in jf/org-categories
+                collect `(,key ,(format "%s task" name)
+                          entry (file+headline ,jf/capture-file ,heading)
+                          ,(format "* TODO [#B] %%?\n:PROPERTIES:\n:CATEGORY: %s\n:END:" id)
+                          :empty-lines-before 1))
+       ;; Note capture
+       `(("n" "Note" entry (file+headline ,jf/capture-file "Notes")
+          "* %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1))))
 #+end_src
 
 * Git Integration
