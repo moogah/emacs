@@ -24,12 +24,18 @@
              :produces-file-list t
              :pattern-source :positional-args
              :pattern-requires-flag ("-l" "--files-with-matches")))
-    (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
+    (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))
+              :produces-file-list t
+              :pattern-source :positional-args
+              :pattern-requires-flag ("-l" "--files-with-matches")))
     (fgrep . (:operations :flag-dependent
               :flag-handlers ((("-l" "--files-with-matches")
                               . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
                              (()
-                              . ((:source :positional-args :operation :read :skip-indices (0)))))))
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))
+              :produces-file-list t
+              :pattern-source :positional-args
+              :pattern-requires-flag ("-l" "--files-with-matches")))
     (touch . (:operations ((:source :positional-args :operation :create-or-modify))))
     (mkdir . (:operations ((:source :positional-args :operation :create))))
     (rm . (:operations ((:source :positional-args :operation :delete))))
@@ -67,7 +73,11 @@
                                  (mv . ((:source :positional-args :indices (0 . -2) :operation :delete)
                                         (:source :positional-args :index -1 :operation :write)))
                                  (diff . ((:source :positional-args :operation :read)))
-                                 (show . ((:source :positional-args :operation :read))))))
+                                 (show . ((:source :positional-args :operation :read)))
+                                 (ls-files . (:operations ((:source :positional-args :operation :read))
+                                             :produces-file-list t
+                                             :pattern-source :positional-args
+                                             :search-scope-arg :implicit)))))
     (docker . (:operations :complex
                :subcommand-handlers ((cp . ((:source :positional-args :indices (0 . -2) :operation :read)
                                             (:source :positional-args :index -1 :operation :write))))))
@@ -485,6 +495,40 @@ Returns list of operation plists."
                   operations)))))
 
     (nreverse operations)))
+
+(defun jf/bash--command-produces-file-list-p (command-name &optional subcommand flags)
+  "Check if COMMAND-NAME produces a list of file paths as output.
+
+SUBCOMMAND is an optional subcommand name (for commands like git).
+FLAGS is an optional list of flags passed to the command.
+
+Pattern-producing commands include:
+- ls, find, locate (always produce file lists)
+- grep, egrep, fgrep (only with -l or --files-with-matches)
+- git ls-files (specific subcommand)
+
+Returns non-nil if the command produces a file list, nil otherwise."
+  (let ((semantics (jf/bash-lookup-command-semantics command-name)))
+    (when semantics
+      (cond
+       ;; Handle subcommand-based commands (like git ls-files)
+       ((eq (plist-get semantics :operations) :complex)
+        (let* ((subcommand-handlers (plist-get semantics :subcommand-handlers))
+               (subcommand-spec (when subcommand
+                                 (cdr (assoc (intern subcommand) subcommand-handlers)))))
+          (and subcommand-spec
+               (plist-get subcommand-spec :produces-file-list))))
+
+       ;; Handle flag-dependent commands (like grep -l)
+       ((plist-get semantics :pattern-requires-flag)
+        (let ((required-flags (plist-get semantics :pattern-requires-flag)))
+          ;; Command produces file list only if one of the required flags is present
+          (and flags
+               (seq-some (lambda (flag) (member flag flags)) required-flags))))
+
+       ;; Simple commands with produces-file-list metadata
+       (t
+        (plist-get semantics :produces-file-list))))))
 
 (provide 'bash-parser-semantics)
 ;;; bash-parser-semantics.el ends here
