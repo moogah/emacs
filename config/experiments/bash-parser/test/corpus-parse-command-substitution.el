@@ -24,6 +24,7 @@
      :command "dir=$(pwd)"
      :expect (:command-name "dir"
               :positional-args ("$(pwd)")
+              :args ("$(pwd)")
               :command-substitutions ((:syntax "$()" :content "pwd" :nesting-level 1)))
      :notes "Variable assignment with substitution - represents pattern that could store file paths")
 
@@ -33,6 +34,7 @@
      :command "count=$(ls -1 | wc -l)"
      :expect (:command-name "count"
               :positional-args ("$(ls -1 | wc -l)")
+              :args ("$(ls -1 | wc -l)")
               :command-substitutions ((:syntax "$()" :content "ls -1 | wc -l" :nesting-level 1)))
      :notes "Pipe inside substitution - ls reads directory structure")
 
@@ -41,6 +43,7 @@
      :command "echo `pwd`"
      :expect (:command-name "echo"
               :positional-args ("`pwd`")
+              :args ("`pwd`")
               :command-substitutions ((:syntax "`" :content "pwd" :nesting-level 1)))
      :notes "Legacy backtick syntax")
 
@@ -54,6 +57,7 @@
      :expect (:command-name "ls"
               :flags ("-la")
               :positional-args ("$(dirname $(which openspec))")
+              :args ("-la" "$(dirname $(which openspec))")
               :command-substitutions ((:syntax "$()" :content "dirname $(which openspec)" :nesting-level 1)
                                      (:syntax "$()" :content "which openspec" :nesting-level 2)))
      :notes "REAL: From research - nested directory inspection")
@@ -63,6 +67,7 @@
      :command "echo $(basename $(pwd))"
      :expect (:command-name "echo"
               :positional-args ("$(basename $(pwd))")
+              :args ("$(basename $(pwd))")
               :command-substitutions ((:syntax "$()" :content "basename $(pwd)" :nesting-level 1)
                                      (:syntax "$()" :content "pwd" :nesting-level 2)))
      :notes "Get current directory name")
@@ -73,6 +78,7 @@
      :command "cat $(find . -name config.yml)"
      :expect (:command-name "cat"
               :positional-args ("$(find . -name config.yml)")
+              :args ("$(find . -name config.yml)")
               :command-substitutions ((:syntax "$()"
                                       :content "find . -name config.yml"
                                       :nesting-level 1)))
@@ -97,6 +103,7 @@
      :command "echo $(dirname $(dirname $(pwd)))"
      :expect (:command-name "echo"
               :positional-args ("$(dirname $(dirname $(pwd)))")
+              :args ("$(dirname $(dirname $(pwd)))")
               :command-substitutions ((:syntax "$()" :content "dirname $(dirname $(pwd))" :nesting-level 1)
                                      (:syntax "$()" :content "dirname $(pwd)" :nesting-level 2)
                                      (:syntax "$()" :content "pwd" :nesting-level 3)))
@@ -111,6 +118,7 @@
      :command "echo \"Current time: $(date)\""
      :expect (:command-name "echo"
               :positional-args ("Current time: $(date)")
+              :args ("Current time: $(date)")
               :command-substitutions ((:syntax "$()" :content "date" :nesting-level 1)))
      :notes "Substitution inside double quotes")
 
@@ -119,6 +127,7 @@
      :command "echo \"=== $(basename \"$dir\") ===\""
      :expect (:command-name "echo"
               :positional-args ("=== $(basename \"$dir\") ===")
+              :args ("=== $(basename \"$dir\") ===")
               :command-substitutions ((:syntax "$()" :content "basename \"$dir\"" :nesting-level 1)))
      :notes "REAL: From research - nested quotes with variable")
 
@@ -130,6 +139,7 @@
               :subcommand "commit"
               :flags ("-m")
               :positional-args ("Update $(date +%Y-%m-%d)")
+              :args ("-m" "Update $(date +%Y-%m-%d)")
               :command-substitutions ((:syntax "$()" :content "date +%Y-%m-%d" :nesting-level 1)))
      :notes "Substitution in git commit message - git writes to repository")
 
@@ -144,6 +154,7 @@
      :command "echo \"$(find \"$dir\" -name \"*.org\" | wc -l) files\""
      :expect (:command-name "echo"
               :positional-args ("$(find \"$dir\" -name \"*.org\" | wc -l) files")
+              :args ("$(find \"$dir\" -name \"*.org\" | wc -l) files")
               :command-substitutions ((:syntax "$()" :content "find \"$dir\" -name \"*.org\" | wc -l" :nesting-level 1)))
      :notes "REAL: From research - pipe inside substitution")
 
@@ -152,6 +163,7 @@
      :command "count=$(cat file.txt | wc -l)"
      :expect (:command-name "count"
               :positional-args ("$(cat file.txt | wc -l)")
+              :args ("$(cat file.txt | wc -l)")
               :command-substitutions ((:syntax "$()" :content "cat file.txt | wc -l" :nesting-level 1)))
      :notes "Line count capture")
 
@@ -160,6 +172,7 @@
      :command "echo $(ls | grep test | head -1)"
      :expect (:command-name "echo"
               :positional-args ("$(ls | grep test | head -1)")
+              :args ("$(ls | grep test | head -1)")
               :command-substitutions ((:syntax "$()" :content "ls | grep test | head -1" :nesting-level 1)))
      :notes "Multi-stage pipeline in substitution")
 
@@ -168,6 +181,7 @@
      :command "files=$(find . -type f | sort)"
      :expect (:command-name "files"
               :positional-args ("$(find . -type f | sort)")
+              :args ("$(find . -type f | sort)")
               :command-substitutions ((:syntax "$()" :content "find . -type f | sort" :nesting-level 1)))
      :notes "Find and sort files")
 
@@ -185,6 +199,7 @@
      :command "cp $(which oldcmd) $(which newcmd)"
      :expect (:command-name "cp"
               :positional-args ("$(which oldcmd)" "$(which newcmd)")
+              :args ("$(which oldcmd)" "$(which newcmd)")
               :command-substitutions ((:syntax "$()" :content "which oldcmd" :nesting-level 1)
                                      (:syntax "$()" :content "which newcmd" :nesting-level 1)))
      :expect-file-ops ((:file "{which-result}"
@@ -205,6 +220,7 @@
      :command "diff $(ls *.old) $(ls *.new)"
      :expect (:command-name "diff"
               :positional-args ("$(ls *.old)" "$(ls *.new)")
+              :args ("$(ls *.old)" "$(ls *.new)")
               :command-substitutions ((:syntax "$()" :content "ls *.old" :nesting-level 1)
                                      (:syntax "$()" :content "ls *.new" :nesting-level 1)))
      :notes "Substitutions with glob patterns - diff reads files from ls expansion")
@@ -233,6 +249,7 @@
      :expect (:command-name "test"
               :flags ("-f")
               :positional-args ("$(which emacs)")
+              :args ("-f" "$(which emacs)")
               :command-substitutions ((:syntax "$()" :content "which emacs" :nesting-level 1)))
      :notes "Substitution in conditional test")
 
@@ -241,6 +258,7 @@
      :command "result=$(if [ -f test ]; then cat test; else echo default; fi)"
      :expect (:command-name "result"
               :positional-args ("$(if [ -f test ]; then cat test; else echo default; fi)")
+              :args ("$(if [ -f test ]; then cat test; else echo default; fi)")
               :command-substitutions ((:syntax "$()" :content "if [ -f test ]; then cat test; else echo default; fi" :nesting-level 1)))
      :notes "Conditional inside substitution")
 
@@ -253,6 +271,7 @@
      :command "echo $(($(date +%s) + 3600))"
      :expect (:command-name "echo"
               :positional-args ("$(($(date +%s) + 3600))")
+              :args ("$(($(date +%s) + 3600))")
               :command-substitutions ((:syntax "$()" :content "date +%s" :nesting-level 1)))
      :notes "Substitution inside arithmetic expansion")
 
@@ -260,6 +279,7 @@
      :category "edge"
      :command "cat <<EOF\nLine with $(date)\nEOF"
      :expect (:command-name "cat"
+              :args ()
               :command-substitutions ((:syntax "$()" :content "date" :nesting-level 1)))
      :notes "Substitution in heredoc")
 
@@ -268,6 +288,7 @@
      :command "echo `echo \\`date\\``"
      :expect (:command-name "echo"
               :positional-args ("`echo \\`date\\``")
+              :args ("`echo \\`date\\``")
               :command-substitutions ((:syntax "`" :content "echo \\`date\\`" :nesting-level 1)
                                      (:syntax "`" :content "date" :nesting-level 2)))
      :notes "Nested backticks with escaping")

@@ -21,6 +21,7 @@
               :subcommand nil
               :flags ()
               :positional-args ()
+              :args ()
               :dangerous-p nil))
 
     (:id "simple-002"
@@ -28,6 +29,7 @@
      :expect (:command-name "ls"
               :flags ("-la")
               :positional-args ()
+              :args ("-la")
               :dangerous-p nil))
 
     (:id "simple-003"
@@ -35,6 +37,7 @@
      :expect (:command-name "ls"
               :flags ("-la")
               :positional-args ("/tmp")
+              :args ("-la" "/tmp")
               :dangerous-p nil))
 
     (:id "simple-004"
@@ -42,6 +45,7 @@
      :expect (:command-name "grep"
               :flags ("-r")
               :positional-args ("pattern" "./config")
+              :args ("-r" "pattern" "./config")
               :dangerous-p nil))
 
     ;; ============================================================
@@ -53,6 +57,7 @@
               :subcommand "log"
               :flags ()
               :positional-args ()
+              :args ()
               :dangerous-p nil))
 
     (:id "git-002"
@@ -61,6 +66,7 @@
               :subcommand "log"
               :flags ("--oneline" "-10")
               :positional-args ()
+              :args ("--oneline" "-10")
               :dangerous-p nil))
 
     (:id "git-003"
@@ -69,6 +75,7 @@
               :subcommand "add"
               :flags ()
               :positional-args ("config/gptel/scope.el")
+              :args ("config/gptel/scope.el")
               :dangerous-p nil))
 
     (:id "git-004"
@@ -77,6 +84,7 @@
               :subcommand "commit"
               :flags ("-m")
               :positional-args ("test message")
+              :args ("-m" "test message")
               :dangerous-p nil))
 
     (:id "git-005"
@@ -85,6 +93,7 @@
               :subcommand "push"
               :flags ("--force")
               :positional-args ()
+              :args ("--force")
               :dangerous-p t))
 
     ;; ============================================================
@@ -96,6 +105,7 @@
               :subcommand nil
               :flags ("-rf")
               :positional-args ("/tmp/test")
+              :args ("-rf" "/tmp/test")
               :dangerous-p t))
 
     (:id "dangerous-002"
@@ -104,6 +114,7 @@
               :subcommand "reset"
               :flags ("--hard")
               :positional-args ("HEAD~1")
+              :args ("--hard" "HEAD~1")
               :dangerous-p t))
 
     ;; ============================================================
@@ -121,11 +132,13 @@
                               :subcommand nil
                               :flags ("-la")
                               :positional-args ()
+                              :args ("-la")
                               :dangerous-p nil)
                             (:command-name "grep"
                               :subcommand nil
                               :flags ()
                               :positional-args ("test")
+                              :args ("test")
                               :dangerous-p nil))))
 
     (:id "pipeline-002"
@@ -139,16 +152,19 @@
                               :subcommand nil
                               :flags ()
                               :positional-args ("file.txt")
+                              :args ("file.txt")
                               :dangerous-p nil)
                             (:command-name "sort"
                               :subcommand nil
                               :flags ()
                               :positional-args ()
+                              :args ()
                               :dangerous-p nil)
                             (:command-name "uniq"
                               :subcommand nil
                               :flags ("-c")
                               :positional-args ()
+                              :args ("-c")
                               :dangerous-p nil))))
 
     (:id "pipeline-003"
@@ -162,11 +178,13 @@
                               :subcommand "log"
                               :flags ("--oneline")
                               :positional-args ()
+                              :args ("--oneline")
                               :dangerous-p nil)
                             (:command-name "head"
                               :subcommand nil
                               :flags ("-10")
                               :positional-args ()
+                              :args ("-10")
                               :dangerous-p nil))))
 
     ;; ============================================================
@@ -204,11 +222,13 @@
                               :subcommand nil
                               :flags ()
                               :positional-args ("file.txt")
+                              :args ("file.txt")
                               :dangerous-p nil)
                             (:command-name "echo"
                               :subcommand nil
                               :flags ()
                               :positional-args ("failed to delete")
+                              :args ("failed to delete")
                               :dangerous-p nil))))
 
     (:id "chain-003"
@@ -222,16 +242,19 @@
                               :subcommand nil
                               :flags ()
                               :positional-args ("/tmp")
+                              :args ("/tmp")
                               :dangerous-p nil)
                             (:command-name "ls"
                               :subcommand nil
                               :flags ("-la")
                               :positional-args ()
+                              :args ("-la")
                               :dangerous-p nil)
                             (:command-name "pwd"
                               :subcommand nil
                               :flags ()
                               :positional-args ()
+                              :args ()
                               :dangerous-p nil))))
 
     (:id "chain-004"
@@ -245,16 +268,19 @@
                               :subcommand "add"
                               :flags ()
                               :positional-args (".")
+                              :args (".")
                               :dangerous-p nil)
                             (:command-name "git"
                               :subcommand "commit"
                               :flags ("-m")
                               :positional-args ("fix")
+                              :args ("-m" "fix")
                               :dangerous-p nil)
                             (:command-name "git"
                               :subcommand "push"
                               :flags ()
                               :positional-args ()
+                              :args ()
                               :dangerous-p nil))))
 
     ;; ============================================================
@@ -268,6 +294,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("hello")
+              :args ("hello")
               :dangerous-p nil
               :redirections ((:type :file
                               :operator ">"
@@ -281,6 +308,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("input.txt")
+              :args ("input.txt")
               :dangerous-p nil
               :redirections ((:type :file
                               :operator ">>"
@@ -294,6 +322,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("error")
+              :args ("error")
               :dangerous-p nil
               :redirections ((:type :file
                               :operator "<"
@@ -307,6 +336,7 @@
               :subcommand nil
               :flags ()
               :positional-args ()
+              :args ()
               :dangerous-p nil
               :redirections ((:type :file
                               :operator ">&"
@@ -320,6 +350,7 @@
               :subcommand "log"
               :flags ()
               :positional-args ()
+              :args ()
               :dangerous-p nil
               :redirections ((:type :file
                               :operator ">"
@@ -337,6 +368,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("test")
+              :args ("test")
               :dangerous-p nil
               :redirections ((:type :file
                               :operator ">"
@@ -373,6 +405,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("$PATH")
+              :args ("$PATH")
               :dangerous-p nil))
 
     (:id "variable-002"
@@ -382,6 +415,7 @@
               :subcommand nil
               :flags ("-rf")
               :positional-args ("$HOME/tmp")
+              :args ("-rf" "$HOME/tmp")
               :dangerous-p t))
 
     (:id "variable-003"
@@ -391,6 +425,7 @@
               :subcommand "commit"
               :flags ("-m")
               :positional-args ("$commit_message")
+              :args ("-m" "$commit_message")
               :dangerous-p nil))
 
     (:id "variable-004"
@@ -400,6 +435,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("${HOME}")
+              :args ("${HOME}")
               :dangerous-p nil))
 
     (:id "variable-005"
@@ -409,6 +445,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("$VAR1" "$VAR2")
+              :args ("$VAR1" "$VAR2")
               :dangerous-p nil))
 
     (:id "variable-006"
@@ -418,6 +455,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("$HOME/*.txt")
+              :args ("$HOME/*.txt")
               :dangerous-p nil))
 
     (:id "variable-007"
@@ -427,6 +465,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("prefix$VAR")
+              :args ("prefix$VAR")
               :dangerous-p nil))
 
     (:id "variable-008"
@@ -436,6 +475,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("$VAR/suffix")
+              :args ("$VAR/suffix")
               :dangerous-p nil))
 
     ;; ============================================================
@@ -448,6 +488,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("hello 'world'")
+              :args ("hello 'world'")
               :dangerous-p nil))
 
     (:id "quote-002"
@@ -462,6 +503,7 @@
               :subcommand "commit"
               :flags ("-m")
               :positional-args ("$'test\\nwith\\nnewlines'")
+              :args ("-m" "$'test\\nwith\\nnewlines'")
               :dangerous-p nil))
 
     (:id "quote-004"
@@ -471,6 +513,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("$'it\\'s working'")
+              :args ("$'it\\'s working'")
               :dangerous-p nil))
 
     (:id "quote-005"
@@ -480,6 +523,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("$'line1\\nline2\\ttab'")
+              :args ("$'line1\\nline2\\ttab'")
               :dangerous-p nil))
 
     ;; ============================================================
@@ -492,6 +536,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("*.txt")
+              :args ("*.txt")
               :dangerous-p nil))
 
     (:id "glob-002"
@@ -501,6 +546,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("config/**/*.el")
+              :args ("config/**/*.el")
               :dangerous-p nil))
 
     (:id "glob-003"
@@ -510,6 +556,7 @@
               :subcommand "add"
               :flags ()
               :positional-args ("*.{el,org}")
+              :args ("*.{el,org}")
               :dangerous-p nil))
 
     (:id "glob-004"
@@ -519,6 +566,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("{a,b,c}")
+              :args ("{a,b,c}")
               :dangerous-p nil))
 
     (:id "glob-005"
@@ -528,6 +576,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("file.{txt,md,json}")
+              :args ("file.{txt,md,json}")
               :dangerous-p nil))
 
     (:id "glob-006"
@@ -537,6 +586,7 @@
               :subcommand nil
               :flags ()
               :positional-args ("test.{1,2,3}.bak")
+              :args ("test.{1,2,3}.bak")
               :dangerous-p nil))
 
     ;; ============================================================
@@ -549,6 +599,7 @@
               :subcommand "run"
               :flags ()
               :positional-args ("build")
+              :args ("build")
               :dangerous-p nil))
 
     (:id "background-002"
@@ -569,6 +620,7 @@
               :subcommand nil
               :flags ()
               :positional-args ()
+              :args ()
               :dangerous-p nil))
 
     ;; ============================================================
@@ -581,12 +633,14 @@
               :subcommand nil
               :flags ("-name" "-exec")
               :positional-args ("." "*.log")
+              :args ("-name" "*.log" "." "-exec")
               :dangerous-p nil
               :exec-blocks ((:type "-exec"
                             :terminator "\\;"
                             :command-name "rm"
                             :flags ()
                             :positional-args ("{}")
+                            :args ("{}")
                             :dangerous-p nil))))
 
     (:id "find-001"
@@ -596,12 +650,14 @@
               :subcommand nil
               :flags ("-type" "-exec")
               :positional-args ("." "f")
+              :args ("-type" "f" "." "-exec")
               :dangerous-p nil
               :exec-blocks ((:type "-exec"
                             :terminator "+"
                             :command-name "chmod"
                             :flags ()
                             :positional-args ("644" "{}")
+                            :args ("644" "{}")
                             :dangerous-p nil))))
 
     (:id "find-002"
@@ -611,12 +667,14 @@
               :subcommand nil
               :flags ("-name" "-execdir")
               :positional-args ("/tmp" "*.tmp")
+              :args ("-name" "*.tmp" "/tmp" "-execdir")
               :dangerous-p t
               :exec-blocks ((:type "-execdir"
                             :terminator "\\;"
                             :command-name "rm"
                             :flags ("-rf")
                             :positional-args ("{}")
+                            :args ("-rf" "{}")
                             :dangerous-p t))))
 
     (:id "find-003"
@@ -626,18 +684,21 @@
               :subcommand nil
               :flags ("-name" "-exec" "-exec")
               :positional-args ("." "*.txt")
+              :args ("-name" "*.txt" "." "-exec" "-exec")
               :dangerous-p nil
               :exec-blocks ((:type "-exec"
                             :terminator "\\;"
                             :command-name "grep"
                             :flags ()
                             :positional-args ("pattern" "{}")
+                            :args ("pattern" "{}")
                             :dangerous-p nil)
                            (:type "-exec"
                             :terminator "\\;"
                             :command-name "echo"
                             :flags ()
                             :positional-args ("{}")
+                            :args ("{}")
                             :dangerous-p nil))))
 
     (:id "find-004"
@@ -647,6 +708,7 @@
               :subcommand nil
               :flags ("-maxdepth" "-name")
               :positional-args ("." "2" "*.log")
+              :args ("-maxdepth" "2" "-name" "*.log" ".")
               :dangerous-p nil))
 
     (:id "complex-002"
@@ -666,6 +728,7 @@
               :subcommand nil
               :flags ("-c")
               :positional-args ("import sys; print(sys.version)")
+              :args ("-c" "import sys; print(sys.version)")
               :dangerous-p t))
 
     (:id "complex-005"
@@ -675,6 +738,7 @@
               :subcommand nil
               :flags ("-i.bak")
               :positional-args ("s/foo/bar/g" "*.txt")
+              :args ("-i.bak" "s/foo/bar/g" "*.txt")
               :dangerous-p nil))
 
     ;; ============================================================
@@ -687,6 +751,7 @@
               :subcommand nil
               :flags nil
               :positional-args ("rm" "-rf" "/tmp/test")
+              :args ("rm" "-rf" "/tmp/test")
               :dangerous-p t))
 
     (:id "wrapper-002"
@@ -696,6 +761,7 @@
               :subcommand nil
               :flags ("-u")
               :positional-args ("www-data" "php" "script.php")
+              :args ("-u" "www-data" "php" "script.php")
               :dangerous-p t))
 
     (:id "wrapper-003"
@@ -705,6 +771,7 @@
               :subcommand nil
               :flags ("-E")
               :positional-args ("env" "PATH=/custom/path" "command")
+              :args ("-E" "env" "PATH=/custom/path" "command")
               :dangerous-p t))
 
     (:id "wrapper-004"
@@ -714,6 +781,7 @@
               :subcommand nil
               :flags ("-i")
               :positional-args ("HOME=$HOME" "command")
+              :args ("-i" "HOME=$HOME" "command")
               :dangerous-p nil))
     )
   "Test corpus for bash command parsing.
