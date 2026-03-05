@@ -339,7 +339,11 @@
     (:id "glob-004"
      :command "ls test.{txt,md,json}"
      :note "Brace expansion pattern"
-     :expect-ops ())  ;; ls doesn't modify files
+     :expect-ops ((:file "test.{txt,md,json}"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :positional-arg
+                   :pattern t)))
 
     ;; ============================================================
     ;; PIPELINES
@@ -429,6 +433,11 @@
                    :operation :read-directory
                    :confidence :high
                    :source :positional-arg)
+                  (:file "*.log"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :flag-arg
+                   :pattern t)
                   (:file "{}"
                    :operation :delete
                    :confidence :high
@@ -457,6 +466,11 @@
                    :operation :read-directory
                    :confidence :high
                    :source :positional-arg)
+                  (:file "*.txt"
+                   :operation :match-pattern
+                   :confidence :high
+                   :source :flag-arg
+                   :pattern t)
                   (:file "{}"
                    :operation :read
                    :confidence :high
