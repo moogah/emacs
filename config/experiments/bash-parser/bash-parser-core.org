@@ -474,7 +474,7 @@ Bash tree-sitter structure for for_statement:
 #+begin_src emacs-lisp
 (defun jf/bash-parse--get-all-command-nodes (container-node)
   "Get all command nodes from CONTAINER-NODE (pipeline or list).
-Returns command, redirected_statement, or variable_assignment nodes.
+Returns command, redirected_statement, variable_assignment, or subshell nodes.
 Only collects top-level commands - does not descend into command substitutions."
   (let ((commands '()))
     (jf/bash-parse--visit-node
@@ -488,6 +488,11 @@ Only collects top-level commands - does not descend into command substitutions."
           ;; Collect redirected_statement nodes and skip their children
           ;; (the nested command node would be a duplicate)
           ((string= node-type "redirected_statement")
+           (push node commands)
+           :skip-children)
+          ;; Collect subshell nodes and skip their children
+          ;; Subshells need to be parsed separately with isolated context
+          ((string= node-type "subshell")
            (push node commands)
            :skip-children)
           ;; Collect command and variable_assignment nodes
@@ -728,7 +733,7 @@ Returns nesting level starting from 1 for outermost substitution."
 
 #+begin_src emacs-lisp
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
-  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, or variable_assignment.
+  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, variable_assignment, or subshell.
 Returns command structure with optional :redirections and :command-substitutions fields."
   (let ((command-node nil)
         (redirections nil)
@@ -738,8 +743,23 @@ Returns command structure with optional :redirections and :command-substitutions
     (setq command-substitutions
           (jf/bash-parse--extract-command-substitutions command-or-statement-node))
 
-    ;; Check if this is a redirected_statement wrapper
-    (if (string= (treesit-node-type command-or-statement-node) "redirected_statement")
+    ;; Check if this is a subshell node - handle it recursively
+    (if (string= (treesit-node-type command-or-statement-node) "subshell")
+        ;; Parse subshell content recursively
+        (let* ((subshell-text (treesit-node-text command-or-statement-node t))
+               ;; Extract content between parentheses
+               (inner-text (when (string-match "^(\\(.*\\))$" subshell-text)
+                            (match-string 1 subshell-text)))
+               ;; Recursively parse the content
+               (parsed-body (when inner-text
+                             (jf/bash-parse inner-text))))
+          ;; Return as subshell type
+          (list :success t
+                :type :subshell
+                :subshell-body parsed-body))
+
+      ;; Check if this is a redirected_statement wrapper
+      (if (string= (treesit-node-type command-or-statement-node) "redirected_statement")
         (progn
           ;; Extract the actual command from the body field
           (setq command-node
@@ -809,7 +829,7 @@ Returns command structure with optional :redirections and :command-substitutions
                 (setq result (plist-put result :redirections redirections)))
               (when command-substitutions
                 (setq result (plist-put result :command-substitutions command-substitutions)))
-              result))))))))
+              result)))))))))
 #+end_src
 
 ** Extract Words
