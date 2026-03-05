@@ -355,19 +355,25 @@ Returns list of operations marked with :test-condition t."
     (if (string-match "\\[\\[?\\s-*\\(-[fderswx]\\)\\s-+\\([^]]+\\)\\s-*\\]\\]?" condition-text)
         ;; Extract file test operation
         (let* ((test-operator (match-string 1 condition-text))
-               (file-path (string-trim (match-string 2 condition-text)))
+               (raw-file-path (string-trim (match-string 2 condition-text)))
+               ;; Strip surrounding quotes (both single and double)
+               (file-path (replace-regexp-in-string
+                          "^['\"]\\|['\"]$" "" raw-file-path))
                (resolved-path (if var-context
                                  (jf/bash-resolve-variables file-path var-context)
                                file-path))
                (final-path (if (stringp resolved-path)
                               resolved-path
-                            (plist-get resolved-path :path))))
-          (push (list :file final-path
-                     :operation :read-metadata
-                     :confidence :high
-                     :source :test-expression
-                     :test-operator test-operator
-                     :test-condition t)
+                            (plist-get resolved-path :path)))
+               ;; Check for glob patterns in the unquoted path
+               (has-pattern (jf/bash--has-glob-pattern-p final-path)))
+          (push (append (list :file final-path
+                             :operation :read-metadata
+                             :confidence :high
+                             :source :test-expression
+                             :test-operator test-operator
+                             :test-condition t)
+                       (when has-pattern (list :pattern t)))
                 operations))
       ;; Otherwise, parse as command and mark operations
       (when (fboundp 'jf/bash-parse)
