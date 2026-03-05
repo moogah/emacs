@@ -46,12 +46,18 @@ Setup lexical binding.
     (file . (:operations ((:source :positional-args :operation :read))))
     (stat . (:operations ((:source :positional-args :operation :read))))
     (ls . (:operations :custom
-           :handler jf/bash--extract-ls-operations))
+           :handler jf/bash--extract-ls-operations
+           :produces-file-list t
+           :pattern-source :positional-args
+           :search-scope-arg :implicit))
     (grep . (:operations :flag-dependent
              :flag-handlers ((("-l" "--files-with-matches")
                              . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
                             (()
-                             . ((:source :positional-args :operation :read :skip-indices (0)))))))
+                             . ((:source :positional-args :operation :read :skip-indices (0)))))
+             :produces-file-list t
+             :pattern-source :positional-args
+             :pattern-requires-flag ("-l" "--files-with-matches")))
     (egrep . (:operations :flag-dependent
               :flag-handlers ((("-l" "--files-with-matches")
                               . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
@@ -83,7 +89,10 @@ Setup lexical binding.
             :flag-handlers ((("-i" "--in-place") . ((:source :positional-args :operation :modify :skip-indices (0))))
                            (() . ((:source :positional-args :operation :read :skip-indices (0)))))))
     (find . (:operations :custom
-             :handler jf/bash--extract-find-operations))
+             :handler jf/bash--extract-find-operations
+             :produces-file-list t
+             :pattern-source :flag-arg
+             :search-scope-arg :first-positional))
     (tee . (:operations ((:source :positional-args :operation :write))))
     (dd . (:operations ((:source :named-args :names ("if") :operation :read)
                         (:source :named-args :names ("of") :operation :write))))
