@@ -70,11 +70,21 @@ Returns :pipeline, :list, :conditional, or :simple.
 Only checks direct children to avoid detecting nested structures inside command substitutions."
   (let ((pipeline-node (jf/bash-parse--find-direct-child-by-type root-node "pipeline"))
         (list-node (jf/bash-parse--find-direct-child-by-type root-node "list"))
-        (if-node (jf/bash-parse--find-direct-child-by-type root-node "if_statement")))
+        (if-node (jf/bash-parse--find-direct-child-by-type root-node "if_statement"))
+        (redirected-stmt (jf/bash-parse--find-direct-child-by-type root-node "redirected_statement")))
     (cond
      (pipeline-node :pipeline)
      (list-node :list)
      (if-node :conditional)
+     ;; Check if redirected_statement wraps a list or pipeline
+     ;; This happens when a chain/pipeline has a redirection: "A && B > file"
+     (redirected-stmt
+      (when-let ((body-node (treesit-node-child-by-field-name redirected-stmt "body")))
+        (let ((body-type (treesit-node-type body-node)))
+          (cond
+           ((string= body-type "pipeline") :pipeline)
+           ((string= body-type "list") :list)
+           (t :simple)))))
      ;; Check if program has multiple command children (semicolon-separated)
      ((> (jf/bash-parse--count-command-children root-node) 1) :list)
      (t :simple))))
@@ -163,6 +173,26 @@ Recursively searches all descendants."
                                    command-nodes))
          (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
                                   parsed-commands)))
+
+    ;; Check if list is wrapped in redirected_statement
+    (when-let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
+                ;; Verify the redirected_statement's body is indeed the list
+                (body-node (treesit-node-child-by-field-name redirected-stmt "body"))
+                ((string= (treesit-node-type body-node) "list"))
+                ;; Extract redirections from the statement
+                (redirections (jf/bash-parse--extract-redirections redirected-stmt))
+                (redirections))
+      ;; Attach redirections to the last command in the list
+      ;; (since that's whose output is being redirected)
+      (when (and parsed-commands (> (length parsed-commands) 0))
+        (let* ((last-cmd-index (1- (length parsed-commands)))
+               (last-cmd (nth last-cmd-index parsed-commands))
+               ;; Merge with any existing redirections on the last command
+               (existing-redirections (plist-get last-cmd :redirections))
+               (merged-redirections (append existing-redirections redirections)))
+          ;; Update the last command with merged redirections
+          (setf (nth last-cmd-index parsed-commands)
+                (plist-put last-cmd :redirections merged-redirections)))))
 
     (list :success t
           :type :chain
