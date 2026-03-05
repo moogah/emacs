@@ -71,11 +71,16 @@
 (ert-deftest test-semantics-lookup-egrep-skip-rules ()
   "Scenario: bash-command-semantics § 'Lookup command with skip rules' - egrep variant"
   (let* ((result (jf/bash-lookup-command-semantics "egrep"))
-         (ops (plist-get result :operations))
-         (op (car ops)))
+         (ops (plist-get result :operations)))
     (should result)
-    (should (eq (plist-get op :operation) :read))
-    (should (equal (plist-get op :skip-indices) '(0)))))
+    ;; egrep now uses flag-dependent operations
+    (should (eq ops :flag-dependent))
+    ;; Check the default handler (no flags)
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           (default-handler (cdr (assoc '() flag-handlers)))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :read))
+      (should (equal (plist-get op :skip-indices) '(0))))))
 
 (ert-deftest test-semantics-lookup-chmod-skip-rules ()
   "Scenario: bash-command-semantics § 'File manipulation commands' - chmod with skip"

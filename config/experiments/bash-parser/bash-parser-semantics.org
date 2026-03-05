@@ -50,16 +50,30 @@ Setup lexical binding.
            :produces-file-list t
            :pattern-source :positional-args
            :search-scope-arg :implicit))
-    (grep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))
+    (grep . (:operations :flag-dependent
+              :flag-handlers ((("-l" "--files-with-matches")
+                              . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
+                             (()
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))
              :produces-file-list t
              :pattern-source :positional-args
              :pattern-requires-flag ("-l" "--files-with-matches")))
-    (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
+    (egrep . (:operations :flag-dependent
+              :flag-handlers ((("-l" "--files-with-matches")
+                              . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
+                             (()
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))
+             :produces-file-list t
+             :pattern-source :positional-args
+             :pattern-requires-flag ("-l" "--files-with-matches")))
     (fgrep . (:operations :flag-dependent
               :flag-handlers ((("-l" "--files-with-matches")
                               . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
                              (()
-                              . ((:source :positional-args :operation :read :skip-indices (0)))))))
+                              . ((:source :positional-args :operation :read :skip-indices (0)))))
+             :produces-file-list t
+             :pattern-source :positional-args
+             :pattern-requires-flag ("-l" "--files-with-matches")))
     (touch . (:operations ((:source :positional-args :operation :create-or-modify))))
     (mkdir . (:operations ((:source :positional-args :operation :create))))
     (rm . (:operations ((:source :positional-args :operation :delete))))

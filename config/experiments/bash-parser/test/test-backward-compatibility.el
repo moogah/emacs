@@ -202,9 +202,8 @@ New context flags like :pattern, :loop-context, etc. are optional additions."
 
 (ert-deftest test-feature-detection-pattern-flow ()
   "Verify feature detection for pattern flow tracking."
-  ;; Pattern flow is referenced but not yet fully implemented
-  ;; Feature detection should return nil until implementation is complete
-  (should-not (jf/bash-parser-has-feature-p :pattern-flow)))
+  ;; Pattern flow is fully implemented and all tests pass
+  (should (jf/bash-parser-has-feature-p :pattern-flow)))
 
 (ert-deftest test-feature-detection-unknown-feature ()
   "Verify unknown features return nil."
