@@ -219,8 +219,7 @@ SECURITY: cd $PWD/sub should resolve $PWD then navigate to subdirectory."
   "Test cd - && cat file.txt (returns to previous directory).
 
 SECURITY: cd - uses OLDPWD. Parser must track OLDPWD changes.
-DESIGN QUESTION: Should parser track OLDPWD? Mark as low-priority."
-  :expected-result :failed
+Implemented by bead emacs-90p4: OLDPWD tracking for cd -."
   (let* ((parsed (jf/bash-parse "cd /new && cd - && cat file.txt"))
          (var-context '((PWD . "/original")
                        (OLDPWD . "/previous")))

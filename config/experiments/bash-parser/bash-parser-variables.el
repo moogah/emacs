@@ -676,6 +676,7 @@ Extraction logic:
 Resolution steps (in order):
   a. Handle special forms:
      - cd (no args) => expand to HOME
+     - cd - => expand to OLDPWD (previous directory)
      - cd ~ => expand to HOME
      - cd ~/path => expand ~ to HOME, then append path
   b. Resolve variables using jf/bash-resolve-variables
@@ -693,10 +694,12 @@ Edge cases:
   - cd . => returns current-pwd unchanged
   - cd '' => returns :unresolved marker
   - cd (no args) => returns HOME
+  - cd - => returns OLDPWD (previous directory)
   - cd ~ => returns HOME
   - cd ~/subdir => returns HOME/subdir
   - Unresolved variables => returns :unresolved marker
   - No HOME in context => returns :unresolved
+  - cd - with no OLDPWD => returns :unresolved
 
 Examples:
   ;; Absolute path
@@ -741,6 +744,18 @@ Examples:
     '((HOME . \"/home/user\")) \"/original\")
   => \"/home/user/subdir\"
 
+  ;; cd - (switch to previous directory using OLDPWD)
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"-\"))
+    '((PWD . \"/current\") (OLDPWD . \"/previous\")) \"/current\")
+  => \"/previous\"
+
+  ;; cd - with no OLDPWD in context
+  (jf/bash--extract-cd-target
+    '(:command-name \"cd\" :positional-args (\"-\"))
+    '((PWD . \"/current\")) \"/current\")
+  => :unresolved
+
   ;; Unresolved variable
   (jf/bash--extract-cd-target
     '(:command-name \"cd\" :positional-args (\"$UNKNOWN\"))
@@ -748,6 +763,7 @@ Examples:
   => :unresolved"
   (let* ((command-name (plist-get command :command-name))
          (positional-args (plist-get command :positional-args))
+         (flags (plist-get command :flags))
          ;; Extract target - handle builtin cd specially
          (target (cond
                   ;; builtin cd: skip "cd" arg, use second arg
@@ -755,9 +771,11 @@ Examples:
                    (when (and positional-args
                               (>= (length positional-args) 2))
                      (nth 1 positional-args)))
-                  ;; Regular cd: use first arg
+                  ;; Regular cd: check positional args first, then flags
+                  ;; (parser sometimes puts "-" in flags instead of positional-args)
                   (t
-                   (car positional-args))))
+                   (or (car positional-args)
+                       (car flags)))))
          ;; Extract HOME from var-context for special form handling
          (home (alist-get 'HOME var-context)))
 
@@ -771,6 +789,13 @@ Examples:
      ;; Empty string target
      ((string-empty-p target)
       :unresolved)
+
+     ;; cd - (switch to OLDPWD)
+     ((equal target "-")
+      (let ((oldpwd (alist-get 'OLDPWD var-context)))
+        (if oldpwd
+            oldpwd
+          :unresolved)))
 
      ;; cd ~ (go to HOME)
      ((equal target "~")

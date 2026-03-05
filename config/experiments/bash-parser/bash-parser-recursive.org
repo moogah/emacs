@@ -193,10 +193,14 @@ Example:
                      (jf/bash--is-cd-command-p cmd))
             (when-let ((new-pwd (jf/bash--extract-cd-target cmd chain-context current-pwd)))
               (unless (eq new-pwd :unresolved)
-                (setq current-pwd new-pwd)
-                ;; Update PWD in context for subsequent commands
-                (setq chain-context (cons (cons 'PWD current-pwd)
-                                         (assq-delete-all 'PWD chain-context))))))
+                ;; Save current PWD to OLDPWD before updating
+                (let ((old-pwd current-pwd))
+                  (setq current-pwd new-pwd)
+                  ;; Update both PWD and OLDPWD in context for subsequent commands
+                  (setq chain-context (cons (cons 'PWD current-pwd)
+                                           (assq-delete-all 'PWD chain-context)))
+                  (setq chain-context (cons (cons 'OLDPWD old-pwd)
+                                           (assq-delete-all 'OLDPWD chain-context)))))))
 
           ;; Extract operations with updated context (PWD now reflects current-pwd)
           (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
