@@ -87,9 +87,8 @@ Setup lexical binding.
                         (:source :positional-args :index -1 :operation :write))))
     (mv . (:operations ((:source :positional-args :indices (0 . -2) :operation :delete)
                         (:source :positional-args :index -1 :operation :write))))
-    (tar . (:operations :flag-dependent
-            :flag-handlers ((("-x" "--extract" "--get") . ((:source :positional-args :operation :write :skip-indices (0))))
-                           (("-c" "--create") . ((:source :positional-args :operation :read :skip-indices (0)))))))
+    (tar . (:operations :custom
+            :handler jf/bash--extract-tar-operations))
     (zip . (:operations :custom
             :handler jf/bash--extract-zip-operations))
     (sed . (:operations :flag-dependent
@@ -504,6 +503,104 @@ Returns list of operation plists."
                          (when unresolved-vars
                            (list :unresolved unresolved-vars)))
                   operations)))))
+
+    (nreverse operations)))
+#+end_src
+
+** Tar Command Custom Handler
+
+The tar command structure is complex because the archive filename is specified
+via the -f flag, not as a simple positional argument. The operation type depends
+on the mode flags:
+- -c (create): archive file is written, positional args are read
+- -x (extract): archive file is read, extraction writes files
+- -t (list): archive file is read (no other operations)
+
+#+begin_src emacs-lisp
+(defun jf/bash--extract-tar-operations (parsed-command var-context)
+  "Custom extraction for tar command operations.
+
+PARSED-COMMAND is the parsed command structure.
+VAR-CONTEXT is the variable resolution context.
+
+Tar structure:
+- Archive file specified by -f flag value
+- Operation determined by mode flag: -c (create), -x (extract), -t (list)
+- Positional args are source files (when creating) or extracted files (when extracting)
+
+Returns list of operation plists."
+  (let* ((flags (plist-get parsed-command :flags))
+         (positional-args (plist-get parsed-command :positional-args))
+         (args (plist-get parsed-command :args))
+         (command-name (plist-get parsed-command :command-name))
+         (operations nil)
+         (archive-file nil)
+         (mode nil))
+
+    ;; Determine mode from flags
+    (dolist (flag flags)
+      (cond
+       ((jf/bash--flag-present-p "-c" (list flag)) (setq mode :create))
+       ((jf/bash--flag-present-p "-x" (list flag)) (setq mode :extract))
+       ((jf/bash--flag-present-p "-t" (list flag)) (setq mode :list))))
+
+    ;; Find archive file from -f flag
+    ;; In combined flags like -czf, the f means next arg is the archive file
+    (let ((i 0))
+      (while (and (< i (length args)) (not archive-file))
+        (let ((arg (nth i args)))
+          (cond
+           ;; Standalone -f flag, next arg is archive
+           ((equal arg "-f")
+            (when (< (1+ i) (length args))
+              (setq archive-file (nth (1+ i) args))))
+           ;; Combined flag with f, next arg is archive
+           ((and (string-prefix-p "-" arg)
+                 (not (string-prefix-p "--" arg))
+                 (string-match-p "f" arg))
+            (when (< (1+ i) (length args))
+              (setq archive-file (nth (1+ i) args))))))
+        (setq i (1+ i))))
+
+    (when (and mode archive-file)
+      ;; Handle archive file operation based on mode
+      (let* ((resolved-path (jf/bash--resolve-path-variables archive-file var-context))
+             (final-path (if (stringp resolved-path)
+                            resolved-path
+                          (plist-get resolved-path :path)))
+             (unresolved-vars (when (listp resolved-path)
+                               (plist-get resolved-path :unresolved))))
+        (push (append (list :file final-path
+                           :operation (cond
+                                      ((eq mode :create) :write)
+                                      ((eq mode :extract) :read)
+                                      ((eq mode :list) :read))
+                           :confidence :high
+                           :source :positional-arg
+                           :command command-name)
+                     (when unresolved-vars
+                       (list :unresolved unresolved-vars)))
+              operations))
+
+      ;; Handle positional args (source files or extracted files)
+      (when positional-args
+        (dolist (file positional-args)
+          ;; Skip if this is the archive file
+          (unless (equal file archive-file)
+            (let* ((resolved-path (jf/bash--resolve-path-variables file var-context))
+                   (final-path (if (stringp resolved-path)
+                                  resolved-path
+                                (plist-get resolved-path :path)))
+                   (unresolved-vars (when (listp resolved-path)
+                                     (plist-get resolved-path :unresolved))))
+              (push (append (list :file final-path
+                                 :operation (if (eq mode :create) :read :write)
+                                 :confidence :high
+                                 :source :positional-arg
+                                 :command command-name)
+                           (when unresolved-vars
+                             (list :unresolved unresolved-vars)))
+                    operations))))))
 
     (nreverse operations)))
 #+end_src

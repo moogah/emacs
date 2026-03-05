@@ -99,6 +99,46 @@ Examples:
             var-context)))
 #+end_src
 
+** Flag Matching
+
+Check if a flag is present in a command's flags list, handling both standalone
+and combined Unix-style flags.
+
+#+begin_src emacs-lisp
+(defun jf/bash--flag-present-p (flag flags-list)
+  "Return t if FLAG is present in FLAGS-LIST.
+
+Handles both exact matches and combined Unix-style flags.
+For example, \"-c\" matches both \"-c\" and \"-czf\".
+
+FLAG should be a short flag like \"-c\" or long flag like \"--create\".
+FLAGS-LIST is a list of flag strings from parsed command.
+
+Examples:
+  (jf/bash--flag-present-p \"-c\" '(\"-c\"))           => t
+  (jf/bash--flag-present-p \"-c\" '(\"-czf\"))        => t
+  (jf/bash--flag-present-p \"--create\" '(\"--create\")) => t
+  (jf/bash--flag-present-p \"-c\" '(\"-xzf\"))        => nil"
+  (seq-some
+   (lambda (f)
+     (cond
+      ;; Exact match (handles long flags and standalone short flags)
+      ((equal flag f) t)
+      ;; Combined short flags: check if flag char is in the combined string
+      ;; Only for short flags starting with single dash
+      ((and (string-prefix-p "-" flag)
+            (not (string-prefix-p "--" flag))
+            (= (length flag) 2)
+            (string-prefix-p "-" f)
+            (not (string-prefix-p "--" f)))
+       ;; Extract flag character (e.g., "c" from "-c")
+       (let ((flag-char (substring flag 1 2)))
+         ;; Check if character is in combined flags string
+         (string-match-p (regexp-quote flag-char) (substring f 1))))
+      (t nil)))
+   flags-list))
+#+end_src
+
 ** Main Extraction Function
 
 The public API for file operation extraction. Orchestrates all extraction sources
@@ -491,7 +531,7 @@ Example:
                           (handler-spec (cdr handler)))
                       ;; Check if any trigger flag is present
                       (when (or (null trigger-flags)  ; Empty trigger matches always
-                                (seq-some (lambda (f) (member f flags)) trigger-flags))
+                                (seq-some (lambda (f) (jf/bash--flag-present-p f flags)) trigger-flags))
                         (setq matched-handler handler-spec)))))
                 (when matched-handler
                   (setq operations

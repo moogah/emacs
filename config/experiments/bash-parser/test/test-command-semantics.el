@@ -325,20 +325,14 @@
         (should (eq (plist-get (car default-spec) :operation) :read))))))
 
 (ert-deftest test-semantics-flag-dependent-tar ()
-  "Scenario: bash-command-semantics § 'Flag-dependent operations' - tar"
+  "Scenario: bash-command-semantics § 'Custom handler operations' - tar"
   (let ((result (jf/bash-lookup-command-semantics "tar")))
     (should result)
-    (should (eq (plist-get result :operations) :flag-dependent))
-    (let ((handlers (plist-get result :flag-handlers)))
-      (should handlers)
-      ;; Check extract flag handler
-      (let ((extract-spec (alist-get '("-x" "--extract" "--get") handlers nil nil #'equal)))
-        (should extract-spec)
-        (should (eq (plist-get (car extract-spec) :operation) :write)))
-      ;; Check create flag handler
-      (let ((create-spec (alist-get '("-c" "--create") handlers nil nil #'equal)))
-        (should create-spec)
-        (should (eq (plist-get (car create-spec) :operation) :read))))))
+    (should (eq (plist-get result :operations) :custom))
+    (let ((handler (plist-get result :handler)))
+      (should handler)
+      (should (eq handler 'jf/bash--extract-tar-operations))
+      (should (fboundp handler)))))
 
 ;;; Named Arguments (dd-style)
 
