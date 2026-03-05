@@ -53,7 +53,15 @@ Returns list of matching nodes (empty list if none found)."
 Returns gap descriptor or nil."
   (when (jf/bash-parse--has-node-type-p root-node "command_substitution")
     ;; Tree-sitter found command substitution - does parser extract it?
-    (let ((substitutions (plist-get parsed-result :command-substitutions)))
+    ;; Check top-level first (for backward compatibility)
+    (let ((substitutions (plist-get parsed-result :command-substitutions))
+          (all-commands (plist-get parsed-result :all-commands)))
+      ;; Also check within :all-commands array
+      (unless substitutions
+        (when all-commands
+          (dolist (cmd all-commands)
+            (when (plist-get cmd :command-substitutions)
+              (setq substitutions t)))))
       (unless substitutions
         ;; Parser doesn't have :command-substitutions field - critical gap
         (let ((nodes (jf/bash-parse--find-nodes-by-type root-node "command_substitution"))
@@ -72,7 +80,15 @@ Returns gap descriptor or nil."
   "Check if process substitution exists in AST but not in parsed result.
 Returns gap descriptor or nil."
   (when (jf/bash-parse--has-node-type-p root-node "process_substitution")
-    (let ((substitutions (plist-get parsed-result :process-substitutions)))
+    ;; Check top-level first (for backward compatibility)
+    (let ((substitutions (plist-get parsed-result :process-substitutions))
+          (all-commands (plist-get parsed-result :all-commands)))
+      ;; Also check within :all-commands array
+      (unless substitutions
+        (when all-commands
+          (dolist (cmd all-commands)
+            (when (plist-get cmd :process-substitutions)
+              (setq substitutions t)))))
       (unless substitutions
         (let ((nodes (jf/bash-parse--find-nodes-by-type root-node "process_substitution"))
               (examples '()))
@@ -89,8 +105,19 @@ Returns gap descriptor or nil."
   "Check if for loop exists in AST but variables not extracted.
 Returns gap descriptor or nil."
   (when (jf/bash-parse--has-node-type-p root-node "for_statement")
-    (let ((loop-vars (plist-get parsed-result :loop-variables)))
-      (unless loop-vars
+    ;; Check for :loop-variable (singular) and :loop-body fields
+    (let ((loop-var (plist-get parsed-result :loop-variable))
+          (loop-body (plist-get parsed-result :loop-body))
+          (all-commands (plist-get parsed-result :all-commands)))
+      ;; Also check within :all-commands array
+      (unless (and loop-var loop-body)
+        (when all-commands
+          (dolist (cmd all-commands)
+            (when (and (plist-get cmd :loop-variable)
+                      (plist-get cmd :loop-body))
+              (setq loop-var t)
+              (setq loop-body t)))))
+      (unless (and loop-var loop-body)
         (let ((nodes (jf/bash-parse--find-nodes-by-type root-node "for_statement")))
           (list :type 'for-loop
                 :severity 'medium
@@ -103,8 +130,19 @@ Returns gap descriptor or nil."
   "Check if conditional exists in AST but branches not extracted.
 Returns gap descriptor or nil."
   (when (jf/bash-parse--has-node-type-p root-node "if_statement")
-    (let ((branches (plist-get parsed-result :conditional-branches)))
-      (unless branches
+    ;; Check for :condition-text and :then-text fields
+    (let ((condition (plist-get parsed-result :condition-text))
+          (then-branch (plist-get parsed-result :then-text))
+          (all-commands (plist-get parsed-result :all-commands)))
+      ;; Also check within :all-commands array
+      (unless (and condition then-branch)
+        (when all-commands
+          (dolist (cmd all-commands)
+            (when (and (plist-get cmd :condition-text)
+                      (plist-get cmd :then-text))
+              (setq condition t)
+              (setq then-branch t)))))
+      (unless (and condition then-branch)
         (let ((nodes (jf/bash-parse--find-nodes-by-type root-node "if_statement")))
           (list :type 'conditional
                 :severity 'medium
@@ -117,8 +155,25 @@ Returns gap descriptor or nil."
   "Check if heredoc exists in AST but content not extracted.
 Returns gap descriptor or nil."
   (when (jf/bash-parse--has-node-type-p root-node "heredoc_body")
-    (let ((heredoc-content (plist-get parsed-result :heredoc-content)))
-      (unless heredoc-content
+    ;; Check for heredoc in :redirections (top-level or in :all-commands)
+    (let ((redirections (plist-get parsed-result :redirections))
+          (all-commands (plist-get parsed-result :all-commands))
+          (has-heredoc nil))
+      ;; Check top-level redirections
+      (when redirections
+        (dolist (redir redirections)
+          (when (eq (plist-get redir :type) :heredoc)
+            (setq has-heredoc t))))
+      ;; Check redirections in :all-commands array
+      (unless has-heredoc
+        (when all-commands
+          (dolist (cmd all-commands)
+            (let ((cmd-redirections (plist-get cmd :redirections)))
+              (when cmd-redirections
+                (dolist (redir cmd-redirections)
+                  (when (eq (plist-get redir :type) :heredoc)
+                    (setq has-heredoc t))))))))
+      (unless has-heredoc
         (let ((nodes (jf/bash-parse--find-nodes-by-type root-node "heredoc_body")))
           (list :type 'heredoc
                 :severity 'low

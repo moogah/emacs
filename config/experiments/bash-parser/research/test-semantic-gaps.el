@@ -53,47 +53,41 @@
 
 (princ "=== Semantic Gap Detection Tests ===\n\n")
 
-;; Command substitution tests
-(test-semantic-gap
+;; Command substitution tests - Parser correctly extracts these
+(test-no-semantic-gap
  "echo $(whoami)"
- 'command-substitution
- "Simple command substitution")
+ "Simple command substitution (parser extracts correctly)")
 
-(test-semantic-gap
+(test-no-semantic-gap
  "ls -la $(dirname $(which openspec))"
- 'command-substitution
- "Nested command substitution")
+ "Nested command substitution (parser extracts correctly)")
 
-(test-semantic-gap
+(test-no-semantic-gap
  "--eval '(setq dir \"'$(pwd)'\")'"
- 'command-substitution
- "Command substitution in quoted string")
+ "Command substitution in quoted string (parser extracts correctly)")
 
-;; Process substitution tests
+;; Process substitution tests - Parser does NOT extract these yet
 (test-semantic-gap
  "diff <(ls dir1) <(ls dir2)"
  'process-substitution
- "Process substitution")
+ "Process substitution (NOT YET IMPLEMENTED)")
 
-;; For loop tests
-(test-semantic-gap
+;; For loop tests - Parser correctly extracts these
+(test-no-semantic-gap
  "for f in *.txt; do echo $f; done"
- 'for-loop
- "For loop with variables")
+ "For loop with variables (parser extracts correctly)")
 
-;; Conditional tests
-(test-semantic-gap
+;; Conditional tests - Parser correctly extracts these
+(test-no-semantic-gap
  "if [ -f file ]; then rm file; fi"
- 'conditional
- "Conditional statement")
+ "Conditional statement (parser extracts correctly)")
 
-;; Heredoc tests
-(test-semantic-gap
+;; Heredoc tests - Parser correctly extracts these
+(test-no-semantic-gap
  "cat <<EOF
 Content here
 EOF"
- 'heredoc
- "Heredoc content")
+ "Heredoc content (parser extracts correctly)")
 
 ;; No gaps expected
 (test-no-semantic-gap
