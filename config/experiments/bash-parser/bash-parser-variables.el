@@ -122,41 +122,8 @@ their runtime values cannot be validated against scope constraints."
 (defun jf/bash-track-assignments (parsed-command &optional initial-context)
   "Track variable assignments from PARSED-COMMAND, merging with INITIAL-CONTEXT.
 
-Extracts simple VAR=value assignments from the parsed command structure and
-builds a variable context alist mapping variable names (as symbols) to their
-values (as strings).
-
-PARSED-COMMAND is the output of `jf/bash-parse'.
-INITIAL-CONTEXT is an optional alist of existing variable bindings.
-
-Returns updated context alist with new assignments merged.
-
-Supported patterns:
-- Simple assignment: VAR=value
-- Assignment before command: DIR=/tmp cat $DIR/file
-- Command chains: A=1 && B=2 && cmd (accumulates left-to-right)
-
-Unsupported (returns unchanged context):
-- Complex expansions: ${VAR:-default}
-- Arrays: ARR=(a b c)
-- Command substitution: VAR=$(cmd)
-
-Examples:
-  (jf/bash-track-assignments
-    (jf/bash-parse \"DIR=/tmp && cat $DIR/file.txt\")
-    nil)
-  => ((DIR . \"/tmp\"))
-
-  (jf/bash-track-assignments
-    (jf/bash-parse \"A=/foo && B=$A/bar\")
-    ((WORKSPACE . \"/workspace\")))
-  => ((B . \"$A/bar\") (A . \"/foo\") (WORKSPACE . \"/workspace\"))
-
-Implementation note:
-  Assignments are detected by checking if the command name or positional
-  arguments match the VAR=value pattern. Tree-sitter may parse these as
-  variable_assignment nodes or include them in the word list depending on
-  command structure."
+Extracts VAR=value assignments and builds a context alist. See org-mode
+documentation for detailed examples and supported patterns."
   (let ((context (copy-alist initial-context))
         (command-type (plist-get parsed-command :type))
         (all-commands (plist-get parsed-command :all-commands)))
@@ -179,44 +146,8 @@ Implementation note:
 (defun jf/bash--extract-assignments-from-command (command)
   "Extract variable assignments from COMMAND structure.
 
-COMMAND is a single parsed command (from :all-commands or a simple command).
-
-Returns alist of (VAR-SYMBOL . VALUE-STRING) for each assignment found,
-or nil if no assignments detected.
-
-Detects assignments in two patterns:
-
-1. Unified pattern: VAR=value in command-name field
-   Example: (:command-name "DIR=/tmp" ...) => ((DIR . "/tmp"))
-
-2. Split pattern: VAR in command-name, value in first positional-arg
-   This occurs when tree-sitter parses assignments in chains
-   Example: (:command-name "DIR" :positional-args ("/tmp") ...)
-   => ((DIR . "/tmp"))
-
-The split pattern is detected by:
-- Command name matches valid variable name pattern (^[A-Za-z_][A-Za-z0-9_]*$)
-- Exactly one positional argument
-- Command name not in semantics database (excludes known commands like 'cat')
-- Value doesn't start with '-' (excludes flags)
-
-This function only handles simple assignments (no complex expansions).
-
-Examples:
-  ;; Assignment as command
-  (jf/bash--extract-assignments-from-command
-    (:command-name \"DIR=/tmp\" :subcommand nil ...))
-  => ((DIR . \"/tmp\"))
-
-  ;; No assignment
-  (jf/bash--extract-assignments-from-command
-    (:command-name \"cat\" :positional-args (\"file.txt\") ...))
-  => nil
-
-  ;; Assignment in positional args
-  (jf/bash--extract-assignments-from-command
-    (:command-name \"env\" :positional-args (\"VAR=value\" \"cmd\") ...))
-  => ((VAR . \"value\"))"
+Returns alist of (VAR-SYMBOL . VALUE-STRING) or nil. Handles both unified
+and split assignment patterns. See org-mode documentation for details."
   (let ((assignments nil)
         (command-name (plist-get command :command-name))
         (positional-args (plist-get command :positional-args)))

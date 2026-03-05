@@ -48,7 +48,12 @@
       "Bash(./bin/run-tests.sh:*)",
       "Bash(python3:*)",
       "Bash(git mv:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(make test-bash-parser:*)",
+      "Bash(bd label add:*)",
+      "Bash(make test-bash-parser-semantics:*)",
+      "Bash(make emacs-test-eval:*)",
+      "Bash(EMACS_USER_DIRECTORY=\"/Users/jefffarr/emacs/runtime\" /Applications/Emacs.app/Contents/MacOS/Emacs:*)"
     ]
   }
 }
