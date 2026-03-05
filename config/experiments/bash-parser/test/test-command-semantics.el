@@ -58,15 +58,17 @@
 
 (ert-deftest test-semantics-lookup-command-with-skip-rules ()
   "Scenario: bash-command-semantics § 'Lookup command with skip rules'"
-  (let ((result (jf/bash-lookup-command-semantics "grep")))
+  (let* ((result (jf/bash-lookup-command-semantics "grep"))
+         (ops (plist-get result :operations)))
     (should result)
-    (let ((ops (plist-get result :operations)))
-      (should (listp ops))
-      (should (> (length ops) 0))
-      (let ((op (car ops)))
-        (should (eq (plist-get op :operation) :read))
-        (should (eq (plist-get op :source) :positional-args))
-        (should (equal (plist-get op :skip-indices) '(0)))))))
+    ;; grep now uses flag-dependent operations
+    (should (eq ops :flag-dependent))
+    ;; Check the default handler (no flags)
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           (default-handler (cdr (assoc '() flag-handlers)))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :read))
+      (should (equal (plist-get op :skip-indices) '(0))))))
 
 (ert-deftest test-semantics-lookup-egrep-skip-rules ()
   "Scenario: bash-command-semantics § 'Lookup command with skip rules' - egrep variant"
