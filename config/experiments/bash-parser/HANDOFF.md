@@ -2,11 +2,13 @@
 
 ## Session Summary
 
-Successfully implemented **9 tests** worth of bash parser directory context features using parallel agents. Reduced expected test failures from **20 → 11** with **zero regressions**.
+Successfully implemented **13 tests** worth of bash parser directory context features using sequential agents. Reduced expected test failures from **20 → 7** with **zero regressions**.
+
+**Latest Session:** Completed Phase 5 (low-hanging fruit) - 4 additional tests fixed.
 
 ## Current Status
 
-**Test Results:** 536 total tests, 11 expected failures, 0 unexpected results
+**Test Results:** 536 total tests, 7 expected failures, 0 unexpected results
 **Branch:** `gptel-scoped-bash-tools`
 **Baseline:** `config/experiments/bash-parser/test-results.txt` (updated after each agent)
 
@@ -33,12 +35,25 @@ Successfully implemented **9 tests** worth of bash parser directory context feat
    - Fixed: test-cd-with-command-substitution
    - Files: bash-parser-variables.org/el
 
-## Remaining Open Beads (11 expected failures)
+6. **emacs-90p4** - OLDPWD tracking for cd -
+   - Fixed: test-cd-with-dash
+   - Files: bash-parser-recursive.org/el, bash-parser-variables.org/el
 
-### Phase 5 Beads (Priority: P3)
-- **emacs-6xjh** - Directory stack tracking (pushd/popd) - 2 tests
-- **emacs-90p4** - OLDPWD tracking for cd - - 1 test
-- **emacs-o20p** - Edge cases (ls ., nested $(pwd)) - 2 tests
+7. **emacs-6xjh** - Directory stack tracking (pushd/popd)
+   - Fixed: test-pushd-absolute-path, test-popd-returns-to-previous
+   - Files: bash-parser-variables.org/el, bash-parser-recursive.org/el
+
+8. **emacs-o20p** - Edge cases (partial completion)
+   - Fixed: test-relative-path-dot-ls
+   - Remaining: test-pwd-substitution-nested (requires extensive file path resolution changes)
+   - Files: bash-parser-semantics.org/el, bash-parser-variables.org/el
+
+## Remaining Open Beads (7 expected failures)
+
+### Phase 5 Remaining (Priority: P3)
+- **test-pwd-substitution-nested** - Nested $(pwd) command substitutions (1 test)
+  - Requires extensive changes to command substitution resolution in file path handling
+  - Improved infrastructure added in emacs-o20p but needs more work
 
 ### Phase 3 Bead (Priority: P2) - Needs Rewrite
 - **emacs-eg5t** - Fix subshell detection (created to replace reverted emacs-6oda)
@@ -116,4 +131,12 @@ All implementations used this pattern:
 5. Update baseline after each successful agent
 6. Close beads as they complete
 
-**Progress:** 9 tests fixed, 11 remaining → 45% complete for directory-context feature set
+**Progress:** 13 tests fixed, 7 remaining → 65% complete for directory-context feature set
+
+### Phase 5 Session Summary (Latest)
+Completed 3 beads sequentially to avoid file conflicts:
+- emacs-90p4: OLDPWD tracking (1 test) ✓
+- emacs-6xjh: pushd/popd stack (2 tests) ✓
+- emacs-o20p: Edge cases (1 of 2 tests) ⚠️ partial
+
+**Results:** 11 → 7 expected failures, 4 tests fixed, zero regressions
