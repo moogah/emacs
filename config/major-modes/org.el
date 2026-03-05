@@ -71,6 +71,13 @@
   :config
   (setq org-export-copy-to-kill-ring 'if-interactive))
 
+;; TODO keyword workflow
+(setq org-todo-keywords
+      '((sequence "TODO(t)" "IN-PROGRESS(i)" "|" "DONE(d)" "CANCELLED(c)")))
+
+;; Timestamp when completing
+(setq org-log-done 'time)
+
 ;; Priority range and defaults
 (setq org-highest-priority ?A)
 (setq org-lowest-priority ?C)
@@ -80,6 +87,14 @@
 (setq org-priority-faces '((?A . (:foreground "#F0DFAF" :weight bold))
                            (?B . (:foreground "LightSteelBlue"))
                            (?C . (:foreground "OliveDrab"))))
+
+;; Central category definitions - used by super-agenda, capture, and housekeeping
+(defvar jf/org-categories
+  '(("gtd"   . "Getting Things Done")
+    ("pkm"   . "Personal Knowledge Management")
+    ("gptel" . "GPTel")
+    ("emacs" . "Emacs"))
+  "Alist of (KEY . DISPLAY-NAME) for org agenda categories.")
 
 ;; Agenda key binding
 (global-set-key (kbd "C-c a") 'org-agenda)
@@ -108,10 +123,23 @@
 ;; Open agenda in current window
 (setq org-agenda-window-setup (quote current-window))
 
+;; Helper to build super-agenda groups from jf/org-categories
+(defun jf/build-super-agenda-groups ()
+  "Build org-super-agenda groups from `jf/org-categories'."
+  (append '((:name "High Priority"
+             :priority "A"
+             :order 1))
+          (cl-loop for (key . name) in jf/org-categories
+                   for order from 2
+                   collect `(:name ,name :category ,key :order ,order))
+          '((:name "Everything Else"
+             :anything t
+             :order 99))))
+
 ;; Custom agenda views
 ;; From https://blog.aaronbieber.com/2016/09/24/an-agenda-for-life-with-org-mode.html
 (setq org-agenda-custom-commands
-      '(("c" "Simple agenda view"
+      `(("c" "Simple agenda view"
          ((tags "PRIORITY=\"A\""
                 ((org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
                  (org-agenda-overriding-header "High Priority Tasks:")))
@@ -139,18 +167,7 @@
           (alltodo ""
                    ((org-agenda-overriding-header "All TODOs")
                     (org-super-agenda-groups
-                     '((:name "High Priority"
-                        :priority "A"
-                        :order 1)
-                       (:name "Personal Knowledge Management"
-                        :category "pkm"
-                        :order 2)
-                       (:name "Getting Things Done"
-                        :category "gtd"
-                        :order 3)
-                       (:name "Everything Else"
-                        :anything t
-                        :order 99)))))))))
+                     ',(jf/build-super-agenda-groups))))))))
 
 ;; Automatically refresh agenda files when entering agenda mode
 (add-hook 'org-agenda-mode-hook 'jf/refresh-org-agenda-files)
@@ -183,20 +200,8 @@
   :config
   (org-super-agenda-mode 1)
 
-  ;; Group by priority and category
-  (setq org-super-agenda-groups
-        '((:name "High Priority"
-           :priority "A"
-           :order 1)
-          (:name "Personal Knowledge Management"
-           :category "pkm"
-           :order 2)
-          (:name "Getting Things Done"
-           :category "gtd"
-           :order 3)
-          (:name "Everything Else"
-           :anything t
-           :order 99))))
+  ;; Build groups from jf/org-categories
+  (setq org-super-agenda-groups (jf/build-super-agenda-groups)))
 
 ;; Function to open agenda items in new tabs
 (defun my/org-agenda-switch-to-new-tab (orig-fn &rest args)
@@ -214,13 +219,53 @@ in its original tab."
 (with-eval-after-load 'org-agenda
   (advice-add 'org-agenda-switch-to :around #'my/org-agenda-switch-to-new-tab))
 
+(defun jf/org-agenda-set-category ()
+  "Set the CATEGORY property on the agenda item at point."
+  (interactive)
+  (let* ((marker (or (org-get-at-bol 'org-marker)
+                     (org-agenda-error)))
+         (cat (completing-read "Category: " (mapcar #'car jf/org-categories) nil nil)))
+    (org-with-point-at marker
+      (org-set-property "CATEGORY" cat))
+    (org-agenda-redo-all)))
+
+(defun jf/org-agenda-set-priority ()
+  "Set priority on the agenda item at point with a single key (A/B/C)."
+  (interactive)
+  (org-agenda-priority))
+
+(with-eval-after-load 'org-agenda
+  (define-key org-agenda-mode-map "C" #'jf/org-agenda-set-category)
+  (define-key org-agenda-mode-map "P" #'jf/org-agenda-set-priority))
+
 ;; Capture key binding
 (define-key global-map (kbd "C-c c") 'org-capture)
 
-;; Basic capture templates
+;; Capture target file
+(defvar jf/capture-file (expand-file-name "agenda/todo.org" jf/org-directory)
+  "Default capture file for TODO items.")
+
+
+;; Capture templates
 (setq org-capture-templates
-      '(("t" "todo" entry (file+headline "~/todo.org" "Tasks")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CREATED: %U\n:END:"
+      `(("t" "TODO" entry (file+headline ,jf/capture-file "Tasks")
+         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+         :empty-lines-before 1)
+
+        ("T" "TODO with deadline" entry (file+headline ,jf/capture-file "Tasks")
+         "* TODO [#B] %?\nDEADLINE: %^t\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+         :empty-lines-before 1)
+
+        ("p" "PKM task" entry (file+headline ,jf/capture-file "PKM")
+         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: pkm\n:END:"
+         :empty-lines-before 1)
+
+        ("g" "GPTel task" entry (file+headline ,jf/capture-file "GPTel")
+         "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gptel\n:END:"
+         :empty-lines-before 1)
+
+        ("n" "Note" entry (file+headline ,jf/capture-file "Notes")
+         "* %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
          :empty-lines-before 1)))
 
 ;; Git integration for Org
