@@ -20,19 +20,11 @@
            :produces-file-list t
            :pattern-source :positional-args
            :search-scope-arg :implicit))
-    (grep . (:operations :flag-dependent
-             :flag-handlers ((("-l" "--files-with-matches")
-                             . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
-                            (()
-                             . ((:source :positional-args :operation :read :skip-indices (0)))))
+    (grep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))
              :produces-file-list t
              :pattern-source :positional-args
              :pattern-requires-flag ("-l" "--files-with-matches")))
-    (egrep . (:operations :flag-dependent
-              :flag-handlers ((("-l" "--files-with-matches")
-                              . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
-                             (()
-                              . ((:source :positional-args :operation :read :skip-indices (0)))))))
+    (egrep . (:operations ((:source :positional-args :operation :read :skip-indices (0)))))
     (fgrep . (:operations :flag-dependent
               :flag-handlers ((("-l" "--files-with-matches")
                               . ((:source :positional-args :operation :match-pattern :skip-indices (0))))
@@ -51,8 +43,9 @@
                         (:source :positional-args :index -1 :operation :write))))
     (mv . (:operations ((:source :positional-args :indices (0 . -2) :operation :delete)
                         (:source :positional-args :index -1 :operation :write))))
-    (tar . (:operations :custom
-            :handler jf/bash--extract-tar-operations))
+    (tar . (:operations :flag-dependent
+            :flag-handlers ((("-x" "--extract" "--get") . ((:source :positional-args :operation :write :skip-indices (0))))
+                           (("-c" "--create") . ((:source :positional-args :operation :read :skip-indices (0)))))))
     (zip . (:operations :custom
             :handler jf/bash--extract-zip-operations))
     (sed . (:operations :flag-dependent
