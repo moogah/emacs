@@ -250,8 +250,10 @@ SECURITY: ../bin/runner with PWD=/base/project → /base/bin/runner"
   "Test BASE=$PWD assignment and usage.
 
 SECURITY: BASE=$PWD; cat $BASE/file.txt must resolve to /base/dir/file.txt
-IMPLEMENTATION: May require command chain analysis."
-  :expected-result :failed  ; Requires variable chain tracking (bead emacs-1op2)
+IMPLEMENTATION: Variable chain tracking implemented (bead emacs-1op2).
+NOTE: Test uses semicolon syntax which has pre-existing parser bug.
+      Implementation verified working with && syntax."
+  :expected-result :failed  ; Parser bug: semicolon-separated assignments not parsed as chains
   (let* ((parsed (jf/bash-parse "BASE=$PWD; cat $BASE/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -266,8 +268,10 @@ IMPLEMENTATION: May require command chain analysis."
   "Test DIR=./sub assignment with relative path.
 
 SECURITY: DIR=./sub; cat $DIR/file.txt → /base/dir/sub/file.txt
-IMPLEMENTATION: Requires both relative path and variable resolution."
-  :expected-result :failed  ; Requires variable chain tracking (bead emacs-1op2)
+IMPLEMENTATION: Variable chain tracking implemented (bead emacs-1op2).
+NOTE: Test uses semicolon syntax which has pre-existing parser bug.
+      Implementation verified working with && syntax."
+  :expected-result :failed  ; Parser bug: semicolon-separated assignments not parsed as chains
   (let* ((parsed (jf/bash-parse "DIR=./sub; cat $DIR/file.txt"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -280,8 +284,11 @@ IMPLEMENTATION: Requires both relative path and variable resolution."
 (ert-deftest test-variable-chain-parent-path-assignment ()
   "Test PATH=../other assignment with parent directory.
 
-SECURITY: PATH=../other; cat $PATH/file.txt with PWD=/dir/sub → /dir/other/file.txt"
-  :expected-result :failed  ; Requires variable chain tracking (bead emacs-1op2)
+SECURITY: PATH=../other; cat $PATH/file.txt with PWD=/dir/sub → /dir/other/file.txt
+IMPLEMENTATION: Variable chain tracking implemented (bead emacs-1op2).
+NOTE: Test uses semicolon syntax which has pre-existing parser bug.
+      Implementation verified working with && syntax."
+  :expected-result :failed  ; Parser bug: semicolon-separated assignments not parsed as chains
   (let* ((parsed (jf/bash-parse "PATH=../other; cat $PATH/file.txt"))
          (var-context '((PWD . "/dir/sub")))
          (ops (jf/bash-extract-file-operations parsed var-context)))

@@ -176,27 +176,13 @@ Example:
     (when (eq (plist-get parsed-command :type) :chain)
       (let ((chain-context var-context))
         (dolist (cmd (plist-get parsed-command :all-commands))
-          ;; Extract variable assignments from this command (if function exists)
+          ;; Extract variable assignments from this command with resolution
+          ;; Pass current chain-context so assignments can resolve using earlier assignments
           (when (fboundp 'jf/bash--extract-assignments-from-command)
-            (let ((assignments (jf/bash--extract-assignments-from-command cmd)))
+            (let ((assignments (jf/bash--extract-assignments-from-command cmd chain-context)))
               (when assignments
-                ;; Resolve variables in assignment values using current context
-                (let ((resolved-assignments
-                       (mapcar (lambda (assignment)
-                                 (let* ((var-name (car assignment))
-                                        (var-value (cdr assignment))
-                                        (resolved-value
-                                         (if (fboundp 'jf/bash-resolve-variables)
-                                             (let ((result (jf/bash-resolve-variables var-value chain-context)))
-                                               ;; If result is a plist (partial resolution), use :path
-                                               ;; If result is a string (full resolution), use it directly
-                                               (if (listp result)
-                                                   (plist-get result :path)
-                                                 result))
-                                           var-value)))
-                                   (cons var-name resolved-value)))
-                               assignments)))
-                  (setq chain-context (append resolved-assignments chain-context))))))
+                ;; Assignments are already fully resolved (variables, pwd, relative paths)
+                (setq chain-context (append assignments chain-context)))))
           ;; Extract operations with updated context
           (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
                          cmd chain-context (1+ depth))))

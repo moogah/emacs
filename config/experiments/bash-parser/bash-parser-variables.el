@@ -283,8 +283,17 @@ dir. The parser must extract the same value for security checks to work correctl
 (defun jf/bash-track-assignments (parsed-command &optional initial-context)
   "Track variable assignments from PARSED-COMMAND, merging with INITIAL-CONTEXT.
 
-Extracts VAR=value assignments and builds a context alist. See org-mode
-documentation for detailed examples and supported patterns."
+Extracts VAR=value assignments and builds a context alist. Assignment values
+are resolved using the current context before being added, enabling variable
+chain tracking:
+
+  BASE=$PWD; DIR=$BASE/sub; cat $DIR/file.txt
+  Step 1: BASE=$PWD with PWD=/base → context: ((BASE . \"/base\") (PWD . \"/base\"))
+  Step 2: DIR=$BASE/sub → resolves $BASE → context: ((DIR . \"/base/sub\") (BASE . \"/base\") ...)
+  Step 3: cat $DIR/file.txt → resolves $DIR to /base/sub/file.txt
+
+This is critical for security validation - assignments must be resolved to
+absolute paths for scope checking."
   (let ((context (copy-alist initial-context))
         (command-type (plist-get parsed-command :type))
         (all-commands (plist-get parsed-command :all-commands)))
@@ -293,31 +302,73 @@ documentation for detailed examples and supported patterns."
      ;; Chain or pipeline: process all commands in order
      ((or (eq command-type :chain) (eq command-type :pipeline))
       (dolist (cmd all-commands)
-        (when-let ((assignments (jf/bash--extract-assignments-from-command cmd)))
+        ;; Pass current context so assignments can resolve using earlier assignments
+        (when-let ((assignments (jf/bash--extract-assignments-from-command cmd context)))
           ;; Prepend assignments to maintain left-to-right precedence
           (setq context (append assignments context)))))
 
      ;; Simple command: check for assignments
      ((eq command-type :simple)
-      (when-let ((assignments (jf/bash--extract-assignments-from-command parsed-command)))
+      (when-let ((assignments (jf/bash--extract-assignments-from-command parsed-command context)))
         (setq context (append assignments context)))))
 
     context))
 
-(defun jf/bash--extract-assignments-from-command (command)
-  "Extract variable assignments from COMMAND structure.
+(defun jf/bash--resolve-assignment-value (value var-context)
+  "Resolve assignment VALUE using VAR-CONTEXT.
+
+Applies three-stage resolution:
+  1. Variable resolution ($VAR, ${VAR})
+  2. Command substitution ($(pwd), `pwd`)
+  3. Relative path resolution (., ./, ../)
+
+Returns resolved string. If resolution fails (unresolved variables), returns
+original value with :unresolved marker or the partially resolved plist.
+
+Examples:
+  (jf/bash--resolve-assignment-value \"$PWD\" '((PWD . \"/base\")))
+    => \"/base\"
+
+  (jf/bash--resolve-assignment-value \"./sub\" '((PWD . \"/base\")))
+    => \"/base/sub\"
+
+  (jf/bash--resolve-assignment-value \"$UNKNOWN\" nil)
+    => (:path \"$UNKNOWN\" :unresolved (\"UNKNOWN\"))"
+  (let ((resolved (jf/bash-resolve-variables value var-context)))
+    ;; Check if fully resolved (string) or partial (plist)
+    (if (stringp resolved)
+        ;; Fully resolved variables - apply pwd and relative path resolution
+        (let ((pwd-resolved (jf/bash-resolve-pwd-substitution resolved var-context)))
+          (jf/bash-resolve-relative-path pwd-resolved var-context))
+      ;; Partial resolution - return as-is (plist with :unresolved)
+      resolved)))
+
+(defun jf/bash--extract-assignments-from-command (command &optional var-context)
+  "Extract variable assignments from COMMAND structure with value resolution.
 
 Returns alist of (VAR-SYMBOL . VALUE-STRING) or nil. Handles both unified
-and split assignment patterns. See org-mode documentation for details."
+and split assignment patterns.
+
+VAR-CONTEXT is an optional alist used to resolve assignment values. Assignment
+values are resolved using the same logic as file paths:
+  1. Variable resolution ($VAR, ${VAR})
+  2. Command substitution ($(pwd), `pwd`)
+  3. Relative path resolution (., ./, ../)
+
+This enables variable chain tracking for security validation:
+  BASE=$PWD; cat $BASE/file.txt → resolves BASE to PWD's value
+
+If resolution results in :unresolved, the value is marked with :unresolved flag."
   (let ((assignments nil)
         (command-name (plist-get command :command-name))
         (positional-args (plist-get command :positional-args)))
 
     ;; Check if command-name itself is an assignment (VAR=value)
     (when (and command-name (string-match "^\\([A-Za-z_][A-Za-z0-9_]*\\)=\\(.+\\)$" command-name))
-      (let ((var-name (match-string 1 command-name))
-            (var-value (match-string 2 command-name)))
-        (push (cons (intern var-name) var-value) assignments)))
+      (let* ((var-name (match-string 1 command-name))
+             (var-value (match-string 2 command-name))
+             (resolved-value (jf/bash--resolve-assignment-value var-value var-context)))
+        (push (cons (intern var-name) resolved-value) assignments)))
 
     ;; Check for split assignment pattern: command-name is variable name only,
     ;; first positional arg is the value. This happens when tree-sitter parses
@@ -328,19 +379,21 @@ and split assignment patterns. See org-mode documentation for details."
                (= (length positional-args) 1)  ; Exactly one positional arg
                ;; Heuristic: if command is in semantics DB, it's not an assignment
                (not (jf/bash-lookup-command-semantics command-name)))
-      (let ((var-name command-name)
-            (var-value (car positional-args)))
+      (let* ((var-name command-name)
+             (var-value (car positional-args))
+             (resolved-value (jf/bash--resolve-assignment-value var-value var-context)))
         ;; Only treat as assignment if value doesn't look like a flag
         (unless (string-prefix-p "-" var-value)
-          (push (cons (intern var-name) var-value) assignments))))
+          (push (cons (intern var-name) resolved-value) assignments))))
 
     ;; Also check positional args for assignment patterns
     ;; (in case tree-sitter includes them there)
     (dolist (arg positional-args)
       (when (string-match "^\\([A-Za-z_][A-Za-z0-9_]*\\)=\\(.+\\)$" arg)
-        (let ((var-name (match-string 1 arg))
-              (var-value (match-string 2 arg)))
-          (push (cons (intern var-name) var-value) assignments))))
+        (let* ((var-name (match-string 1 arg))
+               (var-value (match-string 2 arg))
+               (resolved-value (jf/bash--resolve-assignment-value var-value var-context)))
+          (push (cons (intern var-name) resolved-value) assignments))))
 
     (nreverse assignments)))
 
