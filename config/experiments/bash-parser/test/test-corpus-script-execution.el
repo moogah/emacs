@@ -11,7 +11,7 @@
 
 (require 'ert)
 (require 'bash-parser (expand-file-name "../bash-parser.el"
-                                       (file-name-directory load-file-name)))
+                                       (file-name-directory (or load-file-name buffer-file-name))))
 
 ;;; Test Corpus Data
 

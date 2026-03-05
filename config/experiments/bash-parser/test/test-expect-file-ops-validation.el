@@ -8,19 +8,19 @@
 ;; Load corpus files
 (require 'corpus-parse-command-substitution
          (expand-file-name "corpus-parse-command-substitution.el"
-                          (file-name-directory load-file-name)))
+                          (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-combined-patterns
          (expand-file-name "corpus-parse-combined-patterns.el"
-                          (file-name-directory load-file-name)))
+                          (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-conditional
          (expand-file-name "corpus-parse-conditional.el"
-                          (file-name-directory load-file-name)))
+                          (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-for-loop
          (expand-file-name "corpus-parse-for-loop.el"
-                          (file-name-directory load-file-name)))
+                          (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-heredoc
          (expand-file-name "corpus-parse-heredoc.el"
-                          (file-name-directory load-file-name)))
+                          (file-name-directory (or load-file-name buffer-file-name))))
 
 (ert-deftest test-corpus-has-expect-file-ops ()
   "Verify corpus files contain :expect-file-ops expectations."
@@ -58,9 +58,16 @@
 
 (ert-deftest test-integration-tests-added ()
   "Verify integration tests were added to test-corpus-file-operations."
-  (require 'test-corpus-file-operations
-           (expand-file-name "test-corpus-file-operations.el"
-                            (file-name-directory load-file-name)))
+  ;; Load test-corpus-file-operations if not already loaded
+  (unless (featurep 'test-corpus-file-operations)
+    (let ((test-dir (file-name-directory (or load-file-name buffer-file-name))))
+      (when test-dir
+        (require 'test-corpus-file-operations
+                 (expand-file-name "test-corpus-file-operations.el" test-dir)))))
+
+  ;; Verify the corpus variable is bound (module loaded)
+  (should (boundp 'jf/bash-file-operations-test-corpus))
+
   (let ((integration-tests
          (seq-filter (lambda (tc)
                       (string-prefix-p "integration-"

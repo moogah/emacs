@@ -5,9 +5,9 @@
 
 (require 'ert)
 (require 'bash-parser (expand-file-name "../bash-parser.el"
-                                        (file-name-directory load-file-name)))
+                                        (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-command-substitution (expand-file-name "corpus-parse-command-substitution.el"
-                                                              (file-name-directory load-file-name)))
+                                                              (file-name-directory (or load-file-name buffer-file-name))))
 
 ;;; Helper Functions
 
