@@ -15,6 +15,12 @@ runtime/packages/*
 !runtime/state/.gitkeep
 !runtime/packages/.gitkeep
 
+# State files - machine-specific, ephemeral session data
+# Keep directory structure and READMEs only
+state/**
+!state/**/
+!state/**/README.md
+
 # Emacs temp files
 *.elc
 *.eln
