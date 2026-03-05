@@ -123,7 +123,23 @@ Example:
           (when (fboundp 'jf/bash--extract-assignments-from-command)
             (let ((assignments (jf/bash--extract-assignments-from-command cmd)))
               (when assignments
-                (setq chain-context (append assignments chain-context)))))
+                ;; Resolve variables in assignment values using current context
+                (let ((resolved-assignments
+                       (mapcar (lambda (assignment)
+                                 (let* ((var-name (car assignment))
+                                        (var-value (cdr assignment))
+                                        (resolved-value
+                                         (if (fboundp 'jf/bash-resolve-variables)
+                                             (let ((result (jf/bash-resolve-variables var-value chain-context)))
+                                               ;; If result is a plist (partial resolution), use :path
+                                               ;; If result is a string (full resolution), use it directly
+                                               (if (listp result)
+                                                   (plist-get result :path)
+                                                 result))
+                                           var-value)))
+                                   (cons var-name resolved-value)))
+                               assignments)))
+                  (setq chain-context (append resolved-assignments chain-context))))))
           ;; Extract operations with updated context
           (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
                          cmd chain-context (1+ depth))))
