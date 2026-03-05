@@ -403,12 +403,12 @@
                    :source :command-name
                    :self-executing t
                    :script-args ())
-                  (:file "filter.py"
+                  (:file "/project/bin/filter.py"
                    :operation :execute
                    :confidence :high
                    :source :positional-arg
                    :script-args ())
-                  (:file "output.txt"
+                  (:file "/project/bin/output.txt"
                    :operation :write
                    :confidence :high
                    :source :redirection)))

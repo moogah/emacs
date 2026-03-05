@@ -55,7 +55,13 @@
       "Bash(make emacs-test-eval:*)",
       "Bash(EMACS_USER_DIRECTORY=\"/Users/jefffarr/emacs/runtime\" /Applications/Emacs.app/Contents/MacOS/Emacs:*)",
       "Bash(make emacs-batch:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(bd sync:*)",
+      "Bash(git push:*)",
+      "Bash(/tmp/test-pwd2.el << 'EOF'\n\\(add-to-list 'load-path \"config/experiments/bash-parser\"\\)\n\\(load \"bash-parser-variables.el\"\\)\n\n\\(let \\(\\(result \\(jf/bash-resolve-pwd-substitution \"$\\(pwd\\)/file.txt\" '\\(\\(PWD . \"/base/dir\"\\)\\)\\)\\)\\)\n  \\(message \"Result type: %s\" \\(type-of result\\)\\)\n  \\(message \"Result: %s\" result\\)\n  result\\)\nEOF)",
+      "Bash(bd dep add:*)",
+      "Bash(/Users/jefffarr/emacs/bin/run-tests.sh:*)",
+      "Bash(echo:*)"
     ]
   }
 }
