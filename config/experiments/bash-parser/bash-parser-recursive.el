@@ -205,25 +205,40 @@ Example:
                              parsed-command var-context (1+ depth))))
         (setq operations (append operations conditional-ops))))
 
-    ;; 8. Post-process: Mark heredoc + while loop operations
-    ;; Heredoc piped to while loop: cat <<EOF | while read x; do op $x; done
-    ;; Operations with :heredoc-content and variable expansion need loop context
+    ;; 8. Post-process: Normalize dynamic file paths
+    ;; Handle multiple sources of dynamic content:
+    ;; - Heredoc + while loop: cat <<EOF | while read x; do op $x; done
+    ;; - Command substitutions in loops: cat $file > backup/$(basename $file)
+    ;; - Loop variables that resolve to patterns: for f in *.txt; do [ -f "$f" ]; done
     (setq operations
           (mapcar (lambda (op)
                     (let ((file (plist-get op :file))
-                          (has-heredoc (plist-get op :heredoc-content)))
-                      (when (and has-heredoc
-                                file
-                                (string-match-p "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}" file))
-                        ;; Mark as loop context and dynamic
-                        (plist-put op :loop-context t)
-                        (plist-put op :dynamic t)
-                        ;; Normalize variable paths: output/$var.txt -> output/{dynamic}.txt
-                        (let ((normalized (replace-regexp-in-string
-                                          "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}"
-                                          "{dynamic}"
-                                          file)))
-                          (plist-put op :file normalized))))
+                          (has-heredoc (plist-get op :heredoc-content))
+                          (in-loop (plist-get op :loop-context)))
+
+                      ;; Check if file path contains dynamic content
+                      (when file
+                        (let ((has-variables (string-match-p "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}" file))
+                              (has-cmd-subst (string-match-p "\\$([^)]+)\\|`[^`]+`" file)))
+
+                          ;; Normalize heredoc + variable paths
+                          (when (and has-heredoc has-variables)
+                            (plist-put op :loop-context t)
+                            (plist-put op :dynamic t)
+                            (let ((normalized (replace-regexp-in-string
+                                              "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}"
+                                              "{dynamic}"
+                                              file)))
+                              (plist-put op :file normalized)))
+
+                          ;; Normalize command substitutions in loop context
+                          (when (and in-loop has-cmd-subst)
+                            (plist-put op :dynamic t)
+                            (let ((normalized (replace-regexp-in-string
+                                              "\\$([^)]+)\\|`[^`]+`"
+                                              "{dynamic}"
+                                              file)))
+                              (plist-put op :file normalized))))))
                     op)
                   operations))
 

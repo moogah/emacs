@@ -830,13 +830,13 @@
     (:id "integration-003"
      :command "for dir in */; do if [ -d \"$dir/config\" ]; then cp -r \"$dir/config\" backup/; fi; done"
      :note "Loop + conditional + directory operations"
-     :expect-ops ((:file "*/"
+     :expect-ops ((:file "*/config"
                    :operation :read-metadata
                    :test-condition t
                    :loop-context t
                    :test-operator "-d"
                    :pattern t)
-                  (:file "*/"
+                  (:file "*/config"
                    :operation :read
                    :command "cp"
                    :conditional t

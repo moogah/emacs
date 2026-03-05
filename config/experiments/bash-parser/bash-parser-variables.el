@@ -112,6 +112,9 @@ their runtime values cannot be validated against scope constraints."
               ;; Track unresolved variable
               (push var-name unresolved))))
 
+        ;; Normalize multiple slashes in paths (e.g., *//config -> */config)
+        (setq resolved (replace-regexp-in-string "/+" "/" resolved))
+
         ;; Return format based on resolution status
         (if unresolved
             ;; Partial or no resolution - return plist with metadata
