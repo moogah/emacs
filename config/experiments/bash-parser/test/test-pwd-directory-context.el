@@ -315,7 +315,6 @@ SECURITY: for f in ./src/*.txt must resolve ./src to /base/dir/src"
   "Test if statement with relative path test.
 
 SECURITY: if [ -f ./config ] must resolve ./config to /base/dir/config"
-  :expected-result :failed  ; Test extraction from conditionals needs more work
   (let* ((parsed (jf/bash-parse "if [ -f ./config ]; then cat ./config; fi"))
          (var-context '((PWD . "/base/dir")))
          (ops (jf/bash-extract-file-operations parsed var-context)))

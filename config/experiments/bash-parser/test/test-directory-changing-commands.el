@@ -515,7 +515,6 @@ DESIGN NOTE: Static analysis assumes success path unless impossible."
   "Test if cd /dir; then cat file.txt; fi
 
 SECURITY: cd in if condition updates context for then block."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "if cd /dir; then cat file.txt; fi"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))

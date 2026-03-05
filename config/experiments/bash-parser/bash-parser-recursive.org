@@ -223,9 +223,26 @@ Example:
             (when pattern-op
               (setq loop-var-value (plist-get pattern-op :file)))))
 
-         ;; Loop source is glob - bind to glob pattern
+         ;; Loop source is glob - bind to glob pattern and create pattern operation
          ((eq loop-source-type :glob)
-          (setq loop-var-value (plist-get parsed-command :loop-list)))
+          (let* ((glob-pattern (plist-get parsed-command :loop-list))
+                 (current-pwd (or (alist-get 'PWD var-context) "/"))
+                 ;; Resolve glob pattern against current directory
+                 (resolved-pattern (if (string-prefix-p "/" glob-pattern)
+                                      glob-pattern
+                                    (expand-file-name glob-pattern current-pwd))))
+            (setq loop-var-value glob-pattern)
+            ;; Create a pattern operation for the glob expansion
+            (when (and glob-pattern (fboundp 'jf/bash--has-glob-pattern-p))
+              (when (jf/bash--has-glob-pattern-p glob-pattern)
+                (push (list :file resolved-pattern
+                           :operation :match-pattern
+                           :confidence :high
+                           :source :loop-glob
+                           :pattern t
+                           :loop-context t
+                           :loop-variable loop-var)
+                      operations)))))
 
          ;; Loop source is literal - bind to literal values
          ((eq loop-source-type :literal)
@@ -342,24 +359,41 @@ Returns list of operations with conditional context markers."
   (let ((operations nil)
         (condition-text (plist-get parsed-conditional :condition-text))
         (then-text (plist-get parsed-conditional :then-text))
-        (else-text (plist-get parsed-conditional :else-text)))
+        (else-text (plist-get parsed-conditional :else-text))
+        (branch-context var-context))  ; Track context changes from test condition
 
-    ;; Extract test condition operations
+    ;; Extract test condition operations and check for directory changes
     (when condition-text
       (let ((test-ops (jf/bash--extract-test-condition-operations-from-text
                       condition-text var-context depth)))
-        (setq operations (append operations test-ops))))
+        (setq operations (append operations test-ops))
 
-    ;; Extract then branch operations
+        ;; Check if test condition is a cd command - if so, update context for branches
+        ;; Conservative approach: assume cd succeeds
+        (when (string-match "^\\s-*cd\\s-+" condition-text)
+          (when-let* ((parsed-test (jf/bash-parse condition-text))
+                      (cd-parsed (when (plist-get parsed-test :success)
+                                  parsed-test))
+                      (current-pwd (or (alist-get 'PWD var-context) "/"))
+                      (new-pwd (when (and (fboundp 'jf/bash--is-cd-command-p)
+                                         (fboundp 'jf/bash--extract-cd-target)
+                                         (jf/bash--is-cd-command-p cd-parsed))
+                                (jf/bash--extract-cd-target cd-parsed var-context current-pwd))))
+            (unless (eq new-pwd :unresolved)
+              ;; Update context for then/else branches with new PWD
+              (setq branch-context (cons (cons 'PWD new-pwd)
+                                        (assq-delete-all 'PWD (copy-alist var-context)))))))))
+
+    ;; Extract then branch operations with updated context
     (when then-text
       (let ((then-ops (jf/bash--extract-then-branch-operations-from-text
-                      then-text var-context depth)))
+                      then-text branch-context depth)))
         (setq operations (append operations then-ops))))
 
-    ;; Extract else branch operations
+    ;; Extract else branch operations with updated context
     (when else-text
       (let ((else-ops (jf/bash--extract-else-branch-operations-from-text
-                      else-text var-context depth)))
+                      else-text branch-context depth)))
         (setq operations (append operations else-ops))))
 
     operations))
@@ -394,9 +428,17 @@ Returns list of operations marked with :test-condition t."
                (resolved-path (if var-context
                                  (jf/bash-resolve-variables file-path var-context)
                                file-path))
-               (final-path (if (stringp resolved-path)
-                              resolved-path
-                            (plist-get resolved-path :path)))
+               (var-resolved-path (if (stringp resolved-path)
+                                     resolved-path
+                                   (plist-get resolved-path :path)))
+               ;; Resolve relative paths against PWD from var-context (only if PWD is set)
+               (current-pwd (alist-get 'PWD var-context))
+               (final-path (if (and current-pwd
+                                   var-resolved-path
+                                   (not (string-prefix-p "/" var-resolved-path)))
+                              ;; Relative path with explicit PWD - resolve against it
+                              (expand-file-name var-resolved-path current-pwd)
+                            var-resolved-path))
                ;; Check for glob patterns in the unquoted path
                (has-pattern (jf/bash--has-glob-pattern-p final-path)))
           (push (append (list :file final-path
