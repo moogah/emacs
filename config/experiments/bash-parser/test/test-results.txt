@@ -111,33 +111,37 @@ Loading /Users/jefffarr/emacs/config/gptel/scope/scope-org-roam-tools.el (source
 Loading /Users/jefffarr/emacs/config/gptel/sessions/activities-integration.el (source)...
 Loading /Users/jefffarr/emacs/config/local/personal.el (source)...
 Loading tests from: config/experiments/bash-parser/test
-Loading test file: config/experiments/bash-parser/test/test-command-semantics.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-semantics.el (source)...
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/bash-parser.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-command-substitution.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-substitution.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-corpus-file-operations.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-file-operations.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-corpus-parse.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-parse.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-corpus-script-execution.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-script-execution.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-file-operations.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-file-operations.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-glob-matching.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-glob-matching.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-parser-extension.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-parser-extension.el (source)...
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/bash-parser.el (source)...
-Loading test file: config/experiments/bash-parser/test/test-security-validator.el
-Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-security-validator.el (source)...
-Loaded 9 test files from config/experiments/bash-parser/test
-Running 5 tests (2026-03-04 21:57:53+0100, selector ‘"^test-cmdsub-recursive"’)
-   passed  1/5  test-cmdsub-recursive-depth-limiting (0.011312 sec)
-   passed  2/5  test-cmdsub-recursive-find-parse (0.004373 sec)
-   passed  3/5  test-cmdsub-recursive-parsing-empty (0.002261 sec)
-   passed  4/5  test-cmdsub-recursive-parsing-nested (0.008427 sec)
-   passed  5/5  test-cmdsub-recursive-parsing-simple (0.004204 sec)
+Loading test file: config/experiments/bash-parser/test/test-backward-compatibility.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el (source)...
 
-Ran 5 tests, 5 results as expected, 0 unexpected (2026-03-04 21:57:53+0100, 0.030765 sec)
+Debugger entered--Lisp error: (file-missing "Cannot open load file" "No such file or directory" "bash-parser")
+  require(bash-parser)
+  load-with-code-conversion("/Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el" "/Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el" nil nil)
+  load-file("/Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el")
+  (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail)))
+  (while tail (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail))))
+  (let ((tail test-files)) (while tail (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail)))))
+  (let ((test-files (jf/test-find-test-files directory)) (loaded-count 0)) (if directory (progn (message "Loading tests from: %s" directory))) (let ((tail test-files)) (while tail (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail))))) (message "Loaded %d test files%s" loaded-count (if directory (format " from %s" directory) "")) loaded-count)
+  jf/test-load-all-test-files("config/experiments/bash-parser/test")
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/test") t)
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--load" "/Users/jefffarr/emacs/init.el" "-l" "/Users/jefffarr/emacs/config/core/testing.el" "--eval" "(jf/test-run-directory-batch \"config/experiments/bash-parser/test\")"))
+  command-line()
+  normal-top-level()
 
+
+Error: file-missing ("Cannot open load file" "No such file or directory" "bash-parser")
+  require(bash-parser)
+  load-with-code-conversion("/Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el" "/Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el" nil nil)
+  load-file("/Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el")
+  (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail)))
+  (while tail (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail))))
+  (let ((tail test-files)) (while tail (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail)))))
+  (let ((test-files (jf/test-find-test-files directory)) (loaded-count 0)) (if directory (progn (message "Loading tests from: %s" directory))) (let ((tail test-files)) (while tail (let ((file (car tail))) (message "Loading test file: %s" (file-relative-name file jf/emacs-dir)) (load-file file) (setq loaded-count (1+ loaded-count)) (setq tail (cdr tail))))) (message "Loaded %d test files%s" loaded-count (if directory (format " from %s" directory) "")) loaded-count)
+  jf/test-load-all-test-files("config/experiments/bash-parser/test")
+  jf/test-run-directory-batch("config/experiments/bash-parser/test")
+  eval((jf/test-run-directory-batch "config/experiments/bash-parser/test") t)
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--load" "/Users/jefffarr/emacs/init.el" "-l" "/Users/jefffarr/emacs/config/core/testing.el" "--eval" "(jf/test-run-directory-batch \"config/experiments/bash-parser/test\")"))
+  command-line()
+  normal-top-level()
+make: *** [emacs-test-eval] Error 255
