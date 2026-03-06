@@ -293,6 +293,66 @@ Verify that pre-existing :indirect t is not lost."
     (should (eq (plist-get (car marked) :indirect) t))
     (should (eq (plist-get (car marked) :source) :nested-command))))
 
+(ert-deftest test-parser-extension-single-nesting-depth ()
+  "Scenario: bash-parser § 'Single level nesting depth'
+
+Test that operations from single-level nested commands have :nesting-depth 1."
+  (let* ((cmd "bash -c 'rm file.txt'")
+         (parsed (jf/bash-parse cmd))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should have operations from nested command
+    (should (> (length ops) 0))
+    ;; Find the delete operation on file.txt
+    (let ((delete-op (seq-find (lambda (op)
+                                 (and (eq (plist-get op :operation) :delete)
+                                      (string= (plist-get op :file) "file.txt")))
+                               ops)))
+      (should delete-op)
+      ;; Should be marked indirect
+      (should (eq (plist-get delete-op :indirect) t))
+      ;; Should have nesting-depth 1
+      (should (eq (plist-get delete-op :nesting-depth) 1)))))
+
+(ert-deftest test-parser-extension-double-nesting-depth ()
+  "Scenario: bash-parser § 'Nested indirect operations'
+
+Test that operations from double-nested commands have :nesting-depth 2."
+  (let* ((cmd "bash -c 'sh -c \"rm file.txt\"'")
+         (parsed (jf/bash-parse cmd))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should have operations from nested command
+    (should (> (length ops) 0))
+    ;; Find the delete operation on file.txt
+    (let ((delete-op (seq-find (lambda (op)
+                                 (and (eq (plist-get op :operation) :delete)
+                                      (string= (plist-get op :file) "file.txt")))
+                               ops)))
+      (should delete-op)
+      ;; Should be marked indirect
+      (should (eq (plist-get delete-op :indirect) t))
+      ;; Should have nesting-depth 2
+      (should (eq (plist-get delete-op :nesting-depth) 2)))))
+
+(ert-deftest test-parser-extension-direct-no-nesting-depth ()
+  "Test that direct operations do not have :nesting-depth metadata.
+
+Verify that operations from non-nested commands don't get nesting-depth."
+  (let* ((cmd "rm file.txt")
+         (parsed (jf/bash-parse cmd))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should have operations
+    (should (> (length ops) 0))
+    ;; Find the delete operation on file.txt
+    (let ((delete-op (seq-find (lambda (op)
+                                 (and (eq (plist-get op :operation) :delete)
+                                      (string= (plist-get op :file) "file.txt")))
+                               ops)))
+      (should delete-op)
+      ;; Should not be marked indirect
+      (should-not (plist-get delete-op :indirect))
+      ;; Should not have nesting-depth
+      (should-not (plist-get delete-op :nesting-depth)))))
+
 ;;; Integration Tests
 
 (ert-deftest test-parser-extension-end-to-end-bash-c ()
