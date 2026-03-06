@@ -29,7 +29,7 @@ Parse JSON output to identify:
 - If 1-3 ready beads: Auto-select with confirmation
 - If 4+ ready beads: Use **AskUserQuestion** for interactive selection
 
-**Default parallelism**: 3 agents maximum (conservative, balanced)
+**Default parallelism**: 5 agents maximum (conservative, balanced)
 
 User can override with explicit count if needed.
 
@@ -55,7 +55,7 @@ Available for implementation (no blockers):
    Scope: ~30 minutes
    Files: README.md
 
-Select beads to implement in parallel (max 3 recommended):
+Select beads to implement in parallel (max 5 recommended):
 ```
 
 Use **AskUserQuestion** with multiSelect enabled:
@@ -144,7 +144,7 @@ done
   "session_id": "orch-1234567890",
   "baseline_snapshot": ".beads/orchestrator/baseline-1234567890.txt",
   "current_branch": "gptel-scoped-bash-tools",
-  "max_parallel": 3,
+  "max_parallel": 5,
   "beads": [
     {
       "bead_id": "emacs-abc1",
@@ -800,7 +800,7 @@ Before starting orchestration:
 
 Use **AskUserQuestion** with:
 - Header: "Select beads"
-- Question: "Which beads should be implemented in parallel? (Max 3 recommended for resource management)"
+- Question: "Which beads should be implemented in parallel? (Max 5 recommended for resource management)"
 - Options: Each ready bead (label = ID + short title, description = scope + files)
 - MultiSelect: true
 
