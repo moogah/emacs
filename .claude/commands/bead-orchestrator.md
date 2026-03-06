@@ -118,7 +118,7 @@ TIMESTAMP=$(date +%s)
 for BEAD_ID in selected_beads; do
   # 1. Create unique worktree name
   WORKTREE_NAME="bead-${BEAD_ID}-${TIMESTAMP}"
-  WORKTREE_PATH="$HOME/worktrees/$WORKTREE_NAME"
+  WORKTREE_PATH=".worktrees/$WORKTREE_NAME"
 
   # 2. Create worktree branching from current branch
   git worktree add "$WORKTREE_PATH" -b "$WORKTREE_NAME"
@@ -148,7 +148,7 @@ done
   "beads": [
     {
       "bead_id": "emacs-abc1",
-      "worktree_path": "~/worktrees/bead-emacs-abc1-1234567890",
+      "worktree_path": ".worktrees/bead-emacs-abc1-1234567890",
       "branch_name": "bead-emacs-abc1-1234567890",
       "task_id": null,
       "status": "setup_complete",
@@ -162,6 +162,8 @@ done
 
 For each bead, spawn agent using Task tool:
 
+**IMPORTANT**: Do NOT use `background: true` when creating tasks. Background agents lack permission to write files and run commands, which makes them unable to implement beads. All agents must run in the foreground.
+
 ```
 TaskCreate(
   subject: "Implement bead $BEAD_ID",
@@ -174,16 +176,22 @@ Store returned task_id in state file.
 
 ### 3.1 Worktree Location
 
-**Location**: `~/worktrees/bead-<BEAD_ID>-<TIMESTAMP>`
+**Location**: `.worktrees/bead-<BEAD_ID>-<TIMESTAMP>` (inside the repo)
 
-**Why separate from main worktrees?**
+**Why inside the repo?**
+- **Permissions inheritance**: Subagents inherit the session's approved permissions for the repo path, avoiding per-worktree permission prompts
 - Clear namespace for orchestrator-managed worktrees
-- Separate from development worktrees (`~/emacs-*`)
 - Easy to identify and bulk-clean if needed
+- Everything stays contained in the project
+
+**Prerequisites**:
+- `.worktrees/` must be in `.gitignore` (add if not present)
 
 **Create directory if needed**:
 ```bash
-mkdir -p ~/worktrees
+# Ensure .worktrees/ is gitignored
+grep -qxF '.worktrees/' .gitignore 2>/dev/null || echo '.worktrees/' >> .gitignore
+mkdir -p .worktrees
 ```
 
 ### 3.2 Agent Prompt Template
@@ -451,7 +459,7 @@ if merge succeeds:
 ✓ Merged: emacs-abc1 (Add session export)
 ✓ Merged: emacs-abc2 (Implement preset resolver)
 ⨯ Conflict: emacs-xyz9 (Update documentation)
-  Location: ~/worktrees/bead-emacs-xyz9-1234567890
+  Location: .worktrees/bead-emacs-xyz9-1234567890
   Resolve manually or skip
 ```
 
@@ -643,13 +651,13 @@ Display comprehensive summary of orchestration session:
 ### Merge Conflicts (1)
 ⨯ emacs-xyz9: Update documentation
   - Reason: Merge conflict
-  - Worktree: ~/worktrees/bead-emacs-xyz9-1234567890
+  - Worktree: .worktrees/bead-emacs-xyz9-1234567890
   - Action needed: Resolve manually and merge
 
 ### Agent Failures (1)
 ⨯ emacs-def4: Add integration tests
   - Reason: Agent encountered unclear requirements
-  - Worktree: ~/worktrees/bead-emacs-def4-1234567890
+  - Worktree: .worktrees/bead-emacs-def4-1234567890
   - Action needed: Review bead description, clarify requirements
 
 ### Cleanup Summary
@@ -750,6 +758,7 @@ Action: Allow user to proceed, mark regression as "acknowledged"
 - **Never merge in parallel**: Sequential merging only (avoid conflicts)
 - **Always embed skill guidance**: Agents can't invoke skills directly
 - **Never timeout too quickly**: 2 hours gives agents time for 1-4 hour tasks
+- **Never use background agents**: Background agents cannot write files or run commands; always spawn foreground tasks
 
 ## Prerequisites Check
 
@@ -840,17 +849,17 @@ Select up to 3 for parallel implementation.
 
 Creating isolated worktrees for 3 beads...
 
-✓ emacs-abc1: Worktree created at ~/worktrees/bead-emacs-abc1-1234567890
+✓ emacs-abc1: Worktree created at .worktrees/bead-emacs-abc1-1234567890
   - Runtime copied (746MB in 45s)
   - Submodules initialized
   - Agent spawned (task-1)
 
-✓ emacs-abc2: Worktree created at ~/worktrees/bead-emacs-abc2-1234567890
+✓ emacs-abc2: Worktree created at .worktrees/bead-emacs-abc2-1234567890
   - Runtime copied (746MB in 43s)
   - Submodules initialized
   - Agent spawned (task-2)
 
-✓ emacs-abc3: Worktree created at ~/worktrees/bead-emacs-abc3-1234567890
+✓ emacs-abc3: Worktree created at .worktrees/bead-emacs-abc3-1234567890
   - Runtime copied (746MB in 46s)
   - Submodules initialized
   - Agent spawned (task-3)
