@@ -33,6 +33,9 @@ Additional fields:
 
 Recursion depth is limited by jf/bash--max-parse-depth to prevent
 infinite loops in pathological cases."
+  ;; Validate input
+  (unless (stringp command-string)
+    (error "jf/bash-parse: command-string must be a string, got %S" (type-of command-string)))
   (jf/bash-parse--with-depth command-string 0))
 
 (defun jf/bash-parse--with-depth (command-string depth)

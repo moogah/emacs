@@ -43,6 +43,37 @@ Format: (command . (:flags-with-args (list-of-flags-that-take-arguments)
                     :flags-no-args (list-of-flags-without-arguments)
                     :dangerous t-or-nil))")
 
+(defun jf/bash--valid-var-context-p (context)
+  "Return t if CONTEXT is valid variable context alist.
+
+A valid variable context is either nil or an alist where each entry is a
+cons cell (VAR . VALUE) with:
+  - VAR (car) is a symbol or string
+  - VALUE (cdr) is a string
+
+Returns t if valid, nil otherwise.
+
+Examples:
+  (jf/bash--valid-var-context-p nil)                      => t
+  (jf/bash--valid-var-context-p '((FILE . \"/path\")))     => t
+  (jf/bash--valid-var-context-p '((\"FILE\" . \"/path\"))) => t
+  (jf/bash--valid-var-context-p '((A . \"1\") (B . \"2\"))) => t
+
+Invalid examples (return nil):
+  (jf/bash--valid-var-context-p \"not-a-list\")           => nil
+  (jf/bash--valid-var-context-p '((HOME /path)))         => nil (not cons)
+  (jf/bash--valid-var-context-p '((nil . \"value\")))     => nil (nil key)
+  (jf/bash--valid-var-context-p '((123 . \"value\")))     => nil (invalid key type)
+  (jf/bash--valid-var-context-p '((KEY . 123)))          => nil (invalid value type)"
+  (and (listp context)
+       (seq-every-p
+        (lambda (binding)
+          (and (consp binding)
+               (or (symbolp (car binding)) (stringp (car binding)))
+               (not (null (car binding)))
+               (stringp (cdr binding))))
+        context)))
+
 (defun jf/bash-match-rule (file-path rules)
   "Find first rule in RULES matching FILE-PATH.
 Returns the matched rule plist or nil if no rules match.
@@ -157,7 +188,7 @@ This is the main entry point for security validation. It coordinates
 the complete validation pipeline and returns a comprehensive result.
 
 Arguments:
-  COMMAND-STRING - The bash command to validate
+  COMMAND-STRING - The bash command to validate (must be a string)
   RULES - List of security rule plists (from `jf/bash-match-rule')
   VAR-CONTEXT - Optional variable resolution context (alist of (VAR . VALUE) pairs).
                 Variables are resolved by jf/bash-extract-file-operations before
@@ -167,6 +198,9 @@ Arguments:
                     :strict - Reject all indirect operations as violations
                     :warn - Flag indirect operations as unhandled
                     :permissive (default) - Validate indirect operations normally
+
+Signals error if COMMAND-STRING is not a string, if RULES is not a list, if VAR-CONTEXT
+has invalid structure, or if INDIRECT-POLICY is not a valid keyword.
 
 Returns validation result plist:
   :allowed - t if command is safe, nil if denied
@@ -187,6 +221,22 @@ Validation logic:
      - Validate operation permission
      - Collect violations or mark as unhandled
   5. Allow only if no violations AND no unhandled operations"
+  ;; Validate inputs
+  (unless (stringp command-string)
+    (error "jf/bash-sandbox-check: command-string must be a string, got %S"
+           (type-of command-string)))
+  (unless (listp rules)
+    (error "jf/bash-sandbox-check: rules must be a list, got %S"
+           (type-of rules)))
+  (when var-context
+    (unless (jf/bash--valid-var-context-p var-context)
+      (error "jf/bash-sandbox-check: var-context must be an alist of (VAR . VALUE) pairs where VAR is symbol/string and VALUE is string, got %S"
+             var-context)))
+  (when (and indirect-policy
+             (not (memq indirect-policy '(:strict :warn :permissive))))
+    (error "jf/bash-sandbox-check: indirect-policy must be :strict, :warn, or :permissive, got %S"
+           indirect-policy))
+
   (let ((violations nil)
         (unhandled nil)
         (operations nil)

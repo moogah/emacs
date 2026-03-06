@@ -58,6 +58,37 @@ Examples:
            (string-match-p "\\[.*\\]" file-path)
            (string-match-p "{.*,.*}" file-path))))
 
+(defun jf/bash--valid-var-context-p (context)
+  "Return t if CONTEXT is valid variable context alist.
+
+A valid variable context is either nil or an alist where each entry is a
+cons cell (VAR . VALUE) with:
+  - VAR (car) is a symbol or string
+  - VALUE (cdr) is a string
+
+Returns t if valid, nil otherwise.
+
+Examples:
+  (jf/bash--valid-var-context-p nil)                      => t
+  (jf/bash--valid-var-context-p '((FILE . \"/path\")))     => t
+  (jf/bash--valid-var-context-p '((\"FILE\" . \"/path\"))) => t
+  (jf/bash--valid-var-context-p '((A . \"1\") (B . \"2\"))) => t
+
+Invalid examples (return nil):
+  (jf/bash--valid-var-context-p \"not-a-list\")           => nil
+  (jf/bash--valid-var-context-p '((HOME /path)))         => nil (not cons)
+  (jf/bash--valid-var-context-p '((nil . \"value\")))     => nil (nil key)
+  (jf/bash--valid-var-context-p '((123 . \"value\")))     => nil (invalid key type)
+  (jf/bash--valid-var-context-p '((KEY . 123)))          => nil (invalid value type)"
+  (and (listp context)
+       (seq-every-p
+        (lambda (binding)
+          (and (consp binding)
+               (or (symbolp (car binding)) (stringp (car binding)))
+               (not (null (car binding)))
+               (stringp (cdr binding))))
+        context)))
+
 (defun jf/bash--normalize-var-context (var-context)
   "Normalize VAR-CONTEXT to use symbol keys.
 
@@ -170,6 +201,8 @@ recursive semantic analysis to extract operations from all nesting levels.
 PARSED-COMMAND is the output from `jf/bash-parse'.
 VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
 
+Signals error if PARSED-COMMAND is not a valid plist or if VAR-CONTEXT has invalid structure.
+
 Returns a flat list of operation plists, each containing:
   :file - File path (may contain unresolved variables or patterns)
   :operation - Operation type (:read, :write, :delete, :modify, :create, :append,
@@ -204,6 +237,15 @@ Examples:
 
   Loop: (jf/bash-extract-file-operations (jf/bash-parse \"for f in *.txt; do rm $f; done\"))
   => ((:file \"*.txt\" :operation :delete :command \"rm\" :pattern t :loop-context t))"
+  ;; Validate inputs
+  (unless (listp parsed-command)
+    (error "jf/bash-extract-file-operations: parsed-command must be a plist, got %S"
+           (type-of parsed-command)))
+  (when var-context
+    (unless (jf/bash--valid-var-context-p var-context)
+      (error "jf/bash-extract-file-operations: var-context must be an alist of (VAR . VALUE) pairs where VAR is symbol/string and VALUE is string, got %S"
+             var-context)))
+
   ;; Normalize var-context
   (let ((context (jf/bash--normalize-var-context var-context)))
     ;; Use recursive analyzer (requires bash-parser-recursive)
