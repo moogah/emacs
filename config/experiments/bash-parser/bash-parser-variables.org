@@ -164,16 +164,39 @@ Resolve relative paths (., ./, ../) against PWD from variable context.
 
 #+begin_src emacs-lisp
 (defun jf/bash--navigate-parent-path (base-path levels)
-  "Navigate up LEVELS directories from BASE-PATH.
+  "Navigate up LEVELS directories from BASE-PATH using Emacs file functions.
 
-Uses `file-name-directory' repeatedly to go up the directory tree.
-Going up past root stops at \"/\".
+Repeatedly applies file-name-directory to move up the directory tree, stopping
+at the filesystem root (\"/\") if LEVELS exceeds the depth of BASE-PATH.
+
+BASE-PATH is a string representing an absolute or relative path.
+LEVELS is an integer specifying how many directory levels to ascend.
+
+Returns a string representing the resulting path after ascending LEVELS times.
+
+Navigation behavior:
+  - Uses file-name-directory to remove one level at a time
+  - Normalizes with directory-file-name to handle trailing slashes
+  - Stops at root (\"/\") if ascending beyond filesystem root
+  - Returns trailing slash in result (directory form)
 
 Examples:
-  (jf/bash--navigate-parent-path \"/a/b/c\" 1)  => \"/a/b/\"
-  (jf/bash--navigate-parent-path \"/a/b/c\" 2)  => \"/a/\"
-  (jf/bash--navigate-parent-path \"/a\" 5)      => \"/\"
-  (jf/bash--navigate-parent-path \"/a/b/\" 1)   => \"/a/\""
+  (jf/bash--navigate-parent-path \"/a/b/c\" 1)
+    => \"/a/b/\"
+
+  (jf/bash--navigate-parent-path \"/a/b/c\" 2)
+    => \"/a/\"
+
+  (jf/bash--navigate-parent-path \"/a\" 5)
+    => \"/\" (stops at root)
+
+  (jf/bash--navigate-parent-path \"/a/b/\" 1)
+    => \"/a/\" (handles trailing slash)
+
+  (jf/bash--navigate-parent-path \"/workspace/src/foo.txt\" 2)
+    => \"/workspace/\"
+
+Internal helper for jf/bash-resolve-relative-path."
   (let ((result base-path))
     (dotimes (_ levels)
       (let ((parent (file-name-directory (directory-file-name result))))
@@ -296,17 +319,30 @@ Helper functions for static evaluation of deterministic commands.
 
 #+begin_src emacs-lisp
 (defun jf/bash--static-dirname (path)
-  "Static evaluation of dirname command on PATH.
+  "Static evaluation of bash dirname command on PATH without executing shell.
 
-Returns the directory component of PATH using Emacs file-name-directory.
-This is the static equivalent of the bash dirname command.
+Extracts the directory component of PATH using Emacs file-name-directory,
+mimicking the behavior of the bash dirname command. This enables static
+resolution of $(dirname PATH) command substitutions during parsing.
+
+PATH is a string representing a file path (absolute or relative).
+
+Returns a string containing the directory portion of PATH, with trailing slash
+removed for consistency with bash dirname behavior. Returns empty string for
+bare filenames without directory component.
+
+Dirname behavior:
+  - /path/to/file.txt → /path/to
+  - /path/to/ → /path
+  - file.txt → \"\" (empty string)
+  - / → /
 
 Examples:
   (jf/bash--static-dirname \"/path/to/file.txt\")
-    => \"/path/to/\"
+    => \"/path/to\"
 
   (jf/bash--static-dirname \"/path/to/\")
-    => \"/path/\"
+    => \"/path\"
 
   (jf/bash--static-dirname \"file.txt\")
     => \"\"
@@ -314,7 +350,10 @@ Examples:
   (jf/bash--static-dirname \"/\")
     => \"/\"
 
-Note: Returns empty string for bare filenames without directory component."
+  (jf/bash--static-dirname \"/workspace/src/foo.el\")
+    => \"/workspace/src\"
+
+Internal helper for jf/bash-resolve-command-substitution."
   (let ((dir (file-name-directory path)))
     (if dir
         ;; Remove trailing slash for consistency with bash dirname
@@ -322,12 +361,24 @@ Note: Returns empty string for bare filenames without directory component."
       "")))
 
 (defun jf/bash--static-basename (path &optional suffix)
-  "Static evaluation of basename command on PATH, optionally removing SUFFIX.
+  "Static evaluation of bash basename command on PATH without executing shell.
 
-Returns the filename component of PATH using Emacs file-name-nondirectory.
-If SUFFIX is provided and PATH ends with it, removes the suffix.
+Extracts the filename component of PATH using Emacs file-name-nondirectory,
+mimicking the behavior of the bash basename command. Optionally removes SUFFIX
+from the result if PATH ends with it. This enables static resolution of
+$(basename PATH [SUFFIX]) command substitutions during parsing.
 
-This is the static equivalent of the bash basename command.
+PATH is a string representing a file path (absolute or relative).
+SUFFIX is an optional string suffix to remove from the filename (e.g., \".txt\").
+
+Returns a string containing the filename portion of PATH. If SUFFIX is provided
+and matches the end of the filename, it is removed from the result.
+
+Basename behavior:
+  - /path/to/file.txt → file.txt
+  - /path/to/file.txt with suffix \".txt\" → file
+  - /path/to/ → \"\" (empty string)
+  - file.txt → file.txt
 
 Examples:
   (jf/bash--static-basename \"/path/to/file.txt\")
@@ -340,7 +391,12 @@ Examples:
     => \"\"
 
   (jf/bash--static-basename \"file.txt\")
-    => \"file.txt\""
+    => \"file.txt\"
+
+  (jf/bash--static-basename \"/workspace/src/foo.el\" \".el\")
+    => \"foo\"
+
+Internal helper for jf/bash-resolve-command-substitution."
   (let ((base (file-name-nondirectory (directory-file-name path))))
     (if (and suffix (string-suffix-p suffix base))
         (substring base 0 (- (length base) (length suffix)))
