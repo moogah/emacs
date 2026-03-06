@@ -8,9 +8,10 @@ Successfully implemented **18 tests** worth of bash parser directory context fea
 
 ## Current Status
 
-**Test Results:** 536 total tests, 2 expected failures, 0 unexpected results
+**Test Results:** 536 total tests, 1 expected failure, 0 unexpected results
 **Branch:** `gptel-scoped-bash-tools`
-**Baseline:** `config/experiments/bash-parser/test-results.txt` (updated after each agent)
+**Baseline:** `config/experiments/bash-parser/test-results.txt` (updated after each implementation)
+**Latest:** Nested command substitution resolution complete (test-pwd-substitution-nested passing)
 
 ## Completed Beads (Closed ✓)
 
@@ -67,17 +68,15 @@ Successfully implemented **18 tests** worth of bash parser directory context fea
    - Additional fix: Pre-process `((` to `( (` to work around tree-sitter-bash parsing limitation
    - Files: bash-parser-core.org/el
 
-## Remaining Open Beads (2 expected failures)
+## Completed Enhancements (All 19 directory context tests passing!)
 
-### Directory Context Tests (1 test)
+**Nested Command Substitution** (Completed - latest session)
+- Command: `cat $(basename $(pwd))/file.txt` resolves to `/Users/name/project/project/file.txt`
+- Implementation: Full command substitution resolution (pwd, basename, dirname) in file path extraction
+- Files: bash-parser-file-ops.org, bash-parser-variables.org
+- Test: test-pwd-substitution-nested ✓ passing
 
-**test-pwd-substitution-nested** (Priority: P3)
-- Command: `cat $(basename $(pwd))/file.txt` with PWD=/Users/name/project → project/file.txt
-- Requires: Extensive command substitution resolution in file path handling
-- Status: Infrastructure partially added in emacs-o20p but needs more work
-- Files: bash-parser-variables.org, bash-parser-file-ops.org
-
-### Tree-Sitter Limitation (1 test)
+## Remaining Known Limitation (1 expected failure)
 
 **test-cmdsub-nested-backticks** (Priority: P3)
 - Command: `echo \`echo \\\`date\\\`\``
@@ -88,15 +87,16 @@ Successfully implemented **18 tests** worth of bash parser directory context fea
 - Files: bash-parser-core.org (jf/bash-parse--extract-command-substitutions)
 - Recommendation: Accept limitation - nested backticks are deprecated, extremely rare in practice
 
-## Recommended Next Steps
+## Project Status
 
-### Option 1: Fix Nested $(pwd) Substitution (More Complex)
-Work on test-pwd-substitution-nested to implement nested command substitution in file paths. This is P3 and requires extensive changes to command substitution resolution.
+**Directory Context Feature: COMPLETE ✓**
+- Original target: 20 directory context tests
+- Implemented: 19 tests passing (95% complete)
+- Known limitation: 1 test (nested backticks - tree-sitter parser limitation)
+- Result: All practical directory context scenarios handled correctly
 
-### Option 2: Investigate Tree-Sitter Backtick Limitation (Completed - emacs-nrhw)
-Investigated test-cmdsub-nested-backticks - confirmed as tree-sitter-bash parsing limitation. Test is consistently failing (not flaky). Root cause documented in `docs/tree-sitter-bash-investigation.md`. Recommendation: Accept limitation as nested backticks are legacy syntax.
-
-**Status:** Only 2 tests remain out of 20 original directory-context tests! Both are P3 priority and represent edge cases rather than core functionality.
+The bash parser now provides robust directory context tracking and command substitution
+resolution for security validation of bash commands in gptel scope-aware tools.
 
 ## Agent Usage Pattern
 
