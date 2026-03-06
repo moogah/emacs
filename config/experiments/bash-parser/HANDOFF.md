@@ -77,21 +77,24 @@ Successfully implemented **18 tests** worth of bash parser directory context fea
 - Status: Infrastructure partially added in emacs-o20p but needs more work
 - Files: bash-parser-variables.org, bash-parser-file-ops.org
 
-### Flaky Test (1 test)
+### Tree-Sitter Limitation (1 test)
 
 **test-cmdsub-nested-backticks** (Priority: P3)
 - Command: `echo \`echo \\\`date\\\`\``
-- Issue: Intermittent failures in backtick nesting extraction (not related to recent changes)
-- Status: Legacy syntax, may be tree-sitter parsing limitation
-- Files: bash-parser-variables.org (backtick extraction)
+- Issue: Tree-sitter-bash does not correctly parse nested backticks (consistently fails, not flaky)
+- Root cause: Parser truncates content at first inner backtick, extracting only `echo \\` instead of `echo \\\`date\\\``
+- Status: Legacy syntax (modern scripts use `$(...)` which nests correctly), marked as `:expected-result :failed`
+- Investigation: See `config/experiments/bash-parser/docs/tree-sitter-bash-investigation.md`
+- Files: bash-parser-core.org (jf/bash-parse--extract-command-substitutions)
+- Recommendation: Accept limitation - nested backticks are deprecated, extremely rare in practice
 
 ## Recommended Next Steps
 
 ### Option 1: Fix Nested $(pwd) Substitution (More Complex)
 Work on test-pwd-substitution-nested to implement nested command substitution in file paths. This is P3 and requires extensive changes to command substitution resolution.
 
-### Option 2: Investigate Flaky Backtick Test
-Work on test-cmdsub-nested-backticks to stabilize or document the limitation. This is P3 and may be a tree-sitter parsing issue rather than our code.
+### Option 2: Investigate Tree-Sitter Backtick Limitation (Completed - emacs-nrhw)
+Investigated test-cmdsub-nested-backticks - confirmed as tree-sitter-bash parsing limitation. Test is consistently failing (not flaky). Root cause documented in `docs/tree-sitter-bash-investigation.md`. Recommendation: Accept limitation as nested backticks are legacy syntax.
 
 **Status:** Only 2 tests remain out of 20 original directory-context tests! Both are P3 priority and represent edge cases rather than core functionality.
 
