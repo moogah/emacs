@@ -64,11 +64,63 @@ Examples:
 VAR-CONTEXT can have either string or symbol keys. This function
 ensures all keys are symbols for consistent lookup.
 
+VAR-CONTEXT must be an alist where each entry is a cons cell (KEY . VALUE):
+  - KEY must be a symbol or string
+  - VALUE must be a string
+
+Signals error if var-context is malformed with helpful message showing
+the invalid entry and expected format.
+
 Examples:
   ((\"FILE\" . \"/path\"))     => ((FILE . \"/path\"))
   ((FILE . \"/path\"))       => ((FILE . \"/path\"))
-  ((\"A\" . \"1\") (B . \"2\")) => ((A . \"1\") (B . \"2\"))"
+  ((\"A\" . \"1\") (B . \"2\")) => ((A . \"1\") (B . \"2\"))
+
+Invalid examples (signal error):
+  ((HOME /path))           - Not a cons cell
+  (((nil . value)))        - Key is nil
+  (((123 . value)))        - Key is not symbol/string
+  ((\"KEY\" . 123))         - Value is not string"
   (when var-context
+    ;; Validate var-context is a list
+    (unless (listp var-context)
+      (error "Invalid variable context: expected list, got %S. Variable context must be an alist like ((VAR1 . \"value1\") (VAR2 . \"value2\"))"
+             (type-of var-context)))
+
+    ;; Validate each entry
+    (let ((index 0))
+      (dolist (binding var-context)
+        (unless (consp binding)
+          (error "Invalid variable context at index %d: %S
+Expected cons cell like (VAR . \"value\")
+Variable context must be alist: ((VAR1 . \"value1\") (VAR2 . \"value2\"))"
+                 index binding))
+
+        (let ((key (car binding))
+              (value (cdr binding)))
+          ;; Validate key
+          (when (null key)
+            (error "Invalid variable context at index %d: key is nil in %S
+Expected symbol or string key
+Variable context must be alist: ((VAR1 . \"value1\") (VAR2 . \"value2\"))"
+                   index binding))
+
+          (unless (or (symbolp key) (stringp key))
+            (error "Invalid variable context at index %d: key has invalid type %S in %S
+Expected symbol or string, got %S
+Variable context must be alist: ((VAR1 . \"value1\") (VAR2 . \"value2\"))"
+                   index (type-of key) binding key))
+
+          ;; Validate value
+          (unless (stringp value)
+            (error "Invalid variable context at index %d: value has invalid type %S in %S
+Expected string value, got %S
+Variable context must be alist: ((VAR1 . \"value1\") (VAR2 . \"value2\"))"
+                   index (type-of value) binding value)))
+
+        (setq index (1+ index))))
+
+    ;; Normalize keys to symbols
     (mapcar (lambda (binding)
               (let ((key (car binding))
                     (value (cdr binding)))
