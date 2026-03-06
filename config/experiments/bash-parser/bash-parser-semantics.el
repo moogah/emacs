@@ -71,7 +71,11 @@
              :produces-file-list t
              :pattern-source :flag-arg
              :search-scope-arg :first-positional))
-    (tee . (:operations ((:source :positional-args :operation :write))))
+    (tee . (:operations :flag-dependent
+            :flag-handlers ((("-a" "--append")
+                             . ((:source :positional-args :operation :append)))
+                           (()
+                             . ((:source :positional-args :operation :write))))))
     (dd . (:operations ((:source :named-args :names ("if") :operation :read)
                         (:source :named-args :names ("of") :operation :write))))
     (git . (:operations :complex
