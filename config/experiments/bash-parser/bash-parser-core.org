@@ -28,6 +28,7 @@ Setup lexical binding.
 
 #+begin_src emacs-lisp
 (require 'treesit)
+(require 'bash-parser-security)
 #+end_src
 
 * Core Parsing Functions
