@@ -5,7 +5,7 @@
 
 Operations are marked as indirect (:indirect t) if they come from:
 - Exec blocks (find -exec, find -execdir)
-- Nested commands (bash -c, sh -c, python -c) [future]
+- Nested shell commands (bash -c, sh -c, zsh -c)
 - Command substitution [future]
 
 OPERATIONS is a list of operation plists from extraction functions.
@@ -95,12 +95,17 @@ Returns plist with command injection metadata if pattern detected, nil otherwise
 
 PARSED-COMMAND is the output from `jf/bash-parse' (simple command only).
 
-Detects patterns like:
-  bash -c 'command'    - Flag-based injection
-  sh -c 'command'      - Flag-based injection
-  python -c 'code'     - Flag-based injection
+Detects SHELL injection patterns like:
+  bash -c 'command'    - Flag-based injection (shell)
+  sh -c 'command'      - Flag-based injection (shell)
+  zsh -c 'command'     - Flag-based injection (shell)
   env -S 'prog args'   - Flag-based injection
   eval 'command'       - Direct injection (no flag)
+
+NOT detected (non-shell interpreters):
+  python -c 'code'     - Python code, not bash injection
+  node -e 'code'       - JavaScript code, not bash injection
+  ruby -e 'code'       - Ruby code, not bash injection
 
 Handles flags appearing in different positions:
   bash -x -e -c 'cmd'  - Detects -c despite other flags
