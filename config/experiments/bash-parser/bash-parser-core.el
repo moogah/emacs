@@ -409,172 +409,21 @@ DEPTH parameter tracks current recursion depth."
 (defun jf/bash-parse--handle-conditional (root-node)
   "Handle conditional (if/then/else) from ROOT-NODE.
 
-Extracts test condition, then branch, and else branch as text strings
-while the buffer is still alive. Returns structured conditional data.
-
-Bash tree-sitter structure for if_statement:
-  [0] 'if' keyword
-  [1] condition (with field name 'condition')
-  [2] ';' or newline
-  [3] 'then' keyword
-  [4..n] then-branch commands
-  [...] optional 'elif' or 'else' keywords with branches
-  [last] 'fi' keyword"
-  (let* ((if-node (jf/bash-parse--find-node-by-type root-node "if_statement"))
-         (condition-node (when if-node
-                          (treesit-node-child-by-field-name if-node "condition")))
-         (condition-text (when condition-node
-                          (treesit-node-text condition-node t)))
-         (then-text nil)
-         (else-text nil))
-
-    ;; Extract then and else branches
-    (when if-node
-      (let ((child-count (treesit-node-child-count if-node))
-            (collecting-then nil)
-            (then-nodes '()))
-        ;; Collect then-branch nodes (between 'then' and 'else_clause'/'elif_clause'/'fi')
-        (dotimes (i child-count)
-          (let* ((child (treesit-node-child if-node i))
-                 (child-type (treesit-node-type child)))
-            (cond
-             ;; Start collecting then branch after 'then' keyword
-             ((string= child-type "then")
-              (setq collecting-then t))
-             ;; Stop at else_clause, elif_clause, or fi
-             ((or (string= child-type "else_clause")
-                  (string= child-type "elif_clause")
-                  (string= child-type "fi"))
-              (setq collecting-then nil)
-              ;; Extract else branch text from else_clause node
-              (when (string= child-type "else_clause")
-                ;; else_clause contains 'else' keyword + commands
-                ;; Extract text after the 'else' keyword
-                (let ((else-clause-text (treesit-node-text child t)))
-                  ;; Strip leading 'else' keyword and whitespace
-                  (when (string-match "^else\\s-*\\(.*\\)$" else-clause-text)
-                    (setq else-text (string-trim (match-string 1 else-clause-text)))
-                    ;; Remove trailing semicolon if present
-                    (when (string-suffix-p ";" else-text)
-                      (setq else-text (substring else-text 0 -1)))))))
-             ;; Collect then-branch command nodes (skip semicolons and keywords)
-             (collecting-then
-              (unless (member child-type '(";" "if" "then"))
-                (push child then-nodes))))))
-
-        ;; Convert then-branch node list to text
-        (when then-nodes
-          (setq then-text (mapconcat (lambda (node) (treesit-node-text node t))
-                                    (nreverse then-nodes)
-                                    "; ")))))
-
-    (list :success t
-          :type :conditional
-          :command-name "if"
-          :condition-text condition-text
-          :then-text then-text
-          :else-text else-text
-          :ast root-node)))
+Finds if_statement node and delegates to jf/bash-parse--handle-conditional-node."
+  (let ((if-node (jf/bash-parse--find-node-by-type root-node "if_statement")))
+    (if if-node
+        (jf/bash-parse--handle-conditional-node if-node)
+      (list :success nil :error "No if_statement node found"))))
 
 (defun jf/bash-parse--handle-for-loop (root-node)
   "Handle for-loop from ROOT-NODE.
 
-Extracts loop variable, iteration values, body, and command substitutions.
-Returns structured for-loop data.
-
-Bash tree-sitter structure for for_statement:
-  [0] 'for' keyword
-  [1] variable (with field name 'variable')
-  [2] 'in' keyword (optional - may use default $@)
-  [3] value nodes (with field name 'value')
-  [4] do_group with 'do' keyword and body commands
-  [last] 'done' keyword"
-  (let* ((for-node (jf/bash-parse--find-node-by-type root-node "for_statement"))
-         (variable-node (when for-node
-                         (treesit-node-child-by-field-name for-node "variable")))
-         (variable-name (when variable-node
-                         (treesit-node-text variable-node t)))
-         (body-text nil)
-         (iteration-values nil)
-         (command-substitutions nil))
-
-    ;; Extract command substitutions from the entire for-loop node
-    ;; For-loop is a top-level handler, so depth is not passed through
-    ;; Command substitutions within will be parsed at depth 0
-    (when for-node
-      (setq command-substitutions
-            (jf/bash-parse--extract-command-substitutions for-node 0)))
-
-    ;; Extract iteration values and body
-    (when for-node
-      (let ((child-count (treesit-node-child-count for-node))
-            (collecting-values nil)
-            (collecting-body nil)
-            (value-nodes '())
-            (body-nodes '()))
-        ;; Collect value nodes and body nodes
-        (dotimes (i child-count)
-          (let* ((child (treesit-node-child for-node i))
-                 (child-type (treesit-node-type child)))
-            (cond
-             ;; Start collecting values after 'in' keyword
-             ((string= child-type "in")
-              (setq collecting-values t))
-             ;; Start collecting body at do_group
-             ((string= child-type "do_group")
-              (setq collecting-values nil)
-              (setq collecting-body t)
-              ;; Extract body text from do_group node
-              ;; do_group contains 'do' keyword + commands + 'done'
-              (let ((do-group-text (treesit-node-text child t)))
-                ;; Strip 'do' and 'done' keywords
-                (when (string-match "^do\\s-+\\(.*\\)\\s-+done$" do-group-text)
-                  (setq body-text (string-trim (match-string 1 do-group-text))))))
-             ;; Stop at 'done' keyword
-             ((string= child-type "done")
-              (setq collecting-body nil))
-             ;; Collect value nodes (between 'in' and 'do_group')
-             (collecting-values
-              (unless (member child-type '(";" "in"))
-                (push child value-nodes))))))
-
-        ;; Convert value nodes to text list
-        (when value-nodes
-          (setq iteration-values
-                (mapcar (lambda (node) (treesit-node-text node t))
-                       (nreverse value-nodes))))))
-
-    ;; Determine loop source type
-    (let ((loop-source-type
-           (cond
-            ;; If there are command substitutions in the iteration values, it's from substitution
-            (command-substitutions :substitution)
-            ;; If the first iteration value contains glob characters, it's a glob
-            ((and iteration-values
-                  (string-match-p "[*?]\\|\\[.*\\]" (car iteration-values)))
-             :glob)
-            ;; Otherwise, it's a literal list
-            (iteration-values :literal)
-            (t nil))))
-
-      ;; Build result with both old field names (for compatibility) and new field names (for recursive analysis)
-      (let ((result (list :success t
-                         :type :for-loop
-                         :command-name "for"
-                         ;; Original field names
-                         :variable variable-name
-                         :iteration-values iteration-values
-                         :body-text body-text
-                         ;; Alias field names for recursive analysis
-                         :loop-variable variable-name
-                         :loop-body body-text
-                         :loop-list (car iteration-values)  ; First value (often a glob pattern)
-                         :loop-source-type loop-source-type
-                         :ast root-node)))
-        ;; Only add command-substitutions if present
-        (when command-substitutions
-          (setq result (plist-put result :command-substitutions command-substitutions)))
-        result))))
+Finds for_statement node and delegates to jf/bash-parse--handle-for-loop-node.
+For-loop is a top-level handler, so depth is set to 0."
+  (let ((for-node (jf/bash-parse--find-node-by-type root-node "for_statement")))
+    (if for-node
+        (jf/bash-parse--handle-for-loop-node for-node 0)
+      (list :success nil :error "No for_statement node found"))))
 
 (defun jf/bash-parse--handle-subshell (root-node depth)
   "Handle subshell from ROOT-NODE.
