@@ -4,6 +4,7 @@
 (declare-function jf/bash--has-glob-pattern-p "bash-parser-file-ops")
 (declare-function jf/bash--resolve-path-variables "bash-parser-file-ops")
 (declare-function jf/bash-extract-from-exec-blocks "bash-parser-file-ops")
+(declare-function jf/bash--flag-present-p "bash-parser-file-ops")
 
 (defvar jf/bash-command-file-semantics
   '((cat . (:operations ((:source :positional-args :operation :read))))
