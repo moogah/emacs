@@ -72,11 +72,282 @@ Prevents infinite recursion in pathological cases.")
 
 * Main Recursive Analyzer
 
+** Helper Functions
+
+Extract focused helper functions for specific responsibilities.
+
+*** Process Command Substitutions
+
+Extract operations from command substitutions and track pattern output.
+
+#+begin_src emacs-lisp
+(defun jf/bash--process-command-substitutions (parsed-command var-context depth)
+  "Process command substitutions recursively from PARSED-COMMAND.
+
+PARSED-COMMAND is the parsed command structure.
+VAR-CONTEXT is variable bindings alist.
+DEPTH is current recursion depth.
+
+Returns cons cell (OPERATIONS . SUBSTITUTION-PATTERNS) where:
+- OPERATIONS is list of operations from substitutions (marked :from-substitution t)
+- SUBSTITUTION-PATTERNS is list of pattern metadata for pattern flow tracking"
+  (let ((operations nil)
+        (substitution-patterns nil))
+    (when-let ((substs (plist-get parsed-command :command-substitutions)))
+      (dolist (subst substs)
+        (when-let ((parsed-subst (plist-get subst :parsed)))
+          (when (plist-get parsed-subst :success)  ; Only if parse succeeded
+            (let ((subst-ops (jf/bash-analyze-file-operations-recursive
+                             parsed-subst var-context (1+ depth))))
+              ;; Check if substitution produces a file pattern
+              (let ((pattern-op (seq-find
+                                (lambda (op)
+                                  (eq (plist-get op :operation) :match-pattern))
+                                subst-ops)))
+                (when pattern-op
+                  ;; Track this substitution's pattern output
+                  (push (list :substitution-content (plist-get subst :content)
+                             :pattern (plist-get pattern-op :file)
+                             :search-scope (plist-get pattern-op :search-scope)
+                             :command (plist-get pattern-op :command)
+                             :from-substitution t)
+                        substitution-patterns)))
+
+              ;; Mark all nested operations as from-substitution
+              ;; Build correctly with append instead of copy-tree for O(n) performance
+              (let ((marked-ops
+                     (mapcar (lambda (op)
+                              (append op (list :from-substitution t)))
+                            subst-ops)))
+                (setq operations (append operations marked-ops))))))))
+    (cons operations substitution-patterns)))
+#+end_src
+
+*** Process Command Chains with Context
+
+Process command chains with variable and directory context tracking.
+
+#+begin_src emacs-lisp
+(defun jf/bash--process-chain-with-context (parsed-command var-context depth)
+  "Process command chain with variable and directory context tracking.
+
+PARSED-COMMAND is the parsed chain command.
+VAR-CONTEXT is initial variable bindings alist.
+DEPTH is current recursion depth.
+
+Returns list of operations from all chain commands with proper context.
+
+Tracks:
+- Variable assignments across chain (FOO=bar && use $FOO)
+- Directory changes (cd /tmp && rm file)
+- pushd/popd directory stack
+- PWD and OLDPWD updates"
+  (let ((operations nil)
+        (chain-context var-context)
+        (current-pwd (or (alist-get 'PWD var-context) "/"))
+        (dir-stack nil))  ; Initialize directory stack for pushd/popd
+    (dolist (cmd (plist-get parsed-command :all-commands))
+      ;; Extract variable assignments from this command with resolution
+      ;; Pass current chain-context so assignments can resolve using earlier assignments
+      (when (fboundp 'jf/bash--extract-assignments-from-command)
+        (let ((assignments (jf/bash--extract-assignments-from-command cmd chain-context)))
+          (when assignments
+            ;; Assignments are already fully resolved (variables, pwd, relative paths)
+            (setq chain-context (append assignments chain-context))
+            ;; Check if PWD was assigned - this updates directory context
+            (when-let ((new-pwd (alist-get 'PWD assignments)))
+              (setq current-pwd new-pwd)))))
+
+      ;; Check for cd command and update directory context
+      (when (and (fboundp 'jf/bash--is-cd-command-p)
+                 (jf/bash--is-cd-command-p cmd))
+        (when-let ((new-pwd (jf/bash--extract-cd-target cmd chain-context current-pwd)))
+          (unless (eq new-pwd :unresolved)
+            ;; Save current PWD to OLDPWD before updating
+            (let ((old-pwd current-pwd))
+              (setq current-pwd new-pwd)
+              ;; Update both PWD and OLDPWD in context for subsequent commands
+              (setq chain-context (cons (cons 'PWD current-pwd)
+                                       (assq-delete-all 'PWD chain-context)))
+              (setq chain-context (cons (cons 'OLDPWD old-pwd)
+                                       (assq-delete-all 'OLDPWD chain-context)))))))
+
+      ;; Check for pushd command and update directory context + stack
+      (when (and (fboundp 'jf/bash--is-pushd-command-p)
+                 (jf/bash--is-pushd-command-p cmd))
+        (when-let ((new-pwd (jf/bash--extract-pushd-target cmd chain-context current-pwd)))
+          (unless (eq new-pwd :unresolved)
+            ;; Push current directory onto stack
+            (push current-pwd dir-stack)
+            ;; Update current directory
+            (setq current-pwd new-pwd)
+            ;; Update PWD in context for subsequent commands
+            (setq chain-context (cons (cons 'PWD current-pwd)
+                                     (assq-delete-all 'PWD chain-context))))))
+
+      ;; Check for popd command and restore from directory stack
+      (when (and (fboundp 'jf/bash--is-popd-command-p)
+                 (jf/bash--is-popd-command-p cmd))
+        ;; Only pop if stack is not empty
+        (when dir-stack
+          (let ((popped-pwd (pop dir-stack)))
+            (setq current-pwd popped-pwd)
+            ;; Update PWD in context for subsequent commands
+            (setq chain-context (cons (cons 'PWD current-pwd)
+                                     (assq-delete-all 'PWD chain-context))))))
+
+      ;; Extract operations with updated context (PWD now reflects current-pwd)
+      (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
+                     cmd chain-context (1+ depth))))
+        (setq operations (append operations cmd-ops))))
+    operations))
+#+end_src
+
+*** Process For-Loop with Binding
+
+Process for-loop with variable binding in loop body.
+
+#+begin_src emacs-lisp
+(defun jf/bash--process-loop-with-binding (parsed-command var-context depth operations)
+  "Process for-loop with variable binding in body.
+
+PARSED-COMMAND is the parsed for-loop command.
+VAR-CONTEXT is variable bindings alist.
+DEPTH is current recursion depth.
+OPERATIONS is current operations list (may contain pattern from substitution).
+
+Returns list of operations from loop body with loop metadata.
+
+The function:
+1. Determines loop variable value from source type (glob, substitution, literal)
+2. Creates pattern operation for glob sources
+3. Parses and analyzes loop body with variable in context
+4. Marks all loop operations with :loop-context metadata"
+  (let* ((loop-ops nil)
+         (loop-var (plist-get parsed-command :loop-variable))
+         (loop-source-type (plist-get parsed-command :loop-source-type))
+         (loop-body (plist-get parsed-command :loop-body))
+         (loop-var-value nil))
+
+    ;; Determine what the loop variable represents
+    (cond
+     ;; Loop source is substitution - bind to pattern from substitution
+     ((eq loop-source-type :substitution)
+      ;; Find the pattern produced by the substitution
+      (let ((pattern-op (seq-find
+                        (lambda (op)
+                          (and (eq (plist-get op :operation) :match-pattern)
+                               (plist-get op :from-substitution)))
+                        operations)))
+        (when pattern-op
+          (setq loop-var-value (plist-get pattern-op :file)))))
+
+     ;; Loop source is glob - bind to glob pattern and create pattern operation
+     ((eq loop-source-type :glob)
+      (let* ((glob-pattern (plist-get parsed-command :loop-list))
+             (current-pwd (or (alist-get 'PWD var-context) "/"))
+             ;; Resolve glob pattern against current directory
+             (resolved-pattern (if (string-prefix-p "/" glob-pattern)
+                                  glob-pattern
+                                (expand-file-name glob-pattern current-pwd))))
+        (setq loop-var-value glob-pattern)
+        ;; Create a pattern operation for the glob expansion
+        (when (and glob-pattern (fboundp 'jf/bash--has-glob-pattern-p))
+          (when (jf/bash--has-glob-pattern-p glob-pattern)
+            (push (list :file resolved-pattern
+                       :operation :match-pattern
+                       :confidence :high
+                       :source :loop-glob
+                       :pattern t
+                       :loop-context t
+                       :loop-variable loop-var)
+                  loop-ops)))))
+
+     ;; Loop source is literal - bind to literal values
+     ((eq loop-source-type :literal)
+      (setq loop-var-value :literal-list)))
+
+    ;; Parse and analyze loop body with loop variable in context
+    (when loop-body
+      (let* ((loop-body-parsed-raw (jf/bash-parse loop-body))
+             ;; Remove :ast field to prevent accessing killed buffer nodes
+             (loop-body-parsed (when (plist-get loop-body-parsed-raw :success)
+                                (let ((clean-parsed (copy-sequence loop-body-parsed-raw)))
+                                  (setq clean-parsed (plist-put clean-parsed :ast nil))
+                                  clean-parsed)))
+             ;; Add loop variable to context only if it has a resolvable value
+             ;; Skip keyword markers like :literal-list which can't be used in resolution
+             (loop-context (if (and loop-var-value
+                                   (not (keywordp loop-var-value)))
+                              (append (list (cons (intern loop-var) loop-var-value))
+                                      var-context)
+                            var-context))
+             (body-ops (when loop-body-parsed
+                        (jf/bash-analyze-file-operations-recursive
+                         loop-body-parsed loop-context (1+ depth)))))
+        ;; Mark all loop operations with :loop-context metadata
+        (when body-ops
+          (dolist (op body-ops)
+            (plist-put op :loop-context t)
+            (plist-put op :loop-variable loop-var))
+          (setq loop-ops (append loop-ops body-ops)))))
+
+    loop-ops))
+#+end_src
+
+*** Normalize Dynamic Paths
+
+Normalize dynamic file paths in operations.
+
+#+begin_src emacs-lisp
+(defun jf/bash--normalize-dynamic-paths (operations)
+  "Normalize dynamic file paths in OPERATIONS.
+
+Handles heredoc + variables and command substitutions in loops.
+Returns updated operations list with normalized paths.
+
+Normalization rules:
+- Heredoc + variable: \\$var -> {dynamic}
+- Command substitution in loop: \\$(cmd) -> {dynamic}
+
+Dynamic operations are marked with :dynamic t."
+  (mapcar (lambda (op)
+            (let ((file (plist-get op :file))
+                  (has-heredoc (plist-get op :heredoc-content))
+                  (in-loop (plist-get op :loop-context)))
+
+              ;; Check if file path contains dynamic content
+              (when file
+                (let ((has-variables (string-match-p "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}" file))
+                      (has-cmd-subst (string-match-p "\\$([^)]+)\\|`[^`]+`" file)))
+
+                  ;; Normalize heredoc + variable paths
+                  (when (and has-heredoc has-variables)
+                    (plist-put op :loop-context t)
+                    (plist-put op :dynamic t)
+                    (let ((normalized (replace-regexp-in-string
+                                      "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}"
+                                      "{dynamic}"
+                                      file)))
+                      (plist-put op :file normalized)))
+
+                  ;; Normalize command substitutions in loop context
+                  (when (and in-loop has-cmd-subst)
+                    (plist-put op :dynamic t)
+                    (let ((normalized (replace-regexp-in-string
+                                      "\\$([^)]+)\\|`[^`]+`"
+                                      "{dynamic}"
+                                      file)))
+                      (plist-put op :file normalized))))))
+            op)
+          operations))
+#+end_src
+
 ** Core Recursive Function
 
-The heart of the recursive semantic analyzer. This function extracts file
-operations from a parsed command and recursively descends into nested
-structures.
+The heart of the recursive semantic analyzer. This function orchestrates
+extraction of file operations from a parsed command and delegates to helpers
+for specific nesting structures.
 
 #+begin_src emacs-lisp
 (defun jf/bash-analyze-file-operations-recursive (parsed-command var-context &optional depth)
@@ -115,273 +386,90 @@ Example:
       (:file \"*.log\" :operation :read :pattern-source (:command \"find\" ...) ...))"
   (condition-case err
       (let ((depth (or depth 0))
-            (operations nil)
-            (substitution-patterns nil))  ; Track patterns from substitutions
+            (operations nil))
 
         ;; Depth check - prevent infinite recursion
         (when (>= depth jf/bash-recursive-max-depth)
           (cl-return (list :error (format "Max recursion depth exceeded (limit: %d)" jf/bash-recursive-max-depth)
                           :success nil)))
 
-    ;; 1. Extract operations from this command level
-    ;; This requires bash-parser-file-ops to be loaded
-    (when (fboundp 'jf/bash--extract-from-single-command)
-      (let ((this-level-ops (jf/bash--extract-from-single-command
-                             parsed-command var-context)))
-        (setq operations (append operations this-level-ops))))
+        ;; 1. Extract operations from this command level
+        (when (fboundp 'jf/bash--extract-from-single-command)
+          (let ((this-level-ops (jf/bash--extract-from-single-command
+                                 parsed-command var-context)))
+            (setq operations (append operations this-level-ops))))
 
-    ;; 1.5. Detect and recursively process nested commands (bash -c, sh -c, eval)
-    ;; These are commands that execute other commands as string arguments.
-    ;; Operations from nested commands are marked as indirect with nesting depth.
-    (when (and (fboundp 'jf/bash-detect-command-injection)
-               (fboundp 'jf/bash-parse-nested-command)
-               (eq (plist-get parsed-command :type) :simple))
-      (when-let ((injection-info (jf/bash-detect-command-injection parsed-command)))
-        (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
-          (when nested-cmd-string
-            (let* ((nested-parsed (jf/bash-parse-nested-command
-                                  nested-cmd-string (1+ depth) parsed-command))
-                   (nested-ops (when (plist-get nested-parsed :success)
-                                (jf/bash-analyze-file-operations-recursive
-                                 nested-parsed var-context (1+ depth)))))
-              ;; Mark all nested operations as indirect with nesting depth
-              (dolist (op nested-ops)
-                (plist-put op :indirect t)
-                (plist-put op :nesting-depth (1+ depth)))
-              (setq operations (append operations nested-ops)))))))
+        ;; 2. Detect and recursively process nested commands (bash -c, sh -c, eval)
+        (when (and (fboundp 'jf/bash-detect-command-injection)
+                   (fboundp 'jf/bash-parse-nested-command)
+                   (eq (plist-get parsed-command :type) :simple))
+          (when-let ((injection-info (jf/bash-detect-command-injection parsed-command)))
+            (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
+              (when nested-cmd-string
+                (let* ((nested-parsed (jf/bash-parse-nested-command
+                                      nested-cmd-string (1+ depth) parsed-command))
+                       (nested-ops (when (plist-get nested-parsed :success)
+                                    (jf/bash-analyze-file-operations-recursive
+                                     nested-parsed var-context (1+ depth)))))
+                  ;; Mark all nested operations as indirect with nesting depth
+                  (dolist (op nested-ops)
+                    (plist-put op :indirect t)
+                    (plist-put op :nesting-depth (1+ depth)))
+                  (setq operations (append operations nested-ops)))))))
 
-    ;; 2. Recursively process command substitutions and track pattern output
-    (when-let ((substs (plist-get parsed-command :command-substitutions)))
-      (dolist (subst substs)
-        (when-let ((parsed-subst (plist-get subst :parsed)))
-          (when (plist-get parsed-subst :success)  ; Only if parse succeeded
-            (let ((subst-ops (jf/bash-analyze-file-operations-recursive
-                             parsed-subst var-context (1+ depth))))
-              ;; Check if substitution produces a file pattern
-              (let ((pattern-op (seq-find
-                                (lambda (op)
-                                  (eq (plist-get op :operation) :match-pattern))
-                                subst-ops)))
-                (when pattern-op
-                  ;; Track this substitution's pattern output
-                  (push (list :substitution-content (plist-get subst :content)
-                             :pattern (plist-get pattern-op :file)
-                             :search-scope (plist-get pattern-op :search-scope)
-                             :command (plist-get pattern-op :command)
-                             :from-substitution t)
-                        substitution-patterns)))
+        ;; 3. Process command substitutions using helper
+        (let* ((subst-result (jf/bash--process-command-substitutions
+                             parsed-command var-context depth))
+               (subst-ops (car subst-result))
+               (substitution-patterns (cdr subst-result)))
+          (setq operations (append operations subst-ops))
 
-              ;; Mark all nested operations as from-substitution
-              ;; Build correctly with append instead of copy-tree for O(n) performance
-              (let ((marked-ops
-                     (mapcar (lambda (op)
-                              (append op (list :from-substitution t)))
-                            subst-ops)))
-                (setq operations (append operations marked-ops))))))))
+          ;; Add operations for outer command operating on substitution results
+          (when substitution-patterns
+            (when (fboundp 'jf/bash--extract-pattern-flow-operations)
+              (let ((pattern-flow-ops (jf/bash--extract-pattern-flow-operations
+                                      parsed-command substitution-patterns var-context)))
+                (setq operations (append operations pattern-flow-ops))))))
 
-    ;; 3. Add operations for outer command operating on substitution results
-    (when substitution-patterns
-      (when (fboundp 'jf/bash--extract-pattern-flow-operations)
-        (let ((pattern-flow-ops (jf/bash--extract-pattern-flow-operations
-                                parsed-command substitution-patterns var-context)))
-          (setq operations (append operations pattern-flow-ops)))))
+        ;; 4. Process pipeline commands
+        (when (eq (plist-get parsed-command :type) :pipeline)
+          (dolist (cmd (plist-get parsed-command :all-commands))
+            (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
+                           cmd var-context (1+ depth))))
+              (setq operations (append operations cmd-ops)))))
 
-    ;; 4. Recursively process pipeline commands
-    (when (eq (plist-get parsed-command :type) :pipeline)
-      (dolist (cmd (plist-get parsed-command :all-commands))
-        (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
-                       cmd var-context (1+ depth))))
-          (setq operations (append operations cmd-ops)))))
+        ;; 5. Process chain commands using helper
+        (when (eq (plist-get parsed-command :type) :chain)
+          (let ((chain-ops (jf/bash--process-chain-with-context
+                           parsed-command var-context depth)))
+            (setq operations (append operations chain-ops))))
 
-    ;; 5. Recursively process chain commands (with variable tracking and directory tracking)
-    (when (eq (plist-get parsed-command :type) :chain)
-      (let ((chain-context var-context)
-            (current-pwd (or (alist-get 'PWD var-context) "/"))
-            (dir-stack nil))  ; Initialize directory stack for pushd/popd
-        (dolist (cmd (plist-get parsed-command :all-commands))
-          ;; Extract variable assignments from this command with resolution
-          ;; Pass current chain-context so assignments can resolve using earlier assignments
-          (when (fboundp 'jf/bash--extract-assignments-from-command)
-            (let ((assignments (jf/bash--extract-assignments-from-command cmd chain-context)))
-              (when assignments
-                ;; Assignments are already fully resolved (variables, pwd, relative paths)
-                (setq chain-context (append assignments chain-context))
-                ;; Check if PWD was assigned - this updates directory context
-                (when-let ((new-pwd (alist-get 'PWD assignments)))
-                  (setq current-pwd new-pwd)))))
+        ;; 6. Process for-loops using helper
+        (when (string= (plist-get parsed-command :command-name) "for")
+          (let ((loop-ops (jf/bash--process-loop-with-binding
+                          parsed-command var-context depth operations)))
+            (setq operations (append operations loop-ops))))
 
-          ;; Check for cd command and update directory context
-          (when (and (fboundp 'jf/bash--is-cd-command-p)
-                     (jf/bash--is-cd-command-p cmd))
-            (when-let ((new-pwd (jf/bash--extract-cd-target cmd chain-context current-pwd)))
-              (unless (eq new-pwd :unresolved)
-                ;; Save current PWD to OLDPWD before updating
-                (let ((old-pwd current-pwd))
-                  (setq current-pwd new-pwd)
-                  ;; Update both PWD and OLDPWD in context for subsequent commands
-                  (setq chain-context (cons (cons 'PWD current-pwd)
-                                           (assq-delete-all 'PWD chain-context)))
-                  (setq chain-context (cons (cons 'OLDPWD old-pwd)
-                                           (assq-delete-all 'OLDPWD chain-context)))))))
+        ;; 7. Process conditional branches
+        (when (eq (plist-get parsed-command :type) :conditional)
+          (let ((conditional-ops (jf/bash--extract-conditional-context-operations
+                                 parsed-command var-context (1+ depth))))
+            (setq operations (append operations conditional-ops))))
 
-          ;; Check for pushd command and update directory context + stack
-          (when (and (fboundp 'jf/bash--is-pushd-command-p)
-                     (jf/bash--is-pushd-command-p cmd))
-            (when-let ((new-pwd (jf/bash--extract-pushd-target cmd chain-context current-pwd)))
-              (unless (eq new-pwd :unresolved)
-                ;; Push current directory onto stack
-                (push current-pwd dir-stack)
-                ;; Update current directory
-                (setq current-pwd new-pwd)
-                ;; Update PWD in context for subsequent commands
-                (setq chain-context (cons (cons 'PWD current-pwd)
-                                         (assq-delete-all 'PWD chain-context))))))
+        ;; 8. Process subshells with isolated context
+        (when (eq (plist-get parsed-command :type) :subshell)
+          (when-let ((subshell-body (plist-get parsed-command :subshell-body)))
+            (when (plist-get subshell-body :success)
+              (let* ((isolated-context (copy-alist var-context))
+                     (subshell-ops (jf/bash-analyze-file-operations-recursive
+                                   subshell-body isolated-context (1+ depth))))
+                ;; Mark all subshell operations for tracing
+                (dolist (op subshell-ops)
+                  (plist-put op :subshell-context t))
+                (setq operations (append operations subshell-ops))))))
 
-          ;; Check for popd command and restore from directory stack
-          (when (and (fboundp 'jf/bash--is-popd-command-p)
-                     (jf/bash--is-popd-command-p cmd))
-            ;; Only pop if stack is not empty
-            (when dir-stack
-              (let ((popped-pwd (pop dir-stack)))
-                (setq current-pwd popped-pwd)
-                ;; Update PWD in context for subsequent commands
-                (setq chain-context (cons (cons 'PWD current-pwd)
-                                         (assq-delete-all 'PWD chain-context))))))
-
-          ;; Extract operations with updated context (PWD now reflects current-pwd)
-          (let ((cmd-ops (jf/bash-analyze-file-operations-recursive
-                         cmd chain-context (1+ depth))))
-            (setq operations (append operations cmd-ops))))))
-
-    ;; 6. Process for-loops with variable binding
-    (when (string= (plist-get parsed-command :command-name) "for")
-      (let* ((loop-var (plist-get parsed-command :loop-variable))
-             (loop-source-type (plist-get parsed-command :loop-source-type))
-             (loop-body (plist-get parsed-command :loop-body))
-             (loop-var-value nil))
-
-        ;; Determine what the loop variable represents
-        (cond
-         ;; Loop source is substitution - bind to pattern from substitution
-         ((eq loop-source-type :substitution)
-          ;; Find the pattern produced by the substitution
-          (let ((pattern-op (seq-find
-                            (lambda (op)
-                              (and (eq (plist-get op :operation) :match-pattern)
-                                   (plist-get op :from-substitution)))
-                            operations)))
-            (when pattern-op
-              (setq loop-var-value (plist-get pattern-op :file)))))
-
-         ;; Loop source is glob - bind to glob pattern and create pattern operation
-         ((eq loop-source-type :glob)
-          (let* ((glob-pattern (plist-get parsed-command :loop-list))
-                 (current-pwd (or (alist-get 'PWD var-context) "/"))
-                 ;; Resolve glob pattern against current directory
-                 (resolved-pattern (if (string-prefix-p "/" glob-pattern)
-                                      glob-pattern
-                                    (expand-file-name glob-pattern current-pwd))))
-            (setq loop-var-value glob-pattern)
-            ;; Create a pattern operation for the glob expansion
-            (when (and glob-pattern (fboundp 'jf/bash--has-glob-pattern-p))
-              (when (jf/bash--has-glob-pattern-p glob-pattern)
-                (push (list :file resolved-pattern
-                           :operation :match-pattern
-                           :confidence :high
-                           :source :loop-glob
-                           :pattern t
-                           :loop-context t
-                           :loop-variable loop-var)
-                      operations)))))
-
-         ;; Loop source is literal - bind to literal values
-         ((eq loop-source-type :literal)
-          (setq loop-var-value :literal-list)))
-
-        ;; Parse and analyze loop body with loop variable in context
-        (when loop-body
-          (let* ((loop-body-parsed-raw (jf/bash-parse loop-body))
-                 ;; Remove :ast field to prevent accessing killed buffer nodes
-                 (loop-body-parsed (when (plist-get loop-body-parsed-raw :success)
-                                    (let ((clean-parsed (copy-sequence loop-body-parsed-raw)))
-                                      (setq clean-parsed (plist-put clean-parsed :ast nil))
-                                      clean-parsed)))
-                 ;; Add loop variable to context only if it has a resolvable value
-                 ;; Skip keyword markers like :literal-list which can't be used in resolution
-                 (loop-context (if (and loop-var-value
-                                       (not (keywordp loop-var-value)))
-                                  (append (list (cons (intern loop-var) loop-var-value))
-                                          var-context)
-                                var-context))
-                 (loop-ops (when loop-body-parsed
-                            (jf/bash-analyze-file-operations-recursive
-                             loop-body-parsed loop-context (1+ depth)))))
-            ;; Mark all loop operations with :loop-context metadata
-            (when loop-ops
-              (dolist (op loop-ops)
-                (plist-put op :loop-context t)
-                (plist-put op :loop-variable loop-var))
-              (setq operations (append operations loop-ops)))))))
-
-    ;; 7. Process conditional branches (if/then/else)
-    ;; Check if this is a conditional structure
-    (when (eq (plist-get parsed-command :type) :conditional)
-      (let ((conditional-ops (jf/bash--extract-conditional-context-operations
-                             parsed-command var-context (1+ depth))))
-        (setq operations (append operations conditional-ops))))
-
-    ;; 8. Process subshells with isolated context
-    ;; Subshells create isolated variable and directory contexts.
-    ;; Changes within subshell (cd, PWD=, variable assignments) do not affect parent.
-    (when (eq (plist-get parsed-command :type) :subshell)
-      (when-let ((subshell-body (plist-get parsed-command :subshell-body)))
-        (when (plist-get subshell-body :success)
-          ;; Create isolated context by copying var-context
-          ;; This ensures cd and PWD changes in subshell don't affect parent
-          (let ((isolated-context (copy-alist var-context)))
-            (let ((subshell-ops (jf/bash-analyze-file-operations-recursive
-                                subshell-body isolated-context (1+ depth))))
-              ;; Mark all subshell operations for tracing
-              (dolist (op subshell-ops)
-                (plist-put op :subshell-context t))
-              (setq operations (append operations subshell-ops)))))))
-
-    ;; 9. Post-process: Normalize dynamic file paths
-    ;; Handle multiple sources of dynamic content:
-    ;; - Heredoc + while loop: cat <<EOF | while read x; do op $x; done
-    ;; - Command substitutions in loops: cat $file > backup/$(basename $file)
-    ;; - Loop variables that resolve to patterns: for f in *.txt; do [ -f "$f" ]; done
-    (setq operations
-          (mapcar (lambda (op)
-                    (let ((file (plist-get op :file))
-                          (has-heredoc (plist-get op :heredoc-content))
-                          (in-loop (plist-get op :loop-context)))
-
-                      ;; Check if file path contains dynamic content
-                      (when file
-                        (let ((has-variables (string-match-p "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}" file))
-                              (has-cmd-subst (string-match-p "\\$([^)]+)\\|`[^`]+`" file)))
-
-                          ;; Normalize heredoc + variable paths
-                          (when (and has-heredoc has-variables)
-                            (plist-put op :loop-context t)
-                            (plist-put op :dynamic t)
-                            (let ((normalized (replace-regexp-in-string
-                                              "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}"
-                                              "{dynamic}"
-                                              file)))
-                              (plist-put op :file normalized)))
-
-                          ;; Normalize command substitutions in loop context
-                          (when (and in-loop has-cmd-subst)
-                            (plist-put op :dynamic t)
-                            (let ((normalized (replace-regexp-in-string
-                                              "\\$([^)]+)\\|`[^`]+`"
-                                              "{dynamic}"
-                                              file)))
-                              (plist-put op :file normalized))))))
-                    op)
-                  operations))
+        ;; 9. Post-process: Normalize dynamic file paths using helper
+        (setq operations (jf/bash--normalize-dynamic-paths operations))
 
         operations)
     (error (list :error (format "Recursive analysis error: %s" (error-message-string err))

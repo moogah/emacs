@@ -712,6 +712,110 @@ Example:
 
     operations))
 
+(defun jf/bash--resolve-target-indices (spec positional-args)
+  "Resolve index specification from SPEC to list of target indices.
+
+SPEC is operation specification plist with :index, :indices, or :skip-indices.
+POSITIONAL-ARGS is list of argument strings.
+
+Returns list of integer indices to process (0-based).
+
+Examples:
+  - :index 0 => (0)
+  - :index -1 => (2) for 3-arg list
+  - :indices (0 . -2) => (0 1) for 3-arg list
+  - :skip-indices (0) with all args => (1 2) for 3-arg list"
+  (let* ((index (plist-get spec :index))
+         (indices (plist-get spec :indices))
+         (skip-indices (plist-get spec :skip-indices))
+         (target-indices nil))
+
+    ;; Determine which positional arg indices to extract
+    (cond
+     ;; Single index specified
+     (index
+      (let ((resolved-idx (jf/bash--resolve-index index positional-args)))
+        (when resolved-idx
+          (setq target-indices (list resolved-idx)))))
+
+     ;; Range of indices specified
+     (indices
+      (setq target-indices (jf/bash--resolve-index-range indices positional-args)))
+
+     ;; No index specification - all positional args
+     (t
+      (setq target-indices (number-sequence 0 (1- (length positional-args))))))
+
+    ;; Filter out skip-indices
+    (when skip-indices
+      (setq target-indices (seq-remove (lambda (i) (member i skip-indices))
+                                      target-indices)))
+
+    target-indices))
+
+(defun jf/bash--build-file-operation (file-path operation command-name var-context index args)
+  "Build operation plist for FILE-PATH with OPERATION type.
+
+FILE-PATH is the positional argument (may contain variables).
+OPERATION is the operation type (:read, :write, :delete, etc.).
+COMMAND-NAME is the command performing the operation.
+VAR-CONTEXT is optional variable resolution context.
+INDEX is the positional index (used for :execute operations).
+ARGS is the original argument list (preserves flags and order).
+
+Returns operation plist or nil if path should be skipped.
+
+The function:
+1. Pre-resolves command substitutions ($(pwd), etc.)
+2. Skips unresolvable substitutions (for recursive processing)
+3. Resolves variables in path
+4. Extracts script-args for :execute operations
+5. Builds operation with proper confidence level"
+  ;; Pre-resolve command substitutions before checking for unresolvable patterns
+  ;; This allows $(pwd), $(basename $(pwd)), etc. to be statically resolved
+  (let ((cmd-resolved (if var-context
+                          (jf/bash-resolve-command-substitution file-path var-context)
+                        file-path)))
+    ;; Skip unresolvable command substitutions (marked with :unresolved or still containing $()
+    ;; These are processed recursively and handled by pattern flow operations
+    ;; Note: Deterministic commands are already resolved above, so won't be skipped
+    (unless (or (eq cmd-resolved :unresolved)
+                (and (stringp cmd-resolved) (string-match-p "\\$(" cmd-resolved)))
+      (let* ((resolved-path (jf/bash--resolve-path-variables cmd-resolved var-context))
+             ;; Extract path and unresolved metadata
+             (final-path (if (stringp resolved-path)
+                            resolved-path
+                          (plist-get resolved-path :path)))
+             (unresolved-vars (when (listp resolved-path)
+                               (plist-get resolved-path :unresolved)))
+             (has-pattern (jf/bash--has-glob-pattern-p final-path))
+             ;; Capture script arguments for execute operations at index 0
+             ;; Search for original (unresolved) file-path in args, not resolved path
+             ;; This handles cases like "python $SCRIPT arg1" where $SCRIPT resolves to "deploy.sh"
+             ;; but args still contains "$SCRIPT"
+             (script-args (when (and (eq operation :execute)
+                                    (eq index 0)
+                                    args)
+                           (let ((script-pos (cl-position file-path args :test #'equal)))
+                             (if script-pos
+                                 (nthcdr (1+ script-pos) args)
+                               '())))))
+        ;; Create operation plist
+        ;; Confidence degradation: operations with unresolved variables get :medium
+        ;; confidence instead of :high (security requirement - spec.md lines 196-199)
+        (append (list :file final-path
+                     :operation operation
+                     :confidence (if unresolved-vars :medium :high)
+                     :source :positional-arg
+                     :command command-name)
+               (when unresolved-vars
+                 (list :unresolved t :unresolved-vars unresolved-vars))
+               (when has-pattern
+                 (list :pattern t))
+               ;; Always include :script-args for execute operations
+               (when (eq operation :execute)
+                 (list :script-args (or script-args '()))))))))
+
 (defun jf/bash--extract-ops-from-positional-specs (op-specs positional-args command-name var-context &optional args)
   "Apply OP-SPECS to POSITIONAL-ARGS to extract file operations.
 
@@ -734,80 +838,17 @@ Operation spec format:
       (when (eq (plist-get spec :source) :positional-args)
         (let* ((operation (plist-get spec :operation))
                (index (plist-get spec :index))
-               (indices (plist-get spec :indices))
-               (skip-indices (plist-get spec :skip-indices))
-               (target-indices nil))
-
-          ;; Determine which positional arg indices to extract
-          (cond
-           ;; Single index specified
-           (index
-            (let ((resolved-idx (jf/bash--resolve-index index positional-args)))
-              (when resolved-idx
-                (setq target-indices (list resolved-idx)))))
-
-           ;; Range of indices specified
-           (indices
-            (setq target-indices (jf/bash--resolve-index-range indices positional-args)))
-
-           ;; No index specification - all positional args
-           (t
-            (setq target-indices (number-sequence 0 (1- (length positional-args))))))
-
-          ;; Filter out skip-indices
-          (when skip-indices
-            (setq target-indices (seq-remove (lambda (i) (member i skip-indices))
-                                            target-indices)))
+               ;; Resolve target indices using helper
+               (target-indices (jf/bash--resolve-target-indices spec positional-args)))
 
           ;; Extract file paths at target indices
           (dolist (idx target-indices)
             (when (and (>= idx 0) (< idx (length positional-args)))
-              (let* ((file-path (nth idx positional-args))
-                     ;; Pre-resolve command substitutions before checking for unresolvable patterns
-                     ;; This allows $(pwd), $(basename $(pwd)), etc. to be statically resolved
-                     (cmd-resolved (if var-context
-                                       (jf/bash-resolve-command-substitution file-path var-context)
-                                     file-path)))
-                ;; Skip unresolvable command substitutions (marked with :unresolved or still containing $()
-                ;; These are processed recursively and handled by pattern flow operations
-                ;; Note: Deterministic commands are already resolved above, so won't be skipped
-                (unless (or (eq cmd-resolved :unresolved)
-                            (and (stringp cmd-resolved) (string-match-p "\\$(" cmd-resolved)))
-                  (let* ((resolved-path (jf/bash--resolve-path-variables cmd-resolved var-context))
-                         ;; Extract path and unresolved metadata
-                         (final-path (if (stringp resolved-path)
-                                        resolved-path
-                                      (plist-get resolved-path :path)))
-                         (unresolved-vars (when (listp resolved-path)
-                                           (plist-get resolved-path :unresolved)))
-                         (has-pattern (jf/bash--has-glob-pattern-p final-path))
-                         ;; Capture script arguments for execute operations at index 0
-                         ;; Search for original (unresolved) file-path in args, not resolved path
-                         ;; This handles cases like "python $SCRIPT arg1" where $SCRIPT resolves to "deploy.sh"
-                         ;; but args still contains "$SCRIPT"
-                         (script-args (when (and (eq operation :execute)
-                                                (eq index 0)
-                                                args)
-                                       (let ((script-pos (cl-position file-path args :test #'equal)))
-                                         (if script-pos
-                                             (nthcdr (1+ script-pos) args)
-                                           '())))))
-                    ;; Create operation plist
-                    ;; Confidence degradation: operations with unresolved variables get :medium
-                    ;; confidence instead of :high (security requirement - spec.md lines 196-199)
-                    (push (append (list :file final-path
-                                       :operation operation
-                                       :confidence (if unresolved-vars :medium :high)
-                                       :source :positional-arg
-                                       :command command-name)
-                                 (when unresolved-vars
-                                   (list :unresolved t :unresolved-vars unresolved-vars))
-                                 (when has-pattern
-                                   (list :pattern t))
-                                 ;; Always include :script-args for execute operations
-                                 (when (eq operation :execute)
-                                   (list :script-args (or script-args '()))))
-                          operations)))))))))
+              (let ((file-path (nth idx positional-args)))
+                ;; Build operation using helper (handles all resolution and metadata)
+                (when-let ((op (jf/bash--build-file-operation
+                              file-path operation command-name var-context index args)))
+                  (push op operations))))))))
 
     ;; Validate all operations before returning
     (let ((result (nreverse operations)))
