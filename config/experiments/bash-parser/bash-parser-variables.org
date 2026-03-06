@@ -564,7 +564,8 @@ like find, ls, or which cannot be statically evaluated and return :unresolved."
 
       ;; Match $(command args...) or `command args...`
       ;; Process one substitution at a time (innermost first for nested cases)
-      ;; Use non-greedy match [^)$]+ to stop at nested $( and avoid matching outer substitution
+      ;; Pattern [^)$]+ stops at first ) or $, matching innermost substitution
+      ;; Nested support comes from the loop (lines 561-636), not the regex
       (when (string-match "\\$([^)$]+)\\|`[^`]+`" result)
         (let* ((match-start (match-beginning 0))
                (match-end (match-end 0))
