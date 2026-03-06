@@ -208,7 +208,7 @@ Check if bash-parser has specific features enabled.
 
 Features:
   :recursive-analysis - Recursive semantic analysis
-  :pattern-flow - Pattern flow tracking through substitutions
+  :pattern-flow - Pattern flow tracking through substitutions (in recursive module)
   :loop-context - Loop variable binding and context tracking
   :conditional-context - Conditional branch context tracking
   :heredoc-context - Heredoc context disambiguation
@@ -216,7 +216,7 @@ Features:
 Returns t if feature is available, nil otherwise."
   (pcase feature
     (:recursive-analysis (fboundp 'jf/bash-analyze-file-operations-recursive))
-    (:pattern-flow (fboundp 'jf/bash--extract-pattern-flow-operations))
+    (:pattern-flow (fboundp 'jf/bash-analyze-file-operations-recursive))
     (:loop-context (fboundp 'jf/bash--resolve-loop-variable))
     (:conditional-context (fboundp 'jf/bash--extract-file-test-operations))
     (:heredoc-context (fboundp 'jf/bash--determine-heredoc-context))
@@ -313,105 +313,6 @@ like 'PWD=/path cmd' only affect that specific command."
                       (push indirect-op operations))))))))
 
         operations))))
-#+end_src
-
-*** Extract Pattern Flow Operations
-
-Create operations for outer commands consuming patterns from substitutions.
-
-#+begin_src emacs-lisp
-(defun jf/bash--extract-pattern-flow-operations (parsed-command substitution-patterns var-context)
-  "Create operations for outer command consuming pattern from substitution.
-
-PARSED-COMMAND: Top-level parsed command containing substitution
-SUBSTITUTION-PATTERNS: List of patterns produced by substitutions
-  Each element is a plist with:
-    :substitution-content - Original $(command) string
-    :pattern - File pattern from command (e.g. '*.log')
-    :search-scope - Directory being searched (e.g. '.')
-    :command - Command that produced pattern (e.g. 'find')
-VAR-CONTEXT: Variable bindings
-
-Returns list of operations for outer command operating on substitution patterns."
-  (let ((operations nil)
-        (command-name (plist-get parsed-command :command-name))
-        (positional-args (plist-get parsed-command :positional-args)))
-
-    ;; For each positional arg containing a substitution
-    (dolist (arg positional-args)
-      (when (and arg (string-prefix-p "$(" arg))
-        ;; Find matching substitution pattern
-        (when-let ((pattern-info (seq-find
-                                  (lambda (p)
-                                    (string-match-p
-                                     (regexp-quote (plist-get p :substitution-content))
-                                     arg))
-                                  substitution-patterns)))
-          ;; Create operation using pattern instead of literal
-          (let* ((pattern (plist-get pattern-info :pattern))
-                 (operation (jf/bash--infer-operation-from-command
-                            command-name pattern)))
-            ;; Only create operation if command actually operates on files
-            (when (and pattern operation)
-              (push (list :file pattern
-                         :operation operation
-                         :confidence :high
-                         :source :positional-arg
-                         :command command-name
-                         :pattern t
-                         :from-substitution t
-                         :pattern-source pattern-info)
-                    operations))))))
-
-    (nreverse operations)))
-#+end_src
-
-*** Helper: Infer Operation From Command
-
-Helper function to infer file operation type from command name and file context.
-
-#+begin_src emacs-lisp
-(defun jf/bash--infer-operation-from-command (command-name file-path)
-  "Infer operation type from COMMAND-NAME and FILE-PATH context.
-
-Returns operation type symbol (:read, :write, :delete, :modify) based on
-common command semantics. This is used for pattern flow when we need to
-determine what operation the outer command performs on the pattern.
-
-Returns nil for commands that don't operate on files (echo, printf, etc).
-
-Examples:
-  (jf/bash--infer-operation-from-command \"cat\" \"*.log\")    => :read
-  (jf/bash--infer-operation-from-command \"rm\" \"*.tmp\")     => :delete
-  (jf/bash--infer-operation-from-command \"chmod\" \"*.sh\")   => :modify
-  (jf/bash--infer-operation-from-command \"echo\" \"*.log\")   => nil"
-  (when (and command-name
-             ;; Don't try to intern assignment strings like "DIR=/tmp"
-             (not (string-match-p "=" command-name)))
-    (let ((cmd (intern command-name)))
-      (cond
-       ;; Read operations
-       ((memq cmd '(cat head tail less more grep egrep fgrep wc file stat))
-        :read)
-
-       ;; Write operations
-       ((memq cmd '(cp mv tee))
-        :write)
-
-       ;; Delete operations
-       ((memq cmd '(rm rmdir))
-        :delete)
-
-       ;; Modify operations
-       ((memq cmd '(chmod chown chgrp))
-        :modify)
-
-       ;; Commands that don't operate on files - no pattern flow
-       ((memq cmd '(echo printf))
-        nil)
-
-       ;; Unknown commands - no pattern flow
-       (t nil)))))
 #+end_src
 
 *** Deduplicate Operations
