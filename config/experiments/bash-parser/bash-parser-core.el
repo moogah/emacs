@@ -583,16 +583,19 @@ Returns same structure as jf/bash-parse--handle-conditional but works with node 
 
 (defun jf/bash-parse--get-all-command-nodes (container-node)
   "Get all command nodes from CONTAINER-NODE (pipeline or list).
-Returns command, redirected_statement, variable_assignment, for_statement, or if_statement nodes.
-Only collects top-level commands - does not descend into command substitutions or statement bodies."
+Returns command, redirected_statement, variable_assignment, for_statement, if_statement, or subshell nodes.
+Only collects top-level commands - does not descend into command substitutions, arithmetic expansions, or statement bodies."
   (let ((commands '()))
     (jf/bash-parse--visit-node
      container-node
      (lambda (node)
        (let ((node-type (treesit-node-type node)))
          (cond
-          ;; Skip command substitutions - don't collect nested commands
-          ((string= node-type "command_substitution")
+          ;; Skip command substitutions and arithmetic expansions - don't collect nested commands
+          ;; command_substitution is $(...) or `...`
+          ;; arithmetic_expansion is $((...))
+          ((or (string= node-type "command_substitution")
+               (string= node-type "arithmetic_expansion"))
            :skip-children)
           ;; Collect control flow statements and skip their children
           ;; (to avoid descending into loop/conditional bodies)
@@ -603,6 +606,12 @@ Only collects top-level commands - does not descend into command substitutions o
           ;; Collect redirected_statement nodes and skip their children
           ;; (the nested command node would be a duplicate)
           ((string= node-type "redirected_statement")
+           (push node commands)
+           :skip-children)
+          ;; Collect subshell nodes and skip their children
+          ;; Subshells are (command) and need isolated context
+          ;; NOTE: Must distinguish from command_substitution $(...) and arithmetic_expansion $((...))
+          ((string= node-type "subshell")
            (push node commands)
            :skip-children)
           ;; Collect command and variable_assignment nodes
@@ -823,15 +832,15 @@ Returns nesting level starting from 1 for outermost substitution."
     level))
 
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
-  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, variable_assignment, for_statement, or if_statement.
+  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, variable_assignment, for_statement, if_statement, or subshell.
 Returns command structure with optional :redirections and :command-substitutions fields."
   (let ((command-node nil)
         (redirections nil)
         (command-substitutions nil)
         (node-type (treesit-node-type command-or-statement-node)))
 
-    ;; Handle control flow statements by creating a temporary root node and calling appropriate handler
-    ;; This allows for_statement and if_statement nodes to be parsed correctly when found in chains
+    ;; Handle control flow statements and subshells by creating appropriate structures
+    ;; This allows for_statement, if_statement, and subshell nodes to be parsed correctly when found in chains
     (cond
      ((string= node-type "for_statement")
       ;; Create a wrapper program node and call the for-loop handler
@@ -844,6 +853,22 @@ Returns command structure with optional :redirections and :command-substitutions
       (let ((result (jf/bash-parse--handle-conditional-node command-or-statement-node)))
         ;; Return the result structure (already complete from handler)
         result))
+
+     ((string= node-type "subshell")
+      ;; Parse subshell: (command)
+      ;; Extract content between parentheses and recursively parse
+      ;; NOTE: This is distinct from command_substitution $(...) and arithmetic_expansion $((...))
+      (let* ((subshell-text (treesit-node-text command-or-statement-node t))
+             ;; Extract content between parentheses
+             (inner-text (when (string-match "^(\\(.*\\))$" subshell-text)
+                          (match-string 1 subshell-text)))
+             ;; Recursively parse the content
+             (parsed-body (when inner-text
+                           (jf/bash-parse inner-text))))
+        ;; Return as subshell type for recursive handler to process with isolated context
+        (list :success t
+              :type :subshell
+              :subshell-body parsed-body)))
 
      ;; Normal command/statement processing
      (t

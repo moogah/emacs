@@ -426,7 +426,6 @@ Implemented by bead emacs-6xjh: Directory stack tracking for pushd/popd."
 SECURITY: cd in subshell must NOT affect parent context.
          sub.txt → /subdir/sub.txt
          main.txt → (original PWD)/main.txt"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "(cd /subdir && cat sub.txt) && cat main.txt"))
          (var-context '((PWD . "/base")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
@@ -446,7 +445,6 @@ SECURITY: cd in subshell must NOT affect parent context.
   "Test (PWD=/sub && cat sub.txt) && cat main.txt
 
 SECURITY: PWD assignment in subshell isolated from parent."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "(PWD=/sub && cat sub.txt) && cat main.txt"))
          (var-context '((PWD . "/base")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
