@@ -56,13 +56,14 @@ Example:
       (:file \"*.log\" :operation :match-pattern :from-substitution t ...)
       ;; Operation from cat (with pattern flow)
       (:file \"*.log\" :operation :read :pattern-source (:command \"find\" ...) ...))"
-  (let ((depth (or depth 0))
-        (operations nil)
-        (substitution-patterns nil))  ; Track patterns from substitutions
+  (condition-case err
+      (let ((depth (or depth 0))
+            (operations nil)
+            (substitution-patterns nil))  ; Track patterns from substitutions
 
-    ;; Depth check - prevent infinite recursion
-    (when (>= depth jf/bash-recursive-max-depth)
-      (error "Max recursion depth exceeded in semantic analysis"))
+        ;; Depth check - prevent infinite recursion
+        (when (>= depth jf/bash-recursive-max-depth)
+          (error "Max recursion depth exceeded in semantic analysis"))
 
     ;; 1. Extract operations from this command level
     ;; This requires bash-parser-file-ops to be loaded
@@ -305,7 +306,9 @@ Example:
                     op)
                   operations))
 
-    operations))
+        operations)
+    (error (list :error (format "Recursive analysis error: %s" (error-message-string err))
+                 :success nil))))
 
 (defun jf/bash--extract-conditional-context-operations (parsed-conditional var-context depth)
   "Extract file operations from PARSED-CONDITIONAL with context tracking.

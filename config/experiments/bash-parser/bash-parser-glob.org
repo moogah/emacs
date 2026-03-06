@@ -284,9 +284,14 @@ Examples:
     => nil
 
 Returns t if PATH matches PATTERN, nil otherwise."
-  (let ((path-segments (split-string path "/" t))
-        (pattern-segments (split-string pattern "/" t)))
-    (jf/bash--match-segments path-segments pattern-segments)))
+  (condition-case err
+      (let ((path-segments (split-string path "/" t))
+            (pattern-segments (split-string pattern "/" t)))
+        (jf/bash--match-segments path-segments pattern-segments))
+    (error
+     ;; On error, return nil (no match)
+     ;; Errors typically indicate malformed patterns or internal bugs
+     nil)))
 #+end_src
 
 * Provide
