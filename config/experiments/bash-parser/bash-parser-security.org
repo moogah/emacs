@@ -237,6 +237,8 @@ Returns nil if allowed, or a violation plist if denied.
 OPERATION is a plist with :file and :operation keys.
 MATCHED-RULE is a rule plist from `jf/bash-match-rule', or nil.
 
+Special case: If :operations is the symbol :all, all operation types are allowed.
+
 Denial conditions:
   1. No rule matched (path not in allowlist)
   2. Rule's :operations is not :all AND operation type not in list

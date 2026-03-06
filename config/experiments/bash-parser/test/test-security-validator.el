@@ -198,6 +198,26 @@ Test that when all operation types are in rule, any operation is allowed."
     (should (plist-get (jf/bash-sandbox-check "rm /workspace/f.txt" rules) :allowed))
     (should (plist-get (jf/bash-sandbox-check "touch /workspace/f.txt" rules) :allowed))))
 
+(ert-deftest test-security-all-operations-wildcard ()
+  "Scenario: bash-sandbox-security § 'Rule with :all allows any operation'
+
+Test that :operations :all allows all operation types."
+  (let ((rules '((:patterns ("/workspace/**") :operations :all))))
+    (should (plist-get (jf/bash-sandbox-check "cat /workspace/f.txt" rules) :allowed))
+    (should (plist-get (jf/bash-sandbox-check "echo x > /workspace/f.txt" rules) :allowed))
+    (should (plist-get (jf/bash-sandbox-check "rm /workspace/f.txt" rules) :allowed))
+    (should (plist-get (jf/bash-sandbox-check "touch /workspace/f.txt" rules) :allowed))))
+
+(ert-deftest test-security-all-vs-explicit-list ()
+  "Scenario: bash-sandbox-security § ':all is equivalent to explicit list'
+
+Test that :all behaves identically to explicit operation list."
+  (let ((rules-all '((:patterns ("/workspace/**") :operations :all)))
+        (rules-explicit '((:patterns ("/workspace/**")
+                            :operations (:read :write :delete :modify :create)))))
+    (should (equal (plist-get (jf/bash-sandbox-check "cat /workspace/f.txt" rules-all) :allowed)
+                  (plist-get (jf/bash-sandbox-check "cat /workspace/f.txt" rules-explicit) :allowed)))))
+
 ;;; Rule Matching Priority Tests
 
 (ert-deftest test-security-first-matching-rule-applies ()
