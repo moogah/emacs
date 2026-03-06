@@ -495,6 +495,107 @@ Examples:
            (string-prefix-p "../" command-name))))
 #+end_src
 
+*** Semantics Database Validation
+
+Validate semantics database entries to catch malformed operation specs early.
+
+#+begin_src emacs-lisp
+(defun jf/bash--validate-semantics-entry (command-name semantics)
+  "Validate SEMANTICS entry for COMMAND-NAME from semantics database.
+
+COMMAND-NAME is the command symbol being validated.
+SEMANTICS is the semantics plist from the database.
+
+Validates:
+  - :operations field is one of: list, :complex, :flag-dependent, :custom
+  - For list specs: validate each operation spec has required fields
+  - For :complex: validate :subcommand-handlers exists and is alist
+  - For :flag-dependent: validate :flag-handlers exists and is list
+  - For :custom: validate :handler exists and is symbol
+
+Signals error with descriptive message if validation fails.
+Returns t if valid.
+
+This validation catches malformed database entries early (at extraction time)
+instead of allowing cryptic downstream errors. Since the semantics database
+is manually curated, validation helps catch typos and structural errors.
+
+Examples:
+  Valid simple command:
+    (jf/bash--validate-semantics-entry
+      'cat '(:operations ((:source :positional-args :operation :read))))
+    => t
+
+  Valid complex command:
+    (jf/bash--validate-semantics-entry
+      'git '(:operations :complex
+             :subcommand-handlers ((add . (...)))))
+    => t
+
+  Invalid - missing :subcommand-handlers:
+    (jf/bash--validate-semantics-entry
+      'git '(:operations :complex))
+    => error: Complex command git missing required :subcommand-handlers
+
+  Invalid - malformed operation spec:
+    (jf/bash--validate-semantics-entry
+      'cat '(:operations ((:source :positional-args))))
+    => error: Operation spec missing required :operation field"
+  (let ((ops-spec (plist-get semantics :operations)))
+    (cond
+     ;; List of operation specs
+     ((listp ops-spec)
+      ;; Validate each operation spec in the list
+      (dolist (spec ops-spec)
+        (unless (plistp spec)
+          (error "Semantics validation failed for %s: Operation spec is not a plist: %S"
+                 command-name spec))
+        ;; Check required fields
+        (unless (plist-get spec :source)
+          (error "Semantics validation failed for %s: Operation spec missing required :source field: %S"
+                 command-name spec))
+        (unless (plist-get spec :operation)
+          (error "Semantics validation failed for %s: Operation spec missing required :operation field: %S"
+                 command-name spec))))
+
+     ;; Complex command (git, docker, etc.)
+     ((eq ops-spec :complex)
+      (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
+        (unless subcommand-handlers
+          (error "Semantics validation failed for %s: Complex command missing required :subcommand-handlers field"
+                 command-name))
+        (unless (listp subcommand-handlers)
+          (error "Semantics validation failed for %s: :subcommand-handlers must be an alist, got: %S"
+                 command-name subcommand-handlers))))
+
+     ;; Flag-dependent command (tar, sed, etc.)
+     ((eq ops-spec :flag-dependent)
+      (let ((flag-handlers (plist-get semantics :flag-handlers)))
+        (unless flag-handlers
+          (error "Semantics validation failed for %s: Flag-dependent command missing required :flag-handlers field"
+                 command-name))
+        (unless (listp flag-handlers)
+          (error "Semantics validation failed for %s: :flag-handlers must be a list, got: %S"
+                 command-name flag-handlers))))
+
+     ;; Custom handler
+     ((eq ops-spec :custom)
+      (let ((handler (plist-get semantics :handler)))
+        (unless handler
+          (error "Semantics validation failed for %s: Custom command missing required :handler field"
+                 command-name))
+        (unless (symbolp handler)
+          (error "Semantics validation failed for %s: :handler must be a symbol, got: %S"
+                 command-name handler))))
+
+     ;; Invalid operations spec type
+     (t
+      (error "Semantics validation failed for %s: :operations must be a list, :complex, :flag-dependent, or :custom, got: %S"
+             command-name ops-spec)))
+
+    t))
+#+end_src
+
 *** Stub for Positional Args Extraction
 
 This function will be implemented by bead emacs-dm41. Provide stub for now.
@@ -553,7 +654,17 @@ Example:
     (when (and command-name positional-args)
       (let ((semantics (jf/bash-lookup-command-semantics command-name)))
         (when semantics
-          (let ((ops-spec (plist-get semantics :operations)))
+          ;; Validate semantics entry (fail fast with clear errors)
+          (condition-case err
+              (jf/bash--validate-semantics-entry (intern command-name) semantics)
+            (error
+             ;; Log validation error instead of crashing
+             (message "Warning: Semantics validation failed for command %s: %s"
+                      command-name (error-message-string err))
+             ;; Return early with empty operations
+             (setq semantics nil)))
+          (when semantics
+            (let ((ops-spec (plist-get semantics :operations)))
             (cond
              ;; Complex command (git, docker, etc.) - handle subcommand
              ((eq ops-spec :complex)
@@ -599,7 +710,7 @@ Example:
              ((listp ops-spec)
               (setq operations
                     (jf/bash--extract-ops-from-positional-specs
-                     ops-spec positional-args command-name var-context args))))))))
+                     ops-spec positional-args command-name var-context args)))))))))
 
     operations))
 #+end_src
