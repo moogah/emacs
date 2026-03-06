@@ -260,33 +260,33 @@ Test that literal dots in patterns are matched as dots, not regex wildcards."
   "Scenario: bash-sandbox-security § 'Asterisk to regex'
 
 Test conversion of * to regex pattern."
-  (should (string-match-p (jf/bash--glob-to-regex "file*") "file"))
-  (should (string-match-p (jf/bash--glob-to-regex "file*") "filename"))
-  (should (string-match-p (jf/bash--glob-to-regex "file*") "file.txt")))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file*") "file"))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file*") "filename"))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file*") "file.txt")))
 
 (ert-deftest test-glob-to-regex-question ()
   "Scenario: bash-sandbox-security § 'Question mark to regex'
 
 Test conversion of ? to regex pattern."
-  (should (string-match-p (jf/bash--glob-to-regex "file?") "file1"))
-  (should (string-match-p (jf/bash--glob-to-regex "file?") "fileA"))
-  (should-not (string-match-p (jf/bash--glob-to-regex "file?") "file")))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file?") "file1"))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file?") "fileA"))
+  (should-not (string-match-p (jf/bash--glob-segment-to-regex "file?") "file")))
 
 (ert-deftest test-glob-to-regex-character-class ()
   "Scenario: bash-sandbox-security § 'Character class preserved'
 
 Test that character classes are preserved in regex conversion."
-  (should (string-match-p (jf/bash--glob-to-regex "file[abc]") "filea"))
-  (should (string-match-p (jf/bash--glob-to-regex "file[abc]") "fileb"))
-  (should-not (string-match-p (jf/bash--glob-to-regex "file[abc]") "filed")))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file[abc]") "filea"))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file[abc]") "fileb"))
+  (should-not (string-match-p (jf/bash--glob-segment-to-regex "file[abc]") "filed")))
 
 (ert-deftest test-glob-to-regex-escapes-special-chars ()
   "Scenario: bash-sandbox-security § 'Escape special regex characters'
 
 Test that regex special characters are properly escaped."
-  (should (string-match-p (jf/bash--glob-to-regex "file.txt") "file.txt"))
-  (should-not (string-match-p (jf/bash--glob-to-regex "file.txt") "filextxt"))
-  (should (string-match-p (jf/bash--glob-to-regex "file+name") "file+name")))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file.txt") "file.txt"))
+  (should-not (string-match-p (jf/bash--glob-segment-to-regex "file.txt") "filextxt"))
+  (should (string-match-p (jf/bash--glob-segment-to-regex "file+name") "file+name")))
 
 (provide 'test-glob-matching)
 ;;; test-glob-matching.el ends here
