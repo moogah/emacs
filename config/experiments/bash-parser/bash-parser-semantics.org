@@ -162,6 +162,16 @@ Setup lexical binding.
     (zsh . (:operations :flag-dependent
             :flag-handlers ((("-c") . ())  ; -c executes inline code, no file operation
                            (() . ((:source :positional-args :operation :execute :index 0))))))
+    (ruby . (:operations :flag-dependent
+             :flag-handlers ((("-e") . ())  ; -e executes inline code, no file operation
+                            (() . ((:source :positional-args :operation :execute :index 0))))))
+    (perl . (:operations :flag-dependent
+             :flag-handlers ((("-e" "-E") . ())  ; -e/-E execute inline code, no file operation
+                            (() . ((:source :positional-args :operation :execute :index 0))))))
+    (php . (:operations :flag-dependent
+            :flag-handlers ((("-r") . ())  ; -r executes inline code, no file operation
+                           (() . ((:source :positional-args :operation :execute :index 0))))))
+    (exec . (:operations ((:source :positional-args :operation :execute :index 0))))
     (source . (:operations ((:source :positional-args :operation :execute :index 0))))
     (\. . (:operations ((:source :positional-args :operation :execute :index 0))))
     (go . (:operations :complex

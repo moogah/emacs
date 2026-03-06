@@ -558,6 +558,61 @@
     (should (eq (plist-get op :operation) :execute))
     (should (= (plist-get op :index) 0))))
 
+(ert-deftest test-semantics-ruby-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - ruby interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "ruby"))
+         (ops-spec (plist-get result :operations)))
+    (should result)
+    ;; Ruby is flag-dependent to handle -e flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (eq (plist-get op :source) :positional-args))
+      (should (= (plist-get op :index) 0)))))
+
+(ert-deftest test-semantics-perl-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - perl interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "perl"))
+         (ops-spec (plist-get result :operations)))
+    (should result)
+    ;; Perl is flag-dependent to handle -e/-E flags
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (eq (plist-get op :source) :positional-args))
+      (should (= (plist-get op :index) 0)))))
+
+(ert-deftest test-semantics-php-interpreter ()
+  "Scenario: bash-command-semantics § 'Script execution' - php interpreter"
+  (let* ((result (jf/bash-lookup-command-semantics "php"))
+         (ops-spec (plist-get result :operations)))
+    (should result)
+    ;; PHP is flag-dependent to handle -r flag
+    (should (eq ops-spec :flag-dependent))
+    (let* ((flag-handlers (plist-get result :flag-handlers))
+           ;; Get the default handler (nil trigger, last in list)
+           (default-handler (cdr (car (last flag-handlers))))
+           (op (car default-handler)))
+      (should (eq (plist-get op :operation) :execute))
+      (should (eq (plist-get op :source) :positional-args))
+      (should (= (plist-get op :index) 0)))))
+
+(ert-deftest test-semantics-exec-builtin ()
+  "Scenario: bash-command-semantics § 'Script execution' - exec builtin"
+  (let* ((result (jf/bash-lookup-command-semantics "exec"))
+         (ops (plist-get result :operations))
+         (op (car ops)))
+    (should result)
+    (should (eq (plist-get op :operation) :execute))
+    (should (eq (plist-get op :source) :positional-args))
+    (should (= (plist-get op :index) 0))))
+
 ;;; Go Subcommands
 
 (ert-deftest test-semantics-go-run-subcommand ()
