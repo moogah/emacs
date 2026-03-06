@@ -36,6 +36,32 @@ variables tracked in operation metadata.
 (require 'cl-lib)
 #+end_src
 
+* Valid Operation Types
+
+All valid operation types recognized by the file operations extractor.
+
+#+begin_src emacs-lisp
+(defconst jf/bash-valid-operation-types
+  '(:read :write :delete :modify :create :create-or-modify :append
+    :match-pattern :read-directory :read-metadata :execute)
+  "Valid operation types for bash file operations.
+
+These operation types correspond to the semantic categories in the
+command semantics database:
+
+  :read             - Read file contents
+  :write            - Write/create file (overwrites)
+  :append           - Append to file
+  :delete           - Delete file
+  :modify           - Modify file metadata or contents in-place
+  :create           - Create new file/directory (mkdir)
+  :create-or-modify - Create file or update timestamp (touch)
+  :match-pattern    - Match files against pattern (find, grep -l)
+  :read-directory   - Read directory contents (ls, find search path)
+  :read-metadata    - Read file metadata (which, dirname)
+  :execute          - Execute file as script/binary")
+#+end_src
+
 * File Operations Extraction
 
 Extract file operations from parsed bash command structures with high confidence.
@@ -194,8 +220,85 @@ Examples:
     (require 'bash-parser-recursive)
     (let ((all-ops (jf/bash-analyze-file-operations-recursive
                    parsed-command context 0)))
+      ;; Validate all operations before returning
+      (dolist (op all-ops)
+        (jf/bash--validate-operation-type op))
       ;; Deduplicate and return
       (jf/bash--deduplicate-operations all-ops))))
+#+end_src
+
+** Operation Validation
+
+Validate that operation plists have correct structure and valid operation types.
+
+#+begin_src emacs-lisp
+(defun jf/bash--validate-operation-type (operation)
+  "Validate that OPERATION plist has valid structure and operation type.
+
+OPERATION is a plist that should contain:
+  :operation - Must be one of the valid operation types (required)
+  :file      - File path (required)
+  :confidence - Confidence level (required)
+  :source    - Source of operation (required)
+  :command   - Command name (required for most sources, optional for test-expression/loop-glob/command-name)
+
+Returns t if valid, signals error with helpful message if invalid.
+
+This validation ensures data integrity at extraction boundaries and
+makes debugging easier by catching malformed entries early.
+
+The :command field is optional for certain non-command sources:
+  - :test-expression (conditional tests like [ -f file ])
+  - :loop-glob (for loop glob patterns)
+  - :command-name (self-executing paths like ./script.sh)
+
+Examples:
+  Valid operation with command:
+    (:file \"foo.txt\" :operation :read :confidence :high
+     :source :positional-arg :command \"cat\")
+    => t
+
+  Valid operation without command (test):
+    (:file \"foo.txt\" :operation :read-metadata :confidence :high
+     :source :test-expression :test-operator \"-f\")
+    => t
+
+  Invalid operation type:
+    (:file \"foo.txt\" :operation :invalid :confidence :high
+     :source :positional-arg :command \"cat\")
+    => error: Invalid operation type :invalid
+
+  Missing required field:
+    (:file \"foo.txt\" :operation :read)
+    => error: Missing required field :confidence"
+  (let ((op-type (plist-get operation :operation))
+        (file (plist-get operation :file))
+        (confidence (plist-get operation :confidence))
+        (source (plist-get operation :source))
+        (command (plist-get operation :command)))
+
+    ;; Check required fields are present
+    (unless file
+      (error "Operation validation failed: Missing required field :file in operation: %S" operation))
+    (unless op-type
+      (error "Operation validation failed: Missing required field :operation in operation: %S" operation))
+    (unless confidence
+      (error "Operation validation failed: Missing required field :confidence in operation: %S" operation))
+    (unless source
+      (error "Operation validation failed: Missing required field :source in operation: %S" operation))
+
+    ;; Check :command field is present for sources that require it
+    ;; Optional for: :test-expression, :loop-glob, :command-name (self-executing paths)
+    (unless (or command
+                (memq source '(:test-expression :loop-glob :command-name)))
+      (error "Operation validation failed: Missing required field :command in operation: %S" operation))
+
+    ;; Check operation type is valid
+    (unless (memq op-type jf/bash-valid-operation-types)
+      (error "Operation validation failed: Invalid operation type %S. Valid types: %S"
+             op-type jf/bash-valid-operation-types))
+
+    t))
 #+end_src
 
 ** Feature Detection
@@ -311,6 +414,10 @@ like 'PWD=/path cmd' only affect that specific command."
                     (let ((indirect-op (copy-sequence op)))
                       (plist-put indirect-op :indirect t)
                       (push indirect-op operations))))))))
+
+        ;; Validate all operations before returning
+        (dolist (op operations)
+          (jf/bash--validate-operation-type op))
 
         operations))))
 #+end_src
@@ -584,7 +691,11 @@ Operation spec format:
                                    (list :script-args (or script-args '()))))
                           operations)))))))))
 
-    (nreverse operations)))
+    ;; Validate all operations before returning
+    (let ((result (nreverse operations)))
+      (dolist (op result)
+        (jf/bash--validate-operation-type op))
+      result)))
 #+end_src
 
 *** Helper: Resolve Index
@@ -764,7 +875,7 @@ VAR-CONTEXT is an optional alist mapping variable names (symbols) to values (str
 Returns list of operation plists:
   (:file \"path\" :operation :read/:write/:append
    :confidence :high :source :redirection
-   :metadata (:operator \">\" :descriptor nil ...))
+   :command \"cmd\" :metadata (:operator \">\" :descriptor nil ...))
 
 For paths with variable references:
   - Resolved variables: Returns simple path string
@@ -778,25 +889,25 @@ Examples:
     (jf/bash-parse \"cat file.txt > output.txt\")
     nil)
   => ((:file \"output.txt\" :operation :write :confidence :high
-       :source :redirection :metadata (...)))
+       :command \"cat\" :source :redirection :metadata (...)))
 
   (jf/bash-extract-operations-from-redirections
     (jf/bash-parse \"cmd >> log.txt\")
     nil)
   => ((:file \"log.txt\" :operation :append :confidence :high
-       :source :redirection :metadata (...)))
+       :command \"cmd\" :source :redirection :metadata (...)))
 
   (jf/bash-extract-operations-from-redirections
     (jf/bash-parse \"cat < input.txt\")
     nil)
   => ((:file \"input.txt\" :operation :read :confidence :high
-       :source :redirection :metadata (...)))
+       :command \"cat\" :source :redirection :metadata (...)))
 
   (jf/bash-extract-operations-from-redirections
     (jf/bash-parse \"cmd > $OUTFILE\")
     '((OUTFILE . \"/workspace/output.txt\")))
   => ((:file \"/workspace/output.txt\" :operation :write :confidence :high
-       :source :redirection :metadata (...)))"
+       :command \"cmd\" :source :redirection :metadata (...)))"
   (let ((operations nil))
     ;; Handle different command types
     (let ((command-type (plist-get parsed-command :type))
@@ -805,22 +916,25 @@ Examples:
       (cond
        ;; Simple command: check for redirections
        ((eq command-type :simple)
-        (when-let ((redirections (plist-get parsed-command :redirections)))
-          (setq operations (jf/bash--extract-ops-from-redirect-list redirections var-context))))
+        (when-let ((redirections (plist-get parsed-command :redirections))
+                   (command-name (plist-get parsed-command :command-name)))
+          (setq operations (jf/bash--extract-ops-from-redirect-list redirections command-name var-context))))
 
        ;; Pipeline or chain: process each command's redirections
        ((or (eq command-type :pipeline) (eq command-type :chain))
         (dolist (cmd all-commands)
-          (when-let ((redirections (plist-get cmd :redirections)))
+          (when-let ((redirections (plist-get cmd :redirections))
+                     (command-name (plist-get cmd :command-name)))
             (setq operations
                   (append operations
-                         (jf/bash--extract-ops-from-redirect-list redirections var-context))))))
+                         (jf/bash--extract-ops-from-redirect-list redirections command-name var-context))))))
 
        ;; Single command structure (no :type field)
        ;; This happens when called from jf/bash--extract-from-single-command
        ((null command-type)
-        (when-let ((redirections (plist-get parsed-command :redirections)))
-          (setq operations (jf/bash--extract-ops-from-redirect-list redirections var-context))))))
+        (when-let ((redirections (plist-get parsed-command :redirections))
+                   (command-name (plist-get parsed-command :command-name)))
+          (setq operations (jf/bash--extract-ops-from-redirect-list redirections command-name var-context))))))
 
     operations))
 #+end_src
@@ -828,10 +942,11 @@ Examples:
 *** Helper: Process Redirection List
 
 #+begin_src emacs-lisp
-(defun jf/bash--extract-ops-from-redirect-list (redirections var-context)
-  "Extract operations from REDIRECTIONS list with VAR-CONTEXT.
+(defun jf/bash--extract-ops-from-redirect-list (redirections command-name var-context)
+  "Extract operations from REDIRECTIONS list with COMMAND-NAME and VAR-CONTEXT.
 
 REDIRECTIONS is a list of redirection plists from the parser.
+COMMAND-NAME is the name of the command performing the redirections.
 VAR-CONTEXT is optional variable resolution context.
 
 Returns list of operation plists with resolved file paths."
@@ -866,6 +981,7 @@ Returns list of operation plists with resolved file paths."
                                    :operation operation-type
                                    :confidence :high
                                    :source :redirection
+                                   :command command-name
                                    :metadata redir)
                              (when unresolved-vars
                                (list :unresolved t :unresolved-vars unresolved-vars))
