@@ -53,6 +53,8 @@ Examples:
     => (t . (\"SRC\" \"FILE\"))
 
 Variable names match pattern: [A-Za-z_][A-Za-z0-9_]*"
+  (unless (stringp file-path)
+    (error "file-path must be a string, got %S" file-path))
   (let ((var-names nil))
     (save-match-data
       ;; Match ${VAR} or $VAR patterns
@@ -120,6 +122,10 @@ Examples:
 
 Security note: Unresolved variables should be treated as security risks since
 their runtime values cannot be validated against scope constraints."
+  (unless (stringp file-path)
+    (error "file-path must be a string, got %S" file-path))
+  (unless (or (null var-context) (listp var-context))
+    (error "var-context must be nil or alist, got %S" var-context))
   (let* ((detection-result (jf/bash-detect-variable-references file-path))
          (has-variables (car detection-result))
          (var-names (cdr detection-result)))
@@ -264,6 +270,8 @@ Security note: Relative paths and bare filenames must be resolved for scope
 validation. When run_bash_command(cmd, dir) executes with PWD=dir, the shell
 resolves file.txt to /dir/file.txt. The parser must extract the same absolute
 path for security checks to work correctly."
+  (unless (stringp file-path)
+    (error "file-path must be a string, got %S" file-path))
   (let ((pwd (or current-pwd (alist-get 'PWD var-context))))
     (cond
      ;; No PWD in context - return unchanged
@@ -528,6 +536,8 @@ Examples:
 
 Security note: Only deterministic commands are evaluated. Runtime commands
 like find, ls, or which cannot be statically evaluated and return :unresolved."
+  (unless (stringp file-path)
+    (error "file-path must be a string, got %S" file-path))
   (let ((result file-path)
         (max-iterations 10)  ; Prevent infinite loops in nested substitutions
         (iteration 0)
