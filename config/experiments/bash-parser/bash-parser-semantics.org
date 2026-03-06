@@ -110,17 +110,27 @@ Setup lexical binding.
                         (:source :named-args :names ("of") :operation :write))))
     (git . (:operations :complex
             :subcommand-handlers ((add . ((:source :positional-args :operation :read)))
-                                 (rm . ((:source :positional-args :operation :delete)))
+                                 (apply . ((:source :positional-args :operation :read :index 0)))
                                  (checkout . ((:source :positional-args :operation :modify)))
-                                 (restore . ((:source :positional-args :operation :modify)))
-                                 (mv . ((:source :positional-args :indices (0 . -2) :operation :delete)
-                                        (:source :positional-args :index -1 :operation :write)))
+                                 (clean . ((:source :positional-args :operation :delete)))
+                                 (clone . ((:source :positional-args :operation :write :index -1)))
                                  (diff . ((:source :positional-args :operation :read)))
-                                 (show . ((:source :positional-args :operation :read)))
                                  (ls-files . (:operations ((:source :positional-args :operation :read))
                                              :produces-file-list t
                                              :pattern-source :positional-args
-                                             :search-scope-arg :implicit)))))
+                                             :search-scope-arg :implicit))
+                                 (merge . ((:source :positional-args :operation :modify)))
+                                 (mv . ((:source :positional-args :indices (0 . -2) :operation :delete)
+                                        (:source :positional-args :index -1 :operation :write)))
+                                 (pull . ((:source :positional-args :operation :modify)))
+                                 (rebase . ((:source :positional-args :operation :modify)))
+                                 (reset . ((:source :positional-args :operation :modify)))
+                                 (restore . ((:source :positional-args :operation :modify)))
+                                 (rm . ((:source :positional-args :operation :delete)))
+                                 (show . ((:source :positional-args :operation :read)))
+                                 (worktree . (:operations :complex
+                                             :subcommand-handlers ((add . ((:source :positional-args
+                                                                           :operation :create :index 0)))))))))
     (docker . (:operations :complex
                :subcommand-handlers ((cp . ((:source :positional-args :indices (0 . -2) :operation :read)
                                             (:source :positional-args :index -1 :operation :write))))))
