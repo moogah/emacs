@@ -12,6 +12,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'bash-parser-protocol)
 
 (defconst jf/bash-valid-operation-types
   '(:read :write :delete :modify :create :create-or-modify :append
