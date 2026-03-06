@@ -517,6 +517,82 @@ Test main extraction function with chain."
     (should (listp ops))
     (should (>= (length ops) 2))))
 
+;;; Dynamic Redirect Filename Tests
+
+(ert-deftest test-extraction-dynamic-redirect-simple ()
+  "Test extraction of dynamic redirect with simple command substitution.
+
+Tests that echo 'data' > log-$(date +%Y-%m-%d).txt is detected
+as a write operation with :dynamic-filename t."
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "echo 'data' > log-$(date +%Y-%m-%d).txt"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (should (>= (length ops) 1))
+    (let ((write-op (cl-find-if (lambda (op)
+                                   (eq (plist-get op :operation) :write))
+                                 ops)))
+      (should write-op)
+      (should (eq (plist-get write-op :operation) :write))
+      (should (eq (plist-get write-op :source) :redirection))
+      (should (eq (plist-get write-op :dynamic-filename) t))
+      ;; Filename should contain command substitution pattern
+      (should (string-match-p "\\$(" (plist-get write-op :file))))))
+
+(ert-deftest test-extraction-dynamic-redirect-multiple-subs ()
+  "Test extraction of dynamic redirect with multiple command substitutions.
+
+Tests that cat data.txt > backup-$(whoami)-$(date +%s).txt is detected
+with :dynamic-filename t for multiple substitutions."
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "cat data.txt > backup-$(whoami)-$(date +%s).txt"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should have read operation for data.txt and write with dynamic filename
+    (let ((write-op (cl-find-if (lambda (op)
+                                   (and (eq (plist-get op :operation) :write)
+                                        (string-match-p "backup-" (plist-get op :file))))
+                                 ops)))
+      (should write-op)
+      (should (eq (plist-get write-op :source) :redirection))
+      (should (eq (plist-get write-op :dynamic-filename) t))
+      ;; Should contain multiple command substitutions
+      (let ((file (plist-get write-op :file)))
+        (should (>= (cl-count ?$ file) 2))))))
+
+(ert-deftest test-extraction-dynamic-redirect-nested ()
+  "Test extraction of nested command substitution in redirect.
+
+Tests that grep ERROR log > errors-$(basename $(pwd)).txt is detected
+with :dynamic-filename t for nested substitution."
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "grep ERROR log > errors-$(basename $(pwd)).txt"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (let ((write-op (cl-find-if (lambda (op)
+                                   (and (eq (plist-get op :operation) :write)
+                                        (string-match-p "errors-" (plist-get op :file))))
+                                 ops)))
+      (should write-op)
+      (should (eq (plist-get write-op :source) :redirection))
+      (should (eq (plist-get write-op :dynamic-filename) t))
+      ;; Should contain nested command substitution
+      (should (string-match-p "\\$(.*\\$(.*)" (plist-get write-op :file))))))
+
+(ert-deftest test-extraction-heredoc-dynamic-redirect ()
+  "Test extraction of heredoc with dynamic redirect filename.
+
+Tests that cat <<'EOF' > config-$(date +%Y-%m-%d).yml is detected
+with :dynamic-filename t."
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "cat <<'EOF' > config-$(date +%Y-%m-%d).yml"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (let ((write-op (cl-find-if (lambda (op)
+                                   (and (eq (plist-get op :operation) :write)
+                                        (string-match-p "config-" (plist-get op :file))))
+                                 ops)))
+      (should write-op)
+      (should (eq (plist-get write-op :source) :redirection))
+      (should (eq (plist-get write-op :dynamic-filename) t))
+      (should (string-match-p "\\$(" (plist-get write-op :file))))))
+
 ;;; Self-Execution Detection Tests
 
 (ert-deftest test-self-execution-relative-path ()
