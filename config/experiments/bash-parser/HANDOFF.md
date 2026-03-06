@@ -2,13 +2,13 @@
 
 ## Session Summary
 
-Successfully implemented **15 tests** worth of bash parser directory context features using sequential agents. Reduced expected test failures from **20 → 5** with **zero regressions**.
+Successfully implemented **17 tests** worth of bash parser directory context features using sequential agents. Reduced expected test failures from **20 → 3** with **zero regressions**.
 
-**Latest Session:** Completed Option 3 (parser bugs) - 2 additional tests fixed.
+**Latest Session:** Completed Option 2 (subshell detection) - 2 additional tests fixed.
 
 ## Current Status
 
-**Test Results:** 536 total tests, 5 expected failures, 0 unexpected results
+**Test Results:** 536 total tests, 3 expected failures, 0 unexpected results
 **Branch:** `gptel-scoped-bash-tools`
 **Baseline:** `config/experiments/bash-parser/test-results.txt` (updated after each agent)
 
@@ -60,29 +60,49 @@ Successfully implemented **15 tests** worth of bash parser directory context fea
    - Solution: Updated command node collection to preserve for_statement and if_statement structures
    - Files: bash-parser-core.org/el
 
-## Remaining Open Beads (5 expected failures)
+11. **emacs-eg5t** - Subshell detection (partial completion)
+   - Fixed: test-subshell-cd-isolation, test-subshell-pwd-assignment-isolation (2 of 3 tests)
+   - Root cause: Previous implementation didn't distinguish between `(...)` subshells, `$(...)` command subs, `$((...))`  arithmetic
+   - Solution: Updated node detection to skip arithmetic_expansion and command_substitution, collect true subshell nodes
+   - Remaining: test-nested-subshells (deeply nested subshells require additional context handling)
+   - Files: bash-parser-core.org/el
 
-### Phase 5 Remaining (Priority: P3)
-- **test-pwd-substitution-nested** - Nested $(pwd) command substitutions (1 test)
-  - Requires extensive changes to command substitution resolution in file path handling
-  - Improved infrastructure added in emacs-o20p but needs more work
+## Remaining Open Beads (3 expected failures)
 
-### Phase 3 Bead (Priority: P2) - Needs Rewrite
-- **emacs-eg5t** - Fix subshell detection (created to replace reverted emacs-6oda)
-  - 3 tests: test-subshell-cd-isolation, test-subshell-pwd-assignment-isolation, test-nested-subshells
-  - **CRITICAL:** Previous implementation caused regressions in command substitution tests
-  - Must distinguish: `(...)` subshells vs `$(...)` command subs vs `$((...))` arithmetic
-  - Files: bash-parser-core.org (node detection only - Step 8 handler already in bash-parser-recursive.org)
+### Directory Context Tests (2 tests)
+
+**test-pwd-substitution-nested** (Priority: P3)
+- Command: `cat $(basename $(pwd))/file.txt` with PWD=/Users/name/project → project/file.txt
+- Requires: Extensive command substitution resolution in file path handling
+- Status: Infrastructure partially added in emacs-o20p but needs more work
+- Files: bash-parser-variables.org, bash-parser-file-ops.org
+
+**test-nested-subshells** (Priority: P2)
+- Command: `((cd /a && cat a.txt) && cd /b && cat b.txt) && cat c.txt`
+- Requires: Multi-level subshell context isolation (inner, outer, parent)
+- Status: Basic subshell detection now working (emacs-eg5t), needs nested context handling
+- Files: bash-parser-recursive.org (context tracking)
+
+### Flaky Test (1 test)
+
+**test-cmdsub-nested-backticks** (Priority: P3)
+- Command: `echo \`echo \\\`date\\\`\``
+- Issue: Intermittent failures in backtick nesting extraction (not related to recent changes)
+- Status: Legacy syntax, may be tree-sitter parsing limitation
+- Files: bash-parser-variables.org (backtick extraction)
 
 ## Recommended Next Steps
 
-### Option 1: Continue with Phase 5 (Lower Priority, Simpler)
-Work on remaining emacs-o20p edge case (test-pwd-substitution-nested). This is P3 but requires extensive file path resolution changes.
+### Option 1: Fix Nested Subshells (Higher Priority, More Focused)
+Work on test-nested-subshells to implement multi-level subshell context isolation. This is P2 and impacts security analysis. Basic subshell detection is now working, just needs nested context handling in bash-parser-recursive.org.
 
-### Option 2: Fix Subshell Implementation (Higher Priority, More Complex)
-Work on emacs-eg5t to properly implement subshell isolation. This is P2 and impacts security analysis. Requires careful tree-sitter node type filtering.
+### Option 2: Fix Nested $(pwd) Substitution (Lower Priority, More Complex)
+Work on test-pwd-substitution-nested to implement nested command substitution in file paths. This is P3 and requires extensive changes to command substitution resolution.
 
-**Recommended:** Start with Option 2 (subshell detection) as it's higher priority and the parser bug fixes may have improved the foundation.
+### Option 3: Investigate Flaky Backtick Test
+Work on test-cmdsub-nested-backticks to stabilize or document the limitation. This is P3 and may be a tree-sitter parsing issue rather than our code.
+
+**Recommended:** Start with Option 1 (nested subshells) as it builds on the subshell detection work just completed and is higher priority.
 
 ## Agent Usage Pattern
 
@@ -138,9 +158,17 @@ All implementations used this pattern:
 5. Update baseline after each successful agent
 6. Close beads as they complete
 
-**Progress:** 15 tests fixed, 5 remaining → 75% complete for directory-context feature set
+**Progress:** 17 tests fixed, 3 remaining → 85% complete for directory-context feature set
 
-### Parser Bugs Session Summary (Latest)
+### Subshell Detection Session Summary (Latest)
+Completed Option 2 - fixed subshell detection (emacs-eg5t):
+- emacs-eg5t: Subshell detection (2 of 3 tests) ✓ partial
+
+**Results:** 5 → 3 expected failures, 2 tests fixed, zero regressions
+
+**Key insight:** The fix properly distinguishes between `(...)` subshells, `$(...)` command substitutions, and `$((...))`  arithmetic expansions. Node detection in bash-parser-core.org now correctly skips command_substitution and arithmetic_expansion nodes while collecting true subshell nodes. Test-nested-subshells remains as it requires multi-level context handling in bash-parser-recursive.org.
+
+### Parser Bugs Session Summary
 Completed Option 3 - fixed both parser bugs sequentially:
 - emacs-254g: Semicolon after || operator (1 test) ✓
 - emacs-pkh3: For loop flattening in chains (1 test) ✓
