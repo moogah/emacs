@@ -156,6 +156,12 @@ Examples:
     => nil
 
 Returns t if PATH matches PATTERN, nil otherwise."
+  ;; Validate inputs
+  (unless (stringp path)
+    (error "jf/bash-glob-match-p: path must be a string, got %S" (type-of path)))
+  (unless (stringp pattern)
+    (error "jf/bash-glob-match-p: pattern must be a string, got %S" (type-of pattern)))
+
   (condition-case err
       (let ((path-segments (split-string path "/" t))
             (pattern-segments (split-string pattern "/" t)))
