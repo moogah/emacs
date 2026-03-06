@@ -6,6 +6,9 @@
 (defun jf/bash-parse (command-string)
   "Parse COMMAND-STRING using tree-sitter with full pipeline/chain support.
 
+COMMAND-STRING must be a non-empty string. Signals wrong-type-argument if
+COMMAND-STRING is not a string. Returns error plist if string is empty.
+
 Returns plist with:
   :success - t if parsing succeeded
   :type - :simple, :pipeline, or :chain
@@ -33,7 +36,17 @@ Additional fields:
 
 Recursion depth is limited by jf/bash--max-parse-depth to prevent
 infinite loops in pathological cases."
-  (jf/bash-parse--with-depth command-string 0))
+  ;; Validate argument type
+  (unless (stringp command-string)
+    (signal 'wrong-type-argument
+            (list 'stringp command-string (type-of command-string))))
+  ;; Validate argument is not empty
+  (if (string-empty-p command-string)
+      (list :success nil
+            :error "Empty command string"
+            :type :empty)
+    ;; Proceed with normal parsing
+    (jf/bash-parse--with-depth command-string 0)))
 
 (defun jf/bash-parse--with-depth (command-string depth)
   "Internal parser with explicit DEPTH parameter for recursion control.
