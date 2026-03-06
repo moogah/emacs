@@ -116,16 +116,22 @@ their runtime values cannot be validated against scope constraints."
                 (dolist (var-name var-names)
                   (let ((value (alist-get (intern var-name) var-context)))
                     (if value
-                        ;; Replace all occurrences of $VAR or ${VAR} with value
-                        ;; Use word boundary \\b for $VAR to prevent partial matches
-                        ;; (e.g., matching $VAR when the variable is $VARIABLE)
-                        (setq resolved
-                              (replace-regexp-in-string
-                               (format "\\${%s}\\|\\$%s\\b" var-name var-name)
-                               value
-                               resolved
-                               t  ; fixedcase - preserve case
-                               t)) ; literal - treat replacement string literally
+                        (progn
+                          ;; Validate resolved value for control characters
+                          (when (string-match-p "[[:cntrl:]]" value)
+                            (lwarn :bash-parser :warning
+                                   "Variable %s contains control characters: %S"
+                                   var-name value))
+                          ;; Replace all occurrences of $VAR or ${VAR} with value
+                          ;; Use word boundary \\b for $VAR to prevent partial matches
+                          ;; (e.g., matching $VAR when the variable is $VARIABLE)
+                          (setq resolved
+                                (replace-regexp-in-string
+                                 (format "\\${%s}\\|\\$%s\\b" var-name var-name)
+                                 value
+                                 resolved
+                                 t  ; fixedcase - preserve case
+                                 t))) ; literal - treat replacement string literally
                       ;; Track unresolved variable
                       (push var-name unresolved))))
 

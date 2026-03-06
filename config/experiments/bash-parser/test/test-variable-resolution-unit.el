@@ -259,5 +259,16 @@
          (assignments (jf/bash--extract-assignments-from-command command context)))
     (should (equal assignments '((DIR . "/base/sub"))))))
 
+;;; Variable Value Validation Tests
+
+(ert-deftest test-resolve-warns-on-control-chars ()
+  "Test that control characters in values trigger warning."
+  (let ((warning-count 0))
+    (cl-letf (((symbol-function 'lwarn)
+               (lambda (&rest _) (setq warning-count (1+ warning-count)))))
+      (jf/bash-resolve-variables "$VAR/file"
+        (list (cons (intern "VAR") "foo\nbar")))
+      (should (= warning-count 1)))))
+
 (provide 'test-variable-resolution-unit)
 ;;; test-variable-resolution-unit.el ends here
