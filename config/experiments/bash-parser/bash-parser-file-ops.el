@@ -821,25 +821,30 @@ Examples:
    ;; Unknown spec
    (t nil)))
 
-(defun jf/bash--resolve-path-variables (file-path var-context)
+(defun jf/bash--resolve-path-variables (file-path var-context &optional debug)
   "Resolve variables, command substitutions, and relative paths in FILE-PATH.
 
-This function performs three-stage resolution:
+This function performs three-stage atomic resolution with error handling:
   1. Variable resolution ($VAR, ${VAR}) using `jf/bash-resolve-variables'
   2. Command substitution ($(pwd), `pwd`) using `jf/bash-resolve-pwd-substitution'
   3. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
 
 FILE-PATH is the file path string (may contain variables, substitutions, and/or
 relative paths). VAR-CONTEXT is optional alist mapping variable names to values.
+DEBUG is optional boolean - when non-nil, print trace output for each stage.
 
 The resolution order matters:
   - Variables first: $PWD/./file.txt → /base/dir/./file.txt
   - Then command substitutions: $(pwd)/file.txt → /base/dir/file.txt
   - Then relative paths: /base/dir/./file.txt → /base/dir/file.txt
 
+Each stage is wrapped in condition-case for atomic error handling. If any stage
+fails, returns plist with :resolution-error metadata.
+
 Returns:
   - String: Fully resolved path (all variables, substitutions, and relative paths resolved)
   - Plist: Partially resolved with :unresolved metadata (some variables unresolved)
+  - Plist: Error with :resolution-error metadata (stage failed)
 
 Examples:
   (jf/bash--resolve-path-variables \"/workspace/file.txt\" nil)
@@ -856,30 +861,81 @@ Examples:
     => \"/base/dir/file.txt\"
 
   (jf/bash--resolve-path-variables \"../other/file.txt\" '((PWD . \"/base/dir/sub\")))
-    => \"/base/dir/other/file.txt\""
+    => \"/base/dir/other/file.txt\"
+
+  ;; With debug enabled
+  (jf/bash--resolve-path-variables \"$PWD/file.txt\" '((PWD . \"/base\")) t)
+    Prints: Stage 1 (variables): $PWD/file.txt → /base/file.txt
+            Stage 2 (pwd): /base/file.txt → /base/file.txt (no change)
+            Stage 3 (relative): /base/file.txt → /base/file.txt (no change)
+    => \"/base/file.txt\""
   ;; Stage 1: Resolve variables
-  (let ((var-resolved (jf/bash-resolve-variables file-path var-context)))
-    ;; Stage 2: Resolve command substitutions (pwd)
-    ;; Handle both simple string results and plist results from variable resolution
-    (let ((pwd-resolved
-           (if (stringp var-resolved)
-               ;; All variables resolved - apply pwd substitution
-               (jf/bash-resolve-pwd-substitution var-resolved var-context)
-             ;; Partial variable resolution - still apply pwd substitution to :path
-             (let* ((path (plist-get var-resolved :path))
-                    (unresolved-vars (plist-get var-resolved :unresolved))
-                    (resolved-path (jf/bash-resolve-pwd-substitution path var-context)))
-               (list :path resolved-path :unresolved unresolved-vars)))))
-      ;; Stage 3: Resolve relative paths
-      (if (stringp pwd-resolved)
-          ;; All substitutions resolved - apply relative path resolution
-          (jf/bash-resolve-relative-path pwd-resolved var-context)
-        ;; Still has unresolved variables - apply relative path to :path
-        (let* ((path (plist-get pwd-resolved :path))
-               (unresolved-vars (plist-get pwd-resolved :unresolved))
-               (resolved-path (jf/bash-resolve-relative-path path var-context)))
-          ;; Return plist with resolved path and unresolved variables
-          (list :path resolved-path :unresolved unresolved-vars))))))
+  (condition-case err
+      (let ((var-resolved (jf/bash-resolve-variables file-path var-context)))
+        (when debug
+          (if (stringp var-resolved)
+              (message "Stage 1 (variables): %s → %s%s"
+                       file-path var-resolved
+                       (if (string= file-path var-resolved) " (no change)" ""))
+            (message "Stage 1 (variables): %s → %s (unresolved: %S)"
+                     file-path
+                     (plist-get var-resolved :path)
+                     (plist-get var-resolved :unresolved))))
+
+        ;; Stage 2: Resolve command substitutions (pwd)
+        (condition-case err
+            (let ((pwd-resolved
+                   (if (stringp var-resolved)
+                       ;; All variables resolved - apply pwd substitution
+                       (jf/bash-resolve-pwd-substitution var-resolved var-context)
+                     ;; Partial variable resolution - still apply pwd substitution to :path
+                     (let* ((path (plist-get var-resolved :path))
+                            (unresolved-vars (plist-get var-resolved :unresolved))
+                            (resolved-path (jf/bash-resolve-pwd-substitution path var-context)))
+                       (list :path resolved-path :unresolved unresolved-vars)))))
+              (when debug
+                (if (stringp pwd-resolved)
+                    (let ((input (if (stringp var-resolved) var-resolved (plist-get var-resolved :path))))
+                      (message "Stage 2 (pwd): %s → %s%s"
+                               input pwd-resolved
+                               (if (string= input pwd-resolved) " (no change)" "")))
+                  (message "Stage 2 (pwd): %s → %s (unresolved: %S)"
+                           (plist-get var-resolved :path)
+                           (plist-get pwd-resolved :path)
+                           (plist-get pwd-resolved :unresolved))))
+
+              ;; Stage 3: Resolve relative paths
+              (condition-case err
+                  (let ((result
+                         (if (stringp pwd-resolved)
+                             ;; All substitutions resolved - apply relative path resolution
+                             (jf/bash-resolve-relative-path pwd-resolved var-context)
+                           ;; Still has unresolved variables - apply relative path to :path
+                           (let* ((path (plist-get pwd-resolved :path))
+                                  (unresolved-vars (plist-get pwd-resolved :unresolved))
+                                  (resolved-path (jf/bash-resolve-relative-path path var-context)))
+                             ;; Return plist with resolved path and unresolved variables
+                             (list :path resolved-path :unresolved unresolved-vars)))))
+                    (when debug
+                      (if (stringp result)
+                          (let ((input (if (stringp pwd-resolved) pwd-resolved (plist-get pwd-resolved :path))))
+                            (message "Stage 3 (relative): %s → %s%s"
+                                     input result
+                                     (if (string= input result) " (no change)" "")))
+                        (message "Stage 3 (relative): %s → %s (unresolved: %S)"
+                                 (plist-get pwd-resolved :path)
+                                 (plist-get result :path)
+                                 (plist-get result :unresolved))))
+                    result)
+                (error
+                 (list :path file-path
+                       :resolution-error (format "Stage 3 (relative path) failed: %s" (error-message-string err))))))
+          (error
+           (list :path file-path
+                 :resolution-error (format "Stage 2 (pwd substitution) failed: %s" (error-message-string err))))))
+    (error
+     (list :path file-path
+           :resolution-error (format "Stage 1 (variable resolution) failed: %s" (error-message-string err))))))
 
 (defun jf/bash-extract-operations-from-redirections (parsed-command &optional var-context)
   "Extract file operations from :redirections field with high confidence.
