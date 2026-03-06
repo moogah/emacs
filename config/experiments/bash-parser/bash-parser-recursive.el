@@ -73,6 +73,26 @@ Example:
                              parsed-command var-context)))
         (setq operations (append operations this-level-ops))))
 
+    ;; 1.5. Detect and recursively process nested commands (bash -c, sh -c, eval)
+    ;; These are commands that execute other commands as string arguments.
+    ;; Operations from nested commands are marked as indirect with nesting depth.
+    (when (and (fboundp 'jf/bash-detect-command-injection)
+               (fboundp 'jf/bash-parse-nested-command)
+               (eq (plist-get parsed-command :type) :simple))
+      (when-let ((injection-info (jf/bash-detect-command-injection parsed-command)))
+        (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
+          (when nested-cmd-string
+            (let* ((nested-parsed (jf/bash-parse-nested-command
+                                  nested-cmd-string (1+ depth) parsed-command))
+                   (nested-ops (when (plist-get nested-parsed :success)
+                                (jf/bash-analyze-file-operations-recursive
+                                 nested-parsed var-context (1+ depth)))))
+              ;; Mark all nested operations as indirect with nesting depth
+              (dolist (op nested-ops)
+                (plist-put op :indirect t)
+                (plist-put op :nesting-depth (1+ depth)))
+              (setq operations (append operations nested-ops)))))))
+
     ;; 2. Recursively process command substitutions and track pattern output
     (when-let ((substs (plist-get parsed-command :command-substitutions)))
       (dolist (subst substs)
