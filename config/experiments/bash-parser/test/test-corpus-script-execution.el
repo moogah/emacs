@@ -339,6 +339,16 @@
                    :source :positional-arg
                    :script-args ())))
 
+    (:id "exec-variable-001b"
+     :command "python $SCRIPT arg1 arg2"
+     :note "Execute with resolved variable and arguments"
+     :var-context (("SCRIPT" . "deploy.sh"))
+     :expect-ops ((:file "deploy.sh"
+                   :operation :execute
+                   :confidence :high
+                   :source :positional-arg
+                   :script-args ("arg1" "arg2"))))
+
     (:id "exec-variable-002"
      :command "python $UNKNOWN_SCRIPT"
      :note "Execute with unresolved variable"

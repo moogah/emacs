@@ -781,7 +781,9 @@ Operation spec format:
                                            (plist-get resolved-path :unresolved)))
                          (has-pattern (jf/bash--has-glob-pattern-p final-path))
                          ;; Capture script arguments for execute operations at index 0
-                         ;; Use :args to preserve flag arguments in original order
+                         ;; Search for original (unresolved) file-path in args, not resolved path
+                         ;; This handles cases like "python $SCRIPT arg1" where $SCRIPT resolves to "deploy.sh"
+                         ;; but args still contains "$SCRIPT"
                          (script-args (when (and (eq operation :execute)
                                                 (eq index 0)
                                                 args)
