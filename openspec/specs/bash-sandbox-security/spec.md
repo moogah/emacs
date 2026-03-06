@@ -83,6 +83,17 @@ The system SHALL validate each file operation type (read/write/delete/modify) se
 - **WHEN** rule allows `:read :write :delete :modify :create`
 - **THEN** any operation type is allowed
 
+### Requirement: All operations wildcard
+The system SHALL support :all as a wildcard value for :operations to allow all operation types.
+
+#### Scenario: Rule with :all allows any operation
+- **WHEN** rule has :operations :all
+- **THEN** any operation type (:read, :write, :delete, :modify, :create) is allowed
+
+#### Scenario: :all is equivalent to explicit list
+- **WHEN** comparing rule with :operations :all versus :operations (:read :write :delete :modify :create)
+- **THEN** both rules allow identical operations
+
 ### Requirement: Rule matching priority
 The system SHALL evaluate rules in order and use the first rule that matches the file path.
 
