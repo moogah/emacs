@@ -22,6 +22,8 @@
 
 (require 'test-helper (expand-file-name "test-helper.el"
                                         (file-name-directory load-file-name)))
+(require 'test-assertions (expand-file-name "test-assertions.el"
+                                            (file-name-directory load-file-name)))
 
 ;;; Variable Detection Tests (jf/bash-detect-variable-references)
 
