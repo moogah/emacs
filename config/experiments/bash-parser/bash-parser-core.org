@@ -218,11 +218,36 @@ Recursively searches all descendants."
 ** List/Chain Handler
 
 #+begin_src emacs-lisp
+(defun jf/bash-parse--root-has-list-plus-commands-p (root-node)
+  "Check if ROOT-NODE has a direct list child PLUS other command children.
+This detects the pattern 'A || B; C' where root has [list, ;, command].
+Returns nil for 'A && B' (only list) or 'A && B > file' (redirected_statement wrapping list)."
+  (let ((found-list nil)
+        (found-command nil))
+    (dotimes (i (treesit-node-child-count root-node))
+      (let* ((child (treesit-node-child root-node i))
+             (child-type (treesit-node-type child)))
+        (cond
+         ((string= child-type "list")
+          (setq found-list t))
+         ((or (string= child-type "command")
+              (string= child-type "redirected_statement")
+              (string= child-type "variable_assignment"))
+          (setq found-command t)))))
+    (and found-list found-command)))
+
 (defun jf/bash-parse--handle-list (root-node)
   "Handle command list/chain from ROOT-NODE."
   (let* ((list-node (jf/bash-parse--find-node-by-type root-node "list"))
-         ;; Use list-node if found, otherwise use root-node for semicolon-separated commands
-         (container-node (or list-node root-node))
+         ;; Determine container based on structure:
+         ;; - If root has BOTH a direct list AND other command children, use root
+         ;;   Example: "A || B; C" -> root has [list, ;, command]
+         ;; - Otherwise use list-node (or root if no list found)
+         ;;   Examples: "A && B" -> root has [list]
+         ;;             "A && B > file" -> root has [redirected_statement[list]]
+         (container-node (if (jf/bash-parse--root-has-list-plus-commands-p root-node)
+                             root-node
+                           (or list-node root-node)))
          (command-nodes (jf/bash-parse--get-all-command-nodes container-node))
          (parsed-commands (mapcar #'jf/bash-parse--parse-single-command-node
                                    command-nodes))

@@ -497,7 +497,6 @@ SECURITY: Nested subshells each have isolated context.
 
 SECURITY: Parser should assume cd succeeds for path resolution.
 DESIGN NOTE: Static analysis assumes success path unless impossible."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /dir || exit 1; cat file.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
