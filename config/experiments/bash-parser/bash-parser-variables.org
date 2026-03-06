@@ -676,14 +676,26 @@ Examples:
   (jf/bash--resolve-assignment-value \"./sub\" '((PWD . \"/base\")))
     => \"/base/sub\"
 
+  (jf/bash--resolve-assignment-value \"$(pwd)\" '((PWD . \"/base\")))
+    => \"/base\"
+
+  (jf/bash--resolve-assignment-value \"$(dirname $FILE)\" '((FILE . \"/a/b/c.txt\")))
+    => \"/a/b\"
+
   (jf/bash--resolve-assignment-value \"$UNKNOWN\" nil)
     => (:path \"$UNKNOWN\" :unresolved (\"UNKNOWN\"))"
   (let ((resolved (jf/bash-resolve-variables value var-context)))
     ;; Check if fully resolved (string) or partial (plist)
     (if (stringp resolved)
-        ;; Fully resolved variables - apply pwd and relative path resolution
-        (let ((pwd-resolved (jf/bash-resolve-pwd-substitution resolved var-context)))
-          (jf/bash-resolve-relative-path pwd-resolved var-context))
+        ;; Fully resolved variables - apply command substitution and relative path resolution
+        (let ((cmd-resolved (jf/bash-resolve-command-substitution resolved var-context)))
+          (cond
+           ;; Command substitution could not be resolved - return :unresolved
+           ((eq cmd-resolved :unresolved)
+            (list :path resolved :unresolved (list "command-substitution")))
+           ;; Command substitution resolved - apply relative path resolution
+           (t
+            (jf/bash-resolve-relative-path cmd-resolved var-context))))
       ;; Partial resolution - return as-is (plist with :unresolved)
       resolved)))
 #+end_src
@@ -702,13 +714,16 @@ and split assignment patterns.
 VAR-CONTEXT is an optional alist used to resolve assignment values. Assignment
 values are resolved using the same logic as file paths:
   1. Variable resolution ($VAR, ${VAR})
-  2. Command substitution ($(pwd), `pwd`)
+  2. Command substitution ($(pwd), $(dirname $VAR), etc.)
   3. Relative path resolution (., ./, ../)
 
 This enables variable chain tracking for security validation:
   BASE=$PWD; cat $BASE/file.txt → resolves BASE to PWD's value
+  DIR=$(dirname $FILE); cat $DIR/data.txt → resolves DIR if FILE is known
 
-If resolution results in :unresolved, the value is marked with :unresolved flag."
+Only fully-resolved assignments are added to the context. If resolution fails
+(unresolved variables or command substitutions), the assignment is skipped to
+prevent runtime errors when the variable is later referenced."
   (let ((assignments nil)
         (command-name (plist-get command :command-name))
         (positional-args (plist-get command :positional-args)))
@@ -718,7 +733,9 @@ If resolution results in :unresolved, the value is marked with :unresolved flag.
       (let* ((var-name (match-string 1 command-name))
              (var-value (match-string 2 command-name))
              (resolved-value (jf/bash--resolve-assignment-value var-value var-context)))
-        (push (cons (intern var-name) resolved-value) assignments)))
+        ;; Only add to context if value was fully resolved (string, not plist)
+        (when (stringp resolved-value)
+          (push (cons (intern var-name) resolved-value) assignments))))
 
     ;; Check for split assignment pattern: command-name is variable name only,
     ;; first positional arg is the value. This happens when tree-sitter parses
@@ -733,7 +750,9 @@ If resolution results in :unresolved, the value is marked with :unresolved flag.
              (var-value (car positional-args))
              (resolved-value (jf/bash--resolve-assignment-value var-value var-context)))
         ;; Only treat as assignment if value doesn't look like a flag
-        (unless (string-prefix-p "-" var-value)
+        ;; AND value was fully resolved (string, not plist)
+        (when (and (not (string-prefix-p "-" var-value))
+                   (stringp resolved-value))
           (push (cons (intern var-name) resolved-value) assignments))))
 
     ;; Also check positional args for assignment patterns
@@ -743,7 +762,9 @@ If resolution results in :unresolved, the value is marked with :unresolved flag.
         (let* ((var-name (match-string 1 arg))
                (var-value (match-string 2 arg))
                (resolved-value (jf/bash--resolve-assignment-value var-value var-context)))
-          (push (cons (intern var-name) resolved-value) assignments))))
+          ;; Only add to context if value was fully resolved (string, not plist)
+          (when (stringp resolved-value)
+            (push (cons (intern var-name) resolved-value) assignments)))))
 
     (nreverse assignments)))
 #+end_src
