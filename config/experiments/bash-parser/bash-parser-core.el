@@ -35,7 +35,13 @@ Additional fields:
   :error - error message if parsing failed
 
 Recursion depth is limited by jf/bash--max-parse-depth to prevent
-infinite loops in pathological cases."
+infinite loops in pathological cases.
+
+KNOWN LIMITATIONS:
+  Commands starting with (( are normalized to ( ( to work around a
+  tree-sitter-bash parser bug. This may cause position offsets to be
+  off by 1 in error reporting but does not affect functionality.
+  See Known Limitations section in module documentation."
   ;; Validate argument type
   (unless (stringp command-string)
     (signal 'wrong-type-argument
@@ -66,9 +72,13 @@ DEPTH parameter tracks current recursion depth."
   ;; is extracted into the result plist.
   (condition-case err
       (with-temp-buffer
-        ;; Pre-process: Fix tree-sitter limitation with (( at start
-        ;; Tree-sitter confuses (( with arithmetic expansion $((...))
-        ;; Add space to make it parse as nested subshells: ( (...)
+        ;; WORKAROUND: Fix tree-sitter-bash bug with (( at command start
+        ;; Bug: tree-sitter-bash incorrectly parses (( as arithmetic expansion
+        ;;      instead of nested subshells ( (...)
+        ;; Fix: Normalize "((cmd))" → "( (cmd))" by inserting space
+        ;; Impact: Position offsets in errors may be off by 1
+        ;; TODO: Remove when upstream fixes (( parsing
+        ;;       See: Known Limitations section in module introduction
         (let ((normalized-string
                (if (string-prefix-p "((" command-string)
                    (concat "( " (substring command-string 1))

@@ -16,6 +16,33 @@ bash commands, handling:
 - Find commands with -exec blocks
 - Redirections and their extraction
 
+** Known Limitations
+
+*** Double-Paren Subshell Parsing
+
+Tree-sitter-bash has a parser bug where (( at the start of a command is
+incorrectly parsed as arithmetic expansion $((...)) instead of nested
+subshells ( (...)).
+
+Workaround: The parser normalizes "((cmd))" to "( (cmd))" by adding a
+space after the first paren. This allows tree-sitter to correctly parse
+it as nested subshells.
+
+Impact:
+- Commands starting with (( parse correctly
+- Position offsets in error reporting may be off by 1 for these commands
+- No functional impact on command extraction or analysis
+
+Tracking:
+- TODO: Remove workaround when tree-sitter-bash fixes (( parsing
+- Upstream issue: https://github.com/tree-sitter/tree-sitter-bash/issues/XXX
+  (Note: Issue number placeholder - actual issue may not exist yet)
+- Test coverage: test-directory-changing-commands.el test-nested-subshells
+
+Related code:
+- Workaround implementation: jf/bash-parse--internal (lines 129-136)
+- Test case: test-nested-subshells in test-directory-changing-commands.el
+
 ** AST Node Lifetime
 
 The parser returns tree-sitter AST nodes in the :ast field for debugging
@@ -87,7 +114,13 @@ Additional fields:
   :error - error message if parsing failed
 
 Recursion depth is limited by jf/bash--max-parse-depth to prevent
-infinite loops in pathological cases."
+infinite loops in pathological cases.
+
+KNOWN LIMITATIONS:
+  Commands starting with (( are normalized to ( ( to work around a
+  tree-sitter-bash parser bug. This may cause position offsets to be
+  off by 1 in error reporting but does not affect functionality.
+  See Known Limitations section in module documentation."
   ;; Validate argument type
   (unless (stringp command-string)
     (signal 'wrong-type-argument
@@ -126,9 +159,13 @@ DEPTH parameter tracks current recursion depth."
   ;; is extracted into the result plist.
   (condition-case err
       (with-temp-buffer
-        ;; Pre-process: Fix tree-sitter limitation with (( at start
-        ;; Tree-sitter confuses (( with arithmetic expansion $((...))
-        ;; Add space to make it parse as nested subshells: ( (...)
+        ;; WORKAROUND: Fix tree-sitter-bash bug with (( at command start
+        ;; Bug: tree-sitter-bash incorrectly parses (( as arithmetic expansion
+        ;;      instead of nested subshells ( (...)
+        ;; Fix: Normalize "((cmd))" → "( (cmd))" by inserting space
+        ;; Impact: Position offsets in errors may be off by 1
+        ;; TODO: Remove when upstream fixes (( parsing
+        ;;       See: Known Limitations section in module introduction
         (let ((normalized-string
                (if (string-prefix-p "((" command-string)
                    (concat "( " (substring command-string 1))
