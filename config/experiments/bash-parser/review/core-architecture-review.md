@@ -509,10 +509,10 @@ Based on the code review, the following test cases are likely missing:
 None identified.
 
 ### High Priority (Should Fix Soon)
-1. **Missing dependency:** `bash-parser-security` not required but variables referenced
-2. **Thread-unsafe depth counter:** Use parameter passing instead of global state
-3. **AST node lifetime:** Document or fix node validity after buffer death
-4. **Spec gap:** Command injection detection not implemented
+1. ✅ **Missing dependency:** `bash-parser-security` not required but variables referenced - COMPLETE (emacs-er8n)
+2. ✅ **Thread-unsafe depth counter:** Use parameter passing instead of global state - COMPLETE (emacs-95io)
+3. **AST node lifetime:** Document or fix node validity after buffer death (emacs-64np - open)
+4. ✅ **Python -c spec interpretation:** Clarified - non-shell interpreters excluded by design (emacs-9hvh, emacs-jvxz)
 
 ### Medium Priority (Should Address)
 1. **Code duplication:** 200+ lines duplicated between handler variants

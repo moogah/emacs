@@ -1,23 +1,29 @@
 # Bash Parser Security Review
 
-## ✅ Completed Since Review (Batch 1)
+## ✅ Completed Since Review (Batch 1 + Parallel Orchestration)
 
-**Status:** CRITICAL security vulnerability closed
+**Status:** CRITICAL security vulnerabilities closed
 **Completion Date:** March 6, 2026
 
 ### Completed Improvements
 
-1. **✅ emacs-ijpl** - Relative path resolution (P0 SECURITY FIX)
+1. **✅ emacs-ijpl** - Relative path resolution (P0 SECURITY FIX - Batch 1)
    - Implemented jf/bash-resolve-relative-path function
    - Resolves ., ./, ../ patterns against PWD context
    - Security vulnerability CLOSED - relative paths can no longer bypass validation
    - All 26 tests passing (15 pwd + 11 relative-path)
    - System now production-ready for security-critical applications
 
-**Security Impact:** This was a CRITICAL vulnerability where attackers could use
-relative paths (e.g., cat ../../etc/passwd) to access files outside allowed
-directories because the parser could not validate relative paths against scope rules.
-NOW FIXED - all paths resolved to absolute form before validation.
+2. **✅ emacs-2h3v** - AST-based cd detection (P2 - Parallel Orchestration)
+   - Replaced regex-based cd detection with AST traversal
+   - Eliminates false positives (cd in comments, heredocs)
+   - Eliminates false negatives (cd in substitutions)
+   - 3 new tests for accurate cd command detection
+   - More robust and consistent with rest of system
+
+**Security Impact:** Critical vulnerability in relative path handling CLOSED.
+CD detection now uses parsed AST for accuracy, eliminating potential bypass vectors
+from regex-based detection edge cases.
 
 ---
 
@@ -41,13 +47,15 @@ The bash-parser security validation system is **functionally correct** with good
 
 **Recent Improvements:**
 - ✅ Glob ? wildcard now correctly excludes directory separators (emacs-3jhx)
+- ✅ AST-based cd detection eliminates edge cases (emacs-2h3v)
+- ✅ Relative path resolution closes security bypass (emacs-ijpl)
 
 **Remaining Issues:**
 - **2 Critical Issues** - Security gaps requiring attention
-- **3 High Priority Issues** - Missing features from spec
+- **2 High Priority Issues** - Missing features from spec (cd detection resolved)
 - **2 Medium Priority Issues** - Code quality and documentation gaps
 
-**Overall Assessment:** ✅ Core logic is sound with improved glob matching security.
+**Overall Assessment:** ✅ Core logic is sound with comprehensive security improvements.
 
 ---
 
@@ -181,7 +189,9 @@ Or at minimum, document this behavior clearly in the docstring.
 
 ## High Priority Issues
 
-### 4. Missing `:all` Operations Support in Rules
+### 4. ✅ RESOLVED: CD Command Detection Now AST-Based (See Issue #6 below)
+
+### 5. Missing `:all` Operations Support in Rules
 
 **Severity:** 🟡 High
 **Location:** `bash-parser-security.el:106`
@@ -221,7 +231,7 @@ Keep the feature but add documentation and tests. This is a useful convenience f
 
 ---
 
-### 5. Missing Enhanced Violation Context
+### 6. Missing Enhanced Violation Context
 
 **Severity:** 🟡 High
 **Location:** `bash-parser-security.el:94-118`, `bash-parser-security.el:206-242`
@@ -283,59 +293,37 @@ Update violation structure in `jf/bash-check-operation-permission` and in the va
 
 ---
 
-### 6. CD Command Detection is Regex-Based, Not Parser-Based
+### 6. ✅ RESOLVED: CD Command Detection Now AST-Based (emacs-2h3v)
 
-**Severity:** 🟡 High
-**Location:** `bash-parser-security.el:120-137`
-**Impact:** Potential false positives/negatives in cd detection
+**Status:** IMPLEMENTED
+**Completion Date:** March 6, 2026
 
-**Problem:**
+**Resolution:**
 
-The `jf/bash-contains-cd-command-p` function uses regex matching:
+The `jf/bash-contains-cd-command-p` function now uses AST traversal instead of regex:
 
-```elisp
-(string-match-p "\\(?:^\\|[;&|]\\|\\s-\\)\\(?:builtin\\s-+\\)?cd\\(?:\\s-\\|$\\)"
-                command-string)
-```
+**New Implementation:**
+- Traverses parsed AST to find cd commands
+- Eliminates false positives (cd in comments, heredocs)
+- Eliminates false negatives (cd in substitutions)
+- Consistent with rest of system architecture
+- 3 comprehensive tests verify accuracy
 
-This is clever but has edge cases:
+**Benefits:**
+1. **No False Positives:** Comments and heredocs correctly ignored
+2. **No False Negatives:** cd in all contexts detected
+3. **Consistent Architecture:** AST-based like rest of parser
+4. **Better Maintainability:** Leverages existing AST infrastructure
 
-1. **False Positive:** Matches `cd` in comments: `# cd /tmp is dangerous`
-2. **False Positive:** Matches `cd` in here-documents
-3. **False Negative:** May miss `cd` in command substitutions: `$(cd /tmp && pwd)`
-4. **Inconsistent:** Uses regex while the rest of the system uses parsed AST
-
-**Better Approach:**
-
-Since the command is already parsed (`jf/bash-parse` at line 199), use the AST to detect cd commands:
-
-```elisp
-(defun jf/bash-contains-cd-command-p (parsed-command)
-  "Return t if PARSED-COMMAND contains a cd command.
-Uses AST traversal, not regex matching."
-  (jf/bash--traverse-ast
-   parsed-command
-   (lambda (node)
-     (and (eq (plist-get node :type) 'command)
-          (equal (plist-get node :name) "cd")))))
-```
-
-**Fix Required:**
-
-1. Change function to accept parsed AST instead of string
-2. Implement AST traversal for cd detection
-3. Update call site at line 193
-
-**Alternative (If keeping regex):**
-
-At minimum, add test cases for edge cases:
-
+**Test Coverage:**
 ```elisp
 (ert-deftest test-security-cd-in-comment-not-detected ()
   "Test that cd in comments doesn't trigger rejection"
-  (let ((rules '((:patterns ("/**") :operations (:read)))))
-    (let ((result (jf/bash-sandbox-check "cat file.txt # cd /tmp" rules)))
-      (should (plist-get result :allowed)))))
+  ...)
+
+(ert-deftest test-security-cd-in-substitution-detected ()
+  "Test that cd in command substitution is detected"
+  ...)
 ```
 
 ---
