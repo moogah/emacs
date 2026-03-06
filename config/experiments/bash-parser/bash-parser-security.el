@@ -74,6 +74,35 @@ Invalid examples (return nil):
                (stringp (cdr binding))))
         context)))
 
+(defun jf/bash--extract-unresolved-vars (file-path)
+  "Extract list of unresolved variable names from FILE-PATH.
+
+Searches for shell variable syntax ($VAR or ${VAR}) in the file path
+and returns a list of variable names.
+
+Returns nil if no variables found or if FILE-PATH is not a string.
+
+Examples:
+  (jf/bash--extract-unresolved-vars \"/path/to/file\")
+    => nil
+  (jf/bash--extract-unresolved-vars \"$HOME/file.txt\")
+    => (\"HOME\")
+  (jf/bash--extract-unresolved-vars \"${WORKSPACE}/src/$FILE\")
+    => (\"WORKSPACE\" \"FILE\")
+  (jf/bash--extract-unresolved-vars \"prefix-$VAR1-$VAR2-suffix\")
+    => (\"VAR1\" \"VAR2\")"
+  (when (stringp file-path)
+    (let ((vars nil)
+          (pos 0))
+      (while (string-match "\\$\\(?:{\\([^}]+\\)}\\|\\([A-Za-z_][A-Za-z0-9_]*\\)\\)"
+                          file-path pos)
+        (let ((var-name (or (match-string 1 file-path)
+                           (match-string 2 file-path))))
+          (when var-name
+            (push var-name vars)))
+        (setq pos (match-end 0)))
+      (nreverse vars))))
+
 (defun jf/bash-match-rule (file-path rules)
   "Find first rule in RULES matching FILE-PATH.
 Returns the matched rule plist or nil if no rules match.
@@ -121,17 +150,32 @@ Violation plist contains:
   :file - The file path
   :operation - The operation type (:read, :write, :delete, etc.)
   :matched-rule - The rule that was evaluated (or nil)
-  :reason - Human-readable explanation"
-  (let ((file (plist-get operation :file))
-        (op-type (plist-get operation :operation))
-        (allowed-ops (plist-get matched-rule :operations)))
+  :reason - Human-readable explanation
+  :unresolved-vars - List of unresolved variable names (if any)
+  :indirect - t if operation is indirect (from nested command)
+  :nested-command - Original nested command string (if indirect)
+  :guidance - Human-readable guidance for fixing the issue"
+  (let* ((file (plist-get operation :file))
+         (op-type (plist-get operation :operation))
+         (allowed-ops (plist-get matched-rule :operations))
+         (unresolved-vars (jf/bash--extract-unresolved-vars file))
+         (indirect (plist-get operation :indirect))
+         (nested-command (plist-get operation :nested-command)))
     (cond
      ;; No rule matched = violation (fail-safe: deny by default)
      ((null matched-rule)
-      (list :file file
-            :operation op-type
-            :matched-rule nil
-            :reason "No allowlist rule matches this file path"))
+      (let ((violation (list :file file
+                            :operation op-type
+                            :matched-rule nil
+                            :reason "No allowlist rule matches this file path"
+                            :guidance "Add a security rule pattern matching this path")))
+        (when unresolved-vars
+          (setq violation (plist-put violation :unresolved-vars unresolved-vars)))
+        (when indirect
+          (setq violation (plist-put violation :indirect t)))
+        (when nested-command
+          (setq violation (plist-put violation :nested-command nested-command)))
+        violation))
 
      ;; Rule allows all operations
      ((eq allowed-ops :all)
@@ -139,11 +183,20 @@ Violation plist contains:
 
      ;; Operation not in allowed list = violation
      ((not (memq op-type allowed-ops))
-      (list :file file
-            :operation op-type
-            :matched-rule matched-rule
-            :reason (format "Operation %s not allowed (rule permits: %s)"
-                           op-type allowed-ops)))
+      (let ((violation (list :file file
+                            :operation op-type
+                            :matched-rule matched-rule
+                            :reason (format "Operation %s not allowed (rule permits: %s)"
+                                           op-type allowed-ops)
+                            :guidance (format "Add %s to the allowed operations for this rule"
+                                            op-type))))
+        (when unresolved-vars
+          (setq violation (plist-put violation :unresolved-vars unresolved-vars)))
+        (when indirect
+          (setq violation (plist-put violation :indirect t)))
+        (when nested-command
+          (setq violation (plist-put violation :nested-command nested-command)))
+        violation))
 
      ;; Allowed
      (t nil))))
@@ -249,7 +302,8 @@ Validation logic:
         (setq cd-detected t
               denial-reason "cd command not allowed in sandbox - use absolute paths instead"
               violations (list (list :reason denial-reason
-                                    :command command-string)))
+                                    :command command-string
+                                    :guidance "Use absolute paths in commands instead of cd, or configure runtime working directory")))
 
       ;; Normal validation pipeline:
       ;; 1. Parse command to AST
@@ -268,10 +322,17 @@ Validation logic:
              ((and (plist-get op :indirect)
                    (eq indirect-policy :strict))
               ;; Strict policy: reject all indirect operations
-              (push (list :file (plist-get op :file)
-                         :operation (plist-get op :operation)
-                         :reason "Indirect operation not allowed (strict policy)")
-                    violations))
+              (let ((violation (list :file (plist-get op :file)
+                                    :operation (plist-get op :operation)
+                                    :reason "Indirect operation not allowed (strict policy)"
+                                    :indirect t
+                                    :guidance "Remove nested commands or use permissive indirect policy")))
+                (when (plist-get op :nested-command)
+                  (setq violation (plist-put violation :nested-command (plist-get op :nested-command))))
+                (let ((unresolved-vars (jf/bash--extract-unresolved-vars (plist-get op :file))))
+                  (when unresolved-vars
+                    (setq violation (plist-put violation :unresolved-vars unresolved-vars))))
+                (push violation violations)))
 
              ((and (plist-get op :indirect)
                    (eq indirect-policy :warn))
