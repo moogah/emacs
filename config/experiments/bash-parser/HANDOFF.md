@@ -2,13 +2,13 @@
 
 ## Session Summary
 
-Successfully implemented **13 tests** worth of bash parser directory context features using sequential agents. Reduced expected test failures from **20 → 7** with **zero regressions**.
+Successfully implemented **15 tests** worth of bash parser directory context features using sequential agents. Reduced expected test failures from **20 → 5** with **zero regressions**.
 
-**Latest Session:** Completed Phase 5 (low-hanging fruit) - 4 additional tests fixed.
+**Latest Session:** Completed Option 3 (parser bugs) - 2 additional tests fixed.
 
 ## Current Status
 
-**Test Results:** 536 total tests, 7 expected failures, 0 unexpected results
+**Test Results:** 536 total tests, 5 expected failures, 0 unexpected results
 **Branch:** `gptel-scoped-bash-tools`
 **Baseline:** `config/experiments/bash-parser/test-results.txt` (updated after each agent)
 
@@ -48,7 +48,19 @@ Successfully implemented **13 tests** worth of bash parser directory context fea
    - Remaining: test-pwd-substitution-nested (requires extensive file path resolution changes)
    - Files: bash-parser-semantics.org/el, bash-parser-variables.org/el
 
-## Remaining Open Beads (7 expected failures)
+9. **emacs-254g** - Semicolon after || operator (parser bug)
+   - Fixed: test-cd-with-or-fallback
+   - Root cause: Tree-sitter parses `cd /dir || exit; cat file.txt` as [list(cd || exit), semicolon, command(cat)]
+   - Solution: Enhanced list handler to detect root with both list and command children
+   - Files: bash-parser-core.org/el
+
+10. **emacs-pkh3** - For loop flattening in chains (parser bug)
+   - Fixed: test-cd-for-loop-files
+   - Root cause: Parser descended into for-loop bodies instead of treating for_statement as top-level command
+   - Solution: Updated command node collection to preserve for_statement and if_statement structures
+   - Files: bash-parser-core.org/el
+
+## Remaining Open Beads (5 expected failures)
 
 ### Phase 5 Remaining (Priority: P3)
 - **test-pwd-substitution-nested** - Nested $(pwd) command substitutions (1 test)
@@ -62,20 +74,15 @@ Successfully implemented **13 tests** worth of bash parser directory context fea
   - Must distinguish: `(...)` subshells vs `$(...)` command subs vs `$((...))` arithmetic
   - Files: bash-parser-core.org (node detection only - Step 8 handler already in bash-parser-recursive.org)
 
-### New Parser Bug Beads (Created by emacs-fegi)
-- **emacs-254g** - `cd /dir || exit; cat file.txt` - Semicolon after `||` breaks chain parsing
-- **emacs-pkh3** - `cd /dir && for f in *.log; do...` - Loop structure flattened when preceded by `&&`
-
 ## Recommended Next Steps
 
 ### Option 1: Continue with Phase 5 (Lower Priority, Simpler)
-Work on emacs-6xjh (pushd/popd), emacs-90p4 (OLDPWD), and emacs-o20p (edge cases) in sequence. These are P3 and relatively isolated.
+Work on remaining emacs-o20p edge case (test-pwd-substitution-nested). This is P3 but requires extensive file path resolution changes.
 
 ### Option 2: Fix Subshell Implementation (Higher Priority, More Complex)
 Work on emacs-eg5t to properly implement subshell isolation. This is P2 and impacts security analysis. Requires careful tree-sitter node type filtering.
 
-### Option 3: Fix Parser Bugs First
-Address emacs-254g and emacs-pkh3 to unblock the remaining emacs-fegi tests before continuing.
+**Recommended:** Start with Option 2 (subshell detection) as it's higher priority and the parser bug fixes may have improved the foundation.
 
 ## Agent Usage Pattern
 
@@ -131,9 +138,18 @@ All implementations used this pattern:
 5. Update baseline after each successful agent
 6. Close beads as they complete
 
-**Progress:** 13 tests fixed, 7 remaining → 65% complete for directory-context feature set
+**Progress:** 15 tests fixed, 5 remaining → 75% complete for directory-context feature set
 
-### Phase 5 Session Summary (Latest)
+### Parser Bugs Session Summary (Latest)
+Completed Option 3 - fixed both parser bugs sequentially:
+- emacs-254g: Semicolon after || operator (1 test) ✓
+- emacs-pkh3: For loop flattening in chains (1 test) ✓
+
+**Results:** 8 → 5 expected failures, 2 tests fixed, zero regressions
+
+**Key insight:** Both bugs were in `jf/bash-parse--get-all-command-nodes` - the parser was either missing commands (254g) or descending into structures it should treat as atomic (pkh3). The fixes improved the parser's ability to preserve command structure.
+
+### Phase 5 Session Summary
 Completed 3 beads sequentially to avoid file conflicts:
 - emacs-90p4: OLDPWD tracking (1 test) ✓
 - emacs-6xjh: pushd/popd stack (2 tests) ✓
