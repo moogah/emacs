@@ -247,11 +247,16 @@ like 'PWD=/path cmd' only affect that specific command."
         operations))))
 
 (defun jf/bash--deduplicate-operations (operations)
-  "Deduplicate OPERATIONS list by file + operation type.
+  "Deduplicate OPERATIONS list by file + operation type + source context.
 
 If multiple operations have the same :file and :operation values,
-keep only the first occurrence. This handles cases where a file
-appears multiple times in a command.
+keep only the first occurrence. For exec-block operations, also
+include the command name in the deduplication key to preserve
+operations from different commands in multiple exec blocks.
+
+This handles cases where a file appears multiple times in a command,
+while preserving distinct operations from multiple exec blocks like:
+  find . -exec grep pattern {} \\; -exec cat {} \\;
 
 Returns deduplicated list maintaining original order."
   (let ((seen (make-hash-table :test 'equal))
@@ -259,7 +264,13 @@ Returns deduplicated list maintaining original order."
     (dolist (op operations)
       (let* ((file (plist-get op :file))
              (operation (plist-get op :operation))
-             (key (cons file operation)))
+             (source (plist-get op :source))
+             (command (plist-get op :command))
+             ;; For exec-block operations, include command in key
+             ;; to preserve operations from different exec blocks
+             (key (if (eq source :exec-block)
+                      (list file operation source command)
+                    (cons file operation))))
         (unless (gethash key seen)
           (puthash key t seen)
           (push op result))))
