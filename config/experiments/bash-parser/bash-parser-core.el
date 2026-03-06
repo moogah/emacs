@@ -28,23 +28,21 @@ Additional fields:
 
 Recursion depth is limited by jf/bash--max-parse-depth to prevent
 infinite loops in pathological cases."
+  (jf/bash-parse--with-depth command-string 0))
+
+(defun jf/bash-parse--with-depth (command-string depth)
+  "Internal parser with explicit DEPTH parameter for recursion control.
+Wraps parsing with depth checking and error handling."
+  (when (> depth jf/bash--max-parse-depth)
+    (error "Max parse depth exceeded: possible recursion cycle"))
   (condition-case err
-      (progn
-        ;; Increment depth first
-        (setq jf/bash--parse-depth (1+ jf/bash--parse-depth))
-        (unwind-protect
-            (progn
-              ;; Check recursion depth after incrementing
-              (when (> jf/bash--parse-depth jf/bash--max-parse-depth)
-                (error "Max parse depth exceeded: possible recursion cycle"))
-              (jf/bash-parse--internal command-string))
-          ;; Always decrement depth, even if error occurs
-          (setq jf/bash--parse-depth (1- jf/bash--parse-depth))))
+      (jf/bash-parse--internal command-string depth)
     (error (list :success nil
                  :error (error-message-string err)))))
 
-(defun jf/bash-parse--internal (command-string)
-  "Internal parser implementation for COMMAND-STRING with pipeline support."
+(defun jf/bash-parse--internal (command-string depth)
+  "Internal parser implementation for COMMAND-STRING with pipeline support.
+DEPTH parameter tracks current recursion depth."
   (with-temp-buffer
     ;; Pre-process: Fix tree-sitter limitation with (( at start
     ;; Tree-sitter confuses (( with arithmetic expansion $((...))
@@ -60,17 +58,17 @@ infinite loops in pathological cases."
 
       (pcase struct-type
         (:pipeline
-         (jf/bash-parse--handle-pipeline root-node))
+         (jf/bash-parse--handle-pipeline root-node depth))
         (:list
-         (jf/bash-parse--handle-list root-node))
+         (jf/bash-parse--handle-list root-node depth))
         (:conditional
          (jf/bash-parse--handle-conditional root-node))
         (:for-loop
          (jf/bash-parse--handle-for-loop root-node))
         (:subshell
-         (jf/bash-parse--handle-subshell root-node))
+         (jf/bash-parse--handle-subshell root-node depth))
         (:simple
-         (jf/bash-parse--handle-simple-command root-node))
+         (jf/bash-parse--handle-simple-command root-node depth))
         (_
          (list :success nil
                :error "Unknown command structure"))))))
@@ -144,11 +142,13 @@ Recursively searches all descendants."
               (setq result (jf/bash-parse--find-node-by-type child target-type)))))
         result))))
 
-(defun jf/bash-parse--handle-pipeline (root-node)
-  "Handle pipeline command from ROOT-NODE."
+(defun jf/bash-parse--handle-pipeline (root-node depth)
+  "Handle pipeline command from ROOT-NODE.
+DEPTH parameter tracks current recursion depth."
   (let* ((pipeline-node (jf/bash-parse--find-node-by-type root-node "pipeline"))
          (command-nodes (jf/bash-parse--get-all-command-nodes pipeline-node))
-         (parsed-commands (mapcar #'jf/bash-parse--parse-single-command-node
+         (parsed-commands (mapcar (lambda (node)
+                                    (jf/bash-parse--parse-single-command-node node depth))
                                    command-nodes))
          (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
                                   parsed-commands)))
@@ -198,8 +198,9 @@ Returns nil for 'A && B' (only list) or 'A && B > file' (redirected_statement wr
           (setq found-command t)))))
     (and found-list found-command)))
 
-(defun jf/bash-parse--handle-list (root-node)
-  "Handle command list/chain from ROOT-NODE."
+(defun jf/bash-parse--handle-list (root-node depth)
+  "Handle command list/chain from ROOT-NODE.
+DEPTH parameter tracks current recursion depth."
   (let* ((list-node (jf/bash-parse--find-node-by-type root-node "list"))
          ;; Determine container based on structure:
          ;; - If root has BOTH a direct list AND other command children, use root
@@ -211,7 +212,8 @@ Returns nil for 'A && B' (only list) or 'A && B > file' (redirected_statement wr
                              root-node
                            (or list-node root-node)))
          (command-nodes (jf/bash-parse--get-all-command-nodes container-node))
-         (parsed-commands (mapcar #'jf/bash-parse--parse-single-command-node
+         (parsed-commands (mapcar (lambda (node)
+                                    (jf/bash-parse--parse-single-command-node node depth))
                                    command-nodes))
          (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
                                   parsed-commands)))
@@ -256,8 +258,9 @@ Returns nil for 'A && B' (only list) or 'A && B > file' (redirected_statement wr
               ;; Flatten first command's fields to top level
               (car parsed-commands)))))
 
-(defun jf/bash-parse--handle-simple-command (root-node)
-  "Handle simple (single) command from ROOT-NODE."
+(defun jf/bash-parse--handle-simple-command (root-node depth)
+  "Handle simple (single) command from ROOT-NODE.
+DEPTH parameter tracks current recursion depth."
   (let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
          ;; Use direct child search to avoid finding commands inside substitutions
          (command-node (jf/bash-parse--find-direct-child-by-type root-node "command"))
@@ -275,7 +278,7 @@ Returns nil for 'A && B' (only list) or 'A && B > file' (redirected_statement wr
         (list :success nil
               :error "No command found in input")
 
-      (let ((parsed-cmd (jf/bash-parse--parse-single-command-node command-or-redir)))
+      (let ((parsed-cmd (jf/bash-parse--parse-single-command-node command-or-redir depth)))
         ;; Return flattened structure for backward compatibility
         (append (list :success t
                       :type :simple
@@ -378,9 +381,11 @@ Bash tree-sitter structure for for_statement:
          (command-substitutions nil))
 
     ;; Extract command substitutions from the entire for-loop node
+    ;; For-loop is a top-level handler, so depth is not passed through
+    ;; Command substitutions within will be parsed at depth 0
     (when for-node
       (setq command-substitutions
-            (jf/bash-parse--extract-command-substitutions for-node)))
+            (jf/bash-parse--extract-command-substitutions for-node 0)))
 
     ;; Extract iteration values and body
     (when for-node
@@ -453,8 +458,9 @@ Bash tree-sitter structure for for_statement:
           (setq result (plist-put result :command-substitutions command-substitutions)))
         result))))
 
-(defun jf/bash-parse--handle-subshell (root-node)
+(defun jf/bash-parse--handle-subshell (root-node depth)
   "Handle subshell from ROOT-NODE.
+DEPTH parameter tracks current recursion depth.
 Returns structure with :type :subshell and :subshell-body containing parsed body."
   (let* ((subshell-node (jf/bash-parse--find-direct-child-by-type root-node "subshell")))
     (if (not subshell-node)
@@ -465,18 +471,19 @@ Returns structure with :type :subshell and :subshell-body containing parsed body
              ;; Extract content between parentheses
              (inner-text (when (string-match "^(\\(.*\\))$" subshell-text)
                           (match-string 1 subshell-text)))
-             ;; Recursively parse the content
+             ;; Recursively parse the content with incremented depth
              (parsed-body (when inner-text
-                           (jf/bash-parse inner-text))))
+                           (jf/bash-parse--with-depth inner-text (1+ depth)))))
         ;; Return as subshell type for recursive handler to process with isolated context
         (list :success t
               :type :subshell
               :subshell-body parsed-body
               :ast root-node)))))
 
-(defun jf/bash-parse--handle-for-loop-node (for-node)
+(defun jf/bash-parse--handle-for-loop-node (for-node depth)
   "Handle for-loop from FOR-NODE directly.
 FOR-NODE is a for_statement node from tree-sitter.
+DEPTH parameter tracks current recursion depth.
 Returns same structure as jf/bash-parse--handle-for-loop but works with node directly."
   (let* ((variable-node (treesit-node-child-by-field-name for-node "variable"))
          (variable-name (when variable-node
@@ -485,9 +492,9 @@ Returns same structure as jf/bash-parse--handle-for-loop but works with node dir
          (iteration-values nil)
          (command-substitutions nil))
 
-    ;; Extract command substitutions from the entire for-loop node
+    ;; Extract command substitutions from the entire for-loop node with current depth
     (setq command-substitutions
-          (jf/bash-parse--extract-command-substitutions for-node))
+          (jf/bash-parse--extract-command-substitutions for-node depth))
 
     ;; Extract iteration values and body
     (let ((child-count (treesit-node-child-count for-node))
@@ -795,16 +802,14 @@ Returns command structure with wrapper's flags separated from wrapped command."
         (setq result (plist-put result :redirections redirections)))
       result)))
 
-(defvar jf/bash--parse-depth 0
-  "Current parsing depth for recursion limiting.
-Incremented each time jf/bash-parse is called recursively.")
-
 (defvar jf/bash--max-parse-depth 10
   "Maximum parsing depth to prevent infinite recursion.
-When exceeded, jf/bash-parse will signal an error.")
+When exceeded, jf/bash-parse will signal an error.
+Depth is tracked via parameter passing for thread safety.")
 
-(defun jf/bash-parse--extract-command-substitutions (command-or-statement-node)
+(defun jf/bash-parse--extract-command-substitutions (command-or-statement-node depth)
   "Extract all command substitutions from COMMAND-OR-STATEMENT-NODE.
+DEPTH parameter tracks current recursion depth for nested parsing.
 Returns list of plists with :syntax, :content, :nesting-level, :parsed.
 Handles both $(...) and backtick syntax, tracks nesting levels, and
 recursively parses substitution content."
@@ -836,9 +841,9 @@ recursively parses substitution content."
                          (t full-text)))
                 ;; Calculate nesting level by counting parent command_substitution nodes
                 (nesting-level (jf/bash-parse--calculate-nesting-level node))
-                ;; Recursively parse the substitution content
+                ;; Recursively parse the substitution content with incremented depth
                 (parsed-subst (when (and content (> (length content) 0))
-                               (jf/bash-parse content))))
+                               (jf/bash-parse--with-depth content (1+ depth)))))
 
            ;; Add to substitutions list with parsed field
            (push (list :syntax syntax
@@ -863,8 +868,9 @@ Returns nesting level starting from 1 for outermost substitution."
       (setq parent (treesit-node-parent parent)))
     level))
 
-(defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
+(defun jf/bash-parse--parse-single-command-node (command-or-statement-node depth)
   "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, variable_assignment, for_statement, if_statement, or subshell.
+DEPTH parameter tracks current recursion depth.
 Returns command structure with optional :redirections and :command-substitutions fields."
   (let ((command-node nil)
         (redirections nil)
@@ -876,7 +882,7 @@ Returns command structure with optional :redirections and :command-substitutions
     (cond
      ((string= node-type "for_statement")
       ;; Create a wrapper program node and call the for-loop handler
-      (let ((result (jf/bash-parse--handle-for-loop-node command-or-statement-node)))
+      (let ((result (jf/bash-parse--handle-for-loop-node command-or-statement-node depth)))
         ;; Return the result structure (already complete from handler)
         result))
 
@@ -894,9 +900,9 @@ Returns command structure with optional :redirections and :command-substitutions
              ;; Extract content between parentheses
              (inner-text (when (string-match "^(\\(.*\\))$" subshell-text)
                           (match-string 1 subshell-text)))
-             ;; Recursively parse the content
+             ;; Recursively parse the content with incremented depth
              (parsed-body (when inner-text
-                           (jf/bash-parse inner-text))))
+                           (jf/bash-parse--with-depth inner-text (1+ depth)))))
         ;; Return as subshell type for recursive handler to process with isolated context
         (list :success t
               :type :subshell
@@ -906,7 +912,7 @@ Returns command structure with optional :redirections and :command-substitutions
      (t
       ;; Extract command substitutions from the entire node tree
       (setq command-substitutions
-            (jf/bash-parse--extract-command-substitutions command-or-statement-node))
+            (jf/bash-parse--extract-command-substitutions command-or-statement-node depth))
 
       ;; Check if this is a redirected_statement wrapper
       (if (string= node-type "redirected_statement")
