@@ -40,13 +40,41 @@ for basic glob patterns without path handling.
 
 #+begin_src emacs-lisp
 (defun jf/bash--glob-to-regex (glob-pattern)
-  "Convert GLOB-PATTERN to regex pattern.
-Handles *, ?, and [abc] character classes.
-Escapes regex special characters.
+  "Convert simple GLOB-PATTERN to an Emacs regular expression pattern.
 
-This is a simpler version than `jf/bash--glob-segment-to-regex' that
-treats * as matching any character (including /), suitable for simple
-filename matching."
+Transforms glob wildcards into their regex equivalents for pattern matching.
+This is a simplified version that treats * as matching within a single path
+segment (excluding /), suitable for basic filename matching.
+
+GLOB-PATTERN is a string containing glob wildcards (*, ?, [abc]).
+
+Returns a string containing the equivalent Emacs regex pattern.
+
+Glob syntax support:
+  *      - Matches zero or more non-slash characters ([^/]*)
+  ?      - Matches exactly one non-slash character ([^/])
+  [abc]  - Character class (preserved as-is in regex)
+  [a-z]  - Character range (preserved as-is in regex)
+
+Special handling:
+  - Escapes regex metacharacters (\\, ., +, ^, $, {, }, |)
+  - Does NOT escape parentheses (they're literal in Emacs regex)
+  - Handles unterminated [ by treating it as literal \\[
+
+Examples:
+  (jf/bash--glob-to-regex \"*.txt\")
+    => \"[^/]*\\\\.txt\"
+
+  (jf/bash--glob-to-regex \"file?.log\")
+    => \"file[^/]\\\\.log\"
+
+  (jf/bash--glob-to-regex \"[a-z]*.el\")
+    => \"[a-z][^/]*\\\\.el\"
+
+  (jf/bash--glob-to-regex \"file.txt\")
+    => \"file\\\\.txt\"
+
+Internal helper for jf/bash-glob-match-p."
   (let ((regex "")
         (i 0)
         (len (length glob-pattern)))
@@ -159,8 +187,43 @@ Recursively match path segments against pattern segments.
 
 #+begin_src emacs-lisp
 (defun jf/bash--match-segments (path-segments pattern-segments)
-  "Match PATH-SEGMENTS against PATTERN-SEGMENTS recursively.
-Handles ** consuming 0-to-N segments. Returns t if match, nil otherwise."
+  "Recursively match PATH-SEGMENTS against PATTERN-SEGMENTS with ** support.
+
+Implements the core matching logic for glob patterns by comparing path segments
+against pattern segments. Handles the special ** pattern which can match zero
+or more complete directory segments.
+
+PATH-SEGMENTS is a list of strings representing path components split on /.
+PATTERN-SEGMENTS is a list of strings representing pattern components split on /.
+
+Returns t if the path matches the pattern, nil otherwise.
+
+Matching rules:
+  - Both empty: successful match
+  - Pattern empty but path has segments: no match
+  - Path empty but pattern has non-** segments: no match
+  - ** matches 0-to-N segments (tries both consuming and not consuming)
+  - Regular segments must match using jf/bash--glob-segment-to-regex
+
+** behavior (greedy matching):
+  - First tries matching ** as zero segments (skip it, continue with rest)
+  - Then tries matching ** as one or more segments (consume one, try again)
+  - This implements O(n) complexity, not exponential backtracking
+
+Examples:
+  (jf/bash--match-segments '(\"workspace\" \"file.txt\") '(\"workspace\" \"*.txt\"))
+    => t
+
+  (jf/bash--match-segments '(\"a\" \"b\" \"c\" \"file.el\") '(\"a\" \"**\" \"*.el\"))
+    => t (** matches \"b/c\")
+
+  (jf/bash--match-segments '(\"workspace\" \"file.txt\") '(\"workspace\" \"file.txt\"))
+    => t (exact match)
+
+  (jf/bash--match-segments '(\"tmp\" \"file.txt\") '(\"workspace\" \"*.txt\"))
+    => nil (first segment doesn't match)
+
+Internal helper for jf/bash-glob-match-p."
   (cond
    ;; Both empty - successful match
    ((and (null path-segments) (null pattern-segments))

@@ -75,9 +75,41 @@ DEPTH parameter tracks current recursion depth."
                :error "Unknown command structure"))))))
 
 (defun jf/bash-parse--detect-structure-type (root-node)
-  "Detect the structure type from ROOT-NODE.
-Returns :pipeline, :list, :conditional, :for-loop, :subshell, or :simple.
-Only checks direct children to avoid detecting nested structures inside command substitutions."
+  "Detect the bash command structure type from ROOT-NODE tree-sitter parse tree.
+
+Analyzes the tree-sitter parse tree to determine which type of bash structure
+is present, enabling the parser to route to the appropriate handler function.
+
+ROOT-NODE is the root node of the tree-sitter parse tree.
+
+Returns a keyword indicating the structure type:
+  :pipeline    - Commands connected with pipes (|)
+  :list        - Commands connected with operators (&&, ||, ;)
+  :conditional - If/then/else statements
+  :for-loop    - For loop statements
+  :subshell    - Subshell expression (command)
+  :simple      - Single command with no special structure
+
+Detection strategy:
+  - Only checks direct children to avoid detecting nested structures
+  - Prevents false positives from command substitutions like $(pipeline)
+  - Checks in priority order: pipeline, list, conditionals, loops, subshells
+  - Handles special case of redirected statements wrapping complex structures
+
+Examples:
+  (jf/bash-parse--detect-structure-type root-node-for-\"ls | grep foo\")
+    => :pipeline
+
+  (jf/bash-parse--detect-structure-type root-node-for-\"cd /tmp && ls\")
+    => :list
+
+  (jf/bash-parse--detect-structure-type root-node-for-\"if [ -f file ]; then cat file; fi\")
+    => :conditional
+
+  (jf/bash-parse--detect-structure-type root-node-for-\"ls file.txt\")
+    => :simple
+
+Internal helper for jf/bash-parse--internal."
   (let ((pipeline-node (jf/bash-parse--find-direct-child-by-type root-node "pipeline"))
         (list-node (jf/bash-parse--find-direct-child-by-type root-node "list"))
         (if-node (jf/bash-parse--find-direct-child-by-type root-node "if_statement"))
@@ -105,7 +137,32 @@ Only checks direct children to avoid detecting nested structures inside command 
      (t :simple))))
 
 (defun jf/bash-parse--count-command-children (node)
-  "Count how many command or redirected_statement children NODE has."
+  "Count the number of command-like children in NODE.
+
+Counts direct children that represent executable commands, including regular
+commands, redirected statements, and variable assignments. Used to detect
+command chains where the root has multiple command children.
+
+NODE is a tree-sitter parse tree node to examine.
+
+Returns integer count of command-like children found.
+
+Counts these node types:
+  - command - Regular bash commands
+  - redirected_statement - Commands with I/O redirections
+  - variable_assignment - Variable assignment statements
+
+Examples:
+  (jf/bash-parse--count-command-children root-node-for-\"cat a.txt; cat b.txt\")
+    => 2
+
+  (jf/bash-parse--count-command-children root-node-for-\"ls file.txt\")
+    => 1
+
+  (jf/bash-parse--count-command-children root-node-for-\"A=1 && B=2\")
+    => 2
+
+Internal helper for jf/bash-parse--detect-structure-type."
   (let ((count 0))
     (dotimes (i (treesit-node-child-count node))
       (when-let ((child (treesit-node-child node i)))
@@ -117,8 +174,34 @@ Only checks direct children to avoid detecting nested structures inside command 
     count))
 
 (defun jf/bash-parse--find-direct-child-by-type (node target-type)
-  "Find first direct child of NODE with TARGET-TYPE.
-Only checks immediate children, does not recurse into descendants."
+  "Find the first direct child of NODE matching TARGET-TYPE.
+
+Searches only the immediate children of NODE without recursing into
+descendants. This prevents false matches from nested structures like
+command substitutions or subshells.
+
+NODE is a tree-sitter parse tree node to search within.
+TARGET-TYPE is a string naming the node type to find (e.g., \"pipeline\", \"command\").
+
+Returns the first matching child node, or nil if no match found.
+
+Search behavior:
+  - Only examines immediate children (no recursion)
+  - Returns first match found
+  - Returns nil if NODE is nil or has no matching children
+
+Examples:
+  (jf/bash-parse--find-direct-child-by-type root-node \"pipeline\")
+    => <pipeline-node> or nil
+
+  (jf/bash-parse--find-direct-child-by-type root-node \"command\")
+    => <command-node> or nil
+
+  (jf/bash-parse--find-direct-child-by-type command-node \"command_name\")
+    => <command-name-node> or nil
+
+Internal helper for jf/bash-parse--detect-structure-type and
+jf/bash-parse--handle-simple-command."
   (when node
     (let ((child-count (treesit-node-child-count node))
           (result nil))
@@ -130,8 +213,35 @@ Only checks immediate children, does not recurse into descendants."
       result)))
 
 (defun jf/bash-parse--find-node-by-type (node target-type)
-  "Find first node of TARGET-TYPE in tree starting from NODE.
-Recursively searches all descendants."
+  "Find the first node of TARGET-TYPE anywhere in NODE's subtree.
+
+Recursively searches NODE and all its descendants to find a node matching
+TARGET-TYPE. Unlike jf/bash-parse--find-direct-child-by-type, this function
+searches the entire subtree, not just immediate children.
+
+NODE is a tree-sitter parse tree node to search within.
+TARGET-TYPE is a string naming the node type to find (e.g., \"pipeline\", \"list\").
+
+Returns the first matching node found in depth-first order, or nil if no match.
+
+Search behavior:
+  - Recursively searches entire subtree
+  - Depth-first traversal order
+  - Returns first match found
+  - Returns nil if NODE is nil or no match exists
+
+Examples:
+  (jf/bash-parse--find-node-by-type root-node \"pipeline\")
+    => <pipeline-node> (even if deeply nested)
+
+  (jf/bash-parse--find-node-by-type root-node \"command_substitution\")
+    => <command-substitution-node> or nil
+
+  (jf/bash-parse--find-node-by-type statement-node \"file_redirect\")
+    => <file-redirect-node> or nil
+
+Internal helper for jf/bash-parse--handle-pipeline, jf/bash-parse--handle-list,
+and other structure handlers."
   (when node
     (if (string= (treesit-node-type node) target-type)
         node
@@ -1172,8 +1282,44 @@ Returns: (:type :heredoc :operator \"<<\" :descriptor nil :delimiter \"...\")"
           :delimiter delimiter)))
 
 (defun jf/bash-parse--visit-node (node visitor-fn)
-  "Visit NODE and all children, calling VISITOR-FN on each.
-VISITOR-FN can return :skip-children to prevent recursion into children."
+  "Recursively visit NODE and all children, calling VISITOR-FN on each node.
+
+Implements a depth-first tree traversal that applies VISITOR-FN to every node
+in NODE's subtree. The visitor function controls recursion by returning
+:skip-children when it wants to stop descending into a node's children.
+
+NODE is a tree-sitter parse tree node to traverse.
+VISITOR-FN is a function called on each node with signature: (lambda (node) ...).
+
+VISITOR-FN return values:
+  :skip-children - Stop recursing into this node's children
+  nil            - Continue normal recursion (any non-:skip-children value works)
+
+Traversal order: depth-first, parent before children
+
+Used for:
+  - Collecting nodes matching certain criteria
+  - Extracting information from parse trees
+  - Avoiding recursion into command substitutions or nested structures
+
+Examples:
+  ;; Collect all \"word\" nodes
+  (let ((words '()))
+    (jf/bash-parse--visit-node root-node
+      (lambda (node)
+        (when (string= (treesit-node-type node) \"word\")
+          (push node words))))
+    (nreverse words))
+
+  ;; Skip command substitutions to avoid nested commands
+  (jf/bash-parse--visit-node root-node
+    (lambda (node)
+      (if (string= (treesit-node-type node) \"command_substitution\")
+          :skip-children  ; Don't recurse into substitution
+        nil)))           ; Continue normally
+
+Internal helper for jf/bash-parse--get-all-command-nodes,
+jf/bash-parse--extract-words, and jf/bash-parse--extract-redirections."
   (when node
     (let ((visitor-result (funcall visitor-fn node)))
       ;; Only recurse if visitor didn't return :skip-children
