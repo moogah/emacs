@@ -127,7 +127,7 @@ for BEAD_ID in selected_beads; do
   ./bin/init-worktree-runtime.sh "$WORKTREE_PATH"
 
   # 4. Initialize submodules in worktree
-  cd "$WORKTREE_PATH" && git submodule update --init
+  git -C "$WORKTREE_PATH" submodule update --init
 
   # 5. Fetch full bead details
   BEAD_JSON=$(bd show "$BEAD_ID" --json)
