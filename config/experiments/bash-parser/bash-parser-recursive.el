@@ -94,13 +94,12 @@ Example:
                         substitution-patterns)))
 
               ;; Mark all nested operations as from-substitution
-              ;; Use copy-tree for deep copy of plist structure
-              (let ((marked-ops nil))
-                (dolist (op subst-ops)
-                  (let ((marked-op (copy-tree op)))
-                    (plist-put marked-op :from-substitution t)
-                    (push marked-op marked-ops)))
-                (setq operations (append operations (nreverse marked-ops)))))))))
+              ;; Build correctly with append instead of copy-tree for O(n) performance
+              (let ((marked-ops
+                     (mapcar (lambda (op)
+                              (append op (list :from-substitution t)))
+                            subst-ops)))
+                (setq operations (append operations marked-ops))))))))
 
     ;; 3. Add operations for outer command operating on substitution results
     (when substitution-patterns
@@ -425,9 +424,7 @@ Returns list of operations marked with :test-condition t."
                            clean-parsed var-context depth))))
           ;; Mark all test command operations with :test-condition
           (dolist (op test-ops)
-            (let ((marked-op (copy-tree op)))
-              (plist-put marked-op :test-condition t)
-              (push marked-op operations))))))
+            (push (append op (list :test-condition t)) operations)))))
     (nreverse operations)))
 
 (defun jf/bash--extract-then-branch-operations-from-text (then-text var-context depth)
@@ -453,10 +450,7 @@ Returns list of operations marked with :conditional t :branch :then."
                          clean-parsed var-context depth))))
         ;; Mark all then branch operations
         (dolist (op then-ops)
-          (let ((marked-op (copy-tree op)))
-            (plist-put marked-op :conditional t)
-            (plist-put marked-op :branch :then)
-            (push marked-op operations)))))
+          (push (append op (list :conditional t :branch :then)) operations))))
     (nreverse operations)))
 
 (defun jf/bash--extract-else-branch-operations-from-text (else-text var-context depth)
@@ -482,10 +476,7 @@ Returns list of operations marked with :conditional t :branch :else."
                          clean-parsed var-context depth))))
         ;; Mark all else branch operations
         (dolist (op else-ops)
-          (let ((marked-op (copy-tree op)))
-            (plist-put marked-op :conditional t)
-            (plist-put marked-op :branch :else)
-            (push marked-op operations)))))
+          (push (append op (list :conditional t :branch :else)) operations))))
     (nreverse operations)))
 
 (defun jf/bash--extract-pattern-flow-operations (parsed-command substitution-patterns var-context)
