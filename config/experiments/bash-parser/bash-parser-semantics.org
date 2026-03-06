@@ -120,12 +120,7 @@ Setup lexical binding.
     (docker . (:operations :complex
                :subcommand-handlers ((cp . ((:source :positional-args :indices (0 . -2) :operation :read)
                                             (:source :positional-args :index -1 :operation :write))))))
-    (npm . (:operations :complex
-            :subcommand-handlers ()))
-    (cargo . (:operations :complex
-              :subcommand-handlers ()))
-    (kubectl . (:operations :complex
-                :subcommand-handlers ()))
+    ;; NOTE: npm, cargo, kubectl not yet implemented - removed stub entries
     (python . (:operations :flag-dependent
                :flag-handlers ((("-c" "-m") . ())  ; -c and -m execute inline code/module, no file operation
                               (() . ((:source :positional-args :operation :execute :index 0))))))
