@@ -1,6 +1,7 @@
 ;;; bash-parser-core.el --- Core bash parsing functions -*- lexical-binding: t; -*-
 
 (require 'treesit)
+(require 'bash-parser-security)
 
 (defun jf/bash-parse (command-string)
   "Parse COMMAND-STRING using tree-sitter with full pipeline/chain support.
