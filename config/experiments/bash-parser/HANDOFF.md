@@ -2,13 +2,13 @@
 
 ## Session Summary
 
-Successfully implemented **17 tests** worth of bash parser directory context features using sequential agents. Reduced expected test failures from **20 → 3** with **zero regressions**.
+Successfully implemented **18 tests** worth of bash parser directory context features using sequential agents. Reduced expected test failures from **20 → 2** with **zero regressions**.
 
-**Latest Session:** Completed Option 2 (subshell detection) - 2 additional tests fixed.
+**Latest Session:** Completed nested subshells fix - 1 additional test fixed.
 
 ## Current Status
 
-**Test Results:** 536 total tests, 3 expected failures, 0 unexpected results
+**Test Results:** 536 total tests, 2 expected failures, 0 unexpected results
 **Branch:** `gptel-scoped-bash-tools`
 **Baseline:** `config/experiments/bash-parser/test-results.txt` (updated after each agent)
 
@@ -60,28 +60,22 @@ Successfully implemented **17 tests** worth of bash parser directory context fea
    - Solution: Updated command node collection to preserve for_statement and if_statement structures
    - Files: bash-parser-core.org/el
 
-11. **emacs-eg5t** - Subshell detection (partial completion)
-   - Fixed: test-subshell-cd-isolation, test-subshell-pwd-assignment-isolation (2 of 3 tests)
+11. **emacs-eg5t** - Subshell detection (completed)
+   - Fixed: test-subshell-cd-isolation, test-subshell-pwd-assignment-isolation, test-nested-subshells (3 of 3 tests)
    - Root cause: Previous implementation didn't distinguish between `(...)` subshells, `$(...)` command subs, `$((...))`  arithmetic
    - Solution: Updated node detection to skip arithmetic_expansion and command_substitution, collect true subshell nodes
-   - Remaining: test-nested-subshells (deeply nested subshells require additional context handling)
+   - Additional fix: Pre-process `((` to `( (` to work around tree-sitter-bash parsing limitation
    - Files: bash-parser-core.org/el
 
-## Remaining Open Beads (3 expected failures)
+## Remaining Open Beads (2 expected failures)
 
-### Directory Context Tests (2 tests)
+### Directory Context Tests (1 test)
 
 **test-pwd-substitution-nested** (Priority: P3)
 - Command: `cat $(basename $(pwd))/file.txt` with PWD=/Users/name/project → project/file.txt
 - Requires: Extensive command substitution resolution in file path handling
 - Status: Infrastructure partially added in emacs-o20p but needs more work
 - Files: bash-parser-variables.org, bash-parser-file-ops.org
-
-**test-nested-subshells** (Priority: P2)
-- Command: `((cd /a && cat a.txt) && cd /b && cat b.txt) && cat c.txt`
-- Requires: Multi-level subshell context isolation (inner, outer, parent)
-- Status: Basic subshell detection now working (emacs-eg5t), needs nested context handling
-- Files: bash-parser-recursive.org (context tracking)
 
 ### Flaky Test (1 test)
 
@@ -93,16 +87,13 @@ Successfully implemented **17 tests** worth of bash parser directory context fea
 
 ## Recommended Next Steps
 
-### Option 1: Fix Nested Subshells (Higher Priority, More Focused)
-Work on test-nested-subshells to implement multi-level subshell context isolation. This is P2 and impacts security analysis. Basic subshell detection is now working, just needs nested context handling in bash-parser-recursive.org.
-
-### Option 2: Fix Nested $(pwd) Substitution (Lower Priority, More Complex)
+### Option 1: Fix Nested $(pwd) Substitution (More Complex)
 Work on test-pwd-substitution-nested to implement nested command substitution in file paths. This is P3 and requires extensive changes to command substitution resolution.
 
-### Option 3: Investigate Flaky Backtick Test
+### Option 2: Investigate Flaky Backtick Test
 Work on test-cmdsub-nested-backticks to stabilize or document the limitation. This is P3 and may be a tree-sitter parsing issue rather than our code.
 
-**Recommended:** Start with Option 1 (nested subshells) as it builds on the subshell detection work just completed and is higher priority.
+**Status:** Only 2 tests remain out of 20 original directory-context tests! Both are P3 priority and represent edge cases rather than core functionality.
 
 ## Agent Usage Pattern
 
@@ -158,9 +149,17 @@ All implementations used this pattern:
 5. Update baseline after each successful agent
 6. Close beads as they complete
 
-**Progress:** 17 tests fixed, 3 remaining → 85% complete for directory-context feature set
+**Progress:** 18 tests fixed, 2 remaining → 90% complete for directory-context feature set
 
-### Subshell Detection Session Summary (Latest)
+### Nested Subshells Session Summary (Latest)
+Completed nested subshells fix - final subshell test passing:
+- test-nested-subshells: Multi-level context isolation ✓
+
+**Results:** 3 → 2 expected failures, 1 test fixed, zero regressions
+
+**Key insight:** Tree-sitter-bash doesn't correctly parse `((` at start of command (confuses with arithmetic expansion). Solution: Pre-process to normalize `((` → `( (` with space. This allows proper parsing of nested subshells like `((cd /a && cat a.txt) && cd /b && cat b.txt)`. Added structure detection and handler for subshell nodes. The Step 8 handler in bash-parser-recursive.org already had correct context isolation logic - no changes needed there.
+
+### Subshell Detection Session Summary
 Completed Option 2 - fixed subshell detection (emacs-eg5t):
 - emacs-eg5t: Subshell detection (2 of 3 tests) ✓ partial
 
