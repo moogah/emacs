@@ -17,9 +17,9 @@
 
 ## Executive Summary
 
-The bash-parser file operations extraction system demonstrates **strong architectural design** with comprehensive recursive analysis, proper integration with the semantics database, and excellent handling of complex bash constructs. The implementation successfully addresses most spec requirements.
+The bash-parser file operations extraction system demonstrates **strong architectural design** with comprehensive recursive analysis, proper integration with the semantics database, and excellent handling of complex bash constructs. Recent improvements have resolved all critical issues.
 
-**Overall Assessment: GOOD** (7/10)
+**Overall Assessment: EXCELLENT** (8.5/10)
 
 **Key Strengths:**
 - Excellent recursive analysis architecture (delegates to `bash-parser-recursive.el`)
@@ -28,145 +28,51 @@ The bash-parser file operations extraction system demonstrates **strong architec
 - Proper handling of self-executing commands and script arguments
 - Good test coverage with corpus-based validation
 
-**Critical Issues Found: 4**
-**High Priority Issues: 6**
+**Recent Improvements:**
+- ✅ Operation type validation implemented (emacs-k3z5)
+- ✅ Complete exec block extraction with find operations (emacs-3kgg)
+- ✅ Confidence degradation for unresolved variables (emacs-o7sx)
+- ✅ Duplicate pattern flow function removed (emacs-l4rq)
+
+**Critical Issues Found: 0** (All resolved)
+**High Priority Issues: 4**
 **Medium Priority Issues: 8**
-**Total Issues: 18**
+**Remaining Issues: 14**
 
 ---
 
-## 1. CRITICAL ISSUES
+## 1. RESOLVED CRITICAL ISSUES
 
-### 1.1 Missing Operation Types in File-Ops Module
+All critical issues have been resolved through recent improvements:
 
-**Severity:** CRITICAL
-**Location:** `bash-parser-file-ops.el` lines 103, 159
-**Spec References:** Lines 104-105, 160
+### 1.1 Operation Type Validation ✅ RESOLVED
 
-**Issue:**
-The main extraction function documents operation types `:create`, `:match-pattern`, `:read-directory`, and `:read-metadata` in its docstring, but these are actually defined in the semantics database, not in the file-ops module itself. The file-ops module cannot independently validate or ensure these operation types are correctly produced.
+**Resolution:** Implemented validation (emacs-k3z5)
+- Added `jf/bash-valid-operation-types` constant
+- Created `jf/bash--validate-operation-type` function
+- Validates all operations before returning from extraction functions
 
-**Evidence:**
-```elisp
-;; bash-parser-file-ops.el line 103
-:operation - Operation type (:read, :write, :delete, :modify, :create, :append,
-                              :match-pattern, :read-directory, :read-metadata)
-```
+### 1.2 Exec Block Extraction ✅ RESOLVED
 
-But searching the file-ops module shows:
-- No validation that `:create` vs `:create-or-modify` are used consistently
-- No explicit handling of `:match-pattern` - relies entirely on semantics database
-- No explicit handling of `:read-directory` or `:read-metadata`
+**Resolution:** Complete extraction implemented (emacs-3kgg)
+- Now extracts operations from both find command and exec blocks
+- Captures `:read-directory` and `:match-pattern` from find
+- Captures operation from exec command
+- Properly merges both operation lists
 
-**Impact:**
-- Inconsistent operation type usage between modules
-- No centralized validation of operation types
-- Difficult to ensure spec compliance across the system
+### 1.3 Pattern Flow Integration ✅ RESOLVED
 
-**Recommendation:**
-1. Create `jf/bash-valid-operation-types` constant in file-ops module
-2. Add validation function `jf/bash--validate-operation-type`
-3. Validate all operations before returning from extraction functions
-4. Document which module is authoritative for operation types
+**Resolution:** Duplicate function removed (emacs-l4rq)
+- Removed unused `jf/bash--extract-pattern-flow-operations` from file-ops
+- Documented that pattern flow is handled by recursive analyzer
+- Eliminated code duplication and confusion
 
-### 1.2 Incomplete Exec Block Extraction
+### 1.4 Confidence Level Logic ✅ RESOLVED
 
-**Severity:** CRITICAL
-**Location:** `bash-parser-file-ops.el` lines 853-902
-**Spec Reference:** Lines 38-47 (Find with exec blocks)
-
-**Issue:**
-The `jf/bash-extract-from-exec-blocks` function only extracts operations from the exec command itself, but does **not** extract operations from the find command's positional arguments (search directory and pattern).
-
-**Evidence:**
-```elisp
-;; Current implementation only processes exec blocks
-(defun jf/bash-extract-from-exec-blocks (parsed-command var-context)
-  (let ((exec-blocks (plist-get parsed-command :exec-blocks))
-        (operations nil))
-    (when exec-blocks
-      (dolist (exec-block exec-blocks)
-        ;; Only extracts from exec-block, NOT from find arguments
-        (let* ((exec-type (plist-get exec-block :type))
-               (extracted-ops (jf/bash-extract-operations-from-positional-args
-                               exec-block var-context)))
-          ...)))
-    (nreverse operations)))
-```
-
-**Spec Requirement:**
-```
-Scenario: Find with exec rm
-- WHEN extracting operations from "find . -name '*.log' -exec rm {} \;"
-- THEN system returns operations from both find (`:read-directory` on ".")
-  and rm (`:delete` on matched files)
-```
-
-**Current Behavior:**
-Only returns operations from `rm {}`, missing the find operations.
-
-**Impact:**
-- Incomplete operation extraction for find commands
-- Security validation cannot see directory traversal
-- Pattern matching operations not captured
-
-**Recommendation:**
-1. Modify function to extract find operations first (call semantics handler)
-2. Then extract exec block operations
-3. Merge both operation lists
-4. Add test specifically for "find . -name '*.log' -exec rm {} \\;"
-
-### 1.3 Pattern Flow Not Fully Integrated
-
-**Severity:** CRITICAL
-**Location:** `bash-parser-file-ops.el` lines 249-292
-**Spec Reference:** Implicit in recursive analysis design
-
-**Issue:**
-The `jf/bash--extract-pattern-flow-operations` function exists but is **never called** from the main extraction path. Pattern flow tracking is handled entirely by `bash-parser-recursive.el`, but the file-ops module has a duplicate/unused implementation.
-
-**Evidence:**
-```elisp
-;; Function defined at line 249 but no callers in file-ops module
-(defun jf/bash--extract-pattern-flow-operations (parsed-command
-                                                  substitution-patterns
-                                                  var-context)
-  ...)
-```
-
-Searching for callers shows it's only used in recursive module, not in file-ops.
-
-**Impact:**
-- Dead code in file-ops module
-- Confusion about where pattern flow is handled
-- Potential maintenance burden with duplicate logic
-
-**Recommendation:**
-1. Remove `jf/bash--extract-pattern-flow-operations` from file-ops module
-2. Document that pattern flow is handled by recursive analyzer
-3. Update feature detection function accordingly
-4. Or refactor to use this function from recursive module
-
-### 1.4 Confidence Level Logic Incomplete
-
-**Severity:** CRITICAL
-**Location:** Throughout module
-**Spec Reference:** Lines 59-73 (Confidence level classification)
-
-**Issue:**
-The spec requires confidence level degradation for unresolved variables (line 196-199), but the implementation always uses `:high` confidence for positional args regardless of variable resolution status.
-
-**Evidence:**
-```elisp
-;; bash-parser-file-ops.el line 674
-(push (append (list :file final-path
-                   :operation operation
-                   :confidence :high  ; <-- Always :high, even with unresolved vars
-                   :source :positional-arg
-                   :command command-name)
-             (when unresolved-vars
-               (list :unresolved t :unresolved-vars unresolved-vars))
-             ...)
+**Resolution:** Confidence degradation implemented (emacs-o7sx)
+- Operations with unresolved variables now get `:medium` confidence
+- Operations with fully resolved paths get `:high` confidence
+- Redirections remain `:high` (unambiguous grammar constructs)
       operations)
 ```
 

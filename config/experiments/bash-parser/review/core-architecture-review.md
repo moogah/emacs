@@ -9,7 +9,11 @@
 
 ## Executive Summary
 
-The bash-parser-core module demonstrates solid tree-sitter integration and comprehensive handling of bash command structures. The code is well-organized with clear separation of concerns. However, several architectural issues were identified that impact maintainability, correctness, and adherence to Emacs Lisp best practices.
+The bash-parser-core module demonstrates solid tree-sitter integration and comprehensive handling of bash command structures. The code is well-organized with clear separation of concerns. Recent improvements have resolved critical dependency and thread-safety issues.
+
+**Recent Improvements:**
+- ✅ Security dependency properly declared (emacs-er8n)
+- ✅ Thread-safe parameter-based depth tracking (emacs-95io)
 
 **Severity Levels:**
 - **Critical:** Must fix - breaks functionality or creates security issues
@@ -34,39 +38,19 @@ The bash-parser-core module demonstrates solid tree-sitter integration and compr
 - Duplication between `jf/bash-parse--handle-for-loop` and `jf/bash-parse--handle-for-loop-node`
 - Unclear why both `-node` and regular handler variants exist
 
-### 1.2 Dependency Management ⚠️ ISSUES
+### 1.2 Dependency Management ✅ RESOLVED
 
-**Issue:** Missing dependency on external variables
-**Severity:** High
-**Location:** Lines 950-952, 1210-1212
+**Previously:** Module referenced external variables without declaring dependency.
+**Resolution:** Added `(require 'bash-parser-security)` to dependencies (emacs-er8n).
 
-The module references `jf/bash-parser-wrapper-commands` and `jf/bash-parser-dangerous-patterns` but does not require `bash-parser-security` where these are defined.
+The module now properly declares its dependency on `jf/bash-parser-wrapper-commands` and `jf/bash-parser-dangerous-patterns` from the security module.
 
-```elisp
-;; Line 950-952
-(if-let ((wrapper-spec (and (not (string-match-p "=" command-name))
-                            (alist-get (intern command-name)
-                                       jf/bash-parser-wrapper-commands))))
-
-;; Line 1210-1212
-(when-let ((patterns (and (not (string-match-p "=" command-name))
-                          (alist-get (intern command-name)
-                                     jf/bash-parser-dangerous-patterns))))
-```
-
-**Recommendation:**
-- Add `(require 'bash-parser-security)` to dependencies OR
-- Move these variables to core OR
-- Make these dependencies optional with runtime checks
-
-### 1.3 Separation of Concerns ✓ MOSTLY GOOD
+### 1.3 Separation of Concerns ✓ GOOD
 
 The module successfully separates:
 - Structure detection from parsing
 - Node traversal from extraction
 - Tree-sitter concerns from business logic
-
-However, security pattern checking is mixed with parsing logic (see 1.2).
 
 ---
 
@@ -181,52 +165,16 @@ This prevents double-parsing of nested structures.
 
 ## 4. Recursion Depth Protection
 
-### 4.1 Implementation ⚠️ THREAD-UNSAFE
+### 4.1 Implementation ✅ RESOLVED
 
-**Issue:** Global mutable state not thread-safe
-**Severity:** High
-**Location:** Lines 798-804, 32-42
+**Previously:** Used global mutable state for depth tracking (not thread-safe).
+**Resolution:** Replaced with parameter-based depth tracking (emacs-95io).
 
-```elisp
-(defvar jf/bash--parse-depth 0
-  "Current parsing depth for recursion limiting.
-Incremented each time jf/bash-parse is called recursively.")
-
-;; In jf/bash-parse:
-(setq jf/bash--parse-depth (1+ jf/bash--parse-depth))
-(unwind-protect
-    (progn
-      (when (> jf/bash--parse-depth jf/bash--max-parse-depth)
-        (error "Max parse depth exceeded: possible recursion cycle"))
-      (jf/bash-parse--internal command-string))
-  (setq jf/bash--parse-depth (1- jf/bash--parse-depth)))
-```
-
-**Problems:**
-1. **Not thread-safe:** If Emacs ever supports true concurrency, this will break
-2. **Shared global state:** Multiple callers interfere with each other
-3. **Non-reentrant:** If parse is interrupted (e.g., by debugger), depth counter can be left in inconsistent state
-
-**Impact in practice:**
-- Currently low (Emacs is mostly single-threaded)
-- But breaks if called from async context (e.g., `async.el` package)
-- Hard to debug when it fails
-
-**Recommendation:**
-Use a parameter passed through the call stack instead:
-```elisp
-(defun jf/bash-parse (command-string)
-  (jf/bash-parse--with-depth command-string 0))
-
-(defun jf/bash-parse--with-depth (command-string depth)
-  (when (> depth jf/bash--max-parse-depth)
-    (error "Max parse depth exceeded: possible recursion cycle"))
-  (condition-case err
-      (jf/bash-parse--internal command-string depth)
-    (error (list :success nil :error (error-message-string err)))))
-```
-
-This makes the depth tracking explicit and thread-safe.
+The module now uses parameter passing through the call stack:
+- Depth passed as explicit parameter
+- Thread-safe and reentrant
+- No shared global state
+- Works correctly with async contexts
 
 ### 4.2 Depth Limit Value ✓ REASONABLE
 

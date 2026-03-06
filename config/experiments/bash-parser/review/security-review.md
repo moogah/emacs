@@ -15,72 +15,35 @@
 
 ## Executive Summary
 
-The bash-parser security validation system is **functionally correct** with good architecture and solid test coverage. However, it has **8 significant issues** requiring fixes:
+The bash-parser security validation system is **functionally correct** with good architecture and solid test coverage. Recent improvements have resolved critical glob pattern bugs.
 
-- **3 Critical Issues** - Correctness bugs affecting security guarantees
+**Recent Improvements:**
+- ✅ Glob ? wildcard now correctly excludes directory separators (emacs-3jhx)
+
+**Remaining Issues:**
+- **2 Critical Issues** - Security gaps requiring attention
 - **3 High Priority Issues** - Missing features from spec
 - **2 Medium Priority Issues** - Code quality and documentation gaps
 
-**Overall Assessment:** ✅ Core logic is sound, but needs refinement before production use.
+**Overall Assessment:** ✅ Core logic is sound with improved glob matching security.
+
+---
+
+## Resolved Critical Issues
+
+### 1. Question Mark Glob Pattern ✅ RESOLVED
+
+**Resolution:** Fixed regex conversion (emacs-3jhx)
+- Changed `?` wildcard conversion from `.` to `[^/]`
+- Now correctly excludes directory separators from matching
+- Added test cases to verify `/workspace/file?.txt` does not match `/workspace/file/.txt`
+- Applied fix to both `jf/bash--glob-segment-to-regex` and `jf/bash--glob-to-regex`
 
 ---
 
 ## Critical Issues
 
-### 1. Question Mark Glob Pattern Bug - Incorrect Regex Conversion
-
-**Severity:** 🔴 Critical
-**Location:** `bash-parser-glob.el:71`, `bash-parser-glob.el:116`
-**Impact:** Security bypass - patterns with `?` wildcard can match directory separators
-
-**Problem:**
-
-In `jf/bash--glob-segment-to-regex`, the `?` wildcard is converted to `.` which matches ANY character including `/`:
-
-```elisp
-;; Single-char wildcard
-((eq ch ??)
- (setq regex (concat regex "."))  ; BUG: . matches / in Emacs regex
- (setq i (1+ i)))
-```
-
-In `jf/bash--glob-to-regex`, the same pattern exists at line 58.
-
-**Expected Behavior (from spec):**
-
-> "? - matches exactly one character"
-
-The test at `test-glob-matching.el:117` expects `?` to match one character, but it should NOT match `/` (path separator). The pattern `/workspace/file?.txt` should match `/workspace/file1.txt` but NOT `/workspace/file/.txt`.
-
-**Root Cause:**
-
-In Emacs regex, `.` matches any character INCLUDING newlines and slashes. The glob `?` should match any character EXCEPT path separators.
-
-**Fix Required:**
-
-```elisp
-;; Single-char wildcard - matches any character EXCEPT /
-((eq ch ??)
- (setq regex (concat regex "[^/]"))  ; Correct: exclude /
- (setq i (1+ i)))
-```
-
-**Test Case to Add:**
-
-```elisp
-(ert-deftest test-glob-question-mark-no-match-directory-separator ()
-  "Test that ? does NOT match directory separator /"
-  (should-not (jf/bash-glob-match-p "/workspace/file/.txt" "/workspace/file?.txt"))
-  (should-not (jf/bash-glob-match-p "/a/b" "/?/?")))
-```
-
-**Verification:**
-
-The comment at line 58 in `bash-parser-glob.el` says `[^/]` but the code at line 19 uses `[^/]` correctly. Lines 71 and 116 need to match this pattern.
-
----
-
-### 2. Missing Variable Resolution Integration
+### 1. Missing Variable Resolution Integration
 
 **Severity:** 🔴 Critical
 **Location:** `bash-parser-security.el:154` (function signature)
