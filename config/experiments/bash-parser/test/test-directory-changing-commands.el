@@ -466,7 +466,6 @@ SECURITY: Nested subshells each have isolated context.
          a.txt → /a/a.txt (inner subshell)
          b.txt → /b/b.txt (outer subshell)
          c.txt → (original)/c.txt (parent)"
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "((cd /a && cat a.txt) && cd /b && cat b.txt) && cat c.txt"))
          (var-context '((PWD . "/original")))
          (ops (jf/bash-extract-file-operations parsed var-context)))

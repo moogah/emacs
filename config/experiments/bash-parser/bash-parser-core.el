@@ -46,7 +46,14 @@ infinite loops in pathological cases."
 (defun jf/bash-parse--internal (command-string)
   "Internal parser implementation for COMMAND-STRING with pipeline support."
   (with-temp-buffer
-    (insert command-string)
+    ;; Pre-process: Fix tree-sitter limitation with (( at start
+    ;; Tree-sitter confuses (( with arithmetic expansion $((...))
+    ;; Add space to make it parse as nested subshells: ( (...)
+    (let ((normalized-string
+           (if (string-prefix-p "((" command-string)
+               (concat "( " (substring command-string 1))
+             command-string)))
+      (insert normalized-string))
     (let* ((parser (treesit-parser-create 'bash))
            (root-node (treesit-parser-root-node parser))
            (struct-type (jf/bash-parse--detect-structure-type root-node)))
@@ -60,6 +67,8 @@ infinite loops in pathological cases."
          (jf/bash-parse--handle-conditional root-node))
         (:for-loop
          (jf/bash-parse--handle-for-loop root-node))
+        (:subshell
+         (jf/bash-parse--handle-subshell root-node))
         (:simple
          (jf/bash-parse--handle-simple-command root-node))
         (_
@@ -68,18 +77,20 @@ infinite loops in pathological cases."
 
 (defun jf/bash-parse--detect-structure-type (root-node)
   "Detect the structure type from ROOT-NODE.
-Returns :pipeline, :list, :conditional, :for-loop, or :simple.
+Returns :pipeline, :list, :conditional, :for-loop, :subshell, or :simple.
 Only checks direct children to avoid detecting nested structures inside command substitutions."
   (let ((pipeline-node (jf/bash-parse--find-direct-child-by-type root-node "pipeline"))
         (list-node (jf/bash-parse--find-direct-child-by-type root-node "list"))
         (if-node (jf/bash-parse--find-direct-child-by-type root-node "if_statement"))
         (for-node (jf/bash-parse--find-direct-child-by-type root-node "for_statement"))
+        (subshell-node (jf/bash-parse--find-direct-child-by-type root-node "subshell"))
         (redirected-stmt (jf/bash-parse--find-direct-child-by-type root-node "redirected_statement")))
     (cond
      (pipeline-node :pipeline)
      (list-node :list)
      (if-node :conditional)
      (for-node :for-loop)
+     (subshell-node :subshell)
      ;; Check for semicolon-separated commands BEFORE redirected_statement
      ;; This handles chains like "cat a.txt > b.txt; cat c.txt >> b.txt"
      ((> (jf/bash-parse--count-command-children root-node) 1) :list)
@@ -441,6 +452,27 @@ Bash tree-sitter structure for for_statement:
         (when command-substitutions
           (setq result (plist-put result :command-substitutions command-substitutions)))
         result))))
+
+(defun jf/bash-parse--handle-subshell (root-node)
+  "Handle subshell from ROOT-NODE.
+Returns structure with :type :subshell and :subshell-body containing parsed body."
+  (let* ((subshell-node (jf/bash-parse--find-direct-child-by-type root-node "subshell")))
+    (if (not subshell-node)
+        (list :success nil
+              :error "No subshell node found in root")
+      ;; Extract content between parentheses and recursively parse
+      (let* ((subshell-text (treesit-node-text subshell-node t))
+             ;; Extract content between parentheses
+             (inner-text (when (string-match "^(\\(.*\\))$" subshell-text)
+                          (match-string 1 subshell-text)))
+             ;; Recursively parse the content
+             (parsed-body (when inner-text
+                           (jf/bash-parse inner-text))))
+        ;; Return as subshell type for recursive handler to process with isolated context
+        (list :success t
+              :type :subshell
+              :subshell-body parsed-body
+              :ast root-node)))))
 
 (defun jf/bash-parse--handle-for-loop-node (for-node)
   "Handle for-loop from FOR-NODE directly.
