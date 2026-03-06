@@ -334,6 +334,39 @@ Test that partial resolution is handled correctly."
     ;; Should be marked as unresolved
     (should (plist-get (car ops) :unresolved))))
 
+(ert-deftest test-confidence-degradation-for-unresolved ()
+  "Scenario: bash-file-operations § 'Confidence degradation for unresolved'
+
+Test that operations with unresolved variables get :medium confidence
+instead of :high (spec.md lines 196-199)."
+  (let* ((parsed (jf/bash-parse "cat $UNKNOWN/file.txt"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (should (= (length ops) 1))
+    (let ((op (car ops)))
+      ;; Should be marked as unresolved
+      (should (eq (plist-get op :unresolved) t))
+      ;; Should have unresolved-vars list
+      (let ((unresolved-vars (plist-get op :unresolved-vars)))
+        (should (or (member "UNKNOWN" unresolved-vars)
+                    (member 'UNKNOWN unresolved-vars))))
+      ;; CRITICAL: Confidence should be degraded to :medium (not :high)
+      (should (eq (plist-get op :confidence) :medium)))))
+
+(ert-deftest test-confidence-high-for-fully-resolved ()
+  "Test that fully resolved operations maintain :high confidence.
+
+Verifies that confidence degradation only applies when variables
+are unresolved."
+  (let* ((parsed (jf/bash-parse "cat $VAR/file.txt"))
+         (context '((VAR . "/workspace")))
+         (ops (jf/bash-extract-file-operations parsed context)))
+    (should (= (length ops) 1))
+    (let ((op (car ops)))
+      ;; Should not be marked as unresolved
+      (should-not (plist-get op :unresolved))
+      ;; Should maintain :high confidence
+      (should (eq (plist-get op :confidence) :high)))))
+
 ;;; Variable Assignment Tracking Tests
 
 (ert-deftest test-variable-assignment-and-usage-in-chain ()
@@ -418,6 +451,25 @@ Test that redirections always have high confidence."
       (when write-op
         (should (eq (plist-get write-op :confidence) :high))
         (should (eq (plist-get write-op :source) :redirection))))))
+
+(ert-deftest test-extraction-redirections-keep-high-confidence-with-variables ()
+  "Test that redirections maintain :high confidence even with unresolved variables.
+
+Redirections are unambiguous grammar constructs - the operation type
+(read/write/append) is clear from the operator regardless of path resolution.
+This is different from positional args which degrade to :medium."
+  (let* ((parsed (jf/bash-parse "cat > $OUTFILE"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    (should (= (length ops) 1))
+    (let ((op (car ops)))
+      ;; Should be marked as unresolved
+      (should (plist-get op :unresolved))
+      ;; Should have unresolved-vars list
+      (should (plist-get op :unresolved-vars))
+      ;; But confidence should remain :high (not degraded to :medium)
+      (should (eq (plist-get op :confidence) :high))
+      ;; Should be from redirection source
+      (should (eq (plist-get op :source) :redirection)))))
 
 ;;; Metadata Tests
 

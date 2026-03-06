@@ -346,7 +346,7 @@
      :var-context nil
      :expect-ops ((:file "$UNKNOWN_SCRIPT"
                    :operation :execute
-                   :confidence :high
+                   :confidence :medium
                    :source :positional-arg
                    :unresolved t
                    :unresolved-vars ("UNKNOWN_SCRIPT")

@@ -485,7 +485,7 @@
      :var-context nil
      :expect-ops ((:file "$FILE"
                    :operation :read
-                   :confidence :high
+                   :confidence :medium
                    :source :positional-arg
                    :unresolved t
                    :unresolved-vars ("FILE"))))
@@ -505,7 +505,7 @@
      :var-context nil
      :expect-ops ((:file "${TEMP_DIR}/file.txt"
                    :operation :delete
-                   :confidence :high
+                   :confidence :medium
                    :source :positional-arg
                    :unresolved t
                    :unresolved-vars ("TEMP_DIR"))))
@@ -525,13 +525,13 @@
      :var-context (("SRC" . "/workspace"))
      :expect-ops ((:file "/workspace/$FILE"
                    :operation :read
-                   :confidence :high
+                   :confidence :medium
                    :source :positional-arg
                    :unresolved t
                    :unresolved-vars ("FILE"))
                   (:file "$DEST/"
                    :operation :write
-                   :confidence :high
+                   :confidence :medium
                    :source :positional-arg
                    :unresolved t
                    :unresolved-vars ("DEST"))))

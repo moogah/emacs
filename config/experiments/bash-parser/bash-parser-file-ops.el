@@ -468,9 +468,11 @@ Operation spec format:
                                              (nthcdr (1+ script-pos) args)
                                            '())))))
                     ;; Create operation plist
+                    ;; Confidence degradation: operations with unresolved variables get :medium
+                    ;; confidence instead of :high (security requirement - spec.md lines 196-199)
                     (push (append (list :file final-path
                                        :operation operation
-                                       :confidence :high
+                                       :confidence (if unresolved-vars :medium :high)
                                        :source :positional-arg
                                        :command command-name)
                                  (when unresolved-vars
