@@ -51,35 +51,38 @@ DEPTH parameter tracks current recursion depth."
   ;; Parse in temp buffer. Note: AST nodes returned in :ast field
   ;; become invalid after this function returns. All needed data
   ;; is extracted into the result plist.
-  (with-temp-buffer
-    ;; Pre-process: Fix tree-sitter limitation with (( at start
-    ;; Tree-sitter confuses (( with arithmetic expansion $((...))
-    ;; Add space to make it parse as nested subshells: ( (...)
-    (let ((normalized-string
-           (if (string-prefix-p "((" command-string)
-               (concat "( " (substring command-string 1))
-             command-string)))
-      (insert normalized-string))
-    (let* ((parser (treesit-parser-create 'bash))
-           (root-node (treesit-parser-root-node parser))
-           (struct-type (jf/bash-parse--detect-structure-type root-node)))
+  (condition-case err
+      (with-temp-buffer
+        ;; Pre-process: Fix tree-sitter limitation with (( at start
+        ;; Tree-sitter confuses (( with arithmetic expansion $((...))
+        ;; Add space to make it parse as nested subshells: ( (...)
+        (let ((normalized-string
+               (if (string-prefix-p "((" command-string)
+                   (concat "( " (substring command-string 1))
+                 command-string)))
+          (insert normalized-string))
+        (let* ((parser (treesit-parser-create 'bash))
+               (root-node (treesit-parser-root-node parser))
+               (struct-type (jf/bash-parse--detect-structure-type root-node)))
 
-      (pcase struct-type
-        (:pipeline
-         (jf/bash-parse--handle-pipeline root-node depth))
-        (:list
-         (jf/bash-parse--handle-list root-node depth))
-        (:conditional
-         (jf/bash-parse--handle-conditional root-node))
-        (:for-loop
-         (jf/bash-parse--handle-for-loop root-node))
-        (:subshell
-         (jf/bash-parse--handle-subshell root-node depth))
-        (:simple
-         (jf/bash-parse--handle-simple-command root-node depth))
-        (_
-         (list :success nil
-               :error "Unknown command structure"))))))
+          (pcase struct-type
+            (:pipeline
+             (jf/bash-parse--handle-pipeline root-node depth))
+            (:list
+             (jf/bash-parse--handle-list root-node depth))
+            (:conditional
+             (jf/bash-parse--handle-conditional root-node))
+            (:for-loop
+             (jf/bash-parse--handle-for-loop root-node))
+            (:subshell
+             (jf/bash-parse--handle-subshell root-node depth))
+            (:simple
+             (jf/bash-parse--handle-simple-command root-node depth))
+            (_
+             (list :success nil
+                   :error "Unknown command structure")))))
+    (error (list :success nil
+                 :error (format "Parse error: %s" (error-message-string err))))))
 
 (defun jf/bash-parse--detect-structure-type (root-node)
   "Detect the bash command structure type from ROOT-NODE tree-sitter parse tree.
