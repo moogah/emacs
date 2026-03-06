@@ -29,6 +29,8 @@
 
 (require 'test-helper (expand-file-name "test-helper.el"
                                         (file-name-directory load-file-name)))
+(require 'test-assertions (expand-file-name "test-assertions.el"
+                                            (file-name-directory load-file-name)))
 
 ;;; Basic Extraction Tests
 
@@ -38,11 +40,10 @@
 Test that a simple read command extracts correct operation."
   (let* ((parsed (jf/bash-parse "cat /workspace/foo.txt"))
          (ops (jf/bash-extract-file-operations parsed)))
-    (should (= (length ops) 1))
-    (should (equal (plist-get (car ops) :file) "/workspace/foo.txt"))
-    (should (eq (plist-get (car ops) :operation) :read))
-    (should (eq (plist-get (car ops) :confidence) :high))
-    (should (eq (plist-get (car ops) :source) :positional-arg))))
+    (should-have-operations-count ops 1)
+    (let ((op (should-have-file-operation ops "/workspace/foo.txt" :read)))
+      (should-operation-have-metadata op :confidence :high)
+      (should-operation-have-metadata op :source :positional-arg))))
 
 (ert-deftest test-extraction-command-with-multiple-file-arguments ()
   "Scenario: bash-file-operations § 'Command with multiple file arguments'
@@ -50,21 +51,13 @@ Test that a simple read command extracts correct operation."
 Test that cp command extracts both read and write operations."
   (let* ((parsed (jf/bash-parse "cp source.txt dest.txt"))
          (ops (jf/bash-extract-file-operations parsed)))
-    (should (= (length ops) 2))
+    (should-have-operations-count ops 2)
     ;; Check for read operation on source
-    (let ((read-op (cl-find-if (lambda (op)
-                                  (and (equal (plist-get op :file) "source.txt")
-                                       (eq (plist-get op :operation) :read)))
-                                ops)))
-      (should read-op)
-      (should (eq (plist-get read-op :confidence) :high)))
+    (let ((read-op (should-have-file-operation ops "source.txt" :read)))
+      (should-operation-have-metadata read-op :confidence :high))
     ;; Check for write operation on dest
-    (let ((write-op (cl-find-if (lambda (op)
-                                   (and (equal (plist-get op :file) "dest.txt")
-                                        (eq (plist-get op :operation) :write)))
-                                 ops)))
-      (should write-op)
-      (should (eq (plist-get write-op :confidence) :high)))))
+    (let ((write-op (should-have-file-operation ops "dest.txt" :write)))
+      (should-operation-have-metadata write-op :confidence :high))))
 
 (ert-deftest test-extraction-command-with-no-file-operations ()
   "Scenario: bash-file-operations § 'Command with no file operations'
@@ -311,13 +304,9 @@ Test that variable is resolved against provided context."
 Test that unresolved variable is marked with metadata."
   (let* ((parsed (jf/bash-parse "cat $UNKNOWN/file.txt"))
          (ops (jf/bash-extract-file-operations parsed)))
-    (should (= (length ops) 1))
+    (should-have-operations-count ops 1)
     ;; Should be marked as unresolved
-    (should (eq (plist-get (car ops) :unresolved) t))
-    ;; Should include list of unresolved variables
-    (let ((unresolved-vars (plist-get (car ops) :unresolved-vars)))
-      (should (or (member "UNKNOWN" unresolved-vars)
-                  (member 'UNKNOWN unresolved-vars))))))
+    (should-have-unresolved-variables (car ops) '("UNKNOWN"))))
 
 (ert-deftest test-variable-partial-resolution ()
   "Scenario: bash-file-operations § 'Partial resolution'
