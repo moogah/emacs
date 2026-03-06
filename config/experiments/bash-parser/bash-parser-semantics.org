@@ -652,6 +652,93 @@ Returns non-nil if the command produces a file list, nil otherwise."
         (plist-get semantics :produces-file-list))))))
 #+end_src
 
+* Database Validation
+
+Validate the semantics database to catch configuration errors at load time.
+
+#+begin_src emacs-lisp
+(defun jf/bash-validate-semantics-database ()
+  "Validate the semantics database for common configuration errors.
+
+Checks for:
+1. Empty subcommand handlers - catches stub entries like npm/cargo/kubectl
+2. Missing custom handler functions - catches typos in handler names
+3. Invalid operation types - catches typos like :writes instead of :write
+4. Missing flag-handlers for flag-dependent - catches incomplete configurations
+
+Returns list of validation error strings, or nil if database is valid."
+  (let ((errors nil)
+        (valid-operation-types '(:read :write :delete :modify :create :create-or-modify
+                                :execute :match-pattern :read-directory :read-metadata :append)))
+
+    ;; Check each command entry
+    (dolist (entry jf/bash-command-file-semantics)
+      (let* ((command (car entry))
+             (semantics (cdr entry))
+             (operations (plist-get semantics :operations)))
+
+        ;; Check 1: Empty subcommand handlers
+        (when (eq operations :complex)
+          (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
+            (unless subcommand-handlers
+              (push (format "Command '%s': :complex operations but no :subcommand-handlers"
+                           command)
+                   errors))
+            ;; Check for empty handler lists
+            (dolist (subcommand-entry subcommand-handlers)
+              (let ((subcommand (car subcommand-entry))
+                    (handler-spec (cdr subcommand-entry)))
+                (when (null handler-spec)
+                  (push (format "Command '%s': subcommand '%s' has empty handler"
+                               command subcommand)
+                       errors))))))
+
+        ;; Check 2: Missing custom handler functions
+        (when (eq operations :custom)
+          (let ((handler (plist-get semantics :handler)))
+            (unless handler
+              (push (format "Command '%s': :custom operations but no :handler specified"
+                           command)
+                   errors))
+            (when (and handler (not (fboundp handler)))
+              (push (format "Command '%s': handler function '%s' is not defined"
+                           command handler)
+                   errors))))
+
+        ;; Check 3 & 4: Validate flag-dependent operations
+        (when (eq operations :flag-dependent)
+          (let ((flag-handlers (plist-get semantics :flag-handlers)))
+            (unless flag-handlers
+              (push (format "Command '%s': :flag-dependent operations but no :flag-handlers"
+                           command)
+                   errors))
+            ;; Validate operation types in flag handlers
+            (dolist (flag-entry flag-handlers)
+              (let ((operation-specs (cdr flag-entry)))
+                ;; Check each operation spec in the handler
+                (when (listp operation-specs)
+                  (dolist (op-spec operation-specs)
+                    (when (plistp op-spec)
+                      (let ((op-type (plist-get op-spec :operation)))
+                        (when (and op-type (not (memq op-type valid-operation-types)))
+                          (push (format "Command '%s': invalid operation type '%s' (valid: %s)"
+                                       command op-type valid-operation-types)
+                               errors))))))))))
+
+        ;; Check 4: Validate simple operation specs
+        (when (listp operations)
+          (dolist (op-spec operations)
+            (when (plistp op-spec)
+              (let ((op-type (plist-get op-spec :operation)))
+                (when (and op-type (not (memq op-type valid-operation-types)))
+                  (push (format "Command '%s': invalid operation type '%s' (valid: %s)"
+                               command op-type valid-operation-types)
+                       errors))))))))
+
+    ;; Return errors in forward order
+    (nreverse errors)))
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp
