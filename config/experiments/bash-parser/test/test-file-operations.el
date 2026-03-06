@@ -666,5 +666,116 @@ Test that regular commands like 'cat' are not detected as self-execution."
   (should-not (jf/bash--command-executes-self-p nil))
   (should-not (jf/bash--command-executes-self-p "")))
 
+;;; Xargs Integration Tests
+
+(ert-deftest test-extraction-xargs-simple-batch ()
+  "Scenario: bash-file-operations § 'xargs simple batch'
+
+Test that xargs with rm extracts delete operations.
+Currently extracts operations from find but not from xargs-invoked rm.
+
+Expected behavior:
+- Extract pattern match from find: *.log (:match-pattern)
+- Extract delete operation from xargs rm: *.log (:delete)
+
+Current behavior:
+- Extracts pattern match from find: *.log (:match-pattern)
+- Does not recognize rm as executed command (treats as positional arg)"
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "find . -name '*.log' | xargs rm"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should extract delete operation for matched files
+    (let ((delete-op (cl-find-if (lambda (op)
+                                    (and (equal (plist-get op :file) "*.log")
+                                         (eq (plist-get op :operation) :delete)))
+                                  ops)))
+      (should delete-op)
+      (should (eq (plist-get delete-op :confidence) :high))
+      (should (eq (plist-get delete-op :source) :positional-arg))
+      (should (equal (plist-get delete-op :command) "rm")))))
+
+(ert-deftest test-extraction-xargs-with-flags ()
+  "Scenario: bash-file-operations § 'xargs with flags'
+
+Test that xargs with command flags extracts operations correctly.
+Currently extracts operations from find but not from xargs-invoked rm -f.
+
+Expected behavior:
+- Extract from find: /tmp directory read
+- Extract delete operation from xargs rm -f for matched files
+
+Current behavior:
+- Extracts directory read from find
+- Does not recognize rm -f as executed command"
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "find /tmp -type f | xargs rm -f"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should have delete operations for files found
+    (let ((delete-ops (cl-remove-if-not (lambda (op)
+                                           (eq (plist-get op :operation) :delete))
+                                         ops)))
+      (should (> (length delete-ops) 0))
+      ;; Delete operations should have rm as command
+      (dolist (op delete-ops)
+        (should (equal (plist-get op :command) "rm"))))))
+
+(ert-deftest test-extraction-xargs-null-separated ()
+  "Scenario: bash-file-operations § 'xargs null-separated'
+
+Test that xargs -0 with find -print0 handles null-separated input.
+Currently extracts operations from find but not from xargs-invoked rm.
+
+Expected behavior:
+- Extract pattern match from find: *.bak (:match-pattern)
+- Extract delete operation from xargs -0 rm: *.bak (:delete)
+- Recognize -print0 and -0 as null-separator handling
+
+Current behavior:
+- Extracts pattern match from find: *.bak (:match-pattern)
+- Does not recognize rm as executed command"
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "find . -name '*.bak' -print0 | xargs -0 rm"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should extract delete operation for matched files
+    (let ((delete-op (cl-find-if (lambda (op)
+                                    (and (equal (plist-get op :file) "*.bak")
+                                         (eq (plist-get op :operation) :delete)))
+                                  ops)))
+      (should delete-op)
+      (should (eq (plist-get delete-op :confidence) :high))
+      (should (equal (plist-get delete-op :command) "rm")))))
+
+(ert-deftest test-extraction-xargs-placeholder ()
+  "Scenario: bash-file-operations § 'xargs placeholder'
+
+Test that xargs with -I placeholder extracts copy operations.
+Currently extracts operations from find but not from xargs-invoked cp.
+
+Expected behavior:
+- Extract pattern match from find: *.txt (:match-pattern)
+- Extract read operation from xargs cp source: *.txt (:read)
+- Extract write operation from xargs cp dest: backup/ (:write)
+- Recognize {} as placeholder for matched files
+
+Current behavior:
+- Extracts pattern match from find: *.txt (:match-pattern)
+- Does not recognize cp as executed command"
+  :expected-result :failed
+  (let* ((parsed (jf/bash-parse "find . -name '*.txt' | xargs -I {} cp {} backup/"))
+         (ops (jf/bash-extract-file-operations parsed)))
+    ;; Should extract copy operations (read source, write dest)
+    (let ((read-op (cl-find-if (lambda (op)
+                                  (and (equal (plist-get op :file) "*.txt")
+                                       (eq (plist-get op :operation) :read)))
+                                ops))
+          (write-op (cl-find-if (lambda (op)
+                                   (and (string-prefix-p "backup/" (plist-get op :file))
+                                        (eq (plist-get op :operation) :write)))
+                                 ops)))
+      (should read-op)
+      (should (equal (plist-get read-op :command) "cp"))
+      (should write-op)
+      (should (equal (plist-get write-op :command) "cp")))))
+
 (provide 'test-file-operations)
 ;;; test-file-operations.el ends here
