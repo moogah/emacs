@@ -209,8 +209,11 @@
 
 (ert-deftest test-semantics-write-operation-classification ()
   "Scenario: bash-command-semantics § 'Write operation classification'"
-  (let ((result (jf/bash-lookup-command-semantics "tee")))
-    (should (eq (plist-get (car (plist-get result :operations)) :operation) :write))))
+  (let* ((result (jf/bash-lookup-command-semantics "tee"))
+         (flag-handlers (plist-get result :flag-handlers))
+         (default-spec (alist-get nil flag-handlers))
+         (op (car default-spec)))
+    (should (eq (plist-get op :operation) :write))))
 
 (ert-deftest test-semantics-delete-operation-classification ()
   "Scenario: bash-command-semantics § 'Delete operation classification'"
@@ -276,7 +279,38 @@
   "Scenario: bash-command-semantics § 'File writing commands' - tee"
   (let ((result (jf/bash-lookup-command-semantics "tee")))
     (should result)
-    (should (eq (plist-get (car (plist-get result :operations)) :operation) :write))))
+    ;; tee now uses flag-dependent operations
+    (should (eq (plist-get result :operations) :flag-dependent))))
+
+(ert-deftest test-semantics-tee-without-flags ()
+  "Scenario: bash-command-semantics § 'Tee without flags returns write operation'"
+  (let* ((result (jf/bash-lookup-command-semantics "tee"))
+         (flag-handlers (plist-get result :flag-handlers))
+         (default-handler (cdr (assoc '() flag-handlers)))
+         (op (car default-handler)))
+    (should (eq (plist-get op :operation) :write))
+    (should (eq (plist-get op :source) :positional-args))))
+
+(ert-deftest test-semantics-tee-with-append-flag ()
+  "Scenario: bash-command-semantics § 'Tee with -a flag returns append operation'"
+  (let* ((result (jf/bash-lookup-command-semantics "tee"))
+         (flag-handlers (plist-get result :flag-handlers))
+         (append-spec (alist-get '("-a" "--append") flag-handlers nil nil #'equal))
+         (op (car append-spec)))
+    (should append-spec)
+    (should (eq (plist-get op :operation) :append))
+    (should (eq (plist-get op :source) :positional-args))))
+
+(ert-deftest test-semantics-tee-with-append-long-flag ()
+  "Scenario: bash-command-semantics § 'Tee with --append flag returns append operation'"
+  (let* ((result (jf/bash-lookup-command-semantics "tee"))
+         (flag-handlers (plist-get result :flag-handlers))
+         ;; The handler is the same for both -a and --append
+         (append-spec (alist-get '("-a" "--append") flag-handlers nil nil #'equal))
+         (op (car append-spec)))
+    (should append-spec)
+    (should (eq (plist-get op :operation) :append))
+    (should (eq (plist-get op :source) :positional-args))))
 
 (ert-deftest test-semantics-core-command-chgrp ()
   "Scenario: bash-command-semantics § 'File manipulation commands' - chgrp"
