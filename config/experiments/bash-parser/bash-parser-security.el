@@ -201,24 +201,54 @@ Violation plist contains:
      ;; Allowed
      (t nil))))
 
-(defun jf/bash-contains-cd-command-p (command-string)
-  "Return t if COMMAND-STRING contains a cd command.
+(defun jf/bash--walk-ast (ast-node visitor-fn)
+  "Walk AST-NODE tree, calling VISITOR-FN on each command node.
 
-Detects cd in various contexts:
+VISITOR-FN is called with each node. If it returns non-nil, walking stops
+and that value is returned.
+
+AST-NODE should be a parsed result from jf/bash-parse (plist with :all-commands).
+
+Returns the first non-nil result from VISITOR-FN, or nil if all visits return nil."
+  (when (and ast-node (plist-get ast-node :success))
+    (let ((all-commands (plist-get ast-node :all-commands)))
+      (cl-some visitor-fn all-commands))))
+
+(defun jf/bash-contains-cd-command-p (parsed-ast)
+  "Return t if PARSED-AST contains a cd command.
+
+PARSED-AST should be the result of jf/bash-parse (plist with :success and :all-commands).
+
+Detects cd commands by examining the AST structure:
   - Simple command: \"cd /tmp\"
   - With flags: \"cd -P /tmp\"
   - In pipelines: \"cd /tmp && ls\"
   - In chains: \"cd /tmp; ls\"
   - Builtin invocation: \"builtin cd /tmp\"
+  - In command substitutions: \"$(cd /tmp && pwd)\"
 
-Does NOT match:
+Does NOT detect (correct behavior):
   - cd as part of another word: \"cdrom\", \"abcd\"
-  - cd in strings (would be caught by parser)
+  - cd in comments: \"# cd /tmp\"
+  - cd in here-documents: \"cat <<EOF\\ncd /tmp\\nEOF\"
 
 Returns t if cd command found, nil otherwise."
-  (let ((case-fold-search nil))  ; Case-sensitive matching
-    (string-match-p "\\(?:^\\|[;&|]\\|\\s-\\)\\(?:builtin\\s-+\\)?cd\\(?:\\s-\\|$\\)"
-                    command-string)))
+  (jf/bash--walk-ast
+   parsed-ast
+   (lambda (cmd)
+     (let ((command-name (plist-get cmd :command-name)))
+       ;; Check if this command is 'cd' or has nested commands with 'cd'
+       (or (and command-name (string= command-name "cd"))
+           ;; Check command substitutions recursively
+           ;; Each substitution is a plist with :parsed field containing the AST
+           (when-let ((substitutions (plist-get cmd :command-substitutions)))
+             (cl-some (lambda (subst)
+                       (when-let ((parsed-subst (plist-get subst :parsed)))
+                         (jf/bash-contains-cd-command-p parsed-subst)))
+                     substitutions))
+           ;; Check nested commands (for command injection)
+           (when-let ((nested (plist-get cmd :nested-command)))
+             (jf/bash-contains-cd-command-p nested)))))))
 
 (defun jf/bash-operation-has-unresolved-vars-p (operation)
   "Return t if OPERATION contains unresolved variable references.
@@ -295,10 +325,15 @@ Validation logic:
         (unhandled nil)
         (operations nil)
         (cd-detected nil)
-        (denial-reason nil))
+        (denial-reason nil)
+        (parsed nil))
 
-    ;; Check for cd command (immediate rejection)
-    (if (jf/bash-contains-cd-command-p command-string)
+    ;; Parse command to AST first (needed for both cd detection and file operations)
+    (setq parsed (jf/bash-parse command-string))
+
+    ;; Check for cd command using AST (immediate rejection)
+    (if (and (plist-get parsed :success)
+             (jf/bash-contains-cd-command-p parsed))
         (setq cd-detected t
               denial-reason "cd command not allowed in sandbox - use absolute paths instead"
               violations (list (list :reason denial-reason
@@ -306,17 +341,16 @@ Validation logic:
                                     :guidance "Use absolute paths in commands instead of cd, or configure runtime working directory")))
 
       ;; Normal validation pipeline:
-      ;; 1. Parse command to AST
+      ;; 1. AST already parsed above
       ;; 2. Extract file operations (with variable resolution via var-context)
       ;; 3. For each operation (with resolved paths):
       ;;    - Validate against security rules
       ;;    - Mark unresolved variables as unhandled
-      (let ((parsed (jf/bash-parse command-string)))
-        (when (plist-get parsed :success)
-          (setq operations (jf/bash-extract-file-operations parsed var-context))
+      (when (plist-get parsed :success)
+        (setq operations (jf/bash-extract-file-operations parsed var-context))
 
-          ;; Validate each operation
-          (dolist (op operations)
+        ;; Validate each operation
+        (dolist (op operations)
             (cond
              ;; Indirect operation policy handling (check before other validations)
              ((and (plist-get op :indirect)
@@ -360,7 +394,7 @@ Validation logic:
                      (rule (jf/bash-match-rule file rules))
                      (violation (jf/bash-check-operation-permission op rule)))
                 (when violation
-                  (push violation violations)))))))))
+                  (push violation violations))))))))
 
     ;; Build denial reason summary if command was denied
     (when (or violations unhandled)
