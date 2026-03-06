@@ -596,6 +596,81 @@
       (should (eq (plist-get op :operation) :read))
       (should (= (plist-get op :index) 0)))))
 
+;;; Compression Commands
+
+(ert-deftest test-semantics-unzip-command ()
+  "Scenario: bash-command-semantics § 'Compression commands' - unzip"
+  (let* ((result (jf/bash-lookup-command-semantics "unzip"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 1))
+    (should (eq (plist-get (car ops) :operation) :read))
+    (should (eq (plist-get (car ops) :source) :positional-args))))
+
+(ert-deftest test-semantics-gzip-command ()
+  "Scenario: bash-command-semantics § 'Compression commands' - gzip"
+  (let* ((result (jf/bash-lookup-command-semantics "gzip"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 2))
+    ;; First op: read source file
+    (let ((read-op (nth 0 ops)))
+      (should (eq (plist-get read-op :operation) :read))
+      (should (eq (plist-get read-op :source) :positional-args)))
+    ;; Second op: write compressed file with .gz suffix
+    (let ((write-op (nth 1 ops)))
+      (should (eq (plist-get write-op :operation) :write))
+      (should (eq (plist-get write-op :source) :positional-args))
+      (should (equal (plist-get write-op :suffix) ".gz")))))
+
+(ert-deftest test-semantics-gunzip-command ()
+  "Scenario: bash-command-semantics § 'Compression commands' - gunzip"
+  (let* ((result (jf/bash-lookup-command-semantics "gunzip"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 2))
+    ;; First op: read compressed file
+    (let ((read-op (nth 0 ops)))
+      (should (eq (plist-get read-op :operation) :read))
+      (should (eq (plist-get read-op :source) :positional-args)))
+    ;; Second op: write decompressed file, stripping .gz suffix
+    (let ((write-op (nth 1 ops)))
+      (should (eq (plist-get write-op :operation) :write))
+      (should (eq (plist-get write-op :source) :positional-args))
+      (should (equal (plist-get write-op :strip-suffix) ".gz")))))
+
+(ert-deftest test-semantics-bzip2-command ()
+  "Scenario: bash-command-semantics § 'Compression commands' - bzip2"
+  (let* ((result (jf/bash-lookup-command-semantics "bzip2"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 2))
+    ;; First op: read source file
+    (let ((read-op (nth 0 ops)))
+      (should (eq (plist-get read-op :operation) :read))
+      (should (eq (plist-get read-op :source) :positional-args)))
+    ;; Second op: write compressed file with .bz2 suffix
+    (let ((write-op (nth 1 ops)))
+      (should (eq (plist-get write-op :operation) :write))
+      (should (eq (plist-get write-op :source) :positional-args))
+      (should (equal (plist-get write-op :suffix) ".bz2")))))
+
+(ert-deftest test-semantics-bunzip2-command ()
+  "Scenario: bash-command-semantics § 'Compression commands' - bunzip2"
+  (let* ((result (jf/bash-lookup-command-semantics "bunzip2"))
+         (ops (plist-get result :operations)))
+    (should result)
+    (should (= (length ops) 2))
+    ;; First op: read compressed file
+    (let ((read-op (nth 0 ops)))
+      (should (eq (plist-get read-op :operation) :read))
+      (should (eq (plist-get read-op :source) :positional-args)))
+    ;; Second op: write decompressed file, stripping .bz2 suffix
+    (let ((write-op (nth 1 ops)))
+      (should (eq (plist-get write-op :operation) :write))
+      (should (eq (plist-get write-op :source) :positional-args))
+      (should (equal (plist-get write-op :strip-suffix) ".bz2")))))
+
 ;;; Test Suite Summary
 
 (defun test-semantics-run-all ()
