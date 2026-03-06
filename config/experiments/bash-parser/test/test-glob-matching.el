@@ -132,6 +132,29 @@ Test that ? matches exactly one character."
   (should (jf/bash-glob-match-p "/workspace/fileAB.txt" "/workspace/file??.txt"))
   (should-not (jf/bash-glob-match-p "/workspace/file1.txt" "/workspace/file??.txt")))
 
+(ert-deftest test-glob-question-mark-no-match-directory-separator ()
+  "Test that ? does NOT match directory separator /.
+
+This is a critical security test - ? must not cross directory boundaries.
+A pattern like '/workspace/file?.txt' should NOT match '/workspace/file/.txt'
+because they have different numbers of path segments.
+
+The ? wildcard matches exactly one character within a segment, and because
+the regex uses [^/] instead of . it cannot match the / separator itself."
+  ;; Different segment counts - should not match
+  (should-not (jf/bash-glob-match-p "/workspace/file/.txt" "/workspace/file?.txt"))
+
+  ;; Multi-character segment vs single ? - should not match
+  (should-not (jf/bash-glob-match-p "/workspace/src/foo.el" "/workspace/?/foo.el"))
+
+  ;; Single char segments - SHOULD match (this is correct behavior)
+  (should (jf/bash-glob-match-p "/a/b" "/?/?"))
+  (should (jf/bash-glob-match-p "/x/y/z" "/?/?/?"))
+
+  ;; Verify ? doesn't cross segments even in edge cases
+  (should-not (jf/bash-glob-match-p "/ab" "/?"))  ; Two segments vs one
+  (should (jf/bash-glob-match-p "/a" "/?")))      ; Both one segment
+
 ;;; Path Boundary Tests
 
 (ert-deftest test-glob-no-match-different-directory ()
