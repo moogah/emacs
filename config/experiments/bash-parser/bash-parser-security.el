@@ -209,6 +209,7 @@ Returns validation result plist:
   :violations - List of security violations (non-empty => denied)
   :unhandled - Operations that couldn't be validated
   :cd-detected - t if cd command was detected
+  :denial-reason - Human-readable summary of why command was denied (nil if allowed)
 
 Validation logic:
   1. Reject if cd command detected
@@ -240,12 +241,14 @@ Validation logic:
   (let ((violations nil)
         (unhandled nil)
         (operations nil)
-        (cd-detected nil))
+        (cd-detected nil)
+        (denial-reason nil))
 
     ;; Check for cd command (immediate rejection)
     (if (jf/bash-contains-cd-command-p command-string)
         (setq cd-detected t
-              violations (list (list :reason "cd command not allowed in sandbox - use absolute paths instead"
+              denial-reason "cd command not allowed in sandbox - use absolute paths instead"
+              violations (list (list :reason denial-reason
                                     :command command-string)))
 
       ;; Normal validation pipeline:
@@ -298,13 +301,38 @@ Validation logic:
                 (when violation
                   (push violation violations)))))))))
 
+    ;; Build denial reason summary if command was denied
+    (when (or violations unhandled)
+      (unless denial-reason  ; CD command may have already set this
+        (setq denial-reason
+              (cond
+               ;; Multiple violations
+               ((> (length violations) 1)
+                (format "%d security violations detected" (length violations)))
+
+               ;; Single violation
+               ((= (length violations) 1)
+                (plist-get (car violations) :reason))
+
+               ;; Multiple unhandled operations
+               ((> (length unhandled) 1)
+                (format "%d unhandled operations (fail-secure denial)" (length unhandled)))
+
+               ;; Single unhandled operation
+               ((= (length unhandled) 1)
+                (format "Unhandled operation: %s" (plist-get (car unhandled) :reason)))
+
+               ;; Fallback
+               (t "Security validation failed")))))
+
     ;; Return comprehensive result
     (list :allowed (and (null violations) (null unhandled))
           :command command-string
           :operations operations
           :violations (nreverse violations)
           :unhandled (nreverse unhandled)
-          :cd-detected cd-detected)))
+          :cd-detected cd-detected
+          :denial-reason denial-reason)))
 
 (provide 'bash-parser-security)
 ;;; bash-parser-security.el ends here
