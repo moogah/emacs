@@ -25,6 +25,10 @@ For pipelines/chains:
 
 Additional fields:
   :ast - tree-sitter root node (for debugging)
+         WARNING: AST nodes are only valid during parsing. Do not use
+         this field after jf/bash-parse returns, as the underlying
+         buffer is destroyed. The AST is provided for debugging only.
+         All necessary information is extracted into other fields.
   :error - error message if parsing failed
 
 Recursion depth is limited by jf/bash--max-parse-depth to prevent
@@ -44,6 +48,9 @@ Wraps parsing with depth checking and error handling."
 (defun jf/bash-parse--internal (command-string depth)
   "Internal parser implementation for COMMAND-STRING with pipeline support.
 DEPTH parameter tracks current recursion depth."
+  ;; Parse in temp buffer. Note: AST nodes returned in :ast field
+  ;; become invalid after this function returns. All needed data
+  ;; is extracted into the result plist.
   (with-temp-buffer
     ;; Pre-process: Fix tree-sitter limitation with (( at start
     ;; Tree-sitter confuses (( with arithmetic expansion $((...))
