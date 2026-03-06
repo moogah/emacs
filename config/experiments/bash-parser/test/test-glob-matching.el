@@ -172,6 +172,24 @@ Test that patterns don't match paths in different directories."
   (should (jf/bash-glob-match-p "/workspace/dir/" "/workspace/**/"))
   (should (jf/bash-glob-match-p "/workspace/dir" "/workspace/**")))
 
+(ert-deftest test-glob-trailing-slash-equivalence ()
+  "Test that trailing slashes are ignored in both paths and patterns.
+
+The glob matcher uses split-string with OMIT-NULLS=t, which means trailing
+slashes produce the same segment list as paths without trailing slashes.
+This is a deliberate design choice: since we're doing string-based matching
+without filesystem access, we cannot distinguish files from directories anyway."
+  ;; Path with trailing slash matches pattern without
+  (should (jf/bash-glob-match-p "/workspace/dir/" "/workspace/dir"))
+  ;; Path without trailing slash matches pattern with
+  (should (jf/bash-glob-match-p "/workspace/dir" "/workspace/dir/"))
+  ;; Both with trailing slashes
+  (should (jf/bash-glob-match-p "/workspace/dir/" "/workspace/dir/"))
+  ;; Works with wildcards too
+  (should (jf/bash-glob-match-p "/workspace/src/" "/workspace/*/"))
+  (should (jf/bash-glob-match-p "/workspace/src" "/workspace/*/")))
+
+
 ;;; Literal Character Tests
 
 (ert-deftest test-glob-literal-dots ()

@@ -273,6 +273,12 @@ Supported patterns:
   ?     - matches exactly one character
   [abc] - matches any character in the set
 
+Trailing slash behavior:
+  Trailing slashes are ignored in both paths and patterns. The matcher
+  cannot distinguish between files and directories since it operates on
+  strings without filesystem access. Patterns like \"/workspace/dir/\" and
+  \"/workspace/dir\" are treated identically.
+
 Examples:
   (jf/bash-glob-match-p \"/workspace/file.txt\" \"/workspace/*.txt\")
     => t
@@ -282,6 +288,8 @@ Examples:
     => t (** matches zero segments)
   (jf/bash-glob-match-p \"/tmp/foo.el\" \"/workspace/**/*.el\")
     => nil
+  (jf/bash-glob-match-p \"/workspace/dir/\" \"/workspace/dir\")
+    => t (trailing slashes ignored)
 
 Returns t if PATH matches PATTERN, nil otherwise."
   ;; Validate inputs
@@ -291,6 +299,10 @@ Returns t if PATH matches PATTERN, nil otherwise."
     (error "jf/bash-glob-match-p: pattern must be a string, got %S" (type-of pattern)))
 
   (condition-case err
+      ;; Split paths on / with OMIT-NULLS=t to ignore trailing slashes.
+      ;; This design choice means we cannot distinguish files from directories,
+      ;; which is acceptable since we're doing string-based matching without
+      ;; filesystem access. The benefit is simpler matching logic.
       (let ((path-segments (split-string path "/" t))
             (pattern-segments (split-string pattern "/" t)))
         (jf/bash--match-segments path-segments pattern-segments))
