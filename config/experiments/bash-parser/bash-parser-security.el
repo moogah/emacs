@@ -159,7 +159,10 @@ the complete validation pipeline and returns a comprehensive result.
 Arguments:
   COMMAND-STRING - The bash command to validate
   RULES - List of security rule plists (from `jf/bash-match-rule')
-  VAR-CONTEXT - Optional variable resolution context (future use)
+  VAR-CONTEXT - Optional variable resolution context (alist of (VAR . VALUE) pairs).
+                Variables are resolved by jf/bash-extract-file-operations before
+                security validation. Unresolved variables cause operations to be
+                marked as :unhandled, resulting in denial (fail-secure).
   INDIRECT-POLICY - How to handle indirect operations (:strict, :warn, :permissive)
                     :strict - Reject all indirect operations as violations
                     :warn - Flag indirect operations as unhandled
@@ -195,7 +198,12 @@ Validation logic:
               violations (list (list :reason "cd command not allowed in sandbox - use absolute paths instead"
                                     :command command-string)))
 
-      ;; Normal validation pipeline
+      ;; Normal validation pipeline:
+      ;; 1. Parse command to AST
+      ;; 2. Extract file operations (with variable resolution via var-context)
+      ;; 3. For each operation (with resolved paths):
+      ;;    - Validate against security rules
+      ;;    - Mark unresolved variables as unhandled
       (let ((parsed (jf/bash-parse command-string)))
         (when (plist-get parsed :success)
           (setq operations (jf/bash-extract-file-operations parsed var-context))
