@@ -3,11 +3,10 @@
 ;; ERT tests for bash command substitution detection and extraction
 ;; Tests cover: $(...) syntax, backtick syntax, nesting, quoting, pipes
 
-(require 'ert)
-(require 'bash-parser (expand-file-name "../bash-parser.el"
-                                        (file-name-directory (or load-file-name buffer-file-name))))
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 (require 'corpus-parse-command-substitution (expand-file-name "corpus-parse-command-substitution.el"
-                                                              (file-name-directory (or load-file-name buffer-file-name))))
+                                                              (file-name-directory load-file-name)))
 
 ;;; Helper Functions
 

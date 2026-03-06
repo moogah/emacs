@@ -4,9 +4,8 @@
 
 ;;; Code:
 
-(require 'ert)
-(load-file (expand-file-name "../bash-parser.el"
-                              (file-name-directory (or load-file-name buffer-file-name))))
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 ;;; Pattern Producer Detection Tests
 

@@ -14,9 +14,8 @@
 ;; - test-recursive-substitution-grep (grep flag parsing)
 ;; - test-recursive-substitution-with-flags (find -type f flag parsing)
 
-(require 'ert)
-(require 'bash-parser (expand-file-name "../bash-parser.el"
-                                        (file-name-directory (or load-file-name buffer-file-name))))
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 ;;; Test Suite
 

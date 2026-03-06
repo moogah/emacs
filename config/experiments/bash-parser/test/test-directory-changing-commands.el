@@ -54,8 +54,8 @@
 
 ;;; Code:
 
-(require 'ert)
-(require 'bash-parser)
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 ;;; cd Command - Absolute Paths
 ;;

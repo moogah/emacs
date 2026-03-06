@@ -19,8 +19,8 @@
 
 ;;; Code:
 
-(require 'ert)
-(require 'bash-parser)
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 ;;; Simple Command Backward Compatibility
 

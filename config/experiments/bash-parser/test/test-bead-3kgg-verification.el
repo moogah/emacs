@@ -21,8 +21,8 @@
 
 ;;; Code:
 
-(require 'ert)
-(require 'bash-parser)
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 (ert-deftest test-bead-3kgg-find-with-exec-rm ()
   "Verify find with exec rm extracts both find and rm operations.

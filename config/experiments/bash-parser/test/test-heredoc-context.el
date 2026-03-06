@@ -6,7 +6,8 @@
 ;; - Commit messages (heredoc in substitution)
 ;; - Pipe input (heredoc piped to command)
 
-(require 'ert)
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 (ert-deftest test-heredoc-file-creation ()
   "Test heredoc with redirect creates file."
