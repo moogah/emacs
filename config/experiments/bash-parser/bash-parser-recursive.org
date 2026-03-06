@@ -120,7 +120,8 @@ Example:
 
         ;; Depth check - prevent infinite recursion
         (when (>= depth jf/bash-recursive-max-depth)
-          (error "Max recursion depth exceeded in semantic analysis"))
+          (cl-return (list :error (format "Max recursion depth exceeded (limit: %d)" jf/bash-recursive-max-depth)
+                          :success nil)))
 
     ;; 1. Extract operations from this command level
     ;; This requires bash-parser-file-ops to be loaded

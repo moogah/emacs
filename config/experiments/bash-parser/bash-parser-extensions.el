@@ -261,9 +261,9 @@ Nesting levels:
   - 2+: Deeper nesting levels (bash -c \"bash -c 'cmd'\")"
   (let ((level (or nesting-level 1)))
     ;; Check recursion depth limit
-    (if (> level 10)
+    (if (>= level jf/bash-recursive-max-depth)
         (list :success nil
-              :error "Maximum nesting depth exceeded (limit: 10)"
+              :error (format "Maximum nesting depth exceeded (limit: %d)" jf/bash-recursive-max-depth)
               :nested-level level)
 
       ;; Strip outer quotes and parse
