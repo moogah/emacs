@@ -330,7 +330,7 @@ Examples:
   (jf/bash--static-dirname \"/workspace/src/foo.el\")
     => \"/workspace/src\"
 
-Internal helper for jf/bash-resolve-command-substitution."
+Internal helper for jf/bash--resolve-command-substitution."
   (let ((dir (file-name-directory path)))
     (if dir
         ;; Remove trailing slash for consistency with bash dirname
@@ -373,13 +373,13 @@ Examples:
   (jf/bash--static-basename \"/workspace/src/foo.el\" \".el\")
     => \"foo\"
 
-Internal helper for jf/bash-resolve-command-substitution."
+Internal helper for jf/bash--resolve-command-substitution."
   (let ((base (file-name-nondirectory (directory-file-name path))))
     (if (and suffix (string-suffix-p suffix base))
         (substring base 0 (- (length base) (length suffix)))
       base)))
 
-(defun jf/bash-resolve-pwd-substitution (file-path var-context)
+(defun jf/bash--resolve-pwd-substitution (file-path var-context)
   "Resolve $(pwd) and `pwd` command substitutions in FILE-PATH using VAR-CONTEXT.
 
 VAR-CONTEXT is an alist mapping variable names to values. Extracts PWD value
@@ -396,19 +396,19 @@ Resolution behavior:
   - No pwd substitution: Returns original path unchanged
 
 Examples:
-  (jf/bash-resolve-pwd-substitution \"$(pwd)/file.txt\" '((PWD . \"/base/dir\")))
+  (jf/bash--resolve-pwd-substitution \"$(pwd)/file.txt\" '((PWD . \"/base/dir\")))
     => \"/base/dir/file.txt\"
 
-  (jf/bash-resolve-pwd-substitution \"`pwd`/file.txt\" '((PWD . \"/base/dir\")))
+  (jf/bash--resolve-pwd-substitution \"`pwd`/file.txt\" '((PWD . \"/base/dir\")))
     => \"/base/dir/file.txt\"
 
-  (jf/bash-resolve-pwd-substitution \"$(pwd)\" '((PWD . \"/base/dir\")))
+  (jf/bash--resolve-pwd-substitution \"$(pwd)\" '((PWD . \"/base/dir\")))
     => \"/base/dir\"
 
-  (jf/bash-resolve-pwd-substitution \"cat $(pwd)/file.txt\" '((PWD . \"/base/dir\")))
+  (jf/bash--resolve-pwd-substitution \"cat $(pwd)/file.txt\" '((PWD . \"/base/dir\")))
     => \"cat /base/dir/file.txt\"
 
-  (jf/bash-resolve-pwd-substitution \"$(pwd)/file.txt\" nil)
+  (jf/bash--resolve-pwd-substitution \"$(pwd)/file.txt\" nil)
     => \"$(pwd)/file.txt\"  ; unchanged - no PWD context
 
 Security note: $(pwd) substitutions must be resolved for scope validation. When
@@ -435,7 +435,7 @@ dir. The parser must extract the same value for security checks to work correctl
                       t))    ; fixed-case (literal replacement)
         result))))
 
-(defun jf/bash-resolve-command-substitution (file-path var-context)
+(defun jf/bash--resolve-command-substitution (file-path var-context)
   "Resolve command substitutions in FILE-PATH using static evaluation.
 
 VAR-CONTEXT is an alist mapping variable names to values. This function
@@ -456,43 +456,43 @@ Resolution process:
 
 Examples:
   ;; dirname with variable argument
-  (jf/bash-resolve-command-substitution
+  (jf/bash--resolve-command-substitution
     \"$(dirname $FILE)\"
     '((FILE . \"/path/to/file.txt\")))
   => \"/path/to\"
 
   ;; dirname with literal argument
-  (jf/bash-resolve-command-substitution
+  (jf/bash--resolve-command-substitution
     \"$(dirname /path/to/file.txt)\"
     nil)
   => \"/path/to\"
 
   ;; basename with suffix removal
-  (jf/bash-resolve-command-substitution
+  (jf/bash--resolve-command-substitution
     \"$(basename $FILE .txt)\"
     '((FILE . \"/path/to/file.txt\")))
   => \"file\"
 
   ;; pwd substitution
-  (jf/bash-resolve-command-substitution
+  (jf/bash--resolve-command-substitution
     \"$(pwd)/file.txt\"
     '((PWD . \"/base/dir\")))
   => \"/base/dir/file.txt\"
 
   ;; Complex nested substitution
-  (jf/bash-resolve-command-substitution
+  (jf/bash--resolve-command-substitution
     \"$(dirname $(dirname $FILE))\"
     '((FILE . \"/a/b/c/file.txt\")))
   => \"/a/b\"
 
   ;; Unknown command - return :unresolved
-  (jf/bash-resolve-command-substitution
+  (jf/bash--resolve-command-substitution
     \"$(find . -name *.txt)\"
     nil)
   => :unresolved
 
   ;; Unresolved variable in argument - return :unresolved
-  (jf/bash-resolve-command-substitution
+  (jf/bash--resolve-command-substitution
     \"$(dirname $UNKNOWN)\"
     nil)
   => :unresolved
@@ -586,7 +586,7 @@ like find, ls, or which cannot be statically evaluated and return :unresolved."
 
     result))
 
-(defun jf/bash-track-assignments (parsed-command &optional initial-context)
+(defun jf/bash--track-assignments (parsed-command &optional initial-context)
   "Track variable assignments from PARSED-COMMAND, merging with INITIAL-CONTEXT.
 
 Extracts VAR=value assignments and builds a context alist. Assignment values
@@ -650,7 +650,7 @@ Examples:
     ;; Check if fully resolved (string) or partial (plist)
     (if (stringp resolved)
         ;; Fully resolved variables - apply command substitution and relative path resolution
-        (let ((cmd-resolved (jf/bash-resolve-command-substitution resolved var-context)))
+        (let ((cmd-resolved (jf/bash--resolve-command-substitution resolved var-context)))
           (cond
            ;; Command substitution could not be resolved - return :unresolved
            ((eq cmd-resolved :unresolved)
@@ -784,7 +784,7 @@ Resolution steps (in order):
      - \"~\" => expand to HOME
      - \"~/path\" => expand ~ to HOME, then append path
   b. Resolve variables using jf/bash-resolve-variables
-  c. Resolve command substitutions using jf/bash-resolve-command-substitution
+  c. Resolve command substitutions using jf/bash--resolve-command-substitution
   d. Resolve relative paths using jf/bash-resolve-relative-path
   e. If absolute path, return as-is
 
@@ -833,7 +833,7 @@ jf/bash--extract-pushd-target."
          ;; Variables resolved - continue with path resolution
          (t
           ;; Step 2: Resolve command substitutions ($(pwd), $(dirname $VAR), etc.)
-          (let ((cmd-resolved (jf/bash-resolve-command-substitution var-resolved var-context)))
+          (let ((cmd-resolved (jf/bash--resolve-command-substitution var-resolved var-context)))
             (cond
              ;; Command substitution could not be resolved
              ((eq cmd-resolved :unresolved)
@@ -870,7 +870,7 @@ Resolution steps (in order):
      - cd ~/path => expand ~ to HOME, then append path
   b. Resolve variables using jf/bash-resolve-variables
      Example: cd $DIR where DIR=/tmp => /tmp
-  c. Resolve command substitutions using jf/bash-resolve-command-substitution
+  c. Resolve command substitutions using jf/bash--resolve-command-substitution
      Example: cd $(pwd)/sub => /current/sub
      Example: cd $(dirname $FILE) where FILE=/path/to/file.txt => /path/to
      Example: cd $(basename $DIR) => filename part of $DIR

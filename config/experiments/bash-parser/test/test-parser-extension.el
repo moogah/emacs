@@ -62,7 +62,7 @@ without breaking changes."
 Test that new file operation extraction function exists."
   (should (fboundp 'jf/bash-extract-file-operations))
   (should (fboundp 'jf/bash-detect-command-injection))
-  (should (fboundp 'jf/bash-parse-nested-command))
+  (should (fboundp 'jf/bash--parse-nested-command))
   (should (fboundp 'jf/bash-mark-indirect-operations)))
 
 (ert-deftest test-parser-extension-parse-return-format ()
@@ -178,7 +178,7 @@ Test that injection is detected even with flags before -c."
 
 Test recursive parsing of nested command from bash -c."
   (let* ((nested-cmd "rm /workspace/file.txt")
-         (parsed (jf/bash-parse-nested-command nested-cmd)))
+         (parsed (jf/bash--parse-nested-command nested-cmd)))
     (should (plist-get parsed :success))
     (should (string= (plist-get parsed :command-name) "rm"))
     (should (equal (plist-get parsed :positional-args) '("/workspace/file.txt")))
@@ -189,7 +189,7 @@ Test recursive parsing of nested command from bash -c."
 
 Test that outer single quotes are stripped before parsing."
   (let* ((nested-cmd "'rm file.txt'")
-         (parsed (jf/bash-parse-nested-command nested-cmd)))
+         (parsed (jf/bash--parse-nested-command nested-cmd)))
     (should (plist-get parsed :success))
     (should (string= (plist-get parsed :command-name) "rm"))
     (should (equal (plist-get parsed :positional-args) '("file.txt")))))
@@ -199,7 +199,7 @@ Test that outer single quotes are stripped before parsing."
 
 Test that outer double quotes are stripped before parsing."
   (let* ((nested-cmd "\"cat file.txt\"")
-         (parsed (jf/bash-parse-nested-command nested-cmd)))
+         (parsed (jf/bash--parse-nested-command nested-cmd)))
     (should (plist-get parsed :success))
     (should (string= (plist-get parsed :command-name) "cat"))
     (should (equal (plist-get parsed :positional-args) '("file.txt")))))
@@ -211,7 +211,7 @@ Test that inner quotes are preserved when outer quotes are stripped.
 Note: Tree-sitter bash parser normalizes quoted strings, so the actual
 parsed result will have the quotes stripped from arguments."
   (let* ((nested-cmd "'grep \"pattern\" file.txt'")
-         (parsed (jf/bash-parse-nested-command nested-cmd)))
+         (parsed (jf/bash--parse-nested-command nested-cmd)))
     (should (plist-get parsed :success))
     (should (string= (plist-get parsed :command-name) "grep"))
     ;; Tree-sitter normalizes: grep "pattern" file.txt -> grep pattern file.txt
@@ -224,7 +224,7 @@ parsed result will have the quotes stripped from arguments."
 
 Verify that nested command within nested command is handled."
   (let* ((nested-cmd "bash -c 'rm file.txt'")
-         (parsed (jf/bash-parse-nested-command nested-cmd)))
+         (parsed (jf/bash--parse-nested-command nested-cmd)))
     (should (plist-get parsed :success))
     (should (string= (plist-get parsed :command-name) "bash"))
     ;; First level should have the bash command
@@ -239,7 +239,7 @@ Verify that nested command within nested command is handled."
   "Test that maximum nesting depth is enforced.
 
 Verify recursion protection at depth limit."
-  (let* ((parsed (jf/bash-parse-nested-command "rm file.txt" 11)))
+  (let* ((parsed (jf/bash--parse-nested-command "rm file.txt" 11)))
     (should-not (plist-get parsed :success))
     (should (string-match-p "Maximum nesting depth" (plist-get parsed :error)))
     (should (= (plist-get parsed :nested-level) 11))))
@@ -249,7 +249,7 @@ Verify recursion protection at depth limit."
 
 Test that variable references are preserved in nested commands."
   (let* ((nested-cmd "rm $FILE")
-         (parsed (jf/bash-parse-nested-command nested-cmd)))
+         (parsed (jf/bash--parse-nested-command nested-cmd)))
     (should (plist-get parsed :success))
     (should (string= (plist-get parsed :command-name) "rm"))
     ;; Variable reference should be preserved
@@ -380,7 +380,7 @@ Complete workflow from parsing to nested command extraction."
     (should (plist-get injection :command-injection))
 
     ;; Step 3: Parse nested command
-    (let ((nested (jf/bash-parse-nested-command
+    (let ((nested (jf/bash--parse-nested-command
                    (plist-get injection :nested-command-string))))
       (should (plist-get nested :success))
       (should (string= (plist-get nested :command-name) "rm"))

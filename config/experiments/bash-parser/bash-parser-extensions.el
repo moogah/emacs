@@ -223,7 +223,7 @@ typically use different quote types for inner/outer levels."
    ;; No outer quotes - return unchanged
    (t str)))
 
-(defun jf/bash-parse-nested-command (nested-command-string &optional nesting-level parent-command)
+(defun jf/bash--parse-nested-command (nested-command-string &optional nesting-level parent-command)
   "Parse nested command string recursively.
 
 NESTED-COMMAND-STRING is the command string to parse (may have outer quotes).
@@ -248,12 +248,12 @@ Quote handling:
 
 Examples:
   ;; Single nesting
-  (jf/bash-parse-nested-command \"'rm file.txt'\")
+  (jf/bash--parse-nested-command \"'rm file.txt'\")
   => (:command-name \"rm\" :positional-args (\"file.txt\")
       :nested-level 1 :success t ...)
 
   ;; Multiple nesting
-  (jf/bash-parse-nested-command \"'bash -c \\\"rm file\\\"'\")
+  (jf/bash--parse-nested-command \"'bash -c \\\"rm file\\\"'\")
   => (:command-name \"bash\" :flags (\"-c\")
       :positional-args (\"rm file\")
       :nested-command (:command-name \"rm\" :positional-args (\"file\")
@@ -261,7 +261,7 @@ Examples:
       :nested-level 1 :success t ...)
 
   ;; Maximum depth exceeded
-  (jf/bash-parse-nested-command (deeply-nested-command) 11)
+  (jf/bash--parse-nested-command (deeply-nested-command) 11)
   => (:success nil :error \"Maximum nesting depth exceeded\")
 
 Integration:
@@ -297,7 +297,7 @@ Nesting levels:
             (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
               ;; Recursively parse the nested injection
               (when nested-cmd-string
-                (let ((nested-parsed (jf/bash-parse-nested-command
+                (let ((nested-parsed (jf/bash--parse-nested-command
                                      nested-cmd-string
                                      (1+ level)
                                      parsed)))
