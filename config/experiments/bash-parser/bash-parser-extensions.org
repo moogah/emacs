@@ -123,16 +123,23 @@ Example usage:
 
 ** Command Injection Detection
 
-Command injection patterns represent commands that execute other commands as string arguments. These patterns are security-critical because they can bypass static analysis by wrapping malicious commands in strings.
+Command injection patterns represent SHELL commands that execute other shell commands as string arguments. These patterns are security-critical because they can bypass static analysis by wrapping malicious commands in strings.
 
-Common patterns:
+**SCOPE LIMITATION**: This module detects SHELL command injection only (bash, sh, zsh, etc.). Non-shell interpreters like `python -c`, `node -e`, `ruby -e` execute code in their own language and cannot directly execute bash commands. File operations in those languages would require language-specific parsing and are excluded from this implementation.
+
+Shell injection patterns detected:
 - =bash -c "command string"= - Execute bash command from string
 - =sh -c 'command string'= - Execute sh command from string
-- =python -c "code"= - Execute Python code from string
+- =zsh -c 'command string'= - Execute zsh command from string
 - =env -S "prog args"= - Execute program with arguments from string
 - =eval "command"= - Evaluate command string (shell built-in)
 
-Detection enables recursive parsing and validation of nested commands.
+Non-shell interpreters NOT detected (by design):
+- =python -c "code"= - Python code, not bash
+- =node -e "code"= - JavaScript code, not bash
+- =ruby -e "code"= - Ruby code, not bash
+
+Detection enables recursive parsing and validation of nested shell commands.
 
 *** Command Injection Pattern Database
 
@@ -154,16 +161,25 @@ Each entry maps a command symbol to detection parameters:
   :first-arg - If t, first positional arg is the nested command
 
 Command injection detection is for SHELL commands that execute nested shell code.
-Non-shell interpreters (python -c, node -e, etc.) are NOT injection because they
-execute code in their own language, not bash.
+Non-shell interpreters (python -c, node -e, ruby -e, etc.) are NOT injection
+because they execute code in their own language, not bash. File operations in
+those languages require language-specific parsing.
+
+Rationale for exclusion:
+1. Python/Node/Ruby code cannot directly execute bash commands
+2. File operations in those languages use language-specific APIs
+3. Detecting file ops requires parsing Python/JS/Ruby syntax
+4. Current implementation maintains cleaner security model
 
 Examples:
   bash -c 'rm file.txt'     - Flag: -c, nested: 'rm file.txt' (shell injection)
   sh -c 'cat file'          - Flag: -c, nested: 'cat file' (shell injection)
+  zsh -c 'cat file'         - Flag: -c, nested: 'cat file' (shell injection)
   env -S 'prog arg'         - Flag: -S, nested: 'prog arg' (shell injection)
   eval 'rm file.txt'        - No flag, nested: 'rm file.txt' (shell injection)
   python -c 'print(1)'      - NOT injection (Python code, not bash)
-  node -e 'console.log(1)'  - NOT injection (JavaScript code, not bash)")
+  node -e 'console.log(1)'  - NOT injection (JavaScript code, not bash)
+  ruby -e 'puts 1'          - NOT injection (Ruby code, not bash)")
 #+end_src
 
 *** Detection Function

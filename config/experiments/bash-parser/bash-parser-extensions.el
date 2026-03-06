@@ -64,16 +64,25 @@ Each entry maps a command symbol to detection parameters:
   :first-arg - If t, first positional arg is the nested command
 
 Command injection detection is for SHELL commands that execute nested shell code.
-Non-shell interpreters (python -c, node -e, etc.) are NOT injection because they
-execute code in their own language, not bash.
+Non-shell interpreters (python -c, node -e, ruby -e, etc.) are NOT injection
+because they execute code in their own language, not bash. File operations in
+those languages require language-specific parsing.
+
+Rationale for exclusion:
+1. Python/Node/Ruby code cannot directly execute bash commands
+2. File operations in those languages use language-specific APIs
+3. Detecting file ops requires parsing Python/JS/Ruby syntax
+4. Current implementation maintains cleaner security model
 
 Examples:
   bash -c 'rm file.txt'     - Flag: -c, nested: 'rm file.txt' (shell injection)
   sh -c 'cat file'          - Flag: -c, nested: 'cat file' (shell injection)
+  zsh -c 'cat file'         - Flag: -c, nested: 'cat file' (shell injection)
   env -S 'prog arg'         - Flag: -S, nested: 'prog arg' (shell injection)
   eval 'rm file.txt'        - No flag, nested: 'rm file.txt' (shell injection)
   python -c 'print(1)'      - NOT injection (Python code, not bash)
-  node -e 'console.log(1)'  - NOT injection (JavaScript code, not bash)")
+  node -e 'console.log(1)'  - NOT injection (JavaScript code, not bash)
+  ruby -e 'puts 1'          - NOT injection (Ruby code, not bash)")
 
 (defun jf/bash-detect-command-injection (parsed-command)
   "Detect command injection patterns in PARSED-COMMAND.

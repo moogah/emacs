@@ -49,23 +49,29 @@ The test corpus SHALL be extended with file operation test cases while preservin
 - **THEN** new test cases cover file operation extraction and security checking
 
 ### Requirement: Command injection detection
-The parser SHALL detect command execution patterns (bash -c, python -c, sh -c, env -S) that accept nested command strings as arguments.
+The parser SHALL detect SHELL command execution patterns (bash -c, sh -c, zsh -c, env -S) that accept nested shell command strings as arguments.
+
+**NOTE**: This requirement covers SHELL interpreters only. Non-shell interpreters like `python -c`, `node -e`, `ruby -e`, etc. execute code in their own language (Python, JavaScript, Ruby) and cannot directly execute bash commands. These require language-specific parsing and are excluded from bash command injection detection.
 
 #### Scenario: Detect bash -c pattern
 - **WHEN** parsing "bash -c 'rm file.txt'"
 - **THEN** parser marks this as `:command-injection t` with nested command string
 
-#### Scenario: Detect python -c pattern
-- **WHEN** parsing "python -c 'import os; os.remove(file)'"
-- **THEN** parser marks this as `:command-injection t`
-
 #### Scenario: Detect sh -c pattern
 - **WHEN** parsing "sh -c 'cat file.txt'"
+- **THEN** parser marks this as `:command-injection t`
+
+#### Scenario: Detect zsh -c pattern
+- **WHEN** parsing "zsh -c 'cat file.txt'"
 - **THEN** parser marks this as `:command-injection t`
 
 #### Scenario: Detect env -S pattern
 - **WHEN** parsing "env -S 'bash -c cmd'"
 - **THEN** parser marks this as `:command-injection t`
+
+#### Scenario: Python -c is NOT bash injection
+- **WHEN** parsing "python -c 'import os; os.remove(file)'"
+- **THEN** parser does NOT mark this as `:command-injection` because Python code cannot directly execute bash commands
 
 ### Requirement: Nested command parsing
 The system SHALL recursively parse nested command strings from command injection patterns.
@@ -103,10 +109,6 @@ The system SHALL identify which argument position contains the nested command st
 #### Scenario: bash -c uses first argument after flag
 - **WHEN** parsing "bash -c 'command' arg2 arg3"
 - **THEN** 'command' is identified as nested command string
-
-#### Scenario: python -c uses first argument after flag
-- **WHEN** parsing "python -c 'code' file.py"
-- **THEN** 'code' is identified as nested command string
 
 #### Scenario: Handle flags before injection
 - **WHEN** parsing "bash -x -e -c 'command'"

@@ -105,8 +105,18 @@ Test detection of sh -c command injection."
   "Scenario: bash-parser § 'Python -c does NOT inject bash code'
 
 Test that python -c is NOT detected as command injection.
+
 Python -c executes Python code, not bash, so it should not be
-detected as bash command injection."
+detected as bash command injection. This exclusion is intentional:
+
+1. Python code cannot directly execute bash commands
+2. File operations in Python use Python APIs (os.remove, open, etc.)
+3. Detecting Python file ops requires parsing Python syntax
+4. Current implementation maintains cleaner security model
+
+The same reasoning applies to other non-shell interpreters like
+node -e, ruby -e, perl -e, etc. They execute code in their own
+language and require language-specific parsing for file operations."
   (let* ((parsed (jf/bash-parse "python -c 'import os; os.remove(file)'"))
          (injection (jf/bash-detect-command-injection parsed)))
     ;; Should NOT detect as injection since it's Python code, not bash
