@@ -342,23 +342,41 @@ Verifies parser handles empty substitutions gracefully."
         (should (not (plist-get parsed :success)))))))
 
 (ert-deftest test-cmdsub-recursive-depth-limiting ()
-  "Test depth limiting triggers at level 10.
+  "Test depth limiting triggers at configured max depth.
 Scenario: bash-parser § 'Recursion depth limiting'
-Verifies parser prevents infinite loops with depth limit."
-  ;; Manually set depth to 9, then parse a command with substitution
-  ;; The outer parse should succeed, but the substitution parse should fail
-  (let ((jf/bash--parse-depth 9))
-    (let* ((result (jf/bash-parse "echo $(pwd)"))
-           (subs (plist-get result :command-substitutions))
-           (sub (car subs))
-           (parsed (plist-get sub :parsed)))
-      ;; Outer parse should succeed
-      (should (plist-get result :success))
-      ;; But the substitution's recursive parse should have hit depth limit
-      (should parsed)
-      (should (not (plist-get parsed :success)))
-      (should (string-match-p "Max parse depth exceeded"
-                             (plist-get parsed :error))))))
+Verifies parser prevents infinite loops with depth limit.
+
+With parameter-passing depth tracking (thread-safe), we test by:
+1. Temporarily lowering max depth to 2 for testing
+2. Creating nested command substitutions that exceed this depth
+3. Verifying parse fails when attempting to recurse beyond limit"
+  ;; Save original max depth
+  (let ((orig-max jf/bash--max-parse-depth))
+    (unwind-protect
+        (progn
+          ;; Set low max depth for testing: depth 0, 1, 2 allowed; 3+ rejected
+          (setq jf/bash--max-parse-depth 2)
+          ;; Create nested command substitutions: echo $(echo $(echo $(pwd)))
+          ;; Depth: 0=outer parse, 1=first $(), 2=second $(), 3=third $() -> exceeds limit
+          (let* ((result (jf/bash-parse "echo $(echo $(echo $(pwd)))"))
+                 (subs (plist-get result :command-substitutions))
+                 (outer-sub (car subs))
+                 (outer-parsed (plist-get outer-sub :parsed))
+                 (middle-subs (plist-get outer-parsed :command-substitutions))
+                 (middle-sub (car middle-subs))
+                 (middle-parsed (plist-get middle-sub :parsed)))
+            ;; Outer parse should succeed (depth 0)
+            (should (plist-get result :success))
+            ;; First substitution should succeed (depth 1)
+            (should (plist-get outer-parsed :success))
+            ;; Second substitution fails when trying to parse its content at depth 3
+            ;; (depth 2 parse tries to recurse to depth 3 which exceeds max of 2)
+            (should middle-parsed)
+            (should (not (plist-get middle-parsed :success)))
+            (should (string-match-p "Max parse depth exceeded"
+                                   (plist-get middle-parsed :error)))))
+      ;; Restore original max depth
+      (setq jf/bash--max-parse-depth orig-max))))
 
 (ert-deftest test-cmdsub-recursive-find-parse ()
   "Test find command inside substitution is properly parsed.
