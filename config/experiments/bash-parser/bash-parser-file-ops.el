@@ -327,12 +327,26 @@ like 'PWD=/path cmd' only affect that specific command."
             (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
               (when nested-cmd-string
                 ;; Parse nested command and extract operations
-                (let* ((nested-parsed (jf/bash-parse-nested-command nested-cmd-string))
+                ;; If command already has a nesting level, increment it for the inner command
+                (let* ((current-level (plist-get command :nested-level))
+                       (next-level (if current-level (1+ current-level) 1))
+                       (nested-parsed (jf/bash-parse-nested-command
+                                       nested-cmd-string
+                                       next-level))
+                       (nesting-level (plist-get nested-parsed :nested-level))
                        (nested-ops (jf/bash-extract-file-operations nested-parsed effective-context)))
-                  ;; Mark all nested operations as indirect
+                  ;; Mark all nested operations as indirect with nesting depth
+                  ;; Operations from nested commands may already have :nesting-depth if they
+                  ;; themselves contain further nested commands. In that case, preserve the
+                  ;; deeper nesting depth.
                   (dolist (op nested-ops)
-                    (let ((indirect-op (copy-sequence op)))
+                    (let ((indirect-op (copy-sequence op))
+                          (op-nesting-depth (plist-get op :nesting-depth)))
                       (plist-put indirect-op :indirect t)
+                      ;; Use the operation's nesting-depth if it exists (from deeper nesting),
+                      ;; otherwise use the current nesting level
+                      (when (or op-nesting-depth nesting-level)
+                        (plist-put indirect-op :nesting-depth (or op-nesting-depth nesting-level)))
                       (push indirect-op operations))))))))
 
         ;; Validate all operations before returning
