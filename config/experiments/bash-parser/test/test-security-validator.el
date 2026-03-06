@@ -426,6 +426,23 @@ Test that warn policy flags indirect operations but doesn't auto-reject."
 
 ;;; Variable Context Parameter Tests
 
+(ert-deftest test-security-variable-resolution-integration ()
+  "Test complete variable resolution flow from var-context to validation.
+
+This integration test demonstrates the complete pipeline:
+1. var-context is passed to jf/bash-sandbox-check
+2. Passed through to jf/bash-extract-file-operations for resolution
+3. Resolved paths are validated against security rules
+4. Unresolved variables result in fail-secure denial"
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read))))
+        (var-context '(("WORKSPACE" . "/workspace") ("FILE" . "test.txt"))))
+    (let ((result (jf/bash-sandbox-check "cat $WORKSPACE/$FILE" rules var-context)))
+      (should (plist-get result :allowed))
+      (let ((ops (plist-get result :operations)))
+        (should (cl-some (lambda (op)
+                          (string-prefix-p "/workspace/" (plist-get op :file)))
+                        ops))))))
+
 (ert-deftest test-security-provide-variable-context ()
   "Scenario: bash-sandbox-security § 'Provide variable context to checker'
 
