@@ -190,6 +190,74 @@
     (should diff-spec)
     (should (eq (plist-get (car diff-spec) :operation) :read))))
 
+(ert-deftest test-semantics-git-clean-subcommand ()
+  "Scenario: bash-command-semantics § 'Git clean subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (clean-spec (alist-get 'clean handlers)))
+    (should clean-spec)
+    (should (eq (plist-get (car clean-spec) :operation) :delete))))
+
+(ert-deftest test-semantics-git-apply-subcommand ()
+  "Scenario: bash-command-semantics § 'Git apply subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (apply-spec (alist-get 'apply handlers)))
+    (should apply-spec)
+    (should (eq (plist-get (car apply-spec) :operation) :read))))
+
+(ert-deftest test-semantics-git-clone-subcommand ()
+  "Scenario: bash-command-semantics § 'Git clone subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (clone-spec (alist-get 'clone handlers)))
+    (should clone-spec)
+    (should (eq (plist-get (car clone-spec) :operation) :write))))
+
+(ert-deftest test-semantics-git-worktree-subcommand ()
+  "Scenario: bash-command-semantics § 'Git worktree subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (worktree-spec (alist-get 'worktree handlers)))
+    (should worktree-spec)
+    (should (eq (plist-get worktree-spec :operations) :complex))
+    (let* ((wt-handlers (plist-get worktree-spec :subcommand-handlers))
+           (add-spec (alist-get 'add wt-handlers)))
+      (should add-spec)
+      (should (eq (plist-get (car add-spec) :operation) :create)))))
+
+(ert-deftest test-semantics-git-merge-subcommand ()
+  "Scenario: bash-command-semantics § 'Git merge subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (merge-spec (alist-get 'merge handlers)))
+    (should merge-spec)
+    (should (eq (plist-get (car merge-spec) :operation) :modify))))
+
+(ert-deftest test-semantics-git-pull-subcommand ()
+  "Scenario: bash-command-semantics § 'Git pull subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (pull-spec (alist-get 'pull handlers)))
+    (should pull-spec)
+    (should (eq (plist-get (car pull-spec) :operation) :modify))))
+
+(ert-deftest test-semantics-git-rebase-subcommand ()
+  "Scenario: bash-command-semantics § 'Git rebase subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (rebase-spec (alist-get 'rebase handlers)))
+    (should rebase-spec)
+    (should (eq (plist-get (car rebase-spec) :operation) :modify))))
+
+(ert-deftest test-semantics-git-reset-subcommand ()
+  "Scenario: bash-command-semantics § 'Git reset subcommand'"
+  (let* ((result (jf/bash-lookup-command-semantics "git"))
+         (handlers (plist-get result :subcommand-handlers))
+         (reset-spec (alist-get 'reset handlers)))
+    (should reset-spec)
+    (should (eq (plist-get (car reset-spec) :operation) :modify))))
+
 (ert-deftest test-semantics-docker-cp-subcommand ()
   "Scenario: bash-command-semantics § 'Subcommand-specific semantics' - docker cp"
   (let* ((result (jf/bash-lookup-command-semantics "docker"))
