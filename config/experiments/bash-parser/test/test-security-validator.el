@@ -498,5 +498,62 @@ Test that cd violations include specific guidance about alternatives."
           (should (string-match-p "use absolute paths\\|configure runtime working directory"
                                  reason)))))))
 
+;;; Denial Reason Summary Tests
+
+(ert-deftest test-security-denial-reason-cd-command ()
+  "Test that denial reason is set for cd commands."
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read :write)))))
+    (let ((result (jf/bash-sandbox-check "cd /tmp" rules)))
+      (should-not (plist-get result :allowed))
+      (should (plist-get result :denial-reason))
+      (should (string-match-p "cd command not allowed" (plist-get result :denial-reason))))))
+
+(ert-deftest test-security-denial-reason-single-violation ()
+  "Test that denial reason is set for single security violation."
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read)))))
+    (let ((result (jf/bash-sandbox-check "rm /workspace/file.txt" rules)))
+      (should-not (plist-get result :allowed))
+      (should (plist-get result :denial-reason))
+      (should (string-match-p "Operation.*not allowed" (plist-get result :denial-reason))))))
+
+(ert-deftest test-security-denial-reason-multiple-violations ()
+  "Test that denial reason summarizes multiple violations."
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read)))))
+    (let ((result (jf/bash-sandbox-check "rm /workspace/a.txt /workspace/b.txt" rules)))
+      (should-not (plist-get result :allowed))
+      (should (plist-get result :denial-reason))
+      (should (string-match-p "[0-9]+ security violations" (plist-get result :denial-reason))))))
+
+(ert-deftest test-security-denial-reason-single-unhandled ()
+  "Test that denial reason is set for single unhandled operation."
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read :write)))))
+    (let ((result (jf/bash-sandbox-check "cat $UNKNOWN/file.txt" rules)))
+      (should-not (plist-get result :allowed))
+      (should (plist-get result :denial-reason))
+      (should (string-match-p "Unhandled operation" (plist-get result :denial-reason))))))
+
+(ert-deftest test-security-denial-reason-multiple-unhandled ()
+  "Test that denial reason summarizes multiple unhandled operations."
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read :write)))))
+    (let ((result (jf/bash-sandbox-check "cat $VAR1/a.txt $VAR2/b.txt" rules)))
+      (should-not (plist-get result :allowed))
+      (should (plist-get result :denial-reason))
+      (should (string-match-p "[0-9]+ unhandled operations" (plist-get result :denial-reason))))))
+
+(ert-deftest test-security-denial-reason-no-match ()
+  "Test that denial reason explains when no rule matches."
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read :write)))))
+    (let ((result (jf/bash-sandbox-check "cat /etc/passwd" rules)))
+      (should-not (plist-get result :allowed))
+      (should (plist-get result :denial-reason))
+      (should (string-match-p "No.*rule matches" (plist-get result :denial-reason))))))
+
+(ert-deftest test-security-denial-reason-nil-when-allowed ()
+  "Test that denial reason is nil when command is allowed."
+  (let ((rules '((:patterns ("/workspace/**") :operations (:read :write)))))
+    (let ((result (jf/bash-sandbox-check "cat /workspace/file.txt" rules)))
+      (when (plist-get result :allowed)
+        (should (null (plist-get result :denial-reason)))))))
+
 (provide 'test-security-validator)
 ;;; test-security-validator.el ends here
