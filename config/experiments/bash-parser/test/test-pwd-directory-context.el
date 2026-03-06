@@ -355,14 +355,20 @@ DESIGN QUESTION: Is static analysis of pwd feasible?"
 (ert-deftest test-pwd-substitution-nested ()
   "Test nested pwd substitution: cat $(basename $(pwd))/file.txt
 
-SECURITY: $(basename $(pwd)) with PWD=/Users/name/project → project/file.txt
-DESIGN QUESTION: How deep should substitution analysis go?"
-  :expected-result :failed  ; $(pwd) substitution not yet implemented
+SECURITY: $(basename $(pwd)) resolves to 'project', then bash resolves
+project/file.txt as relative path to /Users/name/project/project/file.txt.
+Parser must extract absolute path for security validation.
+
+Evaluation steps:
+  1. $(pwd) → /Users/name/project (from var-context)
+  2. $(basename /Users/name/project) → project
+  3. Command becomes: cat project/file.txt
+  4. Relative path project/file.txt → /Users/name/project/project/file.txt"
   (let* ((parsed (jf/bash-parse "cat $(basename $(pwd))/file.txt"))
          (var-context '((PWD . "/Users/name/project")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
     (should (= (length ops) 1))
-    (should (equal (plist-get (car ops) :file) "project/file.txt"))))
+    (should (equal (plist-get (car ops) :file) "/Users/name/project/project/file.txt"))))
 
 (ert-deftest test-pwd-backtick-substitution ()
   "Test backtick pwd substitution: cat `pwd`/file.txt

@@ -641,16 +641,17 @@ Operation spec format:
           (dolist (idx target-indices)
             (when (and (>= idx 0) (< idx (length positional-args)))
               (let* ((file-path (nth idx positional-args))
-                     ;; Pre-resolve pwd substitutions before checking for command substitutions
-                     ;; This allows $(pwd) to be statically resolved and not skipped
-                     (pwd-resolved (if var-context
-                                       (jf/bash-resolve-pwd-substitution file-path var-context)
+                     ;; Pre-resolve command substitutions before checking for unresolvable patterns
+                     ;; This allows $(pwd), $(basename $(pwd)), etc. to be statically resolved
+                     (cmd-resolved (if var-context
+                                       (jf/bash-resolve-command-substitution file-path var-context)
                                      file-path)))
-                ;; Skip command substitutions - they are processed recursively
-                ;; and handled by pattern flow operations
-                ;; Note: $(pwd) is already resolved above, so won't be skipped
-                (unless (and pwd-resolved (string-prefix-p "$(" pwd-resolved))
-                  (let* ((resolved-path (jf/bash--resolve-path-variables pwd-resolved var-context))
+                ;; Skip unresolvable command substitutions (marked with :unresolved or still containing $()
+                ;; These are processed recursively and handled by pattern flow operations
+                ;; Note: Deterministic commands are already resolved above, so won't be skipped
+                (unless (or (eq cmd-resolved :unresolved)
+                            (and (stringp cmd-resolved) (string-match-p "\\$(" cmd-resolved)))
+                  (let* ((resolved-path (jf/bash--resolve-path-variables cmd-resolved var-context))
                          ;; Extract path and unresolved metadata
                          (final-path (if (stringp resolved-path)
                                         resolved-path
