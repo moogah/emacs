@@ -1127,6 +1127,7 @@ Returns command structure with optional :redirections and :command-substitutions
                (command-name (car words))
                (remaining-words (cdr words))
                (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
+               (injection-info (jf/bash-parse--detect-command-injection command-name remaining-words))
                (args-start (if subcommand (cdr remaining-words) remaining-words)))
 
           ;; Check for wrapper commands (sudo, env, time, etc.)
@@ -1169,6 +1170,18 @@ Returns command structure with optional :redirections and :command-substitutions
                     (setq result (plist-put result :command-substitutions command-substitutions)))
                   (when env-vars
                     (setq result (plist-put result :env-vars env-vars)))
+
+                  ;; Handle command injection if detected
+                  (when injection-info
+                    (let ((injection-type (plist-get injection-info :injection-type))
+                          (nested-cmd (plist-get injection-info :nested-command)))
+                      (setq result (plist-put result :command-injection t))
+                      (setq result (plist-put result :injection-type injection-type))
+                      ;; Recursively parse the nested command with incremented depth
+                      (when nested-cmd
+                        (let ((parsed-nested (jf/bash-parse--with-depth nested-cmd (1+ depth))))
+                          (setq result (plist-put result :nested-command parsed-nested))))))
+
                   result))))))))))
 #+end_src
 
@@ -1428,6 +1441,47 @@ Returns subcommand string or nil."
       (when (and first-word
                  (not (string-prefix-p "-" first-word)))
         first-word))))
+#+end_src
+
+** Command Injection Detection
+
+Detect commands that inject another command as an argument (e.g., bash -c, sh -c, env -S).
+These patterns allow arbitrary command execution within a string argument.
+
+#+begin_src emacs-lisp
+(defvar jf/bash-parser-injection-commands
+  '((bash . ("-c"))
+    (sh . ("-c")))
+  "Alist of commands and their injection flags.
+Each entry is (COMMAND . (FLAGS...)) where FLAGS indicate command injection.
+Note: env is handled as a wrapper command, not an injection command.")
+
+(defun jf/bash-parse--strip-outer-quotes (str)
+  "Remove outer quotes from STR if present.
+Handles both single and double quotes."
+  (if (and (stringp str)
+           (>= (length str) 2)
+           (or (and (string-prefix-p "\"" str) (string-suffix-p "\"" str))
+               (and (string-prefix-p "'" str) (string-suffix-p "'" str))))
+      (substring str 1 -1)
+    str))
+
+(defun jf/bash-parse--extract-injection-arg (remaining-words injection-flag)
+  "Extract the argument following INJECTION-FLAG in REMAINING-WORDS.
+Returns the unquoted command string or nil if not found."
+  (let ((pos (seq-position remaining-words injection-flag)))
+    (when (and pos (< (1+ pos) (length remaining-words)))
+      (jf/bash-parse--strip-outer-quotes (nth (1+ pos) remaining-words)))))
+
+(defun jf/bash-parse--detect-command-injection (command-name remaining-words)
+  "Detect command injection pattern in COMMAND-NAME with REMAINING-WORDS.
+Returns plist with :injection-type and :nested-command if detected, nil otherwise."
+  (when-let* ((injection-flags (alist-get (intern command-name) jf/bash-parser-injection-commands))
+              (found-flag (seq-find (lambda (flag) (member flag remaining-words))
+                                    injection-flags)))
+    (when-let ((nested-cmd (jf/bash-parse--extract-injection-arg remaining-words found-flag)))
+      (list :injection-type found-flag
+            :nested-command nested-cmd))))
 #+end_src
 
 ** Extract Flags
