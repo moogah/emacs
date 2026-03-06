@@ -14,11 +14,8 @@
 
 ;;; Code:
 
-(require 'ert)
-(require 'bash-parser-core)
-(require 'bash-parser-file-ops)
-(require 'bash-parser-recursive)
-(require 'bash-parser-semantics)
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 (ert-deftest test-conditional-then-branch ()
   "Test operations in then branch marked as conditional."

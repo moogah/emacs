@@ -4,9 +4,8 @@
 ;; Tests verify that patterns from pattern-producing commands (find, ls, grep -l)
 ;; flow correctly to outer commands that operate on those patterns.
 
-(require 'ert)
-(require 'bash-parser (expand-file-name "../bash-parser.el"
-                                        (file-name-directory (or load-file-name buffer-file-name))))
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 ;;; Test Suite
 

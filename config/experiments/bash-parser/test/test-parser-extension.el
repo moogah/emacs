@@ -20,7 +20,8 @@
 
 ;;; Code:
 
-(require 'ert)
+(require 'test-helper (expand-file-name "test-helper.el"
+                                        (file-name-directory load-file-name)))
 
 ;; Set up tree-sitter library path for batch mode
 (let ((repo-root (or (getenv "EMACS_ROOT")
