@@ -487,6 +487,7 @@ prefixes that indicate direct file execution:
   ./  - Relative to current directory
   /   - Absolute path
   ../ - Relative to parent directory
+  ~/  - Home directory (tilde expansion)
 
 This heuristic detects common shell idioms for executing scripts
 and binaries without using an explicit interpreter.
@@ -499,12 +500,14 @@ Examples:
   (jf/bash--command-executes-self-p \"./script.sh\")      => t
   (jf/bash--command-executes-self-p \"/usr/bin/tool\")   => t
   (jf/bash--command-executes-self-p \"../bin/runner\")   => t
+  (jf/bash--command-executes-self-p \"~/bin/script.sh\")  => t
   (jf/bash--command-executes-self-p \"cat\")            => nil
   (jf/bash--command-executes-self-p \"script.sh\")      => nil"
   (and (stringp command-name)
        (or (string-prefix-p "./" command-name)
            (string-prefix-p "/" command-name)
-           (string-prefix-p "../" command-name))))
+           (string-prefix-p "../" command-name)
+           (string-prefix-p "~/" command-name))))
 
 (defun jf/bash--validate-semantics-entry (command-name semantics)
   "Validate SEMANTICS entry for COMMAND-NAME from semantics database.

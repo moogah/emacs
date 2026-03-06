@@ -658,6 +658,7 @@ Test that regular commands like 'cat' are not detected as self-execution."
   (should (jf/bash--command-executes-self-p "./script.sh"))
   (should (jf/bash--command-executes-self-p "/usr/bin/tool"))
   (should (jf/bash--command-executes-self-p "../bin/runner"))
+  (should (jf/bash--command-executes-self-p "~/bin/script.sh"))
   ;; Non-path-based commands
   (should-not (jf/bash--command-executes-self-p "cat"))
   (should-not (jf/bash--command-executes-self-p "script.sh"))
