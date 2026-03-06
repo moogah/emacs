@@ -63,6 +63,15 @@
             :handler jf/bash--extract-tar-operations))
     (zip . (:operations :custom
             :handler jf/bash--extract-zip-operations))
+    (unzip . (:operations ((:source :positional-args :operation :read))))
+    (gzip . (:operations ((:source :positional-args :operation :read)
+                          (:source :positional-args :operation :write :suffix ".gz"))))
+    (gunzip . (:operations ((:source :positional-args :operation :read)
+                            (:source :positional-args :operation :write :strip-suffix ".gz"))))
+    (bzip2 . (:operations ((:source :positional-args :operation :read)
+                           (:source :positional-args :operation :write :suffix ".bz2"))))
+    (bunzip2 . (:operations ((:source :positional-args :operation :read)
+                             (:source :positional-args :operation :write :strip-suffix ".bz2"))))
     (sed . (:operations :flag-dependent
             :flag-handlers ((("-i" "--in-place") . ((:source :positional-args :operation :modify :skip-indices (0))))
                            (() . ((:source :positional-args :operation :read :skip-indices (0)))))))
