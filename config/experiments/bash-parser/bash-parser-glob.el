@@ -66,9 +66,9 @@ Escapes regex special characters."
     (while (< i len)
       (let ((ch (aref glob-segment i)))
         (cond
-         ;; Single-char wildcard
+         ;; Single-char wildcard (excludes directory separator)
          ((eq ch ??)
-          (setq regex (concat regex "."))
+          (setq regex (concat regex "[^/]"))
           (setq i (1+ i)))
 
          ;; Any-chars wildcard (within segment)
