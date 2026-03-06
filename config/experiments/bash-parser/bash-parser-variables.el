@@ -93,42 +93,51 @@ their runtime values cannot be validated against scope constraints."
           (error "file-path must be a string, got %S" file-path))
         (unless (or (null var-context) (listp var-context))
           (error "var-context must be nil or alist, got %S" var-context))
-        (let* ((detection-result (jf/bash-detect-variable-references file-path))
-               (has-variables (car detection-result))
-               (var-names (cdr detection-result)))
 
-          ;; Fast path: no variables found
-          (if (not has-variables)
-              file-path
+        ;; Expand tilde in paths before variable resolution
+        (let ((file-path-expanded
+               (if (and (string-prefix-p "~/" file-path)
+                        (alist-get 'HOME var-context))
+                   (concat (alist-get 'HOME var-context)
+                           (substring file-path 1))  ; Remove ~ keep /
+                 file-path)))
 
-            ;; Process each variable reference
-            (let ((resolved file-path)
-                  (unresolved nil))
-              (dolist (var-name var-names)
-                (let ((value (alist-get (intern var-name) var-context)))
-                  (if value
-                      ;; Replace all occurrences of $VAR or ${VAR} with value
-                      ;; Use word boundary \\b for $VAR to prevent partial matches
-                      ;; (e.g., matching $VAR when the variable is $VARIABLE)
-                      (setq resolved
-                            (replace-regexp-in-string
-                             (format "\\${%s}\\|\\$%s\\b" var-name var-name)
-                             value
-                             resolved
-                             t  ; fixedcase - preserve case
-                             t)) ; literal - treat replacement string literally
-                    ;; Track unresolved variable
-                    (push var-name unresolved))))
+          (let* ((detection-result (jf/bash-detect-variable-references file-path-expanded))
+                 (has-variables (car detection-result))
+                 (var-names (cdr detection-result)))
 
-              ;; Normalize multiple slashes in paths (e.g., *//config -> */config)
-              (setq resolved (replace-regexp-in-string "/+" "/" resolved))
+            ;; Fast path: no variables found
+            (if (not has-variables)
+                file-path-expanded
 
-              ;; Return format based on resolution status
-              (if unresolved
-                  ;; Partial or no resolution - return plist with metadata
-                  (list :path resolved :unresolved (nreverse unresolved))
-                ;; Full resolution - return simple string
-                resolved)))))
+              ;; Process each variable reference
+              (let ((resolved file-path-expanded)
+                    (unresolved nil))
+                (dolist (var-name var-names)
+                  (let ((value (alist-get (intern var-name) var-context)))
+                    (if value
+                        ;; Replace all occurrences of $VAR or ${VAR} with value
+                        ;; Use word boundary \\b for $VAR to prevent partial matches
+                        ;; (e.g., matching $VAR when the variable is $VARIABLE)
+                        (setq resolved
+                              (replace-regexp-in-string
+                               (format "\\${%s}\\|\\$%s\\b" var-name var-name)
+                               value
+                               resolved
+                               t  ; fixedcase - preserve case
+                               t)) ; literal - treat replacement string literally
+                      ;; Track unresolved variable
+                      (push var-name unresolved))))
+
+                ;; Normalize multiple slashes in paths (e.g., *//config -> */config)
+                (setq resolved (replace-regexp-in-string "/+" "/" resolved))
+
+                ;; Return format based on resolution status
+                (if unresolved
+                    ;; Partial or no resolution - return plist with metadata
+                    (list :path resolved :unresolved (nreverse unresolved))
+                  ;; Full resolution - return simple string
+                  resolved))))))
     (error (list :path file-path
                  :error (format "Variable resolution error: %s" (error-message-string err))
                  :unresolved '("ERROR")))))
