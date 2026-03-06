@@ -205,9 +205,9 @@ Matching rules:
   - ** matches 0-to-N segments (tries both consuming and not consuming)
   - Regular segments must match using jf/bash--glob-segment-to-regex
 
-** behavior (greedy matching):
-  - First tries matching ** as zero segments (skip it, continue with rest)
-  - Then tries matching ** as one or more segments (consume one, try again)
+Recursive pattern behavior (greedy matching):
+  - First tries matching ,** as zero segments (skip it, continue with rest)
+  - Then tries matching ,** as one or more segments (consume one, try again)
   - This implements O(n) complexity, not exponential backtracking
 
 Examples:
