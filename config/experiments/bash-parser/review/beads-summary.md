@@ -10,25 +10,19 @@
 
 ### Priority 1 (Critical/High)
 
-1. **emacs-er8n** - Add missing bash-parser-security dependency to bash-parser-core
-   - Type: bug
-   - Labels: bash-parser, 26-03-06-review, dependencies
-   - Issue: Core module references variables from security module without declaring dependency
-   - Impact: Can cause load-order bugs and undefined variable errors
+**✅ Completed (Batch 4):**
+1. **✅ emacs-er8n** - Add missing bash-parser-security dependency - COMPLETE (Batch 1)
+2. **✅ emacs-95io** - Replace global depth counter with parameter passing - COMPLETE (Batch 4)
+3. **✅ emacs-8x1a** - Add input validation to jf/bash-parse entry point - COMPLETE (Batch 4)
 
-2. **emacs-95io** - Replace global depth counter with parameter passing in bash-parser-core
-   - Type: task
-   - Labels: bash-parser, 26-03-06-review, thread-safety
-   - Issue: Global mutable state for recursion depth tracking is not thread-safe
-   - Impact: Breaks with async code, non-reentrant, hard to debug
-
-3. **emacs-64np** - Document AST node lifetime limitations in bash-parser-core
+**Remaining:**
+4. **emacs-64np** - Document AST node lifetime limitations in bash-parser-core
    - Type: task
    - Labels: bash-parser, 26-03-06-review, documentation
    - Issue: AST nodes in :ast field become invalid after parsing completes
    - Impact: Can cause crashes if users try to use AST after parse returns
 
-4. **emacs-votj** - Implement command injection detection per bash-parser spec
+5. **emacs-votj** - Implement command injection detection per bash-parser spec
    - Type: task
    - Labels: bash-parser, 26-03-06-review, spec-compliance
    - Issue: Spec requires bash -c, python -c, sh -c detection but not implemented
@@ -36,17 +30,12 @@
 
 ### Priority 2 (Should Address)
 
-5. **emacs-lmn5** - Eliminate code duplication in bash-parser handler functions
-   - Type: task
-   - Labels: bash-parser, 26-03-06-review, refactoring
-   - Issue: 200+ lines of duplicated code between handler and -node function pairs
-   - Impact: Maintenance burden, potential for divergence
+**✅ Completed (Batch 5):**
+6. **✅ emacs-lmn5** - Eliminate code duplication - COMPLETE (Batch 5)
+7. **✅ emacs-h634** - Consolidate duplicate handler logic - COMPLETE (Batch 5)
 
-6. **emacs-8x1a** - Add input validation to jf/bash-parse entry point
-   - Type: task
-   - Labels: bash-parser, 26-03-06-review, validation
-   - Issue: No validation that command-string is actually a string
-   - Impact: Confusing error messages for invalid input
+**Remaining:**
+(No P2 beads from core architecture review remaining - all moved to other categories)
 
 ### Priority 3 (Nice to Have)
 
@@ -73,11 +62,14 @@ See full review document at:
 
 ## Implementation Order Recommendation
 
-1. **First:** emacs-er8n (dependencies) - Prerequisite for correct module loading
-2. **Second:** emacs-95io (thread-safety) - Foundational correctness issue
-3. **Third:** emacs-64np (AST documentation) - Quick win, prevents user confusion
-4. **Fourth:** emacs-8x1a (validation) - Improves error handling
-5. **Fifth:** emacs-lmn5 (deduplication) - Improves maintainability
+**✅ Completed:**
+1. **✅ First:** emacs-er8n (dependencies) - COMPLETE (Batch 1)
+2. **✅ Second:** emacs-95io (thread-safety) - COMPLETE (Batch 4)
+3. **✅ Fourth:** emacs-8x1a (validation) - COMPLETE (Batch 4)
+4. **✅ Fifth:** emacs-lmn5 (deduplication) - COMPLETE (Batch 5)
+
+**Remaining:**
+5. **Third:** emacs-64np (AST documentation) - Quick win, prevents user confusion
 6. **Sixth:** emacs-votj (command injection) - Major feature, requires design work
 7. **Seventh:** emacs-mu54 (documentation) - Long-term tracking
 
