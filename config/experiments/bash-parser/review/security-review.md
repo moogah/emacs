@@ -330,40 +330,14 @@ The `jf/bash-contains-cd-command-p` function now uses AST traversal instead of r
 
 ## Medium Priority Issues
 
-### 7. Glob Pattern Handling of Empty Segments
+### 7. ✅ RESOLVED: Glob Pattern Handling of Empty Segments (emacs-okq6)
 
-**Severity:** 🟠 Medium
-**Location:** `bash-parser-glob.el:224`
-**Impact:** Edge case handling - potential confusion with trailing slashes
+**Status:** DOCUMENTED
+**Completion Date:** March 6, 2026
 
-**Problem:**
+**Resolution:**
 
-The `jf/bash-glob-match-p` function uses `(split-string path "/" t)` which removes empty strings. This means:
-
-```elisp
-(split-string "/workspace/dir/" "/" t)
-;; => ("workspace" "dir")  ; trailing / is lost
-
-(split-string "/workspace/dir" "/" t)
-;; => ("workspace" "dir")  ; same result
-```
-
-The test at line 152 of `test-glob-matching.el` expects this:
-
-```elisp
-(should (jf/bash-glob-match-p "/workspace/dir/" "/workspace/**/"))
-(should (jf/bash-glob-match-p "/workspace/dir" "/workspace/**"))
-```
-
-**Current Behavior:** Both likely pass because empty segments are omitted.
-
-**Potential Issue:**
-
-For security validation, distinguishing files from directories may matter. The pattern `/workspace/*/` might be intended to match ONLY directories, not files.
-
-**Recommendation:**
-
-Document this behavior clearly in the docstring:
+Documentation has been added to clarify trailing slash behavior:
 
 ```elisp
 "Test if PATH matches PATTERN using glob semantics.
@@ -374,14 +348,9 @@ and \"/workspace/dir/\" are treated identically.
 No filesystem access - purely string-based matching."
 ```
 
-And add a test validating the behavior:
+Tests have been added to validate this behavior is consistent and intentional.
 
-```elisp
-(ert-deftest test-glob-trailing-slash-equivalence ()
-  "Test that trailing slashes don't affect matching"
-  (should (equal (jf/bash-glob-match-p "/workspace/dir" "/workspace/*")
-                (jf/bash-glob-match-p "/workspace/dir/" "/workspace/*"))))
-```
+**Impact:** Edge case behavior is now clearly documented for users.
 
 ---
 
@@ -432,7 +401,7 @@ Both test files correctly include the header. This is actually **NOT** an issue 
    ```
    Add comments explaining each component.
 
-3. **Duplicate code** - `jf/bash--glob-to-regex` and `jf/bash--glob-segment-to-regex` have 95% identical code. Consider refactoring with a `:segment-mode` parameter.
+3. **✅ Duplicate code** - `jf/bash--glob-to-regex` and `jf/bash--glob-segment-to-regex` duplicate code has been refactored (emacs-rc2t).
 
 4. **Error handling** - No error handling for malformed rules (missing `:patterns` or `:operations`). Consider validation:
    ```elisp
@@ -555,7 +524,7 @@ No code paths allow operations by default.
 
 5. **Fix Issue #2** - Clarify variable resolution integration
 6. **Fix Issue #6** - Use AST-based CD detection
-7. **Document Issue #7** - Trailing slash behavior
+7. **✅ Document Issue #7** - Trailing slash behavior - COMPLETE (emacs-okq6)
 8. Add missing test scenarios (malformed rules, edge cases)
 
 ### Long-Term Enhancements

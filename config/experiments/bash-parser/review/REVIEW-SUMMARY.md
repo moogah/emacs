@@ -29,12 +29,11 @@
 - **Impact:** ~/paths not resolved unless in cd/pushd commands
 - **Effort:** 1 day
 
-**emacs-n0js** - Clarify nested command substitution comment
-- **Severity:** LOW
-- **Impact:** Documentation accuracy
-- **Effort:** 5 minutes
+**✅ emacs-n0js** - Clarify nested command substitution comment - COMPLETE
+- **Status:** Documentation updated
+- **Impact:** Improved code clarity
 
-### Medium Priority (Quality) - 3 issues
+### Medium Priority (Quality) - Remaining
 
 **emacs-ul1d** - Create unit tests for bash-parser variable resolution
 - **Severity:** MEDIUM
@@ -47,10 +46,9 @@
 - **Impact:** Better error messages for invalid input
 - **Effort:** 15 minutes
 
-**emacs-oskl** - Add validation of resolved variable values
-- **Severity:** LOW
-- **Impact:** Detect/warn about control characters in values
-- **Effort:** 30 minutes
+**✅ emacs-oskl** - Add validation of resolved variable values - COMPLETE
+- **Status:** Validation implemented
+- **Impact:** Better error detection
 
 ### Low Priority (Performance) - 1 issue
 
@@ -80,13 +78,13 @@ Performance optimization deferred (requires profiling first)
 | Priority | Task | Effort | Impact |
 |----------|------|--------|--------|
 | P1 | Fix command substitution in assignments (emacs-zrlb) | 1 day | Security |
-| P2 | Add tilde expansion (emacs-mb5v) | 1 day | Functionality |
-| P2 | Create unit tests (emacs-ul1d) | 1 day | Quality |
-| P3 | Add input validation (emacs-qzrd) | 0.25 day | Robustness |
-| P3 | Add value validation (emacs-oskl) | 0.25 day | Observability |
-| P3 | Update documentation (emacs-n0js) | 0.25 day | Accuracy |
+| ✅ P2 | Add tilde expansion (emacs-mb5v) | 1 day | Functionality | COMPLETE |
+| P2 | Create unit tests (emacs-ul1d) | 1 day | Quality | |
+| P3 | Add input validation (emacs-qzrd) | 0.25 day | Robustness | |
+| ✅ P3 | Add value validation (emacs-oskl) | 0.25 day | Observability | COMPLETE |
+| ✅ P3 | Update documentation (emacs-n0js) | 0.25 day | Accuracy | COMPLETE |
 
-**Total Estimated Effort:** 3.75 days
+**Total Estimated Effort:** 2 days (remaining)
 
 ## Review Methodology
 
@@ -196,5 +194,6 @@ The system is **production-ready** with the understanding that command substitut
 ---
 
 **Review completed:** 2026-03-06
-**Beads created:** 6 (emacs-zrlb, emacs-mb5v, emacs-ul1d, emacs-n0js, emacs-qzrd, emacs-oskl)
+**Beads created:** 6 (emacs-zrlb, ✅emacs-mb5v, emacs-ul1d, ✅emacs-n0js, emacs-qzrd, ✅emacs-oskl)
+**Status:** 3 completed, 3 remaining
 **Follow-up:** Track bead completion with `bd list --label 26-03-06-review`

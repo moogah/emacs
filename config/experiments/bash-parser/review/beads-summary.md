@@ -44,11 +44,7 @@
 
 ### Priority 3 (Nice to Have)
 
-7. **emacs-mu54** - Document tree-sitter (( workaround and track upstream fix
-   - Type: task
-   - Labels: bash-parser, 26-03-06-review, documentation, upstream
-   - Issue: Workaround for tree-sitter (( parsing is underdocumented
-   - Impact: Future maintainers won't understand when it can be removed
+(No P3 beads from core architecture review remaining - all completed)
 
 ---
 
@@ -76,7 +72,6 @@ See full review document at:
 **Remaining:**
 5. **Third:** emacs-64np (AST documentation) - Quick win, prevents user confusion
 6. **Sixth:** emacs-votj (command injection) - Major feature, requires design work - OPEN
-7. **Seventh:** emacs-mu54 (documentation) - Long-term tracking
 
 ---
 

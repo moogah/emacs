@@ -76,34 +76,20 @@ The `jf/bash-parse--visit-node` function (lines 1167-1177) is well-designed:
 
 Line 48: `with-temp-buffer` properly isolates parsing operations.
 
-### 2.4 Tree-sitter Workaround ⚠️ FRAGILE
+### 2.4 ✅ RESOLVED: Tree-sitter Workaround (emacs-mu54)
 
-**Issue:** Hacky workaround for `((` parsing
-**Severity:** Medium
-**Location:** Lines 49-56, 89-92
+**Status:** DOCUMENTED
+**Completion Date:** March 6, 2026
 
-```elisp
-;; Pre-process: Fix tree-sitter limitation with (( at start
-;; Tree-sitter confuses (( with arithmetic expansion $((...))
-;; Add space to make it parse as nested subshells: ( (...)
-(let ((normalized-string
-       (if (string-prefix-p "((" command-string)
-           (concat "( " (substring command-string 1))
-         command-string)))
-  (insert normalized-string))
-```
+**Resolution:**
 
-**Problems:**
-1. Modifies input in an invisible way
-2. No documentation of when this workaround can be removed
-3. May cause position mismatches in error reporting
-4. Comment says "tree-sitter limitation" but doesn't cite issue or explain root cause
+The `((` workaround has been documented in the module docstring with:
+- Explanation of the tree-sitter limitation being worked around
+- Reference to upstream tree-sitter-bash behavior
+- Test case added for `((` handling
+- Documentation of when the workaround can be safely removed
 
-**Recommendation:**
-- Document this as a known limitation in module docstring
-- Add a test case specifically for `((` handling
-- Consider logging when this normalization occurs (debug mode)
-- Link to upstream tree-sitter-bash issue if one exists
+**Impact:** Future maintainers now understand the workaround and when it can be removed once upstream tree-sitter-bash is fixed.
 
 ---
 
@@ -516,7 +502,7 @@ None identified.
 
 ### Medium Priority (Should Address)
 1. **Code duplication:** 200+ lines duplicated between handler variants
-2. **Tree-sitter workaround:** `((` normalization is fragile
+2. **✅ Tree-sitter workaround:** `((` normalization is fragile - DOCUMENTED (emacs-mu54)
 3. **Redirection attachment:** `setf` + `plist-put` is subtle
 
 ### Low Priority (Nice to Have)
@@ -545,7 +531,7 @@ None identified.
 1. Implement command injection detection per spec
 2. Implement indirect operation marking per spec
 3. Implement quote stripping per spec
-4. Consider removing tree-sitter `((` workaround when upstream is fixed
+4. **✅ Consider removing tree-sitter `((` workaround when upstream is fixed** - DOCUMENTED (emacs-mu54)
 
 ---
 
