@@ -19,6 +19,27 @@ These extensions enable defense-in-depth security analysis by identifying operat
 ;;; bash-parser-extensions.el --- Parser extensions -*- lexical-binding: t; -*-
 #+end_src
 
+* Dependencies
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+#+end_src
+
+* Configuration
+
+** Maximum Recursion Depth
+
+Shared depth limit for recursive parsing across parser modules. This variable
+is also defined in bash-parser-recursive.el and both modules use the same limit
+to ensure consistent behavior.
+
+#+begin_src emacs-lisp
+(defvar jf/bash-recursive-max-depth 10
+  "Maximum recursion depth shared across parser modules.
+Prevents infinite recursion in pathological nested command cases.
+Used by both recursive semantic analysis and nested command parsing.")
+#+end_src
+
 * Parser Extensions
 
 This section extends the core parser with additional detection capabilities for security-critical patterns.
@@ -375,7 +396,8 @@ Returns parsed command structure with metadata:
   :error - Error message if parsing failed
 
 Recursion termination:
-  - Maximum depth: 10 levels (prevents infinite recursion)
+  - Maximum depth: Controlled by jf/bash-recursive-max-depth (default 10)
+  - Returns error plist with :success nil when limit exceeded
   - Detection failure: No more injection patterns found
   - Parse failure: Command string is invalid
 
@@ -412,7 +434,7 @@ Nesting levels:
   - 1: First level of nesting (bash -c 'cmd')
   - 2+: Deeper nesting levels (bash -c \"bash -c 'cmd'\")"
   (let ((level (or nesting-level 1)))
-    ;; Check recursion depth limit
+    ;; Check recursion depth limit - use >= for consistency across modules
     (if (>= level jf/bash-recursive-max-depth)
         (list :success nil
               :error (format "Maximum nesting depth exceeded (limit: %d)" jf/bash-recursive-max-depth)
