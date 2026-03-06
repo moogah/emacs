@@ -118,21 +118,24 @@ TIMESTAMP=$(date +%s)
 for BEAD_ID in selected_beads; do
   # 1. Create unique worktree name
   WORKTREE_NAME="bead-${BEAD_ID}-${TIMESTAMP}"
+
+  # 2. CRITICAL: Worktree path MUST be relative, inside repo at .worktrees/
+  # DO NOT use ~/worktrees or any absolute path
   WORKTREE_PATH=".worktrees/$WORKTREE_NAME"
 
-  # 2. Create worktree branching from current branch
+  # 3. Create worktree branching from current branch
   git worktree add "$WORKTREE_PATH" -b "$WORKTREE_NAME"
 
-  # 3. Copy runtime packages (746MB, fast with rsync)
+  # 4. Copy runtime packages (746MB, fast with rsync)
   ./bin/init-worktree-runtime.sh "$WORKTREE_PATH"
 
-  # 4. Initialize submodules in worktree
+  # 5. Initialize submodules in worktree
   git -C "$WORKTREE_PATH" submodule update --init
 
-  # 5. Fetch full bead details
+  # 6. Fetch full bead details
   BEAD_JSON=$(bd show "$BEAD_ID" --json)
 
-  # 6. Track in state file
+  # 7. Track in state file
   # (JSON structure shown in section 3.1)
 done
 ```
@@ -143,6 +146,8 @@ done
 {
   "session_id": "orch-1234567890",
   "baseline_snapshot": ".beads/orchestrator/baseline-1234567890.txt",
+  "baseline_test_count": 588,
+  "baseline_unexpected_count": 0,
   "current_branch": "gptel-scoped-bash-tools",
   "max_parallel": 5,
   "beads": [
@@ -152,7 +157,11 @@ done
       "branch_name": "bead-emacs-abc1-1234567890",
       "task_id": null,
       "status": "setup_complete",
-      "regression_detected": false
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "test_snapshot_path": null
     }
   ]
 }
@@ -160,15 +169,22 @@ done
 
 **Agent spawning** (parallel after setup completes):
 
-For each bead, spawn agent using Task tool:
+For each bead, spawn agent using Task tool.
 
-**IMPORTANT**: Do NOT use `background: true` when creating tasks. Background agents lack permission to write files and run commands, which makes them unable to implement beads. All agents must run in the foreground.
+**CRITICAL REQUIREMENT - NEVER USE BACKGROUND AGENTS**:
+- **MUST use foreground tasks** (run_in_background: false or omitted)
+- **NEVER set run_in_background: true** - this blocks file writes and command execution
+- Background agents will fail with "File modification tools blocked - prompts unavailable"
+- Without file write permissions, agents cannot implement beads
+- This is a hard requirement - there are no exceptions
 
+**Correct TaskCreate syntax**:
 ```
 TaskCreate(
   subject: "Implement bead $BEAD_ID",
   activeForm: "Implementing bead $BEAD_ID",
   description: <agent prompt - see section 3.2>
+  # NOTE: run_in_background is NOT included - defaults to false (foreground)
 )
 ```
 
@@ -437,6 +453,12 @@ if merge fails:
   Report: "Worktree kept at: $WORKTREE_PATH"
   Report: "Resolve manually or skip this bead"
 
+  # If user resolves conflicts manually:
+  # MANDATORY: Re-test after conflict resolution before continuing
+  ./bin/run-tests.sh --snapshot
+  # Verify no regressions from conflict resolution
+  # Extract unexpected count and verify it's 0
+
   # Continue with next bead
   Continue to next implementation_complete bead
 ```
@@ -448,7 +470,8 @@ if merge succeeds:
   # Update state
   Mark bead status as "merged"
 
-  # Proceed to testing (section 6)
+  # MANDATORY: Test and verify (section 6)
+  # This gate is CRITICAL - never skip
 ```
 
 **Display merge progress**:
@@ -473,7 +496,72 @@ if merge succeeds:
 - Can stop before additional bad merges
 - Trade-off: Slower but much safer
 
-**Test execution**:
+**MANDATORY: Test Verification Gate**
+
+After each merge succeeds, IMMEDIATELY run:
+
+```bash
+cd /Users/jefffarr/emacs
+
+# Run full test suite with snapshot
+./bin/run-tests.sh --snapshot
+
+# Extract test results programmatically (never rely on tail output alone)
+UNEXPECTED=$(grep "Ran.*tests" test-results.txt | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+")
+
+# CRITICAL: Check for regressions
+if [ -z "$UNEXPECTED" ]; then
+  echo "⚠️ Could not parse test results - check test-results.txt"
+  exit 1
+fi
+
+if [ "$UNEXPECTED" -gt 0 ]; then
+  echo "⚠️ REGRESSION DETECTED after merge $BEAD_ID"
+  echo "Unexpected failures: $UNEXPECTED"
+
+  # STOP orchestration - do not continue to next merge
+  REGRESSION_DETECTED=true
+
+  # Update state file
+  # Keep all worktrees
+  # Report to user (see Regression Handling section)
+  exit 1
+fi
+
+echo "✓ Tests pass after $BEAD_ID merge: $UNEXPECTED unexpected"
+
+# Save snapshot for next comparison
+CURRENT_TIMESTAMP=$(date +%s)
+cp test-results.txt .beads/orchestrator/after-${BEAD_ID}-${CURRENT_TIMESTAMP}.txt
+
+# Update state file with test results
+# Extract total test count from test-results.txt
+TOTAL_TESTS=$(grep "Ran.*tests" test-results.txt | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
+
+# Update bead state with test tracking
+jq --arg bead "$BEAD_ID" \
+   --argjson tests "$TOTAL_TESTS" \
+   --argjson unexpected "$UNEXPECTED" \
+   --arg snapshot ".beads/orchestrator/after-${BEAD_ID}-${CURRENT_TIMESTAMP}.txt" \
+   '.beads[] |= if .bead_id == $bead then
+     . + {
+       tests_after_merge: $tests,
+       unexpected_failures: $unexpected,
+       test_snapshot_path: $snapshot
+     }
+   else . end' \
+   .beads/orchestrator-state.json > .beads/orchestrator-state.json.tmp
+mv .beads/orchestrator-state.json.tmp .beads/orchestrator-state.json
+```
+
+**Critical rules:**
+- **Never skip this gate**, even for "simple" merges
+- **Never batch merges** without testing between them
+- **Never trust tail output** - always grep for "Ran X tests, Y unexpected"
+- **Never continue after regression** - stop and report immediately
+- **Always verify programmatically** - parse test counts, don't assume
+
+**Test execution (legacy approach - DO NOT USE)**:
 
 ```bash
 cd /Users/jefffarr/emacs
@@ -483,7 +571,7 @@ CURRENT_TIMESTAMP=$(date +%s)
 ./bin/run-tests.sh --snapshot -o .beads/orchestrator/current-${CURRENT_TIMESTAMP}.txt
 ```
 
-**Regression detection**:
+**Regression detection (legacy approach - DO NOT USE)**:
 
 ```bash
 # Compare to baseline
@@ -609,6 +697,10 @@ Update state file with cleanup status:
       "bead_id": "emacs-abc1",
       "status": "merged",
       "regression_detected": false,
+      "tests_before_merge": 588,
+      "tests_after_merge": 588,
+      "unexpected_failures": 0,
+      "test_snapshot_path": ".beads/orchestrator/after-emacs-abc1-1234567890.txt",
       "bead_closed": true,
       "worktree_removed": true
     },
@@ -616,6 +708,10 @@ Update state file with cleanup status:
       "bead_id": "emacs-xyz9",
       "status": "merge_conflict",
       "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "test_snapshot_path": null,
       "bead_closed": false,
       "worktree_removed": false,
       "kept_reason": "merge_conflict"
@@ -748,17 +844,25 @@ Action: Allow user to proceed, mark regression as "acknowledged"
 
 ## Guardrails
 
-- **Always validate prerequisites**: Check bd list succeeds, git worktree available
+**CRITICAL - Never violate these**:
+- **NEVER use background agents**: ALWAYS use foreground tasks (run_in_background omitted or false). Background agents fail with "File modification tools blocked - prompts unavailable"
+- **NEVER use absolute worktree paths**: ALWAYS use `.worktrees/bead-*` (relative path inside repo). NEVER use `~/worktrees/` or `/Users/*/worktrees/`
 - **Never skip regression testing**: Test after EACH merge (user preference)
+- **Never batch merges without testing**: Each merge MUST be followed by test verification before next merge
+
+**Important guardrails**:
+- **Always validate prerequisites**: Check bd list succeeds, git worktree available
+- **Never skip testing after conflicts**: If conflicts are resolved, re-test before continuing
+- **Never trust tail output alone**: Always verify test counts programmatically with grep
+- **Never continue after regression**: Stop merging, preserve state, report to user
+- **Always verify test counts programmatically**: Parse "Ran X tests, Y unexpected" from test-results.txt
 - **Never auto-cleanup failed work**: Keep worktrees for debugging
-- **Never continue after regression**: Stop merging, preserve state
 - **Always report clearly**: Show progress, errors, kept worktrees with reasons
 - **Always save state**: Update state file after each phase
 - **Never guess on conflicts**: Keep worktree, let user resolve manually
 - **Never merge in parallel**: Sequential merging only (avoid conflicts)
 - **Always embed skill guidance**: Agents can't invoke skills directly
 - **Never timeout too quickly**: 2 hours gives agents time for 1-4 hour tasks
-- **Never use background agents**: Background agents cannot write files or run commands; always spawn foreground tasks
 
 ## Prerequisites Check
 
