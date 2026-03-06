@@ -519,7 +519,7 @@ Validates:
   - For :flag-dependent: validate :flag-handlers exists and is list
   - For :custom: validate :handler exists and is symbol
 
-Signals error with descriptive message if validation fails.
+Signals user-error with descriptive message if validation fails.
 Returns t if valid.
 
 This validation catches malformed database entries early (at extraction time)
@@ -553,51 +553,51 @@ Examples:
      ((listp ops-spec)
       ;; Validate each operation spec in the list
       (dolist (spec ops-spec)
-        (unless (plistp spec)
-          (error "Semantics validation failed for %s: Operation spec is not a plist: %S"
-                 command-name spec))
+        (unless (listp spec)
+          (user-error "Semantics validation failed for %s: Operation spec is not a plist: %S"
+                      command-name spec))
         ;; Check required fields
         (unless (plist-get spec :source)
-          (error "Semantics validation failed for %s: Operation spec missing required :source field: %S"
-                 command-name spec))
+          (user-error "Semantics validation failed for %s: Operation spec missing required :source field: %S"
+                      command-name spec))
         (unless (plist-get spec :operation)
-          (error "Semantics validation failed for %s: Operation spec missing required :operation field: %S"
-                 command-name spec))))
+          (user-error "Semantics validation failed for %s: Operation spec missing required :operation field: %S"
+                      command-name spec))))
 
      ;; Complex command (git, docker, etc.)
      ((eq ops-spec :complex)
       (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
         (unless subcommand-handlers
-          (error "Semantics validation failed for %s: Complex command missing required :subcommand-handlers field"
-                 command-name))
+          (user-error "Semantics validation failed for %s: Complex command missing required :subcommand-handlers field"
+                      command-name))
         (unless (listp subcommand-handlers)
-          (error "Semantics validation failed for %s: :subcommand-handlers must be an alist, got: %S"
-                 command-name subcommand-handlers))))
+          (user-error "Semantics validation failed for %s: :subcommand-handlers must be an alist, got: %S"
+                      command-name subcommand-handlers))))
 
      ;; Flag-dependent command (tar, sed, etc.)
      ((eq ops-spec :flag-dependent)
       (let ((flag-handlers (plist-get semantics :flag-handlers)))
         (unless flag-handlers
-          (error "Semantics validation failed for %s: Flag-dependent command missing required :flag-handlers field"
-                 command-name))
+          (user-error "Semantics validation failed for %s: Flag-dependent command missing required :flag-handlers field"
+                      command-name))
         (unless (listp flag-handlers)
-          (error "Semantics validation failed for %s: :flag-handlers must be a list, got: %S"
-                 command-name flag-handlers))))
+          (user-error "Semantics validation failed for %s: :flag-handlers must be a list, got: %S"
+                      command-name flag-handlers))))
 
      ;; Custom handler
      ((eq ops-spec :custom)
       (let ((handler (plist-get semantics :handler)))
         (unless handler
-          (error "Semantics validation failed for %s: Custom command missing required :handler field"
-                 command-name))
+          (user-error "Semantics validation failed for %s: Custom command missing required :handler field"
+                      command-name))
         (unless (symbolp handler)
-          (error "Semantics validation failed for %s: :handler must be a symbol, got: %S"
-                 command-name handler))))
+          (user-error "Semantics validation failed for %s: :handler must be a symbol, got: %S"
+                      command-name handler))))
 
      ;; Invalid operations spec type
      (t
-      (error "Semantics validation failed for %s: :operations must be a list, :complex, :flag-dependent, or :custom, got: %S"
-             command-name ops-spec)))
+      (user-error "Semantics validation failed for %s: :operations must be a list, :complex, :flag-dependent, or :custom, got: %S"
+                  command-name ops-spec)))
 
     t))
 
