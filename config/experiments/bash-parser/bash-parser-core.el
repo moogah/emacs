@@ -442,10 +442,149 @@ Bash tree-sitter structure for for_statement:
           (setq result (plist-put result :command-substitutions command-substitutions)))
         result))))
 
+(defun jf/bash-parse--handle-for-loop-node (for-node)
+  "Handle for-loop from FOR-NODE directly.
+FOR-NODE is a for_statement node from tree-sitter.
+Returns same structure as jf/bash-parse--handle-for-loop but works with node directly."
+  (let* ((variable-node (treesit-node-child-by-field-name for-node "variable"))
+         (variable-name (when variable-node
+                         (treesit-node-text variable-node t)))
+         (body-text nil)
+         (iteration-values nil)
+         (command-substitutions nil))
+
+    ;; Extract command substitutions from the entire for-loop node
+    (setq command-substitutions
+          (jf/bash-parse--extract-command-substitutions for-node))
+
+    ;; Extract iteration values and body
+    (let ((child-count (treesit-node-child-count for-node))
+          (collecting-values nil)
+          (collecting-body nil)
+          (value-nodes '())
+          (body-nodes '()))
+      ;; Collect value nodes and body nodes
+      (dotimes (i child-count)
+        (let* ((child (treesit-node-child for-node i))
+               (child-type (treesit-node-type child)))
+          (cond
+           ;; Start collecting values after 'in' keyword
+           ((string= child-type "in")
+            (setq collecting-values t))
+           ;; Start collecting body at do_group
+           ((string= child-type "do_group")
+            (setq collecting-values nil)
+            (setq collecting-body t)
+            ;; Extract body text from do_group node
+            (let ((do-group-text (treesit-node-text child t)))
+              ;; Strip 'do' and 'done' keywords
+              (when (string-match "^do\\s-+\\(.*\\)\\s-+done$" do-group-text)
+                (setq body-text (string-trim (match-string 1 do-group-text))))))
+           ;; Stop at 'done' keyword
+           ((string= child-type "done")
+            (setq collecting-body nil))
+           ;; Collect value nodes (between 'in' and 'do_group')
+           (collecting-values
+            (unless (member child-type '(";" "in"))
+              (push child value-nodes))))))
+
+      ;; Convert value nodes to text list
+      (when value-nodes
+        (setq iteration-values
+              (mapcar (lambda (node) (treesit-node-text node t))
+                     (nreverse value-nodes)))))
+
+    ;; Determine loop source type
+    (let ((loop-source-type
+           (cond
+            ;; If there are command substitutions in the iteration values, it's from substitution
+            (command-substitutions :substitution)
+            ;; If the first iteration value contains glob characters, it's a glob
+            ((and iteration-values
+                  (string-match-p "[*?]\\|\\[.*\\]" (car iteration-values)))
+             :glob)
+            ;; Otherwise, it's a literal list
+            (iteration-values :literal)
+            (t nil))))
+
+      ;; Build result
+      (let ((result (list :success t
+                         :type :for-loop
+                         :command-name "for"
+                         ;; Original field names
+                         :variable variable-name
+                         :iteration-values iteration-values
+                         :body-text body-text
+                         ;; Alias field names for recursive analysis
+                         :loop-variable variable-name
+                         :loop-body body-text
+                         :loop-list (car iteration-values)
+                         :loop-source-type loop-source-type
+                         :ast for-node)))
+        ;; Only add command-substitutions if present
+        (when command-substitutions
+          (setq result (plist-put result :command-substitutions command-substitutions)))
+        result))))
+
+(defun jf/bash-parse--handle-conditional-node (if-node)
+  "Handle conditional (if/then/else) from IF-NODE directly.
+IF-NODE is an if_statement node from tree-sitter.
+Returns same structure as jf/bash-parse--handle-conditional but works with node directly."
+  (let* ((condition-node (treesit-node-child-by-field-name if-node "condition"))
+         (condition-text (when condition-node
+                          (treesit-node-text condition-node t)))
+         (then-text nil)
+         (else-text nil))
+
+    ;; Extract then and else branches
+    (let ((child-count (treesit-node-child-count if-node))
+          (collecting-then nil)
+          (then-nodes '()))
+      ;; Collect then-branch nodes
+      (dotimes (i child-count)
+        (let* ((child (treesit-node-child if-node i))
+               (child-type (treesit-node-type child)))
+          (cond
+           ;; Start collecting then branch after 'then' keyword
+           ((string= child-type "then")
+            (setq collecting-then t))
+           ;; Stop at else_clause, elif_clause, or fi
+           ((or (string= child-type "else_clause")
+                (string= child-type "elif_clause")
+                (string= child-type "fi"))
+            (setq collecting-then nil)
+            ;; Extract else branch text from else_clause node
+            (when (string= child-type "else_clause")
+              (let ((else-clause-text (treesit-node-text child t)))
+                ;; Strip leading 'else' keyword and whitespace
+                (when (string-match "^else\\s-*\\(.*\\)$" else-clause-text)
+                  (setq else-text (string-trim (match-string 1 else-clause-text)))
+                  ;; Remove trailing semicolon if present
+                  (when (string-suffix-p ";" else-text)
+                    (setq else-text (substring else-text 0 -1)))))))
+           ;; Collect then-branch command nodes
+           (collecting-then
+            (unless (member child-type '(";" "if" "then"))
+              (push child then-nodes))))))
+
+      ;; Convert then-branch node list to text
+      (when then-nodes
+        (setq then-text (mapconcat (lambda (node) (treesit-node-text node t))
+                                  (nreverse then-nodes)
+                                  "; "))))
+
+    (list :success t
+          :type :conditional
+          :command-name "if"
+          :condition-text condition-text
+          :then-text then-text
+          :else-text else-text
+          :ast if-node)))
+
 (defun jf/bash-parse--get-all-command-nodes (container-node)
   "Get all command nodes from CONTAINER-NODE (pipeline or list).
-Returns command, redirected_statement, or variable_assignment nodes.
-Only collects top-level commands - does not descend into command substitutions."
+Returns command, redirected_statement, variable_assignment, for_statement, or if_statement nodes.
+Only collects top-level commands - does not descend into command substitutions or statement bodies."
   (let ((commands '()))
     (jf/bash-parse--visit-node
      container-node
@@ -454,6 +593,12 @@ Only collects top-level commands - does not descend into command substitutions."
          (cond
           ;; Skip command substitutions - don't collect nested commands
           ((string= node-type "command_substitution")
+           :skip-children)
+          ;; Collect control flow statements and skip their children
+          ;; (to avoid descending into loop/conditional bodies)
+          ((or (string= node-type "for_statement")
+               (string= node-type "if_statement"))
+           (push node commands)
            :skip-children)
           ;; Collect redirected_statement nodes and skip their children
           ;; (the nested command node would be a duplicate)
@@ -678,95 +823,113 @@ Returns nesting level starting from 1 for outermost substitution."
     level))
 
 (defun jf/bash-parse--parse-single-command-node (command-or-statement-node)
-  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, or variable_assignment.
+  "Parse COMMAND-OR-STATEMENT-NODE which may be command, redirected_statement, variable_assignment, for_statement, or if_statement.
 Returns command structure with optional :redirections and :command-substitutions fields."
   (let ((command-node nil)
         (redirections nil)
-        (command-substitutions nil))
+        (command-substitutions nil)
+        (node-type (treesit-node-type command-or-statement-node)))
 
-    ;; Extract command substitutions from the entire node tree
-    (setq command-substitutions
-          (jf/bash-parse--extract-command-substitutions command-or-statement-node))
+    ;; Handle control flow statements by creating a temporary root node and calling appropriate handler
+    ;; This allows for_statement and if_statement nodes to be parsed correctly when found in chains
+    (cond
+     ((string= node-type "for_statement")
+      ;; Create a wrapper program node and call the for-loop handler
+      (let ((result (jf/bash-parse--handle-for-loop-node command-or-statement-node)))
+        ;; Return the result structure (already complete from handler)
+        result))
 
-    ;; Check if this is a redirected_statement wrapper
-    (if (string= (treesit-node-type command-or-statement-node) "redirected_statement")
-        (progn
-          ;; Extract the actual command from the body field
-          (setq command-node
-                (treesit-node-child-by-field-name command-or-statement-node "body"))
-          ;; Extract redirections
-          (setq redirections
-                (jf/bash-parse--extract-redirections command-or-statement-node)))
-      ;; Not a redirected statement, use node as-is
-      (setq command-node command-or-statement-node))
+     ((string= node-type "if_statement")
+      ;; Create a wrapper program node and call the conditional handler
+      (let ((result (jf/bash-parse--handle-conditional-node command-or-statement-node)))
+        ;; Return the result structure (already complete from handler)
+        result))
 
-    ;; Handle variable_assignment nodes specially
-    (if (string= (treesit-node-type command-node) "variable_assignment")
-        (let* ((name-node (treesit-node-child-by-field-name command-node "name"))
-               (value-node (treesit-node-child-by-field-name command-node "value"))
-               (var-name (treesit-node-text name-node))
-               (var-value (treesit-node-text value-node)))
-          ;; Return with variable name as command-name and value as positional arg
-          (let ((result (list :command-name var-name
-                             :subcommand nil
-                             :flags nil
-                             :positional-args (list var-value)
-                             :args (list var-value)
-                             :dangerous-p nil)))
-            ;; Add command-substitutions if present
-            (when command-substitutions
-              (setq result (plist-put result :command-substitutions command-substitutions)))
-            result))
+     ;; Normal command/statement processing
+     (t
+      ;; Extract command substitutions from the entire node tree
+      (setq command-substitutions
+            (jf/bash-parse--extract-command-substitutions command-or-statement-node))
 
-      ;; Parse regular command
-      (let* ((env-vars (jf/bash-parse--extract-env-vars command-node))
-             (words (jf/bash-parse--extract-words command-node))
-             (command-name (car words))
-             (remaining-words (cdr words))
-             (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
-             (args-start (if subcommand (cdr remaining-words) remaining-words)))
+      ;; Check if this is a redirected_statement wrapper
+      (if (string= node-type "redirected_statement")
+          (progn
+            ;; Extract the actual command from the body field
+            (setq command-node
+                  (treesit-node-child-by-field-name command-or-statement-node "body"))
+            ;; Extract redirections
+            (setq redirections
+                  (jf/bash-parse--extract-redirections command-or-statement-node)))
+        ;; Not a redirected statement, use node as-is
+        (setq command-node command-or-statement-node))
 
-      ;; Check for wrapper commands (sudo, env, time, etc.)
-      (if-let ((wrapper-spec (and (not (string-match-p "=" command-name))
-                                  (alist-get (intern command-name)
-                                             jf/bash-parser-wrapper-commands))))
-          (let ((result (jf/bash-parse--parse-wrapper-command command-name wrapper-spec remaining-words redirections)))
-            (when command-substitutions
-              (setq result (plist-put result :command-substitutions command-substitutions)))
-            (when env-vars
-              (setq result (plist-put result :env-vars env-vars)))
-            result)
-
-        ;; Check for find command with -exec blocks
-        (if (and (string= command-name "find")
-                 (or (member "-exec" args-start)
-                     (member "-execdir" args-start)))
-            (let ((result (jf/bash-parse--parse-find-with-exec command-name args-start redirections)))
+      ;; Handle variable_assignment nodes specially
+      (if (string= (treesit-node-type command-node) "variable_assignment")
+          (let* ((name-node (treesit-node-child-by-field-name command-node "name"))
+                 (value-node (treesit-node-child-by-field-name command-node "value"))
+                 (var-name (treesit-node-text name-node))
+                 (var-value (treesit-node-text value-node)))
+            ;; Return with variable name as command-name and value as positional arg
+            (let ((result (list :command-name var-name
+                               :subcommand nil
+                               :flags nil
+                               :positional-args (list var-value)
+                               :args (list var-value)
+                               :dangerous-p nil)))
+              ;; Add command-substitutions if present
               (when command-substitutions
                 (setq result (plist-put result :command-substitutions command-substitutions)))
-              (when env-vars
-                (setq result (plist-put result :env-vars env-vars)))
-              result)
+              result))
 
-          ;; Normal command processing
-          (let* ((flags (jf/bash-parse--extract-flags args-start))
-                 (positional-args (jf/bash-parse--extract-positional-args args-start))
-                 (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+        ;; Parse regular command
+        (let* ((env-vars (jf/bash-parse--extract-env-vars command-node))
+               (words (jf/bash-parse--extract-words command-node))
+               (command-name (car words))
+               (remaining-words (cdr words))
+               (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
+               (args-start (if subcommand (cdr remaining-words) remaining-words)))
 
-            ;; Build result, only include redirections if present
-            (let ((result (list :command-name command-name
-                               :subcommand subcommand
-                               :flags flags
-                               :positional-args positional-args
-                               :args args-start
-                               :dangerous-p dangerous-p)))
-              (when redirections
-                (setq result (plist-put result :redirections redirections)))
-              (when command-substitutions
-                (setq result (plist-put result :command-substitutions command-substitutions)))
-              (when env-vars
-                (setq result (plist-put result :env-vars env-vars)))
-              result))))))))
+          ;; Check for wrapper commands (sudo, env, time, etc.)
+          (if-let ((wrapper-spec (and (not (string-match-p "=" command-name))
+                                      (alist-get (intern command-name)
+                                                 jf/bash-parser-wrapper-commands))))
+              (let ((result (jf/bash-parse--parse-wrapper-command command-name wrapper-spec remaining-words redirections)))
+                (when command-substitutions
+                  (setq result (plist-put result :command-substitutions command-substitutions)))
+                (when env-vars
+                  (setq result (plist-put result :env-vars env-vars)))
+                result)
+
+            ;; Check for find command with -exec blocks
+            (if (and (string= command-name "find")
+                     (or (member "-exec" args-start)
+                         (member "-execdir" args-start)))
+                (let ((result (jf/bash-parse--parse-find-with-exec command-name args-start redirections)))
+                  (when command-substitutions
+                    (setq result (plist-put result :command-substitutions command-substitutions)))
+                  (when env-vars
+                    (setq result (plist-put result :env-vars env-vars)))
+                  result)
+
+              ;; Normal command processing
+              (let* ((flags (jf/bash-parse--extract-flags args-start))
+                     (positional-args (jf/bash-parse--extract-positional-args args-start))
+                     (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+
+                ;; Build result, only include redirections if present
+                (let ((result (list :command-name command-name
+                                   :subcommand subcommand
+                                   :flags flags
+                                   :positional-args positional-args
+                                   :args args-start
+                                   :dangerous-p dangerous-p)))
+                  (when redirections
+                    (setq result (plist-put result :redirections redirections)))
+                  (when command-substitutions
+                    (setq result (plist-put result :command-substitutions command-substitutions)))
+                  (when env-vars
+                    (setq result (plist-put result :env-vars env-vars)))
+                  result))))))))))
 
 (defun jf/bash-parse--extract-env-vars (command-node)
   "Extract inline environment variable assignments from COMMAND-NODE.

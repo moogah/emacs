@@ -628,7 +628,6 @@ SECURITY: Script execution path must resolve in new directory."
   "Test cd /logs && for f in *.log; do cat $f; done
 
 SECURITY: Both glob pattern and loop variable resolve in /logs."
-  :expected-result :failed
   (let* ((parsed (jf/bash-parse "cd /logs && for f in *.log; do cat $f; done"))
          (var-context '((PWD . "/home")))
          (ops (jf/bash-extract-file-operations parsed var-context)))
