@@ -6,6 +6,9 @@
 ;; Add current directory to load-path for sub-modules
 (add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name)))
 
+;; Protocol module (forward declarations - no dependencies)
+(require 'bash-parser-protocol)
+
 ;; Core modules (no dependencies on other parser modules)
 (require 'bash-parser-glob)
 (require 'bash-parser-semantics)

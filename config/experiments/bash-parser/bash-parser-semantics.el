@@ -1,10 +1,7 @@
 ;;; bash-parser-semantics.el --- Command semantics database -*- lexical-binding: t; -*-
 
-;; Forward declaration for function defined in bash-parser-file-ops.el
-(declare-function jf/bash--has-glob-pattern-p "bash-parser-file-ops")
-(declare-function jf/bash--resolve-path-variables "bash-parser-file-ops")
-(declare-function jf/bash-extract-from-exec-blocks "bash-parser-file-ops")
-(declare-function jf/bash--flag-present-p "bash-parser-file-ops")
+;; Require protocol module for forward declarations
+(require 'bash-parser-protocol)
 
 (defvar jf/bash-command-file-semantics
   '((cat . (:operations ((:source :positional-args :operation :read))))

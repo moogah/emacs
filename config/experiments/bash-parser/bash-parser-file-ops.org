@@ -34,6 +34,7 @@ variables tracked in operation metadata.
 ;;; Code:
 
 (require 'cl-lib)
+(require 'bash-parser-protocol)
 #+end_src
 
 * Valid Operation Types
