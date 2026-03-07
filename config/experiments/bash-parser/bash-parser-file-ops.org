@@ -878,8 +878,8 @@ Examples:
 
     ;; Filter out skip-indices
     (when skip-indices
-      (setq target-indices (seq-remove (lambda (i) (member i skip-indices))
-                                      target-indices)))
+      (setq target-indices (cl-remove-if (lambda (i) (member i skip-indices))
+                                         target-indices)))
 
     target-indices))
 #+end_src
