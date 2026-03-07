@@ -5,7 +5,7 @@
 
 (require 'test-helper (expand-file-name "test-helper.el"
                                         (file-name-directory load-file-name)))
-(require 'corpus-parse-command-substitution (expand-file-name "corpus-parse-command-substitution.el"
+(require 'corpus-parse-command-substitution (expand-file-name "corpus/data/corpus-parse-command-substitution.el"
                                                               (file-name-directory load-file-name)))
 
 ;;; Helper Functions

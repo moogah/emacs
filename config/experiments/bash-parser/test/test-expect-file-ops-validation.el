@@ -7,19 +7,19 @@
 
 ;; Load corpus files
 (require 'corpus-parse-command-substitution
-         (expand-file-name "corpus-parse-command-substitution.el"
+         (expand-file-name "corpus/data/corpus-parse-command-substitution.el"
                           (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-combined-patterns
-         (expand-file-name "corpus-parse-combined-patterns.el"
+         (expand-file-name "corpus/data/corpus-parse-combined-patterns.el"
                           (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-conditional
-         (expand-file-name "corpus-parse-conditional.el"
+         (expand-file-name "corpus/data/corpus-parse-conditional.el"
                           (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-for-loop
-         (expand-file-name "corpus-parse-for-loop.el"
+         (expand-file-name "corpus/data/corpus-parse-for-loop.el"
                           (file-name-directory (or load-file-name buffer-file-name))))
 (require 'corpus-parse-heredoc
-         (expand-file-name "corpus-parse-heredoc.el"
+         (expand-file-name "corpus/data/corpus-parse-heredoc.el"
                           (file-name-directory (or load-file-name buffer-file-name))))
 
 (ert-deftest test-corpus-has-expect-file-ops ()

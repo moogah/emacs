@@ -41,12 +41,12 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 - [x] Tracking document created with individual test accountability
 - [x] Test count discrepancy explained (683 executed vs 548 defined)
 
-### Phase 1: Structure & Corpus ⏳
-- [ ] Directory structure created
-- [ ] Corpus data files moved (7 files)
-- [ ] Corpus runners moved (3 files)
-- [ ] Corpus index moved (1 file)
-- [ ] Individual test tracking updated for moved tests
+### Phase 1: Structure & Corpus ✓ COMPLETED
+- [x] Directory structure created
+- [x] Corpus data files moved (7 files)
+- [x] Corpus runners moved (3 files)
+- [x] Corpus index moved (1 file)
+- [x] Individual test tracking updated for moved tests
 
 ### Phase 2: Behavioral & Unit ⏳
 - [ ] Behavioral tests moved (4 files, 129 tests)
@@ -77,21 +77,21 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 ### Phase 1: Corpus Files (12 files)
 
 **Corpus Data Files (7 files → corpus/data/)**
-- test/corpus-parse-command-substitution.el → corpus/data/ | 0 deftest | MOVE | ⏳ Pending
-- test/corpus-parse-conditional.el → corpus/data/ | 0 deftest | MOVE | ⏳ Pending
-- test/corpus-parse-for-loop.el → corpus/data/ | 0 deftest | MOVE | ⏳ Pending
-- test/corpus-parse-heredoc.el → corpus/data/ | 0 deftest | MOVE | ⏳ Pending
-- test/corpus-parse-process-substitution.el → corpus/data/ | 0 deftest | MOVE | ⏳ Pending
-- test/corpus-parse-combined-patterns.el → corpus/data/ | 0 deftest | MOVE | ⏳ Pending
-- test/corpus-parse-llm-scenarios.el → corpus/data/ | 0 deftest | MOVE | ⏳ Pending
+- test/corpus-parse-command-substitution.el → corpus/data/ | 0 deftest | MOVE | ✓ Completed
+- test/corpus-parse-conditional.el → corpus/data/ | 0 deftest | MOVE | ✓ Completed
+- test/corpus-parse-for-loop.el → corpus/data/ | 0 deftest | MOVE | ✓ Completed
+- test/corpus-parse-heredoc.el → corpus/data/ | 0 deftest | MOVE | ✓ Completed
+- test/corpus-parse-process-substitution.el → corpus/data/ | 0 deftest | MOVE | ✓ Completed
+- test/corpus-parse-combined-patterns.el → corpus/data/ | 0 deftest | MOVE | ✓ Completed
+- test/corpus-parse-llm-scenarios.el → corpus/data/ | 0 deftest | MOVE | ✓ Completed
 
 **Corpus Runners (3 files → corpus/runners/)**
-- test/test-corpus-parse.el → corpus/runners/ | 4 deftest | MOVE | ⏳ Pending
-- test/test-corpus-file-operations.el → corpus/runners/ | 0 deftest (generates ~98 tests) | MOVE | ⏳ Pending
-- test/test-corpus-script-execution.el → corpus/runners/ | 30 deftest | MOVE | ⏳ Pending
+- test/test-corpus-parse.el → corpus/runners/ | 4 deftest | MOVE | ✓ Completed
+- test/test-corpus-file-operations.el → corpus/runners/ | 0 deftest (generates ~98 tests) | MOVE | ✓ Completed
+- test/test-corpus-script-execution.el → corpus/runners/ | 30 deftest | MOVE | ✓ Completed
 
 **Corpus Index (1 file → corpus/)**
-- test/corpus-index.el → corpus/ | 0 deftest | MOVE | ⏳ Pending
+- test/corpus-index.el → corpus/ | 0 deftest | MOVE | ✓ Completed
 
 **Infrastructure Files (stay at root)**
 - test/test-helper.el | 0 deftest | KEEP | N/A
@@ -790,45 +790,45 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-corpus-parse-all-tests | ⏳ Pending | corpus/runners/ | |
-| test-corpus-parse-by-category | ⏳ Pending | corpus/runners/ | |
-| test-corpus-parse-by-gap-type | ⏳ Pending | corpus/runners/ | |
-| test-corpus-parse-real-only | ⏳ Pending | corpus/runners/ | |
+| test-corpus-parse-all-tests | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-parse-by-category | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-parse-by-gap-type | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-parse-real-only | ✓ Moved | corpus/runners/ | Phase 1 complete |
 
 ### test-corpus-script-execution.el (30 tests → corpus/runners/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-script-exec-simple-echo | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-file-read | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-file-write | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-file-delete | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-pipeline | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-command-substitution | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-variable-expansion | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-glob-expansion | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-for-loop | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-while-loop | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-if-statement | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-case-statement | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-function-definition | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-function-call | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-heredoc | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-redirect-output | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-redirect-input | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-redirect-append | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-background-job | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-subshell | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-command-group | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-logical-and | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-logical-or | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-arithmetic-expression | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-array-operations | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-string-operations | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-complex-nesting | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-error-handling | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-multiline-command | ⏳ Pending | corpus/runners/ | |
-| test-script-exec-integration-end-to-end | ⏳ Pending | corpus/runners/ | |
+| test-script-exec-simple-echo | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-file-read | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-file-write | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-file-delete | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-pipeline | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-command-substitution | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-variable-expansion | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-glob-expansion | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-for-loop | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-while-loop | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-if-statement | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-case-statement | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-function-definition | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-function-call | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-heredoc | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-redirect-output | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-redirect-input | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-redirect-append | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-background-job | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-subshell | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-command-group | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-logical-and | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-logical-or | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-arithmetic-expression | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-array-operations | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-string-operations | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-complex-nesting | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-error-handling | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-multiline-command | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-script-exec-integration-end-to-end | ✓ Moved | corpus/runners/ | Phase 1 complete |
 
 ### Corpus-Generated Tests (135 tests from corpus data)
 
@@ -838,45 +838,45 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Prefix | Count | Status | Destination | Notes |
 |-------------|-------|--------|-------------|-------|
-| test-corpus-read-* | ~15 | ⏳ Pending | corpus/runners/ | Read operation corpus tests |
-| test-corpus-write-* | ~15 | ⏳ Pending | corpus/runners/ | Write operation corpus tests |
-| test-corpus-delete-* | ~12 | ⏳ Pending | corpus/runners/ | Delete operation corpus tests |
-| test-corpus-copy-* | ~8 | ⏳ Pending | corpus/runners/ | Copy operation corpus tests |
-| test-corpus-move-* | ~8 | ⏳ Pending | corpus/runners/ | Move operation corpus tests |
-| test-corpus-archive-* | ~6 | ⏳ Pending | corpus/runners/ | Archive operation corpus tests |
-| test-corpus-modify-* | ~5 | ⏳ Pending | corpus/runners/ | Modify operation corpus tests |
-| test-corpus-directory-* | ~5 | ⏳ Pending | corpus/runners/ | Directory operation corpus tests |
-| test-corpus-git-* | ~4 | ⏳ Pending | corpus/runners/ | Git operation corpus tests |
-| test-corpus-find-* | ~4 | ⏳ Pending | corpus/runners/ | Find command corpus tests |
-| test-corpus-glob-* | ~3 | ⏳ Pending | corpus/runners/ | Glob pattern corpus tests |
-| test-corpus-pipeline-* | ~3 | ⏳ Pending | corpus/runners/ | Pipeline corpus tests |
-| test-corpus-redirect-* | ~3 | ⏳ Pending | corpus/runners/ | Redirect corpus tests |
-| test-corpus-variable-* | ~3 | ⏳ Pending | corpus/runners/ | Variable corpus tests |
-| test-corpus-chain-* | ~2 | ⏳ Pending | corpus/runners/ | Command chain corpus tests |
-| test-corpus-integration-* | ~1 | ⏳ Pending | corpus/runners/ | Integration corpus tests |
-| test-corpus-match-pattern-* | ~1 | ⏳ Pending | corpus/runners/ | Pattern match corpus tests |
-| test-corpus-no-ops-* | ~1 | ⏳ Pending | corpus/runners/ | No-op corpus tests |
-| test-corpus-variable-chain-* | ~1 | ⏳ Pending | corpus/runners/ | Variable chain corpus tests |
+| test-corpus-read-* | ~15 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-write-* | ~15 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-delete-* | ~12 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-copy-* | ~8 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-move-* | ~8 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-archive-* | ~6 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-modify-* | ~5 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-directory-* | ~5 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-git-* | ~4 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-find-* | ~4 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-glob-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-pipeline-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-redirect-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-variable-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-chain-* | ~2 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-integration-* | ~1 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-match-pattern-* | ~1 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-no-ops-* | ~1 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| test-corpus-variable-chain-* | ~1 | ✓ Moved | corpus/runners/ | Phase 1 complete |
 
 **test-corpus-parse.el generates tests from corpus-parse-*.el data files:**
 
 | Test Prefix | Count | Status | Destination | Notes |
 |-------------|-------|--------|-------------|-------|
-| jf/bash-parser-test-simple-* | ~15 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-complex-* | ~5 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-pipeline-* | ~3 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-variable-* | ~3 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-quote-* | ~2 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-redirect-* | ~2 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-substitution-* | ~2 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-heredoc-* | ~1 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-background-* | ~2 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-chain-* | ~4 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-dangerous-* | ~2 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-find-* | ~4 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-git-* | ~3 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-glob-* | ~3 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
-| jf/bash-parser-test-wrapper-* | ~1 | ⏳ Pending | corpus/runners/ | From corpus-parse files |
+| jf/bash-parser-test-simple-* | ~15 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-complex-* | ~5 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-pipeline-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-variable-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-quote-* | ~2 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-redirect-* | ~2 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-substitution-* | ~2 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-heredoc-* | ~1 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-background-* | ~2 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-chain-* | ~4 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-dangerous-* | ~2 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-find-* | ~4 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-git-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-glob-* | ~3 | ✓ Moved | corpus/runners/ | Phase 1 complete |
+| jf/bash-parser-test-wrapper-* | ~1 | ✓ Moved | corpus/runners/ | Phase 1 complete |
 
 ---
 
