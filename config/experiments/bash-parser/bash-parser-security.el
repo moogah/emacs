@@ -1,3 +1,14 @@
+;; Author: Jeff Farr
+;; Keywords: bash, parser, security, validation
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Security validation for bash commands using glob-based pattern matching.
+;; Implements sandbox security validation for file operations and dangerous commands.
+
+;;; Code:
+
 ;;; bash-parser-security.el --- Security validation for bash parser -*- lexical-binding: t; -*-
 
 (require 'cl-lib)

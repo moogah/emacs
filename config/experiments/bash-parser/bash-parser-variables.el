@@ -1,3 +1,14 @@
+;; Author: Jeff Farr
+;; Keywords: bash, parser, variables, resolution
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Variable context management for bash command parsing.
+;; Handles variable references in file paths for scope-aware file operations.
+
+;;; Code:
+
 ;;; bash-parser-variables.el --- Variable context management -*- lexical-binding: t; -*-
 
 (defun jf/bash-detect-variable-references (file-path)

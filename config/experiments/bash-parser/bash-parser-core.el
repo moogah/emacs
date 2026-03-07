@@ -1,3 +1,14 @@
+;; Author: Jeff Farr
+;; Keywords: bash, parser, core, tree-sitter
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Core parsing infrastructure for bash command parsing using tree-sitter.
+;; Handles simple commands, pipelines, chains, and wrapper commands.
+
+;;; Code:
+
 ;;; bash-parser-core.el --- Core bash parsing functions -*- lexical-binding: t; -*-
 
 (require 'treesit)

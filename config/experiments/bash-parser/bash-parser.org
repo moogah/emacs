@@ -3,6 +3,21 @@
 #+property: header-args:emacs-lisp :tangle bash-parser.el
 #+auto_tangle: t
 
+* Package Header
+
+#+begin_src emacs-lisp
+;; Author: Jeff Farr
+;; Keywords: bash, parser, loader
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Bash command parser using tree-sitter for semantic extraction.
+;; Main loader module that coordinates all bash parser subsystems.
+
+;;; Code:
+#+end_src
+
 * Introduction
 
 Parse bash command strings using tree-sitter to extract semantic structure.

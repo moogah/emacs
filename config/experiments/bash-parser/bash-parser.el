@@ -1,3 +1,14 @@
+;; Author: Jeff Farr
+;; Keywords: bash, parser, loader
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Bash command parser using tree-sitter for semantic extraction.
+;; Main loader module that coordinates all bash parser subsystems.
+
+;;; Code:
+
 ;;; bash-parser.el --- Parse bash commands with tree-sitter -*- lexical-binding: t; -*-
 
 (require 'treesit)

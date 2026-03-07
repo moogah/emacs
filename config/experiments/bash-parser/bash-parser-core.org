@@ -3,6 +3,21 @@
 #+property: header-args:emacs-lisp :tangle bash-parser-core.el
 #+auto_tangle: t
 
+* Package Header
+
+#+begin_src emacs-lisp
+;; Author: Jeff Farr
+;; Keywords: bash, parser, core, tree-sitter
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Core parsing infrastructure for bash command parsing using tree-sitter.
+;; Handles simple commands, pipelines, chains, and wrapper commands.
+
+;;; Code:
+#+end_src
+
 * Introduction
 
 Core parsing infrastructure for bash command parsing using tree-sitter.
