@@ -297,10 +297,10 @@ Returns jf/bash-plugin-result struct with:
   - claimed-token-ids: List of token IDs for understood operations
   - metadata: Plist with extraction metadata
 
-This plugin wraps jf/bash-extract-file-operations to validate the plugin
-architecture with existing mature extraction logic."
+This plugin uses the internal implementation to avoid circular dependency
+with the deprecated public API wrapper."
   (condition-case err
-      (let* ((operations (jf/bash-extract-file-operations parsed-command nil))
+      (let* ((operations (jf/bash--extract-file-operations-impl parsed-command nil))
              (claimed-ids (jf/bash-plugin-filesystem--claim-operation-tokens
                           operations parsed-command)))
 
