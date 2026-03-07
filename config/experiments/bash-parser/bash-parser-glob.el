@@ -1,5 +1,16 @@
 ;;; bash-parser-glob.el --- Glob pattern matching for bash parser -*- lexical-binding: t; -*-
 
+;; Author: Jeff Farr
+;; Keywords: bash, parser, glob, patterns
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Glob pattern matching without filesystem access.
+;; Provides string-based glob pattern matching for security validation.
+
+;;; Code:
+
 (defun jf/bash--glob-segment-to-regex (glob-segment)
   "Convert GLOB-SEGMENT to regex pattern.
 Handles *, ?, and [abc] character classes.
