@@ -1,0 +1,54 @@
+
+○ emacs-90ko · Make path resolution pipeline atomic with error handling   [● P2 · OPEN]
+Owner: Jeff Farr · Type: task
+Created: 2026-03-06 · Updated: 2026-03-06
+
+DESCRIPTION
+Add error handling to make path resolution pipeline atomic and traceable.
+
+Files to modify:
+- config/experiments/bash-parser/bash-parser-file-ops.el (lines 642-700 in jf/bash--resolve-path-variables)
+
+Current problem:
+The three-stage path resolution pipeline (variables → pwd → relative) is not atomic. If any stage fails or returns unexpected value, the function may return corrupted data. No error logging makes debugging resolution failures difficult.
+
+Resolution pipeline stages:
+1. Variable resolution (jf/bash-resolve-variables)
+2. Command substitution (jf/bash-resolve-pwd-substitution)
+3. Relative path resolution (jf/bash-resolve-relative-path)
+
+Implementation steps:
+1. Wrap each stage in condition-case for error handling:
+   - Catch errors from resolution functions
+   - Log error with context (which stage, input value)
+   - Return partially resolved result with error metadata
+
+2. Add optional debug/trace parameter:
+   - When enabled, log each stage result
+   - Show: input → stage → output
+   - Use message or dedicated logging function
+
+3. Validate intermediate results between stages:
+   - Check result is string or plist with :path
+   - Verify :unresolved list contains only strings
+   - Catch corrupted data before passing to next stage
+
+4. Add :resolution-error metadata when stage fails:
+   - Include stage name and error message
+   - Allow caller to handle resolution failures gracefully
+
+Example trace output when enabled:
+Stage 1 (variables): $WORKSPACE/file.txt → /workspace/file.txt
+Stage 2 (pwd): /workspace/file.txt → /workspace/file.txt (no change)
+Stage 3 (relative): /workspace/file.txt → /workspace/file.txt (no change)
+
+Design rationale: Path resolution is critical for security validation. Silent failures or corrupted paths could bypass security checks. Explicit error handling and tracing makes debugging easier and improves reliability.
+
+Verification:
+- Add test that triggers resolution error
+- Verify error is caught and logged
+- Verify partial result is returned with error metadata
+- All existing tests pass
+
+LABELS: 26-03-06-review, bash-parser, high-priority
+

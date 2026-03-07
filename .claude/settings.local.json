@@ -63,7 +63,8 @@
       "Bash(echo:*)",
       "Bash(wc:*)",
       "Bash(git log:*)",
-      "Bash(./bin/init-worktree-runtime.sh:*)"
+      "Bash(./bin/init-worktree-runtime.sh:*)",
+      "Bash(git merge --no-ff bead-emacs-mu54-1772833074 -m \"$\\(cat <<''EOF''\nMerge bead emacs-mu54: Document tree-sitter workaround\n\nAdd Known Limitations section documenting \\(\\( workaround,\nimprove inline comments, add tests for double-paren handling.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }

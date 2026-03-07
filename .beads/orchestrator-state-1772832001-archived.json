@@ -1,0 +1,70 @@
+{
+  "session_id": "orch-1772830109",
+  "baseline_snapshot": ".beads/orchestrator/baseline-1772830109.txt",
+  "baseline_test_count": 627,
+  "baseline_unexpected_count": 0,
+  "current_branch": "gptel-scoped-bash-tools",
+  "max_parallel": 5,
+  "beads": [
+    {
+      "bead_id": "emacs-9hvh",
+      "worktree_path": ".worktrees/bead-emacs-9hvh-1772830139",
+      "branch_name": "bead-emacs-9hvh-1772830139",
+      "task_id": null,
+      "status": "setup_complete",
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "test_snapshot_path": null
+    },
+    {
+      "bead_id": "emacs-jvxz",
+      "worktree_path": ".worktrees/bead-emacs-jvxz-1772830147",
+      "branch_name": "bead-emacs-jvxz-1772830147",
+      "task_id": null,
+      "status": "setup_complete",
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "test_snapshot_path": null
+    },
+    {
+      "bead_id": "emacs-gcfw",
+      "worktree_path": ".worktrees/bead-emacs-gcfw-1772830156",
+      "branch_name": "bead-emacs-gcfw-1772830156",
+      "task_id": null,
+      "status": "setup_complete",
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "test_snapshot_path": null
+    },
+    {
+      "bead_id": "emacs-2h3v",
+      "worktree_path": ".worktrees/bead-emacs-2h3v-1772830165",
+      "branch_name": "bead-emacs-2h3v-1772830165",
+      "task_id": null,
+      "status": "setup_complete",
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "test_snapshot_path": null
+    },
+    {
+      "bead_id": "emacs-en2e",
+      "worktree_path": ".worktrees/bead-emacs-en2e-1772830174",
+      "branch_name": "bead-emacs-en2e-1772830174",
+      "task_id": null,
+      "status": "setup_complete",
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "test_snapshot_path": null
+    }
+  ]
+}

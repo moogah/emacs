@@ -1,0 +1,151 @@
+
+○ emacs-h634 · Consolidate duplicate handler logic in bash-parser   [● P1 · OPEN]
+Owner: Jeff Farr · Type: task
+Created: 2026-03-06 · Updated: 2026-03-06
+
+DESCRIPTION
+Extract shared logic from duplicate for-loop, conditional, and cd command handlers.
+
+Currently ~160 lines of duplicated code across handler pairs that process tree-sitter nodes vs root nodes, and ~80% overlap in cd/pushd/popd handlers.
+
+Files to modify:
+- config/experiments/bash-parser/bash-parser-core.org (and .el)
+- config/experiments/bash-parser/bash-parser-variables.org (and .el)
+
+Duplication pattern 1: For-loop handlers (80 lines duplicated)
+- jf/bash-parse--handle-for-loop (line 419-516)
+- jf/bash-parse--handle-for-loop-node (line 550-633)
+- Nearly identical logic for extracting loop structure
+
+Fix:
+```elisp
+(defun jf/bash--extract-for-loop-structure (for-node)
+  "Extract loop structure from FOR-NODE.
+FOR-NODE is a for_statement tree-sitter node.
+Returns plist with loop metadata."
+  (let* ((variable-node (treesit-node-child-by-field-name for-node "variable"))
+         (variable-name (when variable-node
+                         (treesit-node-text variable-node t)))
+         (body-text nil)
+         (iteration-values nil)
+         (command-substitutions nil))
+    ;; ... shared extraction logic ...
+    (list :success t
+          :type :for-loop
+          :command-name "for"
+          :variable variable-name
+          :iteration-values iteration-values
+          :body-text body-text
+          :loop-variable variable-name
+          :loop-body body-text
+          :loop-list (car iteration-values)
+          :loop-source-type loop-source-type
+          :ast for-node)))
+
+(defun jf/bash-parse--handle-for-loop (root-node)
+  "Handle for-loop from ROOT-NODE by finding node and delegating."
+  (let ((for-node (jf/bash-parse--find-node-by-type root-node "for_statement")))
+    (if for-node
+        (jf/bash--extract-for-loop-structure for-node)
+      (list :success nil :error "No for_statement found"))))
+
+(defun jf/bash-parse--handle-for-loop-node (for-node)
+  "Handle for-loop from FOR-NODE directly."
+  (jf/bash--extract-for-loop-structure for-node))
+```
+
+Duplication pattern 2: Conditional handlers (similar pattern)
+- jf/bash-parse--handle-conditional (bash-parser-core.el:345-413)
+- jf/bash-parse--handle-conditional-node (bash-parser-core.el:634-687)
+
+Apply same extraction pattern with jf/bash--extract-conditional-structure.
+
+Duplication pattern 3: Directory change commands (80% overlap)
+- jf/bash--extract-cd-target (bash-parser-variables.el:748-926)
+- jf/bash--extract-pushd-target (bash-parser-variables.el:1021-1138)
+
+Shared logic:
+- Special form handling (~, -, no args)
+- Variable resolution
+- Command substitution resolution
+- Relative path resolution
+- HOME expansion
+
+Extract shared helper:
+```elisp
+(defun jf/bash--resolve-directory-target (target var-context current-pwd &optional allow-no-args)
+  "Resolve directory TARGET for cd/pushd commands.
+TARGET is the target string.
+VAR-CONTEXT is variable bindings.
+CURRENT-PWD is current directory.
+ALLOW-NO-ARGS controls behavior when target is nil.
+
+Returns resolved absolute path or :unresolved marker."
+  (cond
+   ;; No target - handle based on allow-no-args
+   ((null target)
+    (if allow-no-args
+        (or (alist-get 'HOME var-context) :unresolved)
+      :unresolved))
+   
+   ;; Empty string
+   ((string-empty-p target) :unresolved)
+   
+   ;; cd - (OLDPWD)
+   ((equal target "-")
+    (or (alist-get 'OLDPWD var-context) :unresolved))
+   
+   ;; cd ~ (HOME)
+   ((equal target "~")
+    (or (alist-get 'HOME var-context) :unresolved))
+   
+   ;; cd ~/path (HOME expansion)
+   ((string-prefix-p "~/" target)
+    (if-let ((home (alist-get 'HOME var-context)))
+        (expand-file-name (concat home "/" (substring target 2)))
+      :unresolved))
+   
+   ;; Regular target - resolve variables, command substitutions, relative paths
+   (t
+    (let ((var-resolved (jf/bash-resolve-variables target var-context)))
+      (if (and (listp var-resolved) (plist-get var-resolved :unresolved))
+          :unresolved
+        (let ((cmd-resolved (jf/bash-resolve-command-substitution 
+                            var-resolved var-context)))
+          (if (eq cmd-resolved :unresolved)
+              :unresolved
+            (jf/bash-resolve-relative-path cmd-resolved var-context current-pwd))))))))
+
+(defun jf/bash--extract-cd-target (command var-context current-pwd)
+  "Extract and resolve cd target using shared logic."
+  (let ((target (jf/bash--get-cd-argument command)))
+    (jf/bash--resolve-directory-target target var-context current-pwd t)))
+
+(defun jf/bash--extract-pushd-target (command var-context current-pwd)
+  "Extract and resolve pushd target using shared logic."
+  (let ((target (jf/bash--get-pushd-argument command)))
+    (jf/bash--resolve-directory-target target var-context current-pwd nil)))
+```
+
+Implementation steps:
+1. Extract jf/bash--extract-for-loop-structure and update callers
+2. Extract jf/bash--extract-conditional-structure and update callers
+3. Extract jf/bash--resolve-directory-target and update cd/pushd/popd
+4. Tangle and validate after each extraction
+5. Run test suite after each change
+
+Design rationale:
+- DRY principle: shared logic should live in one place
+- Easier maintenance: fixes apply to all callers
+- Better testing: test one function instead of multiple
+- Clearer code: extraction shows what's truly shared vs different
+
+Verification:
+- Run full test suite: make test
+- No behavior changes expected
+- Code coverage should remain same
+- Lines of code reduced by ~200
+- Easier to add new directory-changing commands (e.g., popd+)
+
+LABELS: 26-03-06-review, bash-parser, refactoring
+

@@ -1,0 +1,72 @@
+{
+  "session_id": "orch-1772823553",
+  "baseline_snapshot": ".beads/orchestrator/baseline-orch-1772823553.txt",
+  "baseline_test_count": 596,
+  "baseline_unexpected": 0,
+  "current_branch": "gptel-scoped-bash-tools",
+  "regression_detected": false,
+  "beads": [
+    {
+      "bead_id": "emacs-0whw",
+      "title": "Integrate nested command detection into recursive analyzer",
+      "worktree_path": "~/worktrees/bead-emacs-0whw-1772823553",
+      "branch_name": "bead-emacs-0whw-1772823553",
+      "task_id": "a205006",
+      "status": "failed",
+      "failure_reason": "File modification tools blocked - prompts unavailable",
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-votj",
+      "title": "Implement command injection detection per bash-parser spec",
+      "worktree_path": "~/worktrees/bead-emacs-votj-1772823553",
+      "branch_name": "bead-emacs-votj-1772823553",
+      "task_id": "a99ae1b",
+      "status": "failed",
+      "failure_reason": "File modification tools blocked - prompts unavailable",
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-ih3i",
+      "title": "Remove or implement stub subcommand handlers (npm, cargo, kubectl)",
+      "worktree_path": "~/worktrees/bead-emacs-ih3i-1772823553",
+      "branch_name": "bead-emacs-ih3i-1772823553",
+      "task_id": "a17ddff",
+      "status": "in_progress",
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-nlyj",
+      "title": "Improve unhandled operations denial messaging",
+      "worktree_path": "~/worktrees/bead-emacs-nlyj-1772823553",
+      "branch_name": "bead-emacs-nlyj-1772823553",
+      "task_id": "a79fefe",
+      "status": "in_progress",
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-bcre",
+      "title": "Add enhanced violation context to security validation results",
+      "worktree_path": "~/worktrees/bead-emacs-bcre-1772823553",
+      "branch_name": "bead-emacs-bcre-1772823553",
+      "task_id": "af666f6",
+      "status": "in_progress",
+      "tests_before_merge": null,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "regression_detected": false
+    }
+  ]
+}

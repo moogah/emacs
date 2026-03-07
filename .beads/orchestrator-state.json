@@ -1,55 +1,52 @@
 {
-  "session_id": "orch-1772813334",
-  "baseline_snapshot": ".beads/orchestrator/baseline-1772813334.txt",
+  "session_id": "orch-1772835307",
+  "baseline_snapshot": ".beads/orchestrator/baseline-1772835307.txt",
+  "baseline_test_count": 683,
+  "baseline_unexpected_count": 0,
   "current_branch": "gptel-scoped-bash-tools",
   "max_parallel": 3,
-  "status": "complete",
-  "duration_minutes": 8,
   "beads": [
     {
-      "bead_id": "emacs-ul1d",
-      "worktree_path": ".worktrees/bead-emacs-ul1d-1772813334",
-      "branch_name": "bead-emacs-ul1d-1772813334",
-      "commit": "1fbca16",
-      "task_id": "2",
-      "status": "merged",
-      "regression_detected": false,
-      "bead_closed": true,
-      "worktree_removed": true,
-      "implementation_time_minutes": 6
-    },
-    {
-      "bead_id": "emacs-qzrd",
-      "worktree_path": ".worktrees/bead-emacs-qzrd-1772813334",
-      "branch_name": "bead-emacs-qzrd-1772813334",
-      "commit": "da57913",
-      "task_id": "3",
-      "status": "merged",
-      "regression_detected": false,
-      "bead_closed": true,
-      "worktree_removed": true,
-      "implementation_time_minutes": 6
-    },
-    {
-      "bead_id": "emacs-89am",
-      "worktree_path": ".worktrees/bead-emacs-89am-1772813334",
-      "branch_name": "bead-emacs-89am-1772813334",
-      "commit": "5d8a866",
+      "bead_id": "emacs-maqx",
+      "worktree_path": ".worktrees/bead-emacs-maqx-1772835307",
+      "branch_name": "bead-emacs-maqx-1772835307",
       "task_id": "1",
       "status": "merged",
       "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": 683,
+      "unexpected_failures": 0,
+      "test_snapshot_path": ".beads/orchestrator/after-emacs-maqx-1772871873.txt",
       "bead_closed": true,
-      "worktree_removed": true,
-      "implementation_time_minutes": 7
+      "worktree_removed": true
+    },
+    {
+      "bead_id": "emacs-8hyl",
+      "worktree_path": ".worktrees/bead-emacs-8hyl-1772835307",
+      "branch_name": "bead-emacs-8hyl-1772835307",
+      "task_id": "2",
+      "status": "merged",
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": 683,
+      "unexpected_failures": 0,
+      "test_snapshot_path": ".beads/orchestrator/after-emacs-8hyl-1772872443.txt",
+      "bead_closed": true,
+      "worktree_removed": true
+    },
+    {
+      "bead_id": "emacs-m9ng",
+      "worktree_path": ".worktrees/bead-emacs-m9ng-1772835307",
+      "branch_name": "bead-emacs-m9ng-1772835307",
+      "task_id": "3",
+      "status": "merged",
+      "regression_detected": false,
+      "tests_before_merge": null,
+      "tests_after_merge": 683,
+      "unexpected_failures": 0,
+      "test_snapshot_path": ".beads/orchestrator/after-emacs-m9ng-1772872532.txt",
+      "bead_closed": true,
+      "worktree_removed": true
     }
-  ],
-  "notes": [
-    "All 3 beads implemented in parallel successfully",
-    "Agents created nested worktrees, but all work completed correctly",
-    "Final merge combined all three beads in one commit",
-    "Zero regressions detected: 552 tests passing -> 587 tests passing",
-    "Added 35 net new passing tests (36 new unit tests)",
-    "Total parallel implementation time: ~7 minutes",
-    "Total orchestration time including setup: ~8 minutes"
   ]
 }

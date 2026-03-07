@@ -1,0 +1,98 @@
+
+○ emacs-8x1a · Add input validation to jf/bash-parse entry point   [● P2 · OPEN]
+Owner: Jeff Farr · Type: task
+Created: 2026-03-06 · Updated: 2026-03-06
+
+DESCRIPTION
+Add argument type and emptiness validation to jf/bash-parse entry point.
+
+Files to modify:
+- config/experiments/bash-parser/bash-parser-core.org (Main Entry Point section)
+- config/experiments/bash-parser/bash-parser-core.el (after tangling)
+
+Problem:
+The jf/bash-parse entry point doesn't validate its command-string argument. Invalid inputs produce confusing errors from deep in tree-sitter:
+
+Test cases that currently fail badly:
+  (jf/bash-parse nil)        ;; Error from tree-sitter: not helpful
+  (jf/bash-parse 42)         ;; Type error deep in tree-sitter
+  (jf/bash-parse '(list))    ;; Type error
+  (jf/bash-parse "")         ;; Parses but pointless
+
+Better to fail fast with clear error message at API boundary.
+
+Implementation steps:
+
+1. Add validation at start of jf/bash-parse (after docstring, before condition-case):
+
+  (defun jf/bash-parse (command-string)
+    "Parse COMMAND-STRING using tree-sitter..."
+    ;; Validate input
+    (unless (stringp command-string)
+      (signal 'wrong-type-argument 
+              (list 'stringp command-string (type-of command-string))))
+    (when (string-empty-p command-string)
+      (return (list :success nil 
+                    :error "Empty command string"
+                    :type :empty)))
+    ;; Original implementation follows
+    (condition-case err
+        ...))
+
+2. Update docstring to document argument requirements:
+
+Add after existing docstring text:
+
+  COMMAND-STRING must be a non-empty string. Signals wrong-type-argument
+  if COMMAND-STRING is not a string. Returns :success nil with :error
+  for empty strings.
+
+3. Add test cases for validation:
+
+#+begin_src emacs-lisp :tangle test/bash-parser-core-test.el
+(ert-deftest test-jf/bash-parse-validates-input-type ()
+  "Ensure jf/bash-parse rejects non-string input."
+  (should-error (jf/bash-parse nil) :type 'wrong-type-argument)
+  (should-error (jf/bash-parse 42) :type 'wrong-type-argument)
+  (should-error (jf/bash-parse '(list)) :type 'wrong-type-argument))
+
+(ert-deftest test-jf/bash-parse-handles-empty-string ()
+  "Ensure jf/bash-parse handles empty string gracefully."
+  (let ((result (jf/bash-parse "")))
+    (should (not (plist-get result :success)))
+    (should (string-match-p "Empty" (plist-get result :error)))))
+#+end_src
+
+Design rationale:
+Fail-fast principle: Catch invalid input at API boundary, not deep in implementation. This produces:
+- Clearer error messages for users
+- Easier debugging (error points to call site, not internals)
+- Better stack traces
+- Consistent error handling
+
+Using signal for type errors is idiomatic Elisp:
+- Matches built-in functions (nth, car, etc.)
+- Emacs debugger recognizes wrong-type-argument
+- Consistent with Elisp conventions
+
+Returning structured error for empty strings:
+- Not a type error (empty string is valid string)
+- But semantically invalid for parsing
+- Structured response matches existing error handling pattern
+
+Alternative considered: Allow empty string, return empty parse
+Rejected because: Empty command has no meaningful parse result. Better to be explicit.
+
+Verification:
+1. Run new test cases: make test-bash-parser
+2. Verify tests pass
+3. Test error messages in REPL:
+   (jf/bash-parse nil)     ;; Should show clear type error
+   (jf/bash-parse "")      ;; Should show clear empty string error
+4. Verify existing tests still pass
+5. Check that error handling doesn't break recursion depth tracking
+
+Priority: P2 - Improves user experience but not critical for functionality.
+
+LABELS: 26-03-06-review, bash-parser, validation
+

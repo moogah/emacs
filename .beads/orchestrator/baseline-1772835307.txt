@@ -1,0 +1,908 @@
+Loading /Users/jefffarr/emacs/config/core/defaults.el (source)...
+Loading /Users/jefffarr/emacs/config/core/auth.el (source)...
+Loading /Users/jefffarr/emacs/config/core/avy.el (source)...
+Loading /Users/jefffarr/emacs/config/core/browser-hist.el (source)...
+Loading /Users/jefffarr/emacs/config/core/ripgrep.el (source)...
+Loading /Users/jefffarr/emacs/config/core/ultra-scroll.el (source)...
+Loading /Users/jefffarr/emacs/config/core/expand-region.el (source)...
+Loading /Users/jefffarr/emacs/config/core/evil.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/vertico.el (source)...
+Loading /Users/jefffarr/emacs/runtime/recentf...
+Cleaning up the recentf list...
+Cleaning up the recentf list...done (0 removed)
+Loading /Users/jefffarr/emacs/config/core/completion/consult.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/marginalia.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/embark.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/corfu-company.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/mini-frame.el (source)...
+Loading /Users/jefffarr/emacs/config/core/window-management.el (source)...
+Loading /Users/jefffarr/emacs/config/core/yasnippet.el (source)...
+[yas] Prepared just-in-time loading of snippets successfully.
+Loading /Users/jefffarr/emacs/config/core/testing.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/look-and-feel.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/base-ui.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/frame-and-lines.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/modeline.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/themes.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/org-faces.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/terminal.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/vim-tab.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/imenu.el (source)...
+Loading /Users/jefffarr/emacs/config/transient.el (source)...
+=== TRANSIENT DEBUG ===
+Before: transient loaded? nil
+After: transient loaded from /Users/jefffarr/emacs/runtime/straight/build/transient/transient.elc
+After: transient-version = undefined
+After: has transient--set-layout? t
+=== END TRANSIENT DEBUG ===
+Loading /Users/jefffarr/emacs/config/activities/activities.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/core.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/projectile.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/org-roam.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/transient.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/language-modes.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/gtags.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/tree-sitter.el (source)...
+tsc-dyn-get: Using source :github (:loaded nil :recorded 0.19.4 :requested 0.19.4)
+tsc-dyn-get: Recorded version already satifies requested -> loading
+tree-sitter-langs: Grammar bundle v0.13.17 was already installed; skipped
+Loading /Users/jefffarr/emacs/config/language-modes/lsp-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/projectile.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/copilot.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/yaml.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/json.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/markdown-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/terraform.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/puppet-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/python.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/typescript.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/javascript.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/golang.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/sql.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/docker.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/magit.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/org.el (source)...
+org-super-agenda-mode enabled.
+ATTENTION: org-noter-pdf has many featues that depend on the package ‘pdf-tools’
+ATTENTION: org-noter-nov needs the package ‘nov’
+ATTENTION: org-noter-djvu needs the package ‘djvu’
+Loading /Users/jefffarr/emacs/config/major-modes/org-roam.el (source)...
+Clearing removed files... 
+Clearing removed files...done
+Processing modified files... 
+Processing modified files...done
+Loading /Users/jefffarr/emacs/config/major-modes/dirvish.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/beads.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/gptel.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-core.el (source)...
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 13 skill(s) total (13 markdown, 0 org-roam)
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 13 skill(s) total (13 markdown, 0 org-roam)
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-roam.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-transient.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/constants.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/logging.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/preset-registration.el (source)...
+[GPTEL-INFO] Registered 9 presets from /Users/jefffarr/emacs/config/gptel/presets/
+Loading /Users/jefffarr/emacs/config/gptel/scope-profiles.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-core.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/projectile-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/ggtags-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/treesitter-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/sql-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/meta-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/community-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/transient-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/filesystem.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/registry.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/metadata.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/branching.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-commands.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-expansion.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/scope-shell-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/persistent-agent.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/commands.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/activities-integration.el (source)...
+Loading /Users/jefffarr/emacs/config/local/personal.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/research/test-semantic-gaps.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/research/test-semantic-gaps.el (source)...
+
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-assertions.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-assertions.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-backward-compatibility.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-bash-parser-recursive.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-bash-parser-recursive.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-bash-parser-semantics.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-bash-parser-semantics.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-bead-3kgg-verification.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-bead-3kgg-verification.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-injection.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-injection.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-semantics.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-semantics.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-substitution.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-command-substitution.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-conditional-context.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-conditional-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-file-operations.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-file-operations.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-parse.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-parse.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-script-execution.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-corpus-script-execution.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-directory-changing-commands.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-directory-changing-commands.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-expect-file-ops-validation.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-expect-file-ops-validation.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-file-operations.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-file-operations.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-glob-matching.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-glob-matching.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-helper.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-helper.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-heredoc-context.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-heredoc-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-input-validation.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-input-validation.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-loop-context.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-loop-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-parser-extension.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-parser-extension.el (source)...
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/bash-parser.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-pattern-flow.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-pattern-flow.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-pwd-directory-context.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-pwd-directory-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-security-validator.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-security-validator.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-semantics-validation.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-semantics-validation.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-treesitter-workarounds.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-treesitter-workarounds.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-variable-chain-ampersand.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-variable-chain-ampersand.el (source)...
+Loading: /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-variable-resolution-unit.el
+Loading /Users/jefffarr/emacs/config/experiments/bash-parser/test/test-variable-resolution-unit.el (source)...
+Running 683 tests (2026-03-06 23:14:46+0100, selector ‘t’)
+   passed    1/683  jf/bash-parser-test-background-001 (0.002706 sec)
+   passed    2/683  jf/bash-parser-test-background-002 (0.002239 sec)
+   passed    3/683  jf/bash-parser-test-chain-001 (0.002291 sec)
+   passed    4/683  jf/bash-parser-test-chain-002 (0.002169 sec)
+   passed    5/683  jf/bash-parser-test-chain-003 (0.002262 sec)
+   passed    6/683  jf/bash-parser-test-chain-004 (0.002404 sec)
+   passed    7/683  jf/bash-parser-test-complex-001 (0.002442 sec)
+   passed    8/683  jf/bash-parser-test-complex-002 (0.004204 sec)
+   passed    9/683  jf/bash-parser-test-complex-003 (0.002200 sec)
+   passed   10/683  jf/bash-parser-test-complex-004 (0.002088 sec)
+   passed   11/683  jf/bash-parser-test-complex-005 (0.002166 sec)
+   passed   12/683  jf/bash-parser-test-dangerous-001 (0.002118 sec)
+   passed   13/683  jf/bash-parser-test-dangerous-002 (0.002260 sec)
+   passed   14/683  jf/bash-parser-test-find-001 (0.002280 sec)
+   passed   15/683  jf/bash-parser-test-find-002 (0.002123 sec)
+   passed   16/683  jf/bash-parser-test-find-003 (0.002140 sec)
+   passed   17/683  jf/bash-parser-test-find-004 (0.002082 sec)
+   passed   18/683  jf/bash-parser-test-git-001 (0.002148 sec)
+   passed   19/683  jf/bash-parser-test-git-002 (0.002123 sec)
+   passed   20/683  jf/bash-parser-test-git-003 (0.002123 sec)
+   passed   21/683  jf/bash-parser-test-git-004 (0.002113 sec)
+   passed   22/683  jf/bash-parser-test-git-005 (0.002058 sec)
+   passed   23/683  jf/bash-parser-test-glob-001 (0.002082 sec)
+   passed   24/683  jf/bash-parser-test-glob-002 (0.002074 sec)
+   passed   25/683  jf/bash-parser-test-glob-003 (0.002089 sec)
+   passed   26/683  jf/bash-parser-test-glob-004 (0.002157 sec)
+   passed   27/683  jf/bash-parser-test-glob-005 (0.002161 sec)
+   passed   28/683  jf/bash-parser-test-glob-006 (0.002113 sec)
+   passed   29/683  jf/bash-parser-test-heredoc-001 (0.002105 sec)
+   passed   30/683  jf/bash-parser-test-manual-basic (0.002125 sec)
+   passed   31/683  jf/bash-parser-test-manual-dangerous-git-push (0.002104 sec)
+   passed   32/683  jf/bash-parser-test-manual-dangerous-rm (0.002093 sec)
+   passed   33/683  jf/bash-parser-test-manual-git-subcommand (0.002243 sec)
+   passed   34/683  jf/bash-parser-test-pipeline-001 (0.002350 sec)
+   passed   35/683  jf/bash-parser-test-pipeline-002 (0.002367 sec)
+   passed   36/683  jf/bash-parser-test-pipeline-003 (0.002166 sec)
+   passed   37/683  jf/bash-parser-test-quote-001 (0.002064 sec)
+   passed   38/683  jf/bash-parser-test-quote-002 (0.002120 sec)
+   passed   39/683  jf/bash-parser-test-quote-003 (0.002101 sec)
+   passed   40/683  jf/bash-parser-test-quote-004 (0.002085 sec)
+   passed   41/683  jf/bash-parser-test-quote-005 (0.002132 sec)
+   passed   42/683  jf/bash-parser-test-redirect-001 (0.002143 sec)
+   passed   43/683  jf/bash-parser-test-redirect-002 (0.002215 sec)
+   passed   44/683  jf/bash-parser-test-redirect-003 (0.002137 sec)
+   passed   45/683  jf/bash-parser-test-redirect-004 (0.002315 sec)
+   passed   46/683  jf/bash-parser-test-redirect-005 (0.002098 sec)
+   passed   47/683  jf/bash-parser-test-redirect-006 (0.002108 sec)
+   passed   48/683  jf/bash-parser-test-simple-001 (0.002070 sec)
+   passed   49/683  jf/bash-parser-test-simple-002 (0.002201 sec)
+   passed   50/683  jf/bash-parser-test-simple-003 (0.002129 sec)
+   passed   51/683  jf/bash-parser-test-simple-004 (0.002342 sec)
+   passed   52/683  jf/bash-parser-test-substitution-001 (0.004181 sec)
+   passed   53/683  jf/bash-parser-test-substitution-002 (0.004110 sec)
+   passed   54/683  jf/bash-parser-test-substitution-003 (0.004124 sec)
+   passed   55/683  jf/bash-parser-test-variable-001 (0.002090 sec)
+   passed   56/683  jf/bash-parser-test-variable-002 (0.002101 sec)
+   passed   57/683  jf/bash-parser-test-variable-003 (0.002072 sec)
+   passed   58/683  jf/bash-parser-test-variable-004 (0.002052 sec)
+   passed   59/683  jf/bash-parser-test-variable-005 (0.002102 sec)
+   passed   60/683  jf/bash-parser-test-variable-006 (0.002091 sec)
+   passed   61/683  jf/bash-parser-test-variable-007 (0.002125 sec)
+   passed   62/683  jf/bash-parser-test-variable-008 (0.002127 sec)
+   passed   63/683  jf/bash-parser-test-wrapper-001 (0.002230 sec)
+   passed   64/683  jf/bash-parser-test-wrapper-002 (0.002072 sec)
+   passed   65/683  jf/bash-parser-test-wrapper-003 (0.002154 sec)
+   passed   66/683  jf/bash-parser-test-wrapper-004 (0.002082 sec)
+   passed   67/683  test-arithmetic-expansion-still-works (0.002074 sec)
+   passed   68/683  test-backward-compat-copy-command (0.002202 sec)
+   passed   69/683  test-backward-compat-corpus-delete-operations (0.006439 sec)
+   passed   70/683  test-backward-compat-corpus-read-operations (0.006655 sec)
+   passed   71/683  test-backward-compat-corpus-write-operations (0.004346 sec)
+   passed   72/683  test-backward-compat-pipeline (0.002261 sec)
+   passed   73/683  test-backward-compat-simple-delete (0.002136 sec)
+   passed   74/683  test-backward-compat-simple-read (0.002223 sec)
+   passed   75/683  test-backward-compat-simple-write (0.002168 sec)
+   passed   76/683  test-backward-compat-unresolved-variables (0.002227 sec)
+   passed   77/683  test-backward-compat-variable-resolution (0.002155 sec)
+   passed   78/683  test-bead-3kgg-find-with-exec-rm (0.002256 sec)
+   passed   79/683  test-bead-3kgg-find-with-multiple-exec-blocks (0.002337 sec)
+   passed   80/683  test-bead-3kgg-workspace-validation-scenario (0.002243 sec)
+   passed   81/683  test-cd-absolute-path-multiple-operations (0.002699 sec)
+   passed   82/683  test-cd-absolute-path-simple (0.002262 sec)
+   passed   83/683  test-cd-absolute-path-with-relative-file (0.002236 sec)
+   passed   84/683  test-cd-and-run-script (0.002296 sec)
+   passed   85/683  test-cd-conditional-both-branches (0.006620 sec)
+   passed   86/683  test-cd-empty-string (0.002281 sec)
+   passed   87/683  test-cd-for-loop-files (0.004537 sec)
+   passed   88/683  test-cd-in-if-statement (0.008705 sec)
+   passed   89/683  test-cd-no-args (0.002243 sec)
+   passed   90/683  test-cd-relative-path-current-dir (0.002309 sec)
+   passed   91/683  test-cd-relative-path-dot-slash (0.002314 sec)
+   passed   92/683  test-cd-relative-path-parent (0.002251 sec)
+   passed   93/683  test-cd-relative-path-subdir (0.002281 sec)
+   passed   94/683  test-cd-semicolon-separator (0.002293 sec)
+   passed   95/683  test-cd-sequence-relative-after-absolute (0.002416 sec)
+   passed   96/683  test-cd-sequence-two-cds (0.002351 sec)
+   passed   97/683  test-cd-to-file-not-directory (0.002294 sec)
+   passed   98/683  test-cd-with-command-substitution (0.004635 sec)
+   passed   99/683  test-cd-with-dash (0.002356 sec)
+   passed  100/683  test-cd-with-operations-between (0.002446 sec)
+   passed  101/683  test-cd-with-or-fallback (0.002332 sec)
+   passed  102/683  test-cd-with-pwd-variable (0.002360 sec)
+   passed  103/683  test-cd-with-tilde (0.002361 sec)
+   passed  104/683  test-cd-with-variable-absolute (0.002242 sec)
+   passed  105/683  test-cd-with-variable-relative (0.002325 sec)
+   passed  106/683  test-cmdsub-backtick-syntax (0.004300 sec)
+   passed  107/683  test-cmdsub-cat-wc (0.004480 sec)
+   passed  108/683  test-cmdsub-conditional-inside (0.004261 sec)
+   passed  109/683  test-cmdsub-cp-two-which (0.006353 sec)
+   passed  110/683  test-cmdsub-find-pipe-wc (0.004363 sec)
+   passed  111/683  test-cmdsub-find-sort (0.004379 sec)
+   passed  112/683  test-cmdsub-for-loop-basename (0.004277 sec)
+   passed  113/683  test-cmdsub-for-loop-find (0.004427 sec)
+   passed  114/683  test-cmdsub-git-commit-message (0.004433 sec)
+   passed  115/683  test-cmdsub-in-arithmetic (0.004383 sec)
+   passed  116/683  test-cmdsub-in-double-quotes (0.004201 sec)
+   passed  117/683  test-cmdsub-in-heredoc (0.004293 sec)
+   passed  118/683  test-cmdsub-in-test-conditional (0.004271 sec)
+   passed  119/683  test-cmdsub-multi-stage-pipe (0.004599 sec)
+   failed  120/683  test-cmdsub-nested-backticks (0.004105 sec)
+   passed  121/683  test-cmdsub-nested-basename (0.008274 sec)
+   passed  122/683  test-cmdsub-nested-dirname-which (0.008386 sec)
+   passed  123/683  test-cmdsub-nested-find (0.004117 sec)
+   passed  124/683  test-cmdsub-nested-quotes (0.004191 sec)
+   passed  125/683  test-cmdsub-recursive-depth-limiting (0.014529 sec)
+   passed  126/683  test-cmdsub-recursive-find-parse (0.004314 sec)
+   passed  127/683  test-cmdsub-recursive-parsing-empty (0.002154 sec)
+   passed  128/683  test-cmdsub-recursive-parsing-nested (0.008621 sec)
+   passed  129/683  test-cmdsub-recursive-parsing-simple (0.004191 sec)
+   passed  130/683  test-cmdsub-triple-nesting (0.016949 sec)
+   passed  131/683  test-cmdsub-two-with-globs (0.006289 sec)
+   passed  132/683  test-cmdsub-variable-assignment (0.004162 sec)
+   passed  133/683  test-cmdsub-with-pipe-inside (0.004334 sec)
+   passed  134/683  test-conditional-command-based (0.006394 sec)
+   passed  135/683  test-conditional-directory-test (0.004195 sec)
+   passed  136/683  test-conditional-else-branch (0.006423 sec)
+   passed  137/683  test-conditional-executable-test (0.004148 sec)
+   passed  138/683  test-conditional-exists-test (0.004176 sec)
+   passed  139/683  test-conditional-readable-test (0.004200 sec)
+   passed  140/683  test-conditional-test-vs-branch (0.004268 sec)
+   passed  141/683  test-conditional-then-branch (0.004193 sec)
+   passed  142/683  test-conditional-with-simple-path (0.004201 sec)
+   passed  143/683  test-conditional-writable-test (0.004259 sec)
+   passed  144/683  test-confidence-degradation-for-unresolved (0.002178 sec)
+   passed  145/683  test-confidence-high-for-fully-resolved (0.002508 sec)
+   passed  146/683  test-corpus-archive-001 (0.002399 sec)
+   passed  147/683  test-corpus-archive-002 (0.002144 sec)
+   passed  148/683  test-corpus-archive-003 (0.002177 sec)
+   passed  149/683  test-corpus-chain-001 (0.002283 sec)
+   passed  150/683  test-corpus-chain-002 (0.002322 sec)
+   passed  151/683  test-corpus-chain-003 (0.002299 sec)
+   passed  152/683  test-corpus-copy-001 (0.002156 sec)
+   passed  153/683  test-corpus-copy-002 (0.002292 sec)
+   passed  154/683  test-corpus-copy-003 (0.002335 sec)
+   passed  155/683  test-corpus-delete-001 (0.002187 sec)
+   passed  156/683  test-corpus-delete-002 (0.002190 sec)
+   passed  157/683  test-corpus-delete-003 (0.002165 sec)
+   passed  158/683  test-corpus-delete-004 (0.002203 sec)
+   passed  159/683  test-corpus-directory-001 (0.002326 sec)
+   passed  160/683  test-corpus-directory-002 (0.002175 sec)
+   passed  161/683  test-corpus-find-001 (0.002343 sec)
+   passed  162/683  test-corpus-find-002 (0.002303 sec)
+   passed  163/683  test-corpus-find-003 (0.002322 sec)
+   passed  164/683  test-corpus-git-001 (0.002155 sec)
+   passed  165/683  test-corpus-git-002 (0.002141 sec)
+   passed  166/683  test-corpus-git-003 (0.002161 sec)
+   passed  167/683  test-corpus-git-004 (0.002140 sec)
+   passed  168/683  test-corpus-glob-001 (0.002176 sec)
+   passed  169/683  test-corpus-glob-002 (0.002172 sec)
+   passed  170/683  test-corpus-glob-003 (0.002454 sec)
+   passed  171/683  test-corpus-glob-004 (0.002176 sec)
+Corpus jf/bash-command-substitution-corpus: 2/23 tests have :expect-file-ops
+Corpus jf/bash-combined-patterns-corpus: 1/39 tests have :expect-file-ops
+Corpus jf/bash-conditional-corpus: 1/18 tests have :expect-file-ops
+Corpus jf/bash-for-loop-corpus: 1/27 tests have :expect-file-ops
+Corpus jf/bash-heredoc-corpus: 1/23 tests have :expect-file-ops
+Total tests with :expect-file-ops: 6
+   passed  172/683  test-corpus-has-expect-file-ops (0.000083 sec)
+   passed  173/683  test-corpus-integration-001 (0.013259 sec)
+   passed  174/683  test-corpus-integration-002 (0.004533 sec)
+   passed  175/683  test-corpus-integration-003 (0.006553 sec)
+   passed  176/683  test-corpus-integration-004 (0.002449 sec)
+   passed  177/683  test-corpus-integration-005 (0.004438 sec)
+   passed  178/683  test-corpus-match-pattern-001 (0.002157 sec)
+   passed  179/683  test-corpus-match-pattern-002 (0.002121 sec)
+   passed  180/683  test-corpus-match-pattern-003 (0.002170 sec)
+   passed  181/683  test-corpus-match-pattern-004 (0.002134 sec)
+   passed  182/683  test-corpus-match-pattern-005 (0.002177 sec)
+   passed  183/683  test-corpus-match-pattern-006 (0.002202 sec)
+   passed  184/683  test-corpus-match-pattern-007 (0.002219 sec)
+   passed  185/683  test-corpus-match-pattern-008 (0.002159 sec)
+   passed  186/683  test-corpus-modify-001 (0.002135 sec)
+   passed  187/683  test-corpus-modify-002 (0.002146 sec)
+   passed  188/683  test-corpus-modify-003 (0.002181 sec)
+   passed  189/683  test-corpus-modify-004 (0.002139 sec)
+   passed  190/683  test-corpus-move-001 (0.002163 sec)
+   passed  191/683  test-corpus-move-002 (0.002358 sec)
+   passed  192/683  test-corpus-no-ops-001 (0.002115 sec)
+   passed  193/683  test-corpus-no-ops-002 (0.002156 sec)
+   passed  194/683  test-corpus-no-ops-003 (0.002138 sec)
+   passed  195/683  test-corpus-no-ops-004 (0.002129 sec)
+   passed  196/683  test-corpus-pipeline-001 (0.002273 sec)
+   passed  197/683  test-corpus-pipeline-002 (0.002330 sec)
+   passed  198/683  test-corpus-read-001 (0.002185 sec)
+   passed  199/683  test-corpus-read-002 (0.002202 sec)
+   passed  200/683  test-corpus-read-003 (0.002317 sec)
+   passed  201/683  test-corpus-read-004 (0.002126 sec)
+   passed  202/683  test-corpus-read-005 (0.002180 sec)
+   passed  203/683  test-corpus-read-006 (0.002212 sec)
+   passed  204/683  test-corpus-redirect-001 (0.002182 sec)
+   passed  205/683  test-corpus-redirect-002 (0.002280 sec)
+   passed  206/683  test-corpus-redirect-003 (0.002389 sec)
+   passed  207/683  test-corpus-redirect-004 (0.002198 sec)
+   passed  208/683  test-corpus-variable-001 (0.002126 sec)
+   passed  209/683  test-corpus-variable-002 (0.002145 sec)
+   passed  210/683  test-corpus-variable-003 (0.002151 sec)
+   passed  211/683  test-corpus-variable-004 (0.002369 sec)
+   passed  212/683  test-corpus-variable-005 (0.002217 sec)
+   passed  213/683  test-corpus-variable-chain-001 (0.002119 sec)
+   passed  214/683  test-corpus-variable-chain-002 (0.002212 sec)
+   passed  215/683  test-corpus-variable-chain-003 (0.002228 sec)
+   passed  216/683  test-corpus-write-001 (0.002094 sec)
+   passed  217/683  test-corpus-write-002 (0.002105 sec)
+   passed  218/683  test-corpus-write-003 (0.002172 sec)
+   passed  219/683  test-corpus-write-004 (0.002235 sec)
+   passed  220/683  test-deploy-script-pattern (0.002401 sec)
+   passed  221/683  test-detect-braced-variable (0.000029 sec)
+   passed  222/683  test-detect-duplicate-variables (0.000027 sec)
+   passed  223/683  test-detect-mixed-variable-syntax (0.000027 sec)
+   passed  224/683  test-detect-multiple-variables (0.000026 sec)
+   passed  225/683  test-detect-no-variables (0.000023 sec)
+   passed  226/683  test-detect-simple-dollar-variable (0.000020 sec)
+   passed  227/683  test-detect-variable-at-end (0.000021 sec)
+   passed  228/683  test-detect-variable-order (0.000020 sec)
+   passed  229/683  test-double-paren-at-start-only (0.006036 sec)
+   passed  230/683  test-double-paren-chain (0.006178 sec)
+   passed  231/683  test-double-paren-simple-command (0.006497 sec)
+   passed  232/683  test-double-paren-with-args (0.006051 sec)
+   passed  233/683  test-execution-parity-relative-path (0.002999 sec)
+   passed  234/683  test-expect-file-ops-structure (0.000035 sec)
+   passed  235/683  test-extract-assignment-command-substitution-in-value (0.000035 sec)
+   passed  236/683  test-extract-assignment-from-positional-args (0.000026 sec)
+   passed  237/683  test-extract-assignment-multiple-in-args (0.000030 sec)
+   passed  238/683  test-extract-assignment-no-assignments (0.000021 sec)
+   passed  239/683  test-extract-assignment-skips-flags (0.000025 sec)
+   passed  240/683  test-extract-assignment-split-format (0.000024 sec)
+   passed  241/683  test-extract-assignment-unified-format (0.000023 sec)
+   passed  242/683  test-extract-assignment-unresolved-skipped (0.000025 sec)
+   passed  243/683  test-extract-assignment-with-relative-path (0.000027 sec)
+   passed  244/683  test-extract-assignment-with-variable-resolution (0.000030 sec)
+   passed  245/683  test-extraction-absolute-path (0.002209 sec)
+   passed  246/683  test-extraction-append-redirection (0.002296 sec)
+   passed  247/683  test-extraction-command-chain (0.002418 sec)
+   passed  248/683  test-extraction-command-with-multiple-file-arguments (0.002171 sec)
+   passed  249/683  test-extraction-command-with-no-file-operations (0.002083 sec)
+   passed  250/683  test-extraction-duplicate-file-operations (0.002119 sec)
+   failed  251/683  test-extraction-dynamic-redirect-multiple-subs (0.006352 sec)
+   failed  252/683  test-extraction-dynamic-redirect-nested (0.008512 sec)
+   failed  253/683  test-extraction-dynamic-redirect-simple (0.004272 sec)
+   failed  254/683  test-extraction-heredoc-dynamic-redirect (0.002230 sec)
+   passed  255/683  test-extraction-high-confidence-from-known-command (0.002131 sec)
+   passed  256/683  test-extraction-high-confidence-from-redirection (0.002103 sec)
+   passed  257/683  test-extraction-input-redirection (0.002216 sec)
+   passed  258/683  test-extraction-main-function-chain (0.002197 sec)
+   passed  259/683  test-extraction-main-function-pipeline (0.002261 sec)
+   passed  260/683  test-extraction-main-function-simple-command (0.002116 sec)
+   passed  261/683  test-extraction-metadata-for-positional-arg (0.002246 sec)
+   passed  262/683  test-extraction-metadata-for-redirection (0.002378 sec)
+   passed  263/683  test-extraction-multiple-redirections (0.002123 sec)
+   passed  264/683  test-extraction-output-redirection (0.002101 sec)
+   passed  265/683  test-extraction-pipeline-with-multiple-file-operations (0.002250 sec)
+   passed  266/683  test-extraction-recursive-glob-pattern (0.002154 sec)
+   passed  267/683  test-extraction-redirections-keep-high-confidence-with-variables (0.002118 sec)
+   passed  268/683  test-extraction-relative-path (0.002113 sec)
+   passed  269/683  test-extraction-same-file-different-operations (0.002168 sec)
+   passed  270/683  test-extraction-simple-glob-pattern (0.002207 sec)
+   passed  271/683  test-extraction-simple-read-command (0.002342 sec)
+   failed  272/683  test-extraction-xargs-null-separated (0.002269 sec)
+   failed  273/683  test-extraction-xargs-placeholder (0.002239 sec)
+   failed  274/683  test-extraction-xargs-simple-batch (0.002245 sec)
+   failed  275/683  test-extraction-xargs-with-flags (0.002241 sec)
+   passed  276/683  test-feature-detection-pattern-flow (0.000032 sec)
+   passed  277/683  test-feature-detection-recursive-analysis (0.000023 sec)
+   passed  278/683  test-feature-detection-unknown-feature (0.000024 sec)
+   passed  279/683  test-find-pattern-metadata (0.000029 sec)
+   passed  280/683  test-glob-character-class-letters (0.000101 sec)
+   passed  281/683  test-glob-character-class-match (0.000053 sec)
+   passed  282/683  test-glob-character-class-no-match (0.000041 sec)
+   passed  283/683  test-glob-combined-wildcards (0.000054 sec)
+   passed  284/683  test-glob-complex-pattern (0.000062 sec)
+   passed  285/683  test-glob-double-star-at-end (0.000045 sec)
+   passed  286/683  test-glob-double-star-at-start (0.000058 sec)
+   passed  287/683  test-glob-double-star-in-middle (0.000055 sec)
+   passed  288/683  test-glob-double-star-multiple-segments (0.000062 sec)
+   passed  289/683  test-glob-double-star-zero-segments (0.000045 sec)
+   passed  290/683  test-glob-empty-path (0.000029 sec)
+   passed  291/683  test-glob-empty-pattern (0.000025 sec)
+   passed  292/683  test-glob-exact-match (0.000046 sec)
+   passed  293/683  test-glob-literal-dots (0.000045 sec)
+   passed  294/683  test-glob-literal-parens (0.000035 sec)
+   passed  295/683  test-glob-literal-plus-chars (0.000045 sec)
+   passed  296/683  test-glob-multiple-question-marks (0.000056 sec)
+   passed  297/683  test-glob-nested-double-stars (0.000060 sec)
+   passed  298/683  test-glob-no-match-different-directory (0.000044 sec)
+   passed  299/683  test-glob-path-must-match-from-start (0.000042 sec)
+   passed  300/683  test-glob-question-mark-no-match-directory-separator (0.000058 sec)
+   passed  301/683  test-glob-question-mark-no-match-two-chars (0.000035 sec)
+   passed  302/683  test-glob-question-mark-no-match-zero-chars (0.000034 sec)
+   passed  303/683  test-glob-question-mark-single-char (0.000054 sec)
+   passed  304/683  test-glob-recursive-wildcard-match (0.000055 sec)
+   passed  305/683  test-glob-root-path (0.000041 sec)
+   passed  306/683  test-glob-single-level-wildcard-match (0.000051 sec)
+   passed  307/683  test-glob-single-star-one-level-match (0.000047 sec)
+   passed  308/683  test-glob-single-star-rejects-multiple-levels (0.000045 sec)
+   passed  309/683  test-glob-to-regex-asterisk (0.000036 sec)
+   passed  310/683  test-glob-to-regex-character-class (0.000039 sec)
+   passed  311/683  test-glob-to-regex-escapes-special-chars (0.000039 sec)
+   passed  312/683  test-glob-to-regex-question (0.000035 sec)
+   passed  313/683  test-glob-trailing-slash-equivalence (0.000061 sec)
+   passed  314/683  test-glob-trailing-slash-handling (0.000044 sec)
+   passed  315/683  test-grep-pattern-metadata (0.000030 sec)
+   passed  316/683  test-heredoc-append-redirect (0.002212 sec)
+   passed  317/683  test-heredoc-embedded-substitution (0.006330 sec)
+   passed  318/683  test-heredoc-file-creation (0.002151 sec)
+   passed  319/683  test-heredoc-git-commit (0.002168 sec)
+   passed  320/683  test-heredoc-git-commit-multi-line (0.002269 sec)
+   passed  321/683  test-heredoc-multi-line-with-redirect (0.002217 sec)
+   passed  322/683  test-heredoc-mysql-input (0.002111 sec)
+   passed  323/683  test-heredoc-piped (0.002119 sec)
+   passed  324/683  test-heredoc-stderr-redirect (0.002151 sec)
+   passed  325/683  test-heredoc-to-command (0.002105 sec)
+Found 5 integration tests
+   passed  326/683  test-integration-tests-added (0.000052 sec)
+   passed  327/683  test-jf/bash-parse-detects-bash-c-injection (0.004135 sec)
+   passed  328/683  test-jf/bash-parse-detects-env-S-injection (0.002238 sec)
+   passed  329/683  test-jf/bash-parse-detects-sh-c-injection (0.004166 sec)
+   passed  330/683  test-jf/bash-parse-handles-flags-before-injection (0.004326 sec)
+   passed  331/683  test-jf/bash-parse-nested-injection-with-pipeline (0.004222 sec)
+   passed  332/683  test-jf/bash-parse-no-injection-without-flag (0.002170 sec)
+   passed  333/683  test-jf/bash-parse-strips-quotes-from-injection (0.004410 sec)
+   passed  334/683  test-loop-context-metadata (0.004571 sec)
+   passed  335/683  test-loop-empty-body (0.004191 sec)
+   passed  336/683  test-loop-multiple-commands (0.004455 sec)
+   passed  337/683  test-loop-unresolved-variable (0.006448 sec)
+   passed  338/683  test-loop-variable-from-glob (0.004229 sec)
+   passed  339/683  test-loop-variable-from-literal (0.004237 sec)
+   passed  340/683  test-loop-variable-from-substitution (0.006471 sec)
+   passed  341/683  test-loop-variable-glob-with-rm (0.004218 sec)
+   passed  342/683  test-loop-variable-substitution-cat (0.006520 sec)
+   passed  343/683  test-ls-pattern-metadata (0.000031 sec)
+   passed  344/683  test-multiple-cds-with-wildcards (0.002406 sec)
+   passed  345/683  test-nested-conditional-relative-test (0.004437 sec)
+   passed  346/683  test-nested-find-exec-relative-paths (0.002270 sec)
+   passed  347/683  test-nested-for-loop-relative-pattern (0.004259 sec)
+   passed  348/683  test-nested-subshells (0.006763 sec)
+   passed  349/683  test-not-pattern-producer-cat (0.000030 sec)
+   passed  350/683  test-not-pattern-producer-cp (0.000026 sec)
+   passed  351/683  test-not-pattern-producer-mv (0.000029 sec)
+   passed  352/683  test-not-pattern-producer-rm (0.000026 sec)
+   passed  353/683  test-not-pattern-producer-unknown (0.000023 sec)
+   passed  354/683  test-parse-accepts-valid-command (0.002288 sec)
+   passed  355/683  test-parse-accepts-whitespace-padded-command (0.002192 sec)
+   passed  356/683  test-parse-rejects-empty-string (0.000027 sec)
+   passed  357/683  test-parse-rejects-list-input (0.000028 sec)
+   passed  358/683  test-parse-rejects-nil-input (0.000028 sec)
+   passed  359/683  test-parse-rejects-number-input (0.000028 sec)
+   passed  360/683  test-parse-rejects-symbol-input (0.000027 sec)
+   passed  361/683  test-parse-rejects-vector-input (0.000026 sec)
+   passed  362/683  test-parser-extension-already-marked-preserved (0.000035 sec)
+   passed  363/683  test-parser-extension-detect-bash-c-injection (0.004326 sec)
+   passed  364/683  test-parser-extension-detect-env-s-injection (0.002171 sec)
+   passed  365/683  test-parser-extension-detect-eval-injection (0.002125 sec)
+   passed  366/683  test-parser-extension-detect-python-c-injection (0.002342 sec)
+   passed  367/683  test-parser-extension-detect-sh-c-injection (0.004192 sec)
+   passed  368/683  test-parser-extension-direct-no-nesting-depth (0.002237 sec)
+   passed  369/683  test-parser-extension-direct-operation-unmarked (0.000036 sec)
+   passed  370/683  test-parser-extension-double-nesting-depth (0.027879 sec)
+   passed  371/683  test-parser-extension-end-to-end-bash-c (0.006326 sec)
+   passed  372/683  test-parser-extension-existing-unchanged (0.002112 sec)
+   passed  373/683  test-parser-extension-injection-with-flags-before (0.004248 sec)
+   passed  374/683  test-parser-extension-leverage-parsed-data (0.006369 sec)
+   passed  375/683  test-parser-extension-mark-exec-block-indirect (0.000037 sec)
+   passed  376/683  test-parser-extension-mixed-operations (0.000036 sec)
+   passed  377/683  test-parser-extension-nested-max-depth (0.000033 sec)
+   passed  378/683  test-parser-extension-nested-with-variables (0.002190 sec)
+   passed  379/683  test-parser-extension-new-extraction-available (0.000031 sec)
+   passed  380/683  test-parser-extension-no-false-positives (0.006275 sec)
+   passed  381/683  test-parser-extension-parse-nested-command (0.002139 sec)
+   passed  382/683  test-parser-extension-parse-nested-multiple-levels (0.006493 sec)
+   passed  383/683  test-parser-extension-parse-nested-preserve-inner-quotes (0.002186 sec)
+   passed  384/683  test-parser-extension-parse-nested-strip-double-quotes (0.002101 sec)
+   passed  385/683  test-parser-extension-parse-nested-strip-single-quotes (0.002115 sec)
+   passed  386/683  test-parser-extension-parse-return-format (0.002141 sec)
+   passed  387/683  test-parser-extension-single-nesting-depth (0.008983 sec)
+   passed  388/683  test-pattern-flow-cat-find (0.004310 sec)
+   passed  389/683  test-pattern-flow-cat-grep (0.004329 sec)
+   passed  390/683  test-pattern-flow-cat-ls (0.004323 sec)
+   passed  391/683  test-pattern-flow-head-find (0.004364 sec)
+   passed  392/683  test-pattern-flow-multiple-patterns (0.004338 sec)
+   passed  393/683  test-pattern-flow-nested (0.008514 sec)
+   passed  394/683  test-pattern-flow-no-pattern (0.004236 sec)
+   passed  395/683  test-pattern-flow-non-reading-command (0.004365 sec)
+   passed  396/683  test-pattern-flow-rm-ls (0.004392 sec)
+   passed  397/683  test-pattern-flow-with-redirection (0.004497 sec)
+   passed  398/683  test-pattern-producer-egrep (0.000061 sec)
+   passed  399/683  test-pattern-producer-fgrep (0.000042 sec)
+   passed  400/683  test-pattern-producer-find (0.000041 sec)
+   passed  401/683  test-pattern-producer-git-ls-files-metadata (0.000041 sec)
+   passed  402/683  test-pattern-producer-git-subcommand (0.000043 sec)
+   passed  403/683  test-pattern-producer-grep-long-flag (0.000035 sec)
+   passed  404/683  test-pattern-producer-grep-with-flag (0.000043 sec)
+   passed  405/683  test-pattern-producer-ls (0.000041 sec)
+   passed  406/683  test-popd-returns-to-previous (0.002567 sec)
+   passed  407/683  test-pushd-absolute-path (0.002290 sec)
+   passed  408/683  test-pwd-assignment-export (0.002351 sec)
+   passed  409/683  test-pwd-assignment-inline (0.002211 sec)
+   passed  410/683  test-pwd-assignment-simple (0.002251 sec)
+   passed  411/683  test-pwd-assignment-with-variable (0.002270 sec)
+   passed  412/683  test-pwd-backtick-substitution (0.004377 sec)
+   passed  413/683  test-pwd-context-empty-var-context (0.002122 sec)
+   passed  414/683  test-pwd-context-mixed-absolute-relative (0.002182 sec)
+   passed  415/683  test-pwd-context-multiple-operations (0.002276 sec)
+   passed  416/683  test-pwd-context-without-pwd-in-context (0.002244 sec)
+   passed  417/683  test-pwd-explicit-variable-in-redirection (0.002241 sec)
+   passed  418/683  test-pwd-explicit-variable-nested-path (0.002189 sec)
+   passed  419/683  test-pwd-explicit-variable-simple (0.002151 sec)
+   passed  420/683  test-pwd-substitution-nested (0.008536 sec)
+   passed  421/683  test-pwd-substitution-simple (0.004332 sec)
+   passed  422/683  test-pwd-without-var-context (0.002148 sec)
+   passed  423/683  test-recursive-chain-with-substitution (0.004325 sec)
+   passed  424/683  test-recursive-chain-with-variables (0.002303 sec)
+   passed  425/683  test-recursive-complex-scenario (0.011202 sec)
+   passed  426/683  test-recursive-deduplication (0.002169 sec)
+   passed  427/683  test-recursive-depth-limit (0.136214 sec)
+   passed  428/683  test-recursive-depth-limiting (0.000041 sec)
+   passed  429/683  test-recursive-depth-with-deep-nesting (0.017025 sec)
+   passed  430/683  test-recursive-empty-substitution (0.004194 sec)
+   passed  431/683  test-recursive-failed-parse-in-substitution (0.002097 sec)
+   passed  432/683  test-recursive-multi-level-nesting (0.008677 sec)
+   passed  433/683  test-recursive-nested-find (0.008601 sec)
+   passed  434/683  test-recursive-nested-in-chain (0.006592 sec)
+   passed  435/683  test-recursive-nested-in-conditional (0.004178 sec)
+   passed  436/683  test-recursive-nested-in-loop (0.006396 sec)
+   passed  437/683  test-recursive-nested-in-substitution (0.008404 sec)
+   passed  438/683  test-recursive-nested-substitution (0.008502 sec)
+   passed  439/683  test-recursive-nested-with-variables (0.004551 sec)
+   passed  440/683  test-recursive-pipeline (0.002415 sec)
+   passed  441/683  test-recursive-pipeline-with-substitution (0.004397 sec)
+   passed  442/683  test-recursive-single-substitution (0.004221 sec)
+   passed  443/683  test-recursive-substitution-grep (0.004362 sec)
+   passed  444/683  test-recursive-substitution-with-flags (0.004462 sec)
+   passed  445/683  test-recursive-triple-nesting (0.016977 sec)
+   passed  446/683  test-recursive-with-exec-blocks (0.002230 sec)
+   passed  447/683  test-recursive-with-redirections (0.004463 sec)
+   passed  448/683  test-relative-path-dot-alone (0.002142 sec)
+   passed  449/683  test-relative-path-dot-in-pipeline (0.002220 sec)
+   passed  450/683  test-relative-path-dot-ls (0.002111 sec)
+   passed  451/683  test-relative-path-dot-slash-file (0.002113 sec)
+   passed  452/683  test-relative-path-dot-slash-nested (0.002116 sec)
+   passed  453/683  test-relative-path-dot-slash-script-execution (0.002109 sec)
+   passed  454/683  test-relative-path-dot-slash-with-args (0.002185 sec)
+   passed  455/683  test-relative-path-parent-multiple-levels (0.048877 sec)
+   passed  456/683  test-relative-path-parent-script-execution (0.002597 sec)
+   passed  457/683  test-relative-path-parent-simple (0.002154 sec)
+   passed  458/683  test-relative-path-parent-with-subdir (0.002100 sec)
+   passed  459/683  test-resolve-all-variables-simple (0.000039 sec)
+   passed  460/683  test-resolve-assignment-combined-resolution (0.000035 sec)
+   passed  461/683  test-resolve-assignment-command-substitution-basename (0.000041 sec)
+   passed  462/683  test-resolve-assignment-command-substitution-dirname (0.000034 sec)
+   passed  463/683  test-resolve-assignment-command-substitution-pwd (0.000027 sec)
+   passed  464/683  test-resolve-assignment-relative-path (0.000032 sec)
+   passed  465/683  test-resolve-assignment-simple-variable (0.000030 sec)
+   passed  466/683  test-resolve-assignment-unresolved-command-substitution (0.000031 sec)
+   passed  467/683  test-resolve-assignment-unresolved-variable (0.000032 sec)
+   passed  468/683  test-resolve-braced-vs-simple (0.000034 sec)
+   passed  469/683  test-resolve-duplicate-variable-references (0.000030 sec)
+   passed  470/683  test-resolve-multiple-variables-fully (0.000036 sec)
+   passed  471/683  test-resolve-no-variables (0.000025 sec)
+   passed  472/683  test-resolve-none-no-context (0.000030 sec)
+   passed  473/683  test-resolve-normalizes-slashes (0.000029 sec)
+   passed  474/683  test-resolve-partial-some-unresolved (0.000035 sec)
+   passed  475/683  test-resolve-warns-on-control-chars (0.000032 sec)
+   passed  476/683  test-resolve-word-boundary (0.000027 sec)
+   passed  477/683  test-script-execution-bash-interpreter (0.002264 sec)
+   passed  478/683  test-script-execution-chain (0.002281 sec)
+   passed  479/683  test-script-execution-confidence-high-builtin (0.002114 sec)
+   passed  480/683  test-script-execution-confidence-high-interpreter (0.002158 sec)
+   passed  481/683  test-script-execution-confidence-low-path (0.002111 sec)
+   passed  482/683  test-script-execution-corpus (0.125682 sec)
+   passed  483/683  test-script-execution-go-build-not-execute (0.002192 sec)
+   passed  484/683  test-script-execution-go-run-subcommand (0.002292 sec)
+   passed  485/683  test-script-execution-go-test-subcommand (0.002087 sec)
+   passed  486/683  test-script-execution-nested-python (0.008548 sec)
+   passed  487/683  test-script-execution-nested-self-executing (0.008208 sec)
+   passed  488/683  test-script-execution-node-interpreter (0.002112 sec)
+   passed  489/683  test-script-execution-node-with-flags (0.002289 sec)
+   passed  490/683  test-script-execution-not-self-executing (0.002090 sec)
+   passed  491/683  test-script-execution-pipeline (0.002237 sec)
+   passed  492/683  test-script-execution-python-interpreter (0.002121 sec)
+   passed  493/683  test-script-execution-python3-with-args (0.002137 sec)
+   passed  494/683  test-script-execution-script-args-files (0.002071 sec)
+   passed  495/683  test-script-execution-script-args-flags (0.002090 sec)
+   passed  496/683  test-script-execution-script-args-none (0.002102 sec)
+   passed  497/683  test-script-execution-script-args-self-executing (0.002107 sec)
+   passed  498/683  test-script-execution-self-executing-absolute (0.002171 sec)
+   passed  499/683  test-script-execution-self-executing-parent (0.002069 sec)
+   passed  500/683  test-script-execution-self-executing-relative (0.002093 sec)
+   passed  501/683  test-script-execution-sh-interpreter (0.002135 sec)
+   passed  502/683  test-script-execution-shell-builtin-dot (0.002097 sec)
+   passed  503/683  test-script-execution-shell-builtin-source (0.002101 sec)
+   passed  504/683  test-script-execution-variable-resolved (0.002132 sec)
+   passed  505/683  test-script-execution-variable-unresolved (0.002116 sec)
+   passed  506/683  test-script-execution-zsh-interpreter (0.002178 sec)
+   passed  507/683  test-security-all-operations-allowed (0.008444 sec)
+   passed  508/683  test-security-all-operations-wildcard (0.008607 sec)
+   passed  509/683  test-security-all-vs-explicit-list (0.004250 sec)
+   passed  510/683  test-security-allow-command-matching-rules (0.002127 sec)
+   passed  511/683  test-security-allow-indirect-with-same-rules (0.008317 sec)
+   passed  512/683  test-security-apply-policy-to-indirect-operations (0.008380 sec)
+   passed  513/683  test-security-cd-detected-in-command-substitution (0.004256 sec)
+   passed  514/683  test-security-cd-not-detected-in-comments (0.002088 sec)
+   passed  515/683  test-security-cd-not-detected-in-heredoc (0.002162 sec)
+   passed  516/683  test-security-cd-violation-includes-guidance (0.002096 sec)
+   passed  517/683  test-security-cd-violation-with-working-directory-guidance (0.002087 sec)
+   passed  518/683  test-security-character-class-match (0.002329 sec)
+   passed  519/683  test-security-define-operation-specific-permissions (0.000031 sec)
+   passed  520/683  test-security-define-rule-with-multiple-patterns (0.000030 sec)
+   passed  521/683  test-security-define-rule-with-single-pattern (0.000034 sec)
+   passed  522/683  test-security-denial-reason-cd-command (0.002162 sec)
+   passed  523/683  test-security-denial-reason-multiple-unhandled (0.002190 sec)
+   passed  524/683  test-security-denial-reason-multiple-violations (0.002194 sec)
+   passed  525/683  test-security-denial-reason-nil-when-allowed (0.002104 sec)
+   passed  526/683  test-security-denial-reason-no-match (0.002099 sec)
+   passed  527/683  test-security-denial-reason-single-unhandled (0.002113 sec)
+   passed  528/683  test-security-denial-reason-single-violation (0.002105 sec)
+   passed  529/683  test-security-deny-command-violating-rules (0.002131 sec)
+   passed  530/683  test-security-double-star-multiple-segments (0.002196 sec)
+   passed  531/683  test-security-double-star-zero-segments (0.002120 sec)
+   passed  532/683  test-security-extract-unresolved-vars-multiple (0.000034 sec)
+   passed  533/683  test-security-extract-unresolved-vars-none (0.000029 sec)
+   passed  534/683  test-security-extract-unresolved-vars-single (0.000030 sec)
+   passed  535/683  test-security-first-matching-rule-applies (0.002143 sec)
+   passed  536/683  test-security-indirect-operation-violation-details (0.008275 sec)
+   passed  537/683  test-security-low-confidence-operation (0.002130 sec)
+   passed  538/683  test-security-missing-variable-context (0.002183 sec)
+   passed  539/683  test-security-more-specific-rule-before-general (0.004186 sec)
+   passed  540/683  test-security-multiple-violations (0.002128 sec)
+   passed  541/683  test-security-no-match-different-directory (0.002100 sec)
+   passed  542/683  test-security-partial-resolution-rejection (0.002139 sec)
+   passed  543/683  test-security-provide-variable-context (0.002203 sec)
+   passed  544/683  test-security-read-allowed-write-denied (0.004322 sec)
+   passed  545/683  test-security-recursive-wildcard-match (0.002118 sec)
+   passed  546/683  test-security-reject-all-indirect-strict-mode (0.008313 sec)
+   passed  547/683  test-security-reject-cd-in-chain (0.002162 sec)
+   passed  548/683  test-security-reject-cd-with-options (0.004437 sec)
+   passed  549/683  test-security-reject-simple-cd-command (0.002067 sec)
+   passed  550/683  test-security-reject-unresolved-variables (0.002127 sec)
+   passed  551/683  test-security-resolve-variables-before-matching (0.002146 sec)
+   passed  552/683  test-security-result-structure-allowed (0.002113 sec)
+   passed  553/683  test-security-result-structure-denied (0.002116 sec)
+   passed  554/683  test-security-single-level-wildcard-match (0.002110 sec)
+   passed  555/683  test-security-single-star-one-level (0.002164 sec)
+   passed  556/683  test-security-single-star-rejects-multiple-levels (0.002199 sec)
+   passed  557/683  test-security-unhandled-operations-fails-safely (0.002149 sec)
+   passed  558/683  test-security-variable-resolution-integration (0.002139 sec)
+   passed  559/683  test-security-variable-violation-details (0.002136 sec)
+   passed  560/683  test-security-violation-includes-guidance (0.002105 sec)
+   passed  561/683  test-security-violation-includes-indirect-flag (0.008316 sec)
+   passed  562/683  test-security-violation-includes-unresolved-vars (0.002091 sec)
+   passed  563/683  test-security-violation-with-matched-rule (0.002096 sec)
+   passed  564/683  test-security-violation-with-no-matched-rule (0.002127 sec)
+   passed  565/683  test-security-warn-indirect-policy (0.008421 sec)
+   passed  566/683  test-security-write-allowed-delete-denied (0.004217 sec)
+   passed  567/683  test-self-execution-absolute-path (0.002134 sec)
+   passed  568/683  test-self-execution-helper-function (0.000034 sec)
+   passed  569/683  test-self-execution-not-path-based (0.002114 sec)
+   passed  570/683  test-self-execution-parent-directory (0.002178 sec)
+   passed  571/683  test-self-execution-relative-path (0.002283 sec)
+   passed  572/683  test-semantics-bash-interpreter (0.000035 sec)
+   passed  573/683  test-semantics-bunzip2-command (0.000035 sec)
+   passed  574/683  test-semantics-bzip2-command (0.000035 sec)
+   passed  575/683  test-semantics-core-command-chgrp (0.000029 sec)
+   passed  576/683  test-semantics-core-command-find (0.000031 sec)
+   passed  577/683  test-semantics-core-command-mkdir (0.000028 sec)
+   passed  578/683  test-semantics-core-command-rmdir (0.000028 sec)
+   passed  579/683  test-semantics-core-command-tee (0.000028 sec)
+   passed  580/683  test-semantics-core-command-touch (0.000028 sec)
+   passed  581/683  test-semantics-create-operation-classification (0.000027 sec)
+   passed  582/683  test-semantics-create-or-modify-operation-classification (0.000027 sec)
+   passed  583/683  test-semantics-delete-operation-classification (0.000026 sec)
+   passed  584/683  test-semantics-docker-cp-subcommand (0.000028 sec)
+   passed  585/683  test-semantics-dot-builtin (0.000026 sec)
+   passed  586/683  test-semantics-exec-builtin (0.000026 sec)
+   passed  587/683  test-semantics-execute-operation-classification (0.000029 sec)
+   passed  588/683  test-semantics-flag-dependent-sed (0.000032 sec)
+   passed  589/683  test-semantics-flag-dependent-tar (0.000032 sec)
+   passed  590/683  test-semantics-git-add-subcommand (0.000030 sec)
+   passed  591/683  test-semantics-git-apply-subcommand (0.000027 sec)
+   passed  592/683  test-semantics-git-checkout-subcommand (0.000029 sec)
+   passed  593/683  test-semantics-git-clean-subcommand (0.000027 sec)
+   passed  594/683  test-semantics-git-clone-subcommand (0.000027 sec)
+   passed  595/683  test-semantics-git-diff-subcommand (0.000028 sec)
+   passed  596/683  test-semantics-git-merge-subcommand (0.000027 sec)
+   passed  597/683  test-semantics-git-pull-subcommand (0.000027 sec)
+   passed  598/683  test-semantics-git-rebase-subcommand (0.000027 sec)
+   passed  599/683  test-semantics-git-reset-subcommand (0.000025 sec)
+   passed  600/683  test-semantics-git-rm-subcommand (0.000029 sec)
+   passed  601/683  test-semantics-git-worktree-subcommand (0.000030 sec)
+   passed  602/683  test-semantics-go-build-subcommand (0.000030 sec)
+   passed  603/683  test-semantics-go-run-subcommand (0.000031 sec)
+   passed  604/683  test-semantics-go-test-subcommand (0.000029 sec)
+   passed  605/683  test-semantics-gunzip-command (0.000034 sec)
+   passed  606/683  test-semantics-gzip-command (0.000032 sec)
+   passed  607/683  test-semantics-last-argument-specification (0.000027 sec)
+   passed  608/683  test-semantics-lookup-chmod-skip-rules (0.000030 sec)
+   passed  609/683  test-semantics-lookup-chown-skip-rules (0.000029 sec)
+   passed  610/683  test-semantics-lookup-command-with-skip-rules (0.000032 sec)
+   passed  611/683  test-semantics-lookup-egrep-skip-rules (0.000031 sec)
+   passed  612/683  test-semantics-lookup-head-command (0.000029 sec)
+   passed  613/683  test-semantics-lookup-less-command (0.000029 sec)
+   passed  614/683  test-semantics-lookup-simple-read-command (0.000031 sec)
+   passed  615/683  test-semantics-lookup-tail-command (0.000029 sec)
+   passed  616/683  test-semantics-lookup-unknown-command (0.000027 sec)
+   passed  617/683  test-semantics-lookup-wc-command (0.000029 sec)
+   passed  618/683  test-semantics-modify-operation-classification (0.000027 sec)
+   passed  619/683  test-semantics-multi-operation-cp (0.000035 sec)
+   passed  620/683  test-semantics-multi-operation-ln (0.000030 sec)
+   passed  621/683  test-semantics-multi-operation-mv (0.000032 sec)
+   passed  622/683  test-semantics-named-args-dd (0.000036 sec)
+   passed  623/683  test-semantics-node-interpreter (0.000032 sec)
+   passed  624/683  test-semantics-perl-interpreter (0.000032 sec)
+   passed  625/683  test-semantics-php-interpreter (0.000032 sec)
+   passed  626/683  test-semantics-python-interpreter (0.000031 sec)
+   passed  627/683  test-semantics-python3-interpreter (0.000031 sec)
+   passed  628/683  test-semantics-range-specification (0.000027 sec)
+   passed  629/683  test-semantics-read-operation-classification (0.000028 sec)
+   passed  630/683  test-semantics-ruby-interpreter (0.000030 sec)
+   passed  631/683  test-semantics-sh-interpreter (0.000028 sec)
+   passed  632/683  test-semantics-single-index-specification (0.000025 sec)
+   passed  633/683  test-semantics-source-builtin (0.000027 sec)
+   passed  634/683  test-semantics-tee-with-append-flag (0.000029 sec)
+   passed  635/683  test-semantics-tee-with-append-long-flag (0.000027 sec)
+   passed  636/683  test-semantics-tee-without-flags (0.000030 sec)
+   passed  637/683  test-semantics-unzip-command (0.000030 sec)
+   passed  638/683  test-semantics-write-operation-classification (0.000026 sec)
+   passed  639/683  test-semantics-zsh-interpreter (0.000031 sec)
+   passed  640/683  test-single-paren-not-affected (0.004379 sec)
+   passed  641/683  test-subshell-cd-isolation (0.004362 sec)
+   passed  642/683  test-subshell-pwd-assignment-isolation (0.004300 sec)
+   passed  643/683  test-triple-paren (0.004190 sec)
+   passed  644/683  test-validate-defined-handler-function (0.000031 sec)
+   passed  645/683  test-validate-empty-subcommand-handler (0.000036 sec)
+   passed  646/683  test-validate-invalid-operation-type-flag-dependent (0.000039 sec)
+   passed  647/683  test-validate-invalid-operation-type-simple (0.000038 sec)
+   passed  648/683  test-validate-missing-custom-handler (0.000030 sec)
+   passed  649/683  test-validate-missing-flag-handlers (0.000029 sec)
+   passed  650/683  test-validate-missing-subcommand-handlers (0.000030 sec)
+   passed  651/683  test-validate-multiple-errors (0.000050 sec)
+   passed  652/683  test-validate-semantics-complex-missing-handlers (0.000032 sec)
+   passed  653/683  test-validate-semantics-custom-missing-handler (0.000030 sec)
+   passed  654/683  test-validate-semantics-database-valid (0.000081 sec)
+   passed  655/683  test-validate-semantics-flag-dependent-missing-handlers (0.000029 sec)
+   passed  656/683  test-validate-semantics-invalid-operations-type (0.000030 sec)
+   passed  657/683  test-validate-semantics-missing-operation (0.000030 sec)
+   passed  658/683  test-validate-semantics-missing-source (0.000030 sec)
+   passed  659/683  test-validate-semantics-not-plist (0.000030 sec)
+   passed  660/683  test-validate-semantics-valid-complex-command (0.000027 sec)
+   passed  661/683  test-validate-semantics-valid-custom (0.000027 sec)
+   passed  662/683  test-validate-semantics-valid-flag-dependent (0.000028 sec)
+   passed  663/683  test-validate-semantics-valid-simple-command (0.000027 sec)
+   passed  664/683  test-validate-undefined-handler-function (0.000030 sec)
+   passed  665/683  test-validate-valid-operation-types (0.000034 sec)
+   passed  666/683  test-variable-assignment-and-usage-in-chain (0.002221 sec)
+   passed  667/683  test-variable-assignment-without-usage (0.002157 sec)
+   passed  668/683  test-variable-chain-multi-level (0.002240 sec)
+   passed  669/683  test-variable-chain-parent-path-assignment (0.002227 sec)
+   passed  670/683  test-variable-chain-parent-path-assignment-ampersand (0.002194 sec)
+   passed  671/683  test-variable-chain-pwd-assignment (0.002338 sec)
+   passed  672/683  test-variable-chain-pwd-assignment-ampersand (0.002189 sec)
+   passed  673/683  test-variable-chain-relative-path-assignment (0.002197 sec)
+   passed  674/683  test-variable-chain-relative-path-assignment-ampersand (0.002170 sec)
+   passed  675/683  test-variable-empty-variable-context (0.002133 sec)
+   passed  676/683  test-variable-multiple-assignments (0.002242 sec)
+   passed  677/683  test-variable-multiple-variables-in-path (0.002131 sec)
+   passed  678/683  test-variable-partial-resolution (0.002194 sec)
+   passed  679/683  test-variable-provide-variable-context (0.002156 sec)
+   passed  680/683  test-variable-resolve-declared-variable (0.002258 sec)
+   passed  681/683  test-variable-simple-variable-reference (0.002217 sec)
+   passed  682/683  test-variable-unresolved-variable (0.002264 sec)
+   passed  683/683  test-variable-variable-with-braces (0.002369 sec)
+
+Ran 683 tests, 683 results as expected, 0 unexpected (2026-03-06 23:14:48+0100, 1.905264 sec)
+9 expected failures
+
+=== Semantic Gap Detection Tests ===
+
+✓ Simple command substitution (parser extracts correctly)
+  Command: echo $(whoami)
+  No gaps detected (as expected)
+
+✓ Nested command substitution (parser extracts correctly)
+  Command: ls -la $(dirname $(which openspec))
+  No gaps detected (as expected)
+
+✓ Command substitution in quoted string (parser extracts correctly)
+  Command: --eval '(setq dir "'$(pwd)'")'
+  No gaps detected (as expected)
+
+✓ Process substitution (NOT YET IMPLEMENTED)
+  Command: diff <(ls dir1) <(ls dir2)
+  Detected: (process-substitution)
+
+✓ For loop with variables (parser extracts correctly)
+  Command: for f in *.txt; do echo $f; done
+  No gaps detected (as expected)
+
+✓ Conditional statement (parser extracts correctly)
+  Command: if [ -f file ]; then rm file; fi
+  No gaps detected (as expected)
+
+✓ Heredoc content (parser extracts correctly)
+  Command: cat <<EOF
+Content here
+EOF
+  No gaps detected (as expected)
+
+✓ Simple command (no gaps expected)
+  Command: ls -la /tmp
+  No gaps detected (as expected)
+
+✓ Simple command with args (no gaps expected)
+  Command: git commit -m 'message'
+  No gaps detected (as expected)
+
+=== Test Complete ===

@@ -1,0 +1,70 @@
+
+○ emacs-qstn · Add error handling to bash-parser parsing functions   [● P1 · OPEN]
+Owner: Jeff Farr · Type: task
+Created: 2026-03-06 · Updated: 2026-03-06
+
+DESCRIPTION
+Add comprehensive error handling with condition-case to critical bash-parser functions.
+
+Currently only jf/bash-parse has condition-case error handling. Many other functions that parse external input, perform recursion, or use tree-sitter operations lack error handling and can crash on invalid input.
+
+Files to modify:
+- config/experiments/bash-parser/bash-parser-core.el
+- config/experiments/bash-parser/bash-parser-recursive.el
+- config/experiments/bash-parser/bash-parser-variables.el
+- config/experiments/bash-parser/bash-parser-glob.el
+
+Functions requiring error handling:
+1. jf/bash-parse--internal (line 83)
+   - Tree-sitter parser can fail on malformed input
+   - Add condition-case around treesit-parser-create and node operations
+   
+2. jf/bash-analyze-file-operations-recursive (bash-parser-recursive.el:82)
+   - Deep recursion can overflow
+   - Complex parsing can fail
+   - Add condition-case with depth check
+   
+3. jf/bash-resolve-variables (bash-parser-variables.el:79)
+   - Regex operations can fail on malformed patterns
+   - Add condition-case around replace-regexp-in-string
+   
+4. jf/bash-glob-match-p (bash-parser-glob.el:203)
+   - Pattern parsing can fail
+   - Add condition-case around pattern matching
+
+Implementation pattern (from jf/bash-parse):
+```elisp
+(defun jf/bash-function (input)
+  "Documentation..."
+  (condition-case err
+      (progn
+        ;; Track state if needed
+        (setq jf/bash--state (setup-state))
+        (unwind-protect
+            ;; Main logic
+            (jf/bash--internal-logic input)
+          ;; Cleanup
+          (setq jf/bash--state (cleanup-state))))
+    (error (list :success nil :error (error-message-string err)))))
+```
+
+Design rationale:
+- Parser operates on untrusted external input (bash commands)
+- Tree-sitter operations can fail on malformed syntax
+- Deep recursion can hit stack limits
+- Graceful degradation is better than crashes
+
+Return format for errors:
+- Return (:success nil :error "message") plist
+- Consistent with existing jf/bash-parse pattern
+- Allows callers to handle failures gracefully
+
+Verification:
+- Test with malformed bash commands
+- Test with deeply nested structures (>10 levels)
+- Test with invalid glob patterns
+- Confirm error messages are helpful
+- Run existing test suite - all should pass
+
+LABELS: 26-03-06-review, bash-parser, error-handling
+

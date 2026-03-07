@@ -1,0 +1,117 @@
+
+○ emacs-21wx · Add input validation to bash-parser public API   [● P3 · OPEN]
+Owner: Jeff Farr · Type: task
+Created: 2026-03-06 · Updated: 2026-03-06
+
+DESCRIPTION
+Add argument type and range validation to public API functions.
+
+Currently public functions don't validate arguments, which can lead to cryptic errors deep in call stacks. Validation at API boundaries provides better error messages.
+
+Files to modify:
+- config/experiments/bash-parser/bash-parser-core.org (and .el)
+- config/experiments/bash-parser/bash-parser-file-ops.org (and .el)
+- config/experiments/bash-parser/bash-parser-glob.org (and .el)
+- config/experiments/bash-parser/bash-parser-security.org (and .el)
+
+Public functions needing validation:
+
+1. jf/bash-parse (bash-parser-core.el:38)
+   Validate: command-string is string
+   ```elisp
+   (defun jf/bash-parse (command-string)
+     (unless (stringp command-string)
+       (signal 'wrong-type-argument (list 'stringp command-string)))
+     ...)
+   ```
+
+2. jf/bash-extract-file-operations (bash-parser-file-ops.el:148)
+   Validate: parsed-command is plist with :success key
+   Validate: var-context is alist or nil
+   ```elisp
+   (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
+     (unless (and (listp parsed-command)
+                 (plist-member parsed-command :success))
+       (error "Invalid parsed-command: expected plist with :success key"))
+     (when (and var-context
+               (not (jf/bash--valid-var-context-p var-context)))
+       (error "Invalid var-context: expected alist of (SYMBOL . STRING)"))
+     ...)
+   ```
+
+3. jf/bash-glob-match-p (bash-parser-glob.el:203)
+   Validate: path and pattern are strings
+   ```elisp
+   (defun jf/bash-glob-match-p (path pattern)
+     (unless (and (stringp path) (stringp pattern))
+       (signal 'wrong-type-argument (list 'stringp (if (stringp path) pattern path))))
+     ...)
+   ```
+
+4. jf/bash-sandbox-check (bash-parser-security.el:254)
+   Validate: command-string is string
+   Validate: rules is list of plists
+   Validate: indirect-policy is valid symbol
+
+Helper for var-context validation:
+```elisp
+(defun jf/bash--valid-var-context-p (context)
+  "Return t if CONTEXT is valid variable context alist.
+Valid format: ((SYMBOL . STRING) ...)"
+  (and (listp context)
+       (seq-every-p
+        (lambda (binding)
+          (and (consp binding)
+               (symbolp (car binding))
+               (stringp (cdr binding))))
+        context)))
+```
+
+Implementation approach:
+1. Add validation at start of each public function
+2. Use signal for type errors (standard Emacs convention)
+3. Use error for semantic validation (invalid structure)
+4. Provide clear error messages with examples
+5. Consider adding jf/bash--validate-parsed-command helper
+
+Error message examples:
+```elisp
+;; Good error messages
+(error "Invalid parsed-command: expected plist with :success key, got: %S"
+       parsed-command)
+
+(error "Invalid var-context at index %d: expected (SYMBOL . STRING), got: %S"
+       i (nth i var-context))
+
+;; Signal for type errors
+(signal 'wrong-type-argument (list 'stringp command-string))
+```
+
+Design rationale:
+- Fail fast at API boundary, not deep in call stack
+- Better error messages for users
+- Easier debugging (error points to call site)
+- Documents expected types in code
+- Standard Emacs Lisp practice
+
+Validation strategy:
+- Type validation: Use signal 'wrong-type-argument (Emacs standard)
+- Structure validation: Use error with descriptive message
+- Only validate public API (not internal helpers - they trust callers)
+- Keep validation fast (type checks only, no deep inspection)
+
+Trade-offs:
+- Pro: Better error messages, clearer contracts
+- Pro: Catches bugs earlier in development
+- Con: Small performance cost (type checks)
+- Con: More code (5-10 lines per function)
+
+Decision: Add validation - the debugging time saved outweighs the costs.
+
+Verification:
+- Test with invalid inputs, verify error messages are clear
+- Test with valid inputs, verify no performance regression
+- Run full test suite - should still pass
+
+LABELS: 26-03-06-review, bash-parser, validation
+
