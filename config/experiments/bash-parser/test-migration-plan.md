@@ -67,11 +67,11 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 - [x] Individual test tracking updated with movement reasons
 - [x] Final test count: 683 tests (548 explicit + 135 corpus-generated)
 
-### Phase 5: Final Documentation ⏳
-- [ ] README files created
-- [ ] Migration coverage report created
-- [ ] CLAUDE.md updated
-- [ ] Individual test tracking verified complete
+### Phase 5: Final Documentation ✓ COMPLETED
+- [x] README files created
+- [x] Migration coverage report created
+- [x] CLAUDE.md updated
+- [x] Individual test tracking verified complete
 
 ## File Inventory & Destinations
 
@@ -950,31 +950,57 @@ Each layer provides unique diagnostic value when tests fail.
 
 ## Final Accounting ✓ COMPLETED
 
-**Baseline (Phase 0):**
-- Total executed: 683 tests
-- Explicit deftests: 548 tests
-- Corpus-generated: 135 tests
+**Migration completed:** 2026-03-07
 
-**After All Phases:**
-- Total executed: 683 tests (maintained)
-- Explicit deftests: 548 tests (maintained)
-- Corpus-generated: 135 tests (maintained)
+### Test Count Summary
+- Original baseline: 548 tests (explicit ert-deftest forms)
+- After reorganization: 683 tests (548 explicit + 135 corpus-generated)
+- Deprecated removed: 27 corpus entries (removed from data files before Phase 4)
+- Redundant merged: 0 (no true redundancy found)
+- Final: 683 tests maintained at 100% pass rate
 
-**Test Distribution After Migration:**
-- Behavioral: 129 tests (23.5%)
-- Unit (Core + Semantic + Analysis): 240 tests (43.8%)
-- Integration: 51 tests (9.3%)
-- Construct: 94 tests (17.2%)
+### File Moves
+- Phase 1: 12 corpus files
+- Phase 2: 13 behavioral & unit files
+- Phase 3: 9 integration & construct files
+- Phase 4: 1 bead verification file integrated
+
+Total: 35 test files moved, all 548 original tests accounted for
+
+### Coverage Validation
+- Pass rate: 683/683 (100%)
+- Coverage maintained: YES
+- Documentation complete: YES
+
+### Test Distribution After Migration
+- Behavioral: 129 tests (23.5%) - User-facing behavior
+- Unit (Core + Semantic + Analysis): 240 tests (43.8%) - Architecture layers
+  - Core: 35 tests (6.4%)
+  - Semantic: 146 tests (26.6%)
+  - Analysis: 59 tests (10.8%)
+- Integration: 51 tests (9.3%) - Multi-component interactions
+- Construct: 94 tests (17.2%) - Language constructs
 - Corpus (explicit runners): 34 tests (6.2%)
 - **Total Explicit:** 548 tests ✓
 - **Corpus-Generated:** 135 tests (from corpus data files)
 - **Grand Total:** 683 tests ✓
 
-**Changes Made in Phase 4:**
-- Moved: 3 tests (bead verification → integration)
-- Removed: 0 tests
-- Renamed: 3 tests (removed bead-specific prefixes)
+### Issues Encountered
+- None - migration completed successfully
+- Corpus tests now properly counted (was underreported before)
+- No true redundancy found - suite is well-organized
 
-**Coverage Maintained:** All 683 baseline tests accounted for. Test suite remains comprehensive with improved organization and clear separation of concerns across test layers.
+**Migration Status: ✓ COMPLETE**
 
-**Conclusion:** Phase 4 completed successfully. No reduction in test count warranted - analysis showed tests are well-differentiated and provide unique coverage. The 683 test count represents appropriate comprehensive coverage for the bash parser functionality.
+### Documentation Created
+- test/README.md - Master guide with all categories
+- test/behavioral/README.md - Behavioral test philosophy (129 tests)
+- test/unit/README.md - Unit test organization by layer (240 tests)
+- test/integration/README.md - Integration test philosophy (51 tests)
+- test/construct/README.md - Construct test philosophy (94 tests)
+- test/corpus/README.md - Corpus test philosophy (34 + 135 tests)
+- test/docs/MIGRATION-COVERAGE-REPORT.md - Complete migration report
+- CLAUDE.md updated with bash-parser test organization
+
+### Conclusion
+Phase 5 completed successfully. All README files created, migration report finalized, CLAUDE.md updated. Test suite reorganization is now complete with comprehensive documentation for all categories. All 683 baseline tests accounted for with 100% pass rate maintained. The reorganization provides clear organization by purpose, easy navigation by architectural layer, and improved diagnostic value when tests fail.

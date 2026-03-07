@@ -130,6 +130,22 @@ make emacs-test-eval EVAL_CMD="(jf/test-run-all-batch)"
 - Tests co-located with modules (easy navigation)
 - Automatic discovery (no manual test registration)
 
+**Bash-parser test organization:** `config/experiments/bash-parser/test/`
+- `behavioral/` - User-facing scenarios from specs (WHAT) - 129 tests
+- `unit/{core,semantic,analysis}/` - Module tests by architecture layer (HOW) - 240 tests
+- `integration/` - Multi-module interactions - 51 tests
+- `construct/` - Bash construct-specific tests - 94 tests
+- `corpus/{data,runners}/` - Test data and corpus-driven tests - 34 + 135 tests
+
+**Running bash-parser tests:**
+```bash
+# All tests
+./bin/run-tests.sh -d config/experiments/bash-parser
+
+# Specific category
+./bin/run-tests.sh -d config/experiments/bash-parser/test/behavioral
+```
+
 ### GPTEL Architecture
 
 Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
