@@ -3,7 +3,7 @@
 ;; ERT tests for bash-parser command injection pattern detection
 ;; Tests cover: bash -c, sh -c, env -S patterns with nested command parsing
 
-(require 'test-helper (expand-file-name "test-helper.el"
+(require 'test-helper (expand-file-name "../test-helper.el"
                                         (file-name-directory load-file-name)))
 
 ;;; Test Suite

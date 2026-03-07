@@ -18,7 +18,7 @@
 
 ;;; Code:
 
-(require 'test-helper (expand-file-name "test-helper.el"
+(require 'test-helper (expand-file-name "../../test-helper.el"
                                         (file-name-directory load-file-name)))
 
 ;;; Single-Level Wildcard (*) Tests

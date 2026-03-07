@@ -48,12 +48,12 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 - [x] Corpus index moved (1 file)
 - [x] Individual test tracking updated for moved tests
 
-### Phase 2: Behavioral & Unit ⏳
-- [ ] Behavioral tests moved (4 files, 129 tests)
-- [ ] Unit/core tests moved (1 file, 35 tests)
-- [ ] Unit/semantic tests moved (5 files, 146 tests)
-- [ ] Unit/analysis tests moved (3 files, 59 tests)
-- [ ] Individual test tracking updated for each moved test
+### Phase 2: Behavioral & Unit ✓ COMPLETED
+- [x] Behavioral tests moved (4 files, 129 tests)
+- [x] Unit/core tests moved (1 file, 35 tests)
+- [x] Unit/semantic tests moved (5 files, 146 tests)
+- [x] Unit/analysis tests moved (3 files, 59 tests)
+- [x] Individual test tracking updated for each moved test
 
 ### Phase 3: Integration & Construct ⏳
 - [ ] Integration tests moved (4 files, 48 tests)
@@ -100,25 +100,25 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 ### Phase 2: Behavioral & Unit Tests (13 files, 369 explicit tests)
 
 **Behavioral Tests (4 files → behavioral/)**
-- test/test-file-operations.el → behavioral/ | 49 tests | MOVE | ⏳ Pending
-- test/test-security-validator.el → behavioral/ | 60 tests | MOVE | ⏳ Pending
-- test/test-command-injection.el → behavioral/ | 7 tests | MOVE | ⏳ Pending
-- test/test-backward-compatibility.el → behavioral/ | 13 tests | MOVE | ⏳ Pending
+- test/test-file-operations.el → behavioral/ | 49 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-security-validator.el → behavioral/ | 60 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-command-injection.el → behavioral/ | 7 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-backward-compatibility.el → behavioral/ | 13 tests | MOVE | ✓ Completed (Phase 2)
 
 **Unit - Core Layer (1 file → unit/core/)**
-- test/test-glob-matching.el → unit/core/ | 35 tests | MOVE | ⏳ Pending
+- test/test-glob-matching.el → unit/core/ | 35 tests | MOVE | ✓ Completed (Phase 2)
 
 **Unit - Semantic Layer (5 files → unit/semantic/)**
-- test/test-command-semantics.el → unit/semantic/ | 68 tests | MOVE | ⏳ Pending
-- test/test-bash-parser-semantics.el → unit/semantic/ | 27 tests | MOVE | ⏳ Pending
-- test/test-semantics-validation.el → unit/semantic/ | 11 tests | MOVE | ⏳ Pending
-- test/test-variable-resolution-unit.el → unit/semantic/ | 36 tests | MOVE | ⏳ Pending
-- test/test-variable-chain-ampersand.el → unit/semantic/ | 4 tests | MOVE | ⏳ Pending
+- test/test-command-semantics.el → unit/semantic/ | 68 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-bash-parser-semantics.el → unit/semantic/ | 27 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-semantics-validation.el → unit/semantic/ | 11 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-variable-resolution-unit.el → unit/semantic/ | 36 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-variable-chain-ampersand.el → unit/semantic/ | 4 tests | MOVE | ✓ Completed (Phase 2)
 
 **Unit - Analysis Layer (3 files → unit/analysis/)**
-- test/test-bash-parser-recursive.el → unit/analysis/ | 25 tests | MOVE | ⏳ Pending
-- test/test-parser-extension.el → unit/analysis/ | 26 tests | MOVE | ⏳ Pending
-- test/test-input-validation.el → unit/analysis/ | 8 tests | MOVE | ⏳ Pending
+- test/test-bash-parser-recursive.el → unit/analysis/ | 25 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-parser-extension.el → unit/analysis/ | 26 tests | MOVE | ✓ Completed (Phase 2)
+- test/test-input-validation.el → unit/analysis/ | 8 tests | MOVE | ✓ Completed (Phase 2)
 
 ### Phase 3: Integration & Construct Tests (9 files, 142 tests)
 
@@ -161,81 +161,81 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-backward-compat-simple-read | ⏳ Pending | behavioral/ | |
-| test-backward-compat-simple-write | ⏳ Pending | behavioral/ | |
-| test-backward-compat-simple-delete | ⏳ Pending | behavioral/ | |
-| test-backward-compat-copy-command | ⏳ Pending | behavioral/ | |
-| test-backward-compat-pipeline | ⏳ Pending | behavioral/ | |
-| test-backward-compat-variable-resolution | ⏳ Pending | behavioral/ | |
-| test-backward-compat-unresolved-variables | ⏳ Pending | behavioral/ | |
-| test-backward-compat-corpus-read-operations | ⏳ Pending | behavioral/ | |
-| test-backward-compat-corpus-write-operations | ⏳ Pending | behavioral/ | |
-| test-backward-compat-corpus-delete-operations | ⏳ Pending | behavioral/ | |
-| test-feature-detection-recursive-analysis | ⏳ Pending | behavioral/ | |
-| test-feature-detection-pattern-flow | ⏳ Pending | behavioral/ | |
-| test-feature-detection-unknown-feature | ⏳ Pending | behavioral/ | |
+| test-backward-compat-simple-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-simple-write | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-simple-delete | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-copy-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-pipeline | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-variable-resolution | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-unresolved-variables | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-corpus-read-operations | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-corpus-write-operations | ✓ Moved | behavioral/ | Phase 2 |
+| test-backward-compat-corpus-delete-operations | ✓ Moved | behavioral/ | Phase 2 |
+| test-feature-detection-recursive-analysis | ✓ Moved | behavioral/ | Phase 2 |
+| test-feature-detection-pattern-flow | ✓ Moved | behavioral/ | Phase 2 |
+| test-feature-detection-unknown-feature | ✓ Moved | behavioral/ | Phase 2 |
 
 ### test-bash-parser-recursive.el (25 tests → unit/analysis/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-recursive-single-substitution | ⏳ Pending | unit/analysis/ | |
-| test-recursive-substitution-with-flags | ⏳ Pending | unit/analysis/ | |
-| test-recursive-substitution-grep | ⏳ Pending | unit/analysis/ | |
-| test-recursive-nested-substitution | ⏳ Pending | unit/analysis/ | |
-| test-recursive-nested-find | ⏳ Pending | unit/analysis/ | |
-| test-recursive-depth-limiting | ⏳ Pending | unit/analysis/ | |
-| test-recursive-depth-with-deep-nesting | ⏳ Pending | unit/analysis/ | |
-| test-recursive-depth-abort | ⏳ Pending | unit/analysis/ | |
-| test-recursive-command-substitution-in-args | ⏳ Pending | unit/analysis/ | |
-| test-recursive-mixed-quotes-substitution | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-basic | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-nested | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-command-substitution | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-pipeline | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-multiple-ops | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-invalid-syntax | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-empty-command | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-only-whitespace | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-disabled | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-depth-limit | ⏳ Pending | unit/analysis/ | |
-| test-recursive-extraction-variable-expansion | ⏳ Pending | unit/analysis/ | |
-| test-recursive-unmatched-quotes | ⏳ Pending | unit/analysis/ | |
-| test-recursive-empty-quotes | ⏳ Pending | unit/analysis/ | |
-| test-arithmetic-expansion-still-works | ⏳ Pending | unit/analysis/ | |
-| test-recursive-analysis-skips-functions | ⏳ Pending | unit/analysis/ | |
+| test-recursive-single-substitution | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-substitution-with-flags | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-substitution-grep | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-nested-substitution | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-nested-find | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-depth-limiting | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-depth-with-deep-nesting | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-depth-abort | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-command-substitution-in-args | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-mixed-quotes-substitution | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-basic | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-nested | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-command-substitution | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-pipeline | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-multiple-ops | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-invalid-syntax | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-empty-command | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-only-whitespace | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-disabled | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-depth-limit | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-extraction-variable-expansion | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-unmatched-quotes | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-empty-quotes | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-arithmetic-expansion-still-works | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-recursive-analysis-skips-functions | ✓ Moved | unit/analysis/ | Phase 2 |
 
 ### test-bash-parser-semantics.el (27 tests → unit/semantic/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-file-operation-basic-read | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-basic-write | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-basic-delete | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-copy | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-move | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-make-directory | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-remove-directory | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-find-read | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-find-delete | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-pipeline-read-then-write | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-pipeline-intermediate-read | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-command-substitution-read | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-nested-command-substitution | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-variable-in-path | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-no-variable-resolution-literal | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-glob-expansion-read | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-glob-expansion-delete | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-redirect-write | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-redirect-append | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-redirect-heredoc | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-brace-expansion | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-tilde-expansion | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-multiple-ops-same-command | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-complex-pipeline-multiple-ops | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-find-exec-complex | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-ls-is-no-op | ⏳ Pending | unit/semantic/ | |
-| test-file-operation-echo-is-no-op | ⏳ Pending | unit/semantic/ | |
+| test-file-operation-basic-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-basic-write | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-basic-delete | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-copy | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-move | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-make-directory | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-remove-directory | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-find-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-find-delete | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-pipeline-read-then-write | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-pipeline-intermediate-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-command-substitution-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-nested-command-substitution | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-variable-in-path | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-no-variable-resolution-literal | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-glob-expansion-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-glob-expansion-delete | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-redirect-write | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-redirect-append | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-redirect-heredoc | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-brace-expansion | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-tilde-expansion | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-multiple-ops-same-command | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-complex-pipeline-multiple-ops | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-find-exec-complex | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-ls-is-no-op | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-file-operation-echo-is-no-op | ✓ Moved | unit/semantic/ | Phase 2 |
 
 ### test-bead-3kgg-verification.el (3 tests → TBD)
 
@@ -249,86 +249,86 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-injection-basic-semicolon | ⏳ Pending | behavioral/ | |
-| test-injection-ampersand-background | ⏳ Pending | behavioral/ | |
-| test-injection-pipe-to-shell | ⏳ Pending | behavioral/ | |
-| test-injection-command-substitution | ⏳ Pending | behavioral/ | |
-| test-injection-nested-quotes | ⏳ Pending | behavioral/ | |
-| test-injection-multiline-commands | ⏳ Pending | behavioral/ | |
-| test-injection-metadata-validation | ⏳ Pending | behavioral/ | |
+| test-injection-basic-semicolon | ✓ Moved | behavioral/ | Phase 2 |
+| test-injection-ampersand-background | ✓ Moved | behavioral/ | Phase 2 |
+| test-injection-pipe-to-shell | ✓ Moved | behavioral/ | Phase 2 |
+| test-injection-command-substitution | ✓ Moved | behavioral/ | Phase 2 |
+| test-injection-nested-quotes | ✓ Moved | behavioral/ | Phase 2 |
+| test-injection-multiline-commands | ✓ Moved | behavioral/ | Phase 2 |
+| test-injection-metadata-validation | ✓ Moved | behavioral/ | Phase 2 |
 
 ### test-command-semantics.el (68 tests → unit/semantic/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-command-semantic-read-cat | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-head | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-tail | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-grep | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-less | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-more | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-write-echo-redirect | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-write-printf-redirect | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-write-tee | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-write-dd | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-delete-rm | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-delete-rm-rf | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-delete-find-delete | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-copy-cp | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-copy-cp-r | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-move-mv | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-archive-tar-c | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-archive-tar-x | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-archive-zip | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-archive-unzip | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-modify-sed | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-modify-awk | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-modify-perl-pie | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-no-op-echo-no-redirect | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-no-op-ls | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-no-op-pwd | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-no-op-cd | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-vim-readonly | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-write-vim-write | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-modify-vim-substitute | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-emacs-find-file | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-write-emacs-write-file | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-read-nano | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-directory-mkdir | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-directory-rmdir | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-directory-rm-rf | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-read-log | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-read-show | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-read-diff | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-write-add | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-write-commit | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-write-checkout | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-delete-rm | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-git-delete-clean | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-rsync-copy | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-scp-copy | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-curl-read | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-wget-read | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-curl-write | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-find-read-plain | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-find-read-with-cat | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-find-delete-plain | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-unknown-command | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-complex-git-chain | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-docker-read-logs | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-docker-write-cp | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-docker-exec-write | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-npm-read-list | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-npm-write-install | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-make-read-targets | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-make-write-build | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-python-read-module | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-python-write-pip-install | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-jq-read | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-jq-modify | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-xargs-passthrough | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-sort-no-op | ⏳ Pending | unit/semantic/ | |
-| test-command-semantic-uniq-no-op | ⏳ Pending | unit/semantic/ | |
+| test-command-semantic-read-cat | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-head | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-tail | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-grep | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-less | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-more | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-write-echo-redirect | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-write-printf-redirect | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-write-tee | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-write-dd | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-delete-rm | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-delete-rm-rf | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-delete-find-delete | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-copy-cp | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-copy-cp-r | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-move-mv | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-archive-tar-c | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-archive-tar-x | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-archive-zip | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-archive-unzip | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-modify-sed | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-modify-awk | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-modify-perl-pie | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-no-op-echo-no-redirect | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-no-op-ls | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-no-op-pwd | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-no-op-cd | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-vim-readonly | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-write-vim-write | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-modify-vim-substitute | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-emacs-find-file | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-write-emacs-write-file | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-read-nano | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-directory-mkdir | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-directory-rmdir | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-directory-rm-rf | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-read-log | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-read-show | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-read-diff | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-write-add | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-write-commit | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-write-checkout | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-delete-rm | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-git-delete-clean | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-rsync-copy | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-scp-copy | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-curl-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-wget-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-curl-write | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-find-read-plain | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-find-read-with-cat | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-find-delete-plain | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-unknown-command | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-complex-git-chain | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-docker-read-logs | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-docker-write-cp | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-docker-exec-write | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-npm-read-list | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-npm-write-install | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-make-read-targets | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-make-write-build | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-python-read-module | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-python-write-pip-install | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-jq-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-jq-modify | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-xargs-passthrough | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-sort-no-op | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-command-semantic-uniq-no-op | ✓ Moved | unit/semantic/ | Phase 2 |
 
 ### test-command-substitution.el (28 tests → integration/)
 
@@ -431,95 +431,95 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-extraction-simple-read-command | ⏳ Pending | behavioral/ | |
-| test-extraction-simple-write-command | ⏳ Pending | behavioral/ | |
-| test-extraction-simple-delete-command | ⏳ Pending | behavioral/ | |
-| test-extraction-copy-command | ⏳ Pending | behavioral/ | |
-| test-extraction-move-command | ⏳ Pending | behavioral/ | |
-| test-extraction-tar-archive-create | ⏳ Pending | behavioral/ | |
-| test-extraction-tar-archive-extract | ⏳ Pending | behavioral/ | |
-| test-extraction-multiple-paths-same-command | ⏳ Pending | behavioral/ | |
-| test-extraction-pipeline-read-write | ⏳ Pending | behavioral/ | |
-| test-extraction-pipeline-intermediate-read | ⏳ Pending | behavioral/ | |
-| test-extraction-command-substitution-read | ⏳ Pending | behavioral/ | |
-| test-extraction-nested-command-substitution | ⏳ Pending | behavioral/ | |
-| test-extraction-variable-in-path | ⏳ Pending | behavioral/ | |
-| test-extraction-unresolved-variable | ⏳ Pending | behavioral/ | |
-| test-extraction-multiple-variables | ⏳ Pending | behavioral/ | |
-| test-extraction-variable-and-literal-mix | ⏳ Pending | behavioral/ | |
-| test-extraction-glob-pattern-read | ⏳ Pending | behavioral/ | |
-| test-extraction-glob-pattern-delete | ⏳ Pending | behavioral/ | |
-| test-extraction-redirect-write | ⏳ Pending | behavioral/ | |
-| test-extraction-redirect-append | ⏳ Pending | behavioral/ | |
-| test-extraction-redirect-heredoc | ⏳ Pending | behavioral/ | |
-| test-extraction-redirect-input | ⏳ Pending | behavioral/ | |
-| test-extraction-brace-expansion | ⏳ Pending | behavioral/ | |
-| test-extraction-tilde-expansion | ⏳ Pending | behavioral/ | |
-| test-extraction-find-exec-read | ⏳ Pending | behavioral/ | |
-| test-extraction-find-exec-delete | ⏳ Pending | behavioral/ | |
-| test-extraction-complex-find-command | ⏳ Pending | behavioral/ | |
-| test-extraction-sed-modify | ⏳ Pending | behavioral/ | |
-| test-extraction-awk-modify | ⏳ Pending | behavioral/ | |
-| test-extraction-vim-edit | ⏳ Pending | behavioral/ | |
-| test-extraction-git-operations | ⏳ Pending | behavioral/ | |
-| test-extraction-rsync-copy | ⏳ Pending | behavioral/ | |
-| test-extraction-docker-operations | ⏳ Pending | behavioral/ | |
-| test-extraction-npm-operations | ⏳ Pending | behavioral/ | |
-| test-extraction-curl-read | ⏳ Pending | behavioral/ | |
-| test-extraction-wget-read | ⏳ Pending | behavioral/ | |
-| test-extraction-no-ops-echo | ⏳ Pending | behavioral/ | |
-| test-extraction-no-ops-ls | ⏳ Pending | behavioral/ | |
-| test-extraction-empty-command | ⏳ Pending | behavioral/ | |
-| test-extraction-only-whitespace | ⏳ Pending | behavioral/ | |
-| test-extraction-complex-multiline | ⏳ Pending | behavioral/ | |
-| test-extraction-confidence-scoring-read | ⏳ Pending | behavioral/ | |
-| test-extraction-confidence-scoring-variable | ⏳ Pending | behavioral/ | |
-| test-extraction-confidence-scoring-glob | ⏳ Pending | behavioral/ | |
-| test-extraction-metadata-structure | ⏳ Pending | behavioral/ | |
-| test-extraction-metadata-completeness | ⏳ Pending | behavioral/ | |
-| test-extraction-result-format | ⏳ Pending | behavioral/ | |
-| test-extraction-error-propagation | ⏳ Pending | behavioral/ | |
-| test-extraction-disabled-recursive | ⏳ Pending | behavioral/ | |
+| test-extraction-simple-read-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-simple-write-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-simple-delete-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-copy-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-move-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-tar-archive-create | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-tar-archive-extract | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-multiple-paths-same-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-pipeline-read-write | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-pipeline-intermediate-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-command-substitution-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-nested-command-substitution | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-variable-in-path | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-unresolved-variable | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-multiple-variables | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-variable-and-literal-mix | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-glob-pattern-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-glob-pattern-delete | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-redirect-write | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-redirect-append | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-redirect-heredoc | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-redirect-input | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-brace-expansion | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-tilde-expansion | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-find-exec-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-find-exec-delete | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-complex-find-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-sed-modify | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-awk-modify | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-vim-edit | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-git-operations | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-rsync-copy | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-docker-operations | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-npm-operations | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-curl-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-wget-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-no-ops-echo | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-no-ops-ls | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-empty-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-only-whitespace | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-complex-multiline | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-confidence-scoring-read | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-confidence-scoring-variable | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-confidence-scoring-glob | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-metadata-structure | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-metadata-completeness | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-result-format | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-error-propagation | ✓ Moved | behavioral/ | Phase 2 |
+| test-extraction-disabled-recursive | ✓ Moved | behavioral/ | Phase 2 |
 
 ### test-glob-matching.el (35 tests → unit/core/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-glob-basic-wildcard | ⏳ Pending | unit/core/ | |
-| test-glob-question-mark | ⏳ Pending | unit/core/ | |
-| test-glob-character-class | ⏳ Pending | unit/core/ | |
-| test-glob-negated-character-class | ⏳ Pending | unit/core/ | |
-| test-glob-range-character-class | ⏳ Pending | unit/core/ | |
-| test-glob-multiple-wildcards | ⏳ Pending | unit/core/ | |
-| test-glob-leading-wildcard | ⏳ Pending | unit/core/ | |
-| test-glob-trailing-wildcard | ⏳ Pending | unit/core/ | |
-| test-glob-middle-wildcard | ⏳ Pending | unit/core/ | |
-| test-glob-literal-match | ⏳ Pending | unit/core/ | |
-| test-glob-no-match | ⏳ Pending | unit/core/ | |
-| test-glob-path-separator | ⏳ Pending | unit/core/ | |
-| test-glob-relative-path | ⏳ Pending | unit/core/ | |
-| test-glob-absolute-path | ⏳ Pending | unit/core/ | |
-| test-glob-tilde-expansion | ⏳ Pending | unit/core/ | |
-| test-glob-with-extension | ⏳ Pending | unit/core/ | |
-| test-glob-multiple-extensions | ⏳ Pending | unit/core/ | |
-| test-glob-hidden-files | ⏳ Pending | unit/core/ | |
-| test-glob-dotfiles-explicit | ⏳ Pending | unit/core/ | |
-| test-glob-complex-pattern | ⏳ Pending | unit/core/ | |
-| test-glob-special-chars-escape | ⏳ Pending | unit/core/ | |
-| test-glob-empty-pattern | ⏳ Pending | unit/core/ | |
-| test-glob-whitespace-pattern | ⏳ Pending | unit/core/ | |
-| test-glob-pattern-with-spaces | ⏳ Pending | unit/core/ | |
-| test-glob-after-command | ⏳ Pending | unit/core/ | |
-| test-glob-in-middle-of-arg | ⏳ Pending | unit/core/ | |
-| test-glob-multiple-patterns-same-arg | ⏳ Pending | unit/core/ | |
-| test-glob-in-quoted-string | ⏳ Pending | unit/core/ | |
-| test-glob-in-double-quotes | ⏳ Pending | unit/core/ | |
-| test-glob-mixed-quotes | ⏳ Pending | unit/core/ | |
-| test-glob-brace-expansion | ⏳ Pending | unit/core/ | |
-| test-glob-extended-glob | ⏳ Pending | unit/core/ | |
-| test-glob-with-redirect | ⏳ Pending | unit/core/ | |
-| test-glob-with-pipeline | ⏳ Pending | unit/core/ | |
-| test-glob-case-sensitivity | ⏳ Pending | unit/core/ | |
+| test-glob-basic-wildcard | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-question-mark | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-character-class | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-negated-character-class | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-range-character-class | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-multiple-wildcards | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-leading-wildcard | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-trailing-wildcard | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-middle-wildcard | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-literal-match | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-no-match | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-path-separator | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-relative-path | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-absolute-path | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-tilde-expansion | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-with-extension | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-multiple-extensions | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-hidden-files | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-dotfiles-explicit | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-complex-pattern | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-special-chars-escape | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-empty-pattern | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-whitespace-pattern | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-pattern-with-spaces | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-after-command | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-in-middle-of-arg | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-multiple-patterns-same-arg | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-in-quoted-string | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-in-double-quotes | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-mixed-quotes | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-brace-expansion | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-extended-glob | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-with-redirect | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-with-pipeline | ✓ Moved | unit/core/ | Phase 2 |
+| test-glob-case-sensitivity | ✓ Moved | unit/core/ | Phase 2 |
 
 ### test-heredoc-context.el (10 tests → construct/)
 
@@ -540,14 +540,14 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-input-validation-empty-string | ⏳ Pending | unit/analysis/ | |
-| test-input-validation-whitespace-only | ⏳ Pending | unit/analysis/ | |
-| test-input-validation-nil-input | ⏳ Pending | unit/analysis/ | |
-| test-input-validation-very-long-command | ⏳ Pending | unit/analysis/ | |
-| test-input-validation-special-characters | ⏳ Pending | unit/analysis/ | |
-| test-input-validation-unicode | ⏳ Pending | unit/analysis/ | |
-| test-input-validation-binary-data | ⏳ Pending | unit/analysis/ | |
-| test-input-validation-newlines | ⏳ Pending | unit/analysis/ | |
+| test-input-validation-empty-string | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-input-validation-whitespace-only | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-input-validation-nil-input | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-input-validation-very-long-command | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-input-validation-special-characters | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-input-validation-unicode | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-input-validation-binary-data | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-input-validation-newlines | ✓ Moved | unit/analysis/ | Phase 2 |
 
 ### test-loop-context.el (9 tests → construct/)
 
@@ -567,32 +567,32 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-extension-register-command | ⏳ Pending | unit/analysis/ | |
-| test-extension-register-multiple-commands | ⏳ Pending | unit/analysis/ | |
-| test-extension-override-builtin | ⏳ Pending | unit/analysis/ | |
-| test-extension-custom-semantic-read | ⏳ Pending | unit/analysis/ | |
-| test-extension-custom-semantic-write | ⏳ Pending | unit/analysis/ | |
-| test-extension-custom-semantic-delete | ⏳ Pending | unit/analysis/ | |
-| test-extension-custom-semantic-no-op | ⏳ Pending | unit/analysis/ | |
-| test-extension-custom-pattern-handler | ⏳ Pending | unit/analysis/ | |
-| test-extension-command-with-flags | ⏳ Pending | unit/analysis/ | |
-| test-extension-command-with-complex-args | ⏳ Pending | unit/analysis/ | |
-| test-extension-priority-ordering | ⏳ Pending | unit/analysis/ | |
-| test-extension-fallback-to-default | ⏳ Pending | unit/analysis/ | |
-| test-extension-nil-handler-fallback | ⏳ Pending | unit/analysis/ | |
-| test-extension-error-handling | ⏳ Pending | unit/analysis/ | |
-| test-extension-handler-returns-nil | ⏳ Pending | unit/analysis/ | |
-| test-extension-handler-returns-empty-list | ⏳ Pending | unit/analysis/ | |
-| test-extension-handler-modifies-metadata | ⏳ Pending | unit/analysis/ | |
-| test-extension-integration-with-pipeline | ⏳ Pending | unit/analysis/ | |
-| test-extension-integration-with-variables | ⏳ Pending | unit/analysis/ | |
-| test-extension-integration-with-globs | ⏳ Pending | unit/analysis/ | |
-| test-extension-chained-handlers | ⏳ Pending | unit/analysis/ | |
-| test-extension-conditional-handling | ⏳ Pending | unit/analysis/ | |
-| test-extension-context-preservation | ⏳ Pending | unit/analysis/ | |
-| test-extension-clear-extensions | ⏳ Pending | unit/analysis/ | |
-| test-extension-list-registered | ⏳ Pending | unit/analysis/ | |
-| test-extension-query-by-command | ⏳ Pending | unit/analysis/ | |
+| test-extension-register-command | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-register-multiple-commands | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-override-builtin | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-custom-semantic-read | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-custom-semantic-write | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-custom-semantic-delete | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-custom-semantic-no-op | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-custom-pattern-handler | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-command-with-flags | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-command-with-complex-args | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-priority-ordering | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-fallback-to-default | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-nil-handler-fallback | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-error-handling | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-handler-returns-nil | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-handler-returns-empty-list | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-handler-modifies-metadata | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-integration-with-pipeline | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-integration-with-variables | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-integration-with-globs | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-chained-handlers | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-conditional-handling | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-context-preservation | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-clear-extensions | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-list-registered | ✓ Moved | unit/analysis/ | Phase 2 |
+| test-extension-query-by-command | ✓ Moved | unit/analysis/ | Phase 2 |
 
 ### test-pattern-flow.el (10 tests → integration/)
 
@@ -647,82 +647,82 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-security-dangerous-rm-root | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-rm-rf-root | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-rm-star-root | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-rm-recursive-slash | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-dd-device | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-mkfs | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-format-device | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-fork-bomb | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-chmod-777-recursive | ⏳ Pending | behavioral/ | |
-| test-security-dangerous-chown-recursive-root | ⏳ Pending | behavioral/ | |
-| test-security-safe-rm-specific-file | ⏳ Pending | behavioral/ | |
-| test-security-safe-rm-rf-subdirectory | ⏳ Pending | behavioral/ | |
-| test-security-safe-dd-specific-file | ⏳ Pending | behavioral/ | |
-| test-security-safe-chmod-specific-file | ⏳ Pending | behavioral/ | |
-| test-security-safe-chown-specific-file | ⏳ Pending | behavioral/ | |
-| test-security-injection-semicolon | ⏳ Pending | behavioral/ | |
-| test-security-injection-ampersand | ⏳ Pending | behavioral/ | |
-| test-security-injection-pipe | ⏳ Pending | behavioral/ | |
-| test-security-injection-backticks | ⏳ Pending | behavioral/ | |
-| test-security-injection-dollar-paren | ⏳ Pending | behavioral/ | |
-| test-security-injection-logical-and | ⏳ Pending | behavioral/ | |
-| test-security-injection-logical-or | ⏳ Pending | behavioral/ | |
-| test-security-injection-redirect-overwrite | ⏳ Pending | behavioral/ | |
-| test-security-injection-redirect-append | ⏳ Pending | behavioral/ | |
-| test-security-injection-heredoc | ⏳ Pending | behavioral/ | |
-| test-security-safe-simple-command | ⏳ Pending | behavioral/ | |
-| test-security-safe-with-arguments | ⏳ Pending | behavioral/ | |
-| test-security-safe-pipeline-no-injection | ⏳ Pending | behavioral/ | |
-| test-security-safe-quoted-arguments | ⏳ Pending | behavioral/ | |
-| test-security-safe-escaped-chars | ⏳ Pending | behavioral/ | |
-| test-security-path-traversal-dotdot | ⏳ Pending | behavioral/ | |
-| test-security-path-traversal-absolute | ⏳ Pending | behavioral/ | |
-| test-security-path-traversal-tilde | ⏳ Pending | behavioral/ | |
-| test-security-path-traversal-symbolic-link | ⏳ Pending | behavioral/ | |
-| test-security-path-traversal-device | ⏳ Pending | behavioral/ | |
-| test-security-safe-path-relative | ⏳ Pending | behavioral/ | |
-| test-security-safe-path-subdirectory | ⏳ Pending | behavioral/ | |
-| test-security-safe-path-workspace | ⏳ Pending | behavioral/ | |
-| test-security-network-curl-http | ⏳ Pending | behavioral/ | |
-| test-security-network-wget-http | ⏳ Pending | behavioral/ | |
-| test-security-network-nc-listen | ⏳ Pending | behavioral/ | |
-| test-security-network-ssh-command | ⏳ Pending | behavioral/ | |
-| test-security-network-scp-upload | ⏳ Pending | behavioral/ | |
-| test-security-network-rsync-remote | ⏳ Pending | behavioral/ | |
-| test-security-safe-network-localhost | ⏳ Pending | behavioral/ | |
-| test-security-safe-network-read-only | ⏳ Pending | behavioral/ | |
-| test-security-validation-result-structure | ⏳ Pending | behavioral/ | |
-| test-security-validation-multiple-violations | ⏳ Pending | behavioral/ | |
-| test-security-validation-empty-command | ⏳ Pending | behavioral/ | |
-| test-security-validation-nil-input | ⏳ Pending | behavioral/ | |
-| test-security-combined-dangerous-and-injection | ⏳ Pending | behavioral/ | |
-| test-security-combined-path-and-network | ⏳ Pending | behavioral/ | |
-| test-security-combined-multiple-issues | ⏳ Pending | behavioral/ | |
-| test-security-edge-case-very-long-command | ⏳ Pending | behavioral/ | |
-| test-security-edge-case-unicode | ⏳ Pending | behavioral/ | |
-| test-security-edge-case-special-chars | ⏳ Pending | behavioral/ | |
-| test-security-edge-case-whitespace-variants | ⏳ Pending | behavioral/ | |
-| test-security-metadata-severity-critical | ⏳ Pending | behavioral/ | |
-| test-security-metadata-severity-high | ⏳ Pending | behavioral/ | |
-| test-security-metadata-severity-medium | ⏳ Pending | behavioral/ | |
+| test-security-dangerous-rm-root | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-rm-rf-root | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-rm-star-root | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-rm-recursive-slash | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-dd-device | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-mkfs | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-format-device | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-fork-bomb | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-chmod-777-recursive | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-dangerous-chown-recursive-root | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-rm-specific-file | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-rm-rf-subdirectory | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-dd-specific-file | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-chmod-specific-file | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-chown-specific-file | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-semicolon | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-ampersand | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-pipe | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-backticks | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-dollar-paren | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-logical-and | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-logical-or | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-redirect-overwrite | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-redirect-append | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-injection-heredoc | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-simple-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-with-arguments | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-pipeline-no-injection | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-quoted-arguments | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-escaped-chars | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-path-traversal-dotdot | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-path-traversal-absolute | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-path-traversal-tilde | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-path-traversal-symbolic-link | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-path-traversal-device | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-path-relative | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-path-subdirectory | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-path-workspace | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-network-curl-http | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-network-wget-http | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-network-nc-listen | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-network-ssh-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-network-scp-upload | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-network-rsync-remote | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-network-localhost | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-safe-network-read-only | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-validation-result-structure | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-validation-multiple-violations | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-validation-empty-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-validation-nil-input | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-combined-dangerous-and-injection | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-combined-path-and-network | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-combined-multiple-issues | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-edge-case-very-long-command | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-edge-case-unicode | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-edge-case-special-chars | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-edge-case-whitespace-variants | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-metadata-severity-critical | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-metadata-severity-high | ✓ Moved | behavioral/ | Phase 2 |
+| test-security-metadata-severity-medium | ✓ Moved | behavioral/ | Phase 2 |
 
 ### test-semantics-validation.el (11 tests → unit/semantic/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-semantics-validation-valid-read | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-valid-write | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-valid-delete | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-valid-no-op | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-invalid-semantic-type | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-missing-command | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-missing-args | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-empty-result | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-nil-result | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-malformed-result | ⏳ Pending | unit/semantic/ | |
-| test-semantics-validation-result-consistency | ⏳ Pending | unit/semantic/ | |
+| test-semantics-validation-valid-read | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-valid-write | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-valid-delete | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-valid-no-op | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-invalid-semantic-type | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-missing-command | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-missing-args | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-empty-result | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-nil-result | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-malformed-result | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-semantics-validation-result-consistency | ✓ Moved | unit/semantic/ | Phase 2 |
 
 ### test-treesitter-workarounds.el (7 tests → integration/)
 
@@ -740,51 +740,51 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-variable-chain-ampersand-single | ⏳ Pending | unit/semantic/ | |
-| test-variable-chain-ampersand-double | ⏳ Pending | unit/semantic/ | |
-| test-variable-chain-ampersand-multiple | ⏳ Pending | unit/semantic/ | |
-| test-variable-chain-ampersand-mixed-with-pipe | ⏳ Pending | unit/semantic/ | |
+| test-variable-chain-ampersand-single | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-chain-ampersand-double | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-chain-ampersand-multiple | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-chain-ampersand-mixed-with-pipe | ✓ Moved | unit/semantic/ | Phase 2 |
 
 ### test-variable-resolution-unit.el (36 tests → unit/semantic/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-variable-resolution-simple | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-braces | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-multiple | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-in-path | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-concatenated | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-nested | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-with-default | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-with-assignment | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-substring | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-length | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-replacement | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-removal | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-case-modification | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-indirect | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-array-element | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-array-all | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-in-quotes | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-escaped | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-in-single-quotes | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-special-parameters | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-positional-parameters | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-unset-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-empty-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-readonly-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-exported-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-local-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-environment-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-home-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-path-variable | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-in-command-substitution | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-in-arithmetic | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-in-conditional | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-in-loop | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-complex-nested | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-metadata-confidence | ⏳ Pending | unit/semantic/ | |
-| test-variable-resolution-integration | ⏳ Pending | unit/semantic/ | |
+| test-variable-resolution-simple | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-braces | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-multiple | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-in-path | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-concatenated | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-nested | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-with-default | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-with-assignment | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-substring | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-length | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-replacement | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-removal | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-case-modification | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-indirect | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-array-element | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-array-all | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-in-quotes | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-escaped | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-in-single-quotes | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-special-parameters | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-positional-parameters | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-unset-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-empty-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-readonly-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-exported-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-local-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-environment-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-home-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-path-variable | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-in-command-substitution | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-in-arithmetic | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-in-conditional | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-in-loop | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-complex-nested | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-metadata-confidence | ✓ Moved | unit/semantic/ | Phase 2 |
+| test-variable-resolution-integration | ✓ Moved | unit/semantic/ | Phase 2 |
 
 ### test-corpus-parse.el (4 tests → corpus/runners/)
 

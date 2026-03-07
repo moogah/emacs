@@ -14,7 +14,7 @@
 ;; - test-recursive-substitution-grep (grep flag parsing)
 ;; - test-recursive-substitution-with-flags (find -type f flag parsing)
 
-(require 'test-helper (expand-file-name "test-helper.el"
+(require 'test-helper (expand-file-name "../../test-helper.el"
                                         (file-name-directory load-file-name)))
 
 ;;; Test Suite
