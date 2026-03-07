@@ -295,8 +295,8 @@ DEPTH parameter tracks current recursion depth."
          (parsed-commands (mapcar (lambda (node)
                                     (jf/bash-parse--parse-single-command-node node depth))
                                    command-nodes))
-         (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
-                                  parsed-commands)))
+         (any-dangerous (cl-some (lambda (cmd) (plist-get cmd :dangerous-p))
+                                parsed-commands)))
 
     ;; Check if pipeline is wrapped in redirected_statement
     (when-let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
