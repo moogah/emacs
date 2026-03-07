@@ -156,5 +156,178 @@ Orchestration behavior:
 
 (require 'bash-parser-coverage)
 
+(require 'bash-parser-file-ops)
+
+(defun jf/bash-plugin-filesystem--find-token-for-path (path tokens)
+  "Find token in TOKENS list matching PATH string.
+
+PATH is a file path string from an operation.
+TOKENS is the list of token plists from parsed command.
+
+Returns token ID if found, nil otherwise.
+
+Matching strategy:
+  - For literal paths: exact string match against token :value
+  - For variable references: match variable token types
+  - For patterns: match pattern token values"
+  (when (and path tokens)
+    (let ((found-token nil))
+      (dolist (token tokens)
+        (when (null found-token)
+          (let ((token-value (plist-get token :value))
+                (token-type (plist-get token :type))
+                (token-id (plist-get token :id)))
+            ;; Match exact path value
+            (when (and token-value (string= path token-value))
+              (setq found-token token-id)))))
+      found-token)))
+
+(defun jf/bash-plugin-filesystem--claim-redirection-tokens (parsed-command)
+  "Claim tokens for redirections in PARSED-COMMAND.
+
+PARSED-COMMAND is the parse result plist.
+
+Returns list of token IDs for all redirection tokens."
+  (let ((tokens (plist-get parsed-command :tokens))
+        (claimed-ids '()))
+    (when tokens
+      (dolist (token tokens)
+        (when (eq (plist-get token :type) :redirection)
+          (push (plist-get token :id) claimed-ids))))
+    (nreverse claimed-ids)))
+
+(defun jf/bash-plugin-filesystem--claim-operation-tokens (operations parsed-command)
+  "Claim tokens for file OPERATIONS in PARSED-COMMAND.
+
+OPERATIONS is list of operation plists from extraction.
+PARSED-COMMAND is the parse result plist.
+
+Returns list of claimed token IDs.
+
+Token claiming strategy:
+  - For redirection operations: claim redirection tokens
+  - For positional-arg operations: claim command-name and matching positional tokens
+  - For exec-block operations: claim command-name tokens in exec blocks"
+  (let ((tokens (plist-get parsed-command :tokens))
+        (claimed-ids '())
+        (command-name (plist-get parsed-command :command-name)))
+
+    ;; Claim redirection tokens
+    (setq claimed-ids (append claimed-ids
+                              (jf/bash-plugin-filesystem--claim-redirection-tokens parsed-command)))
+
+    ;; Claim tokens for each operation
+    (dolist (op operations)
+      (let* ((source (plist-get op :source))
+             (file (plist-get op :file))
+             (op-command (plist-get op :command)))
+
+        (pcase source
+          ;; Redirection operations already claimed above
+          (:redirection nil)
+
+          ;; Positional arg operations: claim command-name and file path tokens
+          (:positional-arg
+           ;; Claim command-name token if it matches operation command
+           (when (and command-name op-command (string= command-name op-command))
+             (dolist (token tokens)
+               (when (and (eq (plist-get token :type) :command-name)
+                          (string= (plist-get token :value) command-name))
+                 (push (plist-get token :id) claimed-ids))))
+
+           ;; Claim token for file path
+           (when-let ((token-id (jf/bash-plugin-filesystem--find-token-for-path file tokens)))
+             (push token-id claimed-ids)))
+
+          ;; Exec block operations: claim command-name and file path tokens
+          (:exec-block
+           (when op-command
+             (dolist (token tokens)
+               (when (and (eq (plist-get token :type) :command-name)
+                          (string= (plist-get token :value) op-command))
+                 (push (plist-get token :id) claimed-ids))))
+
+           (when-let ((token-id (jf/bash-plugin-filesystem--find-token-for-path file tokens)))
+             (push token-id claimed-ids)))
+
+          ;; Other sources: claim based on file path only
+          (_
+           (when-let ((token-id (jf/bash-plugin-filesystem--find-token-for-path file tokens)))
+             (push token-id claimed-ids))))))
+
+    ;; Remove duplicates and return
+    (delete-dups (nreverse claimed-ids))))
+
+(defun jf/bash-plugin-filesystem--has-file-tokens-p (parsed-command)
+  "Return t if PARSED-COMMAND has tokens indicating file operations.
+
+PARSED-COMMAND is the parse result plist with :tokens field.
+
+File operation indicators:
+  - Redirection tokens (>, >>, <, etc.)
+  - Commands known to operate on files
+
+Returns t if file operations likely present, nil otherwise.
+
+Note: We do NOT use presence of positional args as a predicate since many
+commands like echo, printf, etc. have positional args but don't operate on files."
+  (let ((tokens (plist-get parsed-command :tokens))
+        (command-name (plist-get parsed-command :command-name)))
+    (or
+     ;; Has redirection tokens
+     (seq-some (lambda (token)
+                 (eq (plist-get token :type) :redirection))
+               tokens)
+
+     ;; Command name suggests file operations
+     (and command-name
+          (member command-name
+                  '("cat" "ls" "rm" "cp" "mv" "touch" "mkdir"
+                    "grep" "find" "sed" "awk" "head" "tail"
+                    "chmod" "chown" "tar" "zip" "unzip"))))))
+
+(defun jf/bash-plugin-filesystem (parsed-command)
+  "Extract filesystem operations from PARSED-COMMAND using existing logic.
+
+PARSED-COMMAND is the parse result plist from jf/bash-parse.
+
+Returns jf/bash-plugin-result struct with:
+  - domain: :filesystem
+  - operations: List of file operation plists
+  - claimed-token-ids: List of token IDs for understood operations
+  - metadata: Plist with extraction metadata
+
+This plugin wraps jf/bash-extract-file-operations to validate the plugin
+architecture with existing mature extraction logic."
+  (condition-case err
+      (let* ((operations (jf/bash-extract-file-operations parsed-command nil))
+             (claimed-ids (jf/bash-plugin-filesystem--claim-operation-tokens
+                          operations parsed-command)))
+
+        (make-jf/bash-plugin-result
+         :domain :filesystem
+         :operations operations
+         :claimed-token-ids claimed-ids
+         :metadata (list :operation-count (length operations)
+                        :extraction-source 'jf/bash-extract-file-operations)))
+    (error
+     ;; Return nil on error - orchestrator will log and continue
+     (message "Filesystem plugin error: %s" (error-message-string err))
+     nil)))
+
+(defun jf/bash-register-filesystem-plugin ()
+  "Register the filesystem extraction plugin.
+
+Priority: 100 (universal predicates - high priority)
+Predicates: Check for file-related tokens
+Extractor: jf/bash-plugin-filesystem
+
+Call this function to activate the filesystem plugin."
+  (jf/bash-register-plugin
+   :name 'filesystem
+   :priority 100
+   :extractor #'jf/bash-plugin-filesystem
+   :predicates (list #'jf/bash-plugin-filesystem--has-file-tokens-p)))
+
 (provide 'bash-parser-plugins)
 ;;; bash-parser-plugins.el ends here
