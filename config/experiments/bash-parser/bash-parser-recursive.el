@@ -301,6 +301,11 @@ Example:
       (:file \"*.log\" :operation :match-pattern :from-substitution t ...)
       ;; Operation from cat (with pattern flow)
       (:file \"*.log\" :operation :read :pattern-source (:command \"find\" ...) ...))"
+  ;; Validate argument types upfront
+  (unless (listp parsed-command)
+    (signal 'wrong-type-argument (list 'listp parsed-command (type-of parsed-command))))
+  (unless (or (null var-context) (listp var-context))
+    (signal 'wrong-type-argument (list 'listp var-context (type-of var-context))))
   (condition-case err
       (catch 'depth-exceeded
         (let ((depth (or depth 0))
@@ -395,8 +400,8 @@ Example:
           (setq operations (jf/bash--normalize-dynamic-paths operations))
 
           operations))
-    (error (list :error (format "Recursive analysis error: %s" (error-message-string err))
-                 :success nil))))
+    (error (list :success nil
+                 :error (format "Recursive analysis error: %s" (error-message-string err))))))
 
 (defun jf/bash--extract-conditional-context-operations (parsed-conditional var-context depth)
   "Extract file operations from PARSED-CONDITIONAL with context tracking.
