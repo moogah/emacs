@@ -726,67 +726,65 @@ COMMAND-NAME is 'find', ARGS are all arguments, REDIRECTIONS are any redirection
 Returns a command structure with :exec-blocks field containing parsed exec commands."
   (let ((flags '())
         (positional-args '())
-        (exec-blocks '())
-        (i 0))
+        (exec-blocks '()))
 
-    (while (< i (length args))
-      (let ((arg (nth i args)))
-        (cond
-         ;; Start of exec block
-         ((or (string= arg "-exec") (string= arg "-execdir"))
-          (let ((exec-type arg)
-                (exec-words '())
-                (j (1+ i))
-                (found-terminator nil))
+    (cl-loop with i = 0
+             while (< i (length args))
+             do (let ((arg (nth i args)))
+                  (pcase arg
+                    ;; Start of exec block
+                    ((or "-exec" "-execdir")
+                     (let ((exec-type arg)
+                           (exec-words '())
+                           (found-terminator nil)
+                           (j (1+ i)))
 
-            ;; Collect words until we find \; or +
-            (while (and (< j (length args))
-                       (not found-terminator))
-              (let ((word (nth j args)))
-                (cond
-                 ;; Terminators
-                 ((or (string= word "\\;") (string= word ";")
-                      (string= word "+"))
-                  (setq found-terminator word)
-                  (setq j (1+ j)))
-                 ;; Regular word in exec block
-                 (t
-                  (push word exec-words)
-                  (setq j (1+ j))))))
+                       ;; Collect words until we find \; or +
+                       (cl-loop while (and (< j (length args))
+                                           (not found-terminator))
+                                do (let ((word (nth j args)))
+                                     (pcase word
+                                       ;; Terminators
+                                       ((or "\\;" ";" "+")
+                                        (setq found-terminator word)
+                                        (cl-incf j))
+                                       ;; Regular word in exec block
+                                       (_
+                                        (push word exec-words)
+                                        (cl-incf j)))))
 
-            ;; Parse the exec block as a command
-            (setq exec-words (nreverse exec-words))
-            (when exec-words
-              (let* ((exec-cmd-name (car exec-words))
-                     (exec-args (cdr exec-words))
-                     (exec-flags (jf/bash-parse--extract-flags exec-args))
-                     (exec-positional (jf/bash-parse--extract-positional-args exec-args))
-                     (exec-dangerous (jf/bash-parse--is-dangerous exec-cmd-name nil exec-flags)))
+                       ;; Parse the exec block as a command
+                       (setq exec-words (nreverse exec-words))
+                       (when exec-words
+                         (let* ((exec-cmd-name (car exec-words))
+                                (exec-args (cdr exec-words))
+                                (exec-flags (jf/bash-parse--extract-flags exec-args))
+                                (exec-positional (jf/bash-parse--extract-positional-args exec-args))
+                                (exec-dangerous (jf/bash-parse--is-dangerous exec-cmd-name nil exec-flags)))
 
-                (push (list :type exec-type
-                           :terminator found-terminator
-                           :command-name exec-cmd-name
-                           :flags exec-flags
-                           :positional-args exec-positional
-                           :args exec-args
-                           :dangerous-p exec-dangerous)
-                      exec-blocks)))
+                           (push (list :type exec-type
+                                      :terminator found-terminator
+                                      :command-name exec-cmd-name
+                                      :flags exec-flags
+                                      :positional-args exec-positional
+                                      :args exec-args
+                                      :dangerous-p exec-dangerous)
+                                 exec-blocks)))
 
-            ;; Add the -exec flag itself to find's flags
-            (push exec-type flags)
+                       ;; Add the -exec flag itself to find's flags
+                       (push exec-type flags)
 
-            ;; Move past the exec block
-            (setq i j)))
+                       ;; Move past the exec block
+                       (setq i j)))
 
-         ;; Regular flag
-         ((string-prefix-p "-" arg)
-          (push arg flags)
-          (setq i (1+ i)))
-
-         ;; Positional argument
-         (t
-          (push arg positional-args)
-          (setq i (1+ i))))))
+                    ;; Regular flag
+                    (_
+                     (when (string-prefix-p "-" arg)
+                       (push arg flags))
+                     ;; Positional argument
+                     (unless (string-prefix-p "-" arg)
+                       (push arg positional-args))
+                     (cl-incf i)))))
 
     ;; Reverse lists to restore original order
     (setq flags (nreverse flags))
