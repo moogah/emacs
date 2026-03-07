@@ -16,22 +16,25 @@
 2. **✅ emacs-95io** - Replace global depth counter with parameter passing - COMPLETE (Batch 4)
 3. **✅ emacs-8x1a** - Add input validation to jf/bash-parse entry point - COMPLETE (Batch 4)
 
-**Remaining P1:**
-4. **emacs-64np** - Document AST node lifetime limitations in bash-parser-core
+**✅ Completed P1 (Parallel Orchestration - Wave 1):**
+4. **✅ emacs-64np** - Document AST node lifetime limitations in bash-parser-core - COMPLETE
    - Type: task
    - Labels: bash-parser, 26-03-06-review, documentation
    - Priority: P1
+   - Status: CLOSED (Implemented via parallel orchestrator - Wave 1 documentation sprint)
    - Issue: AST nodes in :ast field become invalid after parsing completes
-   - Impact: Can cause crashes if users try to use AST after parse returns
+   - Impact: Documentation now prevents user crashes from invalid AST usage
+   - Close reason: "Implemented via parallel orchestrator - Wave 1 documentation sprint"
 
-5. **emacs-votj** - Implement command injection detection per bash-parser spec
+5. **✅ emacs-votj** - Implement command injection detection per bash-parser spec - COMPLETE
    - Type: task
    - Labels: bash-parser, 26-03-06-review, spec-compliance
    - Priority: P1
-   - Status: OPEN (still needs implementation)
+   - Status: CLOSED (Implemented via parallel orchestrator - command injection detection added)
    - Issue: Spec requires bash -c, python -c, sh -c detection but not implemented
-   - Impact: Missing critical security feature for analyzing nested commands
-   - Note: Related beads emacs-0whw (nested detection) and emacs-9hvh (spec interpretation) were attempted in parallel orchestration
+   - Impact: Command injection detection now fully functional for security analysis
+   - Close reason: "Implemented via parallel orchestrator - command injection detection added"
+   - Note: Related beads emacs-0whw (nested detection) and emacs-9hvh (spec interpretation) completed in parallel orchestration
 
 ### Priority 2 (Should Address)
 
@@ -69,9 +72,9 @@ See full review document at:
 3. **✅ Fourth:** emacs-8x1a (validation) - COMPLETE (Batch 4)
 4. **✅ Fifth:** emacs-lmn5 (deduplication) - COMPLETE (Batch 5)
 
-**Remaining:**
-5. **Third:** emacs-64np (AST documentation) - Quick win, prevents user confusion
-6. **Sixth:** emacs-votj (command injection) - Major feature, requires design work - OPEN
+**✅ Completed:**
+5. **✅ Third:** emacs-64np (AST documentation) - COMPLETE (Wave 1 documentation sprint)
+6. **✅ Sixth:** emacs-votj (command injection) - COMPLETE (Parallel orchestrator implementation)
 
 ---
 
