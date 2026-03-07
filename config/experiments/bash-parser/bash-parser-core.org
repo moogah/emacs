@@ -89,8 +89,143 @@ Setup lexical binding.
 
 #+begin_src emacs-lisp
 (require 'treesit)
+(require 'cl-lib)
 (require 'bash-parser-protocol)  ; Forward declarations
 (require 'bash-parser-security)
+#+end_src
+
+* Token Tracking Infrastructure
+
+** Token Counter
+
+Global counter for generating sequential token IDs during parsing.
+
+#+begin_src emacs-lisp
+(defvar jf/bash-parse--token-counter 0
+  "Counter for generating sequential token IDs during parsing.
+Reset to 0 at the start of each parse operation.")
+
+(defvar jf/bash-parse--current-pipe-segment 0
+  "Current pipeline segment number during parsing.
+Bound dynamically to track which segment of a pipeline is being parsed.")
+#+end_src
+
+** Token Creation
+
+#+begin_src emacs-lisp
+(defun jf/bash-parse--make-token (type value start end pipe-segment &optional associated-flag parsed-inner)
+  "Create a token plist with all required fields.
+TYPE is a keyword like :command-name, :positional-arg, :flag, etc.
+VALUE is the string content of the token.
+START is the 0-indexed character position where token begins.
+END is the exclusive character position after the last character.
+PIPE-SEGMENT is the integer pipeline segment number (0 for non-pipeline).
+ASSOCIATED-FLAG is optional token ID of associated flag (for flag-args).
+PARSED-INNER is optional boolean indicating if command substitution was parsed.
+Returns plist with :id, :type, :value, :start, :end, :pipe-segment, and optional fields."
+  (let ((token-id jf/bash-parse--token-counter))
+    (setq jf/bash-parse--token-counter (1+ jf/bash-parse--token-counter))
+    (let ((token (list :id token-id
+                      :type type
+                      :value value
+                      :start start
+                      :end end
+                      :pipe-segment pipe-segment)))
+      (when associated-flag
+        (setq token (plist-put token :associated-flag associated-flag)))
+      (when parsed-inner
+        (setq token (plist-put token :parsed-inner parsed-inner)))
+      token)))
+#+end_src
+
+** Token Collection
+
+#+begin_src emacs-lisp
+(defvar jf/bash-parse--current-tokens nil
+  "List of tokens collected during current parse operation.
+Bound dynamically during parsing to accumulate tokens.")
+
+(defun jf/bash-parse--emit-token (type value start end pipe-segment &optional associated-flag parsed-inner)
+  "Emit a token by creating it and adding to current token list.
+See `jf/bash-parse--make-token' for parameter descriptions."
+  (let ((token (jf/bash-parse--make-token type value start end pipe-segment associated-flag parsed-inner)))
+    (push token jf/bash-parse--current-tokens)
+    token))
+
+(defun jf/bash-parse--finalize-tokens ()
+  "Return collected tokens sorted by position.
+Reverses the accumulated token list to restore parse order."
+  (nreverse jf/bash-parse--current-tokens))
+#+end_src
+
+** Token Emission for Command Components
+
+#+begin_src emacs-lisp
+(defun jf/bash-parse--emit-command-tokens (command-node command-name args pipe-segment)
+  "Emit tokens for a command's components.
+COMMAND-NODE is the tree-sitter command node.
+COMMAND-NAME is the command name string.
+ARGS is the list of argument strings.
+PIPE-SEGMENT is the current pipeline segment number.
+Emits :command-name token, then :flag/:positional-arg tokens for each arg."
+  ;; Find command_name node to get position
+  (when-let ((cmd-name-node (jf/bash-parse--find-direct-child-by-type command-node "command_name")))
+    (jf/bash-parse--emit-token :command-name
+                               command-name
+                               (treesit-node-start cmd-name-node)
+                               (treesit-node-end cmd-name-node)
+                               pipe-segment))
+
+  ;; Emit tokens for each argument by finding corresponding nodes
+  ;; We need to traverse the command node to find word nodes for each arg
+  (let ((arg-index 0)
+        (args-to-find (copy-sequence args)))
+    (jf/bash-parse--visit-node
+     command-node
+     (lambda (node)
+       (let ((node-type (treesit-node-type node)))
+         (cond
+          ;; Skip command_name - already handled
+          ((string= node-type "command_name")
+           :skip-children)
+
+          ;; Skip variable_assignment nodes (inline env vars)
+          ((string= node-type "variable_assignment")
+           :skip-children)
+
+          ;; Check word/string/concatenation nodes for matching args
+          ((and args-to-find
+                (or (string= node-type "word")
+                    (string= node-type "string")
+                    (string= node-type "raw_string")
+                    (string= node-type "concatenation")
+                    (string= node-type "simple_expansion")
+                    (string= node-type "expansion")))
+           (let ((text (treesit-node-text node t)))
+             (when text
+               (setq text (string-trim text))
+               ;; Strip quotes from string types
+               (when (and (> (length text) 1)
+                         (member node-type '("string" "raw_string"))
+                         (or (and (string-prefix-p "\"" text)
+                                  (string-suffix-p "\"" text))
+                             (and (string-prefix-p "'" text)
+                                  (string-suffix-p "'" text))))
+                 (setq text (substring text 1 -1)))
+               ;; Check if this matches next expected arg
+               (when (and args-to-find (string= text (car args-to-find)))
+                 (let ((token-type (if (string-prefix-p "-" text) :flag :positional-arg)))
+                   (jf/bash-parse--emit-token token-type
+                                              text
+                                              (treesit-node-start node)
+                                              (treesit-node-end node)
+                                              pipe-segment))
+                 (setq args-to-find (cdr args-to-find))))
+             ;; Skip children of terminal nodes
+             (when (member node-type '("string" "raw_string" "concatenation" "simple_expansion" "expansion"))
+               :skip-children)))
+
+          (t nil)))))))
 #+end_src
 
 * Core Parsing Functions
@@ -109,6 +244,7 @@ Returns plist with:
   :type - :simple, :pipeline, or :chain
   :all-commands - list of all parsed commands (always present)
   :command-count - number of commands found
+  :tokens - list of token plists (with :id, :type, :value, :start, :end, :pipe-segment)
 
 For simple commands, also includes (for backward compatibility):
   :command-name - base command
@@ -146,8 +282,16 @@ KNOWN LIMITATIONS:
       (list :success nil
             :error "Empty command string"
             :type :empty)
-    ;; Proceed with normal parsing
-    (jf/bash-parse--with-depth command-string 0)))
+    ;; Initialize token tracking for this parse operation
+    (let ((jf/bash-parse--token-counter 0)
+          (jf/bash-parse--current-tokens nil)
+          (jf/bash-parse--current-pipe-segment 0))
+      ;; Proceed with normal parsing
+      (let ((result (jf/bash-parse--with-depth command-string 0)))
+        ;; Add finalized tokens to result
+        (when (plist-get result :success)
+          (setq result (plist-put result :tokens (jf/bash-parse--finalize-tokens))))
+        result))))
 #+end_src
 
 ** Internal Parser with Depth Tracking
@@ -401,39 +545,54 @@ and other structure handlers."
   "Handle pipeline command from ROOT-NODE.
 DEPTH parameter tracks current recursion depth."
   (let* ((pipeline-node (jf/bash-parse--find-node-by-type root-node "pipeline"))
-         (command-nodes (jf/bash-parse--get-all-command-nodes pipeline-node))
-         (parsed-commands (mapcar (lambda (node)
-                                    (jf/bash-parse--parse-single-command-node node depth))
-                                   command-nodes))
-         (any-dangerous (cl-some (lambda (cmd) (plist-get cmd :dangerous-p))
-                                parsed-commands)))
+         (command-nodes (jf/bash-parse--get-all-command-nodes pipeline-node)))
+    ;; Emit tokens for pipe operators
+    (when pipeline-node
+      (jf/bash-parse--visit-node
+       pipeline-node
+       (lambda (node)
+         (when (string= (treesit-node-type node) "|")
+           (jf/bash-parse--emit-token :pipe
+                                      "|"
+                                      (treesit-node-start node)
+                                      (treesit-node-end node)
+                                      jf/bash-parse--current-pipe-segment))
+         nil)))
+    ;; Parse commands with pipe segment tracking
+    (let* ((parsed-commands
+            (cl-loop for node in command-nodes
+                     for pipe-seg from 0
+                     collect (let ((jf/bash-parse--current-pipe-segment pipe-seg))
+                              (jf/bash-parse--parse-single-command-node node depth))))
+           (any-dangerous (cl-some (lambda (cmd) (plist-get cmd :dangerous-p))
+                                  parsed-commands)))
 
-    ;; Check if pipeline is wrapped in redirected_statement
-    (when-let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
-                ;; Verify the redirected_statement's body is indeed the pipeline
-                (body-node (treesit-node-child-by-field-name redirected-stmt "body"))
-                ((string= (treesit-node-type body-node) "pipeline"))
-                ;; Extract redirections from the statement
-                (redirections (jf/bash-parse--extract-redirections redirected-stmt))
-                (redirections))
-      ;; Attach redirections to the last command in the pipeline
-      ;; (since that's whose output is being redirected)
-      (when (and parsed-commands (> (length parsed-commands) 0))
-        (let* ((last-cmd-index (1- (length parsed-commands)))
-               (last-cmd (nth last-cmd-index parsed-commands))
-               ;; Merge with any existing redirections on the last command
-               (existing-redirections (plist-get last-cmd :redirections))
-               (merged-redirections (append existing-redirections redirections)))
-          ;; Update the last command with merged redirections
-          (setf (nth last-cmd-index parsed-commands)
-                (plist-put last-cmd :redirections merged-redirections)))))
+      ;; Check if pipeline is wrapped in redirected_statement
+      (when-let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
+                  ;; Verify the redirected_statement's body is indeed the pipeline
+                  (body-node (treesit-node-child-by-field-name redirected-stmt "body"))
+                  ((string= (treesit-node-type body-node) "pipeline"))
+                  ;; Extract redirections from the statement
+                  (redirections (jf/bash-parse--extract-redirections redirected-stmt))
+                  (redirections))
+        ;; Attach redirections to the last command in the pipeline
+        ;; (since that's whose output is being redirected)
+        (when (and parsed-commands (> (length parsed-commands) 0))
+          (let* ((last-cmd-index (1- (length parsed-commands)))
+                 (last-cmd (nth last-cmd-index parsed-commands))
+                 ;; Merge with any existing redirections on the last command
+                 (existing-redirections (plist-get last-cmd :redirections))
+                 (merged-redirections (append existing-redirections redirections)))
+            ;; Update the last command with merged redirections
+            (setf (nth last-cmd-index parsed-commands)
+                  (plist-put last-cmd :redirections merged-redirections)))))
 
-    (list :success t
-          :type :pipeline
-          :all-commands parsed-commands
-          :command-count (length parsed-commands)
-          :dangerous-p any-dangerous
-          :ast root-node)))
+      (list :success t
+            :type :pipeline
+            :all-commands parsed-commands
+            :command-count (length parsed-commands)
+            :dangerous-p any-dangerous
+            :ast root-node))))
 #+end_src
 
 ** List/Chain Handler
@@ -469,53 +628,66 @@ DEPTH parameter tracks current recursion depth."
          ;;             "A && B > file" -> root has [redirected_statement[list]]
          (container-node (if (jf/bash-parse--root-has-list-plus-commands-p root-node)
                              root-node
-                           (or list-node root-node)))
-         (command-nodes (jf/bash-parse--get-all-command-nodes container-node))
-         (parsed-commands (mapcar (lambda (node)
-                                    (jf/bash-parse--parse-single-command-node node depth))
-                                   command-nodes))
-         (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
-                                  parsed-commands)))
+                           (or list-node root-node))))
+    ;; Emit tokens for chain separators (&&, ||, ;)
+    (when container-node
+      (jf/bash-parse--visit-node
+       container-node
+       (lambda (node)
+         (let ((node-type (treesit-node-type node)))
+           (when (member node-type '("&&" "||" ";"))
+             (jf/bash-parse--emit-token :separator
+                                        node-type
+                                        (treesit-node-start node)
+                                        (treesit-node-end node)
+                                        jf/bash-parse--current-pipe-segment)))
+         nil)))
+    (let* ((command-nodes (jf/bash-parse--get-all-command-nodes container-node))
+           (parsed-commands (mapcar (lambda (node)
+                                      (jf/bash-parse--parse-single-command-node node depth))
+                                     command-nodes))
+           (any-dangerous (seq-some (lambda (cmd) (plist-get cmd :dangerous-p))
+                                    parsed-commands)))
 
-    ;; Check if list is wrapped in redirected_statement
-    (when-let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
-                ;; Verify the redirected_statement's body is indeed the list
-                (body-node (treesit-node-child-by-field-name redirected-stmt "body"))
-                ((string= (treesit-node-type body-node) "list"))
-                ;; Extract redirections from the statement
-                (redirections (jf/bash-parse--extract-redirections redirected-stmt))
-                (redirections))
-      ;; Attach redirections to the last command in the list
-      ;; (since that's whose output is being redirected)
-      (when (and parsed-commands (> (length parsed-commands) 0))
-        (let* ((last-cmd-index (1- (length parsed-commands)))
-               (last-cmd (nth last-cmd-index parsed-commands))
-               ;; Merge with any existing redirections on the last command
-               (existing-redirections (plist-get last-cmd :redirections))
-               (merged-redirections (append existing-redirections redirections)))
-          ;; Update the last command with merged redirections
-          (setf (nth last-cmd-index parsed-commands)
-                (plist-put last-cmd :redirections merged-redirections)))))
+      ;; Check if list is wrapped in redirected_statement
+      (when-let* ((redirected-stmt (jf/bash-parse--find-node-by-type root-node "redirected_statement"))
+                  ;; Verify the redirected_statement's body is indeed the list
+                  (body-node (treesit-node-child-by-field-name redirected-stmt "body"))
+                  ((string= (treesit-node-type body-node) "list"))
+                  ;; Extract redirections from the statement
+                  (redirections (jf/bash-parse--extract-redirections redirected-stmt))
+                  (redirections))
+        ;; Attach redirections to the last command in the list
+        ;; (since that's whose output is being redirected)
+        (when (and parsed-commands (> (length parsed-commands) 0))
+          (let* ((last-cmd-index (1- (length parsed-commands)))
+                 (last-cmd (nth last-cmd-index parsed-commands))
+                 ;; Merge with any existing redirections on the last command
+                 (existing-redirections (plist-get last-cmd :redirections))
+                 (merged-redirections (append existing-redirections redirections)))
+            ;; Update the last command with merged redirections
+            (setf (nth last-cmd-index parsed-commands)
+                  (plist-put last-cmd :redirections merged-redirections)))))
 
-    ;; Return flattened structure for backward compatibility
-    ;; Flatten first command's fields to top level (similar to simple-command handler)
-    (if (null parsed-commands)
-        ;; Empty chain - shouldn't happen but handle defensively
-        (list :success t
-              :type :chain
-              :all-commands nil
-              :command-count 0
-              :dangerous-p nil
-              :ast root-node)
-      ;; Normal case: flatten first command's fields to top level
-      (append (list :success t
-                    :type :chain
-                    :all-commands parsed-commands
-                    :command-count (length parsed-commands)
-                    :dangerous-p any-dangerous
-                    :ast root-node)
-              ;; Flatten first command's fields to top level
-              (car parsed-commands)))))
+      ;; Return flattened structure for backward compatibility
+      ;; Flatten first command's fields to top level (similar to simple-command handler)
+      (if (null parsed-commands)
+          ;; Empty chain - shouldn't happen but handle defensively
+          (list :success t
+                :type :chain
+                :all-commands nil
+                :command-count 0
+                :dangerous-p nil
+                :ast root-node)
+        ;; Normal case: flatten first command's fields to top level
+        (append (list :success t
+                      :type :chain
+                      :all-commands parsed-commands
+                      :command-count (length parsed-commands)
+                      :dangerous-p any-dangerous
+                      :ast root-node)
+                ;; Flatten first command's fields to top level
+                (car parsed-commands))))))
 #+end_src
 
 ** Simple Command Handler
@@ -1174,7 +1346,9 @@ Returns command structure with optional :redirections and :command-substitutions
 
         ;; Parse regular command
         (let* ((env-vars (jf/bash-parse--extract-env-vars command-node))
-               (words (jf/bash-parse--extract-words command-node))
+               ;; Use dynamic pipe segment if set, otherwise default to 0
+               (pipe-segment jf/bash-parse--current-pipe-segment)
+               (words (jf/bash-parse--extract-words command-node pipe-segment))
                (command-name (car words))
                (remaining-words (cdr words))
                (subcommand (jf/bash-parse--detect-subcommand command-name remaining-words))
@@ -1207,6 +1381,9 @@ Returns command structure with optional :redirections and :command-substitutions
               (let* ((flags (jf/bash-parse--extract-flags args-start))
                      (positional-args (jf/bash-parse--extract-positional-args args-start))
                      (dangerous-p (jf/bash-parse--is-dangerous command-name subcommand flags)))
+
+                ;; Emit tokens for this command
+                (jf/bash-parse--emit-command-tokens command-node command-name args-start pipe-segment)
 
                 ;; Build result, only include redirections if present
                 (let ((result (list :command-name command-name
@@ -1264,11 +1441,14 @@ These assignments only affect the command they prefix, not subsequent commands."
 ** Extract Words
 
 #+begin_src emacs-lisp
-(defun jf/bash-parse--extract-words (command-node)
+(defun jf/bash-parse--extract-words (command-node &optional pipe-segment)
   "Extract all word nodes from COMMAND-NODE as strings.
 Returns list of strings representing all words in the command.
-Skips variable_assignment nodes (inline env vars like PWD=/path cmd)."
-  (let ((words '()))
+Skips variable_assignment nodes (inline env vars like PWD=/path cmd).
+PIPE-SEGMENT is the current pipeline segment number (0 for non-pipeline).
+Emits tokens for each word extracted."
+  (let ((words '())
+        (pipe-seg (or pipe-segment 0)))
     (jf/bash-parse--visit-node
      command-node
      (lambda (node)
@@ -1288,7 +1468,9 @@ Skips variable_assignment nodes (inline env vars like PWD=/path cmd)."
                (string= node-type "expansion")
                (string= node-type "command_substitution")
                (string= node-type "arithmetic_expansion"))
-           (let ((text (treesit-node-text node t)))
+           (let ((text (treesit-node-text node t))
+                 (start (treesit-node-start node))
+                 (end (treesit-node-end node)))
              (when (and text (> (length text) 0))
                (setq text (string-trim text))
                ;; Remove surrounding quotes for string types (not concatenation/expansion/substitution)
@@ -1300,6 +1482,9 @@ Skips variable_assignment nodes (inline env vars like PWD=/path cmd)."
                                   (string-suffix-p "'" text))))
                  (setq text (substring text 1 -1)))
                (unless (string-empty-p text)
+                 ;; Emit token for command substitution
+                 (when (string= node-type "command_substitution")
+                   (jf/bash-parse--emit-token :command-substitution text start end pipe-seg nil t))
                  (push text words))))
            ;; Return :skip-children to prevent recursing into components
            :skip-children)
@@ -1307,7 +1492,9 @@ Skips variable_assignment nodes (inline env vars like PWD=/path cmd)."
           ;; Leaf nodes: extract text and continue visiting siblings
           ((or (string= node-type "word")
                (string= node-type "number"))
-           (let ((text (treesit-node-text node t)))
+           (let ((text (treesit-node-text node t))
+                 (start (treesit-node-start node))
+                 (end (treesit-node-end node)))
              (when (and text (> (length text) 0))
                (setq text (string-trim text))
                (unless (string-empty-p text)
@@ -1324,7 +1511,8 @@ Skips variable_assignment nodes (inline env vars like PWD=/path cmd)."
 #+begin_src emacs-lisp
 (defun jf/bash-parse--extract-redirections (statement-node)
   "Extract all redirections from STATEMENT-NODE.
-Returns list of plists with :type, :operator, :descriptor, :destination."
+Returns list of plists with :type, :operator, :descriptor, :destination.
+Emits :redirection tokens for each redirection found."
   (let ((redirects '()))
     (jf/bash-parse--visit-node
      statement-node
@@ -1333,15 +1521,34 @@ Returns list of plists with :type, :operator, :descriptor, :destination."
          (cond
           ;; file_redirect: >, >>, <, 2>&1, etc.
           ((string= node-type "file_redirect")
-           (push (jf/bash-parse--parse-file-redirect node) redirects))
+           (let ((redirect-plist (jf/bash-parse--parse-file-redirect node)))
+             ;; Emit token for the redirection
+             (jf/bash-parse--emit-token :redirection
+                                        (treesit-node-text node t)
+                                        (treesit-node-start node)
+                                        (treesit-node-end node)
+                                        jf/bash-parse--current-pipe-segment)
+             (push redirect-plist redirects)))
 
           ;; herestring_redirect: <<<
           ((string= node-type "herestring_redirect")
-           (push (jf/bash-parse--parse-herestring-redirect node) redirects))
+           (let ((redirect-plist (jf/bash-parse--parse-herestring-redirect node)))
+             (jf/bash-parse--emit-token :redirection
+                                        (treesit-node-text node t)
+                                        (treesit-node-start node)
+                                        (treesit-node-end node)
+                                        jf/bash-parse--current-pipe-segment)
+             (push redirect-plist redirects)))
 
           ;; heredoc_redirect: <<, <<-
           ((string= node-type "heredoc_redirect")
-           (push (jf/bash-parse--parse-heredoc-redirect node) redirects))))))
+           (let ((redirect-plist (jf/bash-parse--parse-heredoc-redirect node)))
+             (jf/bash-parse--emit-token :redirection
+                                        (treesit-node-text node t)
+                                        (treesit-node-start node)
+                                        (treesit-node-end node)
+                                        jf/bash-parse--current-pipe-segment)
+             (push redirect-plist redirects)))))))
     (nreverse redirects)))
 
 (defun jf/bash-parse--parse-file-redirect (redirect-node)
