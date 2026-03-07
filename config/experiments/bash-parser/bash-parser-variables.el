@@ -25,7 +25,7 @@ Examples:
 
 Variable names match pattern: [A-Za-z_][A-Za-z0-9_]*"
   (unless (stringp file-path)
-    (error "file-path must be a string, got %S" file-path))
+    (signal 'wrong-type-argument (list 'stringp file-path)))
   (let ((var-names nil))
     (save-match-data
       ;; Match ${VAR} or $VAR patterns
@@ -144,9 +144,9 @@ their runtime values cannot be validated against scope constraints."
                     (list :path resolved :unresolved (nreverse unresolved))
                   ;; Full resolution - return simple string
                   resolved))))))
-    (error (list :path file-path
+    (error (list :success nil
                  :error (format "Variable resolution error: %s" (error-message-string err))
-                 :unresolved '("ERROR")))))
+                 :path file-path))))
 
 (defun jf/bash--navigate-parent-path (base-path levels)
   "Navigate up LEVELS directories from BASE-PATH using Emacs file functions.
@@ -250,7 +250,7 @@ validation. When run_bash_command(cmd, dir) executes with PWD=dir, the shell
 resolves file.txt to /dir/file.txt. The parser must extract the same absolute
 path for security checks to work correctly."
   (unless (stringp file-path)
-    (error "file-path must be a string, got %S" file-path))
+    (signal 'wrong-type-argument (list 'stringp file-path)))
   (let ((pwd (or current-pwd (alist-get 'PWD var-context))))
     (cond
      ;; No PWD in context - return unchanged
@@ -500,7 +500,7 @@ Examples:
 Security note: Only deterministic commands are evaluated. Runtime commands
 like find, ls, or which cannot be statically evaluated and return :unresolved."
   (unless (stringp file-path)
-    (error "file-path must be a string, got %S" file-path))
+    (signal 'wrong-type-argument (list 'stringp file-path)))
   (let ((result file-path)
         (max-iterations 10)  ; Prevent infinite loops in nested substitutions
         (iteration 0)
