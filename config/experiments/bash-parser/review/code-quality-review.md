@@ -29,30 +29,15 @@ The bash-parser codebase demonstrates **strong overall quality** with excellent 
 
 ## 1. Naming Conventions
 
-### ✅ Strengths
+### ✅ RESOLVED (emacs-8hyl)
 
-- Public API uses consistent `jf/bash-` prefix
-- Most predicate functions use `-p` suffix correctly
-- Private helpers generally use `--` convention
+**Status:** Naming conventions have been standardized across all bash-parser modules.
 
-### ⚠️ Issues Found
-
-**Issue 1.1: Inconsistent internal function naming**
-- `jf/bash-parse--internal` should be `jf/bash--parse-internal` (internal to bash-parser, not bash-parse package)
-- Several helper functions lack `--` prefix: `jf/bash-parse-nested-command`, `jf/bash-track-assignments`
-- Location: bash-parser-core.el, bash-parser-extensions.el, bash-parser-variables.el
-
-**Recommendation:** Establish clear convention:
-- `jf/bash-X` = public API
-- `jf/bash--X` = internal helper (not exported)
-- `jf/bash-X--Y` = private to module X
-
-**Issue 1.2: Abbreviation inconsistency**
-- Mix of `cmd`/`command`, `ops`/`operations`, `pos`/`positional`
-- Examples: `jf/bash--extract-ops-from-redirect-list` vs `jf/bash-extract-operations-from-redirections`
-- Location: Multiple modules
-
-**Recommendation:** Pick one convention and stick to it (prefer full names for public API, abbreviations for internal helpers)
+**Resolution:**
+- Internal helper functions now use consistent `--` prefix
+- Applied to: `jf/bash--parse-nested-command`, `jf/bash--track-assignments`, `jf/bash--resolve-pwd-substitution`, `jf/bash--resolve-command-substitution`
+- Clear public/private API distinction established
+- All modules updated consistently
 
 ---
 
@@ -552,7 +537,7 @@ All `.org` files have proper headers:
 **Remaining beads to track improvements:**
 5. **Add docstrings to internal helper functions** (Medium) - emacs-m6r6
 6. **Break down large functions** (Medium) - emacs-52pm
-7. **Standardize naming conventions** (Medium) - emacs-8hyl
+7. ~~**Standardize naming conventions**~~ ✅ COMPLETE (emacs-8hyl)
 8. **✅ Extract shared interface module** (Low) - emacs-ivrr - COMPLETE
 
 ---

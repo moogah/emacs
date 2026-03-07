@@ -33,10 +33,10 @@
 3. **✅ emacs-h634** - Consolidate duplicate handler logic
 4. **✅ emacs-21wx** - Add input validation to public API
 
-**Medium Priority (P2):** 3 beads remaining
+**Medium Priority (P2):** 2 beads remaining
 5. **emacs-m6r6** - Add docstrings to 10 internal helpers
 6. **emacs-52pm** - Break down 3 large functions (>100 lines)
-7. **emacs-8hyl** - Standardize naming conventions
+7. ~~**emacs-8hyl** - Standardize naming conventions~~ ✅ COMPLETE
 
 **✅ Low Priority (P3):** 1 bead completed
 8. **✅ emacs-ivrr** - Extract bash-parser protocol module - COMPLETE
@@ -83,7 +83,7 @@ All high-priority code quality issues have been resolved:
 **Recommended Order (Remaining):**
 1. Documentation (emacs-m6r6) - Add missing docstrings
 2. Refactoring (emacs-52pm) - Break down large functions
-3. Naming conventions (emacs-8hyl) - Standardization
+3. ~~Naming conventions (emacs-8hyl)~~ ✅ COMPLETE
 
 ## Files Delivered
 

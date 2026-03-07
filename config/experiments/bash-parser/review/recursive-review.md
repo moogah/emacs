@@ -318,38 +318,16 @@ Option 2: Add nesting-depth parameter to marking function:
 
 ## 5. Recursion Safety
 
-**Status:** ✅ GOOD
+**Status:** ✅ COMPLETE (emacs-m9ng)
 
 ### Implementation Review
 
-Both modules implement depth limiting:
+Both modules now use unified depth limiting with consistent implementation across the codebase.
 
-**bash-parser-recursive.el** (lines 63-65):
-```elisp
-(when (>= depth jf/bash-recursive-max-depth)
-  (error "Max recursion depth exceeded in semantic analysis"))
-```
-
-**bash-parser-extensions.el** (lines 264-267):
-```elisp
-(if (> level 10)
-    (list :success nil
-          :error "Maximum nesting depth exceeded (limit: 10)"
-          :nested-level level)
-```
-
-**Issues:**
-
-1. **Inconsistent limits:** Recursive analyzer uses configurable `jf/bash-recursive-max-depth` (default 10), extensions uses hardcoded 10
-2. **Different error handling:** Recursive analyzer throws error, extensions returns error plist
-3. **Off-by-one difference:** Recursive uses `>=`, extensions uses `>`
-
-**Impact:** Minor - both prevent infinite recursion, but inconsistency could cause confusion.
-
-**Recommendation:**
-- Use same limit from `jf/bash-recursive-max-depth` in both places
-- Use same comparison operator (prefer `>=` for clarity)
-- Return error plist (don't throw) for better error handling
+**Resolution (emacs-m9ng):**
+- Shared `jf/bash-recursive-max-depth` variable used in both modules
+- Consistent `>=` comparison operator
+- Graceful degradation instead of throwing errors
 
 **Test Coverage:** ✅ One test verifies depth limit in extensions
 
@@ -611,10 +589,10 @@ This allows modules to work independently and degrades gracefully when dependenc
 
 ### Priority 2: HIGH - Should Fix
 
-4. **Unify recursion depth handling**
-   - Use `jf/bash-recursive-max-depth` in both modules
-   - Use consistent comparison operator
-   - Return error plists instead of throwing errors
+4. ~~**Unify recursion depth handling**~~ ✅ COMPLETE (emacs-m9ng)
+   - ✅ Both modules now use `jf/bash-recursive-max-depth`
+   - ✅ Consistent `>=` comparison operator
+   - ✅ Graceful degradation implemented
 
 5. **Add missing integration tests**
    - Nested commands in substitutions, loops, conditionals, chains
@@ -749,11 +727,11 @@ bash-parser-file-ops.el:
 - **Impact:** Spec correctly excludes non-shell interpreters
 - **Resolution:** Design rationale documented, tests verify correct behavior
 
-### Issue 4: Inconsistent recursion depth handling
-- **Severity:** LOW
-- **Impact:** Minor - current implementation works correctly
-- **Files:** Both modules
-- **Fix:** Unify limit variable naming for consistency
+### Issue 4: ✅ RESOLVED - Recursion depth unification (emacs-m9ng)
+- **Status:** COMPLETE
+- **Impact:** Unified depth handling across modules
+- **Files:** Both modules now use shared `jf/bash-recursive-max-depth`
+- **Resolution:** Consistent `>=` operator and graceful degradation implemented
 
 ### Issue 5: Incomplete test coverage for integration
 - **Severity:** HIGH
