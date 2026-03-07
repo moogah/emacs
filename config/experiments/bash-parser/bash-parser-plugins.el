@@ -74,5 +74,87 @@ as a stable fallback for equal priorities."
   ;; Return the plugin name for convenience
   (plist-get args :name))
 
+(defun jf/bash-extract-semantics (parsed-command)
+  "Extract semantic information from PARSED-COMMAND using registered plugins.
+
+PARSED-COMMAND is a plist with:
+  :tokens - List of token plists
+  :parse-complete - Boolean indicating if parse was fully understood
+
+Returns a plist with:
+  :domains - Alist of (domain . operations) from all successful plugins
+  :coverage - Coverage plist from `jf/bash-calculate-coverage'
+  :parse-complete - Pass-through from input
+  :plugin-results - List of raw plugin results for debugging
+
+Orchestration behavior:
+  - Evaluates plugin predicates to determine applicability
+  - Empty predicate list means plugin always runs
+  - Any predicate returning nil skips the plugin
+  - Wraps each plugin call in error isolation (condition-case)
+  - Logs errors but continues with remaining plugins
+  - Partial results are better than no results"
+  (let* ((tokens (plist-get parsed-command :tokens))
+         (parse-complete (plist-get parsed-command :parse-complete))
+         (plugin-results '())
+         (all-claimed-token-ids '())
+         (domains-alist '()))
+
+    ;; Execute each registered plugin
+    (dolist (plugin jf/bash-semantic-plugins)
+      (let* ((plugin-name (plist-get plugin :name))
+             (predicates (plist-get plugin :predicates))
+             (extractor (plist-get plugin :extractor))
+             (applicable t))
+
+        ;; Check predicates for applicability
+        (when predicates
+          (dolist (predicate predicates)
+            (unless (condition-case err
+                        (funcall predicate parsed-command)
+                      (error
+                       (message "Error in predicate for plugin %s: %s"
+                                plugin-name (error-message-string err))
+                       nil))
+              (setq applicable nil))))
+
+        ;; Execute plugin if applicable
+        (when applicable
+          (condition-case err
+              (let ((result (funcall extractor parsed-command)))
+                (when result
+                  ;; Collect plugin result
+                  (push result plugin-results)
+
+                  ;; Accumulate claimed token IDs
+                  (let ((claimed-ids (jf/bash-plugin-result-claimed-token-ids result)))
+                    (when claimed-ids
+                      (setq all-claimed-token-ids
+                            (append claimed-ids all-claimed-token-ids))))
+
+                  ;; Group operations by domain
+                  (let ((domain (jf/bash-plugin-result-domain result))
+                        (operations (jf/bash-plugin-result-operations result)))
+                    (when operations
+                      (let ((existing (assq domain domains-alist)))
+                        (if existing
+                            ;; Append to existing domain
+                            (setcdr existing (append (cdr existing) operations))
+                          ;; Add new domain entry
+                          (push (cons domain operations) domains-alist)))))))
+            (error
+             (message "Error executing plugin %s: %s"
+                      plugin-name (error-message-string err)))))))
+
+    ;; Calculate coverage
+    (let ((coverage (jf/bash-calculate-coverage tokens all-claimed-token-ids)))
+      ;; Return semantic analysis result
+      (list :domains domains-alist
+            :coverage coverage
+            :parse-complete parse-complete
+            :plugin-results (nreverse plugin-results)))))
+
+(require 'bash-parser-coverage)
+
 (provide 'bash-parser-plugins)
 ;;; bash-parser-plugins.el ends here
