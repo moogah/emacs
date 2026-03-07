@@ -1,0 +1,110 @@
+#+title: Bash Parser Plugins
+#+property: header-args:emacs-lisp :tangle bash-parser-plugins.el
+#+auto_tangle: y
+
+* Overview
+
+This module provides the plugin infrastructure for the bash parser semantic extraction system.
+
+* Plugin Result Structure
+
+** Result Struct
+
+The plugin result structure provides type-safe containers for semantic extraction results.
+
+#+begin_src emacs-lisp
+;;; bash-parser-plugins.el --- Plugin infrastructure for bash parser -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+
+(cl-defstruct jf/bash-plugin-result
+  "Structure for plugin extraction results.
+
+Fields:
+- domain: Keyword identifying the semantic domain (e.g., :file-operations, :variables)
+- operations: List of operation plists containing domain-specific data
+- claimed-token-ids: List of token IDs that this plugin has processed and claims
+- metadata: Plist of domain-specific metadata for additional context"
+  domain
+  operations
+  claimed-token-ids
+  metadata)
+#+end_src
+
+* Plugin Registry
+
+** Registry Variable
+
+Global registry storing all registered semantic extraction plugins.
+
+#+begin_src emacs-lisp
+(defvar jf/bash-semantic-plugins '()
+  "List of registered semantic extraction plugins.
+
+Each entry is a plist with the following keys:
+- :name - Symbol identifying the plugin
+- :priority - Integer priority (higher values processed first)
+- :extractor - Function that extracts semantics from parse tree
+- :predicates - List of predicate functions for applicability checks")
+#+end_src
+
+** Registration Function
+
+#+begin_src emacs-lisp
+(defun jf/bash-register-plugin (&rest args)
+  "Register a semantic extraction plugin.
+
+Required keyword arguments:
+- :name - Symbol identifying the plugin
+- :priority - Integer priority for execution order (higher = earlier)
+- :extractor - Function taking parse tree and returning jf/bash-plugin-result
+- :predicates - List of predicate functions that determine applicability
+
+Plugins are sorted by priority (higher first), with registration order
+as a stable fallback for equal priorities."
+  (let ((name (plist-get args :name))
+        (priority (plist-get args :priority))
+        (extractor (plist-get args :extractor))
+        (predicates (plist-get args :predicates)))
+
+    ;; Validate required arguments
+    (unless name
+      (error "Plugin registration requires :name"))
+    (unless (numberp priority)
+      (error "Plugin registration requires numeric :priority"))
+    (unless (functionp extractor)
+      (error "Plugin registration requires :extractor function"))
+    (unless (listp predicates)
+      (error "Plugin :predicates must be a list"))
+
+    ;; Remove existing registration with same name
+    (setq jf/bash-semantic-plugins
+          (cl-remove-if (lambda (plugin)
+                          (eq (plist-get plugin :name) name))
+                        jf/bash-semantic-plugins))
+
+    ;; Add plugin entry to the end to maintain registration order
+    (setq jf/bash-semantic-plugins
+          (append jf/bash-semantic-plugins
+                  (list (list :name name
+                              :priority priority
+                              :extractor extractor
+                              :predicates predicates))))
+
+    ;; Sort by priority (higher first), maintaining registration order for ties
+    (setq jf/bash-semantic-plugins
+          (cl-stable-sort jf/bash-semantic-plugins
+                          #'>
+                          :key (lambda (plugin)
+                                 (plist-get plugin :priority)))))
+
+  ;; Return the plugin name for convenience
+  (plist-get args :name))
+#+end_src
+
+* Provide Module
+
+#+begin_src emacs-lisp
+(provide 'bash-parser-plugins)
+;;; bash-parser-plugins.el ends here
+#+end_src
