@@ -142,6 +142,8 @@ Returns plist with:
   :all-commands - list of all parsed commands (always present)
   :command-count - number of commands found
   :tokens - list of token plists (with :id, :type, :value, :start, :end, :pipe-segment)
+  :parse-complete - boolean indicating if parser fully understood command syntax
+  :parse-errors - list of error messages when parse-complete is nil (empty/nil otherwise)
 
 For simple commands, also includes (for backward compatibility):
   :command-name - base command
@@ -178,7 +180,9 @@ KNOWN LIMITATIONS:
   (if (string-empty-p command-string)
       (list :success nil
             :error "Empty command string"
-            :type :empty)
+            :type :empty
+            :parse-complete nil
+            :parse-errors '("Empty command string"))
     ;; Initialize token tracking for this parse operation
     (let ((jf/bash-parse--token-counter 0)
           (jf/bash-parse--current-tokens nil)
@@ -198,7 +202,9 @@ Wraps parsing with depth checking and error handling."
   (condition-case err
       (jf/bash-parse--internal command-string depth)
     (error (list :success nil
-                 :error (error-message-string err)))))
+                 :error (error-message-string err)
+                 :parse-complete nil
+                 :parse-errors (list (error-message-string err))))))
 
 (defun jf/bash-parse--internal (command-string depth)
   "Internal parser implementation for COMMAND-STRING with pipeline support.
@@ -239,9 +245,13 @@ DEPTH parameter tracks current recursion depth."
              (jf/bash-parse--handle-simple-command root-node depth))
             (_
              (list :success nil
-                   :error "Unknown command structure")))))
+                   :error "Unknown command structure"
+                   :parse-complete nil
+                   :parse-errors '("Unknown command structure"))))))
     (error (list :success nil
-                 :error (format "Parse error: %s" (error-message-string err))))))
+                 :error (format "Parse error: %s" (error-message-string err))
+                 :parse-complete nil
+                 :parse-errors (list (format "Parse error: %s" (error-message-string err)))))))
 
 (defun jf/bash-parse--detect-structure-type (root-node)
   "Detect the bash command structure type from ROOT-NODE tree-sitter parse tree.
@@ -473,6 +483,8 @@ DEPTH parameter tracks current recursion depth."
             :all-commands parsed-commands
             :command-count (length parsed-commands)
             :dangerous-p any-dangerous
+            :parse-complete t
+            :parse-errors nil
             :ast root-node))))
 
 (defun jf/bash-parse--root-has-list-plus-commands-p (root-node)
@@ -555,6 +567,8 @@ DEPTH parameter tracks current recursion depth."
                 :all-commands nil
                 :command-count 0
                 :dangerous-p nil
+                :parse-complete t
+                :parse-errors nil
                 :ast root-node)
         ;; Normal case: flatten first command's fields to top level
         (append (list :success t
@@ -562,9 +576,12 @@ DEPTH parameter tracks current recursion depth."
                       :all-commands parsed-commands
                       :command-count (length parsed-commands)
                       :dangerous-p any-dangerous
+                      :parse-complete t
+                      :parse-errors nil
                       :ast root-node)
                 ;; Flatten first command's fields to top level
-                (car parsed-commands))))))
+                ;; Use copy-sequence to avoid sharing plist structure
+                (copy-sequence (car parsed-commands)))))))
 
 (defun jf/bash-parse--handle-simple-command (root-node depth)
   "Handle simple (single) command from ROOT-NODE.
@@ -584,7 +601,9 @@ DEPTH parameter tracks current recursion depth."
 
     (if (null command-or-redir)
         (list :success nil
-              :error "No command found in input")
+              :error "No command found in input"
+              :parse-complete nil
+              :parse-errors '("No command found in input"))
 
       (let ((parsed-cmd (jf/bash-parse--parse-single-command-node command-or-redir depth)))
         ;; Return flattened structure for backward compatibility
@@ -592,9 +611,12 @@ DEPTH parameter tracks current recursion depth."
                       :type :simple
                       :all-commands (list parsed-cmd)
                       :command-count 1
+                      :parse-complete t
+                      :parse-errors nil
                       :ast root-node)
                 ;; Flatten first command's fields to top level
-                parsed-cmd)))))
+                ;; Use copy-sequence to avoid sharing plist structure
+                (copy-sequence parsed-cmd))))))
 
 (defun jf/bash--extract-conditional-structure (if-node)
   "Extract conditional structure from IF-NODE.
@@ -663,6 +685,8 @@ and jf/bash-parse--handle-conditional-node (direct node handler)."
           :condition-text condition-text
           :then-text then-text
           :else-text else-text
+          :parse-complete t
+          :parse-errors nil
           :ast if-node)))
 
 (defun jf/bash-parse--handle-conditional (root-node)
@@ -683,7 +707,9 @@ Bash tree-sitter structure for if_statement:
     (if if-node
         (jf/bash--extract-conditional-structure if-node)
       (list :success nil
-            :error "No if_statement found"))))
+            :error "No if_statement found"
+            :parse-complete nil
+            :parse-errors '("No if_statement found")))))
 
 (defun jf/bash--extract-for-loop-structure (for-node depth)
   "Extract for-loop structure from FOR-NODE.
@@ -782,6 +808,8 @@ and jf/bash-parse--handle-for-loop-node (direct node handler)."
                          :loop-body body-text
                          :loop-list (car iteration-values)
                          :loop-source-type loop-source-type
+                         :parse-complete t
+                         :parse-errors nil
                          :ast for-node)))
         ;; Only add command-substitutions if present
         (when command-substitutions
@@ -806,7 +834,9 @@ Bash tree-sitter structure for for_statement:
         ;; For-loop is a top-level handler, so depth is 0
         (jf/bash--extract-for-loop-structure for-node 0)
       (list :success nil
-            :error "No for_statement found"))))
+            :error "No for_statement found"
+            :parse-complete nil
+            :parse-errors '("No for_statement found")))))
 
 (defun jf/bash-parse--handle-subshell (root-node depth)
   "Handle subshell from ROOT-NODE.
@@ -815,7 +845,9 @@ Returns structure with :type :subshell and :subshell-body containing parsed body
   (let* ((subshell-node (jf/bash-parse--find-direct-child-by-type root-node "subshell")))
     (if (not subshell-node)
         (list :success nil
-              :error "No subshell node found in root")
+              :error "No subshell node found in root"
+              :parse-complete nil
+              :parse-errors '("No subshell node found in root"))
       ;; Extract content between parentheses and recursively parse
       (let* ((subshell-text (treesit-node-text subshell-node t))
              ;; Extract content between parentheses
@@ -828,6 +860,8 @@ Returns structure with :type :subshell and :subshell-body containing parsed body
         (list :success t
               :type :subshell
               :subshell-body parsed-body
+              :parse-complete t
+              :parse-errors nil
               :ast root-node)))))
 
 (defun jf/bash-parse--handle-for-loop-node (for-node depth)

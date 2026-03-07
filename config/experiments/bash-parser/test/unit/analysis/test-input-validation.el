@@ -55,7 +55,10 @@
   (let ((result (jf/bash-parse "")))
     (should (eq (plist-get result :success) nil))
     (should (equal (plist-get result :error) "Empty command string"))
-    (should (eq (plist-get result :type) :empty))))
+    (should (eq (plist-get result :type) :empty))
+    ;; New parse completeness fields
+    (should (eq (plist-get result :parse-complete) nil))
+    (should (equal (plist-get result :parse-errors) '("Empty command string")))))
 
 ;;; Valid Input Tests (sanity checks)
 
@@ -65,7 +68,10 @@ This is a sanity check to ensure validation doesn't break normal usage."
   (let ((result (jf/bash-parse "ls -la")))
     (should (eq (plist-get result :success) t))
     (should (equal (plist-get result :command-name) "ls"))
-    (should-not (plist-get result :error))))
+    (should-not (plist-get result :error))
+    ;; New parse completeness fields
+    (should (eq (plist-get result :parse-complete) t))
+    (should (null (plist-get result :parse-errors)))))
 
 (ert-deftest test-parse-accepts-whitespace-padded-command ()
   "Verify jf/bash-parse accepts command with leading/trailing whitespace.
@@ -73,7 +79,41 @@ Whitespace-only strings should be rejected by tree-sitter, but padded
 commands should parse successfully."
   (let ((result (jf/bash-parse "  cat file.txt  ")))
     (should (eq (plist-get result :success) t))
-    (should (equal (plist-get result :command-name) "cat"))))
+    (should (equal (plist-get result :command-name) "cat"))
+    ;; New parse completeness fields
+    (should (eq (plist-get result :parse-complete) t))
+    (should (null (plist-get result :parse-errors)))))
+
+;;; Parse Completeness Tests
+
+(ert-deftest test-parse-complete-simple-command ()
+  "Verify parse-complete is t for successfully parsed simple command."
+  (let ((result (jf/bash-parse "echo hello")))
+    (should (eq (plist-get result :success) t))
+    (should (eq (plist-get result :parse-complete) t))
+    (should (null (plist-get result :parse-errors)))))
+
+(ert-deftest test-parse-complete-pipeline ()
+  "Verify parse-complete is t for successfully parsed pipeline."
+  (let ((result (jf/bash-parse "cat file.txt | grep pattern")))
+    (should (eq (plist-get result :success) t))
+    (should (eq (plist-get result :parse-complete) t))
+    (should (null (plist-get result :parse-errors)))))
+
+(ert-deftest test-parse-complete-chain ()
+  "Verify parse-complete is t for successfully parsed command chain."
+  (let ((result (jf/bash-parse "cd /tmp && ls -la")))
+    (should (eq (plist-get result :success) t))
+    (should (eq (plist-get result :parse-complete) t))
+    (should (null (plist-get result :parse-errors)))))
+
+(ert-deftest test-parse-errors-on-failure ()
+  "Verify parse-errors contains error message when parsing fails."
+  (let ((result (jf/bash-parse "")))
+    (should (eq (plist-get result :success) nil))
+    (should (eq (plist-get result :parse-complete) nil))
+    (should (consp (plist-get result :parse-errors)))
+    (should (member "Empty command string" (plist-get result :parse-errors)))))
 
 (provide 'test-input-validation)
 ;;; test-input-validation.el ends here
