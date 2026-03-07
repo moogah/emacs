@@ -1,4 +1,4 @@
-;;; test-bead-3kgg-verification.el --- Verify bead emacs-3kgg requirements -*- lexical-binding: t; -*-
+;;; test-find-exec-patterns.el --- Integration tests for find -exec patterns -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,27 +7,19 @@
 
 ;;; Commentary:
 
-;; Verification tests for bead emacs-3kgg requirements.
+;; Integration tests for find command with -exec patterns.
+;; Tests verify that find operations and exec block operations are both extracted.
 ;;
-;; Spec requirement (openspec/specs/bash-file-operations/spec.md lines 38-47):
-;; - Scenario: Find with exec rm
-;;   WHEN extracting from "find . -name '*.log' -exec rm {} \;"
-;;   THEN system returns operations from BOTH find (:read-directory on ".")
-;;        AND rm (:delete on matched files)
-;;
-;; - Scenario: Find with multiple exec blocks
-;;   WHEN extracting from command with multiple -exec blocks
-;;   THEN system returns operations from each exec block separately
+;; Originally created as verification tests for bead emacs-3kgg, these tests
+;; validate the complete integration of find command parsing with exec blocks.
 
 ;;; Code:
 
-(require 'test-helper (expand-file-name "test-helper.el"
+(require 'test-helper (expand-file-name "../test-helper.el"
                                         (file-name-directory load-file-name)))
 
-(ert-deftest test-bead-3kgg-find-with-exec-rm ()
-  "Verify find with exec rm extracts both find and rm operations.
-
-Spec: openspec/specs/bash-file-operations/spec.md lines 40-42"
+(ert-deftest test-find-exec-rm-pattern ()
+  "Verify find with exec rm extracts both find and rm operations."
   (let* ((cmd "find . -name '*.log' -exec rm {} \\;")
          (parsed (jf/bash-parse cmd))
          (ops (jf/bash-extract-file-operations parsed)))
@@ -69,10 +61,8 @@ Spec: openspec/specs/bash-file-operations/spec.md lines 40-42"
       (should (equal (plist-get delete-op :exec-type) "-exec"))
       (should (equal (plist-get delete-op :command) "rm")))))
 
-(ert-deftest test-bead-3kgg-find-with-multiple-exec-blocks ()
-  "Verify find with multiple exec blocks extracts operations from each.
-
-Spec: openspec/specs/bash-file-operations/spec.md lines 44-46"
+(ert-deftest test-find-multiple-exec-blocks ()
+  "Verify find with multiple exec blocks extracts operations from each."
   (let* ((cmd "find . -name '*.txt' -exec grep pattern {} \\; -exec cat {} \\;")
          (parsed (jf/bash-parse cmd))
          (ops (jf/bash-extract-file-operations parsed)))
@@ -113,11 +103,11 @@ Spec: openspec/specs/bash-file-operations/spec.md lines 44-46"
       (should (eq (plist-get cat-op :operation) :read))
       (should (plist-get cat-op :indirect)))))
 
-(ert-deftest test-bead-3kgg-workspace-validation-scenario ()
-  "Verify workspace validation scenario from bead description.
+(ert-deftest test-find-exec-workspace-validation ()
+  "Verify workspace validation via find exec pattern.
 
-Test: find /workspace -name \"*.txt\" -exec cat {} \\;
-Should validate workspace access via :read-directory operation."
+Tests that find /workspace extracts :read-directory operation for
+security validation of workspace access."
   (let* ((cmd "find /workspace -name \"*.txt\" -exec cat {} \\;")
          (parsed (jf/bash-parse cmd))
          (ops (jf/bash-extract-file-operations parsed)))
@@ -140,5 +130,5 @@ Should validate workspace access via :read-directory operation."
                                (eq (plist-get op :source) :exec-block)))
                          ops))))
 
-(provide 'test-bead-3kgg-verification)
-;;; test-bead-3kgg-verification.el ends here
+(provide 'test-find-exec-patterns)
+;;; test-find-exec-patterns.el ends here

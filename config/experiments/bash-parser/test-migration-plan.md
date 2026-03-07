@@ -60,11 +60,12 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 - [x] Construct tests moved (5 files, 94 tests)
 - [x] Individual test tracking updated for each moved test
 
-### Phase 4: Redundancy & Deprecated ⏳
-- [ ] Deprecated tests removed (with justification in tracking)
-- [ ] Redundancy analysis completed
-- [ ] Individual test tracking updated with removal reasons
-- [ ] Final test count determined
+### Phase 4: Redundancy & Deprecated ✓ COMPLETED
+- [x] Deprecated tests removed: 0 tests (corpus tests already removed in prior phases)
+- [x] Redundancy analysis completed (see test/docs/REDUNDANCY-ANALYSIS.md)
+- [x] Bead verification tests integrated (3 tests moved to integration/)
+- [x] Individual test tracking updated with movement reasons
+- [x] Final test count: 683 tests (548 explicit + 135 corpus-generated)
 
 ### Phase 5: Final Documentation ⏳
 - [ ] README files created
@@ -135,12 +136,13 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 - test/test-directory-changing-commands.el → construct/ | 36 tests | MOVE | ✓ Completed (Phase 3)
 - test/test-pwd-directory-context.el → construct/ | 29 tests | MOVE | ✓ Completed (Phase 3)
 
-### Special Cases
+### Phase 4: Bead Verification Tests (1 file, 3 tests)
 
-**Bead Verification Test (1 file)**
-- test/test-bead-3kgg-verification.el | 3 tests | TBD | ⏳ Pending
-  - Note: Temporary verification test for a specific bead
-  - Decision needed: Remove after verification complete, or move to unit/core/?
+**Bead Verification Test → Integration (Phase 4)**
+- test/test-bead-3kgg-verification.el → integration/test-find-exec-patterns.el | 3 tests | MOVE | ✓ Completed (Phase 4)
+  - Note: Integrated verification tests into regular test suite
+  - Tests renamed to remove bead-specific prefixes
+  - Decision: Keep as integration tests - provide unique coverage for find -exec patterns
 
 ## Individual Test Tracking (683 Tests)
 
@@ -237,13 +239,13 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 | test-file-operation-ls-is-no-op | ✓ Moved | unit/semantic/ | Phase 2 |
 | test-file-operation-echo-is-no-op | ✓ Moved | unit/semantic/ | Phase 2 |
 
-### test-bead-3kgg-verification.el (3 tests → TBD)
+### test-bead-3kgg-verification.el (3 tests → integration/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-no-glob-match-after-redirection-operator | ⏳ Pending | TBD | Verification test - decision needed |
-| test-no-glob-match-in-variable-assignment | ⏳ Pending | TBD | Verification test - decision needed |
-| test-no-glob-match-in-command-substitution | ⏳ Pending | TBD | Verification test - decision needed |
+| test-bead-3kgg-find-with-exec-rm → test-find-exec-rm-pattern | ✓ Moved | integration/ | Phase 4 - Integrated from bead verification |
+| test-bead-3kgg-find-with-multiple-exec-blocks → test-find-multiple-exec-blocks | ✓ Moved | integration/ | Phase 4 - Integrated from bead verification |
+| test-bead-3kgg-workspace-validation-scenario → test-find-exec-workspace-validation | ✓ Moved | integration/ | Phase 4 - Integrated from bead verification |
 
 ### test-command-injection.el (7 tests → behavioral/)
 
@@ -899,16 +901,80 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 - Unit/Core: 35 tests
 - Unit/Semantic: 146 tests
 - Unit/Analysis: 59 tests
-- Integration: 48 tests
+- Integration: 51 tests (48 original + 3 from bead verification)
 - Construct: 94 tests
 - Corpus (explicit + generated): 169 tests (34 explicit + 135 generated)
-- TBD: 3 tests
 
-## Redundancy Decisions (Phase 4)
-[Will be filled during Phase 4 - Every removal must document which tests were redundant and why]
+## Redundancy Decisions (Phase 4) ✓ COMPLETED
 
-## Deprecated Tests Removed (Phase 4)
-[Will be filled during Phase 4 - Every removal must document test name, file, and deprecation reason]
+**Summary:** Comprehensive redundancy analysis completed and documented in test/docs/REDUNDANCY-ANALYSIS.md
 
-## Final Accounting
-[Will be filled during Phase 5 - Must account for all 683 tests from baseline]
+**Areas Investigated:**
+1. Basic file operation extraction (behavioral vs corpus tests) - KEEP BOTH
+2. Variable resolution (unit vs behavioral) - KEEP BOTH
+3. Command semantics lookup (unit vs integration) - KEEP BOTH
+4. Bead verification tests - INTEGRATED into test suite
+
+**Results:**
+- Total overlaps investigated: 4 areas
+- Kept both: 4 cases (different focus/layers/data provide unique value)
+- Merged: 0 cases (no true redundancy found)
+- Moved: 1 file (3 tests from bead verification → integration tests)
+- Removed: 0 tests (all tests provide unique coverage)
+
+**Rationale for Conservative Approach:**
+Analysis revealed that tests appearing similar actually test different aspects at different layers. The test suite is well-differentiated after reorganization:
+- Unit tests validate individual functions
+- Behavioral tests validate end-to-end extraction
+- Integration tests validate feature combinations
+- Construct tests validate language constructs
+- Corpus tests validate data-driven expectations
+
+Each layer provides unique diagnostic value when tests fail.
+
+## Deprecated Tests Removed (Phase 4) ✓ COMPLETED
+
+**Summary:** Deprecated corpus tests were already removed in prior phases during corpus file refinement.
+
+**Corpus Tests Already Removed (pre-Phase 4):**
+- Heredoc edge cases: 2 tests removed (empty delimiter, special chars in delimiter)
+- Command-sub edge cases: 3 tests removed (empty substitution, escaped substitution, pure output cases)
+- Conditional test operators: 6 tests removed (string/numeric tests with no file impact)
+- Process substitution: 16 tests deferred (extremely rare patterns)
+
+**Total Pre-Removed:** ~27 corpus test entries removed from corpus data files before Phase 4 began
+
+**Phase 4 Removals:** 0 explicit tests removed
+- Reason: Deprecated tests were corpus data entries, not explicit ert-deftest forms
+- Corpus data refinement documented in corpus file headers (e.g., corpus-parse-heredoc.el line 6)
+
+## Final Accounting ✓ COMPLETED
+
+**Baseline (Phase 0):**
+- Total executed: 683 tests
+- Explicit deftests: 548 tests
+- Corpus-generated: 135 tests
+
+**After All Phases:**
+- Total executed: 683 tests (maintained)
+- Explicit deftests: 548 tests (maintained)
+- Corpus-generated: 135 tests (maintained)
+
+**Test Distribution After Migration:**
+- Behavioral: 129 tests (23.5%)
+- Unit (Core + Semantic + Analysis): 240 tests (43.8%)
+- Integration: 51 tests (9.3%)
+- Construct: 94 tests (17.2%)
+- Corpus (explicit runners): 34 tests (6.2%)
+- **Total Explicit:** 548 tests ✓
+- **Corpus-Generated:** 135 tests (from corpus data files)
+- **Grand Total:** 683 tests ✓
+
+**Changes Made in Phase 4:**
+- Moved: 3 tests (bead verification → integration)
+- Removed: 0 tests
+- Renamed: 3 tests (removed bead-specific prefixes)
+
+**Coverage Maintained:** All 683 baseline tests accounted for. Test suite remains comprehensive with improved organization and clear separation of concerns across test layers.
+
+**Conclusion:** Phase 4 completed successfully. No reduction in test count warranted - analysis showed tests are well-differentiated and provide unique coverage. The 683 test count represents appropriate comprehensive coverage for the bash parser functionality.
