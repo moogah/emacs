@@ -1,0 +1,49 @@
+test/test-assertions.el: 0
+0 tests
+test/test-backward-compatibility.el: 13 tests
+test/test-bash-parser-recursive.el: 25 tests
+test/test-bash-parser-semantics.el: 27 tests
+test/test-bead-3kgg-verification.el: 3 tests
+test/test-command-injection.el: 7 tests
+test/test-command-semantics.el: 68 tests
+test/test-command-substitution.el: 28 tests
+test/test-conditional-context.el: 10 tests
+test/test-corpus-file-operations.el: 0
+0 tests
+test/test-corpus-parse.el: 4 tests
+test/test-corpus-script-execution.el: 30 tests
+test/test-directory-changing-commands.el: 36 tests
+test/test-expect-file-ops-validation.el: 3 tests
+test/test-file-operations.el: 49 tests
+test/test-glob-matching.el: 35 tests
+test/test-helper.el: 0
+0 tests
+test/test-heredoc-context.el: 10 tests
+test/test-input-validation.el: 8 tests
+test/test-loop-context.el: 9 tests
+test/test-parser-extension.el: 26 tests
+test/test-pattern-flow.el: 10 tests
+test/test-pwd-directory-context.el: 29 tests
+test/test-security-validator.el: 60 tests
+test/test-semantics-validation.el: 11 tests
+test/test-treesitter-workarounds.el: 7 tests
+test/test-variable-chain-ampersand.el: 4 tests
+test/test-variable-resolution-unit.el: 36 tests
+test/corpus-index.el: 0
+0 tests
+test/corpus-parse-combined-patterns.el: 0
+0 tests
+test/corpus-parse-command-substitution.el: 0
+0 tests
+test/corpus-parse-conditional.el: 0
+0 tests
+test/corpus-parse-for-loop.el: 0
+0 tests
+test/corpus-parse-heredoc.el: 0
+0 tests
+test/corpus-parse-llm-scenarios.el: 0
+0 tests
+test/corpus-parse-process-substitution.el: 0
+0 tests
+
+Total: 548 tests
