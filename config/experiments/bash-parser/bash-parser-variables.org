@@ -3,6 +3,21 @@
 #+property: header-args:emacs-lisp :tangle bash-parser-variables.el
 #+auto_tangle: t
 
+* Package Header
+
+#+begin_src emacs-lisp
+;; Author: Jeff Farr
+;; Keywords: bash, parser, variables, resolution
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Variable context management for bash command parsing.
+;; Handles variable references in file paths for scope-aware file operations.
+
+;;; Code:
+#+end_src
+
 * Introduction
 
 Variable context management for bash command parsing.

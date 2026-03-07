@@ -1,3 +1,14 @@
+;; Author: Jeff Farr
+;; Keywords: bash, parser, semantics, database
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Command semantics database for bash parser.
+;; Defines file operation semantics for core bash commands.
+
+;;; Code:
+
 ;;; bash-parser-semantics.el --- Command semantics database -*- lexical-binding: t; -*-
 
 ;; Require protocol module for forward declarations

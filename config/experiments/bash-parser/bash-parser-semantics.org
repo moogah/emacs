@@ -3,6 +3,21 @@
 #+property: header-args:emacs-lisp :tangle bash-parser-semantics.el
 #+auto_tangle: t
 
+* Package Header
+
+#+begin_src emacs-lisp
+;; Author: Jeff Farr
+;; Keywords: bash, parser, semantics, database
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Command semantics database for bash parser.
+;; Defines file operation semantics for core bash commands.
+
+;;; Code:
+#+end_src
+
 * Introduction
 
 Command semantics database for bash parser.
