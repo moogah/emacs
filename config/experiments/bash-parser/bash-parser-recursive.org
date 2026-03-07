@@ -355,7 +355,9 @@ for specific nesting structures.
 
 PARSED-COMMAND is the output from `jf/bash-parse'.
 VAR-CONTEXT is an alist mapping variable names (symbols) to values (strings).
-DEPTH prevents infinite recursion (default 0, max 10).
+DEPTH prevents infinite recursion (default 0, max controlled by
+jf/bash-recursive-max-depth). When max depth exceeded, returns error
+plist with :success nil and :error describing the limit.
 
 Returns flat list of all operations including nested operations from:
 - Command substitutions (:command-substitutions with :parsed)
@@ -385,15 +387,21 @@ Example:
       ;; Operation from cat (with pattern flow)
       (:file \"*.log\" :operation :read :pattern-source (:command \"find\" ...) ...))"
   (condition-case err
-      (let ((depth (or depth 0))
-            (operations nil))
+      (catch 'depth-exceeded
+        (let ((depth (or depth 0))
+              (operations nil))
 
-        ;; Depth check - prevent infinite recursion
-        (when (>= depth jf/bash-recursive-max-depth)
-          (cl-return (list :error (format "Max recursion depth exceeded (limit: %d)" jf/bash-recursive-max-depth)
-                          :success nil)))
+          ;; Depth check - return error plist instead of throwing for graceful degradation
+          (when (>= depth jf/bash-recursive-max-depth)
+            (message "Warning: Max recursion depth %d exceeded, returning error plist"
+                     jf/bash-recursive-max-depth)
+            (setq operations (list :error (format "Maximum recursion depth exceeded (limit: %d)"
+                                                 jf/bash-recursive-max-depth)
+                                  :success nil))
+            ;; Return immediately with error plist
+            (throw 'depth-exceeded operations))
 
-        ;; 1. Extract operations from this command level
+          ;; 1. Extract operations from this command level
         (when (fboundp 'jf/bash--extract-from-single-command)
           (let ((this-level-ops (jf/bash--extract-from-single-command
                                  parsed-command var-context)))
@@ -468,10 +476,10 @@ Example:
                   (plist-put op :subshell-context t))
                 (setq operations (append operations subshell-ops))))))
 
-        ;; 9. Post-process: Normalize dynamic file paths using helper
-        (setq operations (jf/bash--normalize-dynamic-paths operations))
+          ;; 9. Post-process: Normalize dynamic file paths using helper
+          (setq operations (jf/bash--normalize-dynamic-paths operations))
 
-        operations)
+          operations))
     (error (list :error (format "Recursive analysis error: %s" (error-message-string err))
                  :success nil))))
 #+end_src

@@ -1,5 +1,12 @@
 ;;; bash-parser-extensions.el --- Parser extensions -*- lexical-binding: t; -*-
 
+(require 'cl-lib)
+
+(defvar jf/bash-recursive-max-depth 10
+  "Maximum recursion depth shared across parser modules.
+Prevents infinite recursion in pathological nested command cases.
+Used by both recursive semantic analysis and nested command parsing.")
+
 (defun jf/bash-mark-indirect-operations (operations)
   "Mark OPERATIONS as indirect if they should have stricter security policies.
 
@@ -241,7 +248,8 @@ Returns parsed command structure with metadata:
   :error - Error message if parsing failed
 
 Recursion termination:
-  - Maximum depth: 10 levels (prevents infinite recursion)
+  - Maximum depth: Controlled by jf/bash-recursive-max-depth (default 10)
+  - Returns error plist with :success nil when limit exceeded
   - Detection failure: No more injection patterns found
   - Parse failure: Command string is invalid
 
@@ -278,7 +286,7 @@ Nesting levels:
   - 1: First level of nesting (bash -c 'cmd')
   - 2+: Deeper nesting levels (bash -c \"bash -c 'cmd'\")"
   (let ((level (or nesting-level 1)))
-    ;; Check recursion depth limit
+    ;; Check recursion depth limit - use >= for consistency across modules
     (if (>= level jf/bash-recursive-max-depth)
         (list :success nil
               :error (format "Maximum nesting depth exceeded (limit: %d)" jf/bash-recursive-max-depth)
