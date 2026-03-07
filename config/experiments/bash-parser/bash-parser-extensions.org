@@ -23,22 +23,12 @@ These extensions enable defense-in-depth security analysis by identifying operat
 
 #+begin_src emacs-lisp
 (require 'cl-lib)
+(require 'bash-parser-recursive)  ; Provides jf/bash-recursive-max-depth
 #+end_src
 
 * Configuration
 
-** Maximum Recursion Depth
-
-Shared depth limit for recursive parsing across parser modules. This variable
-is also defined in bash-parser-recursive.el and both modules use the same limit
-to ensure consistent behavior.
-
-#+begin_src emacs-lisp
-(defvar jf/bash-recursive-max-depth 10
-  "Maximum recursion depth shared across parser modules.
-Prevents infinite recursion in pathological nested command cases.
-Used by both recursive semantic analysis and nested command parsing.")
-#+end_src
+Maximum recursion depth is provided by bash-parser-recursive module.
 
 * Parser Extensions
 

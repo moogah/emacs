@@ -1,11 +1,7 @@
 ;;; bash-parser-extensions.el --- Parser extensions -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
-
-(defvar jf/bash-recursive-max-depth 10
-  "Maximum recursion depth shared across parser modules.
-Prevents infinite recursion in pathological nested command cases.
-Used by both recursive semantic analysis and nested command parsing.")
+(require 'bash-parser-recursive)  ; Provides jf/bash-recursive-max-depth
 
 (defun jf/bash-mark-indirect-operations (operations)
   "Mark OPERATIONS as indirect if they should have stricter security policies.

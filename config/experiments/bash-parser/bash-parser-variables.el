@@ -192,14 +192,26 @@ Examples:
   (jf/bash--navigate-parent-path \"/workspace/src/foo.txt\" 2)
     => \"/workspace/\"
 
-Internal helper for jf/bash-resolve-relative-path."
-  (let ((result base-path))
-    (dotimes (_ levels)
+Internal helper for jf/bash-resolve-relative-path.
+
+BASE-PATH must be a string (caller responsibility).
+LEVELS must be a non-negative integer (caller responsibility)."
+  (let ((result base-path)
+        (remaining levels))
+    (while (> remaining 0)
       (let ((parent (file-name-directory (directory-file-name result))))
-        (if (or (null parent) (equal parent result))
-            ;; Reached root, stop navigating
-            (setq result "/")
-          (setq result parent))))
+        (cond
+         ;; Hit filesystem root - stop immediately (DOS prevention)
+         ((or (null parent)
+              (equal parent result)
+              (string= result "/"))
+          (setq result "/")
+          (setq remaining 0))  ; Break loop
+
+         ;; Normal case - ascend one level
+         (t
+          (setq result parent)
+          (setq remaining (1- remaining))))))
     result))
 
 (defun jf/bash-resolve-relative-path (file-path var-context &optional current-pwd)

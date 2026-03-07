@@ -66,8 +66,9 @@ Setup lexical binding and file header.
 
 #+begin_src emacs-lisp
 (defvar jf/bash-recursive-max-depth 10
-  "Maximum recursion depth for semantic analysis.
-Prevents infinite recursion in pathological cases.")
+  "Maximum recursion depth for semantic analysis and nested command parsing.
+Prevents infinite recursion in pathological cases.
+Shared by bash-parser-recursive and bash-parser-extensions modules.")
 #+end_src
 
 * Main Recursive Analyzer
@@ -96,9 +97,14 @@ Returns cons cell (OPERATIONS . SUBSTITUTION-PATTERNS) where:
     (when-let ((substs (plist-get parsed-command :command-substitutions)))
       (dolist (subst substs)
         (when-let ((parsed-subst (plist-get subst :parsed)))
-          (when (plist-get parsed-subst :success)  ; Only if parse succeeded
-            (let ((subst-ops (jf/bash-analyze-file-operations-recursive
-                             parsed-subst var-context (1+ depth))))
+          (if (plist-get parsed-subst :error)
+              ;; Log error but continue processing other substitutions
+              (lwarn 'bash-parser :error "Substitution parse failed: %s"
+                     (plist-get parsed-subst :error))
+            ;; Otherwise check success
+            (when (plist-get parsed-subst :success)
+              (let ((subst-ops (jf/bash-analyze-file-operations-recursive
+                               parsed-subst var-context (1+ depth))))
               ;; Check if substitution produces a file pattern
               (let ((pattern-op (seq-find
                                 (lambda (op)
@@ -119,7 +125,7 @@ Returns cons cell (OPERATIONS . SUBSTITUTION-PATTERNS) where:
                      (mapcar (lambda (op)
                               (append op (list :from-substitution t)))
                             subst-ops)))
-                (setq operations (append operations marked-ops))))))))
+                (setq operations (append operations marked-ops)))))))))
     (cons operations substitution-patterns)))
 #+end_src
 
@@ -271,10 +277,16 @@ The function:
     (when loop-body
       (let* ((loop-body-parsed-raw (jf/bash-parse loop-body))
              ;; Remove :ast field to prevent accessing killed buffer nodes
-             (loop-body-parsed (when (plist-get loop-body-parsed-raw :success)
+             (loop-body-parsed (cond
+                               ((plist-get loop-body-parsed-raw :error)
+                                (lwarn 'bash-parser :error "Loop body parse failed: %s"
+                                       (plist-get loop-body-parsed-raw :error))
+                                nil)
+                               ((plist-get loop-body-parsed-raw :success)
                                 (let ((clean-parsed (copy-sequence loop-body-parsed-raw)))
                                   (setq clean-parsed (plist-put clean-parsed :ast nil))
-                                  clean-parsed)))
+                                  clean-parsed))
+                               (t nil)))
              ;; Add loop variable to context only if it has a resolvable value
              ;; Skip keyword markers like :literal-list which can't be used in resolution
              (loop-context (if (and loop-var-value
@@ -397,7 +409,7 @@ Example:
               (operations nil))
 
           ;; Depth check - return error plist instead of throwing for graceful degradation
-          (when (>= depth jf/bash-recursive-max-depth)
+          (when (> depth jf/bash-recursive-max-depth)
             (message "Warning: Max recursion depth %d exceeded, returning error plist"
                      jf/bash-recursive-max-depth)
             (setq operations (list :error (format "Maximum recursion depth exceeded (limit: %d)"
@@ -602,10 +614,16 @@ Returns list of operations marked with :test-condition t."
       ;; Otherwise, parse as command and mark operations
       (let* ((parsed-test (jf/bash-parse condition-text))
              ;; Clean :ast to avoid killed buffer issues
-             (clean-parsed (when (plist-get parsed-test :success)
+             (clean-parsed (cond
+                           ((plist-get parsed-test :error)
+                            (lwarn 'bash-parser :error "Test condition parse failed: %s"
+                                   (plist-get parsed-test :error))
+                            nil)
+                           ((plist-get parsed-test :success)
                             (let ((cleaned (copy-sequence parsed-test)))
                               (plist-put cleaned :ast nil)
-                              cleaned)))
+                              cleaned))
+                           (t nil)))
              (test-ops (when clean-parsed
                         (jf/bash-analyze-file-operations-recursive
                          clean-parsed var-context depth))))
@@ -632,10 +650,16 @@ Returns list of operations marked with :conditional t :branch :then."
     (when (fboundp 'jf/bash-parse)
       (let* ((parsed-then (jf/bash-parse then-text))
              ;; Clean :ast to avoid killed buffer issues
-             (clean-parsed (when (plist-get parsed-then :success)
+             (clean-parsed (cond
+                           ((plist-get parsed-then :error)
+                            (lwarn 'bash-parser :error "Then branch parse failed: %s"
+                                   (plist-get parsed-then :error))
+                            nil)
+                           ((plist-get parsed-then :success)
                             (let ((cleaned (copy-sequence parsed-then)))
                               (plist-put cleaned :ast nil)
-                              cleaned)))
+                              cleaned))
+                           (t nil)))
              (then-ops (when (and clean-parsed (fboundp 'jf/bash-analyze-file-operations-recursive))
                         (jf/bash-analyze-file-operations-recursive
                          clean-parsed var-context depth))))
@@ -662,10 +686,16 @@ Returns list of operations marked with :conditional t :branch :else."
     (when (fboundp 'jf/bash-parse)
       (let* ((parsed-else (jf/bash-parse else-text))
              ;; Clean :ast to avoid killed buffer issues
-             (clean-parsed (when (plist-get parsed-else :success)
+             (clean-parsed (cond
+                           ((plist-get parsed-else :error)
+                            (lwarn 'bash-parser :error "Else branch parse failed: %s"
+                                   (plist-get parsed-else :error))
+                            nil)
+                           ((plist-get parsed-else :success)
                             (let ((cleaned (copy-sequence parsed-else)))
                               (plist-put cleaned :ast nil)
-                              cleaned)))
+                              cleaned))
+                           (t nil)))
              (else-ops (when (and clean-parsed (fboundp 'jf/bash-analyze-file-operations-recursive))
                         (jf/bash-analyze-file-operations-recursive
                          clean-parsed var-context depth))))
