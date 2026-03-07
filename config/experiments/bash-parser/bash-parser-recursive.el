@@ -316,12 +316,12 @@ Example:
 
         ;; 2. Detect and recursively process nested commands (bash -c, sh -c, eval)
         (when (and (fboundp 'jf/bash-detect-command-injection)
-                   (fboundp 'jf/bash-parse-nested-command)
+                   (fboundp 'jf/bash--parse-nested-command)
                    (eq (plist-get parsed-command :type) :simple))
           (when-let ((injection-info (jf/bash-detect-command-injection parsed-command)))
             (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
               (when nested-cmd-string
-                (let* ((nested-parsed (jf/bash-parse-nested-command
+                (let* ((nested-parsed (jf/bash--parse-nested-command
                                       nested-cmd-string (1+ depth) parsed-command))
                        (nested-ops (when (plist-get nested-parsed :success)
                                     (jf/bash-analyze-file-operations-recursive

@@ -416,7 +416,7 @@ like 'PWD=/path cmd' only affect that specific command."
         ;; Extract from nested commands (bash -c, sh -c, etc.)
         ;; Only if bash-parser-extensions is loaded
         (when (and (fboundp 'jf/bash-detect-command-injection)
-                   (fboundp 'jf/bash-parse-nested-command))
+                   (fboundp 'jf/bash--parse-nested-command))
           ;; Detect command injection and recursively extract operations
           (when-let ((injection-info (jf/bash-detect-command-injection command)))
             (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
@@ -425,7 +425,7 @@ like 'PWD=/path cmd' only affect that specific command."
                 ;; If command already has a nesting level, increment it for the inner command
                 (let* ((current-level (plist-get command :nested-level))
                        (next-level (if current-level (1+ current-level) 1))
-                       (nested-parsed (jf/bash-parse-nested-command
+                       (nested-parsed (jf/bash--parse-nested-command
                                        nested-cmd-string
                                        next-level))
                        (nesting-level (plist-get nested-parsed :nested-level))
@@ -774,7 +774,7 @@ The function:
   ;; Pre-resolve command substitutions before checking for unresolvable patterns
   ;; This allows $(pwd), $(basename $(pwd)), etc. to be statically resolved
   (let ((cmd-resolved (if var-context
-                          (jf/bash-resolve-command-substitution file-path var-context)
+                          (jf/bash--resolve-command-substitution file-path var-context)
                         file-path)))
     ;; Skip unresolvable command substitutions (marked with :unresolved or still containing $()
     ;; These are processed recursively and handled by pattern flow operations
@@ -929,7 +929,7 @@ Examples:
 
 This function performs three-stage atomic resolution with error handling:
   1. Variable resolution ($VAR, ${VAR}) using `jf/bash-resolve-variables'
-  2. Command substitution ($(pwd), `pwd`) using `jf/bash-resolve-pwd-substitution'
+  2. Command substitution ($(pwd), `pwd`) using `jf/bash--resolve-pwd-substitution'
   3. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
 
 FILE-PATH is the file path string (may contain variables, substitutions, and/or
@@ -990,11 +990,11 @@ Examples:
             (let ((pwd-resolved
                    (if (stringp var-resolved)
                        ;; All variables resolved - apply pwd substitution
-                       (jf/bash-resolve-pwd-substitution var-resolved var-context)
+                       (jf/bash--resolve-pwd-substitution var-resolved var-context)
                      ;; Partial variable resolution - still apply pwd substitution to :path
                      (let* ((path (plist-get var-resolved :path))
                             (unresolved-vars (plist-get var-resolved :unresolved))
-                            (resolved-path (jf/bash-resolve-pwd-substitution path var-context)))
+                            (resolved-path (jf/bash--resolve-pwd-substitution path var-context)))
                        (list :path resolved-path :unresolved unresolved-vars)))))
               (when debug
                 (if (stringp pwd-resolved)
