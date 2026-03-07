@@ -31,13 +31,13 @@ Variable names match pattern: [A-Za-z_][A-Za-z0-9_]*"
       ;; Match ${VAR} or $VAR patterns
       ;; Group 1: braced variable (${VAR})
       ;; Group 2: simple variable ($VAR)
-      (let ((pos 0))
-        (while (string-match "\\${\\([A-Za-z_][A-Za-z0-9_]*\\)}\\|\\$\\([A-Za-z_][A-Za-z0-9_]*\\)"
-                            file-path pos)
-          (let ((var-name (or (match-string 1 file-path)
-                             (match-string 2 file-path))))
-            (push var-name var-names))
-          (setq pos (match-end 0)))))
+      (cl-loop with start = 0
+               while (string-match "\\${\\([A-Za-z_][A-Za-z0-9_]*\\)}\\|\\$\\([A-Za-z_][A-Za-z0-9_]*\\)"
+                                   file-path start)
+               do (push (or (match-string 1 file-path)
+                           (match-string 2 file-path))
+                        var-names)
+               do (setq start (match-end 0))))
     ;; Return cons cell: (has-vars . var-names)
     (if var-names
         (cons t (nreverse var-names))
