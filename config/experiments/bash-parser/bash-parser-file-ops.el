@@ -193,16 +193,51 @@ Examples:
       (t nil)))
    flags-list))
 
-(defun jf/bash-extract-file-operations (parsed-command &optional var-context)
-  "Extract all file operations from PARSED-COMMAND.
-
-This is the main entry point for file operation extraction. Now uses
-recursive semantic analysis to extract operations from all nesting levels.
+(defun jf/bash--extract-file-operations-impl (parsed-command &optional var-context)
+  "Internal implementation: Extract all file operations from PARSED-COMMAND.
 
 PARSED-COMMAND is the output from `jf/bash-parse'.
 VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
 
 Signals error if PARSED-COMMAND is not a valid plist or if VAR-CONTEXT has invalid structure.
+
+Returns a flat list of operation plists. See `jf/bash-extract-file-operations'
+for full return value documentation."
+  ;; Validate inputs
+  (unless (listp parsed-command)
+    (error "jf/bash--extract-file-operations-impl: parsed-command must be a plist, got %S"
+           (type-of parsed-command)))
+  (when var-context
+    (unless (jf/bash--valid-var-context-p var-context)
+      (error "jf/bash--extract-file-operations-impl: var-context must be an alist of (VAR . VALUE) pairs where VAR is symbol/string and VALUE is string, got %S"
+             var-context)))
+
+  ;; Normalize var-context
+  (let ((context (jf/bash--normalize-var-context var-context)))
+    ;; Use recursive analyzer (requires bash-parser-recursive)
+    (require 'bash-parser-recursive)
+    (let ((all-ops (jf/bash-analyze-file-operations-recursive
+                   parsed-command context 0)))
+      ;; Validate all operations before returning
+      (dolist (op all-ops)
+        (jf/bash--validate-operation-type op))
+      ;; Deduplicate and return
+      (jf/bash--deduplicate-operations all-ops))))
+
+(defun jf/bash-extract-file-operations (parsed-command &optional var-context)
+  "DEPRECATED: Extract all file operations from PARSED-COMMAND.
+
+This function is deprecated. Use `jf/bash-extract-semantics' instead,
+which provides a multi-domain plugin-based extraction system.
+
+For backward compatibility, this function delegates to the internal
+implementation. The filesystem plugin has been updated to call the
+internal implementation directly to avoid circular dependencies.
+
+PARSED-COMMAND is the output from `jf/bash-parse'.
+VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
+
+Signals error if PARSED-COMMAND is not a valid plist.
 
 Returns a flat list of operation plists, each containing:
   :file - File path (may contain unresolved variables or patterns)
@@ -224,9 +259,6 @@ Returns a flat list of operation plists, each containing:
   :heredoc-content - t if from heredoc with redirect
   :indirect - t if from nested/indirect execution
 
-Handles arbitrary nesting depth up to 10 levels (configurable).
-Operations are deduplicated by file+operation pair.
-
 Examples:
   Simple: (jf/bash-extract-file-operations (jf/bash-parse \"cat file.txt\"))
   => ((:file \"file.txt\" :operation :read :confidence :high :command \"cat\"))
@@ -238,26 +270,8 @@ Examples:
 
   Loop: (jf/bash-extract-file-operations (jf/bash-parse \"for f in *.txt; do rm $f; done\"))
   => ((:file \"*.txt\" :operation :delete :command \"rm\" :pattern t :loop-context t))"
-  ;; Validate inputs
-  (unless (listp parsed-command)
-    (error "jf/bash-extract-file-operations: parsed-command must be a plist, got %S"
-           (type-of parsed-command)))
-  (when var-context
-    (unless (jf/bash--valid-var-context-p var-context)
-      (error "jf/bash-extract-file-operations: var-context must be an alist of (VAR . VALUE) pairs where VAR is symbol/string and VALUE is string, got %S"
-             var-context)))
-
-  ;; Normalize var-context
-  (let ((context (jf/bash--normalize-var-context var-context)))
-    ;; Use recursive analyzer (requires bash-parser-recursive)
-    (require 'bash-parser-recursive)
-    (let ((all-ops (jf/bash-analyze-file-operations-recursive
-                   parsed-command context 0)))
-      ;; Validate all operations before returning
-      (dolist (op all-ops)
-        (jf/bash--validate-operation-type op))
-      ;; Deduplicate and return
-      (jf/bash--deduplicate-operations all-ops))))
+  ;; Delegate to internal implementation
+  (jf/bash--extract-file-operations-impl parsed-command var-context))
 
 (defun jf/bash--validate-operation-type (operation)
   "Validate that OPERATION plist has valid structure and operation type.
