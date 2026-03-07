@@ -74,6 +74,7 @@ Setup lexical binding.
 
 #+begin_src emacs-lisp
 (require 'treesit)
+(require 'bash-parser-protocol)  ; Forward declarations
 (require 'bash-parser-security)
 #+end_src
 
