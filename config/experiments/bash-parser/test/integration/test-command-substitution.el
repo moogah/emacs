@@ -3,9 +3,9 @@
 ;; ERT tests for bash command substitution detection and extraction
 ;; Tests cover: $(...) syntax, backtick syntax, nesting, quoting, pipes
 
-(require 'test-helper (expand-file-name "test-helper.el"
+(require 'test-helper (expand-file-name "../test-helper.el"
                                         (file-name-directory load-file-name)))
-(require 'corpus-parse-command-substitution (expand-file-name "corpus/data/corpus-parse-command-substitution.el"
+(require 'corpus-parse-command-substitution (expand-file-name "../corpus/data/corpus-parse-command-substitution.el"
                                                               (file-name-directory load-file-name)))
 
 ;;; Helper Functions

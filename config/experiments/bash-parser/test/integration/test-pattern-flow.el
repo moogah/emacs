@@ -4,7 +4,7 @@
 ;; Tests verify that patterns from pattern-producing commands (find, ls, grep -l)
 ;; flow correctly to outer commands that operate on those patterns.
 
-(require 'test-helper (expand-file-name "test-helper.el"
+(require 'test-helper (expand-file-name "../test-helper.el"
                                         (file-name-directory load-file-name)))
 
 ;;; Test Suite

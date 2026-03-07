@@ -3,7 +3,7 @@
 ;; ERT tests for loop variable binding and resolution
 ;; Tests cover: loop variable from substitution, glob, literal, nested loops
 
-(require 'test-helper (expand-file-name "test-helper.el"
+(require 'test-helper (expand-file-name "../test-helper.el"
                                         (file-name-directory load-file-name)))
 
 ;;; Test Suite

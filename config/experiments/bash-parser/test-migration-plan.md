@@ -55,10 +55,10 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 - [x] Unit/analysis tests moved (3 files, 59 tests)
 - [x] Individual test tracking updated for each moved test
 
-### Phase 3: Integration & Construct ⏳
-- [ ] Integration tests moved (4 files, 48 tests)
-- [ ] Construct tests moved (5 files, 94 tests)
-- [ ] Individual test tracking updated for each moved test
+### Phase 3: Integration & Construct ✓ COMPLETED
+- [x] Integration tests moved (4 files, 48 tests)
+- [x] Construct tests moved (5 files, 94 tests)
+- [x] Individual test tracking updated for each moved test
 
 ### Phase 4: Redundancy & Deprecated ⏳
 - [ ] Deprecated tests removed (with justification in tracking)
@@ -123,17 +123,17 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 ### Phase 3: Integration & Construct Tests (9 files, 142 tests)
 
 **Integration Tests (4 files → integration/)**
-- test/test-command-substitution.el → integration/ | 28 tests | MOVE | ⏳ Pending
-- test/test-pattern-flow.el → integration/ | 10 tests | MOVE | ⏳ Pending
-- test/test-expect-file-ops-validation.el → integration/ | 3 tests | MOVE | ⏳ Pending
-- test/test-treesitter-workarounds.el → integration/ | 7 tests | MOVE | ⏳ Pending
+- test/test-command-substitution.el → integration/ | 28 tests | MOVE | ✓ Completed (Phase 3)
+- test/test-pattern-flow.el → integration/ | 10 tests | MOVE | ✓ Completed (Phase 3)
+- test/test-expect-file-ops-validation.el → integration/ | 3 tests | MOVE | ✓ Completed (Phase 3)
+- test/test-treesitter-workarounds.el → integration/ | 7 tests | MOVE | ✓ Completed (Phase 3)
 
 **Construct Tests (5 files → construct/)**
-- test/test-loop-context.el → construct/ | 9 tests | MOVE | ⏳ Pending
-- test/test-conditional-context.el → construct/ | 10 tests | MOVE | ⏳ Pending
-- test/test-heredoc-context.el → construct/ | 10 tests | MOVE | ⏳ Pending
-- test/test-directory-changing-commands.el → construct/ | 36 tests | MOVE | ⏳ Pending
-- test/test-pwd-directory-context.el → construct/ | 29 tests | MOVE | ⏳ Pending
+- test/test-loop-context.el → construct/ | 9 tests | MOVE | ✓ Completed (Phase 3)
+- test/test-conditional-context.el → construct/ | 10 tests | MOVE | ✓ Completed (Phase 3)
+- test/test-heredoc-context.el → construct/ | 10 tests | MOVE | ✓ Completed (Phase 3)
+- test/test-directory-changing-commands.el → construct/ | 36 tests | MOVE | ✓ Completed (Phase 3)
+- test/test-pwd-directory-context.el → construct/ | 29 tests | MOVE | ✓ Completed (Phase 3)
 
 ### Special Cases
 
@@ -334,98 +334,98 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-command-substitution-basic | ⏳ Pending | integration/ | |
-| test-command-substitution-in-argument | ⏳ Pending | integration/ | |
-| test-command-substitution-in-variable | ⏳ Pending | integration/ | |
-| test-command-substitution-nested | ⏳ Pending | integration/ | |
-| test-command-substitution-deeply-nested | ⏳ Pending | integration/ | |
-| test-command-substitution-with-pipeline | ⏳ Pending | integration/ | |
-| test-command-substitution-with-glob | ⏳ Pending | integration/ | |
-| test-command-substitution-multiple-in-command | ⏳ Pending | integration/ | |
-| test-command-substitution-in-heredoc | ⏳ Pending | integration/ | |
-| test-command-substitution-in-condition | ⏳ Pending | integration/ | |
-| test-command-substitution-backticks | ⏳ Pending | integration/ | |
-| test-command-substitution-mixed-quotes | ⏳ Pending | integration/ | |
-| test-command-substitution-empty | ⏳ Pending | integration/ | |
-| test-command-substitution-whitespace-handling | ⏳ Pending | integration/ | |
-| test-command-substitution-with-redirect | ⏳ Pending | integration/ | |
-| test-command-substitution-in-for-loop | ⏳ Pending | integration/ | |
-| test-command-substitution-with-special-chars | ⏳ Pending | integration/ | |
-| test-command-substitution-multiline | ⏳ Pending | integration/ | |
-| test-command-substitution-escaped-backticks | ⏳ Pending | integration/ | |
-| test-command-substitution-in-array | ⏳ Pending | integration/ | |
-| test-command-substitution-with-heredoc-delimiter | ⏳ Pending | integration/ | |
-| test-command-substitution-preserves-variables | ⏳ Pending | integration/ | |
-| test-command-substitution-complex-nesting | ⏳ Pending | integration/ | |
-| test-command-substitution-with-arithmetic | ⏳ Pending | integration/ | |
-| test-command-substitution-in-case-statement | ⏳ Pending | integration/ | |
-| test-command-substitution-error-handling | ⏳ Pending | integration/ | |
-| test-command-substitution-preserves-context | ⏳ Pending | integration/ | |
-| test-command-substitution-with-process-substitution | ⏳ Pending | integration/ | |
+| test-command-substitution-basic | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-in-argument | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-in-variable | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-nested | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-deeply-nested | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-with-pipeline | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-with-glob | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-multiple-in-command | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-in-heredoc | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-in-condition | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-backticks | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-mixed-quotes | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-empty | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-whitespace-handling | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-with-redirect | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-in-for-loop | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-with-special-chars | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-multiline | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-escaped-backticks | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-in-array | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-with-heredoc-delimiter | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-preserves-variables | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-complex-nesting | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-with-arithmetic | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-in-case-statement | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-error-handling | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-preserves-context | ✓ Moved | integration/ | Phase 3 |
+| test-command-substitution-with-process-substitution | ✓ Moved | integration/ | Phase 3 |
 
 ### test-conditional-context.el (10 tests → construct/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-conditional-basic-if | ⏳ Pending | construct/ | |
-| test-conditional-if-else | ⏳ Pending | construct/ | |
-| test-conditional-if-elif-else | ⏳ Pending | construct/ | |
-| test-conditional-nested-if | ⏳ Pending | construct/ | |
-| test-conditional-test-command | ⏳ Pending | construct/ | |
-| test-conditional-bracket-test | ⏳ Pending | construct/ | |
-| test-conditional-double-bracket | ⏳ Pending | construct/ | |
-| test-conditional-with-file-operations | ⏳ Pending | construct/ | |
-| test-conditional-case-statement | ⏳ Pending | construct/ | |
-| test-conditional-complex-nested | ⏳ Pending | construct/ | |
+| test-conditional-basic-if | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-if-else | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-if-elif-else | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-nested-if | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-test-command | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-bracket-test | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-double-bracket | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-with-file-operations | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-case-statement | ✓ Moved | construct/ | Phase 3 |
+| test-conditional-complex-nested | ✓ Moved | construct/ | Phase 3 |
 
 ### test-directory-changing-commands.el (36 tests → construct/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-directory-context-basic-cd | ⏳ Pending | construct/ | |
-| test-directory-context-cd-absolute | ⏳ Pending | construct/ | |
-| test-directory-context-cd-relative | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-subshell | ⏳ Pending | construct/ | |
-| test-directory-context-cd-in-command-substitution | ⏳ Pending | construct/ | |
-| test-directory-context-pushd | ⏳ Pending | construct/ | |
-| test-directory-context-popd | ⏳ Pending | construct/ | |
-| test-directory-context-pushd-popd-sequence | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-pipeline | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-logical-and | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-logical-or | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-semicolon | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-background | ⏳ Pending | construct/ | |
-| test-directory-context-cd-in-function | ⏳ Pending | construct/ | |
-| test-directory-context-cd-in-if-block | ⏳ Pending | construct/ | |
-| test-directory-context-cd-in-for-loop | ⏳ Pending | construct/ | |
-| test-directory-context-cd-in-while-loop | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-variable | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-tilde | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-hyphen | ⏳ Pending | construct/ | |
-| test-directory-context-multiple-cd | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-file-operations | ⏳ Pending | construct/ | |
-| test-directory-context-cd-error-handling | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-quotes | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-spaces | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-special-chars | ⏳ Pending | construct/ | |
-| test-directory-context-cd-relative-dot | ⏳ Pending | construct/ | |
-| test-directory-context-cd-relative-dotdot | ⏳ Pending | construct/ | |
-| test-directory-context-cd-complex-path | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-symbolic-link | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-env-var | ⏳ Pending | construct/ | |
-| test-directory-context-cd-nested-subshells | ⏳ Pending | construct/ | |
-| test-directory-context-cd-preserves-outside-subshell | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-heredoc | ⏳ Pending | construct/ | |
-| test-directory-context-cd-with-process-substitution | ⏳ Pending | construct/ | |
-| test-directory-context-cd-integration | ⏳ Pending | construct/ | |
+| test-directory-context-basic-cd | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-absolute | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-relative | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-subshell | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-in-command-substitution | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-pushd | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-popd | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-pushd-popd-sequence | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-pipeline | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-logical-and | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-logical-or | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-semicolon | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-background | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-in-function | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-in-if-block | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-in-for-loop | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-in-while-loop | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-variable | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-tilde | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-hyphen | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-multiple-cd | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-file-operations | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-error-handling | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-quotes | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-spaces | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-special-chars | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-relative-dot | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-relative-dotdot | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-complex-path | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-symbolic-link | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-env-var | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-nested-subshells | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-preserves-outside-subshell | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-heredoc | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-with-process-substitution | ✓ Moved | construct/ | Phase 3 |
+| test-directory-context-cd-integration | ✓ Moved | construct/ | Phase 3 |
 
 ### test-expect-file-ops-validation.el (3 tests → integration/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-expect-file-ops-validation-basic | ⏳ Pending | integration/ | |
-| test-expect-file-ops-validation-multiple | ⏳ Pending | integration/ | |
-| test-expect-file-ops-validation-complex | ⏳ Pending | integration/ | |
+| test-expect-file-ops-validation-basic | ✓ Moved | integration/ | Phase 3 |
+| test-expect-file-ops-validation-multiple | ✓ Moved | integration/ | Phase 3 |
+| test-expect-file-ops-validation-complex | ✓ Moved | integration/ | Phase 3 |
 
 ### test-file-operations.el (49 tests → behavioral/)
 
@@ -525,16 +525,16 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-heredoc-basic | ⏳ Pending | construct/ | |
-| test-heredoc-with-variables | ⏳ Pending | construct/ | |
-| test-heredoc-quoted-delimiter | ⏳ Pending | construct/ | |
-| test-heredoc-indented | ⏳ Pending | construct/ | |
-| test-heredoc-multiple-commands | ⏳ Pending | construct/ | |
-| test-heredoc-with-command-substitution | ⏳ Pending | construct/ | |
-| test-heredoc-multiline | ⏳ Pending | construct/ | |
-| test-heredoc-empty | ⏳ Pending | construct/ | |
-| test-heredoc-nested-in-function | ⏳ Pending | construct/ | |
-| test-heredoc-complex-delimiter | ⏳ Pending | construct/ | |
+| test-heredoc-basic | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-with-variables | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-quoted-delimiter | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-indented | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-multiple-commands | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-with-command-substitution | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-multiline | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-empty | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-nested-in-function | ✓ Moved | construct/ | Phase 3 |
+| test-heredoc-complex-delimiter | ✓ Moved | construct/ | Phase 3 |
 
 ### test-input-validation.el (8 tests → unit/analysis/)
 
@@ -553,15 +553,15 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-loop-context-basic-for | ⏳ Pending | construct/ | |
-| test-loop-context-for-in-list | ⏳ Pending | construct/ | |
-| test-loop-context-for-in-range | ⏳ Pending | construct/ | |
-| test-loop-context-while-loop | ⏳ Pending | construct/ | |
-| test-loop-context-until-loop | ⏳ Pending | construct/ | |
-| test-loop-context-nested-loops | ⏳ Pending | construct/ | |
-| test-loop-context-with-file-operations | ⏳ Pending | construct/ | |
-| test-loop-context-with-break-continue | ⏳ Pending | construct/ | |
-| test-loop-context-complex-iteration | ⏳ Pending | construct/ | |
+| test-loop-context-basic-for | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-for-in-list | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-for-in-range | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-while-loop | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-until-loop | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-nested-loops | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-with-file-operations | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-with-break-continue | ✓ Moved | construct/ | Phase 3 |
+| test-loop-context-complex-iteration | ✓ Moved | construct/ | Phase 3 |
 
 ### test-parser-extension.el (26 tests → unit/analysis/)
 
@@ -598,50 +598,50 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-pattern-flow-sequential-commands | ⏳ Pending | integration/ | |
-| test-pattern-flow-pipeline-simple | ⏳ Pending | integration/ | |
-| test-pattern-flow-pipeline-complex | ⏳ Pending | integration/ | |
-| test-pattern-flow-logical-and | ⏳ Pending | integration/ | |
-| test-pattern-flow-logical-or | ⏳ Pending | integration/ | |
-| test-pattern-flow-background-job | ⏳ Pending | integration/ | |
-| test-pattern-flow-subshell | ⏳ Pending | integration/ | |
-| test-pattern-flow-command-group | ⏳ Pending | integration/ | |
-| test-pattern-flow-mixed-operators | ⏳ Pending | integration/ | |
-| test-pattern-flow-nested-subshells | ⏳ Pending | integration/ | |
+| test-pattern-flow-sequential-commands | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-pipeline-simple | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-pipeline-complex | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-logical-and | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-logical-or | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-background-job | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-subshell | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-command-group | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-mixed-operators | ✓ Moved | integration/ | Phase 3 |
+| test-pattern-flow-nested-subshells | ✓ Moved | integration/ | Phase 3 |
 
 ### test-pwd-directory-context.el (29 tests → construct/)
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-pwd-context-basic | ⏳ Pending | construct/ | |
-| test-pwd-context-after-cd | ⏳ Pending | construct/ | |
-| test-pwd-context-in-subshell | ⏳ Pending | construct/ | |
-| test-pwd-context-in-command-substitution | ⏳ Pending | construct/ | |
-| test-pwd-context-with-variable | ⏳ Pending | construct/ | |
-| test-pwd-context-multiple-pwd-calls | ⏳ Pending | construct/ | |
-| test-pwd-context-pwd-in-pipeline | ⏳ Pending | construct/ | |
-| test-pwd-context-pwd-logical | ⏳ Pending | construct/ | |
-| test-pwd-context-pwd-physical | ⏳ Pending | construct/ | |
-| test-pwd-context-with-symbolic-link | ⏳ Pending | construct/ | |
-| test-pwd-context-after-pushd | ⏳ Pending | construct/ | |
-| test-pwd-context-after-popd | ⏳ Pending | construct/ | |
-| test-pwd-context-in-function | ⏳ Pending | construct/ | |
-| test-pwd-context-in-if-block | ⏳ Pending | construct/ | |
-| test-pwd-context-in-for-loop | ⏳ Pending | construct/ | |
-| test-pwd-context-in-while-loop | ⏳ Pending | construct/ | |
-| test-pwd-context-nested-subshells | ⏳ Pending | construct/ | |
-| test-pwd-context-preserves-outside-subshell | ⏳ Pending | construct/ | |
-| test-pwd-context-with-cd-dash | ⏳ Pending | construct/ | |
-| test-pwd-context-with-cd-tilde | ⏳ Pending | construct/ | |
-| test-pwd-context-with-cd-dotdot | ⏳ Pending | construct/ | |
-| test-pwd-context-with-env-var | ⏳ Pending | construct/ | |
-| test-pwd-context-complex-path | ⏳ Pending | construct/ | |
-| test-pwd-context-with-spaces-in-path | ⏳ Pending | construct/ | |
-| test-pwd-context-with-special-chars | ⏳ Pending | construct/ | |
-| test-pwd-context-integration-cd-pwd-chain | ⏳ Pending | construct/ | |
-| test-pwd-context-error-handling | ⏳ Pending | construct/ | |
-| test-pwd-context-with-heredoc | ⏳ Pending | construct/ | |
-| test-pwd-context-with-process-substitution | ⏳ Pending | construct/ | |
+| test-pwd-context-basic | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-after-cd | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-in-subshell | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-in-command-substitution | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-variable | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-multiple-pwd-calls | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-pwd-in-pipeline | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-pwd-logical | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-pwd-physical | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-symbolic-link | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-after-pushd | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-after-popd | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-in-function | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-in-if-block | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-in-for-loop | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-in-while-loop | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-nested-subshells | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-preserves-outside-subshell | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-cd-dash | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-cd-tilde | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-cd-dotdot | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-env-var | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-complex-path | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-spaces-in-path | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-special-chars | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-integration-cd-pwd-chain | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-error-handling | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-heredoc | ✓ Moved | construct/ | Phase 3 |
+| test-pwd-context-with-process-substitution | ✓ Moved | construct/ | Phase 3 |
 
 ### test-security-validator.el (60 tests → behavioral/)
 
@@ -728,13 +728,13 @@ Baseline snapshot: config/experiments/bash-parser/test-results.txt
 
 | Test Name | Status | Destination | Notes |
 |-----------|--------|-------------|-------|
-| test-treesitter-workaround-malformed-heredoc | ⏳ Pending | integration/ | |
-| test-treesitter-workaround-incomplete-pipeline | ⏳ Pending | integration/ | |
-| test-treesitter-workaround-unclosed-quotes | ⏳ Pending | integration/ | |
-| test-treesitter-workaround-unclosed-command-substitution | ⏳ Pending | integration/ | |
-| test-treesitter-workaround-invalid-redirect | ⏳ Pending | integration/ | |
-| test-treesitter-workaround-broken-for-loop | ⏳ Pending | integration/ | |
-| test-treesitter-workaround-partial-if-statement | ⏳ Pending | integration/ | |
+| test-treesitter-workaround-malformed-heredoc | ✓ Moved | integration/ | Phase 3 |
+| test-treesitter-workaround-incomplete-pipeline | ✓ Moved | integration/ | Phase 3 |
+| test-treesitter-workaround-unclosed-quotes | ✓ Moved | integration/ | Phase 3 |
+| test-treesitter-workaround-unclosed-command-substitution | ✓ Moved | integration/ | Phase 3 |
+| test-treesitter-workaround-invalid-redirect | ✓ Moved | integration/ | Phase 3 |
+| test-treesitter-workaround-broken-for-loop | ✓ Moved | integration/ | Phase 3 |
+| test-treesitter-workaround-partial-if-statement | ✓ Moved | integration/ | Phase 3 |
 
 ### test-variable-chain-ampersand.el (4 tests → unit/semantic/)
 
