@@ -60,6 +60,10 @@ The :indirect flag is a security signal indicating that the operation
 will be executed in a nested context, which may require stricter
 validation or explicit approval.
 
+Note: The :nesting-depth metadata should be added by the caller
+(typically the recursive analyzer) when depth tracking information
+is available. This function only manages the :indirect flag.
+
 Examples:
   ;; Direct operation - not marked
   (jf/bash-mark-indirect-operations
