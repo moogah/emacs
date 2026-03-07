@@ -802,18 +802,15 @@ Example:
              ;; Flag-dependent command (tar, sed, etc.) - check flags
              ((eq ops-spec :flag-dependent)
               (let* ((flag-handlers (plist-get semantics :flag-handlers))
-                     (matched-handler :unmatched))  ; Use sentinel value instead of nil
-                ;; Find first matching flag handler
-                (dolist (handler flag-handlers)
-                  (when (eq matched-handler :unmatched)  ; Check for sentinel, not nil
-                    (let ((trigger-flags (car handler))
-                          (handler-spec (cdr handler)))
-                      ;; Check if any trigger flag is present
-                      (when (or (null trigger-flags)  ; Empty trigger matches always
-                                (seq-some (lambda (f) (jf/bash--flag-present-p f flags)) trigger-flags))
-                        (setq matched-handler handler-spec)))))  ; Can be () or operation spec list
+                     (matched-handler
+                      (cl-loop for handler in flag-handlers
+                               for trigger-flags = (car handler)
+                               for handler-spec = (cdr handler)
+                               when (or (null trigger-flags)  ; Empty trigger matches always
+                                        (seq-some (lambda (f) (jf/bash--flag-present-p f flags)) trigger-flags))
+                               return handler-spec)))  ; Can be () or operation spec list
                 ;; Extract operations if handler matched (even if handler-spec is empty list)
-                (unless (eq matched-handler :unmatched)  ; If not still unmatched, handler was found
+                (when matched-handler
                   (setq operations
                         (jf/bash--extract-ops-from-positional-specs
                          matched-handler positional-args command-name var-context args)))))
