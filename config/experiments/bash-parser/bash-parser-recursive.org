@@ -402,15 +402,12 @@ Example:
             (throw 'depth-exceeded operations))
 
           ;; 1. Extract operations from this command level
-        (when (fboundp 'jf/bash--extract-from-single-command)
-          (let ((this-level-ops (jf/bash--extract-from-single-command
-                                 parsed-command var-context)))
-            (setq operations (append operations this-level-ops))))
+        (let ((this-level-ops (jf/bash--extract-from-single-command
+                               parsed-command var-context)))
+          (setq operations (append operations this-level-ops)))
 
         ;; 2. Detect and recursively process nested commands (bash -c, sh -c, eval)
-        (when (and (fboundp 'jf/bash-detect-command-injection)
-                   (fboundp 'jf/bash--parse-nested-command)
-                   (eq (plist-get parsed-command :type) :simple))
+        (when (eq (plist-get parsed-command :type) :simple)
           (when-let ((injection-info (jf/bash-detect-command-injection parsed-command)))
             (let ((nested-cmd-string (plist-get injection-info :nested-command-string)))
               (when nested-cmd-string
@@ -598,19 +595,18 @@ Returns list of operations marked with :test-condition t."
                        (when has-pattern (list :pattern t)))
                 operations))
       ;; Otherwise, parse as command and mark operations
-      (when (fboundp 'jf/bash-parse)
-        (let* ((parsed-test (jf/bash-parse condition-text))
-               ;; Clean :ast to avoid killed buffer issues
-               (clean-parsed (when (plist-get parsed-test :success)
-                              (let ((cleaned (copy-sequence parsed-test)))
-                                (plist-put cleaned :ast nil)
-                                cleaned)))
-               (test-ops (when (and clean-parsed (fboundp 'jf/bash-analyze-file-operations-recursive))
-                          (jf/bash-analyze-file-operations-recursive
-                           clean-parsed var-context depth))))
-          ;; Mark all test command operations with :test-condition
-          (dolist (op test-ops)
-            (push (append op (list :test-condition t)) operations)))))
+      (let* ((parsed-test (jf/bash-parse condition-text))
+             ;; Clean :ast to avoid killed buffer issues
+             (clean-parsed (when (plist-get parsed-test :success)
+                            (let ((cleaned (copy-sequence parsed-test)))
+                              (plist-put cleaned :ast nil)
+                              cleaned)))
+             (test-ops (when clean-parsed
+                        (jf/bash-analyze-file-operations-recursive
+                         clean-parsed var-context depth))))
+        ;; Mark all test command operations with :test-condition
+        (dolist (op test-ops)
+          (push (append op (list :test-condition t)) operations))))
     (nreverse operations)))
 #+end_src
 
