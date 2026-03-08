@@ -221,11 +221,14 @@ Graduated from experiments, this is a self-contained module providing:
 
 **ERT (Emacs Lisp Regression Testing)** - Built-in Emacs test framework.
 
-**Why ERT:**
+**Note**: While **Buttercup** is now the preferred framework for new test suites (BDD-style with setup/teardown and spies), this change continues using ERT for consistency with existing bash-parser tests. Future test suites should prefer Buttercup.
+
+**Why ERT for this change:**
 - Native to Emacs, no external dependencies
 - Integrates with existing test infrastructure (`make test`, `./bin/run-tests.sh`)
 - Bash-parser already has 683 ERT tests (proven compatibility)
 - Supports test organization (`ert-deftest`), assertions (`should`, `should-not`), and test discovery
+- No migration cost for existing tests
 
 ### Test Organization
 

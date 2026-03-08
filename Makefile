@@ -52,7 +52,7 @@ emacs-test-eval:
 # High-level test targets - User-facing convenience wrappers
 # =============================================================================
 
-.PHONY: test test-verbose test-pattern test-directory test-bash-parser test-gptel test-snapshot help
+.PHONY: test test-verbose test-pattern test-directory test-bash-parser test-gptel test-snapshot test-buttercup test-buttercup-directory help
 
 # Default target
 help:
@@ -67,15 +67,19 @@ help:
 	@echo "  make emacs-isolated EMACS_ARGS='...'  Run isolated Emacs with custom args"
 	@echo "  make emacs-test-eval EVAL_CMD='...'   Run tests with elisp eval"
 	@echo ""
-	@echo "Testing:"
-	@echo "  make test                       Run all tests (auto-discovery)"
-	@echo "  make test-verbose               Run all tests with verbose output"
-	@echo "  make test-pattern PATTERN=X     Run tests matching pattern"
-	@echo "  make test-directory DIR=X       Run tests in specific directory"
-	@echo "  make test-snapshot DIR=X        Run tests and capture snapshot"
+	@echo "Testing (ERT - legacy):"
+	@echo "  make test                       Run all ERT tests (auto-discovery)"
+	@echo "  make test-verbose               Run all ERT tests with verbose output"
+	@echo "  make test-pattern PATTERN=X     Run ERT tests matching pattern"
+	@echo "  make test-directory DIR=X       Run ERT tests in specific directory"
+	@echo "  make test-snapshot DIR=X        Run ERT tests and capture snapshot"
+	@echo ""
+	@echo "Testing (Buttercup - preferred):"
+	@echo "  make test-buttercup             Run all Buttercup tests"
+	@echo "  make test-buttercup-directory DIR=X  Run Buttercup tests in specific directory"
 	@echo ""
 	@echo "Module shortcuts:"
-	@echo "  make test-bash-parser           Run bash-parser tests"
+	@echo "  make test-bash-parser           Run bash-parser tests (ERT)"
 	@echo "  make test-bash-parser-snapshot  Run and capture bash-parser snapshot"
 	@echo "  make test-gptel                 Run gptel tests (when available)"
 	@echo ""
@@ -115,3 +119,11 @@ test-bash-parser-snapshot:
 
 test-gptel:
 	@./bin/run-tests.sh -d config/gptel
+
+# Run all Buttercup tests
+test-buttercup:
+	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-all-buttercup-batch)'
+
+# Run Buttercup tests in specific directory
+test-buttercup-directory:
+	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-buttercup-directory-batch "$(DIR)")'

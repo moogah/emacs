@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Emacs Test Runner with automatic test discovery
 #
-# This script provides a user-friendly CLI for running ERT tests.
+# This script provides a user-friendly CLI for running both ERT and Buttercup tests.
 # It delegates Emacs invocation to Makefile targets (single source of truth).
 #
 # Usage:
-#   ./bin/run-tests.sh                    # Run all tests
-#   ./bin/run-tests.sh -p "^test-glob-"   # Run tests matching pattern
+#   ./bin/run-tests.sh                    # Run all tests (both frameworks)
+#   ./bin/run-tests.sh -f buttercup       # Run only Buttercup tests
+#   ./bin/run-tests.sh -p "^test-glob-"   # Run ERT tests matching pattern
 #   ./bin/run-tests.sh -h                 # Show help
 
 set -e
@@ -17,6 +18,7 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 # Parse command line arguments
 PATTERN=""
 DIRECTORY=""
+FRAMEWORK="auto"  # auto, ert, buttercup, or both
 VERBOSE=false
 SNAPSHOT=false
 SNAPSHOT_FILE=""
@@ -29,26 +31,42 @@ USAGE:
     $(basename "$0") [OPTIONS]
 
 OPTIONS:
-    -d, --directory DIR     Run tests only in specified directory
-    -p, --pattern PATTERN   Run tests matching regexp pattern
-    -s, --snapshot [FILE]   Capture output to snapshot file (for git tracking)
+    -f, --framework FRAMEWORK
+                           Test framework: ert, buttercup, both, or auto (default)
+                           auto: auto-detects based on file extension or runs both
+    -d, --directory DIR    Run tests only in specified directory
+    -p, --pattern PATTERN  Run ERT tests matching regexp pattern (ERT only)
+    -s, --snapshot [FILE]  Capture output to snapshot file (for git tracking)
                            Default: test-results.txt in test directory
-    -v, --verbose           Show verbose output
-    -h, --help              Show this help message
+    -v, --verbose          Show verbose output
+    -h, --help             Show this help message
+
+FRAMEWORKS:
+    ERT (legacy):          Built-in Emacs testing with *-test.el files
+    Buttercup (preferred): BDD testing with *-spec.el files
 
 EXAMPLES:
-    # Run all tests (discovers all *-test.el files)
+    # Run all tests (auto-detects framework or runs both)
     $(basename "$0")
 
-    # Run tests in specific directory (module)
+    # Run only Buttercup tests
+    $(basename "$0") -f buttercup
+
+    # Run only ERT tests
+    $(basename "$0") -f ert
+
+    # Run both frameworks explicitly
+    $(basename "$0") -f both
+
+    # Run tests in specific directory (auto-detects framework)
     $(basename "$0") -d config/experiments/bash-parser
     $(basename "$0") -d config/gptel
 
-    # Run tests matching pattern
-    $(basename "$0") -p "^test-glob-"
+    # Run Buttercup tests in specific directory
+    $(basename "$0") -f buttercup -d config/gptel
 
-    # Combine directory and pattern
-    $(basename "$0") -d config/experiments/bash-parser -p "^test-glob-"
+    # Run ERT tests matching pattern
+    $(basename "$0") -f ert -p "^test-glob-"
 
     # Capture output to snapshot file
     $(basename "$0") -d config/experiments/bash-parser --snapshot
@@ -58,20 +76,28 @@ EXAMPLES:
     $(basename "$0") -v
 
 DISCOVERY:
-    Automatically discovers all *-test.el files in config/ directory.
+    Automatically discovers test files in config/ directory:
+    - ERT: *-test.el files
+    - Buttercup: *-spec.el files
     Use -d to limit discovery to a specific module directory.
 
 TEST ORGANIZATION:
-    Place test files alongside modules with -test.el suffix:
-    - config/experiments/bash-parser/test/test-glob-matching.el
-    - config/core/testing-test.el (future)
-    - config/gptel/sessions-test.el (future)
+    Buttercup (preferred): config/MODULE/test/*-spec.el
+    ERT (legacy):          config/MODULE/*-test.el or config/MODULE/test/test-*.el
 
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -f|--framework)
+            FRAMEWORK="$2"
+            if [[ ! "$FRAMEWORK" =~ ^(ert|buttercup|both|auto)$ ]]; then
+                echo "Error: Invalid framework '$FRAMEWORK'. Must be: ert, buttercup, both, or auto"
+                exit 1
+            fi
+            shift 2
+            ;;
         -d|--directory)
             DIRECTORY="$2"
             shift 2
@@ -113,24 +139,86 @@ echo "Emacs Configuration Test Runner"
 echo "========================================"
 echo ""
 
-# Build the elisp command
-if [ -n "$DIRECTORY" ] && [ -n "$PATTERN" ]; then
-    echo "Running tests in: $DIRECTORY"
-    echo "Matching pattern: $PATTERN"
-    echo ""
-    TEST_COMMAND="(progn (jf/test-load-all-test-files \"$DIRECTORY\") (ert-run-tests-batch-and-exit \"$PATTERN\"))"
-elif [ -n "$DIRECTORY" ]; then
-    echo "Running tests in: $DIRECTORY"
-    echo ""
-    TEST_COMMAND="(jf/test-run-directory-batch \"$DIRECTORY\")"
-elif [ -n "$PATTERN" ]; then
-    echo "Running tests matching: $PATTERN"
-    echo ""
-    TEST_COMMAND="(jf/test-run-pattern-batch \"$PATTERN\")"
+# Auto-detect framework if needed
+if [ "$FRAMEWORK" = "auto" ]; then
+    if [ -n "$DIRECTORY" ]; then
+        # Check if directory has Buttercup or ERT tests
+        HAS_BUTTERCUP=$(find "$REPO_ROOT/$DIRECTORY" -name "*-spec.el" 2>/dev/null | wc -l)
+        HAS_ERT=$(find "$REPO_ROOT/$DIRECTORY" -name "*-test.el" -o -name "test-*.el" 2>/dev/null | wc -l)
+
+        if [ "$HAS_BUTTERCUP" -gt 0 ] && [ "$HAS_ERT" -gt 0 ]; then
+            FRAMEWORK="both"
+        elif [ "$HAS_BUTTERCUP" -gt 0 ]; then
+            FRAMEWORK="buttercup"
+        elif [ "$HAS_ERT" -gt 0 ]; then
+            FRAMEWORK="ert"
+        else
+            FRAMEWORK="both"  # Default to both if no tests found
+        fi
+    else
+        FRAMEWORK="both"  # Run both when discovering all tests
+    fi
+fi
+
+# Pattern only works with ERT
+if [ -n "$PATTERN" ] && [ "$FRAMEWORK" != "ert" ]; then
+    echo "Warning: Pattern matching only works with ERT framework"
+    echo "Setting framework to 'ert'"
+    FRAMEWORK="ert"
+fi
+
+echo "Framework: $FRAMEWORK"
+echo ""
+
+# Build the elisp command based on framework
+run_tests() {
+    local framework=$1
+    local test_command=""
+
+    case "$framework" in
+        ert)
+            if [ -n "$DIRECTORY" ] && [ -n "$PATTERN" ]; then
+                echo "Running ERT tests in: $DIRECTORY"
+                echo "Matching pattern: $PATTERN"
+                echo ""
+                test_command="(progn (jf/test-load-all-test-files \"$DIRECTORY\") (ert-run-tests-batch-and-exit \"$PATTERN\"))"
+            elif [ -n "$DIRECTORY" ]; then
+                echo "Running ERT tests in: $DIRECTORY"
+                echo ""
+                test_command="(jf/test-run-directory-batch \"$DIRECTORY\")"
+            elif [ -n "$PATTERN" ]; then
+                echo "Running ERT tests matching: $PATTERN"
+                echo ""
+                test_command="(jf/test-run-pattern-batch \"$PATTERN\")"
+            else
+                echo "Running all ERT tests (auto-discovery)"
+                echo ""
+                test_command="(jf/test-run-all-batch)"
+            fi
+            ;;
+        buttercup)
+            if [ -n "$DIRECTORY" ]; then
+                echo "Running Buttercup tests in: $DIRECTORY"
+                echo ""
+                test_command="(jf/test-run-buttercup-directory-batch \"$DIRECTORY\")"
+            else
+                echo "Running all Buttercup tests (auto-discovery)"
+                echo ""
+                test_command="(jf/test-run-all-buttercup-batch)"
+            fi
+            ;;
+    esac
+
+    echo "$test_command"
+}
+
+if [ "$FRAMEWORK" = "both" ]; then
+    # Run both frameworks sequentially
+    ERT_COMMAND=$(run_tests "ert")
+    BUTTERCUP_COMMAND=$(run_tests "buttercup")
+    TEST_COMMAND="(progn $ERT_COMMAND $BUTTERCUP_COMMAND)"
 else
-    echo "Running all tests (auto-discovery)"
-    echo ""
-    TEST_COMMAND="(jf/test-run-all-batch)"
+    TEST_COMMAND=$(run_tests "$FRAMEWORK")
 fi
 
 # Determine snapshot file location

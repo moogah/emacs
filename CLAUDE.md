@@ -78,45 +78,78 @@ Uses straight.el (not package.el). Storage in `runtime/straight/`.
 
 ### Testing Infrastructure
 
-**Framework:** ERT (Emacs Lisp Regression Testing) with automatic test discovery.
+**Frameworks:** Support for both **Buttercup** (preferred) and **ERT** (legacy).
+
+**Framework Selection:**
+- **Buttercup** (preferred for new tests): BDD-style framework with `describe`/`it`/`expect` syntax, built-in setup/teardown, and spy system
+- **ERT** (maintain existing): Built-in testing framework - no forced migration required
+- Both frameworks supported side-by-side
 
 **Architecture:** Makefile provides single source of truth for Emacs invocation. No script-to-script dependencies.
 
 ```
 Makefile (core)          - Emacs detection, environment setup, low-level targets
   ↓
-run-tests.sh (CLI)       - User-friendly interface, argument parsing, snapshots
+run-tests.sh (CLI)       - User-friendly interface, argument parsing, snapshots, framework selection
 emacs-isolated.sh (GUI)  - Interactive launches (independent)
 ```
 
 **Test organization:**
-- Test files: `*-test.el` suffix alongside modules
-- Framework: `config/core/testing.el` provides discovery and runner functions
+- **Buttercup tests**: `*-spec.el` suffix (preferred for new tests)
+- **ERT tests**: `*-test.el` suffix (existing tests)
+- Framework: `config/core/testing.el` provides discovery and runner functions for both
 - Location: `config/*/test/` or co-located with modules
+
+**Test naming conventions:**
+```elisp
+;; Buttercup (preferred)
+(describe "Module name"
+  (it "does something"
+    (expect result :to-equal expected)))
+
+;; ERT (legacy)
+(ert-deftest test-module-something ()
+  (should (equal result expected)))
+```
 
 **Running tests:**
 ```bash
 # Via make (direct)
-make test                                # All tests
-make test-bash-parser                    # Module shortcut
-make test-directory DIR=config/gptel     # Custom directory
-make test-pattern PATTERN='^test-foo-'   # Pattern matching
+make test                                # All ERT tests
+make test-buttercup                      # All Buttercup tests
+make test-bash-parser                    # Module shortcut (ERT)
+make test-directory DIR=config/gptel     # Custom directory (ERT)
+make test-buttercup-directory DIR=config/gptel  # Custom directory (Buttercup)
 
-# Via run-tests.sh (user-friendly CLI)
-./bin/run-tests.sh                       # All tests
-./bin/run-tests.sh -d config/gptel       # Directory-scoped
-./bin/run-tests.sh -p '^test-glob-'      # Pattern-scoped
+# Via run-tests.sh (user-friendly CLI with auto-detection)
+./bin/run-tests.sh                       # All tests (both frameworks)
+./bin/run-tests.sh -f buttercup          # Only Buttercup tests
+./bin/run-tests.sh -f ert                # Only ERT tests
+./bin/run-tests.sh -d config/gptel       # Directory-scoped (auto-detects framework)
+./bin/run-tests.sh -p '^test-glob-'      # Pattern-scoped (ERT)
 ./bin/run-tests.sh -d config/foo -s      # With snapshot
 
-# Via make low-level target (for scripts)
-make emacs-test-eval EVAL_CMD="(jf/test-run-all-batch)"
+# Interactive (via transient menu)
+C-c t    # Open test menu
+# Then choose ERT or Buttercup options
 ```
 
 **Test discovery functions** (in `config/core/testing.el`):
-- `jf/test-run-all-batch` - Discover and run all `*-test.el` files
-- `jf/test-run-directory-batch DIR` - Run tests in specific directory
-- `jf/test-run-pattern-batch PATTERN` - Run tests matching regexp
-- `jf/test-load-all-test-files DIR` - Load tests for custom filtering
+- **ERT**: `jf/test-run-all-batch`, `jf/test-run-directory-batch`, `jf/test-run-pattern-batch`
+- **Buttercup**: `jf/test-run-all-buttercup-batch`, `jf/test-run-buttercup-directory-batch`
+- Load functions: `jf/test-load-all-test-files`, `jf/test-load-all-buttercup-test-files`
+
+**When to use Buttercup:**
+- New test suites (preferred going forward)
+- Tests requiring significant setup/teardown (before-each, after-each)
+- Behavioral/integration tests with shared fixtures
+- Tests needing function mocking or call verification (spies)
+- Hierarchical test organization (nested describe blocks)
+
+**When to use ERT:**
+- Maintaining existing test suites (no forced migration)
+- Simple unit tests with minimal setup
+- Quick assertion-based tests
 
 **Snapshot testing:**
 - Capture test output to git-tracked files for regression tracking
@@ -129,6 +162,7 @@ make emacs-test-eval EVAL_CMD="(jf/test-run-all-batch)"
 - Scripts are thin wrappers (no coupling)
 - Tests co-located with modules (easy navigation)
 - Automatic discovery (no manual test registration)
+- Dual-framework support (run independently or together)
 
 **Bash-parser test organization:** `config/experiments/bash-parser/test/`
 - `behavioral/` - User-facing scenarios from specs (WHAT) - 129 tests

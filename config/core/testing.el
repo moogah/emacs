@@ -52,6 +52,38 @@ Looks for the module in parent directory for test/ subdirectories."
         (message "Loading module: %s" (file-relative-name module-file jf/emacs-dir))
         (load-file module-file))))))
 
+(defun jf/test-find-buttercup-test-files (&optional directory)
+  "Find all Buttercup test files in config directory or DIRECTORY.
+DIRECTORY can be absolute or relative to repository root.
+Returns list of absolute paths to *-spec.el files."
+  (let* ((search-dir (if directory
+                         (expand-file-name directory jf/emacs-dir)
+                       (expand-file-name "config" jf/emacs-dir)))
+         (test-files '()))
+    (unless (file-directory-p search-dir)
+      (user-error "Directory does not exist: %s" search-dir))
+    (dolist (file (directory-files-recursively search-dir "\\.el$"))
+      (when (string-match-p "-spec\\.el$" file)
+        (push file test-files)))
+    (nreverse test-files)))
+
+(defun jf/test-load-all-buttercup-test-files (&optional directory)
+  "Load all Buttercup test files in config directory or DIRECTORY.
+DIRECTORY can be absolute or relative to repository root.
+Fails immediately if any file has syntax errors."
+  (interactive)
+  (let ((test-files (jf/test-find-buttercup-test-files directory))
+        (loaded-count 0))
+    (when directory
+      (message "Loading Buttercup tests from: %s" directory))
+    (dolist (file test-files)
+      (message "Loading Buttercup test file: %s" (file-relative-name file jf/emacs-dir))
+      (load-file file)
+      (setq loaded-count (1+ loaded-count)))
+    (message "Loaded %d Buttercup test files%s" loaded-count
+             (if directory (format " from %s" directory) ""))
+    loaded-count))
+
 (defun jf/test-run-all ()
   "Run all tests in the project.
 Loads all test files and runs all tests interactively."
@@ -169,6 +201,34 @@ DIRECTORY should be relative to repository root."
   (jf/test-load-all-test-files directory)
   (ert-run-tests-batch-and-exit))
 
+(defun jf/test-run-all-buttercup-batch ()
+  "Run all Buttercup tests in batch mode (non-interactive).
+Exits with code 0 if all tests pass, 1 otherwise.
+For use in scripts and CI."
+  (require 'buttercup)
+  (let ((test-files (jf/test-find-buttercup-test-files)))
+    (if test-files
+        (progn
+          (dolist (file test-files)
+            (message "Loading Buttercup test: %s" file)
+            (load-file file))
+          ;; Run buttercup tests
+          (buttercup-run))
+      (message "No Buttercup test files found"))))
+
+(defun jf/test-run-buttercup-directory-batch (directory)
+  "Run all Buttercup tests in DIRECTORY in batch mode.
+DIRECTORY should be relative to repository root."
+  (require 'buttercup)
+  (let ((test-files (jf/test-find-buttercup-test-files directory)))
+    (if test-files
+        (progn
+          (dolist (file test-files)
+            (message "Loading Buttercup test: %s" file)
+            (load-file file))
+          (buttercup-run))
+      (message "No Buttercup test files found in %s" directory))))
+
 (with-eval-after-load 'transient
   (defun jf/test--bash-parser-file-operations ()
   "Run bash parser file operations tests."
@@ -202,15 +262,29 @@ DIRECTORY should be relative to repository root."
 
 (transient-define-prefix jf/test-menu ()
   "Test runner menu for Emacs configuration."
-  ["Run Tests"
-   [("a" "All tests" jf/test-run-all)
+  ["ERT Tests (Legacy)"
+   [("a" "All ERT tests" jf/test-run-all)
     ("f" "Current file" jf/test-run-current-file)
     ("t" "Test at point" jf/test-run-at-point)]
    [("r" "Re-run failed" jf/test-rerun-failed)
     ("p" "Pattern..." jf/test-run-pattern)
     ("m" "Module..." jf/test-run-module)
     ("d" "Directory..." jf/test-run-directory)]]
-  ["Bash Parser Tests"
+  ["Buttercup Tests (Preferred)"
+   [("B" "All Buttercup"
+     (lambda () (interactive)
+       (jf/test-load-all-buttercup-test-files)
+       (require 'buttercup)
+       (buttercup-run)))
+    ("D" "Buttercup directory..."
+     (lambda () (interactive)
+       (let ((dir (read-directory-name "Test directory: "
+                                       (expand-file-name "config" jf/emacs-dir)
+                                       nil t)))
+         (jf/test-load-all-buttercup-test-files dir)
+         (require 'buttercup)
+         (buttercup-run))))]]
+  ["Bash Parser (ERT)"
    [("bx" "File operations" jf/test--bash-parser-file-operations)
     ("bg" "Glob matching" jf/test--bash-parser-glob)]
    [("bs" "Security" jf/test--bash-parser-security)
@@ -222,9 +296,14 @@ DIRECTORY should be relative to repository root."
        (if (get-buffer "*ert*")
            (switch-to-buffer "*ert*")
          (message "No ERT results buffer"))))
-    ("h" "ERT help"
+    ("J" "Jump to *buttercup* buffer"
      (lambda () (interactive)
-       (describe-function 'ert)))]])
+       (if (get-buffer "*buttercup*")
+           (switch-to-buffer "*buttercup*")
+         (message "No Buttercup results buffer"))))
+    ("h" "Help"
+     (lambda () (interactive)
+       (describe-function 'jf/test-menu)))]])
 
   ;; Keybinding for test menu
   (global-set-key (kbd "C-c t") 'jf/test-menu))

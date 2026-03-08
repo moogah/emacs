@@ -105,6 +105,7 @@ Handles both 'dir/name' format and 'name' format."
     ("core/window-management"    "Save and restore window configs")
     ("core/yasnippet"     "Snippet system for templates")
     ("core/testing"       "ERT test infrastructure")
+    ("core/buttercup"     "Buttercup BDD testing framework")
 
     ;; Feature modules
     ("look-and-feel/look-and-feel" "UI appearance and behavior")

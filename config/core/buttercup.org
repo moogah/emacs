@@ -1,0 +1,125 @@
+#+title: Buttercup Testing Framework
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle buttercup.el
+#+auto_tangle: y
+
+* Introduction
+
+Buttercup is a behavior-driven development (BDD) framework for testing Emacs Lisp code,
+inspired by Jasmine. It provides a more structured and readable approach to testing compared
+to ERT.
+
+[[https://github.com/jorgenschaefer/emacs-buttercup][Buttercup]] is the preferred testing framework for new test suites in this configuration.
+
+* Key Features
+
+- **Test Organization**: Hierarchical ~describe~ blocks for grouping related tests
+- **Setup/Teardown**: Built-in ~before-each~, ~after-each~, ~before-all~, ~after-all~ hooks
+- **Readable Assertions**: ~(expect foo :to-be bar)~ syntax instead of ~(should (equal foo bar))~
+- **Mocking System**: Powerful "spy" system for stubbing functions and verifying calls
+- **CI Integration**: Built-in test discovery via ~buttercup-run-discover~
+
+* When to Use Buttercup vs ERT
+
+** Use Buttercup for:
+- New test suites (preferred going forward)
+- Tests requiring significant setup/teardown
+- Behavioral/integration tests with shared fixtures
+- Tests needing function mocking or call verification
+- Test suites that benefit from hierarchical organization
+
+** Use ERT for:
+- Maintaining existing ERT test suites (no forced migration)
+- Simple unit tests with minimal setup
+- Quick assertion-based tests
+- Legacy compatibility
+
+* Lexical Binding
+
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Package Configuration
+
+#+begin_src emacs-lisp
+;; ===============================================================================
+;; Buttercup - BDD Testing Framework
+;; ===============================================================================
+
+(use-package buttercup
+  :straight t
+  :config
+  ;; Buttercup is primarily used in batch mode via buttercup-run-discover
+  ;; No interactive configuration needed
+  (message "Buttercup testing framework loaded"))
+#+end_src
+
+* Usage
+
+** Test File Naming
+
+Buttercup test files use the ~*-spec.el~ suffix:
+- ~my-module-spec.el~ - Buttercup tests for my-module
+- ~test-my-module.el~ - ERT tests for my-module (legacy)
+
+** Basic Syntax
+
+#+begin_example
+;; -*- lexical-binding: t; -*-
+(require 'buttercup)
+
+(describe "A test suite"
+  (describe "nested context"
+    (it "contains a test case"
+      (expect t :to-be-truthy))))
+#+end_example
+
+** Setup and Teardown
+
+#+begin_example
+(describe "With fixtures"
+  (before-each
+    (setq my-test-var 42))
+
+  (after-each
+    (setq my-test-var nil))
+
+  (it "uses the fixture"
+    (expect my-test-var :to-equal 42)))
+#+end_example
+
+** Common Matchers
+
+- ~:to-be~ - Identity equality (eq)
+- ~:to-equal~ - Structural equality (equal)
+- ~:to-be-truthy~ / ~:to-be-falsy~ - Boolean checks
+- ~:to-match~ - Regexp matching
+- ~:to-throw~ - Exception checking
+- ~:to-have-been-called~ - Spy verification
+
+See [[https://github.com/jorgenschaefer/emacs-buttercup/blob/master/docs/writing-tests.md][Buttercup documentation]] for complete matcher list.
+
+** Running Tests
+
+*** Command Line
+#+begin_example
+# All Buttercup tests (auto-discovery)
+make test-buttercup
+
+# Specific directory
+make test-buttercup-directory DIR=config/gptel
+#+end_example
+
+*** Interactive (via testing.el)
+- ~C-c t~ - Open test menu
+- Select Buttercup test options
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'jf-buttercup)
+;;; buttercup.el ends here
+#+end_src
