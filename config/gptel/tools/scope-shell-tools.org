@@ -1093,6 +1093,187 @@ Helper to infer validation type from tool name using tool categories.
     (plist-get category :validation)))
 #+end_src
 
+* Validation Pipeline Stage 4: File Operations
+
+Stage 4 validates file operations extracted from bash commands against operation-specific path permissions.
+
+** Permission Hierarchy
+
+Operation permissions follow a hierarchical model:
+- Write permission includes read capability (write ⊃ read)
+- Modify permission includes write capability (modify ⊃ write ⊃ read)
+- Execute requires explicit permission (independent hierarchy)
+
+** Validate Operation
+
+Validate a single operation against path configuration with hierarchical permissions.
+
+#+begin_src elisp
+(defun jf/gptel-scope--validate-operation (operation path paths-config)
+  "Check if OPERATION on PATH is allowed by PATHS-CONFIG.
+Returns nil if allowed, error plist if denied.
+
+Permission hierarchy:
+- read: requires paths.read OR paths.write (write includes read)
+- write: requires paths.write
+- modify: requires paths.modify OR paths.write (write includes modify)
+- execute: requires paths.execute (explicit permission only)
+- delete: requires paths.write (deletion is write operation)
+
+Deny precedence: paths.deny overrides all allow patterns."
+  (let ((deny-patterns (plist-get paths-config :deny))
+        (read-patterns (plist-get paths-config :read))
+        (write-patterns (plist-get paths-config :write))
+        (modify-patterns (plist-get paths-config :modify))
+        (execute-patterns (plist-get paths-config :execute)))
+
+    ;; Deny takes precedence over all allow patterns
+    (when (jf/gptel-scope--path-matches-any-pattern-p path deny-patterns)
+      (cl-return-from jf/gptel-scope--validate-operation
+        (list :error "path_denied"
+              :path path
+              :operation operation
+              :message (format "Path denied by scope: %s" path))))
+
+    ;; Operation-specific validation with hierarchy
+    (let ((allowed
+           (pcase operation
+             (:read
+              ;; Read allowed if in read OR write patterns (write includes read)
+              (or (jf/gptel-scope--path-matches-any-pattern-p path read-patterns)
+                  (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
+
+             (:write
+              ;; Write requires explicit write permission
+              (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
+
+             (:modify
+              ;; Modify allowed if in modify OR write patterns (write includes modify)
+              (or (jf/gptel-scope--path-matches-any-pattern-p path modify-patterns)
+                  (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
+
+             (:execute
+              ;; Execute requires explicit execute permission (high risk)
+              (jf/gptel-scope--path-matches-any-pattern-p path execute-patterns))
+
+             (:delete
+              ;; Delete is a write operation
+              (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
+
+             (_ nil))))  ; Unknown operation - deny by default
+
+      (if allowed
+          nil  ; Success - operation allowed
+        ;; Return error with context
+        (list :error "path_out_of_scope"
+              :path path
+              :operation operation
+              :required-scope (format "paths.%s" operation)
+              :message (format "Path not in %s scope: %s" operation path))))))
+#+end_src
+
+** Path Pattern Matching Helper
+
+Helper function to check if a path matches any pattern in a list using glob matching.
+
+#+begin_src elisp
+(defun jf/gptel-scope--path-matches-any-pattern-p (path patterns)
+  "Return t if PATH matches any pattern in PATTERNS using glob matching.
+Supports wildcards: * (single level), ** (recursive)."
+  (when (and path patterns)
+    (let ((normalized-path (expand-file-name path))
+          (matched nil))
+      (dolist (pattern patterns matched)
+        (when (jf/gptel-scope--glob-match-p normalized-path pattern)
+          (setq matched t)
+          (cl-return matched))))))
+#+end_src
+
+** Glob Pattern Matching
+
+Implement glob pattern matching for path validation.
+
+#+begin_src elisp
+(defun jf/gptel-scope--glob-match-p (path pattern)
+  "Return t if PATH matches glob PATTERN.
+Supports:
+- * matches any characters except /
+- ** matches any characters including /
+- Literal path components"
+  (let* ((pattern-regex (jf/gptel-scope--glob-to-regex pattern))
+         (result (string-match-p pattern-regex path)))
+    result))
+
+(defun jf/gptel-scope--glob-to-regex (pattern)
+  "Convert glob PATTERN to regular expression.
+- ** becomes .* (matches everything including /)
+- * becomes [^/]* (matches everything except /)
+- Other chars are escaped"
+  (let ((regex "^"))
+    (while (not (string-empty-p pattern))
+      (cond
+       ;; Handle **
+       ((string-prefix-p "**" pattern)
+        (setq regex (concat regex ".*"))
+        (setq pattern (substring pattern 2)))
+
+       ;; Handle single *
+       ((string-prefix-p "*" pattern)
+        (setq regex (concat regex "[^/]*"))
+        (setq pattern (substring pattern 1)))
+
+       ;; Handle literal characters
+       (t
+        (let ((char (substring pattern 0 1)))
+          (setq regex (concat regex (regexp-quote char)))
+          (setq pattern (substring pattern 1))))))
+    (concat regex "$")))
+#+end_src
+
+** Validate Single File Operation
+
+Validate a single file operation plist against path configuration.
+
+#+begin_src elisp
+(defun jf/gptel-scope--validate-file-operation (file-op directory paths-config)
+  "Validate single FILE-OP against PATHS-CONFIG.
+FILE-OP format: (:operation OP :path PATH :absolute-path ABS-PATH :command-name CMD)
+DIRECTORY is the working directory for resolving relative paths.
+Returns nil if allowed, error plist if denied."
+  (let* ((operation (plist-get file-op :operation))
+         (path (plist-get file-op :path))
+         (absolute-path (plist-get file-op :absolute-path))
+         (command-name (plist-get file-op :command-name))
+         ;; Resolve path relative to directory if needed
+         (resolved-path (if (file-name-absolute-p path)
+                            (expand-file-name path)
+                          (expand-file-name path directory))))
+
+    ;; Use absolute-path from parser if available, otherwise use resolved path
+    (let ((final-path (or absolute-path resolved-path)))
+      (jf/gptel-scope--validate-operation operation final-path paths-config))))
+#+end_src
+
+** Validate All File Operations
+
+Validate all file operations extracted from command semantics.
+
+#+begin_src elisp
+(defun jf/gptel-scope--validate-file-operations (file-ops directory scope-config)
+  "Validate all FILE-OPS against SCOPE-CONFIG.
+FILE-OPS is a list of operation plists from bash-parser.
+DIRECTORY is the working directory for path resolution.
+SCOPE-CONFIG contains :paths section with read/write/execute/modify/deny patterns.
+Returns nil if all operations allowed, error plist for first violation."
+  (let ((paths-config (plist-get scope-config :paths))
+        (error-result nil))
+    (dolist (file-op file-ops error-result)
+      (when-let ((error (jf/gptel-scope--validate-file-operation
+                         file-op directory paths-config)))
+        (setq error-result error)
+        (cl-return error-result)))))
+#+end_src
+
 * Provide Feature
 
 #+begin_src elisp
