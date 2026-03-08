@@ -164,7 +164,7 @@ C-c t    # Open test menu
 - Automatic discovery (no manual test registration)
 - Dual-framework support (run independently or together)
 
-**Bash-parser test organization:** `config/experiments/bash-parser/test/`
+**Bash-parser test organization:** `config/bash-parser/test/`
 - `behavioral/` - User-facing scenarios from specs (WHAT) - 129 tests
 - `unit/{core,semantic,analysis}/` - Module tests by architecture layer (HOW) - 240 tests
 - `integration/` - Multi-module interactions - 51 tests
@@ -174,10 +174,29 @@ C-c t    # Open test menu
 **Running bash-parser tests:**
 ```bash
 # All tests
-./bin/run-tests.sh -d config/experiments/bash-parser
+./bin/run-tests.sh -d config/bash-parser
 
 # Specific category
-./bin/run-tests.sh -d config/experiments/bash-parser/test/behavioral
+./bin/run-tests.sh -d config/bash-parser/test/behavioral
+```
+
+**Scope validation test organization:** `config/gptel/tools/test/`
+- `test-scope-validation-pipeline.el` - End-to-end validation pipeline tests
+- `test-scope-validation-file-paths.el` - Operation-specific path validation (45+ scenarios)
+- `test-scope-validation-pipelines.el` - Pipeline command extraction and validation (25+ scenarios)
+- `test-scope-validation-cloud-auth.el` - Cloud authentication policy enforcement (30+ scenarios)
+- `test-scope-schema-v4.el` - Schema v4 loading and validation (35+ scenarios)
+- `test-scope-shell-tools-integration.el` - Integration tests with bash-parser
+- `test-scope-shell-tools-legacy.el` - Characterization tests for v3 behavior
+
+**Running scope validation tests:**
+```bash
+# All scope validation tests
+./bin/run-tests.sh -d config/gptel/tools/test
+
+# Specific capability
+./bin/run-tests.sh -p '^test-file-path-'
+./bin/run-tests.sh -p '^test-cloud-auth-'
 ```
 
 ### GPTEL Architecture
@@ -203,6 +222,194 @@ gptel/
 ```elisp
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 ```
+
+### GPTEL Bash Tools and Scope Validation
+
+**Location**: `config/gptel/tools/scope-shell-tools.org`
+
+**Purpose**: Controlled bash command execution with semantic validation using bash-parser integration.
+
+#### Schema v4 Structure
+
+Scope validation uses a **v4 schema** with operation-specific path scoping, cloud authentication detection, and security settings. **BREAKING CHANGE**: v3 schemas are not compatible - manual migration required.
+
+**Full schema structure:**
+```yaml
+# scope.yml v4 schema
+paths:
+  read:
+    - "/workspace/**"
+    - "/tmp/**"
+  write:
+    - "/workspace/**"
+  execute:                    # NEW in v4
+    - "/workspace/scripts/**"
+  modify:                     # NEW in v4
+    - "/workspace/config/**"
+  deny:
+    - "/etc/**"
+    - "~/.ssh/**"
+
+bash_tools:
+  categories:
+    read_only:
+      - ls
+      - cat
+      - grep
+      - find
+    safe_write:
+      - mkdir
+      - touch
+      - echo
+    dangerous:
+      - rm
+      - sudo
+  deny:
+    - rm
+    - sudo
+    - chmod
+
+cloud:                        # NEW in v4
+  auth_detection: "warn"      # "allow", "warn", or "deny"
+  allowed_providers:
+    - aws
+    - gcp
+
+security:                     # NEW in v4
+  enforce_parse_complete: true
+  max_coverage_threshold: 0.8
+```
+
+**Permission hierarchy:**
+- `paths.read` - Required for file reads (cat, grep, find)
+- `paths.write` - Required for file writes (echo >, mkdir), includes read capability
+- `paths.execute` - Required for script execution (./script.sh, bash script.sh)
+- `paths.modify` - Required for in-place edits (sed -i, awk -i), subset of write
+- `paths.deny` - Always blocks access regardless of other permissions
+
+**Operation examples:**
+```bash
+# Read operation - requires paths.read OR paths.write
+cat /workspace/file.txt
+
+# Write operation - requires paths.write
+echo "content" > /workspace/output.txt
+
+# Execute operation - requires paths.execute
+bash /workspace/scripts/deploy.sh
+
+# Modify operation - requires paths.modify OR paths.write
+sed -i 's/foo/bar/' /workspace/config/settings.conf
+```
+
+#### Breaking Changes from v3
+
+**Schema incompatibilities:**
+1. **No backward compatibility**: v3 schemas will fail validation
+2. **New required sections**: Commands requiring execute/modify operations need new path sections
+3. **Pipeline validation**: Commands like `ls | xargs rm` now validate all commands (closes security bypass)
+4. **File path validation**: Absolute paths in command arguments now checked against scope
+
+**Migration required for:**
+- Execute operations: Add `paths.execute` with script directories
+- Modify operations: Add `paths.modify` with editable file patterns
+- Cloud commands: Add `cloud` section if using aws-vault, gcloud, az commands
+- Pipeline commands: All commands in pipeline must pass categorization
+
+**No automatic migration**: Users must manually update scope.yml files. See migration guide in `openspec/changes/bash-parser-integration/migration-guide.md`.
+
+**Rollback strategy**: If issues discovered post-deployment, rollback requires `git revert` of integration PR. No dual-mode fallback available.
+
+#### Validation Pipeline
+
+Seven-stage validation with early exit on failure:
+
+1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
+2. **Extract semantics** - Run plugins (file-ops, cloud-auth, security) to extract operations
+3. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
+4. **Pipeline validation** - Extract and validate ALL commands in pipelines/chains
+5. **Command categorization** - Check deny list, then read_only/safe_write/dangerous
+6. **File operation validation** - Match extracted file paths against operation-specific scope patterns
+7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers`
+
+**Example validation flow:**
+```elisp
+;; Command: cat /workspace/file.txt | grep foo
+;; 1. Parse → AST with pipeline structure
+;; 2. Extract → [{:operation :read :path "/workspace/file.txt"}]
+;; 3. Parse complete? → yes
+;; 4. Pipeline commands → ["cat", "grep"]
+;; 5. Categorize → cat: read_only, grep: read_only
+;; 6. Validate paths → /workspace/file.txt matches paths.read
+;; 7. Cloud auth → none detected
+;; Result: ALLOW
+```
+
+#### Cloud Authentication Detection
+
+**Purpose**: Detect and control cloud authentication commands (aws-vault, gcloud, az).
+
+**Configuration modes:**
+- `auth_detection: "allow"` - Permit all cloud auth commands
+- `auth_detection: "warn"` - Allow but log warning (default)
+- `auth_detection: "deny"` - Block all cloud auth commands
+
+**Provider filtering:**
+```yaml
+cloud:
+  auth_detection: "warn"
+  allowed_providers:
+    - aws    # Allow AWS commands only
+```
+
+**Detected commands:**
+- AWS: `aws-vault`, `aws sts`, `aws configure`
+- GCP: `gcloud auth`, `gcloud config`
+- Azure: `az login`, `az account`
+
+#### Security Settings
+
+**Parse completeness enforcement:**
+```yaml
+security:
+  enforce_parse_complete: true  # Reject unparseable commands
+```
+
+When `true`, commands bash-parser cannot fully parse are rejected with `incomplete_parse` error. Set to `false` to allow with warnings.
+
+**Coverage threshold:**
+```yaml
+security:
+  max_coverage_threshold: 0.8  # Warn if <80% tokens claimed by plugins
+```
+
+Low coverage indicates semantic extraction may be incomplete. Threshold 0.0 = never warn, 1.0 = always warn.
+
+#### Error Messages and Scope Expansion
+
+**Structured error responses** guide LLM to request scope expansion:
+
+```elisp
+;; Path out of scope
+{:success nil
+ :error "path_out_of_scope"
+ :path "/etc/passwd"
+ :operation :read
+ :required-scope "paths.read"
+ :allowed-patterns ["/workspace/**"]
+ :message "File path outside allowed scope"
+ :suggestion "Use request_scope_expansion to request access"}
+
+;; Pipeline command denied
+{:success nil
+ :error "command_denied"
+ :command "rm"
+ :pipeline-position 1
+ :full-command "ls | xargs rm"
+ :reason "Command in deny list"}
+```
+
+Use `request_scope_expansion` tool to prompt user for permission. User can approve permanently (adds to scope.yml) or once (current turn only).
 
 ## Common Commands
 
