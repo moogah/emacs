@@ -29,7 +29,14 @@ mkdir -p .beads/orchestrator
 cp test-results.txt .beads/orchestrator/baseline-${TIMESTAMP}.txt
 ```
 
-Parse `test-results.txt` for: total tests, unexpected failures, aborted, unknown counts.
+**Parse test-results.txt**:
+```bash
+SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
+TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
+UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+")
+ABORTED=$(grep -c "^  ABORTED " test-results.txt || echo "0")
+UNKNOWN=$(grep -c "^  UNKNOWN " test-results.txt || echo "0")
+```
 
 If baseline has failures: Use AskUserQuestion to confirm proceeding (regression detection still works by comparing diffs).
 
@@ -48,7 +55,38 @@ git -C "$WORKTREE_PATH" submodule update --init
 
 Ensure `.worktrees/` is gitignored.
 
-Create `.beads/orchestrator-state.json` tracking: session_id, baseline info, bead statuses (setup_complete → in_progress → implementation_complete → merged).
+**State file** (`.beads/orchestrator-state.json`):
+```json
+{
+  "session_id": "orch-1234567890",
+  "baseline_snapshot": ".beads/orchestrator/baseline-1234567890.txt",
+  "baseline_test_count": 588,
+  "baseline_unexpected_count": 0,
+  "baseline_aborted_count": 0,
+  "baseline_unknown_count": 0,
+  "current_branch": "main",
+  "max_parallel": 5,
+  "beads": [
+    {
+      "bead_id": "emacs-abc1",
+      "worktree_path": ".worktrees/bead-emacs-abc1-1234567890",
+      "branch_name": "bead-emacs-abc1-1234567890",
+      "task_id": "task-xyz",
+      "status": "setup_complete",  // → in_progress → implementation_complete → merged
+      "regression_detected": false,
+      "tests_after_merge": null,
+      "unexpected_failures": null,
+      "aborted_tests": null,
+      "unknown_tests": null,
+      "test_snapshot_path": null,
+      "bead_closed": false,
+      "worktree_removed": false
+    }
+  ],
+  "final_snapshot": null,
+  "final_test_count": null
+}
+```
 
 **Agent spawning** (use Task tool, NOT TaskCreate):
 
@@ -60,6 +98,8 @@ Task(
   run_in_background: false  # CRITICAL: Must be false for file write access
 )
 ```
+
+Task tool returns immediately with a task_id. Store this in state file's `beads[].task_id` field.
 
 **NEVER use `run_in_background: true`** - blocks file writes.
 
@@ -85,7 +125,30 @@ Implement bead <BEAD_ID> in worktree <WORKTREE_PATH> (branch: <BRANCH_NAME>).
 
 ## 4. Monitor Progress
 
-Poll every 30s with TaskList. On completion, verify commits exist (`git -C <worktree> log -1`). Update state file. Continue until all tasks complete or fail. Keep failed worktrees for debugging.
+Poll every 30s with TaskList:
+
+```
+While any beads have status in ["setup_complete", "in_progress"]:
+  Sleep 30 seconds
+
+  TaskList()
+
+  For each bead's task_id:
+    If task.status == "completed":
+      Verify commits: git -C <worktree> log -1
+      If no commits: Mark bead status as "failed"
+      Else: Mark bead status as "implementation_complete"
+
+    If task.status == "failed":
+      Mark bead status as "failed"
+
+    If task.status == "in_progress":
+      Update bead status to "in_progress"
+
+  Update state file with latest statuses
+```
+
+Keep failed worktrees for debugging.
 
 ## 5. Sequential Merging
 
@@ -99,15 +162,44 @@ git merge --no-ff "$BRANCH_NAME" -m "Merge bead $BEAD_ID: $TITLE"
 
 ## 6. Test After Each Merge
 
-**MANDATORY after each merge**: Run `./bin/run-tests.sh --snapshot`. Parse test-results.txt for summary line (starts with "Passed:", "Aborted:", or "Failed:"). Extract: unexpected, ABORTED, UNKNOWN counts.
+**MANDATORY after each merge**:
 
-**Stop orchestration if**:
-- Summary line starts with "Aborted:" (incomplete run)
-- Unexpected > 0
-- ABORTED count > 0 (runtime errors)
-- UNKNOWN count > 0 (framework problems)
+```bash
+./bin/run-tests.sh --snapshot
 
-Save snapshot: `.beads/orchestrator/after-${BEAD_ID}-${TIMESTAMP}.txt`. Update state file with test counts.
+# Parse test results
+SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
+
+# Verify summary exists
+if [ -z "$SUMMARY_LINE" ]; then
+  echo "⚠️ Could not find test summary - check test-results.txt"
+  exit 1
+fi
+
+# Check if aborted
+if echo "$SUMMARY_LINE" | grep -q "^Aborted:"; then
+  echo "⚠️ TEST RUN ABORTED after merge $BEAD_ID"
+  exit 1
+fi
+
+# Extract counts
+TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
+UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+")
+ABORTED_COUNT=$(grep -c "^  ABORTED " test-results.txt || echo "0")
+UNKNOWN_COUNT=$(grep -c "^  UNKNOWN " test-results.txt || echo "0")
+
+# Stop if any issues
+if [ "$UNEXPECTED" -gt 0 ] || [ "$ABORTED_COUNT" -gt 0 ] || [ "$UNKNOWN_COUNT" -gt 0 ]; then
+  echo "⚠️ REGRESSION DETECTED after merge $BEAD_ID"
+  exit 1
+fi
+
+# Save snapshot
+TIMESTAMP=$(date +%s)
+cp test-results.txt .beads/orchestrator/after-${BEAD_ID}-${TIMESTAMP}.txt
+
+# Update state file with test counts (use jq)
+```
 
 **On regression**: Stop merges, keep worktrees, use AskUserQuestion for revert/investigate/continue options.
 
