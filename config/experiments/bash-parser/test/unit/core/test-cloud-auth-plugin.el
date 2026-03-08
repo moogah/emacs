@@ -16,9 +16,9 @@
 
 (require 'test-helper (expand-file-name "../../test-helper.el"
                                         (file-name-directory load-file-name)))
-(require 'bash-parser-cloud-auth (expand-file-name "../../../bash-parser-cloud-auth.el"
+(require 'bash-parser-cloud-auth (expand-file-name "../../../plugins/bash-parser-cloud-auth.el"
                                                     (file-name-directory load-file-name)))
-(require 'bash-parser-core (expand-file-name "../../../bash-parser-core.el"
+(require 'bash-parser-core (expand-file-name "../../../core/bash-parser-core.el"
                                              (file-name-directory load-file-name)))
 
 ;;; AWS CLI Tests

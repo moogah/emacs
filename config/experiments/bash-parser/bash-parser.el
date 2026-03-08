@@ -14,8 +14,14 @@
 (require 'treesit)
 (require 'cl-lib)
 
-;; Add current directory to load-path for sub-modules
-(add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name)))
+;; Add current directory and subdirectories to load-path for sub-modules
+(let ((base-dir (file-name-directory (or load-file-name buffer-file-name))))
+  (add-to-list 'load-path base-dir)
+  (add-to-list 'load-path (expand-file-name "core" base-dir))
+  (add-to-list 'load-path (expand-file-name "analysis" base-dir))
+  (add-to-list 'load-path (expand-file-name "plugins" base-dir))
+  (add-to-list 'load-path (expand-file-name "semantics" base-dir))
+  (add-to-list 'load-path (expand-file-name "utils" base-dir)))
 
 ;; Protocol module (forward declarations - no dependencies)
 (require 'bash-parser-protocol)
@@ -31,8 +37,15 @@
 ;; Core parsing (depends on security - for dangerous pattern detection)
 (require 'bash-parser-core)
 
+;; Analysis layer (plugin system and coverage)
+(require 'bash-parser-coverage)
+(require 'bash-parser-plugins)
+
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
+
+;; Domain plugins
+(require 'bash-parser-cloud-auth)
 
 ;; Recursive analysis (depends on file-ops)
 (require 'bash-parser-recursive)

@@ -16,9 +16,9 @@
 
 (require 'test-helper (expand-file-name "../../test-helper.el"
                                         (file-name-directory load-file-name)))
-(require 'bash-parser-plugins (expand-file-name "../../../bash-parser-plugins.el"
+(require 'bash-parser-plugins (expand-file-name "../../../analysis/bash-parser-plugins.el"
                                                 (file-name-directory load-file-name)))
-(require 'bash-parser-core (expand-file-name "../../../bash-parser-core.el"
+(require 'bash-parser-core (expand-file-name "../../../core/bash-parser-core.el"
                                              (file-name-directory load-file-name)))
 
 ;;; Filesystem Plugin Tests

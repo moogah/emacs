@@ -67,6 +67,7 @@ Corpus data files drive test generation for comprehensive coverage.
 
 ## Documentation
 
+- `docs/AST-TRAVERSAL-COMPLETENESS.org` - Proves complete AST traversal (security-critical)
 - `docs/REDUNDANCY-ANALYSIS.md` - Redundancy analysis and decisions
 - `docs/MIGRATION-COVERAGE-REPORT.md` - Complete migration report
 - `DEPRECATED-TESTS.md` - Deprecated tests removed during migration (legacy location)

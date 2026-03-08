@@ -23,14 +23,28 @@
 Parse bash command strings using tree-sitter to extract semantic structure.
 
 This is the main loader module that coordinates all bash parser subsystems.
-The parser has been split into logical components for better maintainability:
+The parser is organized into layers for better maintainability:
 
+**Core Layer** (core/):
 - **bash-parser-core** - Core parsing infrastructure (pipelines, chains, commands)
-- **bash-parser-glob** - Glob pattern matching without filesystem access
-- **bash-parser-security** - Security validation with rule matching
-- **bash-parser-semantics** - Command semantics database
+- **bash-parser-protocol** - Forward declarations
+- **bash-parser-recursive** - Recursive semantic analysis
 - **bash-parser-variables** - Variable context management
+
+**Analysis Layer** (analysis/):
+- **bash-parser-coverage** - Coverage calculation and visualization
+- **bash-parser-plugins** - Plugin registry and orchestration
+
+**Domain Plugins** (plugins/):
 - **bash-parser-file-ops** - File operations extraction
+- **bash-parser-cloud-auth** - Cloud authentication detection
+- **bash-parser-security** - Security validation with rule matching
+
+**Semantics** (semantics/):
+- **bash-parser-semantics** - Command semantics database
+
+**Utilities** (utils/):
+- **bash-parser-glob** - Glob pattern matching without filesystem access
 - **bash-parser-extensions** - Parser extensions (indirect ops, command injection)
 
 ** Capabilities
@@ -67,8 +81,14 @@ Require tree-sitter support (built into Emacs 29+).
 Load all parser subsystems in dependency order.
 
 #+begin_src emacs-lisp
-;; Add current directory to load-path for sub-modules
-(add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name)))
+;; Add current directory and subdirectories to load-path for sub-modules
+(let ((base-dir (file-name-directory (or load-file-name buffer-file-name))))
+  (add-to-list 'load-path base-dir)
+  (add-to-list 'load-path (expand-file-name "core" base-dir))
+  (add-to-list 'load-path (expand-file-name "analysis" base-dir))
+  (add-to-list 'load-path (expand-file-name "plugins" base-dir))
+  (add-to-list 'load-path (expand-file-name "semantics" base-dir))
+  (add-to-list 'load-path (expand-file-name "utils" base-dir)))
 
 ;; Protocol module (forward declarations - no dependencies)
 (require 'bash-parser-protocol)
@@ -84,8 +104,15 @@ Load all parser subsystems in dependency order.
 ;; Core parsing (depends on security - for dangerous pattern detection)
 (require 'bash-parser-core)
 
+;; Analysis layer (plugin system and coverage)
+(require 'bash-parser-coverage)
+(require 'bash-parser-plugins)
+
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
+
+;; Domain plugins
+(require 'bash-parser-cloud-auth)
 
 ;; Recursive analysis (depends on file-ops)
 (require 'bash-parser-recursive)

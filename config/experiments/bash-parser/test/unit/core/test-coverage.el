@@ -16,7 +16,7 @@
 
 (require 'test-helper (expand-file-name "../../test-helper.el"
                                         (file-name-directory load-file-name)))
-(require 'bash-parser-coverage (expand-file-name "../../../bash-parser-coverage.el"
+(require 'bash-parser-coverage (expand-file-name "../../../analysis/bash-parser-coverage.el"
                                                  (file-name-directory load-file-name)))
 
 ;;; Coverage Calculation Tests
