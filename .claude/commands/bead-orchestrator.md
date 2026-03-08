@@ -5,1286 +5,149 @@ category: Workflow
 tags: [workflow, beads, parallel, experimental]
 ---
 
-Orchestrate parallel implementation of multiple ready beads using isolated git worktrees and spawned agents. Each bead gets its own worktree and agent, implementations happen concurrently, then merges occur sequentially with regression testing after each merge.
-
-**Input**: No arguments required. Command will discover ready beads and guide you through selection.
-
-**Steps**
+Implement multiple ready beads in parallel using isolated worktrees and spawned agents. Merges happen sequentially with regression testing after each.
 
 ## 1. Discovery & Selection
-
-Query ready beads from the Beads database:
 
 ```bash
 bd list --ready --json
 ```
 
-Parse JSON output to identify:
-- All beads with status "open" (not closed)
-- Filter to non-blocked beads (no `blockedBy` dependencies)
-- Extract bead ID, title, description, dependencies
+Parse JSON to find beads with status "open" and no `blockedBy` dependencies.
 
-**Selection strategy**:
-- If 0 ready beads: Show message "No ready beads found" and exit
-- If 1-3 ready beads: Auto-select with confirmation
-- If 4+ ready beads: Use **AskUserQuestion** for interactive selection
-
-**Default parallelism**: 5 agents maximum (conservative, balanced)
-
-User can override with explicit count if needed.
-
-**Display ready beads**:
-```
-## Ready Beads
-
-Available for implementation (no blockers):
-
-1. emacs-abc1: Add session export
-   Scope: ~2 hours
-   Files: config/gptel/sessions/commands.el
-
-2. emacs-abc2: Implement preset resolver
-   Scope: ~3 hours
-   Files: config/gptel/presets.el
-
-3. emacs-abc3: Add tests for filesystem
-   Scope: ~1 hour
-   Files: config/gptel/test/sessions-test.el
-
-4. emacs-xyz9: Update documentation
-   Scope: ~30 minutes
-   Files: README.md
-
-Select beads to implement in parallel (max 5 recommended):
-```
-
-Use **AskUserQuestion** with multiSelect enabled:
-- Header: "Select beads"
-- Question: "Which beads should be implemented in parallel?"
-- Options: Each ready bead as an option (label = bead ID + title)
-- MultiSelect: true
-- Max recommended: 3 (mention in question text)
+**Selection**:
+- 0 beads: Exit with message
+- 1-3 beads: Auto-select with confirmation
+- 4+ beads: Use AskUserQuestion (multiSelect: true, max 5 recommended)
 
 ## 2. Baseline Capture
 
-Before starting parallel work, capture current test state for regression detection.
-
-**Run test suite with snapshot**:
 ```bash
-cd /Users/jefffarr/emacs
 ./bin/run-tests.sh --snapshot
-```
-
-This captures output to `test-results.txt` (default location for full suite).
-
-**Copy baseline for comparison**:
-```bash
 TIMESTAMP=$(date +%s)
 mkdir -p .beads/orchestrator
 cp test-results.txt .beads/orchestrator/baseline-${TIMESTAMP}.txt
 ```
 
-**Parse baseline test status**:
-```bash
-# Extract summary line
-SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
+Parse `test-results.txt` for: total tests, unexpected failures, aborted, unknown counts.
 
-# Extract counts
-TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+" || echo "0")
-UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+" || echo "0")
-ABORTED=$(grep -c "^  ABORTED " test-results.txt || echo "0")
-UNKNOWN=$(grep -c "^  UNKNOWN " test-results.txt || echo "0")
-```
-
-**Validation**:
-- If tests fail or have ABORTED/UNKNOWN: Report status, use **AskUserQuestion** to ask if user wants to proceed anyway
-  - Options: "Proceed despite issues (regression detection will still work)" or "Cancel orchestration"
-  - Note: Regression detection compares differences, so works even with existing failures/issues
-  - However, if baseline has ABORTED or UNKNOWN tests, this indicates existing problems that should ideally be fixed first
-- Store baseline path and counts in state file
-
-**Display baseline capture**:
-```
-## Baseline Captured
-
-Running test suite...
-✓ Test baseline captured: .beads/orchestrator/baseline-1234567890.txt
-
-Test Summary:
-- Total tests: 904
-- Unexpected failures: 19
-- Aborted tests: 2
-- Unknown tests: 257
-
-Note: Baseline has issues. Regression detection will track changes from this baseline.
-
-Ready to start parallel implementation.
-```
+If baseline has failures: Use AskUserQuestion to confirm proceeding (regression detection still works by comparing diffs).
 
 ## 3. Worktree & Agent Setup
 
-For each selected bead, create isolated worktree and spawn agent.
-
-**Setup loop (sequential to avoid race conditions)**:
+For each bead (sequential setup to avoid race conditions):
 
 ```bash
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-TIMESTAMP=$(date +%s)
-
-for BEAD_ID in selected_beads; do
-  # 1. Create unique worktree name
-  WORKTREE_NAME="bead-${BEAD_ID}-${TIMESTAMP}"
-
-  # 2. CRITICAL: Worktree path MUST be relative, inside repo at .worktrees/
-  # DO NOT use ~/worktrees or any absolute path
-  WORKTREE_PATH=".worktrees/$WORKTREE_NAME"
-
-  # 3. Create worktree branching from current branch
-  git worktree add "$WORKTREE_PATH" -b "$WORKTREE_NAME"
-
-  # 4. Copy runtime packages (746MB, fast with rsync)
-  ./bin/init-worktree-runtime.sh "$WORKTREE_PATH"
-
-  # 5. Initialize submodules in worktree
-  git -C "$WORKTREE_PATH" submodule update --init
-
-  # 6. Fetch full bead details
-  BEAD_JSON=$(bd show "$BEAD_ID" --json)
-
-  # 7. Track in state file
-  # (JSON structure shown in section 3.1)
-done
+WORKTREE_PATH=".worktrees/bead-${BEAD_ID}-$(date +%s)"
+git worktree add "$WORKTREE_PATH" -b "bead-${BEAD_ID}-$(date +%s)"
+./bin/init-worktree-runtime.sh "$WORKTREE_PATH"
+git -C "$WORKTREE_PATH" submodule update --init
 ```
 
-**State tracking**: Create `.beads/orchestrator-state.json`:
+**CRITICAL**: Worktree path MUST be `.worktrees/` (relative, inside repo) for permissions inheritance. Never use absolute paths.
 
-```json
-{
-  "session_id": "orch-1234567890",
-  "baseline_snapshot": ".beads/orchestrator/baseline-1234567890.txt",
-  "baseline_test_count": 588,
-  "baseline_unexpected_count": 0,
-  "baseline_aborted_count": 0,
-  "baseline_unknown_count": 0,
-  "current_branch": "gptel-scoped-bash-tools",
-  "max_parallel": 5,
-  "final_snapshot": null,
-  "final_test_count": null,
-  "final_unexpected_count": null,
-  "final_aborted_count": null,
-  "final_unknown_count": null,
-  "beads": [
-    {
-      "bead_id": "emacs-abc1",
-      "worktree_path": ".worktrees/bead-emacs-abc1-1234567890",
-      "branch_name": "bead-emacs-abc1-1234567890",
-      "task_id": null,
-      "status": "setup_complete",
-      "regression_detected": false,
-      "tests_before_merge": null,
-      "tests_after_merge": null,
-      "unexpected_failures": null,
-      "aborted_tests": null,
-      "unknown_tests": null,
-      "test_snapshot_path": null
-    }
-  ]
-}
-```
+Ensure `.worktrees/` is gitignored.
 
-**Agent spawning** (parallel after setup completes):
+Create `.beads/orchestrator-state.json` tracking: session_id, baseline info, bead statuses (setup_complete → in_progress → implementation_complete → merged).
 
-For each bead, spawn agent using Task tool.
+**Agent spawning** (use Task tool, NOT TaskCreate):
 
-**CRITICAL REQUIREMENT - NEVER USE BACKGROUND AGENTS**:
-- **MUST use foreground tasks** (run_in_background: false or omitted)
-- **NEVER set run_in_background: true** - this blocks file writes and command execution
-- Background agents will fail with "File modification tools blocked - prompts unavailable"
-- Without file write permissions, agents cannot implement beads
-- This is a hard requirement - there are no exceptions
-
-**Correct Task tool syntax for spawning agents**:
 ```
 Task(
   subagent_type: "general-purpose",
   description: "Implement bead $BEAD_ID",
-  prompt: <agent prompt - see section 3.2>,
-  run_in_background: false  # CRITICAL: Must be false (or omitted) for file write access
+  prompt: <see Agent Prompt Template>,
+  run_in_background: false  # CRITICAL: Must be false for file write access
 )
 ```
 
-**Important notes**:
-- Use the **Task tool** to spawn agents, NOT TaskCreate
-- TaskCreate is for tracking TODO items only
-- The Task tool returns immediately after spawning the agent
-- Monitor agent progress with TaskList and TaskGet
-- Agent completes when its task status becomes "completed" or "failed"
+**NEVER use `run_in_background: true`** - blocks file writes.
 
-**Complete example workflow**:
-```
-# 1. Setup worktree
-BEAD_ID="emacs-abc1"
-TIMESTAMP=$(date +%s)
-WORKTREE_PATH=".worktrees/bead-${BEAD_ID}-${TIMESTAMP}"
-BRANCH_NAME="bead-${BEAD_ID}-${TIMESTAMP}"
+### Agent Prompt Template
 
-git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME"
-./bin/init-worktree-runtime.sh "$WORKTREE_PATH"
-git -C "$WORKTREE_PATH" submodule update --init
-
-# 2. Fetch bead details
-BEAD_JSON=$(bd show "$BEAD_ID" --json)
-BEAD_DESCRIPTION=$(echo "$BEAD_JSON" | jq -r '.[0].description')
-
-# 3. Build agent prompt (see section 3.2 for full template)
-AGENT_PROMPT="Implement bead ${BEAD_ID} in isolated worktree.
-
-## Worktree Details
-Location: ${WORKTREE_PATH}
-Branch: ${BRANCH_NAME}
-
-## Bead Task
-${BEAD_DESCRIPTION}
-
-[... rest of prompt from section 3.2 ...]"
-
-# 4. Spawn agent using Task tool (NOT TaskCreate!)
-Task(
-  subagent_type: "general-purpose",
-  description: "Implement bead ${BEAD_ID}",
-  prompt: "${AGENT_PROMPT}",
-  run_in_background: false
-)
-
-# 5. Monitor with TaskList until completion
-# (See section 4 for monitoring details)
-```
-
-### 3.1 Worktree Location
-
-**Location**: `.worktrees/bead-<BEAD_ID>-<TIMESTAMP>` (inside the repo)
-
-**Why inside the repo?**
-- **Permissions inheritance**: Subagents inherit the session's approved permissions for the repo path, avoiding per-worktree permission prompts
-- Clear namespace for orchestrator-managed worktrees
-- Easy to identify and bulk-clean if needed
-- Everything stays contained in the project
-
-**Prerequisites**:
-- `.worktrees/` must be in `.gitignore` (add if not present)
-
-**Create directory if needed**:
-```bash
-# Ensure .worktrees/ is gitignored
-grep -qxF '.worktrees/' .gitignore 2>/dev/null || echo '.worktrees/' >> .gitignore
-mkdir -p .worktrees
-```
-
-### 3.2 Agent Prompt Template
-
-**Key challenge**: Agents cannot invoke skills directly (no Skill tool access).
-
-**Solution**: Embed essential guidance from writing-elisp and emacs-literate-programming skills inline.
-
-**Agent Prompt Structure**:
+Agents can't invoke skills, so embed essential guidance inline:
 
 ```markdown
-Implement bead <BEAD_ID> in isolated worktree.
-
-## Worktree Details
-
-**Location**: <WORKTREE_PATH>
-**Branch**: <BRANCH_NAME>
-**Base branch**: <CURRENT_BRANCH>
-
-## Bead Task
+Implement bead <BEAD_ID> in worktree <WORKTREE_PATH> (branch: <BRANCH_NAME>).
 
 <FULL_BEAD_DESCRIPTION>
 
-## Literate Programming Guidelines
+**Literate Programming**: NEVER edit .el files directly - edit .org files then tangle with `./bin/tangle-org.sh path/to/file.org`. Commit both .org and .el together.
 
-**CRITICAL**: This Emacs config uses org-mode files as source of truth.
+**Elisp**: Validate complex functions (3+ nesting, cl-loop, >50 lines) immediately with tangle script. Use lexical binding, cl-lib (not deprecated cl).
 
-**Rules**:
-- NEVER edit .el files directly - they are auto-generated and your changes will be overwritten
-- ALWAYS edit .org files instead
-- After editing .org files, tangle them to generate .el files
+**Testing**: Run `./bin/run-tests.sh` (or targeted with `-d config/foo` or `-p "^test-*"`). Must pass before completing.
 
-**Workflow**:
-1. Find the .org file corresponding to the .el file you need to modify
-2. Edit the .org file
-3. Tangle with: `./bin/tangle-org.sh path/to/file.org`
-4. The script validates elisp syntax automatically
+**Commit**: Format as "Implement bead <BEAD_ID>: <Title>" with Co-Authored-By. DON'T push/merge/close bead - orchestrator handles this.
 
-**Required .org headers**:
-```org
-#+title: Module Name
-#+property: header-args:emacs-lisp :tangle module-name.el
-#+auto_tangle: y
+**Success Criteria**: Changes implemented, .org edited (not .el), both committed, tests pass, follows existing patterns.
 ```
-
-**After tangling**:
-- Commit BOTH .org and .el files together
-- Keep them in sync
-
-## Elisp Development Guidelines
-
-**Always validate after writing complex functions**:
-
-When writing elisp with 3+ nesting levels (cl-loop, multiple let*, lambdas), validate immediately:
-
-```bash
-./bin/tangle-org.sh file.org
-```
-
-This script tangles AND validates elisp syntax.
-
-**Common patterns to validate immediately**:
-- cl-loop with nested forms
-- Functions >50 lines
-- Complex backquote/unquote expressions
-- Multiple nested when/if/cond forms
-
-**Modern Elisp requirements**:
-- Use lexical binding: `;;; -*- lexical-binding: t; -*-`
-- Prefer cl-lib (use `cl-loop`, `cl-coerce`) over deprecated cl package
-- Use `(require 'cl-lib)` when needed
-
-**Keep changes minimal**:
-- Follow existing code patterns in the codebase
-- Don't add features beyond bead scope
-- Don't refactor unrelated code
-- Add comments only where logic isn't self-evident
-
-## Testing
-
-Run tests to verify your changes:
-
-```bash
-cd <WORKTREE_PATH>
-./bin/run-tests.sh
-```
-
-If bead mentions specific test files or functions, run targeted tests:
-
-```bash
-./bin/run-tests.sh -d config/gptel
-./bin/run-tests.sh -p "^test-sessions-"
-```
-
-Tests must pass before marking work complete.
-
-## Commit Guidelines
-
-When implementation is complete:
-
-1. Stage your changes:
-   ```bash
-   git add <files>
-   ```
-
-2. Create commit with proper format:
-   ```bash
-   git commit -m "$(cat <<'EOF'
-   Implement bead <BEAD_ID>: <Title>
-
-   <Brief summary of changes>
-
-   Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
-   EOF
-   )"
-   ```
-
-3. DO NOT push or merge - orchestrator will handle merging
-
-## Success Criteria
-
-Your work is complete when:
-- ✓ All changes implemented per bead description
-- ✓ .org files edited (not .el files directly)
-- ✓ Both .org and .el files committed together
-- ✓ Tests pass (./bin/run-tests.sh)
-- ✓ Changes committed with proper message format
-- ✓ Work follows existing codebase patterns
-
-Report completion and wait for orchestrator to merge.
-
-## Important Notes
-
-- Stay in the worktree directory: <WORKTREE_PATH>
-- Don't merge or push - orchestrator handles this
-- Don't close the bead - orchestrator handles this
-- Don't work on other beads - focus only on <BEAD_ID>
-- If blocked or unclear, report the issue and wait for guidance
-```
-
-**Embedded context**:
-- Bead description (self-contained)
-- Worktree location
-- Literate programming rules (extracted from emacs-literate-programming skill)
-- Elisp validation guidelines (extracted from writing-elisp skill)
-- Testing approach
-- Commit format
 
 ## 4. Monitor Progress
 
-Poll task statuses to detect completion or failures.
-
-**Polling loop**:
-
-```
-While any beads have status in ["setup_complete", "in_progress"]:
-  Sleep 30 seconds
-
-  TaskList()
-
-  For each task:
-    If task.status == "completed":
-      - Verify worktree has commits: git -C <worktree> log -1
-      - If no commits: Mark as "failed", report to user
-      - If has commits: Mark as "implementation_complete"
-      - Report completion to user
-
-    If task.status == "failed":
-      - Mark bead status as "failed"
-      - Report to user with error details
-      - Keep worktree for debugging
-
-    If task.status == "in_progress":
-      - Update bead status to "in_progress"
-      - Continue monitoring
-
-  Update state file with latest statuses
-
-  If all tasks are completed or failed:
-    Exit monitoring loop
-```
-
-**Progress reporting**:
-
-```
-## Implementation Progress
-
-✓ emacs-abc1: Complete (12 minutes)
-✓ emacs-abc2: Complete (18 minutes)
-⋯ emacs-abc3: In progress (23 minutes elapsed)
-
-Waiting for remaining agents to complete...
-```
-
-**Handle agent failures**:
-- Report failure to user
-- Keep worktree for debugging
-- Continue monitoring other agents
-- Don't block entire orchestration on one failure
+Poll every 30s with TaskList. On completion, verify commits exist (`git -C <worktree> log -1`). Update state file. Continue until all tasks complete or fail. Keep failed worktrees for debugging.
 
 ## 5. Sequential Merging
 
-After agents complete, merge bead branches one-by-one to avoid conflicts.
-
-**Why sequential despite parallel implementation?**
-- Git doesn't support parallel merges to the same branch
-- First-merge wins on conflicts
-- Simpler, safer, cleaner merge history
-- Testing after each merge identifies exactly which bead caused regression
-
-**Merge order**: Process beads in completion order (first completed = first merged).
-
-**Merge process for each implementation_complete bead**:
+Merge in completion order (sequential, not parallel - avoids conflicts, enables precise regression detection).
 
 ```bash
-# Switch to main worktree
-cd /Users/jefffarr/emacs
-
-# Merge bead branch with no-fast-forward
-git merge --no-ff "$BRANCH_NAME" -m "$(cat <<EOF
-Merge bead $BEAD_ID: $TITLE
-
-$SUMMARY
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
-EOF
-)"
+git merge --no-ff "$BRANCH_NAME" -m "Merge bead $BEAD_ID: $TITLE"
 ```
 
-**Conflict handling**:
-
-```bash
-if merge fails:
-  # Abort the merge
-  git merge --abort
-
-  # Update state
-  Mark bead status as "merge_conflict"
-  Keep worktree for manual resolution
-
-  # Report to user
-  Report: "Merge conflict in bead $BEAD_ID"
-  Report: "Worktree kept at: $WORKTREE_PATH"
-  Report: "Resolve manually or skip this bead"
-
-  # If user resolves conflicts manually:
-  # MANDATORY: Re-test after conflict resolution before continuing
-  ./bin/run-tests.sh --snapshot
-  # Verify no regressions from conflict resolution
-  # Extract unexpected count and verify it's 0
-
-  # Continue with next bead
-  Continue to next implementation_complete bead
-```
-
-**Success path**:
-
-```bash
-if merge succeeds:
-  # Update state
-  Mark bead status as "merged"
-
-  # MANDATORY: Test and verify (section 6)
-  # This gate is CRITICAL - never skip
-```
-
-**Display merge progress**:
-
-```
-## Merging Completed Work
-
-✓ Merged: emacs-abc1 (Add session export)
-✓ Merged: emacs-abc2 (Implement preset resolver)
-⨯ Conflict: emacs-xyz9 (Update documentation)
-  Location: .worktrees/bead-emacs-xyz9-1234567890
-  Resolve manually or skip
-```
+**Conflicts**: Abort with `git merge --abort`, mark as "merge_conflict", keep worktree, continue with next bead. If manually resolved, MUST re-test before continuing.
 
 ## 6. Test After Each Merge
 
-**CRITICAL**: Run tests and compare to baseline after EACH successful merge.
+**MANDATORY after each merge**: Run `./bin/run-tests.sh --snapshot`. Parse test-results.txt for summary line (starts with "Passed:", "Aborted:", or "Failed:"). Extract: unexpected, ABORTED, UNKNOWN counts.
 
-**Why test after each merge?**
-- Immediate regression detection (user preference)
-- Easy to identify culprit bead
-- Can stop before additional bad merges
-- Trade-off: Slower but much safer
+**Stop orchestration if**:
+- Summary line starts with "Aborted:" (incomplete run)
+- Unexpected > 0
+- ABORTED count > 0 (runtime errors)
+- UNKNOWN count > 0 (framework problems)
 
-**MANDATORY: Test Verification Gate**
+Save snapshot: `.beads/orchestrator/after-${BEAD_ID}-${TIMESTAMP}.txt`. Update state file with test counts.
 
-After each merge succeeds, IMMEDIATELY run:
+**On regression**: Stop merges, keep worktrees, use AskUserQuestion for revert/investigate/continue options.
 
-```bash
-cd /Users/jefffarr/emacs
+## 7. Cleanup
 
-# Run full test suite with snapshot
-./bin/run-tests.sh --snapshot
+After successful merge + tests pass + no regression: Close bead (`bd close "$BEAD_ID"`), remove worktree (`git worktree remove "$WORKTREE_PATH"`), update state.
 
-# Extract test results programmatically (never rely on tail output alone)
-SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
-
-# CRITICAL: Verify summary line exists
-if [ -z "$SUMMARY_LINE" ]; then
-  echo "⚠️ Could not find test summary line - check test-results.txt"
-  exit 1
-fi
-
-# CRITICAL: Check if test run was aborted
-if echo "$SUMMARY_LINE" | grep -q "^Aborted:"; then
-  echo "⚠️ TEST RUN ABORTED after merge $BEAD_ID"
-  echo "Summary: $SUMMARY_LINE"
-
-  # STOP orchestration - aborted means tests didn't complete
-  REGRESSION_DETECTED=true
-  exit 1
-fi
-
-# Extract unexpected count
-UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+")
-
-# CRITICAL: Verify we could parse unexpected count
-if [ -z "$UNEXPECTED" ]; then
-  echo "⚠️ Could not parse unexpected count from: $SUMMARY_LINE"
-  exit 1
-fi
-
-# CRITICAL: Check for unexpected failures
-if [ "$UNEXPECTED" -gt 0 ]; then
-  echo "⚠️ REGRESSION DETECTED after merge $BEAD_ID"
-  echo "Unexpected failures: $UNEXPECTED"
-
-  # STOP orchestration - do not continue to next merge
-  REGRESSION_DETECTED=true
-  exit 1
-fi
-
-# CRITICAL: Check for ABORTED tests (serious runtime errors)
-ABORTED_COUNT=$(grep -c "^  ABORTED " test-results.txt || true)
-if [ "$ABORTED_COUNT" -gt 0 ]; then
-  echo "⚠️ ABORTED TESTS DETECTED after merge $BEAD_ID"
-  echo "Aborted tests: $ABORTED_COUNT"
-
-  # Show which tests aborted
-  grep "^  ABORTED " test-results.txt
-
-  # STOP orchestration - ABORTED means serious errors
-  REGRESSION_DETECTED=true
-  exit 1
-fi
-
-# CRITICAL: Check for UNKNOWN tests (test framework couldn't determine status)
-UNKNOWN_COUNT=$(grep -c "^  UNKNOWN " test-results.txt || true)
-if [ "$UNKNOWN_COUNT" -gt 0 ]; then
-  echo "⚠️ UNKNOWN TESTS DETECTED after merge $BEAD_ID"
-  echo "Unknown tests: $UNKNOWN_COUNT"
-
-  # Show first 10 unknown tests for context
-  grep "^  UNKNOWN " test-results.txt | head -10
-
-  # STOP orchestration - UNKNOWN means test system problems
-  REGRESSION_DETECTED=true
-  exit 1
-fi
-
-echo "✓ Tests pass after $BEAD_ID merge: $UNEXPECTED unexpected, $ABORTED_COUNT aborted, $UNKNOWN_COUNT unknown"
-
-# Save snapshot for next comparison
-CURRENT_TIMESTAMP=$(date +%s)
-cp test-results.txt .beads/orchestrator/after-${BEAD_ID}-${CURRENT_TIMESTAMP}.txt
-
-# Update state file with test results
-# Extract total test count from test-results.txt
-TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
-
-# Update bead state with test tracking
-jq --arg bead "$BEAD_ID" \
-   --argjson tests "$TOTAL_TESTS" \
-   --argjson unexpected "$UNEXPECTED" \
-   --argjson aborted "$ABORTED_COUNT" \
-   --argjson unknown "$UNKNOWN_COUNT" \
-   --arg snapshot ".beads/orchestrator/after-${BEAD_ID}-${CURRENT_TIMESTAMP}.txt" \
-   '.beads[] |= if .bead_id == $bead then
-     . + {
-       tests_after_merge: $tests,
-       unexpected_failures: $unexpected,
-       aborted_tests: $aborted,
-       unknown_tests: $unknown,
-       test_snapshot_path: $snapshot
-     }
-   else . end' \
-   .beads/orchestrator-state.json > .beads/orchestrator-state.json.tmp
-mv .beads/orchestrator-state.json.tmp .beads/orchestrator-state.json
-```
-
-**Critical rules:**
-- **Never skip this gate**, even for "simple" merges
-- **Never batch merges** without testing between them
-- **Always check summary line status** - verify it starts with "Passed:", not "Aborted:" or "Failed:"
-- **Always check ABORTED tests** - these indicate serious runtime errors that must be investigated
-- **Always check UNKNOWN tests** - these indicate test framework problems that must be investigated
-- **Never trust tail output** - always grep for summary line and test status lines
-- **Never continue after regression** - stop and report immediately
-- **Always verify programmatically** - parse test counts and statuses, don't assume
-
-**Test execution (legacy approach - DO NOT USE)**:
-
-```bash
-cd /Users/jefffarr/emacs
-
-# Run full test suite with snapshot
-CURRENT_TIMESTAMP=$(date +%s)
-./bin/run-tests.sh --snapshot -o .beads/orchestrator/current-${CURRENT_TIMESTAMP}.txt
-```
-
-**Regression detection (legacy approach - DO NOT USE)**:
-
-```bash
-# Compare to baseline
-diff -u .beads/orchestrator/baseline-*.txt \
-        .beads/orchestrator/current-${CURRENT_TIMESTAMP}.txt \
-        > .beads/orchestrator/regression-report.txt
-
-# Check for new failures
-NEW_FAILURES=$(grep "^+.*FAILED" .beads/orchestrator/regression-report.txt | wc -l)
-NEW_ERRORS=$(grep "^+.*ERROR" .beads/orchestrator/regression-report.txt | wc -l)
-
-if [ $NEW_FAILURES -gt 0 ] || [ $NEW_ERRORS -gt 0 ]; then
-  # Regression detected!
-  REGRESSION_DETECTED=true
-fi
-```
-
-**Regression handling**:
-
-If regressions detected:
-
-1. **Stop processing new merges**: Prevent compounding regressions
-2. **Let in-progress agents finish**: Their work can be merged manually later
-3. **Keep all worktrees**: For debugging
-4. **Report details**:
-   ```
-   ## ⚠️ Regression Detected
-
-   Bead emacs-abc2 introduced test failures:
-
-   Failed tests:
-   - test-preset-resolver-chain (config/gptel/test/presets-test.el)
-   - test-preset-fallback-behavior (config/gptel/test/presets-test.el)
-
-   Regression report: .beads/orchestrator/regression-report.txt
-
-   Options:
-   1. Revert this merge: git revert HEAD
-   2. Fix the issues in bead worktree
-   3. Continue anyway (not recommended)
-
-   All worktrees preserved for debugging.
-   Orchestration paused.
-   ```
-
-5. **Offer to revert merge**:
-   ```bash
-   Use AskUserQuestion:
-   - "Revert merge of emacs-abc2?"
-   - Options: "Revert merge", "Keep merge and investigate", "Continue despite regression"
-   ```
-
-6. **Update state**:
-   ```json
-   {
-     "beads": [
-       {
-         "bead_id": "emacs-abc2",
-         "status": "merged",
-         "regression_detected": true,
-         "regression_report": ".beads/orchestrator/regression-report.txt"
-       }
-     ]
-   }
-   ```
-
-7. **Exit orchestration**: Don't merge additional beads
-
-**No regression path**:
-
-If tests pass:
-- Continue to next bead merge
-- Update snapshot as new baseline for next comparison
-
-**Display test results**:
-
-```
-## Testing After Merge
-
-Bead: emacs-abc1
-
-Running tests...
-✓ All tests pass (127/127)
-✓ No regressions detected
-
-Proceeding to next merge.
-```
-
-## 7. Bead Closure & Cleanup
-
-After successful merge with no regressions, close bead and clean up worktree.
-
-**Close bead**:
-
-```bash
-bd close "$BEAD_ID" --comment "Implemented via parallel orchestrator"
-```
-
-**Automatic cleanup criteria** (ALL must be true):
-- Bead status == "merged"
-- No regressions detected (regression_detected == false)
-- Tests passing
-
-**Cleanup process**:
-
-```bash
-git worktree remove "$WORKTREE_PATH"
-```
-
-**Keep worktrees when**:
-- Merge conflict (status == "merge_conflict")
-- Agent failed (status == "failed")
-- Regression detected (regression_detected == true)
-
-**Cleanup tracking**:
-
-Update state file with cleanup status:
-
-```json
-{
-  "beads": [
-    {
-      "bead_id": "emacs-abc1",
-      "status": "merged",
-      "regression_detected": false,
-      "tests_before_merge": 904,
-      "tests_after_merge": 904,
-      "unexpected_failures": 0,
-      "aborted_tests": 0,
-      "unknown_tests": 0,
-      "test_snapshot_path": ".beads/orchestrator/after-emacs-abc1-1234567890.txt",
-      "bead_closed": true,
-      "worktree_removed": true
-    },
-    {
-      "bead_id": "emacs-xyz9",
-      "status": "merge_conflict",
-      "regression_detected": false,
-      "tests_before_merge": null,
-      "tests_after_merge": null,
-      "unexpected_failures": null,
-      "aborted_tests": null,
-      "unknown_tests": null,
-      "test_snapshot_path": null,
-      "bead_closed": false,
-      "worktree_removed": false,
-      "kept_reason": "merge_conflict"
-    }
-  ]
-}
-```
+**Keep worktrees if**: merge conflict, agent failed, or regression detected.
 
 ## 8. Final Snapshot
 
-**MANDATORY**: After all successful merges complete, capture a final test snapshot.
+After last successful merge, run final test snapshot: `./bin/run-tests.sh --snapshot`, save to `.beads/orchestrator/final-${SESSION_ID}.txt`, commit with summary. Update state file with final test counts.
 
-**When to run**:
-- After the last successful merge completes
-- Before displaying the final summary report
-- Only if at least one bead was successfully merged
+## 9. Summary Report
 
-**Purpose**:
-- Provides clean "end of batch" test state
-- Easy reference point for future work
-- Captures cumulative impact of all merged beads
-- Can be compared against baseline to see overall progress
+Display session results: successfully merged (count, duration), conflicts (worktree paths), failures (worktree paths), test summary (baseline vs final), cleanup status, next steps.
 
-**Process**:
+## Error Handling
 
-```bash
-cd /Users/jefffarr/emacs
+- **Agent failures**: Mark failed, keep worktree, continue with others
+- **Merge conflicts**: Abort merge, skip bead, continue with others
+- **Infrastructure failures**: Skip bead, report error, continue
+- **Test failures**: Stop merges, offer revert/investigate options
+- **User interruption**: Save state, report progress
 
-# Run final test suite with snapshot
-./bin/run-tests.sh --snapshot
+## Critical Requirements
 
-# Get session ID from state file
-SESSION_ID=$(jq -r '.session_id' .beads/orchestrator-state.json | sed 's/orch-//')
+**NEVER**:
+- Use `run_in_background: true` (blocks file writes)
+- Use absolute worktree paths (use `.worktrees/bead-*` inside repo)
+- Skip test verification after merge
+- Continue merging after regression detected
 
-# Save final snapshot with clear naming
-cp test-results.txt .beads/orchestrator/final-${SESSION_ID}.txt
+**ALWAYS**:
+- Test after EACH merge (sequential, not batched)
+- Verify test summary line programmatically (check for "Passed:", not "Aborted:")
+- Check ABORTED and UNKNOWN test counts (stop if > 0)
+- Keep failed/conflicted worktrees for debugging
+- Update state file after each phase
 
-# Extract final test summary
-SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
-TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
-UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+" || echo "0")
-ABORTED_COUNT=$(grep -c "^  ABORTED " test-results.txt || echo "0")
-UNKNOWN_COUNT=$(grep -c "^  UNKNOWN " test-results.txt || echo "0")
+## Prerequisites
 
-# Update state file with final snapshot info
-jq --arg final_snapshot ".beads/orchestrator/final-${SESSION_ID}.txt" \
-   --argjson final_tests "$TOTAL_TESTS" \
-   --argjson final_unexpected "$UNEXPECTED" \
-   --argjson final_aborted "$ABORTED_COUNT" \
-   --argjson final_unknown "$UNKNOWN_COUNT" \
-   '. + {
-     final_snapshot: $final_snapshot,
-     final_test_count: $final_tests,
-     final_unexpected_count: $final_unexpected,
-     final_aborted_count: $final_aborted,
-     final_unknown_count: $final_unknown
-   }' \
-   .beads/orchestrator-state.json > .beads/orchestrator-state.json.tmp
-mv .beads/orchestrator-state.json.tmp .beads/orchestrator-state.json
-
-echo "✓ Final snapshot captured: .beads/orchestrator/final-${SESSION_ID}.txt"
-echo "  Total tests: $TOTAL_TESTS"
-echo "  Unexpected: $UNEXPECTED"
-echo "  Aborted: $ABORTED_COUNT"
-echo "  Unknown: $UNKNOWN_COUNT"
-
-# Commit the final snapshot
-git add .beads/orchestrator/final-${SESSION_ID}.txt
-git add .beads/orchestrator-state.json
-git commit -m "$(cat <<EOF
-Orchestration batch complete: Final test snapshot
-
-Session: orch-${SESSION_ID}
-Successfully merged beads with final test verification.
-
-Test Summary:
-- Total tests: ${TOTAL_TESTS}
-- Unexpected: ${UNEXPECTED}
-- Aborted: ${ABORTED_COUNT}
-- Unknown: ${UNKNOWN_COUNT}
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
-EOF
-)"
-
-echo "✓ Final snapshot committed to git"
-```
-
-**Display final snapshot capture**:
-
-```
-## Final Test Snapshot
-
-Capturing final test state after all merges...
-
-✓ Final snapshot: .beads/orchestrator/final-1234567890.txt
-✓ Snapshot committed to git
-
-Test Summary:
-- Total tests: 904
-- Unexpected failures: 0
-- Aborted tests: 0
-- Unknown tests: 0
-
-Comparison to baseline:
-- Baseline: 904 tests, 19 unexpected, 2 aborted, 257 unknown
-- Final: 904 tests, 0 unexpected, 0 aborted, 0 unknown
-- Delta: -19 unexpected, -2 aborted, -257 unknown ✓ Improved
-```
-
-**Skip final snapshot when**:
-- No beads were successfully merged (all failed or conflicted)
-- Regression detected and orchestration stopped early
-- User explicitly requests to skip
-
-## Final Summary Report
-
-Display comprehensive summary of orchestration session:
-
-```
-## Orchestration Complete
-
-**Session**: orch-1234567890
-**Duration**: 45 minutes
-**Beads processed**: 4
-
-### Successfully Merged (2)
-✓ emacs-abc1: Add session export
-  - Merged in 12 minutes
-  - Tests passing
-  - Bead closed
-  - Worktree cleaned
-
-✓ emacs-abc2: Implement preset resolver
-  - Merged in 18 minutes
-  - Tests passing
-  - Bead closed
-  - Worktree cleaned
-
-### Merge Conflicts (1)
-⨯ emacs-xyz9: Update documentation
-  - Reason: Merge conflict
-  - Worktree: .worktrees/bead-emacs-xyz9-1234567890
-  - Action needed: Resolve manually and merge
-
-### Agent Failures (1)
-⨯ emacs-def4: Add integration tests
-  - Reason: Agent encountered unclear requirements
-  - Worktree: .worktrees/bead-emacs-def4-1234567890
-  - Action needed: Review bead description, clarify requirements
-
-### Test Summary
-- Baseline snapshot: .beads/orchestrator/baseline-1234567890.txt
-- Final snapshot: .beads/orchestrator/final-1234567890.txt
-- Final test count: 904 tests, 0 unexpected, 0 aborted, 0 unknown
-- Status: All tests passing ✓
-
-### Cleanup Summary
-- Removed: 2 worktrees (emacs-abc1, emacs-abc2)
-- Kept: 2 worktrees (emacs-xyz9, emacs-def4)
-
-### Next Steps
-- Review kept worktrees for manual resolution
-- Run: `bd list --ready` to see remaining work
-- Consider: `/bead-implementation emacs-xyz9` for manual work
-
-All state saved in: .beads/orchestrator-state.json
-```
-
-## Error Handling & Edge Cases
-
-### Agent Timeouts
-- **Timeout**: 2 hours per bead (reasonable for 1-4 hour tasks)
-- **Action**: Mark as "failed", report to user, keep worktree
-- **User options**: Continue with other beads, investigate timeout
-
-### Agent Implementation Errors
-- **Detection**: Agent reports error in task
-- **Action**: Mark as "failed", keep worktree, continue with others
-- **Reporting**: Show error message, suggest reviewing bead clarity
-
-### Test Failures in Worktree
-- **Agent responsibility**: Agent should report test failures
-- **Orchestrator handling**: Can merge anyway (regression test will catch)
-- **Why allow**: Agent might have partial work worth reviewing
-
-### Multiple Merge Conflicts
-- **Handling**: Skip conflicted bead, continue with others
-- **Reporting**: Show all conflicts in summary
-- **Preservation**: Keep all conflicted worktrees for manual resolution
-
-### Infrastructure Failures
-
-**Worktree creation fails**:
-```
-Error: git worktree add failed
-Action: Skip bead, continue with others, report error
-```
-
-**Runtime copy fails**:
-```
-Error: init-worktree-runtime.sh failed
-Action: Skip bead, continue with others, report error
-```
-
-**Test suite fails to run**:
-```
-Error: ./bin/run-tests.sh failed
-Action: Cannot detect regressions, warn user
-Options: Continue without regression detection, or abort
-```
-
-### Regression False Positives
-
-**Test flakiness**:
-```
-Offer: "Rerun tests to confirm regression?"
-Action: Run tests again, compare results
-```
-
-**User override**:
-```
-Offer: "Continue despite reported regression?"
-Action: Allow user to proceed, mark regression as "acknowledged"
-```
-
-### User Interruption
-
-**Ctrl-C during setup**:
-- Clean up partially created worktrees
-- Save state file with current progress
-- Report which beads were affected
-
-**Ctrl-C during monitoring**:
-- Let agents continue in background (TaskList to check later)
-- Save state file
-- Report how to resume/check progress
-
-**Ctrl-C during merging**:
-- Abort current merge if in progress
-- Save state file
-- Report which beads merged, which remain
-
-## Guardrails
-
-**CRITICAL - Never violate these**:
-- **NEVER use background agents**: ALWAYS use foreground tasks (run_in_background omitted or false). Background agents fail with "File modification tools blocked - prompts unavailable"
-- **NEVER use absolute worktree paths**: ALWAYS use `.worktrees/bead-*` (relative path inside repo). NEVER use `~/worktrees/` or `/Users/*/worktrees/`
-- **Never skip regression testing**: Test after EACH merge (user preference)
-- **Never batch merges without testing**: Each merge MUST be followed by test verification before next merge
-
-**Important guardrails**:
-- **Always validate prerequisites**: Check bd list succeeds, git worktree available
-- **Never skip testing after conflicts**: If conflicts are resolved, re-test before continuing
-- **Always verify test run completed**: Check summary line starts with "Passed:", not "Aborted:" or "Failed:"
-- **Always check for ABORTED tests**: Stop if any tests have ABORTED status (serious runtime errors)
-- **Always check for UNKNOWN tests**: Stop if any tests have UNKNOWN status (test framework problems)
-- **Never trust tail output alone**: Always verify test counts and statuses programmatically with grep
-- **Never continue after regression**: Stop merging, preserve state, report to user
-- **Always verify test counts programmatically**: Parse summary line and count ABORTED/UNKNOWN statuses
-- **Never auto-cleanup failed work**: Keep worktrees for debugging
-- **Always report clearly**: Show progress, errors, kept worktrees with reasons, test status details
-- **Always save state**: Update state file after each phase
-- **Never guess on conflicts**: Keep worktree, let user resolve manually
-- **Never merge in parallel**: Sequential merging only (avoid conflicts)
-- **Always embed skill guidance**: Agents can't invoke skills directly
-- **Never timeout too quickly**: 2 hours gives agents time for 1-4 hour tasks
-
-## Prerequisites Check
-
-Before starting orchestration:
-
-1. **Beads database initialized**:
-   ```bash
-   bd list --ready --json
-   ```
-   If fails: "Beads database not initialized. Run `bd init` first."
-
-2. **Git worktree available**:
-   ```bash
-   git worktree --version
-   ```
-   If fails: "Git worktree not available. Upgrade git to 2.5+."
-
-3. **Test suite works**:
-   ```bash
-   ./bin/run-tests.sh --help
-   ```
-   If fails: "Test runner not available. Check bin/run-tests.sh exists."
-
-4. **Runtime initialization works**:
-   ```bash
-   ./bin/init-worktree-runtime.sh --help
-   ```
-   If fails: "Runtime initializer not available. Check bin/init-worktree-runtime.sh exists."
-
-5. **Not already orchestrating**:
-   ```bash
-   [ ! -f .beads/orchestrator-state.json ]
-   ```
-   If exists: "Orchestration session already in progress. Review .beads/orchestrator-state.json or remove to start fresh."
-
-## User Interaction Patterns
-
-### Initial Selection
-
-Use **AskUserQuestion** with:
-- Header: "Select beads"
-- Question: "Which beads should be implemented in parallel? (Max 5 recommended for resource management)"
-- Options: Each ready bead (label = ID + short title, description = scope + files)
-- MultiSelect: true
-
-### Baseline Test Failures
-
-Use **AskUserQuestion** with:
-- Header: "Baseline failures"
-- Question: "Baseline tests have failures. Proceed with orchestration?"
-- Options:
-  - "Proceed (regression detection still works)" (recommended)
-  - "Cancel and fix tests first"
-- Note: Regression detection compares diff, so works even with existing failures
-
-### Regression Detected
-
-Use **AskUserQuestion** with:
-- Header: "Regression"
-- Question: "Bead {bead_id} introduced test failures. How to proceed?"
-- Options:
-  - "Revert merge" (recommended)
-  - "Keep merge and investigate"
-  - "Continue despite regression" (not recommended)
-
-## Output Format Examples
-
-### Discovery Phase
-```
-## Discovering Ready Beads
-
-Querying Beads database...
-Found 5 ready beads (no blockers)
-
-Ready Beads:
-1. emacs-abc1: Add session export (~2 hours)
-2. emacs-abc2: Implement preset resolver (~3 hours)
-3. emacs-abc3: Add tests for filesystem (~1 hour)
-4. emacs-def4: Update documentation (~30 min)
-5. emacs-xyz9: Fix completion bug (~1 hour)
-
-Select up to 3 for parallel implementation.
-```
-
-### Setup Phase
-```
-## Setting Up Worktrees
-
-Creating isolated worktrees for 3 beads...
-
-✓ emacs-abc1: Worktree created at .worktrees/bead-emacs-abc1-1234567890
-  - Runtime copied (746MB in 45s)
-  - Submodules initialized
-  - Agent spawned (task-1)
-
-✓ emacs-abc2: Worktree created at .worktrees/bead-emacs-abc2-1234567890
-  - Runtime copied (746MB in 43s)
-  - Submodules initialized
-  - Agent spawned (task-2)
-
-✓ emacs-abc3: Worktree created at .worktrees/bead-emacs-abc3-1234567890
-  - Runtime copied (746MB in 46s)
-  - Submodules initialized
-  - Agent spawned (task-3)
-
-All agents running. Monitoring progress...
-```
-
-### Monitoring Phase
-```
-## Implementation Progress
-
-[12 minutes elapsed]
-
-✓ emacs-abc3: Complete (8 minutes)
-  - 2 files modified
-  - 3 tests added
-  - 1 commit
-
-⋯ emacs-abc1: In progress (12 minutes)
-  - Last activity: 2 minutes ago
-
-⋯ emacs-abc2: In progress (12 minutes)
-  - Last activity: 1 minute ago
-
-Waiting for remaining agents...
-```
-
-### Merging Phase
-```
-## Merging Completed Work
-
-[1/3] Merging emacs-abc3...
-✓ Merged successfully
-✓ Running tests... (30s)
-✓ No regressions (127/127 passing)
-✓ Bead closed
-✓ Worktree removed
-
-[2/3] Merging emacs-abc1...
-✓ Merged successfully
-✓ Running tests... (32s)
-✓ No regressions (127/127 passing)
-✓ Bead closed
-✓ Worktree removed
-
-[3/3] Merging emacs-abc2...
-✓ Merged successfully
-✓ Running tests... (35s)
-⚠️ REGRESSION DETECTED
-
-Failed tests:
-- test-preset-resolver-chain
-- test-preset-fallback-behavior
-
-Orchestration paused.
-```
-
-## Integration Notes
-
-This command introduces new patterns to the codebase:
-
-1. **First use of Task tool for agent spawning**: Existing commands (/opsx:apply) use sequential execution. This is the first parallel agent pattern.
-
-2. **Worktree management**: Existing scripts (init-worktree-runtime.sh) used for development worktrees. Now also used for orchestrator worktrees in separate namespace.
-
-3. **Test-after-each pattern**: Existing test framework (run-tests.sh, snapshot mode) now used for regression detection in orchestration context.
-
-4. **State tracking**: New JSON state file pattern for tracking multi-bead orchestration sessions.
-
-5. **Skill guidance embedding**: New pattern of embedding skill guidance in agent prompts since agents can't invoke skills directly.
-
-## Future Enhancements
-
-Potential improvements for future iterations:
-
-- **Parallel merging with conflict detection**: Advanced git workflow
-- **Dynamic parallelism**: Adjust agent count based on system resources
-- **Incremental testing**: Only run tests related to changed modules
-- **Resume capability**: Resume interrupted orchestration sessions
-- **Bead dependency resolution**: Automatically sequence dependent beads
-- **Progress web UI**: Real-time progress dashboard
-- **Agent resource limits**: CPU/memory constraints per agent
-- **Smart baseline updates**: Update baseline after each successful merge
+Check before starting: `bd list --ready --json` works, `git worktree --version` available, `./bin/run-tests.sh --help` exists, no existing `.beads/orchestrator-state.json`.
