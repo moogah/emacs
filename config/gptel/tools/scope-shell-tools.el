@@ -292,6 +292,85 @@ Examples:
     base))
 ;; Implementation:1 ends here
 
+;; Stage 2: Extract All Commands
+
+;; Extract ALL commands from a pipeline or chain, not just the base command.
+
+
+;; [[file:scope-shell-tools.org::*Stage 2: Extract All Commands][Stage 2: Extract All Commands:1]]
+(defun jf/gptel-scope--extract-pipeline-commands (cmd-string)
+  "Stage 2: Extract all commands from CMD-STRING pipeline/chain.
+Returns list of command names in execution order.
+
+Examples:
+  'ls | xargs rm' → (\"ls\" \"xargs\" \"rm\")
+  'cd /tmp; ls' → (\"cd\" \"ls\")
+  'mkdir foo && cd foo' → (\"mkdir\" \"cd\")
+  'grep pattern . | head -20 | tail -5' → (\"grep\" \"head\" \"tail\")"
+  (let* ((trimmed (string-trim cmd-string))
+         ;; Split on pipe, semicolon, AND, OR operators
+         (segments (split-string trimmed "[|;&]+" t))
+         (commands nil))
+    ;; Extract first command from each segment
+    (dolist (segment segments)
+      (let* ((trimmed-segment (string-trim segment))
+             ;; Split on whitespace and redirects to get base command
+             (parts (split-string trimmed-segment "[ ><]+" t))
+             (base (car parts)))
+        (when base
+          (push base commands))))
+    (nreverse commands)))
+;; Stage 2: Extract All Commands:1 ends here
+
+;; Stage 3: Validate Pipeline Commands
+
+;; Validate each command in a pipeline against allowed categories.
+
+
+;; [[file:scope-shell-tools.org::*Stage 3: Validate Pipeline Commands][Stage 3: Validate Pipeline Commands:1]]
+(defun jf/gptel-scope--validate-pipeline-commands (commands categories)
+  "Stage 3: Validate each command in COMMANDS against CATEGORIES.
+COMMANDS is a list of command strings.
+CATEGORIES is the bash_tools categories plist from scope.yml.
+
+Returns (SUCCESS . nil) if all commands allowed.
+Returns (nil . ERROR-PLIST) if validation fails, where ERROR-PLIST contains:
+  :position - Index of first failing command (0-based)
+  :command - The failing command name
+  :message - Human-readable error message
+
+Examples:
+  (validate-pipeline-commands '(\"ls\" \"head\") categories)
+    → (t . nil)  ; both allowed
+
+  (validate-pipeline-commands '(\"ls\" \"xargs\" \"rm\") categories)
+    → (nil . (:position 2 :command \"rm\" :message \"Command 'rm' is in deny list\"))"
+  (let ((deny-list (plist-get categories :deny))
+        (read-only (plist-get (plist-get categories :read_only) :commands))
+        (safe-write (plist-get (plist-get categories :safe_write) :commands))
+        (dangerous (plist-get (plist-get categories :dangerous) :commands))
+        (pos 0))
+    (catch 'validation-failed
+      (dolist (cmd commands)
+        ;; Check deny list first
+        (when (member cmd deny-list)
+          (throw 'validation-failed
+                 (cons nil (list :position pos
+                                 :command cmd
+                                 :message (format "Command '%s' at position %d is in deny list" cmd pos)))))
+        ;; Check if command is in any allowed category
+        (unless (or (member cmd read-only)
+                    (member cmd safe-write)
+                    (member cmd dangerous))
+          (throw 'validation-failed
+                 (cons nil (list :position pos
+                                 :command cmd
+                                 :message (format "Command '%s' at position %d is not in allowed categories" cmd pos)))))
+        (setq pos (1+ pos)))
+      ;; All commands validated successfully
+      (cons t nil))))
+;; Stage 3: Validate Pipeline Commands:1 ends here
+
 ;; Check Absolute Paths
 
 ;; Check if command contains absolute paths that bypass directory scoping.
