@@ -1,8 +1,8 @@
 # Purpose
 
-The bash tools system provides controlled command execution with category-based access control. Commands are categorized as read-only, safe-write, or dangerous, and validated against directory scope patterns before execution.
+The bash tools system provides controlled command execution with semantic validation using bash-parser integration. Commands are parsed into AST, semantic operations extracted (file operations, cloud auth), and validated against operation-specific scope patterns.
 
-This integrates with the scope profiles and preset registration systems to enforce execution boundaries defined in `scope.yml` files.
+This integrates with bash-parser (`config/bash-parser/`) for tree-sitter parsing, scope profiles for configuration, and preset registration for deployment. Execution boundaries defined in `scope.yml` v4 files include operation-specific path scoping (read/write/execute/modify), cloud authentication detection, and parse completeness enforcement.
 
 # Requirements
 
@@ -71,60 +71,57 @@ The bash tools system SHALL require an explicit directory argument for every com
 - **WHEN** a directory contains symlinks
 - **THEN** the system resolves to real path using file-truename before validation
 
-## Shell composition features allowed
-The bash tools system SHALL allow shell composition features (pipes, redirects, command substitution) while validating only the base command.
+## Shell composition features with full validation
+The bash tools system SHALL parse shell composition features (pipes, redirects, command substitution) using bash-parser and validate all commands in pipelines.
 
-### Scenario: Piped commands validated by base command
+### Scenario: Piped commands all validated
 - **WHEN** command is "ls | grep foo"
-- **THEN** the system extracts base command "ls" for categorization
+- **THEN** the system validates both "ls" and "grep" against bash_tools categories
 
-### Scenario: Redirected output allowed
+### Scenario: Dangerous command in pipeline rejected
+- **WHEN** command is "ls | xargs rm"
+- **AND** "rm" is in deny list
+- **THEN** the system rejects with "command_denied" error identifying "rm" in pipeline position
+
+### Scenario: Redirected output allowed after validation
 - **WHEN** command is "cat file.txt > output.txt"
-- **THEN** the system extracts base command "cat" and allows if categorized correctly
+- **THEN** the system extracts "cat" command, validates it, and validates file paths
 
-### Scenario: Command substitution allowed
+### Scenario: Command substitution parsed and validated
 - **WHEN** command is "echo $(pwd)"
-- **THEN** the system extracts base command "echo" and allows if categorized correctly
+- **THEN** the system parses command substitution and validates inner command
 
-### Scenario: Complex pipeline validated by first command
+### Scenario: Complex pipeline fully validated
 - **WHEN** command is "find . -name '*.el' | xargs grep -l 'defun' | head -10"
-- **THEN** the system extracts base command "find" for categorization
-
-## Base command extraction from complex commands
-The bash tools system SHALL parse command strings to extract the base command for categorization.
-
-### Scenario: Simple command extraction
-- **WHEN** parsing "ls -la"
-- **THEN** the system extracts "ls" as base command
-
-### Scenario: Pipeline command extraction
-- **WHEN** parsing "ls | grep foo"
-- **THEN** the system extracts "ls" as base command (first word before pipe)
-
-### Scenario: Redirect command extraction
-- **WHEN** parsing "cat file > out"
-- **THEN** the system extracts "cat" as base command (first word before redirect)
-
-### Scenario: Command with arguments extraction
-- **WHEN** parsing "grep -rn 'pattern' ."
-- **THEN** the system extracts "grep" as base command (first word)
-
-### Scenario: Leading/trailing whitespace handled
-- **WHEN** parsing "  ls -la  "
-- **THEN** the system trims and extracts "ls" as base command
+- **THEN** the system validates "find", "xargs grep", and "head" commands
 
 ## Complete validation pipeline
-The bash tools system SHALL execute a multi-step validation pipeline for each command.
+The bash tools system SHALL execute a multi-step validation pipeline for each command using bash-parser for semantic extraction.
 
 ### Scenario: Validation pipeline for command execution
 - **WHEN** run_bash_command is called with command and directory
 - **THEN** the system executes these steps in order:
-  1. Parse command to extract base command (first token before pipes/redirects)
-  2. Categorize base command (check deny → read_only → safe_write → dangerous)
-  3. Resolve directory to absolute path using expand-file-name
-  4. Resolve directory symlinks to real path using file-truename
-  5. Validate directory against category's path scope requirement
-  6. Execute command with timeout and output truncation
+  1. Parse command using bash-parser (jf/bash-parse) to get AST with tokens
+  2. Extract semantics using plugin system (jf/bash-extract-semantics)
+  3. Check parse completeness (:parse-complete flag)
+  4. Validate all commands in pipeline/chain (not just base command)
+  5. Categorize each command (check deny → read_only → safe_write → dangerous)
+  6. Extract file operations from command (using file-ops plugin)
+  7. Resolve file paths to absolute paths relative to working directory
+  8. Validate each file path against operation-specific scope patterns
+  9. Check cloud authentication detection (using cloud-auth plugin)
+  10. Enforce cloud authentication policy
+  11. Execute command with timeout and output truncation
+
+### Scenario: Parse completeness enforced
+- **WHEN** bash-parser cannot fully parse command (:parse-complete nil)
+- **AND** security.enforce_parse_complete is true
+- **THEN** system rejects command with "incomplete_parse" error
+
+### Scenario: Parse completeness optional
+- **WHEN** bash-parser cannot fully parse command (:parse-complete nil)
+- **AND** security.enforce_parse_complete is false
+- **THEN** system proceeds with validation but includes warning
 
 ### Scenario: Directory resolution with symlinks
 - **WHEN** validating a directory path containing symlinks
@@ -189,6 +186,80 @@ The bash tools system SHALL warn when command arguments contain absolute paths t
 - **WHEN** an absolute path warning is issued
 - **THEN** the warning message suggests using relative paths for proper scope validation
 
+## File path validation with operation-specific scoping
+The bash tools system SHALL validate all file paths extracted from commands against operation-specific scope patterns.
+
+### Scenario: Read operation validated against paths.read
+- **WHEN** command is "cat /workspace/file.txt"
+- **AND** file operations plugin extracts :read operation for /workspace/file.txt
+- **THEN** system validates path against paths.read and paths.write patterns
+
+### Scenario: Write operation requires paths.write
+- **WHEN** command is "touch /workspace/output.txt"
+- **AND** file operations plugin extracts :write operation
+- **AND** paths.read: ["/workspace/**"] but no paths.write
+- **THEN** system rejects with "path_out_of_scope" error
+
+### Scenario: Execute operation requires paths.execute
+- **WHEN** command is "python /workspace/scripts/deploy.py"
+- **AND** file operations plugin extracts :execute operation
+- **AND** paths.read and paths.write cover /workspace but no paths.execute
+- **THEN** system rejects with "path_out_of_scope" error
+
+### Scenario: Modify operation requires paths.modify
+- **WHEN** command is "sed -i 's/foo/bar/' /workspace/config.yml"
+- **AND** file operations plugin extracts :modify operation
+- **AND** no paths.modify configured
+- **THEN** system rejects with "path_out_of_scope" error
+
+### Scenario: File path denied takes precedence
+- **WHEN** command operates on path matching paths.deny
+- **THEN** system rejects regardless of operation type or other path scopes
+
+### Scenario: Multiple file operations validated independently
+- **WHEN** command is "cp /workspace/source.txt /tmp/dest.txt"
+- **THEN** system validates source.txt against :read scope and dest.txt against :write scope
+
+## Cloud authentication detection and enforcement
+The bash tools system SHALL detect cloud authentication commands and enforce cloud policy from scope.yml.
+
+### Scenario: Cloud auth detected in allow mode
+- **WHEN** command is "aws-vault exec prod -- aws s3 ls"
+- **AND** cloud.auth_detection: "allow"
+- **THEN** command executes without restrictions
+
+### Scenario: Cloud auth detected in warn mode
+- **WHEN** command is "gcloud auth login"
+- **AND** cloud.auth_detection: "warn"
+- **THEN** command executes with warning in result
+
+### Scenario: Cloud auth detected in deny mode
+- **WHEN** command is "az login"
+- **AND** cloud.auth_detection: "deny"
+- **AND** "azure" not in cloud.allowed_providers
+- **THEN** system rejects with "cloud_auth_denied" error
+
+### Scenario: Allowed provider in deny mode
+- **WHEN** command uses cloud provider in allowed_providers list
+- **AND** cloud.auth_detection: "deny"
+- **THEN** command allowed
+
+## Coverage-based validation warnings
+The bash tools system SHALL optionally warn when semantic coverage is below configured threshold.
+
+### Scenario: High coverage passes silently
+- **WHEN** bash-parser coverage is >= max_coverage_threshold
+- **THEN** no coverage warnings generated
+
+### Scenario: Low coverage generates warning
+- **WHEN** bash-parser coverage is < max_coverage_threshold
+- **AND** max_coverage_threshold is configured
+- **THEN** result includes warning about low coverage ratio
+
+### Scenario: Coverage warning includes metrics
+- **WHEN** low coverage warning generated
+- **THEN** warning includes total tokens, claimed tokens, and coverage ratio
+
 ## Structured error responses with expansion guidance
 The bash tools system SHALL return structured errors that guide the LLM to request scope expansion when needed.
 
@@ -203,6 +274,26 @@ The bash tools system SHALL return structured errors that guide the LLM to reque
 ### Scenario: Directory not in scope error structure
 - **WHEN** directory does not match category's path requirement
 - **THEN** the system returns :allowed nil with :reason "directory-not-in-scope", directory, required_scope, allowed_patterns, and message
+
+### Scenario: Parse incomplete error structure
+- **WHEN** command cannot be fully parsed
+- **THEN** error includes :error "incomplete_parse", :parse_errors, :partial_tokens
+
+### Scenario: Path out of scope error with operation detail
+- **WHEN** file path validation fails
+- **THEN** error includes :error "path_out_of_scope", :path, :operation, :required_scope, :allowed_patterns
+
+### Scenario: Pipeline command denied with position
+- **WHEN** pipeline command fails validation
+- **THEN** error includes :pipeline_position, :failed_command, :full_pipeline
+
+### Scenario: Cloud auth denied error with provider
+- **WHEN** cloud auth command denied
+- **THEN** error includes :error "cloud_auth_denied", :provider, :allowed_providers
+
+### Scenario: Coverage metrics in successful responses
+- **WHEN** command executes successfully
+- **THEN** result may include :coverage with :total_tokens, :claimed_tokens, :coverage_ratio
 
 ### Scenario: Error messages suggest expansion
 - **WHEN** any scope violation occurs
@@ -253,3 +344,26 @@ The bash tools system SHALL load bash command configuration from `scope.yml` loc
 ### Scenario: Deny list parsed
 - **WHEN** bash_tools configuration is loaded
 - **THEN** the system parses bash_tools.deny list for globally denied commands
+
+### Scenario: Operation-specific path sections loaded (v4)
+- **WHEN** scope.yml v4 is loaded
+- **THEN** the system loads paths.read, paths.write, paths.execute, paths.modify, and paths.deny sections
+- **AND** each section contains list of glob patterns for that operation type
+
+### Scenario: Cloud configuration loaded (v4)
+- **WHEN** scope.yml v4 has cloud section
+- **THEN** the system loads cloud.auth_detection mode ("allow", "warn", or "deny")
+- **AND** loads cloud.allowed_providers list of provider names
+
+### Scenario: Security configuration loaded (v4)
+- **WHEN** scope.yml v4 has security section
+- **THEN** the system loads security.enforce_parse_complete boolean flag
+- **AND** loads security.max_coverage_threshold numeric value (0.0-1.0)
+
+### Scenario: Missing v4 sections get defaults
+- **WHEN** scope.yml v4 is missing cloud or security sections
+- **THEN** the system applies safe defaults (cloud.auth_detection: "warn", security.enforce_parse_complete: true)
+
+### Scenario: Invalid v4 schema values rejected
+- **WHEN** scope.yml v4 has invalid values (e.g., cloud.auth_detection: "invalid")
+- **THEN** the system returns schema validation error at load time
