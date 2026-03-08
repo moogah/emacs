@@ -1252,20 +1252,49 @@ Implement glob pattern matching for path validation.
 Supports:
 - * matches any characters except /
 - ** matches any characters including /
-- Literal path components"
-  (let* ((pattern-regex (jf/gptel-scope--glob-to-regex pattern))
+- Literal path components
+
+Pattern matching is case-sensitive."
+  (let* ((case-fold-search nil)  ; Force case-sensitive matching
+         (pattern-regex (jf/gptel-scope--glob-to-regex pattern))
          (result (string-match-p pattern-regex path)))
-    result))
+    (if result t nil)))
 
 (defun jf/gptel-scope--glob-to-regex (pattern)
   "Convert glob PATTERN to regular expression.
-- ** becomes .* (matches everything including /)
+- /** becomes /(.*/)? (matches slash followed by zero or more path components)
+- **/ becomes (.*/)? (matches zero or more directories ending in slash)
+- ** at end becomes .* (matches everything)
 - * becomes [^/]* (matches everything except /)
-- Other chars are escaped"
+- Other chars are escaped
+
+Special handling for middle recursive wildcards:
+  /workspace/**/file.txt → /workspace/(.*/)file.txt matches:
+    /workspace/file.txt (zero dirs - empty capture)
+    /workspace/sub/file.txt (one dir)
+    /workspace/a/b/file.txt (multiple dirs)"
   (let ((regex "^"))
     (while (not (string-empty-p pattern))
       (cond
-       ;; Handle **
+       ;; Handle /** (slash before recursive wildcard)
+       ;; This is the most common case: /workspace/** or /workspace/**/file
+       ((string-prefix-p "/**/" pattern)
+        ;; Match /dir1/dir2/.../ or just / (zero components)
+        (setq regex (concat regex "/\\(?:.*/\\)?"))
+        (setq pattern (substring pattern 4)))
+
+       ((string-prefix-p "/**" pattern)
+        ;; /** at end or before non-slash: match everything after /
+        (setq regex (concat regex "/.*"))
+        (setq pattern (substring pattern 3)))
+
+       ;; Handle **/ (recursive wildcard before path separator, no leading /)
+       ;; This would be rare but handle it
+       ((string-prefix-p "**/" pattern)
+        (setq regex (concat regex "\\(?:.*/\\)?"))
+        (setq pattern (substring pattern 3)))
+
+       ;; Handle ** alone (at end of pattern or before non-slash)
        ((string-prefix-p "**" pattern)
         (setq regex (concat regex ".*"))
         (setq pattern (substring pattern 2)))
