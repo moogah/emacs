@@ -5,6 +5,15 @@
 paths:
   read: ["/**"]  # Read access to entire filesystem (excluding deny list)
   write: ["${project_root}/**"]  # Write access limited to project directory
+
+  # V4 Schema: Execute permissions for running scripts/binaries
+  # Empty by default - requires explicit scope expansion for executable operations
+  execute: []
+
+  # V4 Schema: Modify permissions for in-place file edits (sed, awk, etc.)
+  # Empty by default - write operations create new content, modify changes existing
+  modify: []
+
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
 
 org_roam_patterns:
@@ -98,3 +107,22 @@ bash_tools:
     - "cargo"
     - "composer"
     - "go"
+
+# V4 Schema: Cloud authentication detection
+# Controls how cloud service authentication commands are handled
+cloud:
+  # Options: "allow" (permit), "warn" (notify user), "deny" (block)
+  # Default "warn" for coding profile - alerts user to cloud auth attempts
+  auth_detection: "warn"
+
+# V4 Schema: Security and parsing strictness
+# Enforces bash parsing requirements for command validation
+security:
+  # Require complete bash parse coverage before command execution
+  # true = strict (reject unparseable commands), false = lenient (allow on parse failure)
+  enforce_parse_complete: true
+
+  # Maximum bash coverage threshold (0.0 to 1.0)
+  # Limits how much of the command tree can be parsed/validated
+  # 0.8 = allow up to 80% of command to be analyzed
+  max_coverage_threshold: 0.8

@@ -5,6 +5,16 @@
 paths:
   read: ["/**"]  # Read access to entire filesystem (excluding deny list)
   write: []  # No write access - exploration only
+
+  # V4 Schema: Execute permissions for running inspection commands
+  # Language runtimes (python, node, etc.) may execute code for version checks
+  # Empty by default - requires explicit approval even for system exploration
+  execute: []
+
+  # V4 Schema: Modify permissions for in-place edits
+  # Empty for system-explorer - read-only profile
+  modify: []
+
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**", "**/.ssh/**", "**/.gnupg/**", "**/*_history", "**/credentials*", "**/*.key", "**/*.pem", "**/shadow", "**/sudoers"]
 
 org_roam_patterns:
@@ -145,3 +155,22 @@ bash_tools:
     - "cargo"
     - "composer"
     - "go"
+
+# V4 Schema: Cloud authentication detection
+# System exploration may encounter cloud CLI tools
+cloud:
+  # Options: "allow" (permit), "warn" (notify user), "deny" (block)
+  # "deny" for system-explorer - read-only profile should not authenticate
+  auth_detection: "deny"
+
+# V4 Schema: Security and parsing strictness
+# Balanced strictness for system exploration commands
+security:
+  # Require complete bash parse coverage before command execution
+  # true = strict (reject unparseable commands), false = lenient (allow on parse failure)
+  # false for system-explorer - some inspection commands may have complex syntax
+  enforce_parse_complete: false
+
+  # Maximum bash coverage threshold (0.0 to 1.0)
+  # Higher threshold to accommodate diverse system commands
+  max_coverage_threshold: 0.9

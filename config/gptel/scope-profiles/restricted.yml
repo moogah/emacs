@@ -1,7 +1,33 @@
 paths:
   read: []
+
+  # V4 Schema: Execute permissions - denied for restricted profile
+  execute: []
+
+  # V4 Schema: Modify permissions - denied for restricted profile
+  modify: []
+
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
+
 org_roam_patterns:
   subdirectory: []
   tags: []
   node_ids: []
+
+# V4 Schema: Cloud authentication detection
+# Restricted profile blocks all cloud operations
+cloud:
+  # Options: "allow" (permit), "warn" (notify user), "deny" (block)
+  # "deny" for restricted profile - maximum security
+  auth_detection: "deny"
+
+# V4 Schema: Security and parsing strictness
+# Maximum strictness for restricted profile
+security:
+  # Require complete bash parse coverage before command execution
+  # true = strict (reject unparseable commands)
+  enforce_parse_complete: true
+
+  # Maximum bash coverage threshold (0.0 to 1.0)
+  # Lowest threshold for restricted profile - minimal command parsing
+  max_coverage_threshold: 0.5
