@@ -287,6 +287,8 @@ User sees transient menu with options to deny, add to scope, or allow once.
 (require 'cl-lib)
 (require 'jf-gptel-scope-core)
 (require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope-prompt-expansion
+(require 'bash-parser-core)  ; For jf/bash-parse
+(require 'bash-parser-plugins)  ; For jf/bash-extract-semantics
 #+end_src
 
 * Constants
@@ -543,30 +545,25 @@ to indicate they are bash-specific utilities for command parsing and execution.
 This naming is intentional and distinguishes them from scope validation functions
 which use the =jf/gptel-scope--= prefix.
 
-** Parse Command
+** Parse Command (DEPRECATED - Replaced by bash-parser)
 
-Extract base command from complex shell strings with pipes, redirects, and command substitution.
+This function has been replaced by the seven-stage validation pipeline using
+bash-parser. The old regex-based approach only validated the base command,
+allowing pipeline bypasses like "ls | xargs rm".
 
-*** Implementation
+The new approach:
+1. Uses jf/bash-parse for full AST parsing
+2. Extracts ALL commands from pipelines and chains
+3. Validates each command independently
+4. Extracts file operations for path validation
+5. Detects cloud authentication commands
 
-#+begin_src elisp
-(defun jf/gptel-bash--parse-command (cmd-string)
-  "Extract base command from CMD-STRING.
-Handles pipes, redirects, command substitution.
-Examples:
-  'grep foo | head' → 'grep'
-  'ls -la > output.txt' → 'ls'
-  'echo $(date)' → 'echo'"
-  (let* ((trimmed (string-trim cmd-string))
-         ;; Split on shell metacharacters
-         (parts (split-string trimmed "[ |><;&]+" t))
-         (base (car parts)))
-    base))
-#+end_src
+See jf/gptel-scope--validate-command-semantics for the new implementation.
 
-*** Test Coverage
+*** Old Test Coverage (Deprecated)
 
-Edge cases covered by this implementation:
+The following edge cases were covered by the old regex-based implementation.
+These are now handled by bash-parser with proper AST parsing:
 
 **** Pipes
 #+begin_example
@@ -673,21 +670,21 @@ Rationale: Even if argument parsing is naive, base command extraction is reliabl
 
 This implementation uses simple regex splitting rather than full shell parsing. For security categorization, only the base command matters - argument content is irrelevant to whether the command is read-only, safe-write, or dangerous.
 
-*** Security Implications
+*** Old Security Implications (Deprecated)
 
-*Why only validate base command:*
+*The old approach had security gaps that are now closed:*
 
-1. *Primary security boundary*: If =grep= is categorized as =read_only=, composing it with =head= or =tail= doesn't increase risk
-2. *Parsing complexity*: Full pipeline parsing is error-prone and fragile
-3. *Marginal benefit*: Validating every command in a pipeline provides minimal additional security
-4. *LLM behavior*: The LLM learns safe patterns; overly restrictive parsing would force workarounds
+The old regex-based parser only validated the base command, which had known limitations:
+1. Command chaining (=;=, =&&=, =||=) only validated first command
+2. Subsequent commands in chain bypassed validation
+3. Pipeline commands like "ls | xargs rm" would allow denied commands in non-base positions
 
-*Known limitations:*
-
-1. Command chaining (=;=, =&&=, =||=) only validates first command
-2. Subsequent commands in chain bypass validation
-3. This is acceptable because directory scope still applies to all operations
-4. Dangerous commands in chain will fail on execution due to directory permissions
+*The new approach (bash-parser) closes these gaps:*
+1. Extracts ALL commands from pipelines and chains
+2. Validates each command independently against category lists
+3. Validates file paths against operation-specific scope (read/write/execute/modify)
+4. Detects cloud authentication commands and enforces policy
+5. Provides coverage metrics for debugging incomplete parses
 
 
 ** Pipeline Command Extraction (Stages 2-3)
@@ -696,31 +693,26 @@ These functions implement full pipeline validation to close the bypass vulnerabi
 
 *** Stage 2: Extract All Commands
 
-Extract ALL commands from a pipeline or chain, not just the base command.
+Extract ALL commands from a pipeline or chain using bash-parser results.
 
 #+begin_src elisp
-(defun jf/gptel-scope--extract-pipeline-commands (cmd-string)
-  "Stage 2: Extract all commands from CMD-STRING pipeline/chain.
+(defun jf/gptel-scope--extract-pipeline-commands (parsed-command)
+  "Stage 2: Extract all commands from PARSED-COMMAND pipeline/chain.
+PARSED-COMMAND is the plist returned by jf/bash-parse.
 Returns list of command names in execution order.
 
-Examples:
+Examples (from parsed results):
   'ls | xargs rm' → (\"ls\" \"xargs\" \"rm\")
   'cd /tmp; ls' → (\"cd\" \"ls\")
   'mkdir foo && cd foo' → (\"mkdir\" \"cd\")
   'grep pattern . | head -20 | tail -5' → (\"grep\" \"head\" \"tail\")"
-  (let* ((trimmed (string-trim cmd-string))
-         ;; Split on pipe, semicolon, AND, OR operators
-         (segments (split-string trimmed "[|;&]+" t))
-         (commands nil))
-    ;; Extract first command from each segment
-    (dolist (segment segments)
-      (let* ((trimmed-segment (string-trim segment))
-             ;; Split on whitespace and redirects to get base command
-             (parts (split-string trimmed-segment "[ ><]+" t))
-             (base (car parts)))
-        (when base
-          (push base commands))))
-    (nreverse commands)))
+  (let ((all-commands (plist-get parsed-command :all-commands))
+        (command-names nil))
+    ;; Extract command-name from each parsed command
+    (dolist (cmd all-commands)
+      (when-let ((name (plist-get cmd :command-name)))
+        (push name command-names)))
+    (nreverse command-names)))
 #+end_src
 
 *** Stage 3: Validate Pipeline Commands
@@ -733,18 +725,19 @@ Validate each command in a pipeline against allowed categories.
 COMMANDS is a list of command strings.
 CATEGORIES is the bash_tools categories plist from scope.yml.
 
-Returns (SUCCESS . nil) if all commands allowed.
-Returns (nil . ERROR-PLIST) if validation fails, where ERROR-PLIST contains:
+Returns nil if all commands allowed.
+Returns error plist if validation fails with:
+  :error - Error type
   :position - Index of first failing command (0-based)
   :command - The failing command name
   :message - Human-readable error message
 
 Examples:
   (validate-pipeline-commands '(\"ls\" \"head\") categories)
-    → (t . nil)  ; both allowed
+    → nil  ; both allowed
 
   (validate-pipeline-commands '(\"ls\" \"xargs\" \"rm\") categories)
-    → (nil . (:position 2 :command \"rm\" :message \"Command 'rm' is in deny list\"))"
+    → (:error \"command_denied\" :position 2 :command \"rm\" :message \"...\")"
   (let ((deny-list (plist-get categories :deny))
         (read-only (plist-get (plist-get categories :read_only) :commands))
         (safe-write (plist-get (plist-get categories :safe_write) :commands))
@@ -755,20 +748,22 @@ Examples:
         ;; Check deny list first
         (when (member cmd deny-list)
           (throw 'validation-failed
-                 (cons nil (list :position pos
-                                 :command cmd
-                                 :message (format "Command '%s' at position %d is in deny list" cmd pos)))))
+                 (list :error "command_denied"
+                       :position pos
+                       :command cmd
+                       :message (format "Command '%s' at position %d is in deny list" cmd pos))))
         ;; Check if command is in any allowed category
         (unless (or (member cmd read-only)
                     (member cmd safe-write)
                     (member cmd dangerous))
           (throw 'validation-failed
-                 (cons nil (list :position pos
-                                 :command cmd
-                                 :message (format "Command '%s' at position %d is not in allowed categories" cmd pos)))))
+                 (list :error "command_not_allowed"
+                       :position pos
+                       :command cmd
+                       :message (format "Command '%s' at position %d is not in allowed categories" cmd pos))))
         (setq pos (1+ pos)))
       ;; All commands validated successfully
-      (cons t nil))))
+      nil)))
 #+end_src
 
 ** Check Absolute Paths
@@ -848,6 +843,62 @@ Error types: timeout, execution-failed."
 
 The validation pipeline processes bash commands through multiple stages before execution.
 Each stage checks a specific aspect of the command's safety and compliance.
+
+** Main Pipeline Function
+
+Seven-stage validation pipeline with early exit on failure.
+
+#+begin_src elisp
+(defun jf/gptel-scope--validate-command-semantics (command directory scope-config)
+  "Seven-stage validation pipeline with early exit on failure.
+COMMAND is the bash command string to validate.
+DIRECTORY is the working directory for path resolution.
+SCOPE-CONFIG is the scope configuration plist.
+
+Returns nil if all validations pass, error plist on first failure.
+
+Stages:
+  1. Parse command with bash-parser
+  2. Extract pipeline commands
+  3. Validate pipeline commands against categories
+  4. Extract and validate file operations
+  5. Detect and enforce cloud auth policy
+  6. Check coverage threshold (warning only)
+  7. Return nil (success)"
+  (let* ((parsed (jf/bash-parse command))
+         (semantics (jf/bash-extract-semantics parsed))
+         (security-config (plist-get scope-config :security)))
+
+    ;; Stage 1: Parse completeness
+    (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
+      (cl-return-from jf/gptel-scope--validate-command-semantics error))
+
+    ;; Stage 2: Extract pipeline commands
+    (let ((commands (jf/gptel-scope--extract-pipeline-commands parsed)))
+
+      ;; Stage 3: Validate pipeline commands
+      (when-let ((error (jf/gptel-scope--validate-pipeline-commands
+                         commands (plist-get scope-config :bash-tools))))
+        (cl-return-from jf/gptel-scope--validate-command-semantics error))
+
+      ;; Stage 4: File operations validation
+      (when-let ((file-ops (plist-get (plist-get semantics :domains) :filesystem)))
+        (when-let ((error (jf/gptel-scope--validate-file-operations
+                           file-ops directory scope-config)))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+
+      ;; Stage 5: Cloud auth detection and policy enforcement
+      (when-let ((cloud-auth (plist-get (plist-get semantics :domains) :cloud-auth)))
+        (when-let ((error (jf/gptel-scope--validate-cloud-auth
+                           cloud-auth (plist-get scope-config :cloud))))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+
+      ;; Stage 6: Coverage check (warning only, doesn't block)
+      (jf/gptel-scope--check-coverage-threshold semantics security-config)
+
+      ;; Stage 7: All validations passed
+      nil)))
+#+end_src
 
 ** Stage 1: Parse Completeness Checking
 
@@ -1346,6 +1397,26 @@ Returns nil if validation passes, error plist if denied."
               :mode mode
               :message (format "Invalid cloud.auth_detection mode: %s (must be allow/warn/deny)"
                                mode)))))))
+#+end_src
+
+* Stage 6: Coverage Threshold Checking
+
+Check parse coverage and warn if below threshold. Non-blocking stage that only warns.
+
+#+begin_src elisp
+(defun jf/gptel-scope--check-coverage-threshold (semantics security-config)
+  "Stage 6: Check coverage threshold (warning only, non-blocking).
+SEMANTICS is the plist returned by jf/bash-extract-semantics.
+SECURITY-CONFIG is the security configuration plist.
+
+Returns nil always (warnings don't block execution)."
+  (when-let* ((coverage (plist-get semantics :coverage))
+              (threshold (plist-get security-config :max-coverage-threshold))
+              (coverage-ratio (plist-get coverage :coverage-ratio)))
+    (when (and threshold (< coverage-ratio threshold))
+      (warn "Parse coverage %.2f below threshold %.2f - semantic validation may be incomplete"
+            coverage-ratio threshold)))
+  nil)
 #+end_src
 #+end_src
 
