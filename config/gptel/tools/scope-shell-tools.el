@@ -91,6 +91,7 @@ Returns merged plist with normalized kebab-case keys."
          (paths (plist-get normalized :paths))
          (cloud (plist-get normalized :cloud))
          (security (plist-get normalized :security))
+         (bash-tools (plist-get normalized :bash-tools))
          ;; Merge with defaults (missing sections → defaults)
          (merged-paths (if paths
                           (list :read (or (plist-get paths :read) ())
@@ -101,7 +102,8 @@ Returns merged plist with normalized kebab-case keys."
                         (plist-get defaults :paths)))
          (merged-cloud (if cloud
                           (list :auth-detection (or (plist-get cloud :auth-detection)
-                                                   (plist-get (plist-get defaults :cloud) :auth-detection)))
+                                                   (plist-get (plist-get defaults :cloud) :auth-detection))
+                                :allowed-providers (plist-get cloud :allowed-providers))
                         (plist-get defaults :cloud)))
          (merged-security (if security
                              (list :enforce-parse-complete
@@ -121,7 +123,8 @@ Returns merged plist with normalized kebab-case keys."
     ;; Return merged schema
     (list :paths merged-paths
           :cloud merged-cloud
-          :security merged-security)))
+          :security merged-security
+          :bash-tools bash-tools)))
 ;; Load Schema:1 ends here
 
 ;; Normalize Keys
