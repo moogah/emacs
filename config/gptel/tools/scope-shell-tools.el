@@ -780,6 +780,63 @@ Returns nil if all operations allowed, error plist for first violation."
         (cl-return error-result)))))
 ;; Validate All File Operations:1 ends here
 
+;; Implementation
+
+
+;; [[file:scope-shell-tools.org::*Implementation][Implementation:1]]
+(defun jf/gptel-scope--validate-cloud-auth (cloud-auth-ops cloud-config)
+  "Stage 5: Detect and enforce cloud authentication policy.
+
+CLOUD-AUTH-OPS is the :cloud-auth domain from bash-parser semantics.
+CLOUD-CONFIG is the :cloud section from scope configuration.
+
+Returns nil if validation passes, error plist if denied."
+  (when cloud-auth-ops
+    (let* ((mode (or (plist-get cloud-config :auth-detection) "warn"))
+           (allowed-providers (plist-get cloud-config :allowed-providers))
+           (provider (plist-get cloud-auth-ops :provider))
+           (command (plist-get cloud-auth-ops :command)))
+
+      ;; Check provider filtering if configured
+      (when (and allowed-providers
+                 (not (member provider allowed-providers)))
+        (cl-return-from jf/gptel-scope--validate-cloud-auth
+          (list :error "cloud_provider_denied"
+                :provider provider
+                :command command
+                :allowed-providers allowed-providers
+                :message (format "Cloud provider '%s' not in allowed list: %s"
+                                 provider allowed-providers))))
+
+      ;; Enforce policy mode
+      (cond
+       ((string= mode "allow")
+        nil)  ; Allow silently
+
+       ((string= mode "warn")
+        ;; Return warning (non-blocking)
+        (list :warning "cloud_auth_detected"
+              :provider provider
+              :command command
+              :message (format "Cloud authentication detected: %s (%s provider)"
+                               command provider)))
+
+       ((string= mode "deny")
+        ;; Return error (blocking)
+        (list :error "cloud_auth_denied"
+              :provider provider
+              :command command
+              :message (format "Cloud authentication denied: %s (%s provider)"
+                               command provider)))
+
+       (t
+        ;; Invalid mode - fail closed
+        (list :error "invalid_cloud_auth_mode"
+              :mode mode
+              :message (format "Invalid cloud.auth_detection mode: %s (must be allow/warn/deny)"
+                               mode)))))))
+;; Implementation:1 ends here
+
 ;; Provide Feature
 
 
