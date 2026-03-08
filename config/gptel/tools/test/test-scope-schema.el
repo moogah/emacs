@@ -622,5 +622,234 @@ YAML false is parsed as :false keyword, which validation rejects."
     (should (numberp threshold))
     (should (equal 0.85 threshold))))
 
+;;; Default Merging Tests
+;;
+;; Comprehensive tests for scope schema default value merging behavior.
+;; These tests verify that jf/gptel-scope--load-schema correctly:
+;; 1. Applies defaults when sections are missing
+;; 2. Preserves user values when present
+;; 3. Merges nested structures correctly
+;; 4. Handles partial section definitions
+
+(ert-deftest test-scope-schema-defaults-empty-schema ()
+  "Test that completely empty schema gets all defaults.
+Verifies that a minimal schema with no sections receives all default
+values for paths, cloud, and security sections."
+  (let* ((yml "paths:
+  read: []")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (cloud (plist-get config :cloud))
+         (security (plist-get config :security)))
+    ;; Paths section should exist but be empty
+    (should paths)
+    (should (equal nil (plist-get paths :read)))
+    (should (equal nil (plist-get paths :write)))
+    (should (equal nil (plist-get paths :execute)))
+    (should (equal nil (plist-get paths :modify)))
+    (should (equal nil (plist-get paths :deny)))
+    ;; Cloud section should get defaults
+    (should cloud)
+    (should (equal "warn" (plist-get cloud :auth-detection)))
+    ;; Security section should get defaults
+    (should security)
+    (should (eq t (plist-get security :enforce-parse-complete)))
+    (should (equal 0.8 (plist-get security :max-coverage-threshold)))))
+
+(ert-deftest test-scope-schema-defaults-partial-paths ()
+  "Test that partial paths section merges with defaults.
+When only some path types are specified, missing types should be empty lists,
+not nil. This tests the paths subsection default behavior."
+  (let* ((yml "paths:
+  read: [\"/workspace/**\"]
+  write: [\"/output/**\"]")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths)))
+    ;; Specified paths should be present
+    (should (equal '("/workspace/**") (plist-get paths :read)))
+    (should (equal '("/output/**") (plist-get paths :write)))
+    ;; Unspecified paths should be empty lists
+    (should (equal nil (plist-get paths :execute)))
+    (should (equal nil (plist-get paths :modify)))
+    (should (equal nil (plist-get paths :deny)))))
+
+(ert-deftest test-scope-schema-defaults-partial-cloud ()
+  "Test that partial cloud section merges with defaults.
+When cloud section specifies allowed_providers but not auth_detection,
+auth_detection should get default value."
+  (let* ((yml "cloud:
+  allowed_providers: [\"aws\", \"gcp\"]")
+         (config (test-scope-schema--parse-yml yml))
+         (cloud (plist-get config :cloud)))
+    ;; User-specified value should be present
+    (should (equal '("aws" "gcp") (plist-get cloud :allowed-providers)))
+    ;; Missing field should get default
+    (should (equal "warn" (plist-get cloud :auth-detection)))))
+
+(ert-deftest test-scope-schema-defaults-partial-security ()
+  "Test that partial security section merges with defaults.
+When security section specifies only one field, the other should get default."
+  (let* ((yml "security:
+  max_coverage_threshold: 0.9")
+         (config (test-scope-schema--parse-yml yml))
+         (security (plist-get config :security)))
+    ;; User-specified value should be present
+    (should (equal 0.9 (plist-get security :max-coverage-threshold)))
+    ;; Missing field should get default
+    (should (eq t (plist-get security :enforce-parse-complete)))))
+
+(ert-deftest test-scope-schema-defaults-override-cloud-auth ()
+  "Test that user-specified cloud.auth-detection overrides default.
+User value 'deny' should override default 'warn'."
+  (let* ((yml "cloud:
+  auth_detection: \"deny\"")
+         (config (test-scope-schema--parse-yml yml))
+         (cloud (plist-get config :cloud)))
+    ;; User value should override default
+    (should (equal "deny" (plist-get cloud :auth-detection)))))
+
+(ert-deftest test-scope-schema-defaults-override-security-enforce ()
+  "Test that user can set enforce_parse_complete to true explicitly.
+Explicit true should be preserved (matches default but tests override path)."
+  (let* ((yml "security:
+  enforce_parse_complete: true")
+         (config (test-scope-schema--parse-yml yml))
+         (security (plist-get config :security)))
+    ;; User value should be present
+    (should (eq t (plist-get security :enforce-parse-complete)))
+    ;; Other field should get default
+    (should (equal 0.8 (plist-get security :max-coverage-threshold)))))
+
+(ert-deftest test-scope-schema-defaults-override-security-threshold ()
+  "Test that user-specified coverage threshold overrides default.
+User value 0.5 should override default 0.8."
+  (let* ((yml "security:
+  max_coverage_threshold: 0.5")
+         (config (test-scope-schema--parse-yml yml))
+         (security (plist-get config :security)))
+    ;; User value should override default
+    (should (equal 0.5 (plist-get security :max-coverage-threshold)))
+    ;; Other field should get default
+    (should (eq t (plist-get security :enforce-parse-complete)))))
+
+(ert-deftest test-scope-schema-defaults-mixed-present-absent ()
+  "Test schema with mix of present and absent sections.
+Paths present, cloud absent, security partial - verify correct merging."
+  (let* ((yml "paths:
+  read: [\"/workspace/**\"]
+  write: [\"/output/**\"]
+
+security:
+  enforce_parse_complete: true")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (cloud (plist-get config :cloud))
+         (security (plist-get config :security)))
+    ;; Paths should be as specified
+    (should (equal '("/workspace/**") (plist-get paths :read)))
+    (should (equal '("/output/**") (plist-get paths :write)))
+    (should (equal nil (plist-get paths :execute)))
+    ;; Cloud should get all defaults
+    (should (equal "warn" (plist-get cloud :auth-detection)))
+    ;; Security should merge
+    (should (eq t (plist-get security :enforce-parse-complete)))
+    (should (equal 0.8 (plist-get security :max-coverage-threshold)))))
+
+(ert-deftest test-scope-schema-defaults-all-sections-override ()
+  "Test that user can override all default values.
+Verifies complete user control over all default fields."
+  (let* ((yml "paths:
+  read: [\"/custom/**\"]
+  write: [\"/custom/**\"]
+  execute: [\"/scripts/**\"]
+  modify: [\"/config/**\"]
+  deny: [\"**/.git/**\"]
+
+cloud:
+  auth_detection: \"allow\"
+  allowed_providers: [\"azure\"]
+
+security:
+  enforce_parse_complete: true
+  max_coverage_threshold: 0.95")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (cloud (plist-get config :cloud))
+         (security (plist-get config :security)))
+    ;; All user values should be present
+    (should (equal '("/custom/**") (plist-get paths :read)))
+    (should (equal '("/custom/**") (plist-get paths :write)))
+    (should (equal '("/scripts/**") (plist-get paths :execute)))
+    (should (equal '("/config/**") (plist-get paths :modify)))
+    (should (equal '("**/.git/**") (plist-get paths :deny)))
+    (should (equal "allow" (plist-get cloud :auth-detection)))
+    (should (equal '("azure") (plist-get cloud :allowed-providers)))
+    (should (eq t (plist-get security :enforce-parse-complete)))
+    (should (equal 0.95 (plist-get security :max-coverage-threshold)))))
+
+(ert-deftest test-scope-schema-defaults-empty-bash-tools ()
+  "Test that bash_tools section is not modified by default merging.
+bash_tools has no defaults and should pass through unchanged."
+  (let* ((yml "bash_tools:
+  categories:
+    read_only:
+      commands: [\"ls\"]
+    safe_write:
+      commands: []
+    dangerous:
+      commands: []
+  deny: [\"rm\"]")
+         (config (test-scope-schema--parse-yml yml))
+         (bash-tools (plist-get config :bash-tools)))
+    ;; bash_tools should be present and unmodified
+    (should bash-tools)
+    (should (plist-get bash-tools :categories))
+    (should (equal '("rm") (plist-get bash-tools :deny)))))
+
+(ert-deftest test-scope-schema-defaults-minimal-plus-bash-tools ()
+  "Test minimal schema with only bash_tools gets other defaults.
+Verifies that bash_tools presence doesn't prevent default merging."
+  (let* ((yml "bash_tools:
+  categories:
+    read_only:
+      commands: [\"ls\"]
+    safe_write:
+      commands: []
+    dangerous:
+      commands: []
+  deny: []")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (cloud (plist-get config :cloud))
+         (security (plist-get config :security)))
+    ;; Default sections should still be added
+    (should paths)
+    (should cloud)
+    (should security)
+    (should (equal "warn" (plist-get cloud :auth-detection)))
+    (should (eq t (plist-get security :enforce-parse-complete)))))
+
+(ert-deftest test-scope-schema-defaults-zero-threshold ()
+  "Test that zero coverage threshold is allowed and preserved.
+Zero is a valid value (0.0-1.0 range) and should not be replaced with default."
+  (let* ((yml "security:
+  max_coverage_threshold: 0.0")
+         (config (test-scope-schema--parse-yml yml))
+         (security (plist-get config :security)))
+    ;; Zero should be preserved, not replaced with 0.8 default
+    (should (equal 0.0 (plist-get security :max-coverage-threshold)))
+    (should (eq t (plist-get security :enforce-parse-complete)))))
+
+(ert-deftest test-scope-schema-defaults-one-threshold ()
+  "Test that 1.0 coverage threshold is allowed and preserved.
+1.0 is a valid edge case (0.0-1.0 range) and should not be replaced."
+  (let* ((yml "security:
+  max_coverage_threshold: 1.0")
+         (config (test-scope-schema--parse-yml yml))
+         (security (plist-get config :security)))
+    ;; 1.0 should be preserved
+    (should (equal 1.0 (plist-get security :max-coverage-threshold)))
+    (should (eq t (plist-get security :enforce-parse-complete)))))
+
 (provide 'test-scope-schema)
 ;;; test-scope-schema.el ends here
