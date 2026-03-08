@@ -30,8 +30,8 @@
                           (file-name-directory load-file-name))))))
   "Repository root directory.")
 
-(add-to-list 'load-path (expand-file-name "config/experiments/bash-parser" jf/emacs-dir))
-(add-to-list 'load-path (expand-file-name "config/experiments/bash-parser/research" jf/emacs-dir))
+(add-to-list 'load-path (expand-file-name "config/bash-parser" jf/emacs-dir))
+(add-to-list 'load-path (expand-file-name "config/bash-parser/research" jf/emacs-dir))
 
 (require 'bash-parser)
 (require 'compute-parse-coverage)

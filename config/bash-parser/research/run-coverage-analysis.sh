@@ -17,10 +17,10 @@ EMACS_USER_DIRECTORY="$REPO_ROOT/runtime" \
   --load "$REPO_ROOT/early-init.el" \
   --load "$REPO_ROOT/init.el" \
   -batch \
-  --eval "(add-to-list 'load-path \"$REPO_ROOT/config/experiments/bash-parser/research\")" \
+  --eval "(add-to-list 'load-path \"$REPO_ROOT/config/bash-parser/research\")" \
   --eval "(require 'analyze-with-coverage)" \
   --eval "(jf/bash-coverage-research-analyze)"
 
 echo ""
 echo "Analysis complete! Results written to:"
-echo "  config/experiments/bash-parser/research/coverage-analysis.tsv"
+echo "  config/bash-parser/research/coverage-analysis.tsv"
