@@ -84,11 +84,24 @@ mkdir -p .beads/orchestrator
 cp test-results.txt .beads/orchestrator/baseline-${TIMESTAMP}.txt
 ```
 
+**Parse baseline test status**:
+```bash
+# Extract summary line
+SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
+
+# Extract counts
+TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+" || echo "0")
+UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+" || echo "0")
+ABORTED=$(grep -c "^  ABORTED " test-results.txt || echo "0")
+UNKNOWN=$(grep -c "^  UNKNOWN " test-results.txt || echo "0")
+```
+
 **Validation**:
-- If tests fail: Report failures, use **AskUserQuestion** to ask if user wants to proceed anyway
-  - Options: "Proceed despite failures" or "Cancel orchestration"
-  - Note: Regression detection will still work, but baseline has existing failures
-- Store baseline path in state file
+- If tests fail or have ABORTED/UNKNOWN: Report status, use **AskUserQuestion** to ask if user wants to proceed anyway
+  - Options: "Proceed despite issues (regression detection will still work)" or "Cancel orchestration"
+  - Note: Regression detection compares differences, so works even with existing failures/issues
+  - However, if baseline has ABORTED or UNKNOWN tests, this indicates existing problems that should ideally be fixed first
+- Store baseline path and counts in state file
 
 **Display baseline capture**:
 ```
@@ -98,9 +111,12 @@ Running test suite...
 ✓ Test baseline captured: .beads/orchestrator/baseline-1234567890.txt
 
 Test Summary:
-- Total tests: 127
-- Expected: 127 passed
-- Unexpected: 0 failed
+- Total tests: 904
+- Unexpected failures: 19
+- Aborted tests: 2
+- Unknown tests: 257
+
+Note: Baseline has issues. Regression detection will track changes from this baseline.
 
 Ready to start parallel implementation.
 ```
@@ -148,6 +164,8 @@ done
   "baseline_snapshot": ".beads/orchestrator/baseline-1234567890.txt",
   "baseline_test_count": 588,
   "baseline_unexpected_count": 0,
+  "baseline_aborted_count": 0,
+  "baseline_unknown_count": 0,
   "current_branch": "gptel-scoped-bash-tools",
   "max_parallel": 5,
   "beads": [
@@ -161,6 +179,8 @@ done
       "tests_before_merge": null,
       "tests_after_merge": null,
       "unexpected_failures": null,
+      "aborted_tests": null,
+      "unknown_tests": null,
       "test_snapshot_path": null
     }
   ]
@@ -507,28 +527,72 @@ cd /Users/jefffarr/emacs
 ./bin/run-tests.sh --snapshot
 
 # Extract test results programmatically (never rely on tail output alone)
-UNEXPECTED=$(grep "Ran.*tests" test-results.txt | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+")
+SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
 
-# CRITICAL: Check for regressions
-if [ -z "$UNEXPECTED" ]; then
-  echo "⚠️ Could not parse test results - check test-results.txt"
+# CRITICAL: Verify summary line exists
+if [ -z "$SUMMARY_LINE" ]; then
+  echo "⚠️ Could not find test summary line - check test-results.txt"
   exit 1
 fi
 
+# CRITICAL: Check if test run was aborted
+if echo "$SUMMARY_LINE" | grep -q "^Aborted:"; then
+  echo "⚠️ TEST RUN ABORTED after merge $BEAD_ID"
+  echo "Summary: $SUMMARY_LINE"
+
+  # STOP orchestration - aborted means tests didn't complete
+  REGRESSION_DETECTED=true
+  exit 1
+fi
+
+# Extract unexpected count
+UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+")
+
+# CRITICAL: Verify we could parse unexpected count
+if [ -z "$UNEXPECTED" ]; then
+  echo "⚠️ Could not parse unexpected count from: $SUMMARY_LINE"
+  exit 1
+fi
+
+# CRITICAL: Check for unexpected failures
 if [ "$UNEXPECTED" -gt 0 ]; then
   echo "⚠️ REGRESSION DETECTED after merge $BEAD_ID"
   echo "Unexpected failures: $UNEXPECTED"
 
   # STOP orchestration - do not continue to next merge
   REGRESSION_DETECTED=true
-
-  # Update state file
-  # Keep all worktrees
-  # Report to user (see Regression Handling section)
   exit 1
 fi
 
-echo "✓ Tests pass after $BEAD_ID merge: $UNEXPECTED unexpected"
+# CRITICAL: Check for ABORTED tests (serious runtime errors)
+ABORTED_COUNT=$(grep -c "^  ABORTED " test-results.txt || true)
+if [ "$ABORTED_COUNT" -gt 0 ]; then
+  echo "⚠️ ABORTED TESTS DETECTED after merge $BEAD_ID"
+  echo "Aborted tests: $ABORTED_COUNT"
+
+  # Show which tests aborted
+  grep "^  ABORTED " test-results.txt
+
+  # STOP orchestration - ABORTED means serious errors
+  REGRESSION_DETECTED=true
+  exit 1
+fi
+
+# CRITICAL: Check for UNKNOWN tests (test framework couldn't determine status)
+UNKNOWN_COUNT=$(grep -c "^  UNKNOWN " test-results.txt || true)
+if [ "$UNKNOWN_COUNT" -gt 0 ]; then
+  echo "⚠️ UNKNOWN TESTS DETECTED after merge $BEAD_ID"
+  echo "Unknown tests: $UNKNOWN_COUNT"
+
+  # Show first 10 unknown tests for context
+  grep "^  UNKNOWN " test-results.txt | head -10
+
+  # STOP orchestration - UNKNOWN means test system problems
+  REGRESSION_DETECTED=true
+  exit 1
+fi
+
+echo "✓ Tests pass after $BEAD_ID merge: $UNEXPECTED unexpected, $ABORTED_COUNT aborted, $UNKNOWN_COUNT unknown"
 
 # Save snapshot for next comparison
 CURRENT_TIMESTAMP=$(date +%s)
@@ -536,17 +600,21 @@ cp test-results.txt .beads/orchestrator/after-${BEAD_ID}-${CURRENT_TIMESTAMP}.tx
 
 # Update state file with test results
 # Extract total test count from test-results.txt
-TOTAL_TESTS=$(grep "Ran.*tests" test-results.txt | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
+TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
 
 # Update bead state with test tracking
 jq --arg bead "$BEAD_ID" \
    --argjson tests "$TOTAL_TESTS" \
    --argjson unexpected "$UNEXPECTED" \
+   --argjson aborted "$ABORTED_COUNT" \
+   --argjson unknown "$UNKNOWN_COUNT" \
    --arg snapshot ".beads/orchestrator/after-${BEAD_ID}-${CURRENT_TIMESTAMP}.txt" \
    '.beads[] |= if .bead_id == $bead then
      . + {
        tests_after_merge: $tests,
        unexpected_failures: $unexpected,
+       aborted_tests: $aborted,
+       unknown_tests: $unknown,
        test_snapshot_path: $snapshot
      }
    else . end' \
@@ -557,9 +625,12 @@ mv .beads/orchestrator-state.json.tmp .beads/orchestrator-state.json
 **Critical rules:**
 - **Never skip this gate**, even for "simple" merges
 - **Never batch merges** without testing between them
-- **Never trust tail output** - always grep for "Ran X tests, Y unexpected"
+- **Always check summary line status** - verify it starts with "Passed:", not "Aborted:" or "Failed:"
+- **Always check ABORTED tests** - these indicate serious runtime errors that must be investigated
+- **Always check UNKNOWN tests** - these indicate test framework problems that must be investigated
+- **Never trust tail output** - always grep for summary line and test status lines
 - **Never continue after regression** - stop and report immediately
-- **Always verify programmatically** - parse test counts, don't assume
+- **Always verify programmatically** - parse test counts and statuses, don't assume
 
 **Test execution (legacy approach - DO NOT USE)**:
 
@@ -697,9 +768,11 @@ Update state file with cleanup status:
       "bead_id": "emacs-abc1",
       "status": "merged",
       "regression_detected": false,
-      "tests_before_merge": 588,
-      "tests_after_merge": 588,
+      "tests_before_merge": 904,
+      "tests_after_merge": 904,
       "unexpected_failures": 0,
+      "aborted_tests": 0,
+      "unknown_tests": 0,
       "test_snapshot_path": ".beads/orchestrator/after-emacs-abc1-1234567890.txt",
       "bead_closed": true,
       "worktree_removed": true
@@ -711,6 +784,8 @@ Update state file with cleanup status:
       "tests_before_merge": null,
       "tests_after_merge": null,
       "unexpected_failures": null,
+      "aborted_tests": null,
+      "unknown_tests": null,
       "test_snapshot_path": null,
       "bead_closed": false,
       "worktree_removed": false,
@@ -853,11 +928,14 @@ Action: Allow user to proceed, mark regression as "acknowledged"
 **Important guardrails**:
 - **Always validate prerequisites**: Check bd list succeeds, git worktree available
 - **Never skip testing after conflicts**: If conflicts are resolved, re-test before continuing
-- **Never trust tail output alone**: Always verify test counts programmatically with grep
+- **Always verify test run completed**: Check summary line starts with "Passed:", not "Aborted:" or "Failed:"
+- **Always check for ABORTED tests**: Stop if any tests have ABORTED status (serious runtime errors)
+- **Always check for UNKNOWN tests**: Stop if any tests have UNKNOWN status (test framework problems)
+- **Never trust tail output alone**: Always verify test counts and statuses programmatically with grep
 - **Never continue after regression**: Stop merging, preserve state, report to user
-- **Always verify test counts programmatically**: Parse "Ran X tests, Y unexpected" from test-results.txt
+- **Always verify test counts programmatically**: Parse summary line and count ABORTED/UNKNOWN statuses
 - **Never auto-cleanup failed work**: Keep worktrees for debugging
-- **Always report clearly**: Show progress, errors, kept worktrees with reasons
+- **Always report clearly**: Show progress, errors, kept worktrees with reasons, test status details
 - **Always save state**: Update state file after each phase
 - **Never guess on conflicts**: Keep worktree, let user resolve manually
 - **Never merge in parallel**: Sequential merging only (avoid conflicts)
