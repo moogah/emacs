@@ -198,17 +198,62 @@ For each bead, spawn agent using Task tool.
 - Without file write permissions, agents cannot implement beads
 - This is a hard requirement - there are no exceptions
 
-**Correct TaskCreate syntax**:
+**Correct Task tool syntax for spawning agents**:
 ```
-TaskCreate(
-  subject: "Implement bead $BEAD_ID",
-  activeForm: "Implementing bead $BEAD_ID",
-  description: <agent prompt - see section 3.2>
-  # NOTE: run_in_background is NOT included - defaults to false (foreground)
+Task(
+  subagent_type: "general-purpose",
+  description: "Implement bead $BEAD_ID",
+  prompt: <agent prompt - see section 3.2>,
+  run_in_background: false  # CRITICAL: Must be false (or omitted) for file write access
 )
 ```
 
-Store returned task_id in state file.
+**Important notes**:
+- Use the **Task tool** to spawn agents, NOT TaskCreate
+- TaskCreate is for tracking TODO items only
+- The Task tool returns immediately after spawning the agent
+- Monitor agent progress with TaskList and TaskGet
+- Agent completes when its task status becomes "completed" or "failed"
+
+**Complete example workflow**:
+```
+# 1. Setup worktree
+BEAD_ID="emacs-abc1"
+TIMESTAMP=$(date +%s)
+WORKTREE_PATH=".worktrees/bead-${BEAD_ID}-${TIMESTAMP}"
+BRANCH_NAME="bead-${BEAD_ID}-${TIMESTAMP}"
+
+git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME"
+./bin/init-worktree-runtime.sh "$WORKTREE_PATH"
+git -C "$WORKTREE_PATH" submodule update --init
+
+# 2. Fetch bead details
+BEAD_JSON=$(bd show "$BEAD_ID" --json)
+BEAD_DESCRIPTION=$(echo "$BEAD_JSON" | jq -r '.[0].description')
+
+# 3. Build agent prompt (see section 3.2 for full template)
+AGENT_PROMPT="Implement bead ${BEAD_ID} in isolated worktree.
+
+## Worktree Details
+Location: ${WORKTREE_PATH}
+Branch: ${BRANCH_NAME}
+
+## Bead Task
+${BEAD_DESCRIPTION}
+
+[... rest of prompt from section 3.2 ...]"
+
+# 4. Spawn agent using Task tool (NOT TaskCreate!)
+Task(
+  subagent_type: "general-purpose",
+  description: "Implement bead ${BEAD_ID}",
+  prompt: "${AGENT_PROMPT}",
+  run_in_background: false
+)
+
+# 5. Monitor with TaskList until completion
+# (See section 4 for monitoring details)
+```
 
 ### 3.1 Worktree Location
 
