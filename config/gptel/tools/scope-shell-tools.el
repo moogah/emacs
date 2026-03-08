@@ -20,6 +20,8 @@
 (require 'cl-lib)
 (require 'jf-gptel-scope-core)
 (require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope-prompt-expansion
+(require 'bash-parser-core)  ; For jf/bash-parse
+(require 'bash-parser-plugins)  ; For jf/bash-extract-semantics
 ;; Dependencies:1 ends here
 
 ;; Constants
@@ -274,52 +276,29 @@ Signals error if invalid."
   t)
 ;; Validate Security Config:1 ends here
 
-;; Implementation
-
-
-;; [[file:scope-shell-tools.org::*Implementation][Implementation:1]]
-(defun jf/gptel-bash--parse-command (cmd-string)
-  "Extract base command from CMD-STRING.
-Handles pipes, redirects, command substitution.
-Examples:
-  'grep foo | head' → 'grep'
-  'ls -la > output.txt' → 'ls'
-  'echo $(date)' → 'echo'"
-  (let* ((trimmed (string-trim cmd-string))
-         ;; Split on shell metacharacters
-         (parts (split-string trimmed "[ |><;&]+" t))
-         (base (car parts)))
-    base))
-;; Implementation:1 ends here
-
 ;; Stage 2: Extract All Commands
 
-;; Extract ALL commands from a pipeline or chain, not just the base command.
+;; Extract ALL commands from a pipeline or chain using bash-parser results.
 
 
 ;; [[file:scope-shell-tools.org::*Stage 2: Extract All Commands][Stage 2: Extract All Commands:1]]
-(defun jf/gptel-scope--extract-pipeline-commands (cmd-string)
-  "Stage 2: Extract all commands from CMD-STRING pipeline/chain.
+(defun jf/gptel-scope--extract-pipeline-commands (parsed-command)
+  "Stage 2: Extract all commands from PARSED-COMMAND pipeline/chain.
+PARSED-COMMAND is the plist returned by jf/bash-parse.
 Returns list of command names in execution order.
 
-Examples:
+Examples (from parsed results):
   'ls | xargs rm' → (\"ls\" \"xargs\" \"rm\")
   'cd /tmp; ls' → (\"cd\" \"ls\")
   'mkdir foo && cd foo' → (\"mkdir\" \"cd\")
   'grep pattern . | head -20 | tail -5' → (\"grep\" \"head\" \"tail\")"
-  (let* ((trimmed (string-trim cmd-string))
-         ;; Split on pipe, semicolon, AND, OR operators
-         (segments (split-string trimmed "[|;&]+" t))
-         (commands nil))
-    ;; Extract first command from each segment
-    (dolist (segment segments)
-      (let* ((trimmed-segment (string-trim segment))
-             ;; Split on whitespace and redirects to get base command
-             (parts (split-string trimmed-segment "[ ><]+" t))
-             (base (car parts)))
-        (when base
-          (push base commands))))
-    (nreverse commands)))
+  (let ((all-commands (plist-get parsed-command :all-commands))
+        (command-names nil))
+    ;; Extract command-name from each parsed command
+    (dolist (cmd all-commands)
+      (when-let ((name (plist-get cmd :command-name)))
+        (push name command-names)))
+    (nreverse command-names)))
 ;; Stage 2: Extract All Commands:1 ends here
 
 ;; Stage 3: Validate Pipeline Commands
@@ -333,18 +312,19 @@ Examples:
 COMMANDS is a list of command strings.
 CATEGORIES is the bash_tools categories plist from scope.yml.
 
-Returns (SUCCESS . nil) if all commands allowed.
-Returns (nil . ERROR-PLIST) if validation fails, where ERROR-PLIST contains:
+Returns nil if all commands allowed.
+Returns error plist if validation fails with:
+  :error - Error type
   :position - Index of first failing command (0-based)
   :command - The failing command name
   :message - Human-readable error message
 
 Examples:
   (validate-pipeline-commands '(\"ls\" \"head\") categories)
-    → (t . nil)  ; both allowed
+    → nil  ; both allowed
 
   (validate-pipeline-commands '(\"ls\" \"xargs\" \"rm\") categories)
-    → (nil . (:position 2 :command \"rm\" :message \"Command 'rm' is in deny list\"))"
+    → (:error \"command_denied\" :position 2 :command \"rm\" :message \"...\")"
   (let ((deny-list (plist-get categories :deny))
         (read-only (plist-get (plist-get categories :read_only) :commands))
         (safe-write (plist-get (plist-get categories :safe_write) :commands))
@@ -355,20 +335,22 @@ Examples:
         ;; Check deny list first
         (when (member cmd deny-list)
           (throw 'validation-failed
-                 (cons nil (list :position pos
-                                 :command cmd
-                                 :message (format "Command '%s' at position %d is in deny list" cmd pos)))))
+                 (list :error "command_denied"
+                       :position pos
+                       :command cmd
+                       :message (format "Command '%s' at position %d is in deny list" cmd pos))))
         ;; Check if command is in any allowed category
         (unless (or (member cmd read-only)
                     (member cmd safe-write)
                     (member cmd dangerous))
           (throw 'validation-failed
-                 (cons nil (list :position pos
-                                 :command cmd
-                                 :message (format "Command '%s' at position %d is not in allowed categories" cmd pos)))))
+                 (list :error "command_not_allowed"
+                       :position pos
+                       :command cmd
+                       :message (format "Command '%s' at position %d is not in allowed categories" cmd pos))))
         (setq pos (1+ pos)))
       ;; All commands validated successfully
-      (cons t nil))))
+      nil)))
 ;; Stage 3: Validate Pipeline Commands:1 ends here
 
 ;; Check Absolute Paths
@@ -445,6 +427,63 @@ Error types: timeout, execution-failed."
           :warnings warnings
           :error error-type)))
 ;; Execute Command:1 ends here
+
+;; Main Pipeline Function
+
+;; Seven-stage validation pipeline with early exit on failure.
+
+
+;; [[file:scope-shell-tools.org::*Main Pipeline Function][Main Pipeline Function:1]]
+(defun jf/gptel-scope--validate-command-semantics (command directory scope-config)
+  "Seven-stage validation pipeline with early exit on failure.
+COMMAND is the bash command string to validate.
+DIRECTORY is the working directory for path resolution.
+SCOPE-CONFIG is the scope configuration plist.
+
+Returns nil if all validations pass, error plist on first failure.
+
+Stages:
+  1. Parse command with bash-parser
+  2. Extract pipeline commands
+  3. Validate pipeline commands against categories
+  4. Extract and validate file operations
+  5. Detect and enforce cloud auth policy
+  6. Check coverage threshold (warning only)
+  7. Return nil (success)"
+  (let* ((parsed (jf/bash-parse command))
+         (semantics (jf/bash-extract-semantics parsed))
+         (security-config (plist-get scope-config :security)))
+
+    ;; Stage 1: Parse completeness
+    (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
+      (cl-return-from jf/gptel-scope--validate-command-semantics error))
+
+    ;; Stage 2: Extract pipeline commands
+    (let ((commands (jf/gptel-scope--extract-pipeline-commands parsed)))
+
+      ;; Stage 3: Validate pipeline commands
+      (when-let ((error (jf/gptel-scope--validate-pipeline-commands
+                         commands (plist-get scope-config :bash-tools))))
+        (cl-return-from jf/gptel-scope--validate-command-semantics error))
+
+      ;; Stage 4: File operations validation
+      (when-let ((file-ops (plist-get (plist-get semantics :domains) :filesystem)))
+        (when-let ((error (jf/gptel-scope--validate-file-operations
+                           file-ops directory scope-config)))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+
+      ;; Stage 5: Cloud auth detection and policy enforcement
+      (when-let ((cloud-auth (plist-get (plist-get semantics :domains) :cloud-auth)))
+        (when-let ((error (jf/gptel-scope--validate-cloud-auth
+                           cloud-auth (plist-get scope-config :cloud))))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+
+      ;; Stage 6: Coverage check (warning only, doesn't block)
+      (jf/gptel-scope--check-coverage-threshold semantics security-config)
+
+      ;; Stage 7: All validations passed
+      nil)))
+;; Main Pipeline Function:1 ends here
 
 ;; Stage 1: Parse Completeness Checking
 
@@ -836,6 +875,27 @@ Returns nil if validation passes, error plist if denied."
               :message (format "Invalid cloud.auth_detection mode: %s (must be allow/warn/deny)"
                                mode)))))))
 ;; Implementation:1 ends here
+
+;; Stage 6: Coverage Threshold Checking
+
+;; Check parse coverage and warn if below threshold. Non-blocking stage that only warns.
+
+
+;; [[file:scope-shell-tools.org::*Stage 6: Coverage Threshold Checking][Stage 6: Coverage Threshold Checking:1]]
+(defun jf/gptel-scope--check-coverage-threshold (semantics security-config)
+  "Stage 6: Check coverage threshold (warning only, non-blocking).
+SEMANTICS is the plist returned by jf/bash-extract-semantics.
+SECURITY-CONFIG is the security configuration plist.
+
+Returns nil always (warnings don't block execution)."
+  (when-let* ((coverage (plist-get semantics :coverage))
+              (threshold (plist-get security-config :max-coverage-threshold))
+              (coverage-ratio (plist-get coverage :coverage-ratio)))
+    (when (and threshold (< coverage-ratio threshold))
+      (warn "Parse coverage %.2f below threshold %.2f - semantic validation may be incomplete"
+            coverage-ratio threshold)))
+  nil)
+;; Stage 6: Coverage Threshold Checking:1 ends here
 
 ;; Provide Feature
 
