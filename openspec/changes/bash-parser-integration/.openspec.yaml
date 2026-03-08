@@ -1,2 +1,19 @@
 schema: spec-driven-beads
 created: 2026-03-08
+beads:
+  - emacs-1nem  # Create characterization tests for current validation behavior
+  - emacs-x97g  # Graduate bash-parser to production location
+  - emacs-679c  # Implement scope.yml v4 schema structure and validation
+  - emacs-q0ql  # Update example presets to v4 schema
+  - emacs-e4dd  # Implement seven-stage validation pipeline architecture
+  - emacs-pdvf  # Implement parse completeness checking (Stage 1)
+  - emacs-ta2s  # Implement pipeline command extraction and validation (Stages 2-3)
+  - emacs-igas  # Implement file operations extraction and path validation (Stage 4)
+  - emacs-k7vi  # Implement cloud authentication detection and enforcement (Stage 5)
+  - emacs-ufxi  # Create file path validation integration tests (45+ scenarios)
+  - emacs-d4pt  # Create pipeline validation integration tests (25+ scenarios)
+  - emacs-jfye  # Create cloud auth validation integration tests (30+ scenarios)
+  - emacs-o33s  # Create schema v4 integration tests (35+ scenarios)
+  - emacs-ps9b  # Verify bash-parser test migration to production
+  - emacs-kx7a  # Update documentation and create migration guide
+  - emacs-vxtb  # End-to-end validation and integration testing
