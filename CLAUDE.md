@@ -185,9 +185,9 @@ C-c t    # Open test menu
 - `test-scope-validation-file-paths.el` - Operation-specific path validation (45+ scenarios)
 - `test-scope-validation-pipelines.el` - Pipeline command extraction and validation (25+ scenarios)
 - `test-scope-validation-cloud-auth.el` - Cloud authentication policy enforcement (30+ scenarios)
-- `test-scope-schema-v4.el` - Schema v4 loading and validation (35+ scenarios)
+- `test-scope-schema.el` - Schema loading and validation (35+ scenarios)
 - `test-scope-shell-tools-integration.el` - Integration tests with bash-parser
-- `test-scope-shell-tools-legacy.el` - Characterization tests for v3 behavior
+- `test-scope-shell-tools-legacy.el` - Characterization tests for legacy behavior
 
 **Running scope validation tests:**
 ```bash
@@ -229,13 +229,13 @@ gptel/
 
 **Purpose**: Controlled bash command execution with semantic validation using bash-parser integration.
 
-#### Schema v4 Structure
+#### Schema Structure
 
-Scope validation uses a **v4 schema** with operation-specific path scoping, cloud authentication detection, and security settings. **BREAKING CHANGE**: v3 schemas are not compatible - manual migration required.
+Scope validation uses operation-specific path scoping, cloud authentication detection, and security settings. **BREAKING CHANGE**: Legacy schemas are not compatible - manual migration required.
 
 **Full schema structure:**
 ```yaml
-# scope.yml v4 schema
+# scope.yml schema
 paths:
   read:
     - "/workspace/**"
