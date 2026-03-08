@@ -1,0 +1,18 @@
+schema: spec-driven-beads
+created: 2026-03-08
+beads:
+  phase-1-core:
+    - emacs-w7et  # Update session constants to use org-mode format
+    - emacs-o5qu  # Implement dual-format file detection in auto-init hook
+    - emacs-0295  # Add format detection helper functions
+    - emacs-qigj  # Implement Emacs Local Variables writer for org-mode
+    - emacs-p8wp  # Rewrite branching Local Variables extraction and writing
+    - emacs-f6kc  # Add org-mode backward compatibility tests
+    - emacs-g8gn  # Add org-mode session creation and initialization tests
+  phase-2-simplification:
+    - emacs-byki  # Remove markdown-to-org conversion from create_roam_node
+    - emacs-rb0b  # Add org-roam integration test for org-mode sessions
+  phase-3-integrations:
+    - emacs-ve9o  # Update activities integration to use org-mode format
+    - emacs-oded  # Remove hardcoded markdown-mode from persistent agent
+    - emacs-vm2b  # Add optional mode configuration to preset registration

@@ -1,0 +1,11 @@
+schema: spec-driven-beads
+created: 2026-03-07
+beads:
+  - emacs-mq66  # Add token tracking to bash-parser
+  - emacs-ib6u  # Add parse completeness tracking
+  - emacs-kjnc  # Create plugin protocol and registry
+  - emacs-ngce  # Implement semantic extraction orchestrator
+  - emacs-uov3  # Create coverage calculation system
+  - emacs-ncju  # Refactor filesystem extraction as plugin
+  - emacs-a04v  # Create backward-compatible wrapper for old API
+  - emacs-hnuj  # Implement cloud authentication plugin

@@ -377,55 +377,56 @@ Returns warning string if found, nil otherwise."
 Returns (:output OUTPUT :exit_code CODE :truncated BOOL :warnings LIST :error ERROR-TYPE).
 Warnings are returned in a separate field to allow LLM to distinguish them from command output.
 Error types: timeout, execution-failed."
-  (let* ((default-directory (file-truename (expand-file-name directory)))
-         (output nil)
-         (exit-code nil)
-         (truncated nil)
-         (warnings nil)
-         (error-type nil)
-         (max-output-chars jf/gptel-bash--max-output-chars))
+  (cl-block jf/gptel-bash--execute-command
+    (let* ((default-directory (file-truename (expand-file-name directory)))
+           (output nil)
+           (exit-code nil)
+           (truncated nil)
+           (warnings nil)
+           (error-type nil)
+           (max-output-chars jf/gptel-bash--max-output-chars))
 
-    (condition-case err
-        (with-timeout (jf/gptel-bash--command-timeout
-                       (progn
-                         (setq error-type "timeout")
-                         (setq exit-code 124)  ; GNU timeout exit code
-                         (setq output (format "Command execution timed out after %d seconds. Output may be incomplete."
-                                              jf/gptel-bash--command-timeout))
-                         (setq warnings (list "Command timed out - use more specific filters to reduce execution time"))))
+      (condition-case err
+          (with-timeout (jf/gptel-bash--command-timeout
+                         (progn
+                           (setq error-type "timeout")
+                           (setq exit-code 124)  ; GNU timeout exit code
+                           (setq output (format "Command execution timed out after %d seconds. Output may be incomplete."
+                                                jf/gptel-bash--command-timeout))
+                           (setq warnings (list "Command timed out - use more specific filters to reduce execution time"))))
+            (setq output
+                  (with-temp-buffer
+                    (setq exit-code
+                          (call-process shell-file-name nil t nil
+                                        shell-command-switch command))
+                    (buffer-string))))
+        (error
+         (cl-return-from jf/gptel-bash--execute-command
+           (list :output (format "Command execution failed: %s" (error-message-string err))
+                 :exit_code 1
+                 :error "execution-failed"
+                 :truncated nil
+                 :warnings nil))))
+
+      ;; Truncate output if too long
+      (let ((original-length (length output)))
+        (when (> original-length max-output-chars)
+          (setq truncated t)
           (setq output
-                (with-temp-buffer
-                  (setq exit-code
-                        (call-process shell-file-name nil t nil
-                                      shell-command-switch command))
-                  (buffer-string))))
-      (error
-       (cl-return-from jf/gptel-bash--execute-command
-         (list :output (format "Command execution failed: %s" (error-message-string err))
-               :exit_code 1
-               :error "execution-failed"
-               :truncated nil
-               :warnings nil))))
+                (concat (substring output 0 max-output-chars)
+                        (format "\n\n[Output truncated at %d chars. Total: %d chars. Use filters like 'head', 'grep', or 'tail' to narrow results.]"
+                                max-output-chars original-length)))))
 
-    ;; Truncate output if too long
-    (let ((original-length (length output)))
-      (when (> original-length max-output-chars)
-        (setq truncated t)
-        (setq output
-              (concat (substring output 0 max-output-chars)
-                      (format "\n\n[Output truncated at %d chars. Total: %d chars. Use filters like 'head', 'grep', or 'tail' to narrow results.]"
-                              max-output-chars original-length)))))
+      ;; Check for warnings (collect in list, don't modify output)
+      (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
+        (when path-warning
+          (setq warnings (list path-warning))))
 
-    ;; Check for warnings (collect in list, don't modify output)
-    (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
-      (when path-warning
-        (setq warnings (list path-warning))))
-
-    (list :output output
-          :exit_code exit-code
-          :truncated truncated
-          :warnings warnings
-          :error error-type)))
+      (list :output output
+            :exit_code exit-code
+            :truncated truncated
+            :warnings warnings
+            :error error-type))))
 ;; Execute Command:1 ends here
 
 ;; Main Pipeline Function
@@ -450,39 +451,40 @@ Stages:
   5. Detect and enforce cloud auth policy
   6. Check coverage threshold (warning only)
   7. Return nil (success)"
-  (let* ((parsed (jf/bash-parse command))
-         (semantics (jf/bash-extract-semantics parsed))
-         (security-config (plist-get scope-config :security)))
+  (cl-block jf/gptel-scope--validate-command-semantics
+    (let* ((parsed (jf/bash-parse command))
+           (semantics (jf/bash-extract-semantics parsed))
+           (security-config (plist-get scope-config :security)))
 
-    ;; Stage 1: Parse completeness
-    (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
-      (cl-return-from jf/gptel-scope--validate-command-semantics error))
-
-    ;; Stage 2: Extract pipeline commands
-    (let ((commands (jf/gptel-scope--extract-pipeline-commands parsed)))
-
-      ;; Stage 3: Validate pipeline commands
-      (when-let ((error (jf/gptel-scope--validate-pipeline-commands
-                         commands (plist-get scope-config :bash-tools))))
+      ;; Stage 1: Parse completeness
+      (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
         (cl-return-from jf/gptel-scope--validate-command-semantics error))
 
-      ;; Stage 4: File operations validation
-      (when-let ((file-ops (plist-get (plist-get semantics :domains) :filesystem)))
-        (when-let ((error (jf/gptel-scope--validate-file-operations
-                           file-ops directory scope-config)))
-          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+      ;; Stage 2: Extract pipeline commands
+      (let ((commands (jf/gptel-scope--extract-pipeline-commands parsed)))
 
-      ;; Stage 5: Cloud auth detection and policy enforcement
-      (when-let ((cloud-auth (plist-get (plist-get semantics :domains) :cloud-auth)))
-        (when-let ((error (jf/gptel-scope--validate-cloud-auth
-                           cloud-auth (plist-get scope-config :cloud))))
-          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+        ;; Stage 3: Validate pipeline commands
+        (when-let ((error (jf/gptel-scope--validate-pipeline-commands
+                           commands (plist-get scope-config :bash-tools))))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error))
 
-      ;; Stage 6: Coverage check (warning only, doesn't block)
-      (jf/gptel-scope--check-coverage-threshold semantics security-config)
+        ;; Stage 4: File operations validation
+        (when-let ((file-ops (plist-get (plist-get semantics :domains) :filesystem)))
+          (when-let ((error (jf/gptel-scope--validate-file-operations
+                             file-ops directory scope-config)))
+            (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
-      ;; Stage 7: All validations passed
-      nil)))
+        ;; Stage 5: Cloud auth detection and policy enforcement
+        (when-let ((cloud-auth (plist-get (plist-get semantics :domains) :cloud-auth)))
+          (when-let ((error (jf/gptel-scope--validate-cloud-auth
+                             cloud-auth (plist-get scope-config :cloud))))
+            (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+
+        ;; Stage 6: Coverage check (warning only, doesn't block)
+        (jf/gptel-scope--check-coverage-threshold semantics security-config)
+
+        ;; Stage 7: All validations passed
+        nil))))
 ;; Main Pipeline Function:1 ends here
 
 ;; Stage 1: Parse Completeness Checking
@@ -662,55 +664,56 @@ Permission hierarchy:
 - delete: requires paths.write (deletion is write operation)
 
 Deny precedence: paths.deny overrides all allow patterns."
-  (let ((deny-patterns (plist-get paths-config :deny))
-        (read-patterns (plist-get paths-config :read))
-        (write-patterns (plist-get paths-config :write))
-        (modify-patterns (plist-get paths-config :modify))
-        (execute-patterns (plist-get paths-config :execute)))
+  (cl-block jf/gptel-scope--validate-operation
+    (let ((deny-patterns (plist-get paths-config :deny))
+          (read-patterns (plist-get paths-config :read))
+          (write-patterns (plist-get paths-config :write))
+          (modify-patterns (plist-get paths-config :modify))
+          (execute-patterns (plist-get paths-config :execute)))
 
-    ;; Deny takes precedence over all allow patterns
-    (when (jf/gptel-scope--path-matches-any-pattern-p path deny-patterns)
-      (cl-return-from jf/gptel-scope--validate-operation
-        (list :error "path_denied"
-              :path path
-              :operation operation
-              :message (format "Path denied by scope: %s" path))))
+      ;; Deny takes precedence over all allow patterns
+      (when (jf/gptel-scope--path-matches-any-pattern-p path deny-patterns)
+        (cl-return-from jf/gptel-scope--validate-operation
+          (list :error "path_denied"
+                :path path
+                :operation operation
+                :message (format "Path denied by scope: %s" path))))
 
-    ;; Operation-specific validation with hierarchy
-    (let ((allowed
-           (pcase operation
-             (:read
-              ;; Read allowed if in read OR write patterns (write includes read)
-              (or (jf/gptel-scope--path-matches-any-pattern-p path read-patterns)
-                  (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
+      ;; Operation-specific validation with hierarchy
+      (let ((allowed
+             (pcase operation
+               (:read
+                ;; Read allowed if in read OR write patterns (write includes read)
+                (or (jf/gptel-scope--path-matches-any-pattern-p path read-patterns)
+                    (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
 
-             (:write
-              ;; Write requires explicit write permission
-              (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
+               (:write
+                ;; Write requires explicit write permission
+                (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
 
-             (:modify
-              ;; Modify allowed if in modify OR write patterns (write includes modify)
-              (or (jf/gptel-scope--path-matches-any-pattern-p path modify-patterns)
-                  (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
+               (:modify
+                ;; Modify allowed if in modify OR write patterns (write includes modify)
+                (or (jf/gptel-scope--path-matches-any-pattern-p path modify-patterns)
+                    (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
 
-             (:execute
-              ;; Execute requires explicit execute permission (high risk)
-              (jf/gptel-scope--path-matches-any-pattern-p path execute-patterns))
+               (:execute
+                ;; Execute requires explicit execute permission (high risk)
+                (jf/gptel-scope--path-matches-any-pattern-p path execute-patterns))
 
-             (:delete
-              ;; Delete is a write operation
-              (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
+               (:delete
+                ;; Delete is a write operation
+                (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
 
-             (_ nil))))  ; Unknown operation - deny by default
+               (_ nil))))  ; Unknown operation - deny by default
 
-      (if allowed
-          nil  ; Success - operation allowed
-        ;; Return error with context
-        (list :error "path_out_of_scope"
-              :path path
-              :operation operation
-              :required-scope (format "paths.%s" operation)
-              :message (format "Path not in %s scope: %s" operation path))))))
+        (if allowed
+            nil  ; Success - operation allowed
+          ;; Return error with context
+          (list :error "path_out_of_scope"
+                :path path
+                :operation operation
+                :required-scope (format "paths.%s" operation)
+                :message (format "Path not in %s scope: %s" operation path)))))))
 ;; Validate Operation:1 ends here
 
 ;; Path Pattern Matching Helper
@@ -723,12 +726,11 @@ Deny precedence: paths.deny overrides all allow patterns."
   "Return t if PATH matches any pattern in PATTERNS using glob matching.
 Supports wildcards: * (single level), ** (recursive)."
   (when (and path patterns)
-    (let ((normalized-path (expand-file-name path))
-          (matched nil))
-      (dolist (pattern patterns matched)
-        (when (jf/gptel-scope--glob-match-p normalized-path pattern)
-          (setq matched t)
-          (cl-return matched))))))
+    (let ((normalized-path (expand-file-name path)))
+      (catch 'matched
+        (dolist (pattern patterns)
+          (when (jf/gptel-scope--glob-match-p normalized-path pattern)
+            (throw 'matched t)))))))
 ;; Path Pattern Matching Helper:1 ends here
 
 ;; Glob Pattern Matching
@@ -810,13 +812,12 @@ FILE-OPS is a list of operation plists from bash-parser.
 DIRECTORY is the working directory for path resolution.
 SCOPE-CONFIG contains :paths section with read/write/execute/modify/deny patterns.
 Returns nil if all operations allowed, error plist for first violation."
-  (let ((paths-config (plist-get scope-config :paths))
-        (error-result nil))
-    (dolist (file-op file-ops error-result)
-      (when-let ((error (jf/gptel-scope--validate-file-operation
-                         file-op directory paths-config)))
-        (setq error-result error)
-        (cl-return error-result)))))
+  (let ((paths-config (plist-get scope-config :paths)))
+    (catch 'error-found
+      (dolist (file-op file-ops)
+        (when-let ((error (jf/gptel-scope--validate-file-operation
+                           file-op directory paths-config)))
+          (throw 'error-found error))))))
 ;; Validate All File Operations:1 ends here
 
 ;; Implementation
@@ -830,50 +831,51 @@ CLOUD-AUTH-OPS is the :cloud-auth domain from bash-parser semantics.
 CLOUD-CONFIG is the :cloud section from scope configuration.
 
 Returns nil if validation passes, error plist if denied."
-  (when cloud-auth-ops
-    (let* ((mode (or (plist-get cloud-config :auth-detection) "warn"))
-           (allowed-providers (plist-get cloud-config :allowed-providers))
-           (provider (plist-get cloud-auth-ops :provider))
-           (command (plist-get cloud-auth-ops :command)))
+  (cl-block jf/gptel-scope--validate-cloud-auth
+    (when cloud-auth-ops
+      (let* ((mode (or (plist-get cloud-config :auth-detection) "warn"))
+             (allowed-providers (plist-get cloud-config :allowed-providers))
+             (provider (plist-get cloud-auth-ops :provider))
+             (command (plist-get cloud-auth-ops :command)))
 
-      ;; Check provider filtering if configured
-      (when (and allowed-providers
-                 (not (member provider allowed-providers)))
-        (cl-return-from jf/gptel-scope--validate-cloud-auth
-          (list :error "cloud_provider_denied"
+        ;; Check provider filtering if configured
+        (when (and allowed-providers
+                   (not (member provider allowed-providers)))
+          (cl-return-from jf/gptel-scope--validate-cloud-auth
+            (list :error "cloud_provider_denied"
+                  :provider provider
+                  :command command
+                  :allowed-providers allowed-providers
+                  :message (format "Cloud provider '%s' not in allowed list: %s"
+                                   provider allowed-providers))))
+
+        ;; Enforce policy mode
+        (cond
+         ((string= mode "allow")
+          nil)  ; Allow silently
+
+         ((string= mode "warn")
+          ;; Return warning (non-blocking)
+          (list :warning "cloud_auth_detected"
                 :provider provider
                 :command command
-                :allowed-providers allowed-providers
-                :message (format "Cloud provider '%s' not in allowed list: %s"
-                                 provider allowed-providers))))
+                :message (format "Cloud authentication detected: %s (%s provider)"
+                                 command provider)))
 
-      ;; Enforce policy mode
-      (cond
-       ((string= mode "allow")
-        nil)  ; Allow silently
+         ((string= mode "deny")
+          ;; Return error (blocking)
+          (list :error "cloud_auth_denied"
+                :provider provider
+                :command command
+                :message (format "Cloud authentication denied: %s (%s provider)"
+                                 command provider)))
 
-       ((string= mode "warn")
-        ;; Return warning (non-blocking)
-        (list :warning "cloud_auth_detected"
-              :provider provider
-              :command command
-              :message (format "Cloud authentication detected: %s (%s provider)"
-                               command provider)))
-
-       ((string= mode "deny")
-        ;; Return error (blocking)
-        (list :error "cloud_auth_denied"
-              :provider provider
-              :command command
-              :message (format "Cloud authentication denied: %s (%s provider)"
-                               command provider)))
-
-       (t
-        ;; Invalid mode - fail closed
-        (list :error "invalid_cloud_auth_mode"
-              :mode mode
-              :message (format "Invalid cloud.auth_detection mode: %s (must be allow/warn/deny)"
-                               mode)))))))
+         (t
+          ;; Invalid mode - fail closed
+          (list :error "invalid_cloud_auth_mode"
+                :mode mode
+                :message (format "Invalid cloud.auth_detection mode: %s (must be allow/warn/deny)"
+                                 mode))))))))
 ;; Implementation:1 ends here
 
 ;; Stage 6: Coverage Threshold Checking
