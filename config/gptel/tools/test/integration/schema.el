@@ -34,7 +34,8 @@
 
 ;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (tools-dir (expand-file-name ".." test-dir))
+       (test-root-dir (expand-file-name ".." test-dir))
+       (tools-dir (expand-file-name ".." test-root-dir))
        (gptel-dir (expand-file-name ".." tools-dir))
        (scope-dir (expand-file-name "scope" gptel-dir))
        (sessions-dir (expand-file-name "sessions" gptel-dir)))
