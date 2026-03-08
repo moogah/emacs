@@ -622,5 +622,237 @@ YAML false is parsed as :false keyword, which validation rejects."
     (should (numberp threshold))
     (should (equal 0.85 threshold))))
 
+;;; New validation rejection tests
+
+(ert-deftest test-scope-schema-reject-negative-coverage-threshold ()
+  "Test that negative coverage threshold is rejected.
+Schema validation should reject values < 0.0."
+  (let ((yml "security:
+  max_coverage_threshold: -0.5"))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-coverage-threshold-above-one ()
+  "Test that coverage threshold > 1.0 is rejected.
+Schema validation should reject values > 1.0."
+  (let ((yml "security:
+  max_coverage_threshold: 2.0"))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-non-numeric-coverage-threshold ()
+  "Test that non-numeric coverage threshold is rejected.
+Schema validation should reject string values."
+  (let ((yml "security:
+  max_coverage_threshold: \"high\""))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-invalid-auth-detection-typo ()
+  "Test that misspelled auth_detection value is rejected.
+Only 'allow', 'warn', 'deny' are valid."
+  (let ((yml "cloud:
+  auth_detection: \"warning\""))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-empty-auth-detection ()
+  "Test that empty auth_detection value is rejected."
+  (let ((yml "cloud:
+  auth_detection: \"\""))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-numeric-auth-detection ()
+  "Test that numeric auth_detection value is rejected.
+Must be a string: 'allow', 'warn', or 'deny'."
+  (let ((yml "cloud:
+  auth_detection: 123"))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-non-boolean-enforce-parse-complete ()
+  "Test that non-boolean enforce_parse_complete is rejected.
+Must be true or false, not string or number."
+  (let ((yml "security:
+  enforce_parse_complete: \"yes\""))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-numeric-enforce-parse-complete ()
+  "Test that numeric enforce_parse_complete is rejected."
+  (let ((yml "security:
+  enforce_parse_complete: 1"))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-malformed-paths-object ()
+  "Test that non-list path values are handled.
+While schema loads them, validation logic will reject."
+  (let* ((yml "paths:
+  write: {\"foo\": \"bar\"}")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (write-paths (plist-get paths :write)))
+    ;; Schema loads but structure is invalid (plist instead of list)
+    (should paths)
+    (should write-paths)
+    ;; Verify it's not a simple list (validation will reject)
+    (should-not (and (listp write-paths) (stringp (car-safe write-paths))))))
+
+(ert-deftest test-scope-schema-reject-paths-number ()
+  "Test that numeric path value is loaded but invalid.
+Schema load succeeds but validation will reject."
+  (let* ((yml "paths:
+  execute: 123")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (execute-paths (plist-get paths :execute)))
+    ;; Schema loads successfully - validation is separate
+    (should paths)
+    (should execute-paths)
+    ;; Invalid structure is loaded as-is (number instead of list)
+    (should (numberp execute-paths))
+    (should-not (listp execute-paths))))
+
+(ert-deftest test-scope-schema-reject-invalid-yaml-syntax ()
+  "Test that malformed YAML triggers parse error.
+YAML parser should fail on syntax errors."
+  (let ((yml "paths:
+  read: [unclosed bracket"))
+    ;; YAML parser should fail before schema validation
+    (should-error
+     (yaml-parse-string yml :object-type 'plist)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-mixed-types-in-path-array ()
+  "Test path arrays with mixed types (strings and numbers).
+Schema loads it but validation will reject mixed types."
+  (let* ((yml "paths:
+  read: [\"/workspace/**\", 123, \"/tmp/**\"]")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (read-paths (plist-get paths :read)))
+    ;; Schema loads successfully
+    (should paths)
+    (should read-paths)
+    (should (listp read-paths))
+    ;; Verify mixed types present (validation will reject)
+    (should (= 3 (length read-paths)))
+    (should (numberp (nth 1 read-paths)))))
+
+(ert-deftest test-scope-schema-reject-null-cloud-section ()
+  "Test that null cloud section gets defaults.
+YAML null should be handled gracefully."
+  (let* ((yml "cloud: null
+paths:
+  read: [\"/workspace/**\"]")
+         (config (test-scope-schema--parse-yml yml))
+         (cloud (plist-get config :cloud)))
+    ;; Null cloud section should get defaults
+    (should cloud)
+    ;; Default auth-detection should be present
+    (should (plist-get cloud :auth-detection))))
+
+(ert-deftest test-scope-schema-reject-coverage-threshold-at-boundary ()
+  "Test coverage threshold boundary values.
+Values at 0.0 and 1.0 should be valid."
+  (let* ((yml-zero "security:
+  max_coverage_threshold: 0.0")
+         (yml-one "security:
+  max_coverage_threshold: 1.0")
+         (config-zero (test-scope-schema--parse-yml yml-zero))
+         (config-one (test-scope-schema--parse-yml yml-one)))
+    ;; Boundary values should be accepted
+    (should (equal 0.0 (plist-get (plist-get config-zero :security) :max-coverage-threshold)))
+    (should (equal 1.0 (plist-get (plist-get config-one :security) :max-coverage-threshold)))))
+
+(ert-deftest test-scope-schema-reject-empty-cloud-providers-is-valid ()
+  "Test that empty allowed_providers array is valid.
+Empty array means no cloud providers allowed."
+  (let* ((yml "cloud:
+  auth_detection: \"warn\"
+  allowed_providers: []")
+         (config (test-scope-schema--parse-yml yml))
+         (cloud (plist-get config :cloud))
+         (providers (plist-get cloud :allowed-providers)))
+    ;; Empty array is valid (means no providers allowed)
+    (should cloud)
+    (should (or (null providers) (and (listp providers) (= 0 (length providers)))))))
+
+(ert-deftest test-scope-schema-reject-duplicate-path-patterns ()
+  "Test that duplicate path patterns are loaded as-is.
+Schema doesn't deduplicate - that's left to validation logic."
+  (let* ((yml "paths:
+  read: [\"/workspace/**\", \"/workspace/**\", \"/tmp/**\"]")
+         (config (test-scope-schema--parse-yml yml))
+         (paths (plist-get config :paths))
+         (read-paths (plist-get paths :read)))
+    ;; Duplicates are preserved in schema
+    (should (= 3 (length read-paths)))
+    ;; Validation logic may choose to deduplicate or warn
+    (should (equal "/workspace/**" (car read-paths)))
+    (should (equal "/workspace/**" (cadr read-paths)))))
+
+(ert-deftest test-scope-schema-reject-unknown-top-level-keys ()
+  "Test that unknown top-level keys are ignored.
+Schema only processes known sections (paths, cloud, security, bash_tools)."
+  (let* ((yml "paths:
+  read: [\"/workspace/**\"]
+unknown_section:
+  foo: bar
+custom_field: 123")
+         (config (test-scope-schema--parse-yml yml)))
+    ;; Known sections should be present
+    (should (plist-get config :paths))
+    ;; Unknown sections are not included in result
+    ;; (production code only returns known sections)
+    (should-not (plist-get config :unknown-section))
+    (should-not (plist-get config :custom-field))))
+
+(ert-deftest test-scope-schema-reject-invalid-bash-tools-structure ()
+  "Test that invalid bash_tools structure is loaded but invalid.
+Schema loads bash_tools as-is without deep validation."
+  (let* ((yml "bash_tools:
+  deny: \"rm\"")
+         (config (test-scope-schema--parse-yml yml))
+         (bash-tools (plist-get config :bash-tools))
+         (deny (plist-get bash-tools :deny)))
+    ;; Schema loads successfully
+    (should bash-tools)
+    (should deny)
+    ;; Invalid structure (string instead of list) is loaded as-is
+    (should (stringp deny))
+    ;; Validation logic will reject this
+    (should-not (listp deny))))
+
+(ert-deftest test-scope-schema-reject-extremely-large-threshold ()
+  "Test that extremely large threshold is rejected.
+Values much larger than 1.0 should fail validation."
+  (let ((yml "security:
+  max_coverage_threshold: 999999"))
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
+
+(ert-deftest test-scope-schema-reject-scientific-notation-threshold ()
+  "Test that scientific notation thresholds are handled.
+Values like 1e-5 should be accepted if in range [0.0, 1.0]."
+  (let* ((yml "security:
+  max_coverage_threshold: 1e-5")
+         (config (test-scope-schema--parse-yml yml))
+         (threshold (plist-get (plist-get config :security) :max-coverage-threshold)))
+    ;; Scientific notation within valid range should work
+    (should (numberp threshold))
+    (should (and (>= threshold 0.0) (<= threshold 1.0)))))
+
 (provide 'test-scope-schema)
 ;;; test-scope-schema.el ends here
