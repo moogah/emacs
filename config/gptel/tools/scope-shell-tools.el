@@ -130,6 +130,44 @@ Error types: timeout, execution-failed."
           :error error-type)))
 ;; Execute Command:1 ends here
 
+;; Stage 1: Parse Completeness Checking
+
+;; Check if bash-parser successfully parsed the entire command.
+;; An incomplete parse indicates syntax errors or unsupported constructs.
+
+
+;; [[file:scope-shell-tools.org::*Stage 1: Parse Completeness Checking][Stage 1: Parse Completeness Checking:1]]
+(defun jf/gptel-scope--validate-parse-completeness (parse-result security-config)
+  "Stage 1: Check parse completeness.
+PARSE-RESULT is the plist returned by bash-parser.
+SECURITY-CONFIG is the security configuration plist.
+
+Returns nil if validation passes, error plist if validation fails.
+
+Checks :parse-complete flag from bash-parser result.
+If incomplete and enforce=true: error with parse-errors.
+If incomplete and enforce=false: warn.
+
+Example PARSE-RESULT:
+  (:parse-complete nil
+   :parse-errors \"Unexpected token at line 2\")
+
+Example SECURITY-CONFIG:
+  (:enforce-parse-complete t)"
+  (let ((complete (plist-get parse-result :parse-complete))
+        (enforce (plist-get security-config :enforce-parse-complete))
+        (errors (plist-get parse-result :parse-errors)))
+    (when (not complete)
+      (if enforce
+          ;; Strict mode: error on incomplete parse
+          (list :error "parse_incomplete"
+                :message (format "Parse incomplete: %s" errors)
+                :parse-errors errors)
+        ;; Permissive mode: warn but continue
+        (warn "Parse incomplete: %s" errors)
+        nil))))
+;; Stage 1: Parse Completeness Checking:1 ends here
+
 ;; Tool Implementation
 
 
