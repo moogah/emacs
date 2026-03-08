@@ -34,7 +34,7 @@
 
   ;; Load the bash-parser implementation
   (let ((parser-path (expand-file-name
-                      "config/experiments/bash-parser/bash-parser.el"
+                      "config/bash-parser/bash-parser.el"
                       repo-root)))
     (load parser-path)))
 
