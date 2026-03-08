@@ -178,32 +178,32 @@ run_tests() {
     case "$framework" in
         ert)
             if [ -n "$DIRECTORY" ] && [ -n "$PATTERN" ]; then
-                echo "Running ERT tests in: $DIRECTORY"
-                echo "Matching pattern: $PATTERN"
-                echo ""
+                echo "Running ERT tests in: $DIRECTORY" >&2
+                echo "Matching pattern: $PATTERN" >&2
+                echo "" >&2
                 test_command="(progn (jf/test-load-all-test-files \"$DIRECTORY\") (ert-run-tests-batch-and-exit \"$PATTERN\"))"
             elif [ -n "$DIRECTORY" ]; then
-                echo "Running ERT tests in: $DIRECTORY"
-                echo ""
+                echo "Running ERT tests in: $DIRECTORY" >&2
+                echo "" >&2
                 test_command="(jf/test-run-directory-batch \"$DIRECTORY\")"
             elif [ -n "$PATTERN" ]; then
-                echo "Running ERT tests matching: $PATTERN"
-                echo ""
+                echo "Running ERT tests matching: $PATTERN" >&2
+                echo "" >&2
                 test_command="(jf/test-run-pattern-batch \"$PATTERN\")"
             else
-                echo "Running all ERT tests (auto-discovery)"
-                echo ""
+                echo "Running all ERT tests (auto-discovery)" >&2
+                echo "" >&2
                 test_command="(jf/test-run-all-batch)"
             fi
             ;;
         buttercup)
             if [ -n "$DIRECTORY" ]; then
-                echo "Running Buttercup tests in: $DIRECTORY"
-                echo ""
+                echo "Running Buttercup tests in: $DIRECTORY" >&2
+                echo "" >&2
                 test_command="(jf/test-run-buttercup-directory-batch \"$DIRECTORY\")"
             else
-                echo "Running all Buttercup tests (auto-discovery)"
-                echo ""
+                echo "Running all Buttercup tests (auto-discovery)" >&2
+                echo "" >&2
                 test_command="(jf/test-run-all-buttercup-batch)"
             fi
             ;;
