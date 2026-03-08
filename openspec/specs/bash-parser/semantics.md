@@ -1,4 +1,28 @@
-## ADDED Requirements
+# Bash Command Semantics Database
+
+## Purpose
+
+Maintain a database mapping command names to their file operation semantics, defining how each command interacts with file arguments. Used by the filesystem plugin to extract file operations accurately.
+
+## Responsibilities
+
+- Provide lookup table for command-to-semantics mapping
+- Support simple commands (cat, rm, cp) with operation types and argument sources
+- Support commands with skip rules (grep skips pattern argument)
+- Support multi-operation commands (cp reads source, writes destination)
+- Support subcommand-specific semantics (git add vs git checkout)
+- Support flag-dependent operations (sed -i makes in-place edits)
+- Support interpreter commands (python, node, bash execute scripts)
+- Classify operations into distinct types
+
+## Key Invariants
+
+- Each command has defined operation types (read, write, delete, modify, create, append, execute)
+- Positional argument indexing supports single index, ranges, and special indices (first, last, all-but-last)
+- Flag-dependent operations override base semantics when flags are present
+- Subcommands create separate semantic entries (git-add, git-checkout as distinct entries)
+
+## Requirements
 
 ### Requirement: Command semantics database
 The system SHALL maintain a database mapping command names to their file operation semantics, defining how each command interacts with file arguments.
@@ -153,3 +177,53 @@ The system SHALL support `:index 0` specification to extract only the first posi
 #### Scenario: Skip remaining arguments
 - **WHEN** command has multiple positional arguments and semantics specify `:index 0`
 - **THEN** arguments after index 0 are not extracted as file operations
+
+## Database Structure
+
+```elisp
+(defconst jf/bash-command-semantics
+  '(;; Simple read commands
+    ("cat"  :operation :read :source :positional-args :index :all)
+    ("grep" :operation :read :source :positional-args :index :all :skip-first t)
+
+    ;; Multi-operation commands
+    ("cp"   :operations ((:operation :read :indices (0 . -2))
+                         (:operation :write :indices (-1))))
+    ("mv"   :operations ((:operation :delete :indices (0 . -2))
+                         (:operation :write :indices (-1))))
+
+    ;; Flag-dependent operations
+    ("sed"  :operation :read :flag-dependent (("-i" :operation :modify)))
+
+    ;; Subcommand-specific
+    ("git" :subcommands
+           (("add" :operation :read)
+            ("checkout" :operation :modify)
+            ("rm" :operation :delete)))
+
+    ;; Interpreters
+    ("python" :operation :execute :index 0)
+    ("node"   :operation :execute :index 0)
+    ("bash"   :operation :execute :index 0)))
+```
+
+## Integration Points
+
+- **Filesystem Plugin**: Primary consumer - uses semantics to extract file operations
+- **Coverage System**: Indirectly benefits from accurate operation extraction
+
+## Example Usage
+
+```elisp
+;; Lookup simple command
+(jf/bash-lookup-semantics "cat")
+;; => (:operation :read :source :positional-args :index :all)
+
+;; Lookup subcommand
+(jf/bash-lookup-semantics "git" :subcommand "add")
+;; => (:operation :read :source :positional-args)
+
+;; Lookup flag-dependent
+(jf/bash-lookup-semantics "sed" :flags '("-i"))
+;; => (:operation :modify :source :positional-args)
+```
