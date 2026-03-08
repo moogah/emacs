@@ -4,6 +4,10 @@
 
 Provides fine-grained permission control for gptel tools, enforcing access policies through scope configuration. This spec describes the core validation engine, configuration loading, permission checking, and tool wrapping mechanisms.
 
+**Current version:** v4 (bash-parser integration)
+
+**Breaking changes from v3:** The v4 scope system uses bash-parser for semantic command validation with operation-specific path scoping, cloud authentication detection, and security settings. v3 schemas are NOT backward compatible and require manual migration. See "Breaking Changes from v3" section below.
+
 ## Requirements
 
 ### Requirement: Tool categorization system
@@ -125,108 +129,227 @@ The scope system SHALL validate org-roam tools against org_roam_patterns section
 
 ### Requirement: Bash tool categorization
 
-The scope system SHALL support bash validation type for tools that execute shell commands with directory-scoped validation.
+The scope system SHALL support bash validation type for tools that execute shell commands with semantic validation.
 
 **Config source:** `scope.yml` in the session's branch directory, under the `bash_tools` top-level key with nested `categories` structure.
 
-**Tool:** `run_bash_command` - Executes shell commands with category-based validation and directory scope checking.
+**Tool:** `run_bash_command` - Executes shell commands with seven-stage validation pipeline using bash-parser integration.
 
-**Module:** `scope-shell-tools` (config/gptel/tools/scope-shell-tools.el) - Implements the run_bash_command tool using bash validation strategy.
+**Module:** `scope-shell-tools` (config/gptel/tools/scope-shell-tools.el) - Implements the run_bash_command tool using bash-parser semantic validation.
 
-**Related specs:** See `scope-profiles.md` for bash_tools schema definition and `bash-tools.md` for detailed bash tools behavior.
+**Related specs:** See delta specs for detailed v4 behavior:
+- `scope-validation-pipelines/spec.md` - Pipeline command extraction and validation
+- `scope-validation-file-paths/spec.md` - Operation-specific path validation
+- `scope-validation-cloud-auth/spec.md` - Cloud authentication policy enforcement
+- `scope-schema-v4/spec.md` - v4 schema structure
 
 #### Scenario: Bash tool categorized
-- **WHEN** a tool executes arbitrary shell commands in a specified directory
+- **WHEN** a tool executes arbitrary shell commands
 - **THEN** the system categorizes it with validation strategy "bash" and operation type "write"
 
 #### Scenario: Bash validator dispatched
 - **WHEN** scope system validates a bash tool
-- **THEN** it routes to jf/gptel-scope--validate-bash-tool function
+- **THEN** it routes to jf/gptel-scope--validate-bash-tool function using seven-stage pipeline
 
-### Requirement: Bash-based validation
+### Requirement: Seven-stage bash validation pipeline
 
-The scope system SHALL validate bash tools against both command category and directory path requirements.
+The scope system SHALL validate bash commands through a seven-stage pipeline with early exit on failure, using bash-parser for semantic extraction.
 
-#### Scenario: Command categorized and directory validated
-- **WHEN** a bash tool executes
-- **THEN** the system categorizes the command (read_only, safe_write, dangerous) and validates the directory against the category's path requirement
+**Implementation**: `config/gptel/tools/scope-shell-tools.el` - `jf/gptel-scope--validate-bash-tool` (seven-stage pipeline)
 
-#### Scenario: Read-only command requires read paths
-- **WHEN** a bash command is categorized as read_only
-- **THEN** the system validates the directory matches paths.read or paths.write patterns
+**Validation stages:**
+1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
+2. **Extract semantics** - Run plugins (file-ops, cloud-auth, security) to extract operations
+3. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
+4. **Pipeline validation** - Extract and validate ALL commands in pipelines/chains
+5. **Command categorization** - Check deny list, then read_only/safe_write/dangerous
+6. **File operation validation** - Match extracted file paths against operation-specific scope patterns
+7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers`
 
-#### Scenario: Safe write command requires write paths
-- **WHEN** a bash command is categorized as safe_write
-- **THEN** the system validates the directory matches paths.write patterns
+#### Scenario: Command passes all seven stages
+- **WHEN** bash command completes all validation stages successfully
+- **THEN** system allows command execution
 
-#### Scenario: Dangerous command denied by default
-- **WHEN** a bash command is categorized as dangerous
-- **THEN** the system denies it unless explicitly in bash_tools.dangerous allow list
+#### Scenario: Early exit on first failure
+- **WHEN** any validation stage fails
+- **THEN** pipeline exits immediately with structured error (does not continue to subsequent stages)
 
-#### Scenario: Deny list overrides category
-- **WHEN** a bash command appears in bash_tools.deny
-- **THEN** the system denies it regardless of category or directory scope
+#### Scenario: Parse stage extracts AST
+- **WHEN** command enters validation pipeline
+- **THEN** bash-parser produces AST with token positions and structure
 
-#### Scenario: Unknown command denied
-- **WHEN** a bash command is not in any category allow list
-- **THEN** the system denies with "command_not_allowed" error
+#### Scenario: Semantic extraction runs plugins
+- **WHEN** AST is available
+- **THEN** system runs file-ops, cloud-auth, and security plugins to extract operations
 
-### Requirement: Bash tool validation (category-based)
+### Requirement: Pipeline command validation
 
-The scope system SHALL validate bash commands using category-based validation with three categories: read_only, safe_write, dangerous.
+The scope system SHALL extract and validate ALL commands in bash pipelines and chains, not just the base command. Closes security bypass where dangerous commands could hide in pipeline positions.
 
-**Implementation**: `config/gptel/scope/scope-core.org` - bash validator (lines 860-1020)
+**Implementation**: `config/gptel/tools/scope-shell-tools.el` - `jf/gptel-scope--extract-pipeline-commands`, `jf/gptel-scope--validate-pipeline-commands`
+
+#### Scenario: Extract commands from pipe
+- **WHEN** parsing "ls -la | grep foo"
+- **THEN** system extracts two commands: "ls" and "grep"
+
+#### Scenario: Extract commands from command chain
+- **WHEN** parsing "mkdir foo && cd foo"
+- **THEN** system extracts two commands: "mkdir" and "cd"
+
+#### Scenario: All pipeline commands validated independently
+- **WHEN** command is "ls | xargs rm"
+- **AND** "ls" is in read_only but "rm" is in deny list
+- **THEN** validation fails with "command_denied" error for "rm" at pipeline position 1
+
+#### Scenario: Pipeline bypass prevented
+- **WHEN** command is "find . -name '*.tmp' | xargs rm"
+- **AND** "rm" is in deny list
+- **THEN** system rejects with error identifying "rm" in pipeline position 2
+
+**Note**: This requirement DEPRECATED in v3 (regex-based parsing could not extract pipeline commands). Implemented in v4 with bash-parser integration.
+
+### Requirement: Operation-specific path validation
+
+The scope system SHALL validate file paths against operation-specific scope patterns (paths.read, paths.write, paths.execute, paths.modify) based on the operation type extracted from the command.
+
+**Implementation**: `config/gptel/tools/scope-shell-tools.el` - file-ops plugin integration with bash-parser
+
+**v4 schema** (scope.yml):
+```yaml
+paths:
+  read:
+    - "/workspace/**"
+    - "/tmp/**"
+  write:
+    - "/workspace/**"
+  execute:                    # NEW in v4
+    - "/workspace/scripts/**"
+  modify:                     # NEW in v4
+    - "/workspace/config/**"
+  deny:
+    - "/etc/**"
+    - "~/.ssh/**"
+```
+
+**Operation types**:
+- `read` - File reads (cat, grep, find) - requires paths.read OR paths.write
+- `write` - File writes (echo >, mkdir) - requires paths.write
+- `execute` - Script execution (./script.sh, bash script.sh) - requires paths.execute
+- `modify` - In-place edits (sed -i, awk -i) - requires paths.modify OR paths.write
+
+#### Scenario: Read operation matches paths.read
+- **WHEN** file operation is :read "/workspace/file.txt"
+- **AND** scope.yml has paths.read: ["/workspace/**"]
+- **THEN** validation passes
+
+#### Scenario: Write scope includes read capability
+- **WHEN** file operation is :read "/tmp/file.txt"
+- **AND** scope.yml has paths.write: ["/tmp/**"]
+- **THEN** validation passes (write scope includes read)
+
+#### Scenario: Execute operation requires paths.execute
+- **WHEN** file operation is :execute "/workspace/scripts/deploy.py"
+- **AND** scope.yml has paths.read: ["/workspace/**"] but no paths.execute
+- **THEN** validation fails with "path_out_of_scope" error
+
+#### Scenario: Deny patterns take precedence
+- **WHEN** file operation is :read "/etc/passwd"
+- **AND** scope.yml has paths.deny: ["/etc/**"]
+- **THEN** validation fails with "path_denied" error (even if paths.read includes /etc)
+
+**Note**: v3 used directory-based validation only. v4 extracts file paths from command arguments and validates against operation-specific patterns.
+
+### Requirement: Cloud authentication detection and policy enforcement
+
+The scope system SHALL detect cloud authentication commands (AWS, GCP, Azure) and enforce configurable policy (allow, warn, deny) with provider filtering.
+
+**Implementation**: `config/gptel/tools/scope-shell-tools.el` - cloud-auth plugin integration with bash-parser
+
+**v4 schema** (scope.yml):
+```yaml
+cloud:
+  auth_detection: "warn"      # "allow", "warn", or "deny"
+  allowed_providers:
+    - aws
+    - gcp
+```
+
+**Detected commands**:
+- AWS: `aws-vault`, `aws sts`, `aws configure`
+- GCP: `gcloud auth`, `gcloud config`
+- Azure: `az login`, `az account`
+
+#### Scenario: Warn mode executes with warning
+- **WHEN** cloud.auth_detection: "warn"
+- **AND** command is "aws-vault exec prod -- aws s3 ls"
+- **THEN** command executes successfully
+- **AND** result includes :warnings field with cloud auth detection notice
+
+#### Scenario: Deny mode rejects unlisted provider
+- **WHEN** cloud.auth_detection: "deny"
+- **AND** cloud.allowed_providers: ["aws"]
+- **AND** command is "gcloud auth login"
+- **THEN** validation fails with "cloud_auth_denied" for GCP
+
+#### Scenario: Allow mode permits all cloud commands
+- **WHEN** cloud.auth_detection: "allow"
+- **AND** command uses any cloud provider
+- **THEN** command executes without warnings or restrictions
+
+**Note**: New in v4. v3 had no cloud authentication awareness.
+
+### Requirement: Command categorization (v3 compatibility)
+
+The scope system SHALL validate bash commands using category-based validation with three categories: read_only, safe_write, dangerous. This requirement maintained from v3 for backward compatibility.
+
+**Implementation**: `config/gptel/tools/scope-shell-tools.el` - command categorization stage (stage 5)
 
 **Configuration format** (scope.yml):
 ```yaml
 bash_tools:
   categories:
     read_only:
-      commands: ["ls", "cat", "grep", "git log"]
+      - ls
+      - cat
+      - grep
+      - git log
     safe_write:
-      commands: ["mkdir", "touch", "git add", "git commit"]
+      - mkdir
+      - touch
+      - git add
+      - git commit
     dangerous:
-      commands: []
+      - rm
+      - sudo
   deny:
-    - "rm"
-    - "sudo"
-    - "chmod"
+    - rm
+    - sudo
+    - chmod
 ```
 
-**Category semantics**:
+**Category semantics** (unchanged from v3):
 
-| Category | Path Requirement | Meaning |
-|----------|------------------|---------|
-| `read_only` | `paths.read` (or write) | Read-only commands; write scope includes read |
-| `safe_write` | `paths.write` | Non-destructive creation |
-| `dangerous` | Both read AND write + user approval | Requires explicit confirmation |
-| `deny` | Never allowed | Blocked even with scope expansion |
+| Category | Meaning |
+|----------|---------|
+| `read_only` | Read-only commands; categorization only (no path enforcement at category level) |
+| `safe_write` | Non-destructive creation |
+| `dangerous` | Commands requiring explicit user approval |
+| `deny` | Never allowed; blocked even with scope expansion |
 
 #### Scenario: Deny list checked first
 - **WHEN** command matches deny list
 - **THEN** system denies command (deny takes precedence)
 - **AND** returns custom `:message` field in error
 
-#### Scenario: Read-only command with read scope
-- **WHEN** command in `bash_tools.categories.read_only.commands`
-- **AND** buffer has `paths.read` scope
-- **THEN** system allows command
-
-#### Scenario: Safe-write command with write scope
-- **WHEN** command in `bash_tools.categories.safe_write.commands`
-- **AND** buffer has `paths.write` scope
-- **THEN** system allows command
-
-#### Scenario: Dangerous command requires both scopes
-- **WHEN** command in `bash_tools.categories.dangerous.commands`
-- **THEN** system requires both `paths.read` AND `paths.write` scope
-- **AND** requires explicit user approval
+#### Scenario: Read-only command allowed
+- **WHEN** command in `bash_tools.categories.read_only`
+- **THEN** system allows command (path validation handled separately in v4)
 
 #### Scenario: Command not in categories
 - **WHEN** command not in any category
-- **THEN** system denies with "not-in-bash-categories" reason
+- **THEN** system denies with "command_not_allowed" error
 
-**Note**: Bash validator includes custom `:message` fields in errors for user-friendly feedback (not present in other validators).
+**Note**: v4 separates command categorization (stage 5) from path validation (stage 6). v3 combined these into single validation step.
 
 ### Requirement: Allow-once temporary permissions
 
@@ -301,6 +424,38 @@ The scope system SHALL wrap scope-aware tools using macros that intercept argume
 
 **Note**: Different tools extract resource from different argument positions - path tools use 1st arg, org-roam tools use 2nd/3rd args.
 
+### Requirement: Security configuration (v4)
+
+The scope system SHALL enforce security settings for parse completeness and coverage thresholds.
+
+**v4 schema** (scope.yml):
+```yaml
+security:
+  enforce_parse_complete: true  # Reject unparseable commands
+  max_coverage_threshold: 0.8   # Warn if <80% tokens claimed by plugins
+```
+
+**Settings**:
+- `enforce_parse_complete` - When true, reject commands bash-parser cannot fully parse
+- `max_coverage_threshold` - Float 0.0-1.0; warn if semantic plugin coverage below threshold
+
+#### Scenario: Incomplete parse rejected when enforced
+- **WHEN** security.enforce_parse_complete: true
+- **AND** bash-parser cannot fully parse command (syntax error, unsupported construct)
+- **THEN** validation fails with "incomplete_parse" error
+
+#### Scenario: Incomplete parse allowed when not enforced
+- **WHEN** security.enforce_parse_complete: false
+- **AND** bash-parser cannot fully parse command
+- **THEN** validation continues with warning (command may execute)
+
+#### Scenario: Low coverage warning
+- **WHEN** security.max_coverage_threshold: 0.8
+- **AND** semantic plugins claim <80% of tokens
+- **THEN** validation includes warning about incomplete semantic extraction
+
+**Note**: New in v4. v3 had no parse completeness or coverage tracking.
+
 ### Requirement: Error message formatting
 
 The scope system SHALL return structured error messages helping LLMs understand denials and request appropriate expansions.
@@ -308,6 +463,18 @@ The scope system SHALL return structured error messages helping LLMs understand 
 #### Scenario: Path denial includes allowed patterns
 - **WHEN** path validation fails
 - **THEN** error includes `:allowed_patterns` list from `paths.read` or `paths.write`
+
+#### Scenario: Path out of scope error structure (v4)
+- **WHEN** file path fails validation
+- **THEN** error includes `:error "path_out_of_scope"`, `:path`, `:operation`, `:required_scope`, `:allowed_patterns`
+
+#### Scenario: Pipeline command denied error structure (v4)
+- **WHEN** pipeline command fails validation
+- **THEN** error includes `:error "command_denied"`, `:command`, `:pipeline_position`, `:full_command`
+
+#### Scenario: Cloud auth denied error structure (v4)
+- **WHEN** cloud auth command denied
+- **THEN** error includes `:error "cloud_auth_denied"`, `:provider`, `:command`, `:allowed_providers`
 
 #### Scenario: Bash denial includes custom message
 - **WHEN** bash validation fails
@@ -323,6 +490,97 @@ The scope system SHALL return structured error messages helping LLMs understand 
 - **THEN** error uses `:denied_patterns` list (not allowed_patterns)
 
 **Note**: Bash validator is unique in including custom `:message` fields for user-friendly error messages.
+
+## Breaking Changes from v3
+
+The v4 scope system introduces breaking changes that require manual migration from v3 schemas. No automatic migration or backward compatibility is provided.
+
+### Schema Structure Changes
+
+**v3 schema:**
+```yaml
+paths:
+  read:
+    - "/workspace/**"
+  write:
+    - "/workspace/**"
+  deny:
+    - "/etc/**"
+
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "cat"]
+```
+
+**v4 schema (incompatible):**
+```yaml
+paths:
+  read:
+    - "/workspace/**"
+  write:
+    - "/workspace/**"
+  execute:              # NEW - required for script execution
+    - "/workspace/scripts/**"
+  modify:               # NEW - required for in-place edits
+    - "/workspace/config/**"
+  deny:
+    - "/etc/**"
+
+bash_tools:
+  categories:
+    read_only:          # Command arrays now at category level
+      - ls
+      - cat
+    safe_write:
+      - mkdir
+    dangerous:
+      - rm
+  deny:
+    - sudo
+
+cloud:                  # NEW section
+  auth_detection: "warn"
+  allowed_providers:
+    - aws
+
+security:               # NEW section
+  enforce_parse_complete: true
+  max_coverage_threshold: 0.8
+```
+
+### Migration Requirements
+
+**Commands requiring new path sections:**
+- Execute operations (e.g., `bash /workspace/script.sh`) → Add `paths.execute`
+- Modify operations (e.g., `sed -i 's/foo/bar/' file.txt`) → Add `paths.modify`
+- Cloud commands (e.g., `aws-vault exec`) → Add `cloud` section
+
+**Pipeline validation:**
+- v3: Only validated base command (e.g., `ls` in `ls | xargs rm`)
+- v4: Validates ALL commands in pipeline (closes security bypass)
+- Impact: Commands like `find . | xargs rm` now rejected if `rm` in deny list
+
+**File path validation:**
+- v3: Validated working directory only
+- v4: Extracts and validates file paths from command arguments
+- Impact: `cat /etc/passwd` now checks `/etc/passwd` against scope, not just working directory
+
+**bash_tools structure:**
+- v3: `categories.read_only.commands: ["ls"]`
+- v4: `categories.read_only: ["ls"]` (commands array moved up one level)
+
+### Rollback Strategy
+
+If issues discovered post-deployment:
+- Rollback requires `git revert` of bash-parser integration PR
+- No dual-mode fallback available
+- Users must manually revert scope.yml changes
+
+### No Automatic Migration
+
+Users must manually update scope.yml files. Migration guide available at:
+`openspec/changes/bash-parser-integration/migration-guide.md`
 
 ## Integration Points
 
@@ -348,10 +606,20 @@ The scope system SHALL return structured error messages helping LLMs understand 
 
 ## Summary
 
-The Scope System provides fine-grained tool permissions through:
-- **Category-based bash validation** (read_only, safe_write, dangerous)
+The Scope System v4 provides fine-grained tool permissions through:
+- **Seven-stage bash validation pipeline** (parse → semantics → completeness → pipelines → categories → file paths → cloud auth)
+- **Semantic command analysis** (bash-parser integration for AST extraction and operation detection)
+- **Operation-specific path validation** (read, write, execute, modify with glob patterns)
+- **Pipeline command validation** (validates ALL commands in pipes and chains, closes v3 security bypass)
+- **Cloud authentication detection** (AWS, GCP, Azure with allow/warn/deny policy)
+- **Security settings** (parse completeness enforcement, coverage thresholds)
 - **Path-based validation** (glob patterns with deny precedence)
 - **Pattern-based validation** (org-roam subdirectory/tags/node-ids)
 - **Allow-once temporary permissions** (buffer-local, consumed before execution)
 - **No caching** (filesystem is source of truth, scope.yml read every call)
 - **Structured errors** (help LLMs understand denials and request expansions)
+
+**v4 vs v3:**
+- v3: Regex-based command parsing, directory-only validation, pipeline bypass
+- v4: Bash-parser semantic analysis, file path extraction, full pipeline validation
+- Breaking: v3 schemas NOT compatible, manual migration required
