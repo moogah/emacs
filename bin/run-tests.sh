@@ -22,6 +22,8 @@ FRAMEWORK="auto"  # auto, ert, buttercup, or both
 VERBOSE=false
 SNAPSHOT=false
 SNAPSHOT_FILE=""
+TEST_TYPE=""  # unit, integration, behavioral
+CAPABILITY=""  # schema, cloud-auth, pipelines, file-paths
 
 show_help() {
     cat << EOF
@@ -36,6 +38,8 @@ OPTIONS:
                            auto: auto-detects based on file extension or runs both
     -d, --directory DIR    Run tests only in specified directory
     -p, --pattern PATTERN  Run ERT tests matching regexp pattern (ERT only)
+    -t, --type TYPE        Filter by test type: unit, integration, behavioral
+    -c, --capability CAP   Filter by capability: schema, cloud-auth, pipelines, file-paths
     -s, --snapshot [FILE]  Capture output to snapshot file (for git tracking)
                            Default: test-results.txt in test directory
     -v, --verbose          Show verbose output
@@ -67,6 +71,14 @@ EXAMPLES:
 
     # Run ERT tests matching pattern
     $(basename "$0") -f ert -p "^test-glob-"
+
+    # Filter by test type
+    $(basename "$0") -t unit -d config/gptel/tools/test
+    $(basename "$0") -f buttercup -t behavioral
+
+    # Filter by capability
+    $(basename "$0") -c schema -d config/gptel/tools/test/integration
+    $(basename "$0") -c cloud-auth
 
     # Capture output to snapshot file
     $(basename "$0") -d config/experiments/bash-parser --snapshot
@@ -106,6 +118,22 @@ while [[ $# -gt 0 ]]; do
             PATTERN="$2"
             shift 2
             ;;
+        -t|--type)
+            TEST_TYPE="$2"
+            if [[ ! "$TEST_TYPE" =~ ^(unit|integration|behavioral)$ ]]; then
+                echo "Error: Invalid test type '$TEST_TYPE'. Must be: unit, integration, or behavioral"
+                exit 1
+            fi
+            shift 2
+            ;;
+        -c|--capability)
+            CAPABILITY="$2"
+            if [[ ! "$CAPABILITY" =~ ^(schema|cloud-auth|pipelines|file-paths)$ ]]; then
+                echo "Error: Invalid capability '$CAPABILITY'. Must be: schema, cloud-auth, pipelines, or file-paths"
+                exit 1
+            fi
+            shift 2
+            ;;
         -s|--snapshot)
             SNAPSHOT=true
             # Check if next arg is a filename (not a flag)
@@ -139,6 +167,51 @@ echo "Emacs Configuration Test Runner"
 echo "========================================"
 echo ""
 
+# Apply test type filtering
+if [ -n "$TEST_TYPE" ]; then
+    if [ -n "$DIRECTORY" ]; then
+        # Append type subdirectory to existing directory
+        DIRECTORY="$DIRECTORY/$TEST_TYPE"
+    else
+        echo "Error: --type requires --directory to be specified"
+        exit 1
+    fi
+fi
+
+# Apply capability filtering
+if [ -n "$CAPABILITY" ]; then
+    if [ -n "$DIRECTORY" ]; then
+        # Look for capability file in directory
+        CAPABILITY_FILE=""
+        case "$CAPABILITY" in
+            schema)
+                CAPABILITY_FILE="schema.el"
+                ;;
+            cloud-auth)
+                CAPABILITY_FILE="cloud-auth.el"
+                ;;
+            pipelines)
+                CAPABILITY_FILE="pipelines.el"
+                ;;
+            file-paths)
+                CAPABILITY_FILE="file-paths.el"
+                ;;
+        esac
+
+        # Check if capability file exists
+        if [ -f "$REPO_ROOT/$DIRECTORY/$CAPABILITY_FILE" ]; then
+            # Update directory to point to specific file
+            DIRECTORY="$DIRECTORY/$CAPABILITY_FILE"
+        else
+            echo "Warning: Capability file $CAPABILITY_FILE not found in $DIRECTORY"
+            echo "Searching for pattern in directory instead..."
+        fi
+    else
+        echo "Error: --capability requires --directory to be specified"
+        exit 1
+    fi
+fi
+
 # Auto-detect framework if needed
 if [ "$FRAMEWORK" = "auto" ]; then
     if [ -n "$DIRECTORY" ]; then
@@ -168,6 +241,12 @@ if [ -n "$PATTERN" ] && [ "$FRAMEWORK" != "ert" ]; then
 fi
 
 echo "Framework: $FRAMEWORK"
+if [ -n "$TEST_TYPE" ]; then
+    echo "Test type: $TEST_TYPE"
+fi
+if [ -n "$CAPABILITY" ]; then
+    echo "Capability: $CAPABILITY"
+fi
 echo ""
 
 # Build the elisp command based on framework

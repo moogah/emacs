@@ -52,7 +52,7 @@ emacs-test-eval:
 # High-level test targets - User-facing convenience wrappers
 # =============================================================================
 
-.PHONY: test test-verbose test-pattern test-directory test-bash-parser test-gptel test-snapshot test-buttercup test-buttercup-directory help
+.PHONY: test test-verbose test-pattern test-directory test-bash-parser test-gptel test-snapshot test-buttercup test-buttercup-directory test-scope-unit test-scope-integration test-scope-behavioral test-scope-schema test-scope-cloud-auth test-scope-pipelines test-scope-file-paths help
 
 # Default target
 help:
@@ -82,6 +82,17 @@ help:
 	@echo "  make test-bash-parser           Run bash-parser tests (ERT)"
 	@echo "  make test-bash-parser-snapshot  Run and capture bash-parser snapshot"
 	@echo "  make test-gptel                 Run gptel tests (when available)"
+	@echo ""
+	@echo "Scope validation tests (by type):"
+	@echo "  make test-scope-unit            Run scope unit tests (Buttercup)"
+	@echo "  make test-scope-integration     Run scope integration tests (ERT)"
+	@echo "  make test-scope-behavioral      Run scope behavioral tests (Buttercup)"
+	@echo ""
+	@echo "Scope validation tests (by capability):"
+	@echo "  make test-scope-schema          Run schema validation tests"
+	@echo "  make test-scope-cloud-auth      Run cloud auth tests"
+	@echo "  make test-scope-pipelines       Run pipeline validation tests"
+	@echo "  make test-scope-file-paths      Run file path validation tests"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make test-pattern PATTERN='^test-glob-'"
@@ -127,3 +138,30 @@ test-buttercup:
 # Run Buttercup tests in specific directory
 test-buttercup-directory:
 	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-buttercup-directory-batch "$(DIR)")'
+
+# =============================================================================
+# Scope validation test targets - organized by test type and capability
+# =============================================================================
+
+# Run scope validation tests by type
+test-scope-unit:
+	@./bin/run-tests.sh -f buttercup -t unit -d config/gptel/tools/test/unit
+
+test-scope-integration:
+	@./bin/run-tests.sh -f ert -t integration -d config/gptel/tools/test/integration
+
+test-scope-behavioral:
+	@./bin/run-tests.sh -f buttercup -t behavioral -d config/gptel/tools/test/behavioral
+
+# Run scope validation tests by capability
+test-scope-schema:
+	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c schema
+
+test-scope-cloud-auth:
+	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c cloud-auth
+
+test-scope-pipelines:
+	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c pipelines
+
+test-scope-file-paths:
+	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c file-paths

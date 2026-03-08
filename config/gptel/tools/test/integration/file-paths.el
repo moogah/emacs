@@ -30,9 +30,9 @@
 (require 'cl-lib)
 
 ;; Load dependencies
-(let ((tools-dir (expand-file-name ".."
-                                   (file-name-directory (or load-file-name
-                                                           buffer-file-name)))))
+(let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (test-root-dir (expand-file-name ".." test-dir))
+       (tools-dir (expand-file-name ".." test-root-dir)))
   (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" tools-dir)))
 
 ;;; Helper Functions
