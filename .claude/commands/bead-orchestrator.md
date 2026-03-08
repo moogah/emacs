@@ -168,6 +168,11 @@ done
   "baseline_unknown_count": 0,
   "current_branch": "gptel-scoped-bash-tools",
   "max_parallel": 5,
+  "final_snapshot": null,
+  "final_test_count": null,
+  "final_unexpected_count": null,
+  "final_aborted_count": null,
+  "final_unknown_count": null,
   "beads": [
     {
       "bead_id": "emacs-abc1",
@@ -840,6 +845,113 @@ Update state file with cleanup status:
 }
 ```
 
+## 8. Final Snapshot
+
+**MANDATORY**: After all successful merges complete, capture a final test snapshot.
+
+**When to run**:
+- After the last successful merge completes
+- Before displaying the final summary report
+- Only if at least one bead was successfully merged
+
+**Purpose**:
+- Provides clean "end of batch" test state
+- Easy reference point for future work
+- Captures cumulative impact of all merged beads
+- Can be compared against baseline to see overall progress
+
+**Process**:
+
+```bash
+cd /Users/jefffarr/emacs
+
+# Run final test suite with snapshot
+./bin/run-tests.sh --snapshot
+
+# Get session ID from state file
+SESSION_ID=$(jq -r '.session_id' .beads/orchestrator-state.json | sed 's/orch-//')
+
+# Save final snapshot with clear naming
+cp test-results.txt .beads/orchestrator/final-${SESSION_ID}.txt
+
+# Extract final test summary
+SUMMARY_LINE=$(grep -E "^(Passed|Aborted|Failed):" test-results.txt | head -1)
+TOTAL_TESTS=$(echo "$SUMMARY_LINE" | grep -oE "Ran [0-9]+ tests" | grep -oE "[0-9]+")
+UNEXPECTED=$(echo "$SUMMARY_LINE" | grep -oE "[0-9]+ unexpected" | grep -oE "[0-9]+" || echo "0")
+ABORTED_COUNT=$(grep -c "^  ABORTED " test-results.txt || echo "0")
+UNKNOWN_COUNT=$(grep -c "^  UNKNOWN " test-results.txt || echo "0")
+
+# Update state file with final snapshot info
+jq --arg final_snapshot ".beads/orchestrator/final-${SESSION_ID}.txt" \
+   --argjson final_tests "$TOTAL_TESTS" \
+   --argjson final_unexpected "$UNEXPECTED" \
+   --argjson final_aborted "$ABORTED_COUNT" \
+   --argjson final_unknown "$UNKNOWN_COUNT" \
+   '. + {
+     final_snapshot: $final_snapshot,
+     final_test_count: $final_tests,
+     final_unexpected_count: $final_unexpected,
+     final_aborted_count: $final_aborted,
+     final_unknown_count: $final_unknown
+   }' \
+   .beads/orchestrator-state.json > .beads/orchestrator-state.json.tmp
+mv .beads/orchestrator-state.json.tmp .beads/orchestrator-state.json
+
+echo "✓ Final snapshot captured: .beads/orchestrator/final-${SESSION_ID}.txt"
+echo "  Total tests: $TOTAL_TESTS"
+echo "  Unexpected: $UNEXPECTED"
+echo "  Aborted: $ABORTED_COUNT"
+echo "  Unknown: $UNKNOWN_COUNT"
+
+# Commit the final snapshot
+git add .beads/orchestrator/final-${SESSION_ID}.txt
+git add .beads/orchestrator-state.json
+git commit -m "$(cat <<EOF
+Orchestration batch complete: Final test snapshot
+
+Session: orch-${SESSION_ID}
+Successfully merged beads with final test verification.
+
+Test Summary:
+- Total tests: ${TOTAL_TESTS}
+- Unexpected: ${UNEXPECTED}
+- Aborted: ${ABORTED_COUNT}
+- Unknown: ${UNKNOWN_COUNT}
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+EOF
+)"
+
+echo "✓ Final snapshot committed to git"
+```
+
+**Display final snapshot capture**:
+
+```
+## Final Test Snapshot
+
+Capturing final test state after all merges...
+
+✓ Final snapshot: .beads/orchestrator/final-1234567890.txt
+✓ Snapshot committed to git
+
+Test Summary:
+- Total tests: 904
+- Unexpected failures: 0
+- Aborted tests: 0
+- Unknown tests: 0
+
+Comparison to baseline:
+- Baseline: 904 tests, 19 unexpected, 2 aborted, 257 unknown
+- Final: 904 tests, 0 unexpected, 0 aborted, 0 unknown
+- Delta: -19 unexpected, -2 aborted, -257 unknown ✓ Improved
+```
+
+**Skip final snapshot when**:
+- No beads were successfully merged (all failed or conflicted)
+- Regression detected and orchestration stopped early
+- User explicitly requests to skip
+
 ## Final Summary Report
 
 Display comprehensive summary of orchestration session:
@@ -875,6 +987,12 @@ Display comprehensive summary of orchestration session:
   - Reason: Agent encountered unclear requirements
   - Worktree: .worktrees/bead-emacs-def4-1234567890
   - Action needed: Review bead description, clarify requirements
+
+### Test Summary
+- Baseline snapshot: .beads/orchestrator/baseline-1234567890.txt
+- Final snapshot: .beads/orchestrator/final-1234567890.txt
+- Final test count: 904 tests, 0 unexpected, 0 aborted, 0 unknown
+- Status: All tests passing ✓
 
 ### Cleanup Summary
 - Removed: 2 worktrees (emacs-abc1, emacs-abc2)
