@@ -37,6 +37,243 @@ Prevents context window overflow from large command output.")
 Prevents runaway processes from consuming resources indefinitely.")
 ;; Constants:1 ends here
 
+;; V4 Schema Defaults
+
+;; Safe defaults for scope.yml v4 schema structure with operation-specific paths, cloud config, and security settings.
+
+
+;; [[file:scope-shell-tools.org::*V4 Schema Defaults][V4 Schema Defaults:1]]
+(defconst jf/gptel-scope-v4-defaults
+  '(:paths (:read ()
+            :write ()
+            :execute ()
+            :modify ()
+            :deny ())
+    :cloud (:auth-detection "warn")
+    :security (:enforce-parse-complete t
+               :max-coverage-threshold 0.8))
+  "Safe defaults for scope.yml v4 schema.
+Missing sections in YAML are merged with these defaults.
+
+Operation-specific paths:
+- read: Files/directories that can be read
+- write: Files/directories that can be written
+- execute: Files/directories where commands can execute
+- modify: Files/directories where modifications allowed
+- deny: Patterns never allowed
+
+Cloud configuration:
+- auth-detection: \"allow\", \"warn\", or \"deny\"
+
+Security settings:
+- enforce-parse-complete: Whether to require complete bash parsing
+- max-coverage-threshold: Maximum parse coverage ratio (0.0-1.0)")
+;; V4 Schema Defaults:1 ends here
+
+;; Load V4 Schema
+
+;; Load scope.yml v4 schema and merge with safe defaults.
+
+
+;; [[file:scope-shell-tools.org::*Load V4 Schema][Load V4 Schema:1]]
+(defun jf/gptel-scope--load-v4-schema (schema-plist)
+  "Load v4 schema from SCHEMA-PLIST and merge with defaults.
+Missing sections get safe defaults from `jf/gptel-scope-v4-defaults'.
+Present sections are validated for correctness.
+
+Returns merged plist with normalized kebab-case keys."
+  (let* ((defaults jf/gptel-scope-v4-defaults)
+         ;; Normalize snake_case to kebab-case
+         (normalized (jf/gptel-scope--normalize-keys schema-plist))
+         ;; Extract sections
+         (paths (plist-get normalized :paths))
+         (cloud (plist-get normalized :cloud))
+         (security (plist-get normalized :security))
+         ;; Merge with defaults (missing sections → defaults)
+         (merged-paths (if paths
+                          (list :read (or (plist-get paths :read) ())
+                                :write (or (plist-get paths :write) ())
+                                :execute (or (plist-get paths :execute) ())
+                                :modify (or (plist-get paths :modify) ())
+                                :deny (or (plist-get paths :deny) ()))
+                        (plist-get defaults :paths)))
+         (merged-cloud (if cloud
+                          (list :auth-detection (or (plist-get cloud :auth-detection)
+                                                   (plist-get (plist-get defaults :cloud) :auth-detection)))
+                        (plist-get defaults :cloud)))
+         (merged-security (if security
+                             (list :enforce-parse-complete
+                                   (if (plist-member security :enforce-parse-complete)
+                                       (plist-get security :enforce-parse-complete)
+                                     (plist-get (plist-get defaults :security) :enforce-parse-complete))
+                                   :max-coverage-threshold
+                                   (if (plist-member security :max-coverage-threshold)
+                                       (plist-get security :max-coverage-threshold)
+                                     (plist-get (plist-get defaults :security) :max-coverage-threshold)))
+                           (plist-get defaults :security))))
+    ;; Validate present sections
+    (when cloud
+      (jf/gptel-scope--validate-cloud-config merged-cloud))
+    (when security
+      (jf/gptel-scope--validate-security-config merged-security))
+    ;; Return merged schema
+    (list :paths merged-paths
+          :cloud merged-cloud
+          :security merged-security)))
+;; Load V4 Schema:1 ends here
+
+;; Normalize Keys
+
+;; Convert YAML snake_case keys to elisp kebab-case.
+
+
+;; [[file:scope-shell-tools.org::*Normalize Keys][Normalize Keys:1]]
+(defun jf/gptel-scope--normalize-keys (plist)
+  "Normalize PLIST keys from snake_case to kebab-case.
+Recursively processes nested plists.
+
+Examples:
+  :auth_detection → :auth-detection
+  :max_coverage_threshold → :max-coverage-threshold
+  :enforce_parse_complete → :enforce-parse-complete"
+  (let ((result nil))
+    (while plist
+      (let* ((key (car plist))
+             (value (cadr plist))
+             (normalized-key (intern (replace-regexp-in-string
+                                     "_" "-"
+                                     (symbol-name key))))
+             (normalized-value (if (and (listp value)
+                                       (not (null value))
+                                       (keywordp (car value)))
+                                  (jf/gptel-scope--normalize-keys value)
+                                value)))
+        (setq result (plist-put result normalized-key normalized-value))
+        (setq plist (cddr plist))))
+    result))
+;; Normalize Keys:1 ends here
+
+;; Validate Schema V4
+
+;; Validate v4 schema structure and values.
+
+
+;; [[file:scope-shell-tools.org::*Validate Schema V4][Validate Schema V4:1]]
+(defun jf/gptel-scope--validate-schema-v4 (schema-plist)
+  "Validate v4 SCHEMA-PLIST structure.
+Checks that present sections have valid values.
+Fails fast on invalid configuration.
+
+Returns t if valid, signals error otherwise."
+  (let ((paths (plist-get schema-plist :paths))
+        (cloud (plist-get schema-plist :cloud))
+        (security (plist-get schema-plist :security)))
+    ;; Validate paths section if present
+    (when paths
+      (unless (listp paths)
+        (error "V4 schema: paths must be a plist"))
+      (dolist (key '(:read :write :execute :modify :deny))
+        (when (plist-member paths key)
+          (let ((value (plist-get paths key)))
+            (unless (listp value)
+              (error "V4 schema: paths.%s must be a list, got %S" key value))))))
+    ;; Validate cloud section if present
+    (when cloud
+      (jf/gptel-scope--validate-cloud-config cloud))
+    ;; Validate security section if present
+    (when security
+      (jf/gptel-scope--validate-security-config security))
+    t))
+;; Validate Schema V4:1 ends here
+
+;; Load Cloud Config
+
+;; Extract and validate cloud configuration.
+
+
+;; [[file:scope-shell-tools.org::*Load Cloud Config][Load Cloud Config:1]]
+(defun jf/gptel-scope--load-cloud-config (cloud-plist)
+  "Load cloud configuration from CLOUD-PLIST.
+Validates auth-detection setting.
+
+Returns normalized cloud config plist."
+  (when cloud-plist
+    (let ((auth-detection (plist-get cloud-plist :auth-detection)))
+      (jf/gptel-scope--validate-cloud-config cloud-plist)
+      (list :auth-detection auth-detection))))
+;; Load Cloud Config:1 ends here
+
+;; Validate Cloud Config
+
+;; Validate cloud configuration values.
+
+
+;; [[file:scope-shell-tools.org::*Validate Cloud Config][Validate Cloud Config:1]]
+(defun jf/gptel-scope--validate-cloud-config (cloud-plist)
+  "Validate CLOUD-PLIST configuration.
+Checks auth-detection value is valid.
+
+Valid values: \"allow\", \"warn\", \"deny\"
+Signals error if invalid."
+  (when cloud-plist
+    (let ((auth-detection (plist-get cloud-plist :auth-detection)))
+      (unless (member auth-detection '("allow" "warn" "deny"))
+        (error "V4 schema: cloud.auth-detection must be \"allow\", \"warn\", or \"deny\", got %S"
+               auth-detection))))
+  t)
+;; Validate Cloud Config:1 ends here
+
+;; Load Security Config
+
+;; Extract and validate security configuration.
+
+
+;; [[file:scope-shell-tools.org::*Load Security Config][Load Security Config:1]]
+(defun jf/gptel-scope--load-security-config (security-plist)
+  "Load security configuration from SECURITY-PLIST.
+Validates enforce-parse-complete and max-coverage-threshold.
+
+Returns normalized security config plist."
+  (when security-plist
+    (let ((enforce-parse-complete (plist-get security-plist :enforce-parse-complete))
+          (max-coverage-threshold (plist-get security-plist :max-coverage-threshold)))
+      (jf/gptel-scope--validate-security-config security-plist)
+      (list :enforce-parse-complete enforce-parse-complete
+            :max-coverage-threshold max-coverage-threshold))))
+;; Load Security Config:1 ends here
+
+;; Validate Security Config
+
+;; Validate security configuration values.
+
+
+;; [[file:scope-shell-tools.org::*Validate Security Config][Validate Security Config:1]]
+(defun jf/gptel-scope--validate-security-config (security-plist)
+  "Validate SECURITY-PLIST configuration.
+Checks:
+- enforce-parse-complete is boolean
+- max-coverage-threshold is in [0.0, 1.0]
+
+Signals error if invalid."
+  (when security-plist
+    (let ((enforce-parse-complete (plist-get security-plist :enforce-parse-complete))
+          (max-coverage-threshold (plist-get security-plist :max-coverage-threshold)))
+      ;; Validate enforce-parse-complete
+      (when (plist-member security-plist :enforce-parse-complete)
+        (unless (or (eq enforce-parse-complete t)
+                   (eq enforce-parse-complete nil))
+          (error "V4 schema: security.enforce-parse-complete must be boolean, got %S"
+                 enforce-parse-complete)))
+      ;; Validate max-coverage-threshold
+      (when (plist-member security-plist :max-coverage-threshold)
+        (unless (and (numberp max-coverage-threshold)
+                    (>= max-coverage-threshold 0.0)
+                    (<= max-coverage-threshold 1.0))
+          (error "V4 schema: security.max-coverage-threshold must be in [0.0, 1.0], got %S"
+                 max-coverage-threshold)))))
+  t)
+;; Validate Security Config:1 ends here
+
 ;; Implementation
 
 
