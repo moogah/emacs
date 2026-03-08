@@ -231,9 +231,9 @@ gptel/
 
 #### Schema Structure
 
-Scope validation uses operation-specific path scoping, cloud authentication detection, and security settings. **BREAKING CHANGE**: Legacy schemas are not compatible - manual migration required.
+Scope validation uses operation-specific path scoping, cloud authentication detection, and security settings.
 
-**Full schema structure:**
+**Full schema structure** (see `config/gptel/scope-profiles/bash-enabled.yml` for reference):
 ```yaml
 # scope.yml schema
 paths:
@@ -242,9 +242,9 @@ paths:
     - "/tmp/**"
   write:
     - "/workspace/**"
-  execute:                    # NEW in v4
+  execute:
     - "/workspace/scripts/**"
-  modify:                     # NEW in v4
+  modify:
     - "/workspace/config/**"
   deny:
     - "/etc/**"
@@ -253,39 +253,36 @@ paths:
 bash_tools:
   categories:
     read_only:
-      - ls
-      - cat
-      - grep
-      - find
+      commands: ["ls", "cat", "grep", "find", "tree", "head", "tail", "wc", "file", "git", "pwd", "which"]
     safe_write:
-      - mkdir
-      - touch
-      - echo
+      commands: ["mkdir", "touch", "echo", "git"]
     dangerous:
-      - rm
-      - sudo
+      commands: []
   deny:
     - rm
-    - sudo
+    - mv
     - chmod
+    - sudo
+    - chown
+    # Additional denied commands for security...
 
-cloud:                        # NEW in v4
+cloud:
   auth_detection: "warn"      # "allow", "warn", or "deny"
   allowed_providers:
     - aws
     - gcp
 
-security:                     # NEW in v4
+security:
   enforce_parse_complete: true
   max_coverage_threshold: 0.8
 ```
 
 **Permission hierarchy:**
-- `paths.read` - Required for file reads (cat, grep, find)
-- `paths.write` - Required for file writes (echo >, mkdir), includes read capability
-- `paths.execute` - Required for script execution (./script.sh, bash script.sh)
-- `paths.modify` - Required for in-place edits (sed -i, awk -i), subset of write
-- `paths.deny` - Always blocks access regardless of other permissions
+- `paths.read` - Required for file reads (cat, grep, find). Read allowed if in read OR write patterns (write includes read)
+- `paths.write` - Required for file writes (echo >, mkdir). Includes read and modify capabilities
+- `paths.execute` - Required for script execution (./script.sh, bash script.sh). Explicit permission only (high risk)
+- `paths.modify` - Required for in-place edits (sed -i, awk -i). Modify allowed if in modify OR write patterns (write includes modify)
+- `paths.deny` - Always blocks access regardless of other permissions. Deny precedence overrides all allow patterns
 
 **Operation examples:**
 ```bash
@@ -302,56 +299,46 @@ bash /workspace/scripts/deploy.sh
 sed -i 's/foo/bar/' /workspace/config/settings.conf
 ```
 
-#### Breaking Changes from v3
-
-**Schema incompatibilities:**
-1. **No backward compatibility**: v3 schemas will fail validation
-2. **New required sections**: Commands requiring execute/modify operations need new path sections
-3. **Pipeline validation**: Commands like `ls | xargs rm` now validate all commands (closes security bypass)
-4. **File path validation**: Absolute paths in command arguments now checked against scope
-
-**Migration required for:**
-- Execute operations: Add `paths.execute` with script directories
-- Modify operations: Add `paths.modify` with editable file patterns
-- Cloud commands: Add `cloud` section if using aws-vault, gcloud, az commands
-- Pipeline commands: All commands in pipeline must pass categorization
-
-**No automatic migration**: Users must manually update scope.yml files. See migration guide in `openspec/changes/bash-parser-integration/migration-guide.md`.
-
-**Rollback strategy**: If issues discovered post-deployment, rollback requires `git revert` of integration PR. No dual-mode fallback available.
-
 #### Validation Pipeline
 
 Seven-stage validation with early exit on failure:
 
 1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
-2. **Extract semantics** - Run plugins (file-ops, cloud-auth, security) to extract operations
+2. **Extract semantics** - Run plugins (file-ops, cloud-auth) to extract operations
 3. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
 4. **Pipeline validation** - Extract and validate ALL commands in pipelines/chains
-5. **Command categorization** - Check deny list, then read_only/safe_write/dangerous
-6. **File operation validation** - Match extracted file paths against operation-specific scope patterns
-7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers`
+5. **Command categorization** - Check deny list first, then read_only/safe_write/dangerous categories
+6. **File operation validation** - Match extracted file paths against operation-specific scope patterns (read/write/execute/modify/deny)
+7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers` (if cloud auth detected)
 
 **Example validation flow:**
 ```elisp
 ;; Command: cat /workspace/file.txt | grep foo
-;; 1. Parse → AST with pipeline structure
-;; 2. Extract → [{:operation :read :path "/workspace/file.txt"}]
-;; 3. Parse complete? → yes
+;; 1. Parse → AST with pipeline structure and tokens
+;; 2. Extract semantics → file-ops: [{:operation :read :path "/workspace/file.txt"}]
+;; 3. Parse complete? → yes (continue)
 ;; 4. Pipeline commands → ["cat", "grep"]
-;; 5. Categorize → cat: read_only, grep: read_only
+;; 5. Categorize → cat: read_only (allowed), grep: read_only (allowed)
 ;; 6. Validate paths → /workspace/file.txt matches paths.read
-;; 7. Cloud auth → none detected
+;; 7. Cloud auth → none detected (skip)
 ;; Result: ALLOW
+
+;; Command: ls | xargs rm
+;; 1. Parse → AST with pipeline
+;; 2. Extract semantics → no file operations
+;; 3. Parse complete? → yes
+;; 4. Pipeline commands → ["ls", "xargs", "rm"]
+;; 5. Categorize → ls: read_only (ok), xargs: read_only (ok), rm: IN DENY LIST
+;; Result: DENY (command_denied error at position 2)
 ```
 
 #### Cloud Authentication Detection
 
-**Purpose**: Detect and control cloud authentication commands (aws-vault, gcloud, az).
+**Purpose**: Detect and control cloud authentication commands (aws-vault, gcloud, az) that may grant access to sensitive cloud resources.
 
 **Configuration modes:**
-- `auth_detection: "allow"` - Permit all cloud auth commands
-- `auth_detection: "warn"` - Allow but log warning (default)
+- `auth_detection: "allow"` - Permit all cloud auth commands without warnings
+- `auth_detection: "warn"` - Allow but log warning (default in bash-enabled profile)
 - `auth_detection: "deny"` - Block all cloud auth commands
 
 **Provider filtering:**
@@ -359,13 +346,18 @@ Seven-stage validation with early exit on failure:
 cloud:
   auth_detection: "warn"
   allowed_providers:
-    - aws    # Allow AWS commands only
+    - aws    # Only allow AWS commands, deny GCP/Azure
 ```
 
 **Detected commands:**
-- AWS: `aws-vault`, `aws sts`, `aws configure`
-- GCP: `gcloud auth`, `gcloud config`
-- Azure: `az login`, `az account`
+- **AWS**: `aws-vault`, `aws sts`, `aws configure`
+- **GCP**: `gcloud auth`, `gcloud config`
+- **Azure**: `az login`, `az account`
+
+**Validation behavior:**
+- If `allowed_providers` is empty/missing: all providers allowed (subject to auth_detection mode)
+- If `allowed_providers` is set: only listed providers allowed, others denied
+- Detection occurs in Stage 7 of validation pipeline (after file operations)
 
 #### Security Settings
 
@@ -373,43 +365,85 @@ cloud:
 ```yaml
 security:
   enforce_parse_complete: true  # Reject unparseable commands
+  max_coverage_threshold: 0.8   # Warn if <80% tokens claimed by plugins
 ```
 
-When `true`, commands bash-parser cannot fully parse are rejected with `incomplete_parse` error. Set to `false` to allow with warnings.
+**Settings:**
+- `enforce_parse_complete: true` (strict mode) - Commands bash-parser cannot fully parse are rejected with `incomplete_parse` error
+- `enforce_parse_complete: false` (permissive mode) - Allow unparseable commands with warning
+- `max_coverage_threshold` (0.0-1.0) - Warn if semantic plugin coverage ratio below threshold
 
-**Coverage threshold:**
-```yaml
-security:
-  max_coverage_threshold: 0.8  # Warn if <80% tokens claimed by plugins
-```
+**Coverage threshold interpretation:**
+- Low coverage indicates semantic extraction may be incomplete
+- Threshold 0.0 = never warn, 1.0 = always warn
+- Default 0.8 (80% coverage required)
+- Warnings are non-blocking (Stage 6 of pipeline)
 
-Low coverage indicates semantic extraction may be incomplete. Threshold 0.0 = never warn, 1.0 = always warn.
+**When to use permissive mode:**
+- Environment has complex bash syntax edge cases
+- Validation failures due to parse incompleteness rather than security issues
+- Willing to accept reduced validation coverage for compatibility
+- Warning: Permissive mode reduces security guarantees
 
 #### Error Messages and Scope Expansion
 
-**Structured error responses** guide LLM to request scope expansion:
+**Structured error responses** guide LLM to request scope expansion. Errors are returned from validation pipeline stages.
+
+**Common error types:**
 
 ```elisp
-;; Path out of scope
-{:success nil
- :error "path_out_of_scope"
+;; Parse incomplete (Stage 3)
+{:error "parse_incomplete"
+ :message "Parse incomplete: Unexpected token at line 2"
+ :parse-errors "Unexpected token at line 2"}
+
+;; Command denied (Stage 5)
+{:error "command_denied"
+ :position 2
+ :command "rm"
+ :message "Command 'rm' at position 2 is in deny list"}
+
+;; Path out of scope (Stage 6)
+{:error "path_out_of_scope"
  :path "/etc/passwd"
  :operation :read
  :required-scope "paths.read"
- :allowed-patterns ["/workspace/**"]
- :message "File path outside allowed scope"
- :suggestion "Use request_scope_expansion to request access"}
+ :message "Path not in read scope: /etc/passwd"}
 
-;; Pipeline command denied
-{:success nil
- :error "command_denied"
- :command "rm"
- :pipeline-position 1
- :full-command "ls | xargs rm"
- :reason "Command in deny list"}
+;; Path denied (Stage 6)
+{:error "path_denied"
+ :path "/etc/passwd"
+ :operation :read
+ :message "Path denied by scope: /etc/passwd"}
+
+;; Cloud provider denied (Stage 7)
+{:error "cloud_provider_denied"
+ :provider :gcp
+ :command "gcloud auth login"
+ :allowed-providers ["aws"]
+ :message "Cloud provider 'gcp' not in allowed list: [\"aws\"]"}
+
+;; Cloud auth denied (Stage 7)
+{:error "cloud_auth_denied"
+ :provider :aws
+ :command "aws-vault exec"
+ :message "Cloud authentication denied: aws-vault exec (aws provider)"}
 ```
 
-Use `request_scope_expansion` tool to prompt user for permission. User can approve permanently (adds to scope.yml) or once (current turn only).
+**Scope expansion workflow:**
+1. LLM receives structured error from validation pipeline
+2. LLM calls `request_scope_expansion` tool with justification
+3. User sees transient menu with 3 options: Deny, Add to scope, Allow once
+4. Approval permanently updates scope.yml (Add to scope) or allows temporarily (Allow once)
+
+**Example:**
+```elisp
+;; LLM requests expansion after path_out_of_scope error
+(request_scope_expansion
+  :tool_name "run_bash_command"
+  :patterns ["/tmp/**"]
+  :justification "Need to create temporary scratch files for data processing")
+```
 
 ## Common Commands
 
@@ -616,6 +650,7 @@ Use **Beads** for tracking implementation work:
 
 **Root:** `early-init.el`, `init.el`, `init.org` (MUST be at root), `Makefile` (test infrastructure)
 **Config:** `config/core/`, `config/gptel/`, `config/major-modes/`, `config/language-modes/`, `config/local/`
+**Bash Parser:** `config/bash-parser/` (tree-sitter-based bash parser, used by gptel scope validation)
 **Tests:** `config/*/test/` or `config/*-test.el` (co-located with modules)
 **Runtime:** `runtime/straight/`, `runtime/cache/`, `runtime/state/` (gitignored)
 **Bin:** `bin/run-tests.sh` (test CLI), `bin/emacs-isolated.sh` (GUI launcher), `bin/tangle-org.sh` (literate programming)

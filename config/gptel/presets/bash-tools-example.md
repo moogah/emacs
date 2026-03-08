@@ -36,19 +36,20 @@ Directory scope validation:
 
 ## Command Validation Strategy
 
-**Only the base command (first token before pipes/redirects) is categorized and validated.**
+**All commands in pipelines and chains are categorized and validated independently.**
 
 This means:
-- Listing `grep` allows `grep pattern file | head | tail`
-- Listing `ls` allows `ls -la | grep "\.el$" | wc -l`
-- Listing `brew` allows `brew list` and `brew install` (constrained by directory scope)
+- `cat file.txt | grep pattern` requires both `cat` and `grep` in allow lists
+- `ls -la | grep "\.el$" | wc -l` requires `ls`, `grep`, and `wc` in allow lists
+- `ls | xargs rm` is **blocked** because `rm` is in the deny list (even if `ls` is allowed)
 
-Security relies on three layers:
-1. **Base command categorization** - Command must be in an allow list
-2. **Directory scope enforcement** - Working directory must match category's path requirements
-3. **Read vs write path validation** - Category determines required path access level
+Security relies on four layers:
+1. **Pipeline command validation** - ALL commands in pipelines/chains must be in allow lists
+2. **Command categorization** - Each command must be in read_only, safe_write, or dangerous categories
+3. **File path validation** - File arguments are validated against operation-specific scope (paths.read, paths.write, paths.execute, paths.modify)
+4. **Deny list enforcement** - Commands in the deny list are blocked regardless of pipeline position
 
-**Important:** Pipes, redirects, and command substitution are allowed if the base command is categorized. The working directory determines what files can be accessed, not the command arguments.
+**Important:** Pipeline bypass has been closed. Commands like `ls | xargs rm` are properly rejected because all pipeline commands are validated, not just the first one.
 
 ## Example Usage
 
