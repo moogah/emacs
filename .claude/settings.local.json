@@ -68,7 +68,8 @@
       "Bash(bd dep --help:*)",
       "Bash(bd ready:*)",
       "Bash(bd ls:*)",
-      "Bash(make test-file:*)"
+      "Bash(make test-file:*)",
+      "Bash(bd dep remove:*)"
     ]
   }
 }
