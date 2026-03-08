@@ -39,13 +39,13 @@ Prevents context window overflow from large command output.")
 Prevents runaway processes from consuming resources indefinitely.")
 ;; Constants:1 ends here
 
-;; V4 Schema Defaults
+;; Schema Defaults
 
-;; Safe defaults for scope.yml v4 schema structure with operation-specific paths, cloud config, and security settings.
+;; Safe defaults for scope.yml schema structure with operation-specific paths, cloud config, and security settings.
 
 
-;; [[file:scope-shell-tools.org::*V4 Schema Defaults][V4 Schema Defaults:1]]
-(defconst jf/gptel-scope-v4-defaults
+;; [[file:scope-shell-tools.org::*Schema Defaults][Schema Defaults:1]]
+(defconst jf/gptel-scope-schema-defaults
   '(:paths (:read ()
             :write ()
             :execute ()
@@ -54,7 +54,7 @@ Prevents runaway processes from consuming resources indefinitely.")
     :cloud (:auth-detection "warn")
     :security (:enforce-parse-complete t
                :max-coverage-threshold 0.8))
-  "Safe defaults for scope.yml v4 schema.
+  "Safe defaults for scope.yml schema.
 Missing sections in YAML are merged with these defaults.
 
 Operation-specific paths:
@@ -70,21 +70,21 @@ Cloud configuration:
 Security settings:
 - enforce-parse-complete: Whether to require complete bash parsing
 - max-coverage-threshold: Maximum parse coverage ratio (0.0-1.0)")
-;; V4 Schema Defaults:1 ends here
+;; Schema Defaults:1 ends here
 
-;; Load V4 Schema
+;; Load Schema
 
-;; Load scope.yml v4 schema and merge with safe defaults.
+;; Load scope.yml schema and merge with safe defaults.
 
 
-;; [[file:scope-shell-tools.org::*Load V4 Schema][Load V4 Schema:1]]
-(defun jf/gptel-scope--load-v4-schema (schema-plist)
-  "Load v4 schema from SCHEMA-PLIST and merge with defaults.
-Missing sections get safe defaults from `jf/gptel-scope-v4-defaults'.
+;; [[file:scope-shell-tools.org::*Load Schema][Load Schema:1]]
+(defun jf/gptel-scope--load-schema (schema-plist)
+  "Load scope schema from SCHEMA-PLIST and merge with defaults.
+Missing sections get safe defaults from `jf/gptel-scope-schema-defaults'.
 Present sections are validated for correctness.
 
 Returns merged plist with normalized kebab-case keys."
-  (let* ((defaults jf/gptel-scope-v4-defaults)
+  (let* ((defaults jf/gptel-scope-schema-defaults)
          ;; Normalize snake_case to kebab-case
          (normalized (jf/gptel-scope--normalize-keys schema-plist))
          ;; Extract sections
@@ -122,7 +122,7 @@ Returns merged plist with normalized kebab-case keys."
     (list :paths merged-paths
           :cloud merged-cloud
           :security merged-security)))
-;; Load V4 Schema:1 ends here
+;; Load Schema:1 ends here
 
 ;; Normalize Keys
 
@@ -155,14 +155,14 @@ Examples:
     result))
 ;; Normalize Keys:1 ends here
 
-;; Validate Schema V4
+;; Validate Schema
 
-;; Validate v4 schema structure and values.
+;; Validate scope schema structure and values.
 
 
-;; [[file:scope-shell-tools.org::*Validate Schema V4][Validate Schema V4:1]]
-(defun jf/gptel-scope--validate-schema-v4 (schema-plist)
-  "Validate v4 SCHEMA-PLIST structure.
+;; [[file:scope-shell-tools.org::*Validate Schema][Validate Schema:1]]
+(defun jf/gptel-scope--validate-schema (schema-plist)
+  "Validate scope SCHEMA-PLIST structure.
 Checks that present sections have valid values.
 Fails fast on invalid configuration.
 
@@ -173,12 +173,12 @@ Returns t if valid, signals error otherwise."
     ;; Validate paths section if present
     (when paths
       (unless (listp paths)
-        (error "V4 schema: paths must be a plist"))
+        (error "Scope schema: paths must be a plist"))
       (dolist (key '(:read :write :execute :modify :deny))
         (when (plist-member paths key)
           (let ((value (plist-get paths key)))
             (unless (listp value)
-              (error "V4 schema: paths.%s must be a list, got %S" key value))))))
+              (error "Scope schema: paths.%s must be a list, got %S" key value))))))
     ;; Validate cloud section if present
     (when cloud
       (jf/gptel-scope--validate-cloud-config cloud))
@@ -186,7 +186,7 @@ Returns t if valid, signals error otherwise."
     (when security
       (jf/gptel-scope--validate-security-config security))
     t))
-;; Validate Schema V4:1 ends here
+;; Validate Schema:1 ends here
 
 ;; Load Cloud Config
 
@@ -220,7 +220,7 @@ Signals error if invalid."
   (when cloud-plist
     (let ((auth-detection (plist-get cloud-plist :auth-detection)))
       (unless (member auth-detection '("allow" "warn" "deny"))
-        (error "V4 schema: cloud.auth-detection must be \"allow\", \"warn\", or \"deny\", got %S"
+        (error "Scope schema: cloud.auth-detection must be \"allow\", \"warn\", or \"deny\", got %S"
                auth-detection))))
   t)
 ;; Validate Cloud Config:1 ends here
@@ -264,14 +264,14 @@ Signals error if invalid."
       (when (plist-member security-plist :enforce-parse-complete)
         (unless (or (eq enforce-parse-complete t)
                    (eq enforce-parse-complete nil))
-          (error "V4 schema: security.enforce-parse-complete must be boolean, got %S"
+          (error "Scope schema: security.enforce-parse-complete must be boolean, got %S"
                  enforce-parse-complete)))
       ;; Validate max-coverage-threshold
       (when (plist-member security-plist :max-coverage-threshold)
         (unless (and (numberp max-coverage-threshold)
                     (>= max-coverage-threshold 0.0)
                     (<= max-coverage-threshold 1.0))
-          (error "V4 schema: security.max-coverage-threshold must be in [0.0, 1.0], got %S"
+          (error "Scope schema: security.max-coverage-threshold must be in [0.0, 1.0], got %S"
                  max-coverage-threshold)))))
   t)
 ;; Validate Security Config:1 ends here
