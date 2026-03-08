@@ -103,14 +103,18 @@ Return a plist on success, or nil on failure (with warning logged)."
 Convert all snake_case keywords to kebab-case. For example,
 =:confirm_tool_calls= becomes =:confirm-tool-calls=. Applied before coercion.
 
-Recursively processes nested plists to handle structures like =bash_tools= with
-nested categories.
+NOTE: This implementation is duplicated in =scope-profiles.org= and
+=scope-shell-tools.org=. The duplication is intentional - early-loaded modules
+(preset-registration, scope-profiles) cannot depend on late-loaded modules
+(scope-shell-tools requires scope-core and scope-expansion).
 
 #+begin_src emacs-lisp
 (defun jf/gptel-preset--normalize-keys (plist)
   "Normalize all snake_case keywords in PLIST to kebab-case.
 Return a new plist with converted keys. Recursively processes nested plists.
-Already-hyphenated keys pass through unchanged."
+
+NOTE: Duplicated in scope-profiles.org and scope-shell-tools.org
+due to module loading dependencies."
   (let ((result nil))
     (while plist
       (let* ((key (pop plist))

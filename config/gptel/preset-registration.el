@@ -60,7 +60,9 @@ Return a plist on success, or nil on failure (with warning logged)."
 (defun jf/gptel-preset--normalize-keys (plist)
   "Normalize all snake_case keywords in PLIST to kebab-case.
 Return a new plist with converted keys. Recursively processes nested plists.
-Already-hyphenated keys pass through unchanged."
+
+NOTE: Duplicated in scope-profiles.org and scope-shell-tools.org
+due to module loading dependencies."
   (let ((result nil))
     (while plist
       (let* ((key (pop plist))

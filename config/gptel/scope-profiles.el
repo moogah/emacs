@@ -15,28 +15,29 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 
-(defun jf/gptel-scope-profile--snake-to-kebab (key)
-  "Convert KEY from snake_case keyword to kebab-case keyword.
-E.g., :org_roam_patterns becomes :org-roam-patterns."
-  (intern (replace-regexp-in-string "_" "-" (symbol-name key))))
+(defun jf/gptel-scope-profile--normalize-keys (parsed)
+  "Normalize snake_case keys in PARSED plist to kebab-case.
+Recursively processes nested plists.
+
+NOTE: Duplicated in preset-registration.org and scope-shell-tools.org
+due to module loading dependencies."
+  (let ((result nil))
+    (cl-loop for (key val) on parsed by #'cddr
+             do (let* ((key-name (symbol-name key))
+                       (normalized-name (replace-regexp-in-string "_" "-" key-name))
+                       (normalized-key (intern normalized-name))
+                       (normalized-val (if (and (listp val)
+                                               (not (null val))
+                                               (keywordp (car val)))
+                                          (jf/gptel-scope-profile--normalize-keys val)
+                                        val)))
+                  (setq result (plist-put result normalized-key normalized-val))))
+    result))
 
 (defun jf/gptel-scope-profile--kebab-to-snake (key)
   "Convert KEY from kebab-case keyword to snake_case keyword.
 E.g., :org-roam-patterns becomes :org_roam_patterns."
   (intern (replace-regexp-in-string "-" "_" (symbol-name key))))
-
-(defun jf/gptel-scope-profile--normalize-keys (parsed)
-  "Normalize snake_case keys in PARSED plist to kebab-case.
-Handles top-level keys only; nested structures (sub-plists) are
-also normalized recursively."
-  (let ((result nil))
-    (cl-loop for (key val) on parsed by #'cddr
-             do (let ((new-key (jf/gptel-scope-profile--snake-to-kebab key))
-                      (new-val (if (and (listp val) (keywordp (car-safe val)))
-                                   (jf/gptel-scope-profile--normalize-keys val)
-                                 val)))
-                  (setq result (plist-put result new-key new-val))))
-    result))
 
 (defun jf/gptel-scope-profile--load (profile-name)
   "Load scope profile PROFILE-NAME from the profiles directory.

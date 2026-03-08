@@ -153,13 +153,32 @@ See =config/gptel/tools/scope-shell-tools.org= for complete documentation on the
 
 Convert between snake_case (YAML on-disk format) and kebab-case (Elisp plist format).
 
-** Snake Case to Kebab Case
+NOTE: This implementation is duplicated in =preset-registration.org= and
+=scope-shell-tools.org=. The duplication is intentional - early-loaded modules
+(preset-registration, scope-profiles) cannot depend on late-loaded modules
+(scope-shell-tools requires scope-core and scope-expansion).
+
+** Normalize Parsed YAML Plist
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--snake-to-kebab (key)
-  "Convert KEY from snake_case keyword to kebab-case keyword.
-E.g., :org_roam_patterns becomes :org-roam-patterns."
-  (intern (replace-regexp-in-string "_" "-" (symbol-name key))))
+(defun jf/gptel-scope-profile--normalize-keys (parsed)
+  "Normalize snake_case keys in PARSED plist to kebab-case.
+Recursively processes nested plists.
+
+NOTE: Duplicated in preset-registration.org and scope-shell-tools.org
+due to module loading dependencies."
+  (let ((result nil))
+    (cl-loop for (key val) on parsed by #'cddr
+             do (let* ((key-name (symbol-name key))
+                       (normalized-name (replace-regexp-in-string "_" "-" key-name))
+                       (normalized-key (intern normalized-name))
+                       (normalized-val (if (and (listp val)
+                                               (not (null val))
+                                               (keywordp (car val)))
+                                          (jf/gptel-scope-profile--normalize-keys val)
+                                        val)))
+                  (setq result (plist-put result normalized-key normalized-val))))
+    result))
 #+end_src
 
 ** Kebab Case to Snake Case
@@ -169,23 +188,6 @@ E.g., :org_roam_patterns becomes :org-roam-patterns."
   "Convert KEY from kebab-case keyword to snake_case keyword.
 E.g., :org-roam-patterns becomes :org_roam_patterns."
   (intern (replace-regexp-in-string "-" "_" (symbol-name key))))
-#+end_src
-
-** Normalize Parsed YAML Plist
-
-#+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--normalize-keys (parsed)
-  "Normalize snake_case keys in PARSED plist to kebab-case.
-Handles top-level keys only; nested structures (sub-plists) are
-also normalized recursively."
-  (let ((result nil))
-    (cl-loop for (key val) on parsed by #'cddr
-             do (let ((new-key (jf/gptel-scope-profile--snake-to-kebab key))
-                      (new-val (if (and (listp val) (keywordp (car-safe val)))
-                                   (jf/gptel-scope-profile--normalize-keys val)
-                                 val)))
-                  (setq result (plist-put result new-key new-val))))
-    result))
 #+end_src
 
 * Load Profile from YAML File
