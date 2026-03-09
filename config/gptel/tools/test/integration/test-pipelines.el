@@ -46,10 +46,10 @@
 (defun test-pipeline--make-categories ()
   "Create test bash_tools structure for pipeline validation tests.
 
-With category removal, only deny list is used for validation:
+Deny-list-only validation (categories removed):
 - deny: rm, mv, chmod, sh, bash, eval
 
-Commands not in deny list pass validation (allowlist approach removed)."
+Commands not in deny list pass validation automatically."
   (list :deny '("rm" "mv" "chmod" "sh" "bash" "eval")))
 
 (defun test-pipeline--extract-commands (command-string)
@@ -108,14 +108,13 @@ Then system extracts two commands: 'test' and 'touch'"
 
 ;;; 2. All Pipeline Commands Validated Independently
 ;;;
-;;; Spec: "The system SHALL validate each command in a pipeline against bash_tools
-;;; categories and deny list."
+;;; Spec: "The system SHALL validate each command in a pipeline against bash_tools deny list."
 
 (ert-deftest test-pipeline-all-commands-allowed ()
   "Spec scenario: All pipeline commands allowed.
 
 When command is 'ls -la | grep foo'
-And both 'ls' and 'grep' are in read_only category
+And neither 'ls' nor 'grep' are in deny list
 Then validation passes"
   (let* ((categories (test-pipeline--make-categories))
          (commands '("ls" "grep"))
@@ -140,16 +139,17 @@ This test documents closure of the pipeline bypass security vulnerability."
     (should (stringp (plist-get result :message)))
     (should (string-match-p "rm" (plist-get result :message)))))
 
-(ert-deftest test-pipeline-middle-command-not-allowed ()
-  "Spec scenario: Middle command in chain not allowed.
+(ert-deftest test-pipeline-middle-command-denied ()
+  "Spec scenario: Middle command in chain denied.
 
 When command is 'cat file.txt | sh | head -10'
-And 'cat' and 'head' allowed but 'sh' not in any category
-Then validation fails with 'command_not_allowed' error for 'sh'"
+And 'sh' is in deny list
+Then validation fails with 'command_denied' error for 'sh'"
   (let* ((categories (test-pipeline--make-categories))
          (commands '("cat" "sh" "head"))
          (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
     (should result)  ; Failure = error plist
+    (should (equal (plist-get result :error) "command_denied"))
     (should (equal (plist-get result :command) "sh"))
     (should (numberp (plist-get result :position)))
     (should (= (plist-get result :position) 1))))  ; 0-indexed, so sh is position 1
@@ -184,7 +184,7 @@ only validate 'find' and allow 'rm' to execute unchecked."
   "Spec scenario: Prevent sh execution bypass.
 
 When command is 'grep pattern . | sh'
-And 'sh' not in allowed categories
+And 'sh' is in deny list
 Then system rejects identifying shell execution risk
 
 SECURITY: This closes the bypass where piping to 'sh' would execute
@@ -193,6 +193,7 @@ arbitrary commands without validation."
          (commands '("grep" "sh"))
          (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
     (should result)  ; Failure = error plist
+    (should (equal (plist-get result :error) "command_denied"))
     (should (equal (plist-get result :command) "sh"))
     (should (= (plist-get result :position) 1))))
 
@@ -353,20 +354,16 @@ Then system extracts: 'cd', 'ls', 'grep'"
 
 ;;; 7. Deny List Precedence Tests
 
-(ert-deftest test-pipeline-deny-list-checked-before-allowed-categories ()
-  "Test that deny list takes precedence over allowed categories.
+(ert-deftest test-pipeline-deny-list-blocks-command ()
+  "Test that deny list blocks commands.
 
-When command is in both deny list and allowed category
-Then validation fails with deny list error
-
-This documents the precedence: deny > allow."
-  (let* ((categories (list :deny '("ls")  ; ls in BOTH deny and read_only
-                          :read_only (list :commands '("ls" "grep"))
-                          :safe_write (list :commands '())
-                          :dangerous (list :commands '())))
+When command is in deny list
+Then validation fails with command_denied error"
+  (let* ((categories (list :deny '("ls")))
          (commands '("ls"))
          (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
     (should result)  ; Failure = error plist
+    (should (equal (plist-get result :error) "command_denied"))
     (should (equal (plist-get result :command) "ls"))))
 
 (ert-deftest test-pipeline-deny-list-first-command ()
@@ -383,15 +380,17 @@ Then validation fails immediately at position 0"
 
 ;;; 8. Category Validation Tests
 
-(ert-deftest test-pipeline-command-not-in-any-category ()
+(ert-deftest test-pipeline-command-not-in-deny-list ()
   "Test that command not in deny list passes validation.
 
-With deny-list-only validation:
+Deny-list-only validation:
 When command is not in deny list (e.g., 'unknown-command')
 Then validation passes (returns nil)
 
-Note: Category membership checking has been removed.
-Commands are validated via: (1) deny list, (2) no-op allowance, (3) file operations."
+Commands are validated via:
+1. Deny list check (stage 3)
+2. No-op allowance (stage 4)
+3. File operations validation (stage 5)"
   (let* ((categories (test-pipeline--make-categories))
          (commands '("unknown-command"))
          (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
@@ -409,10 +408,10 @@ Then validation fails at first denied command"
     (should (equal (plist-get result :command) "rm"))
     (should (= (plist-get result :position) 2))))
 
-(ert-deftest test-pipeline-all-safe-write-commands ()
-  "Test pipeline with only safe_write commands.
+(ert-deftest test-pipeline-all-allowed-commands ()
+  "Test pipeline with commands not in deny list.
 
-When all commands are in safe_write category
+When all commands are not in deny list
 Then validation passes"
   (let* ((categories (test-pipeline--make-categories))
          (commands '("mkdir" "touch" "echo"))
@@ -469,6 +468,51 @@ Expected: ALLOW"
          (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
     (should-not result)))  ; Success = nil
 
+;;; 10. Deny-List-Only Validation Tests (Category Removal)
+
+(ert-deftest test-pipeline-deny-list-only-validation ()
+  "Test deny-list-only validation with no category checks.
+
+When command is not in deny list
+Then validation passes regardless of category membership"
+  (let* ((categories (list :deny '("rm" "sudo")))
+         (commands '("completely-unknown-command" "another-unknown"))
+         (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
+    (should-not result)))  ; Success = nil
+
+(ert-deftest test-pipeline-empty-deny-list ()
+  "Test validation with empty deny list.
+
+When deny list is empty
+Then all commands pass pipeline validation"
+  (let* ((categories (list :deny '()))
+         (commands '("rm" "sudo" "chmod" "any-command"))
+         (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
+    (should-not result)))  ; Success = nil (all commands allowed)
+
+(ert-deftest test-pipeline-deny-list-first-failure ()
+  "Test that validation fails at first denied command.
+
+When pipeline has multiple denied commands
+Then validation fails at first denied command"
+  (let* ((categories (list :deny '("rm" "sudo" "chmod")))
+         (commands '("ls" "rm" "sudo" "chmod"))  ; rm is first denied
+         (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
+    (should result)  ; Failure = error plist
+    (should (equal (plist-get result :error) "command_denied"))
+    (should (equal (plist-get result :command) "rm"))
+    (should (= (plist-get result :position) 1))))  ; Position of 'rm'
+
+(ert-deftest test-pipeline-deny-list-no-categories ()
+  "Test that categories field is not required for validation.
+
+When bash-tools has only deny list (no categories)
+Then validation works correctly"
+  (let* ((categories (list :deny '("rm")))  ; No :categories field
+         (commands '("ls" "grep" "head"))
+         (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
+    (should-not result)))  ; Success = nil
+
 ;;; Summary Documentation
 ;;;
 ;;; This test suite provides comprehensive coverage of pipeline validation
@@ -481,12 +525,12 @@ Expected: ALLOW"
 ;;;
 ;;; VALIDATION COVERAGE:
 ;;; - Command extraction from pipes, chains, complex structures
-;;; - Independent validation of each command against categories
-;;; - Deny list precedence over allowed categories
+;;; - Independent validation of each command against deny list
+;;; - Deny-list-only validation (categories removed)
 ;;; - Clear error messages with pipeline position
 ;;; - Real-world security scenarios
 ;;;
-;;; TEST COUNT: 34 tests covering 25+ spec scenarios
+;;; TEST COUNT: 38 tests covering 25+ spec scenarios + 4 deny-list tests
 
 (provide 'test-scope-validation-pipelines)
 ;;; test-scope-validation-pipelines.el ends here
