@@ -1,3 +1,18 @@
+;; Lexical Binding
+
+
+;; [[file:scope-core.org::*Lexical Binding][Lexical Binding:1]]
+;;; scope-core.el --- GPTEL Scope Manager Core -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Core infrastructure for scope-aware tools in gptel sessions.
+
+;;; Code:
+;; Lexical Binding:1 ends here
+
 ;; Dependencies
 
 
@@ -764,6 +779,56 @@ This is a pure transformation function with no side effects."
           :reason reason
           :validation-type validation-type)))
 ;; Build Violation Info from Validation Error:1 ends here
+
+;; Trigger Inline Expansion
+
+;; Invoke expansion UI with proper callback chain to coordinate user response with validation wrapper.
+
+
+;; [[file:scope-core.org::*Trigger Inline Expansion][Trigger Inline Expansion:1]]
+(defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name wrapper-callback)
+  "Trigger inline expansion UI for VALIDATION-ERROR.
+VALIDATION-ERROR is the error plist returned by validators.
+TOOL-NAME is the tool that was denied.
+WRAPPER-CALLBACK is the wrapper's callback function to invoke with approval result.
+
+This function:
+1. Builds violation-info from validation-error
+2. Extracts resource for patterns list
+3. Creates expansion-callback that parses JSON and invokes wrapper callback
+4. Calls jf/gptel-scope-prompt-expansion to show UI
+
+The callback chain is: User action → Expansion UI → This callback → Wrapper → Tool body.
+
+Implementation note: The expansion-callback lambda closes over wrapper-callback using
+lexical binding (enabled via file header). The closure will be invoked later by
+transient menu actions when the user makes a choice.
+
+Returns nil (no return value needed - async coordination via callbacks)."
+  (let* ((violation-info (jf/gptel-scope--build-violation-info validation-error tool-name))
+         (resource (plist-get violation-info :resource))
+         (patterns (list resource))  ; Single resource for inline expansion
+         (expansion-callback
+          (lambda (result-json)
+            "Parse expansion UI result and invoke wrapper callback with approval.
+RESULT-JSON is a JSON string with :success, :allowed_once, :patterns_added, etc."
+            (condition-case err
+                (let* ((parsed (json-parse-string result-json :object-type 'plist))
+                       (success (plist-get parsed :success)))
+                  (if success
+                      ;; User approved (either allow-once or add-to-scope)
+                      (funcall wrapper-callback (list :approved t))
+                    ;; User denied
+                    (funcall wrapper-callback (list :approved nil :reason "user_denied"))))
+              (error
+               ;; JSON parsing or callback error - treat as denial
+               (message "Error in expansion-callback: %s" (error-message-string err))
+               (funcall wrapper-callback (list :approved nil :reason "callback_error")))))))
+
+    ;; Show expansion UI with callback
+    (jf/gptel-scope-prompt-expansion violation-info expansion-callback patterns tool-name)
+    nil))  ; No return value - async coordination
+;; Trigger Inline Expansion:1 ends here
 
 ;; Convert Glob to Regex
 
