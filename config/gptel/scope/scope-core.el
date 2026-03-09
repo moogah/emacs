@@ -713,6 +713,58 @@ Returns plist with:
              :tool tool-name)))))
 ;; Tool Permission Dispatch:1 ends here
 
+;; Validation Type Inference
+
+;; Infer the validation type for a tool based on the tool categories constant.
+
+
+;; [[file:scope-core.org::*Validation Type Inference][Validation Type Inference:1]]
+(defun jf/gptel-scope--infer-validation-type (tool-name)
+  "Infer validation type for TOOL-NAME from tool categories.
+Returns symbol (path, pattern, bash, meta) or nil if tool not found."
+  (when-let ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories))))
+    (plist-get category :validation)))
+;; Validation Type Inference:1 ends here
+
+;; Build Violation Info from Validation Error
+
+;; Transform validation error plist into violation info format expected by expansion UI.
+
+
+;; [[file:scope-core.org::*Build Violation Info from Validation Error][Build Violation Info from Validation Error:1]]
+(defun jf/gptel-scope--build-violation-info (validation-error tool-name)
+  "Transform VALIDATION-ERROR plist into violation-info format.
+VALIDATION-ERROR is the error plist returned by validators.
+TOOL-NAME is the tool that was denied.
+
+Returns plist with:
+  :tool - Tool name
+  :resource - The denied resource (path, command, provider, etc.)
+  :operation - Operation type (read, write, etc.)
+  :reason - Human-readable error message
+  :validation-type - Validation strategy (path, pattern, bash, meta)
+
+This is a pure transformation function with no side effects."
+  (let* ((error-type (or (plist-get validation-error :error)
+                         (plist-get validation-error :reason)
+                         "unknown"))
+         (resource (pcase error-type
+                     ("path_out_of_scope" (plist-get validation-error :path))
+                     ("command_denied" (plist-get validation-error :command))
+                     ("cloud_auth_denied" (plist-get validation-error :provider))
+                     ("incomplete_parse" (plist-get validation-error :command))
+                     (_ (or (plist-get validation-error :resource)
+                           (plist-get validation-error :path)))))
+         (operation (plist-get validation-error :operation))
+         (reason (plist-get validation-error :message))
+         (validation-type (jf/gptel-scope--infer-validation-type tool-name)))
+    (list :tool tool-name
+          :resource resource
+          :operation operation
+          :reason reason
+          :validation-type validation-type)))
+;; Build Violation Info from Validation Error:1 ends here
+
 ;; Convert Glob to Regex
 
 ;; Convert glob patterns to regex, supporting =**=, =*=, and =?= wildcards.
