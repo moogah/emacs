@@ -340,7 +340,7 @@ security:
         (expect jf/gptel-scope--allow-once-list :to-be nil)
 
         ;; Cleanup
-        (delete-file scope-yml)))))
+        (delete-file scope-yml))))))
 
 (provide 'inline-expansion-spec)
 ;;; inline-expansion-spec.el ends here
