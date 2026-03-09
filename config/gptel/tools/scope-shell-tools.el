@@ -476,7 +476,7 @@ Returns nil if all validations pass, error plist on first failure.
 Stages:
   1. Parse command with bash-parser
   2. Extract pipeline commands
-  3. Validate pipeline commands against categories
+  3. Validate pipeline commands against deny list
   4. Check for no-op (zero file operations) - short-circuit if true
   5. Extract and validate file operations
   6. Detect and enforce cloud auth policy
