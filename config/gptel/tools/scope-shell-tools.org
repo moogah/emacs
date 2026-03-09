@@ -4,222 +4,94 @@
 
 * Overview
 
-This module provides scope-aware shell execution and meta tools for v3.0 preset-based permission management:
+This module provides scope-aware shell execution and meta tools for v4 bash-parser-based permission management:
 
-1. *Shell tool*: =run_bash_command= - Execute shell commands with category-based scope validation
-2. *Meta tool*: =request_scope_expansion= - LLM requests user approval via transient menu (v3.0 async)
+1. *Shell tool*: =run_bash_command= - Execute shell commands with semantic validation using bash-parser integration
+2. *Meta tool*: =request_scope_expansion= - LLM requests user approval via transient menu
 
-*See also:* Complete usage examples in =config/gptel/presets/bash-tools-example.md= and =config/gptel/presets/system-explorer.md=
+*Behavioral spec:* =openspec/specs/gptel/scope.md= documents the complete v4 validation behavior.
 
-** Shell Command Scoping (v3.0)
+** Shell Command Validation (v4)
 
-The =run_bash_command= tool uses scope.yml bash_tools configuration with command categorization by operational impact.
+The =run_bash_command= tool uses a seven-stage validation pipeline with bash-parser for semantic extraction and operation-first validation.
+
+*** Validation Pipeline
+
+Commands undergo seven validation stages with early exit on failure:
+
+1. *Parse* - Use bash-parser (tree-sitter) to extract AST with tokens
+2. *Parse completeness* - Reject if incomplete and =security.enforce_parse_complete: true=
+3. *Deny list check* - Block commands in =bash_tools.deny= (minimal list for edge cases)
+4. *Extract semantics* - Run plugins (file-ops, cloud-auth) to extract operations
+5. *No-op allowance* - Allow commands with zero file operations (version checks, help flags)
+6. *File operation validation* - Match extracted file paths against operation-specific scope patterns (read/write/execute/modify/deny)
+7. *Cloud auth policy* - Enforce =cloud.auth_detection= and =allowed_providers= (if cloud auth detected)
+
+*** Operation-First Model
+
+Commands are validated by their *semantic operations* (file reads/writes) rather than category membership. The bash-parser extracts file operations and matches them against operation-specific path scopes:
+
+- =paths.read= - Required for file reads (cat, grep, find). Write scope includes read capability
+- =paths.write= - Required for file writes (echo >, mkdir). Includes modify capability
+- =paths.execute= - Required for script execution (./script.sh, bash script.sh)
+- =paths.modify= - Required for in-place edits (sed -i, awk -i). Write scope includes modify capability
+- =paths.deny= - Always blocks access (highest precedence)
 
 *** YAML Schema
 
-The =bash_tools= section in =scope.yml= has the following structure:
+The =scope.yml= configuration uses operation-specific paths, cloud config, and security settings:
 
 #+begin_src yaml
+paths:
+  read: ["/workspace/**"]
+  write: ["/workspace/**"]
+  execute: ["/workspace/scripts/**"]
+  modify: ["/workspace/config/**"]
+  deny: ["/etc/**", "~/.ssh/**"]
+
 bash_tools:
-  categories:
-    read_only:
-      commands: [ARRAY_OF_COMMAND_STRINGS]
-    safe_write:
-      commands: [ARRAY_OF_COMMAND_STRINGS]
-    dangerous:
-      commands: [ARRAY_OF_COMMAND_STRINGS]
-  deny: [ARRAY_OF_COMMAND_STRINGS]
-#+end_src
-
-*Schema fields:*
-- =categories= (object, required): Command categorization by operational impact
-  - =read_only= (object): Commands that only read data
-    - =commands= (array of strings): List of read-only command names
-  - =safe_write= (object): Commands that create or modify safely
-    - =commands= (array of strings): List of safe write command names
-  - =dangerous= (object): Commands requiring explicit user approval
-    - =commands= (array of strings): List of dangerous command names (typically empty)
-  - =deny= (array of strings): Commands never allowed, even with scope expansion
-
-*Example:*
-
-#+begin_src yaml
-bash_tools:
-  categories:
-    read_only:
-      commands: ["ls", "grep", "find", "cat", "head", "tail", "wc", "file", "git log", "git diff"]
-    safe_write:
-      commands: ["mkdir", "touch", "echo", "git add", "git commit"]
-    dangerous:
-      commands: []
   deny:
-    - "rm"
-    - "rmdir"
-    - "mv"
-    - "cp"
-    - "ln"
-    - "chmod"
-    - "sudo"
-    - "dd"
-    - "tar"
-    - "zip"
-    - "curl"
-    - "wget"
+    - sudo
+    - dd
+    - chmod
+    - chown
+    # Minimal deny list for high-risk edge cases
+    # Most commands validated by operation-first model
+
+cloud:
+  auth_detection: "warn"  # "allow", "warn", or "deny"
+  allowed_providers:
+    - aws
+    - gcp
+
+security:
+  enforce_parse_complete: true
+  max_coverage_threshold: 0.8
 #+end_src
 
-*** Command Categories
+*** No-Op Allowance
 
-Commands are grouped by *operational impact* rather than technical function:
+Commands with zero extracted file operations are automatically allowed without requiring explicit configuration. This enables version checks (=git --version=), help flags (=ls --help=), and informational commands (=which bash=) without manual allowlisting.
 
-1. *read_only* - Commands that only read data
-   - Examples: =ls=, =grep=, =find=, =cat=, =git log=, =git diff=
-   - Can execute in any readable directory (paths.read or paths.write)
-   - No risk of data modification
+*** Cloud Authentication Detection
 
-2. *safe_write* - Commands that create or modify safely
-   - Examples: =mkdir=, =touch=, =echo=, =git add=, =git commit=
-   - Require write-enabled directory (paths.write)
-   - Create new content but don't destroy existing data
+The system detects and controls cloud authentication commands (aws-vault, gcloud, az) that may grant access to sensitive cloud resources.
 
-3. *dangerous* - Commands requiring explicit approval
-   - Empty by default
-   - User must approve via scope expansion for each addition
-   - For commands with potential for unintended consequences
+*Configuration modes:*
+- =auth_detection: "allow"= - Permit all cloud auth commands
+- =auth_detection: "warn"= - Allow but log warning (default)
+- =auth_detection: "deny"= - Block all cloud auth commands
 
-4. *deny* - Commands never allowed
-   - Examples: =rm=, =rmdir=, =mv=, =cp=, =ln=, =scp=, =rsync=, =chmod=, =sudo=, =dd=, =crontab=, =iptables=, =systemctl=, =useradd=, =shutdown=, =reboot=, =halt=, =poweroff=
-   - Destructive operations that should never be automated
-   - Includes file operations (rm, rmdir, mv, cp, ln), remote transfers (scp, rsync), permissions (chmod), and security-sensitive commands: task scheduling, firewall, system services, user management, power management
-   - Archive tools with overwrite risk: =tar=, =zip=, =unzip=, =gzip=, =bzip2= (see Archive Tools Evaluation below)
-   - Download tools with write capability: =curl=, =wget= (see Download Tools Evaluation below)
-   - Rejected immediately without scope expansion option
+*Provider filtering:*
+If =allowed_providers= is set, only listed providers are allowed. Others are denied.
 
-*** Path Scope Binding
+*** Security Settings
 
-Each category binds to path scope requirements:
+- =enforce_parse_complete: true= (strict mode) - Reject unparseable commands
+- =enforce_parse_complete: false= (permissive mode) - Allow with warning
+- =max_coverage_threshold= (0.0-1.0) - Warn if semantic plugin coverage below threshold
 
-| Category    | Requires paths.read | Requires paths.write | Notes                           |
-|-------------|---------------------|----------------------|---------------------------------|
-| read_only   | ✓ (or write)        |                      | Write scope includes read       |
-| safe_write  |                     | ✓                    | More restrictive                |
-| dangerous   | ✓                   | ✓                    | Plus explicit approval          |
-| deny        | ✗                   | ✗                    | Never allowed                   |
-
-*Key insight:* Write paths imply read access. If a directory is in =paths.write=, read_only commands can execute there. This matches the intuition that "write permission includes read permission."
-
-*** Shell Composition
-
-The system supports standard shell composition features:
-
-- *Pipes*: =grep pattern file.txt | head -10=
-- *Redirects*: =ls -la > listing.txt=
-- *Command substitution*: =echo $(pwd)=
-
-*Validation strategy:* Only the *base command* (first command before pipes/redirects) is categorized and validated. If =grep= is in =read_only= and the directory is in =paths.read=, then =grep | head | tail= is allowed.
-
-*Rationale:* Validating the base command provides the primary security boundary. If =grep= is safe in a scoped directory, composing it with =head= doesn't increase risk. Parsing complex pipelines is error-prone and provides marginal security benefit.
-
-*IMPORTANT SECURITY LIMITATION:* This design allows dangerous commands in pipeline positions after the base command. For example:
-
-- =ls | xargs rm= would be ALLOWED if =ls= is in =read_only= category, even though =rm= is in the deny list
-- =grep pattern . | sh= would be ALLOWED if =grep= is in =read_only= category, even though =sh= could execute arbitrary commands
-- =find . -name '*.txt' | xargs chmod 777= would be ALLOWED if =find= is in =read_only=
-
-This is an *intentional security trade-off* balancing usability vs. risk:
-
-1. *Risk mitigation:* Directory scope still applies - all commands execute in a validated directory. Commands cannot escape the directory scope without using absolute paths (which trigger warnings).
-
-2. *Deny list provides primary defense:* Commands like =rm=, =sudo=, =chmod= in the deny list cannot be used as base commands. The LLM must compose them in pipelines to bypass validation.
-
-3. *LLM behavior:* The LLM learns safe patterns through normal operation. Deliberately bypassing security requires intent, which violates the LLM's operational guidelines.
-
-4. *User monitoring:* All bash commands are visible in the gptel buffer. Users can see when suspicious pipelines are executed.
-
-5. *Future enhancement:* Could add full pipeline parsing and validation if this becomes a practical attack vector in real-world usage.
-
-If this security boundary is insufficient for your use case, consider:
-- Setting bash_tools categories lists to empty =[]= to deny all bash commands
-- Only allowing specific commands via scope expansion
-- Monitoring gptel buffers for suspicious pipeline patterns
-
-*** Security Features
-
-1. *Timeouts* - Commands automatically terminate after 30 seconds
-   - Prevents runaway processes (e.g., =find /= or infinite loops)
-   - LLM receives timeout error and can retry with more specific filters
-
-2. *Output Truncation* - Command output limited to prevent context overflow
-   - Long output truncated with notice suggesting filters
-   - LLM learns to use =head=, =grep=, =tail= to narrow results
-
-3. *Absolute Path Warnings* - Warning when command arguments contain absolute paths
-   - Example: =grep pattern /other/project= triggers warning
-   - Absolute paths in arguments bypass directory scope validation
-   - Warning suggests using relative paths
-
-4. *Explicit Directory Required* - Every command must specify working directory
-   - No implicit fallbacks or context inference
-   - Forces clear intent about where commands execute
-
-*** Archive Tools Evaluation
-
-*Evaluated commands:* =tar=, =zip=, =unzip=, =gzip=, =bzip2=, =gunzip=, =bunzip2=
-
-*Risk analysis:*
-- Extraction operations can overwrite existing files without warning
-- Example: =tar -xf archive.tar= will silently overwrite files in current directory
-- Example: =unzip file.zip= can overwrite files during extraction
-
-*Safe operations exist:*
-- =tar -tf= or =tar -tzf= - List archive contents (read-only)
-- =unzip -l= - List zip contents (read-only)
-- =zip -sf= - Show files in archive (read-only)
-
-*Challenge:*
-Current validation model categorizes base commands only, not command+flag combinations. Cannot distinguish =tar -tf= (safe) from =tar -xf= (unsafe).
-
-*Decision: Add to deny list (conservative approach)*
-
-*Rationale:*
-1. *Overwrite risk outweighs utility* - Extraction can silently destroy data
-2. *Read-only alternatives exist* - Can use =less= or =cat= for single files
-3. *Limited use case* - LLM rarely needs to extract archives during exploration
-4. *Directory scope insufficient* - Even in write-enabled directory, overwriting existing files is dangerous
-5. *Consistent with existing policy* - =cp= and =mv= already denied for same overwrite risk
-
-*User workaround:* If archive extraction needed, user can run commands manually or add to =dangerous= category via scope expansion.
-
-*** Download Tools Evaluation
-
-*Evaluated commands:* =curl=, =wget=
-
-*Risk analysis:*
-- Both can write files using =-o= or =--output= flags
-- Example: =curl -o file.txt https://example.com= writes to filesystem
-- Example: =wget https://example.com/file.zip= saves file to current directory
-
-*Safe operations exist:*
-- =curl https://example.com= - Fetch content to stdout (read-only)
-- =wget -O - https://example.com= - Fetch to stdout (read-only)
-
-*Challenge:*
-Current validation model cannot validate flag combinations. Cannot distinguish =curl URL= (safe) from =curl -o file URL= (unsafe).
-
-*Decision: Add to deny list (conservative approach)*
-
-*Rationale:*
-1. *Write capability with flags* - =-o= flag bypasses directory scope validation
-2. *wget defaults to writing files* - Even without flags, writes to current directory
-3. *Security risk* - LLM could download and execute malicious content
-4. *Alternatives exist* - If LLM needs to fetch content, can suggest user use browser or dedicated tools
-5. *Scope boundary enforcement* - Download tools violate the principle that all writes must validate directory scope
-
-*Counterargument considered:*
-system-explorer preset has =write: []= (no write paths), so curl/wget write attempts would fail directory validation. However, this relies on preset configuration rather than command categorization. Conservative approach is safer.
-
-*User workaround:* If download capability needed, user can add to =dangerous= category via scope expansion with specific justification.
-
-** Scope Expansion (v3.0)
+** Scope Expansion
 
 The =request_scope_expansion= tool shows interactive transient menu with 3 choices:
 - *Deny* - Reject the expansion request
@@ -228,44 +100,6 @@ The =request_scope_expansion= tool shows interactive transient menu with 3 choic
 
 Uses async tool pattern with callback for FSM coordination.
 UI implemented in scope-expansion.org.
-
-*** Error Messages and Scope Expansion Flow
-
-When validation fails, the system provides structured errors guiding the LLM to request scope expansion:
-
-*Command not allowed:*
-#+begin_example json
-{
-  "success": false,
-  "error": "command_not_allowed",
-  "tool": "run_bash_command",
-  "command": "tree",
-  "message": "Command 'tree' is not in allowed command lists. Use request_scope_expansion to ask user for approval."
-}
-#+end_example
-
-*Directory not in scope:*
-#+begin_example json
-{
-  "success": false,
-  "error": "directory_not_in_scope",
-  "directory": "/Users/jefffarr/other-project",
-  "required_scope": "read",
-  "allowed_patterns": ["/Users/jefffarr/emacs/**", "/Users/jefffarr/projects/**"],
-  "message": "Directory not in read scope. Use request_scope_expansion to request access."
-}
-#+end_example
-
-The LLM can then call =request_scope_expansion= to request user approval:
-#+begin_example
-request_scope_expansion(
-  tool_name="run_bash_command",
-  patterns=["tree"],
-  justification="Need to visualize directory structure for debugging."
-)
-#+end_example
-
-User sees transient menu with options to deny, add to scope, or allow once.
 
 * File Header
 
