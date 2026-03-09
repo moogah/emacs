@@ -45,13 +45,29 @@ If baseline has failures: Use AskUserQuestion to confirm proceeding (regression 
 For each bead (sequential setup to avoid race conditions):
 
 ```bash
-WORKTREE_PATH=".worktrees/bead-${BEAD_ID}-$(date +%s)"
-git worktree add "$WORKTREE_PATH" -b "bead-${BEAD_ID}-$(date +%s)"
+# CRITICAL: Ensure we're in the main repository root
+cd /Users/jefffarr/emacs
+
+# Use absolute path to prevent nesting
+REPO_ROOT=$(git rev-parse --show-toplevel)
+WORKTREE_NAME="bead-${BEAD_ID}-$(date +%s)"
+WORKTREE_PATH="${REPO_ROOT}/.worktrees/${WORKTREE_NAME}"
+
+# Create worktree from main repo (not from within another worktree)
+git worktree add "$WORKTREE_PATH" -b "$WORKTREE_NAME"
+
+# Initialize runtime (use absolute path)
 ./bin/init-worktree-runtime.sh "$WORKTREE_PATH"
+
+# Initialize submodules (use -C to avoid cd)
 git -C "$WORKTREE_PATH" submodule update --init
 ```
 
-**CRITICAL**: Worktree path MUST be `.worktrees/` (relative, inside repo) for permissions inheritance. Never use absolute paths.
+**CRITICAL Worktree Requirements**:
+- **Always create from main repo root**: Use `cd` to main repo before `git worktree add`
+- **Use absolute paths**: Construct with `$(git rev-parse --show-toplevel)/.worktrees/...`
+- **Never create from within worktrees**: This causes nesting (.worktrees/A/.worktrees/B/)
+- **Siblings, not children**: All worktrees should be `.worktrees/bead-*`, not nested
 
 Ensure `.worktrees/` is gitignored.
 
@@ -59,6 +75,7 @@ Ensure `.worktrees/` is gitignored.
 ```json
 {
   "session_id": "orch-1234567890",
+  "repo_root": "/Users/jefffarr/emacs",
   "baseline_snapshot": ".beads/orchestrator/baseline-1234567890.txt",
   "baseline_test_count": 588,
   "baseline_unexpected_count": 0,
@@ -69,7 +86,7 @@ Ensure `.worktrees/` is gitignored.
   "beads": [
     {
       "bead_id": "emacs-abc1",
-      "worktree_path": ".worktrees/bead-emacs-abc1-1234567890",
+      "worktree_path": "/Users/jefffarr/emacs/.worktrees/bead-emacs-abc1-1234567890",
       "branch_name": "bead-emacs-abc1-1234567890",
       "task_id": "task-xyz",
       "status": "setup_complete",  // → in_progress → implementation_complete → merged
@@ -105,22 +122,16 @@ Task tool returns immediately with a task_id. Store this in state file's `beads[
 
 ### Agent Prompt Template
 
-Agents can't invoke skills, so embed essential guidance inline:
-
 ```markdown
 Implement bead <BEAD_ID> in worktree <WORKTREE_PATH> (branch: <BRANCH_NAME>).
 
 <FULL_BEAD_DESCRIPTION>
 
-**Literate Programming**: NEVER edit .el files directly - edit .org files then tangle with `./bin/tangle-org.sh path/to/file.org`. Commit both .org and .el together.
+**Literate Programming**: Edit .org files, tangle with `./bin/tangle-org.sh`, commit both .org and .el.
 
-**Elisp**: Validate complex functions (3+ nesting, cl-loop, >50 lines) immediately with tangle script. Use lexical binding, cl-lib (not deprecated cl).
+**Testing**: Run `./bin/run-tests.sh` (targeted with `-d config/foo` or `-p "^test-*"`). Must pass.
 
-**Testing**: Run `./bin/run-tests.sh` (or targeted with `-d config/foo` or `-p "^test-*"`). Must pass before completing.
-
-**Commit**: Format as "Implement bead <BEAD_ID>: <Title>" with Co-Authored-By. DON'T push/merge/close bead - orchestrator handles this.
-
-**Success Criteria**: Changes implemented, .org edited (not .el), both committed, tests pass, follows existing patterns.
+**Commit**: "Implement bead <BEAD_ID>: <Title>" with Co-Authored-By. DON'T push/merge/close - orchestrator handles this.
 ```
 
 ## 4. Monitor Progress
@@ -155,6 +166,9 @@ Keep failed worktrees for debugging.
 Merge in completion order (sequential, not parallel - avoids conflicts, enables precise regression detection).
 
 ```bash
+# Ensure we're in main repo root
+cd /Users/jefffarr/emacs
+
 git merge --no-ff "$BRANCH_NAME" -m "Merge bead $BEAD_ID: $TITLE"
 ```
 
@@ -205,9 +219,18 @@ cp test-results.txt .beads/orchestrator/after-${BEAD_ID}-${TIMESTAMP}.txt
 
 ## 7. Cleanup
 
-After successful merge + tests pass + no regression: Close bead (`bd close "$BEAD_ID"`), remove worktree (`git worktree remove "$WORKTREE_PATH"`), update state.
+After successful merge + tests pass + no regression:
 
-**Keep worktrees if**: merge conflict, agent failed, or regression detected.
+```bash
+# Ensure we're in main repo root
+cd /Users/jefffarr/emacs
+
+# Close bead and remove worktree
+bd close "$BEAD_ID"
+git worktree remove "$WORKTREE_PATH"
+```
+
+Update state file. **Keep worktrees if**: merge conflict, agent failed, or regression detected.
 
 ## 8. Final Snapshot
 
@@ -229,11 +252,14 @@ Display session results: successfully merged (count, duration), conflicts (workt
 
 **NEVER**:
 - Use `run_in_background: true` (blocks file writes)
-- Use absolute worktree paths (use `.worktrees/bead-*` inside repo)
+- Create worktrees from within other worktrees (causes nesting)
+- Use relative paths without cd to main repo first
 - Skip test verification after merge
 - Continue merging after regression detected
 
 **ALWAYS**:
+- Create worktrees from main repo root (cd to repo first)
+- Use absolute paths constructed from `git rev-parse --show-toplevel`
 - Test after EACH merge (sequential, not batched)
 - Verify test summary line programmatically (check for "Passed:", not "Aborted:")
 - Check ABORTED and UNKNOWN test counts (stop if > 0)
