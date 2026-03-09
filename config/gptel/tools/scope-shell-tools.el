@@ -356,6 +356,35 @@ Examples:
       nil)))
 ;; Stage 3: Validate Pipeline Commands:1 ends here
 
+;; Stage 4: No-op Command Allowance
+
+;; Check if command has zero file operations and allow by default (short-circuit validation).
+
+
+;; [[file:scope-shell-tools.org::*Stage 4: No-op Command Allowance][Stage 4: No-op Command Allowance:1]]
+(defun jf/gptel-scope--check-no-op (semantics)
+  "Stage 4: Check if command is a no-op (zero file operations).
+SEMANTICS is the plist returned by jf/bash-extract-semantics.
+
+Returns nil if command has no file operations (allowed, short-circuit).
+Returns t if command has file operations (continue validation).
+
+Design pattern: No-op short-circuit - commands with zero extracted
+file operations are allowed by default, skipping file path validation.
+
+Examples:
+  python3 --version → no file ops → nil (allowed)
+  python3 script.py → execute op → t (continue to file validation)
+  ls /tmp → read op → t (continue to file validation)"
+  (let* ((domains (plist-get semantics :domains))
+         (file-ops (plist-get domains :filesystem)))
+    ;; If no file operations, allow (return nil to short-circuit)
+    ;; If file operations exist, continue validation (return t)
+    (if (or (null file-ops) (zerop (length file-ops)))
+        nil  ; No file ops - allowed (short-circuit)
+      t)))   ; File ops exist - continue validation
+;; Stage 4: No-op Command Allowance:1 ends here
+
 ;; Check Absolute Paths
 
 ;; Check if command contains absolute paths that bypass directory scoping.
@@ -450,10 +479,10 @@ Stages:
   1. Parse command with bash-parser
   2. Extract pipeline commands
   3. Validate pipeline commands against categories
-  4. Extract and validate file operations
-  5. Detect and enforce cloud auth policy
-  6. Check coverage threshold (warning only)
-  7. Return nil (success)"
+  4. Check for no-op (zero file operations) - short-circuit if true
+  5. Extract and validate file operations
+  6. Detect and enforce cloud auth policy
+  7. Check coverage threshold (warning only)"
   (cl-block jf/gptel-scope--validate-command-semantics
     (let* ((parsed (jf/bash-parse command))
            (semantics (jf/bash-extract-semantics parsed))
@@ -466,27 +495,32 @@ Stages:
       ;; Stage 2: Extract pipeline commands
       (let ((commands (jf/gptel-scope--extract-pipeline-commands parsed)))
 
-        ;; Stage 3: Validate pipeline commands
+        ;; Stage 3: Validate pipeline commands (deny list checked here)
         (when-let ((error (jf/gptel-scope--validate-pipeline-commands
                            commands (plist-get scope-config :bash-tools))))
           (cl-return-from jf/gptel-scope--validate-command-semantics error))
 
-        ;; Stage 4: File operations validation
+        ;; Stage 4: No-op check - short-circuit if zero file operations
+        (unless (jf/gptel-scope--check-no-op semantics)
+          ;; No file operations - allowed by default (short-circuit)
+          (cl-return-from jf/gptel-scope--validate-command-semantics nil))
+
+        ;; Stage 5: File operations validation (only if file ops exist)
         (when-let ((file-ops (plist-get (plist-get semantics :domains) :filesystem)))
           (when-let ((error (jf/gptel-scope--validate-file-operations
                              file-ops directory scope-config)))
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
-        ;; Stage 5: Cloud auth detection and policy enforcement
+        ;; Stage 6: Cloud auth detection and policy enforcement
         (when-let ((cloud-auth (plist-get (plist-get semantics :domains) :cloud-auth)))
           (when-let ((error (jf/gptel-scope--validate-cloud-auth
                              cloud-auth (plist-get scope-config :cloud))))
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
-        ;; Stage 6: Coverage check (warning only, doesn't block)
+        ;; Stage 7: Coverage check (warning only, doesn't block)
         (jf/gptel-scope--check-coverage-threshold semantics security-config)
 
-        ;; Stage 7: All validations passed
+        ;; All validations passed
         nil))))
 ;; Main Pipeline Function:1 ends here
 
@@ -857,7 +891,7 @@ Returns nil if all operations allowed, error plist for first violation."
 
 ;; [[file:scope-shell-tools.org::*Implementation][Implementation:1]]
 (defun jf/gptel-scope--validate-cloud-auth (cloud-auth-ops cloud-config)
-  "Stage 5: Detect and enforce cloud authentication policy.
+  "Stage 6: Detect and enforce cloud authentication policy.
 
 CLOUD-AUTH-OPS is the :cloud-auth domain from bash-parser semantics.
 CLOUD-CONFIG is the :cloud section from scope configuration.
@@ -910,14 +944,14 @@ Returns nil if validation passes, error plist if denied."
                                  mode))))))))
 ;; Implementation:1 ends here
 
-;; Stage 6: Coverage Threshold Checking
+;; Stage 7: Coverage Threshold Checking
 
 ;; Check parse coverage and warn if below threshold. Non-blocking stage that only warns.
 
 
-;; [[file:scope-shell-tools.org::*Stage 6: Coverage Threshold Checking][Stage 6: Coverage Threshold Checking:1]]
+;; [[file:scope-shell-tools.org::*Stage 7: Coverage Threshold Checking][Stage 7: Coverage Threshold Checking:1]]
 (defun jf/gptel-scope--check-coverage-threshold (semantics security-config)
-  "Stage 6: Check coverage threshold (warning only, non-blocking).
+  "Stage 7: Check coverage threshold (warning only, non-blocking).
 SEMANTICS is the plist returned by jf/bash-extract-semantics.
 SECURITY-CONFIG is the security configuration plist.
 
@@ -929,7 +963,7 @@ Returns nil always (warnings don't block execution)."
       (warn "Parse coverage %.2f below threshold %.2f - semantic validation may be incomplete"
             coverage-ratio threshold)))
   nil)
-;; Stage 6: Coverage Threshold Checking:1 ends here
+;; Stage 7: Coverage Threshold Checking:1 ends here
 
 ;; Provide Feature
 
