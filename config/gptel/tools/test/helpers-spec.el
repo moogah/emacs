@@ -325,8 +325,8 @@ CLOUD-AUTH is a plist with :detected and optionally :provider.
 COVERAGE is a plist with :ratio.
 
 Returns a mock plist with :domains {:filesystem file-ops :cloud-auth cloud-auth}."
-  (list :domains (list (cons 'filesystem file-ops)
-                       (cons 'cloud-auth (list cloud-auth)))
+  (list :domains (list :filesystem file-ops
+                       :cloud-auth cloud-auth)
         :coverage coverage
         :parse-complete t))
 
@@ -436,7 +436,7 @@ Returns formatted YAML string."
                         (if paths
                             (mapconcat (lambda (p) (format "    - \"%s\"" p))
                                        paths "\n")
-                          ""))))
+                          "    []"))))
     (format "paths:
   read:
 %s
