@@ -189,13 +189,14 @@ This macro wraps the common pattern used by all scope-aware tools:
 6. Return formatted error if denied
 
 #+begin_src elisp
-(defmacro gptel-make-scoped-tool (name description args category &rest body)
+(defmacro gptel-make-scoped-tool (name description args category &optional async-keyword &rest body)
   "Create a scope-aware gptel tool with automatic validation.
 
 NAME: Tool name string (e.g., \"write_file_in_scope\")
 DESCRIPTION: Tool description for LLM
 ARGS: List of argument specs (same format as gptel-make-tool :args)
 CATEGORY: Resource category (\"filesystem\", \"org_roam\", \"shell\")
+ASYNC-KEYWORD: Optional :async flag for async tools with inline expansion
 BODY: Tool implementation - executed only if scope check passes
 
 The macro automatically:
@@ -204,62 +205,137 @@ The macro automatically:
 - Normalizes arguments (vector->list)
 - Formats errors on scope violation
 - Handles exceptions
+- Supports inline expansion for async tools (when :async is present)
 
 BODY is executed with tool arguments available as variables and should
 return the success result plist. The first argument in ARGS should be
-the primary resource identifier (filepath, node-id, command, etc.)."
-  (let* ((arg-names (mapcar (lambda (arg-spec)
+the primary resource identifier (filepath, node-id, command, etc.).
+
+If ASYNC-KEYWORD is :async, the tool uses callback-first signature and
+triggers inline expansion on validation failure. Otherwise, validation
+failures return errors immediately (sync behavior)."
+  (let* ((is-async (eq async-keyword :async))
+         (actual-body (if is-async body (cons async-keyword body)))
+         (arg-names (mapcar (lambda (arg-spec)
                              (intern (plist-get arg-spec :name)))
                            (eval args)))
-         (lambda-list arg-names))
+         (lambda-list (if is-async
+                          (cons 'callback arg-names)
+                        arg-names)))
     `(gptel-make-tool
       :name ,name
       :description ,description
       :args ,args
       :category ,category
       :function
-      (lambda (&rest raw-args)
-        (condition-case err
-            (cl-block nil
-              (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
-                   ,@(cl-mapcar (lambda (name idx)
-                                 `(,name (nth ,idx normalized-args)))
-                               arg-names
-                               (number-sequence 0 (1- (length arg-names))))
-                   (config (jf/gptel-scope--load-config)))
+      ,(if is-async
+           ;; ASYNC BRANCH: callback-first signature with inline expansion
+           `(lambda (callback ,@arg-names)
+              (condition-case err
+                  (cl-block nil
+                    (let* ((normalized-args (list ,@arg-names))
+                           (config (jf/gptel-scope--load-config)))
 
-              ;; Check allow-once FIRST (before checking if config exists)
-              ;; Allow-once permissions should work even if config loading fails
-              (when (jf/gptel-scope--check-allow-once ,name normalized-args config)
-                (cl-return-from nil (progn ,@body)))
+                      ;; Check allow-once FIRST (before checking if config exists)
+                      ;; Allow-once permissions should work even if config loading fails
+                      (when (jf/gptel-scope--check-allow-once ,name normalized-args config)
+                        (cl-return-from nil
+                          (funcall callback (json-serialize (progn ,@actual-body)))))
 
-              ;; Check config exists (only if allow-once didn't grant permission)
-              (unless config
-                (cl-return-from nil
-                  (list :success nil
-                        :error "no_scope_config"
-                        :message "No scope configuration found. Ensure scope.yml exists with paths section.")))
+                      ;; Check config exists (only if allow-once didn't grant permission)
+                      (unless config
+                        (cl-return-from nil
+                          (funcall callback
+                                   (json-serialize
+                                    (list :success nil
+                                          :error "no_scope_config"
+                                          :message "No scope configuration found. Ensure scope.yml exists with paths section.")))))
 
-              ;; Check tool permission
-              (let ((check-result (jf/gptel-scope--check-tool-permission
-                                  config ,name normalized-args)))
-                (if (plist-get check-result :allowed)
-                    ;; Execute tool body
-                    (progn ,@body)
+                      ;; Check tool permission
+                      (let ((check-result (jf/gptel-scope--check-tool-permission
+                                           config ,name normalized-args)))
+                        (if (plist-get check-result :allowed)
+                            ;; Execute tool body and invoke callback
+                            (funcall callback (json-serialize (progn ,@actual-body)))
 
-                  ;; Format and return error
-                  ;; Note: Expansion UI is triggered by LLM via request_scope_expansion tool,
-                  ;; not automatically here. This maintains LLM-mediated communication pattern.
-                  (jf/gptel-scope--format-tool-error
-                   ,name
-                   (nth 0 normalized-args)  ; Primary resource (first arg)
-                   check-result)))))
+                          ;; Validation failed - trigger inline expansion
+                          (jf/gptel-scope--trigger-inline-expansion
+                           check-result
+                           ,name
+                           (lambda (expansion-result)
+                             (if (plist-get expansion-result :approved)
+                                 ;; User approved - retry validation
+                                 (let ((retry-result (jf/gptel-scope--check-tool-permission
+                                                      config ,name normalized-args)))
+                                   (if (plist-get retry-result :allowed)
+                                       ;; Retry passed - execute tool body
+                                       (funcall callback (json-serialize (progn ,@actual-body)))
+                                     ;; Retry failed - return error
+                                     (funcall callback
+                                              (json-serialize
+                                               (jf/gptel-scope--format-tool-error
+                                                ,name
+                                                (nth 0 normalized-args)
+                                                retry-result)))))
+                               ;; User denied - return original error
+                               (funcall callback
+                                        (json-serialize
+                                         (jf/gptel-scope--format-tool-error
+                                          ,name
+                                          (nth 0 normalized-args)
+                                          check-result))))))))))
 
-          ;; Handle unexpected errors
-          (error
-           (list :success nil
-                 :error "tool_exception"
-                 :message (format "Tool error: %s" (error-message-string err)))))))))
+                ;; Handle unexpected errors
+                (error
+                 (funcall callback
+                          (json-serialize
+                           (list :success nil
+                                 :error "tool_exception"
+                                 :message (format "Tool error: %s" (error-message-string err))))))))
+
+         ;; SYNC BRANCH: current behavior (immediate error on validation failure)
+         `(lambda (&rest raw-args)
+            (condition-case err
+                (cl-block nil
+                  (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
+                       ,@(cl-mapcar (lambda (name idx)
+                                     `(,name (nth ,idx normalized-args)))
+                                   arg-names
+                                   (number-sequence 0 (1- (length arg-names))))
+                       (config (jf/gptel-scope--load-config)))
+
+                    ;; Check allow-once FIRST (before checking if config exists)
+                    ;; Allow-once permissions should work even if config loading fails
+                    (when (jf/gptel-scope--check-allow-once ,name normalized-args config)
+                      (cl-return-from nil (progn ,@actual-body)))
+
+                    ;; Check config exists (only if allow-once didn't grant permission)
+                    (unless config
+                      (cl-return-from nil
+                        (list :success nil
+                              :error "no_scope_config"
+                              :message "No scope configuration found. Ensure scope.yml exists with paths section.")))
+
+                    ;; Check tool permission
+                    (let ((check-result (jf/gptel-scope--check-tool-permission
+                                        config ,name normalized-args)))
+                      (if (plist-get check-result :allowed)
+                          ;; Execute tool body
+                          (progn ,@actual-body)
+
+                        ;; Format and return error
+                        ;; Note: Expansion UI is triggered by LLM via request_scope_expansion tool,
+                        ;; not automatically here. This maintains LLM-mediated communication pattern.
+                        (jf/gptel-scope--format-tool-error
+                         ,name
+                         (nth 0 normalized-args)  ; Primary resource (first arg)
+                         check-result)))))
+
+              ;; Handle unexpected errors
+              (error
+               (list :success nil
+                     :error "tool_exception"
+                     :message (format "Tool error: %s" (error-message-string err))))))))))
 #+end_src
 
 ** Usage Examples
