@@ -204,9 +204,13 @@ DIRECTORY should be relative to repository root."
 (defun jf/test-run-all-buttercup-batch ()
   "Run all Buttercup tests in batch mode (non-interactive).
 Exits with code 0 if all tests pass, 1 otherwise.
-For use in scripts and CI."
+For use in scripts and CI.
+
+Disables backtraces by default for clean output. See 'Backtrace Control'
+section above to re-enable for debugging."
   (require 'buttercup)
-  (let ((test-files (jf/test-find-buttercup-test-files)))
+  (let ((backtrace-on-error-noninteractive nil)
+        (test-files (jf/test-find-buttercup-test-files)))
     (if test-files
         (progn
           (dolist (file test-files)
@@ -218,9 +222,13 @@ For use in scripts and CI."
 
 (defun jf/test-run-buttercup-directory-batch (directory)
   "Run all Buttercup tests in DIRECTORY in batch mode.
-DIRECTORY should be relative to repository root."
+DIRECTORY should be relative to repository root.
+
+Disables backtraces by default for clean output. See 'Backtrace Control'
+section above to re-enable for debugging."
   (require 'buttercup)
-  (let ((test-files (jf/test-find-buttercup-test-files directory)))
+  (let ((backtrace-on-error-noninteractive nil)
+        (test-files (jf/test-find-buttercup-test-files directory)))
     (if test-files
         (progn
           (dolist (file test-files)

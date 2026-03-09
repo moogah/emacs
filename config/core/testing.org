@@ -297,13 +297,44 @@ DIRECTORY should be relative to repository root."
 
 Functions for running Buttercup tests in batch/CI mode.
 
+*** Backtrace Control
+
+By default, Emacs batch mode enables ~backtrace-on-error-noninteractive~, which prints full Emacs Lisp backtraces for every test failure. With Buttercup, these backtraces include macro-expanded test bodies (~12KB+ per failure) and can produce massive output (2MB+ for 6 failures).
+
+Our batch runners disable backtraces by default for clean, readable test output. To re-enable backtraces for debugging:
+
+#+begin_src emacs-lisp :tangle no
+;; Temporarily enable backtraces by commenting out the let binding:
+(defun jf/test-run-buttercup-directory-batch (directory)
+  (require 'buttercup)
+  ;; (let ((backtrace-on-error-noninteractive nil))  ; Comment this line
+    (let ((test-files (jf/test-find-buttercup-test-files directory)))
+      ...))
+  ;; )  ; And this line
+#+end_src
+
+Or run Emacs manually with backtraces enabled:
+
+#+begin_src bash :tangle no
+emacs -Q --batch \
+  --eval "(setq backtrace-on-error-noninteractive t)" \
+  -l config/core/testing.el \
+  --eval "(jf/test-run-buttercup-directory-batch \"config/gptel/tools/test\")"
+#+end_src
+
+*** Batch Runners
+
 #+begin_src emacs-lisp
 (defun jf/test-run-all-buttercup-batch ()
   "Run all Buttercup tests in batch mode (non-interactive).
 Exits with code 0 if all tests pass, 1 otherwise.
-For use in scripts and CI."
+For use in scripts and CI.
+
+Disables backtraces by default for clean output. See 'Backtrace Control'
+section above to re-enable for debugging."
   (require 'buttercup)
-  (let ((test-files (jf/test-find-buttercup-test-files)))
+  (let ((backtrace-on-error-noninteractive nil)
+        (test-files (jf/test-find-buttercup-test-files)))
     (if test-files
         (progn
           (dolist (file test-files)
@@ -315,9 +346,13 @@ For use in scripts and CI."
 
 (defun jf/test-run-buttercup-directory-batch (directory)
   "Run all Buttercup tests in DIRECTORY in batch mode.
-DIRECTORY should be relative to repository root."
+DIRECTORY should be relative to repository root.
+
+Disables backtraces by default for clean output. See 'Backtrace Control'
+section above to re-enable for debugging."
   (require 'buttercup)
-  (let ((test-files (jf/test-find-buttercup-test-files directory)))
+  (let ((backtrace-on-error-noninteractive nil)
+        (test-files (jf/test-find-buttercup-test-files directory)))
     (if test-files
         (progn
           (dolist (file test-files)
