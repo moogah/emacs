@@ -304,15 +304,19 @@ Throws error if validation succeeded or has different error."
 (defun helpers-spec--mock-parse-result (command commands parse-complete)
   "Mock jf/bash-parse results.
 COMMAND is the input command string.
-COMMANDS is the list of all extracted command names.
+COMMANDS is the list of all extracted command names (strings).
 PARSE-COMPLETE is a boolean flag indicating parse completeness.
 
-Returns a mock plist with :success, :all-commands, :parse-complete."
-  (list :success t
-        :all-commands commands
-        :parse-complete parse-complete
-        :tokens '()  ; Empty for now, add if needed
-        :command command))
+Returns a mock plist with :success, :all-commands, :parse-complete.
+:all-commands is a list of command plists with :command-name field."
+  (let ((all-commands (mapcar (lambda (cmd-name)
+                                (list :command-name cmd-name))
+                              commands)))
+    (list :success t
+          :all-commands all-commands
+          :parse-complete parse-complete
+          :tokens '()  ; Empty for now, add if needed
+          :command command)))
 
 (defun helpers-spec--mock-semantics (file-ops cloud-auth coverage)
   "Mock jf/bash-extract-semantics results.
@@ -392,6 +396,36 @@ FILE-OPS, CLOUD-AUTH, COVERAGE are passed to helpers-spec--mock-semantics."
         (helpers-spec--mock-semantics file-ops cloud-auth coverage)))
 
 ;;; Scope Configuration Builders
+
+(defun helpers-spec--convert-vectors-to-lists (obj)
+  "Recursively convert vectors to lists in OBJ."
+  (cond
+   ((vectorp obj)
+    (mapcar #'helpers-spec--convert-vectors-to-lists (append obj nil)))
+   ((and (listp obj) (not (null obj)))
+    (if (keywordp (car obj))
+        ;; It's a plist, process keys and values
+        (let ((result nil))
+          (while obj
+            (push (car obj) result)  ; key
+            (push (helpers-spec--convert-vectors-to-lists (cadr obj)) result)  ; value
+            (setq obj (cddr obj)))
+          (nreverse result))
+      ;; It's a regular list
+      (mapcar #'helpers-spec--convert-vectors-to-lists obj)))
+   (t obj)))
+
+(defun helpers-spec-load-scope-config (scope-file)
+  "Load scope configuration from SCOPE-FILE.
+Returns scope-config plist ready for validation functions."
+  (require 'yaml)
+  (let* ((parsed (with-temp-buffer
+                   (insert-file-contents scope-file)
+                   (yaml-parse-string (buffer-string) :object-type 'plist)))
+         ;; Convert all vectors to lists (YAML parser returns vectors for arrays)
+         (normalized (helpers-spec--convert-vectors-to-lists parsed))
+         (scope-config (jf/gptel-scope--load-schema normalized)))
+    scope-config))
 
 (defun helpers-spec--scope-with-paths (read write execute modify deny)
   "Build scope.yml with operation-specific paths.
