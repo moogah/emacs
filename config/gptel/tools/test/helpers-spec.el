@@ -398,8 +398,14 @@ FILE-OPS, CLOUD-AUTH, COVERAGE are passed to helpers-spec--mock-semantics."
 ;;; Scope Configuration Builders
 
 (defun helpers-spec--convert-vectors-to-lists (obj)
-  "Recursively convert vectors to lists in OBJ."
+  "Recursively convert vectors to lists in OBJ.
+Also converts YAML boolean keywords to Emacs booleans:
+- :true -> t
+- :false -> nil"
   (cond
+   ;; Convert YAML boolean keywords to Emacs booleans
+   ((eq obj :true) t)
+   ((eq obj :false) nil)
    ((vectorp obj)
     (mapcar #'helpers-spec--convert-vectors-to-lists (append obj nil)))
    ((and (listp obj) (not (null obj)))

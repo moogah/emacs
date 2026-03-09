@@ -69,7 +69,10 @@
       "Bash(bd ready:*)",
       "Bash(bd ls:*)",
       "Bash(make test-file:*)",
-      "Bash(bd dep remove:*)"
+      "Bash(bd dep remove:*)",
+      "Bash(git submodule update:*)",
+      "Bash(make test-buttercup-directory:*)",
+      "Bash(make test-buttercup-file:*)"
     ]
   }
 }

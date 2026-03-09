@@ -26,5 +26,4 @@ runtime/packages/*
 .DS_Store
 
 # worktrees
-.worktrees.worktrees/
 .worktrees/
