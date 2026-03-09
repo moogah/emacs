@@ -141,10 +141,12 @@ security:
          nil
          '(:ratio 1.0))
 
-        ;; First validation fails
-        (let ((result1 (jf/gptel-scope--validate-command-semantics
-                        command working-dir scope-config)))
-          (expect (plist-get result1 :error) :to-equal "path_out_of_scope"))
+        ;; First check-tool-permission call fails
+        (let ((result1 (jf/gptel-scope--check-tool-permission
+                        scope-config
+                        "run_bash_command"
+                        (list command working-dir))))
+          (expect (plist-get result1 :allowed) :to-be nil))
 
         ;; Simulate user granting allow-once permission
         ;; Format matches what allow-once validator checks: "command:directory"
@@ -155,17 +157,20 @@ security:
         ;; Verify permission added
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
 
-        ;; After allow-once granted, validation should succeed
+        ;; After allow-once granted, check-tool-permission should succeed
         (helpers-spec-mock-bash-parse command '("cat") t)
         (helpers-spec-mock-bash-semantics
          (list (helpers-spec--make-file-op :read "/tmp/file.txt" :command-name "cat"))
          nil
          '(:ratio 1.0))
 
-        (let ((result2 (jf/gptel-scope--validate-command-semantics
-                        command working-dir scope-config)))
-          ;; Assert: Validation succeeds after allow-once
-          (expect result2 :to-be nil))
+        (let ((result2 (jf/gptel-scope--check-tool-permission
+                        scope-config
+                        "run_bash_command"
+                        (list command working-dir))))
+          ;; Assert: Permission check succeeds after allow-once
+          (expect (plist-get result2 :allowed) :to-be t)
+          (expect (plist-get result2 :reason) :to-equal "allow-once"))
 
         ;; Verify allow-once was consumed
         (expect jf/gptel-scope--allow-once-list :to-be nil)
@@ -313,6 +318,9 @@ security:
              (working-dir "/workspace")
              (command "cat /tmp/file.txt"))
 
+        ;; Clear allow-once list first
+        (setq jf/gptel-scope--allow-once-list nil)
+
         ;; Grant allow-once via request_scope_expansion (simulated)
         (jf/gptel-scope-add-to-allow-once-list
          "run_bash_command"
@@ -328,13 +336,14 @@ security:
          nil
          '(:ratio 1.0))
 
-        ;; Validate command - should succeed via allow-once
-        (let ((result (jf/gptel-scope--validate-command-semantics
-                       command
-                       working-dir
-                       scope-config)))
-          ;; Assert: Validation succeeds
-          (expect result :to-be nil))
+        ;; Check tool permission - should succeed via allow-once
+        (let ((result (jf/gptel-scope--check-tool-permission
+                       scope-config
+                       "run_bash_command"
+                       (list command working-dir))))
+          ;; Assert: Permission check succeeds
+          (expect (plist-get result :allowed) :to-be t)
+          (expect (plist-get result :reason) :to-equal "allow-once"))
 
         ;; Assert: Permission consumed
         (expect jf/gptel-scope--allow-once-list :to-be nil)

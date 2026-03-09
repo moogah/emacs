@@ -135,7 +135,11 @@ Removes temporary directory and buffer, restores original functions."
   (when helpers-spec--mock-session-dir
     (when (file-exists-p helpers-spec--mock-session-dir)
       (delete-directory helpers-spec--mock-session-dir t))
-    (setq helpers-spec--mock-session-dir nil)))
+    (setq helpers-spec--mock-session-dir nil))
+
+  ;; Clear allow-once list (critical for test isolation)
+  (when (boundp 'jf/gptel-scope--allow-once-list)
+    (setq jf/gptel-scope--allow-once-list nil)))
 
 ;;; Mock Process Management
 

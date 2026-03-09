@@ -663,12 +663,16 @@ CONFIG is the scope configuration (used to determine tool category)."
                       ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))  ; Composite: command:directory
                       (_ nil))))
       (when resource
-        (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
-          (when (equal (cdr entry) resource)
-            ;; Consume permission (single-use)
-            (setq jf/gptel-scope--allow-once-list
-                  (delq entry jf/gptel-scope--allow-once-list))
-            t))))))
+        ;; Find entry matching BOTH tool-name AND resource
+        ;; Can't use assoc since multiple entries may have same tool-name
+        (when-let ((entry (cl-find-if (lambda (e)
+                                       (and (equal (car e) tool-name)
+                                            (equal (cdr e) resource)))
+                                     jf/gptel-scope--allow-once-list)))
+          ;; Consume permission (single-use)
+          (setq jf/gptel-scope--allow-once-list
+                (delq entry jf/gptel-scope--allow-once-list))
+          t)))))
 #+end_src
 
 ** Add to Allow-Once List
@@ -1126,32 +1130,32 @@ Returns plist with:
   :resource STRING (what was denied, if applicable)
   :tool STRING (tool name, if denied)
   :allowed-patterns LIST (if denied for not matching)."
-
-  ;; Check allow-once first (highest priority)
-  (when (jf/gptel-scope--check-allow-once tool-name args config)
-    (cl-return-from jf/gptel-scope--check-tool-permission
-      (list :allowed t :reason "allow-once")))
-
-  ;; Lookup tool category
-  (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
-         (validation-type (plist-get category :validation)))
-
-    ;; Meta tools always pass
-    (when (eq validation-type 'meta)
+  (cl-block jf/gptel-scope--check-tool-permission
+    ;; Check allow-once first (highest priority)
+    (when (jf/gptel-scope--check-allow-once tool-name args config)
       (cl-return-from jf/gptel-scope--check-tool-permission
-        (list :allowed t)))
+        (list :allowed t :reason "allow-once")))
 
-    ;; Route to validator
-    (pcase validation-type
-      ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
-      ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
-      ('bash (jf/gptel-scope--validate-bash-tool tool-name args config))
-      (_
-       ;; Unknown tool - deny by default
-       (list :allowed nil
-             :reason "unknown-tool"
-             :resource tool-name
-             :tool tool-name)))))
+    ;; Lookup tool category
+    (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
+           (validation-type (plist-get category :validation)))
+
+      ;; Meta tools always pass
+      (when (eq validation-type 'meta)
+        (cl-return-from jf/gptel-scope--check-tool-permission
+          (list :allowed t)))
+
+      ;; Route to validator
+      (pcase validation-type
+        ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
+        ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
+        ('bash (jf/gptel-scope--validate-bash-tool tool-name args config))
+        (_
+         ;; Unknown tool - deny by default
+         (list :allowed nil
+               :reason "unknown-tool"
+               :resource tool-name
+               :tool tool-name))))))
 #+end_src
 
 ** Validation Type Inference
