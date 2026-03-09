@@ -935,6 +935,8 @@ Examples:
 
  "bash"
 
+ :async  ; Enable inline expansion for scope violations
+
  ;; Tool body - executed only if validation passes
  (let* ((result (jf/gptel-bash--execute-command command directory))
         (exit-code (plist-get result :exit_code))
