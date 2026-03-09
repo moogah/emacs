@@ -28,22 +28,29 @@ The system SHALL use bash-parser to extract all commands from bash pipelines.
 - **THEN** system extracts two commands: "test -f file.txt" and "touch file.txt"
 
 ## All pipeline commands validated independently
-The system SHALL validate each command in a pipeline against bash_tools categories and deny list.
+The system SHALL validate each command in a pipeline against bash_tools deny list and file operation semantics.
 
-#### Scenario: All pipeline commands allowed
+#### Scenario: All pipeline commands with no operations allowed
+- **WHEN** command is "python3 --version | head -1"
+- **AND** entire pipeline extracts zero file operations
+- **THEN** validation passes via no-op allowance
+
+#### Scenario: Pipeline commands validated by deny list only
 - **WHEN** command is "ls -la | grep foo"
-- **AND** both "ls" and "grep" are in read_only category
-- **THEN** validation passes
+- **AND** neither "ls" nor "grep" are in deny list
+- **AND** file operations are extracted
+- **THEN** deny list check passes and proceeds to file operation validation
 
-#### Scenario: Second pipeline command denied
+#### Scenario: Second pipeline command in deny list
 - **WHEN** command is "ls | xargs rm"
-- **AND** "ls" is in read_only but "rm" is in deny list
-- **THEN** validation fails with "command_denied" error for "rm"
+- **AND** "rm" is in deny list
+- **THEN** validation fails with "command_denied" error for "rm" at position 2
 
-#### Scenario: Middle command in chain not allowed
-- **WHEN** command is "cat file.txt | sh | head -10"
-- **AND** "cat" and "head" allowed but "sh" not in any category
-- **THEN** validation fails with "command_not_allowed" error for "sh"
+#### Scenario: Pipeline command not in deny list with file operations
+- **WHEN** command is "cat file.txt | sh script.sh"
+- **AND** "sh" is not in deny list
+- **AND** bash-parser extracts :execute operation for "script.sh"
+- **THEN** deny list check passes and file operation validation checks paths.execute
 
 ## Pipeline validation closes security bypass
 The system SHALL prevent dangerous commands from bypassing validation by appearing in non-base positions.
@@ -52,11 +59,6 @@ The system SHALL prevent dangerous commands from bypassing validation by appeari
 - **WHEN** command is "find . -name '*.tmp' | xargs rm"
 - **AND** "rm" is in deny list
 - **THEN** system rejects with clear error identifying "rm" in pipeline position 2
-
-#### Scenario: Prevent sh execution bypass
-- **WHEN** command is "grep pattern . | sh"
-- **AND** "sh" not in allowed categories
-- **THEN** system rejects identifying shell execution risk
 
 #### Scenario: Prevent chmod bypass
 - **WHEN** command is "find . -type f | xargs chmod 777"
@@ -108,19 +110,53 @@ The system SHALL reject commands when bash-parser cannot fully parse the pipelin
 - **WHEN** bash-parser successfully parses entire pipeline
 - **THEN** system proceeds with per-command validation
 
-## Pipeline validation combined with file path validation
-The system SHALL validate both pipeline commands AND file paths for complete security coverage.
+## Pipeline validation combined with file operation validation
+The system SHALL validate both pipeline commands (deny list) AND extracted file operations (path permissions) for complete security coverage.
 
-#### Scenario: Pipeline with file paths validated together
+#### Scenario: Pipeline with file operations validated together
 - **WHEN** command is "cat /etc/passwd | grep root"
-- **THEN** system validates both "cat" and "grep" commands AND validates /etc/passwd path
+- **AND** commands pass deny list check
+- **THEN** system validates extracted file operations against paths configuration
 
 #### Scenario: Pipeline command allowed but file path denied
 - **WHEN** command is "cat /etc/shadow | head"
-- **AND** "cat" and "head" are allowed but /etc/shadow in paths.deny
+- **AND** commands not in deny list
+- **AND** /etc/shadow in paths.deny
 - **THEN** validation fails on path_denied (not command)
 
 #### Scenario: File path allowed but pipeline command denied
-- **WHEN** command is "cat /workspace/file.txt | sh"
-- **AND** /workspace/file.txt in paths.read but "sh" not allowed
-- **THEN** validation fails on command_not_allowed for "sh"
+- **WHEN** command is "cat /workspace/file.txt | sudo head"
+- **AND** /workspace/file.txt in paths.read
+- **AND** "sudo" in deny list
+- **THEN** validation fails on command_denied for "sudo"
+
+## Validation pipeline includes no-op check stage
+The system SHALL add a validation stage that checks for no-op commands (zero file operations) before file operation validation, allowing commands with no file system impact to execute by default.
+
+#### Scenario: No-op pipeline bypasses file validation
+- **WHEN** command is "echo 'hello' | wc -c"
+- **AND** bash-parser extracts zero file operations
+- **THEN** validation succeeds at no-op check stage without entering file operation validation
+
+#### Scenario: Pipeline with operations proceeds to file validation
+- **WHEN** command is "cat file.txt | grep pattern"
+- **AND** bash-parser extracts file operations
+- **THEN** validation proceeds past no-op check to file operation validation stage
+
+## Validation stages execute in specific order
+The system SHALL execute validation stages in this order: (1) Parse completeness, (2) Deny list check, (3) Extract semantics, (4) No-op check, (5) File operation validation.
+
+#### Scenario: Deny list checked before no-op
+- **WHEN** command is "sudo --version"
+- **AND** command would be no-op
+- **AND** "sudo" is in deny list
+- **THEN** validation fails at deny list stage before reaching no-op check
+
+#### Scenario: No-op check before file validation
+- **WHEN** command is "python3 --version"
+- **AND** command extracts zero file operations
+- **THEN** validation succeeds at no-op check without attempting file operation validation
+
+#### Scenario: Parse completeness checked first
+- **WHEN** command has syntax errors
+- **THEN** validation fails at parse completeness stage before checking deny list or operations

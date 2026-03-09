@@ -6,56 +6,6 @@ This integrates with bash-parser (`config/bash-parser/`) for tree-sitter parsing
 
 # Requirements
 
-## Command categorization by operation type
-The bash tools system SHALL categorize commands into read_only, safe_write, and dangerous categories based on their operational impact.
-
-### Scenario: Read-only command categorized
-- **WHEN** a command only reads data (ls, grep, find, cat, head, tail, wc, file, git log, git show, git diff)
-- **THEN** the system categorizes it as read_only requiring paths.read access
-
-### Scenario: Safe write command categorized
-- **WHEN** a command creates or modifies safely (mkdir, touch, echo, git add, git commit)
-- **THEN** the system categorizes it as safe_write requiring paths.write access
-
-### Scenario: Dangerous command categorized
-- **WHEN** a command is explicitly listed in bash_tools.categories.dangerous
-- **THEN** the system categorizes it as dangerous, always denies it, and requires explicit user approval via request_scope_expansion
-
-### Scenario: Denied command rejected immediately
-- **WHEN** a command appears in bash_tools.deny list
-- **THEN** the system rejects it without checking category or directory scope
-
-### Scenario: Unknown command denied by default
-- **WHEN** a command is not in any category allow list
-- **THEN** the system denies access with "command_not_allowed" error
-
-## Directory scope validation per category
-The bash tools system SHALL validate that the working directory matches the command category's path scope requirement.
-
-### Scenario: Read-only command in read path
-- **WHEN** a read_only command executes with directory matching paths.read patterns
-- **THEN** the system allows execution
-
-### Scenario: Read-only command in write path
-- **WHEN** a read_only command executes with directory matching paths.write patterns
-- **THEN** the system allows execution (write scope includes read capability)
-
-### Scenario: Safe write command in write path
-- **WHEN** a safe_write command executes with directory matching paths.write patterns
-- **THEN** the system allows execution
-
-### Scenario: Safe write command in read-only path
-- **WHEN** a safe_write command executes with directory matching only paths.read patterns
-- **THEN** the system denies with "directory_not_in_scope" error including required_scope and allowed_patterns
-
-### Scenario: Directory matches deny pattern
-- **WHEN** a directory matches paths.deny patterns
-- **THEN** the system denies regardless of category (deny takes precedence)
-
-### Scenario: Directory outside all patterns
-- **WHEN** a directory does not match any paths.read or paths.write patterns
-- **THEN** the system denies with "directory_not_in_scope" error
-
 ## Explicit directory required for all commands
 The bash tools system SHALL require an explicit directory argument for every command execution.
 
@@ -76,7 +26,7 @@ The bash tools system SHALL parse shell composition features (pipes, redirects, 
 
 ### Scenario: Piped commands all validated
 - **WHEN** command is "ls | grep foo"
-- **THEN** the system validates both "ls" and "grep" against bash_tools categories
+- **THEN** the system validates both "ls" and "grep" against bash_tools deny list
 
 ### Scenario: Dangerous command in pipeline rejected
 - **WHEN** command is "ls | xargs rm"
@@ -96,27 +46,43 @@ The bash tools system SHALL parse shell composition features (pipes, redirects, 
 - **THEN** the system validates "find", "xargs grep", and "head" commands
 
 ## Complete validation pipeline
-The bash tools system SHALL execute a multi-step validation pipeline for each command using bash-parser for semantic extraction.
+The bash tools system SHALL execute a multi-step validation pipeline for each command using bash-parser for semantic extraction, replacing category-based validation with operation-first validation and no-op allowance.
 
 ### Scenario: Validation pipeline for command execution
 - **WHEN** run_bash_command is called with command and directory
 - **THEN** the system executes these steps in order:
   1. Parse command using bash-parser (jf/bash-parse) to get AST with tokens
-  2. Extract semantics using plugin system (jf/bash-extract-semantics)
-  3. Check parse completeness (:parse-complete flag)
-  4. Validate all commands in pipeline/chain (not just base command)
-  5. Categorize each command (check deny → read_only → safe_write → dangerous)
-  6. Extract file operations from command (using file-ops plugin)
-  7. Resolve file paths to absolute paths relative to working directory
+  2. Check parse completeness (:parse-complete flag)
+  3. Check deny list (bash_tools.deny) for all pipeline commands
+  4. Extract semantics using plugin system (jf/bash-extract-semantics)
+  5. Check if no file operations extracted (no-op allowance)
+  6. If file operations exist, validate each operation against paths configuration
+  7. Extract file paths and resolve to absolute paths relative to working directory
   8. Validate each file path against operation-specific scope patterns
   9. Check cloud authentication detection (using cloud-auth plugin)
   10. Enforce cloud authentication policy
   11. Execute command with timeout and output truncation
 
+### Scenario: No-op command allowed without category check
+- **WHEN** command is `python3 --version`
+- **AND** bash-parser extracts zero file operations
+- **THEN** command passes validation at no-op check stage without checking categories
+
+### Scenario: Command with operations proceeds to path validation
+- **WHEN** command is `python3 script.py`
+- **AND** bash-parser extracts :execute operation
+- **THEN** validation skips no-op check and proceeds to file operation validation
+
 ### Scenario: Parse completeness enforced
 - **WHEN** bash-parser cannot fully parse command (:parse-complete nil)
 - **AND** security.enforce_parse_complete is true
 - **THEN** system rejects command with "incomplete_parse" error
+
+### Scenario: Deny list checked before no-op allowance
+- **WHEN** command is `sudo --version`
+- **AND** command would extract zero file operations
+- **AND** "sudo" is in bash_tools.deny list
+- **THEN** system rejects at deny list stage before reaching no-op check
 
 ### Scenario: Parse completeness optional
 - **WHEN** bash-parser cannot fully parse command (:parse-complete nil)
@@ -132,6 +98,45 @@ The bash tools system SHALL execute a multi-step validation pipeline for each co
 - **WHEN** a relative directory path is provided
 - **THEN** the system expands it to absolute path relative to buffer's default-directory
 - **AND** then resolves any symlinks to real path
+
+## No-op commands allowed by default
+The bash tools system SHALL allow commands that extract no file operations to execute without requiring command name in any allowlist.
+
+### Scenario: Version check allowed without allowlist
+- **WHEN** command is `ruby --version`
+- **AND** bash-parser extracts zero file operations
+- **AND** "ruby" not in any configuration
+- **THEN** command allowed via no-op allowance
+
+### Scenario: Help command allowed without allowlist
+- **WHEN** command is `gcc --help`
+- **AND** bash-parser extracts zero file operations
+- **THEN** command allowed
+
+### Scenario: Unknown tool with no operations allowed
+- **WHEN** command is `my-custom-tool --info`
+- **AND** tool not in deny list
+- **AND** bash-parser extracts zero file operations
+- **THEN** command allowed
+
+### Scenario: No-op command in deny list still blocked
+- **WHEN** command is `sudo --version`
+- **AND** bash-parser extracts zero file operations
+- **AND** "sudo" in bash_tools.deny list
+- **THEN** command denied at deny list stage
+
+## Deny list checked for all pipeline commands
+The bash tools system SHALL check all commands in pipelines and chains against the deny list, independent of file operations.
+
+### Scenario: Pipeline with denied command rejected
+- **WHEN** command is `echo "test" | sudo tee file.txt`
+- **AND** "sudo" in bash_tools.deny list
+- **THEN** validation fails at deny list stage with command_denied error
+
+### Scenario: Pipeline with all non-denied commands proceeds
+- **WHEN** command is `ls | grep foo`
+- **AND** neither "ls" nor "grep" in deny list
+- **THEN** deny list check passes and proceeds to semantics extraction
 
 ## Safe command execution with timeouts
 The bash tools system SHALL execute commands with timeout protection to prevent runaway processes.
@@ -261,19 +266,11 @@ The bash tools system SHALL optionally warn when semantic coverage is below conf
 - **THEN** warning includes total tokens, claimed tokens, and coverage ratio
 
 ## Structured error responses with expansion guidance
-The bash tools system SHALL return structured errors that guide the LLM to request scope expansion when needed.
-
-### Scenario: Command not allowed error structure
-- **WHEN** a command is not in any allow list
-- **THEN** the system returns :allowed nil with :reason "command-not-allowed", tool, command, and message fields
+The bash tools system SHALL return structured errors that guide the LLM to request scope expansion when needed, focusing on operation-based errors rather than category membership.
 
 ### Scenario: Command denied error structure
 - **WHEN** a command is in deny list
 - **THEN** the system returns :allowed nil with :reason "denied-command", tool, command, and security warning
-
-### Scenario: Directory not in scope error structure
-- **WHEN** directory does not match category's path requirement
-- **THEN** the system returns :allowed nil with :reason "directory-not-in-scope", directory, required_scope, allowed_patterns, and message
 
 ### Scenario: Parse incomplete error structure
 - **WHEN** command cannot be fully parsed
@@ -284,7 +281,7 @@ The bash tools system SHALL return structured errors that guide the LLM to reque
 - **THEN** error includes :error "path_out_of_scope", :path, :operation, :required_scope, :allowed_patterns
 
 ### Scenario: Pipeline command denied with position
-- **WHEN** pipeline command fails validation
+- **WHEN** pipeline command fails deny list validation
 - **THEN** error includes :pipeline_position, :failed_command, :full_pipeline
 
 ### Scenario: Cloud auth denied error with provider
@@ -300,26 +297,26 @@ The bash tools system SHALL return structured errors that guide the LLM to reque
 - **THEN** the error message suggests using request_scope_expansion tool
 
 ## Integration with scope expansion flow
-The bash tools system SHALL integrate with the existing scope expansion mechanism for permission requests.
+The bash tools system SHALL integrate with the existing scope expansion mechanism for permission requests, focusing on path patterns and deny list additions rather than category membership.
 
-### Scenario: LLM requests command expansion
-- **WHEN** request_scope_expansion is called for run_bash_command with a denied command
+### Scenario: LLM requests path pattern expansion
+- **WHEN** request_scope_expansion is called for run_bash_command with path_out_of_scope error
 - **THEN** the system infers validation type and presents transient menu to user
 
-### Scenario: User approves command permanently
+### Scenario: User approves path pattern permanently
 - **WHEN** user selects "Add to scope" in expansion menu
-- **THEN** the system adds command to appropriate category in scope.yml
+- **THEN** the system adds path pattern to appropriate paths section in scope.yml (read/write/execute/modify)
 
-### Scenario: User approves command once
+### Scenario: User approves path once
 - **WHEN** user selects "Allow once" in expansion menu
 - **THEN** the system adds to allow-once list for current turn
 
-### Scenario: LLM requests directory expansion
-- **WHEN** request_scope_expansion is called with directory pattern
-- **THEN** the system adds pattern to appropriate paths section (read or write)
+### Scenario: LLM requests command expansion for denied command
+- **WHEN** request_scope_expansion is called for command in deny list
+- **THEN** the system presents option to remove from deny list (dangerous operation)
 
 ## Configuration loading from scope document
-The bash tools system SHALL load bash command configuration from `scope.yml` located in the session's branch directory.
+The bash tools system SHALL load bash command configuration from `scope.yml` located in the session's branch directory, loading only the deny list without categories.
 
 ### Scenario: Bash tools configuration loaded from scope.yml
 - **WHEN** a bash command executes
@@ -329,21 +326,16 @@ The bash tools system SHALL load bash command configuration from `scope.yml` loc
 
 ### Scenario: Missing bash tools section handled
 - **WHEN** scope.yml exists but has no bash_tools section
-- **THEN** the system uses empty allow lists (deny all commands by default)
+- **THEN** the system uses empty deny list (allow all commands by default, subject to operation validation)
 
 ### Scenario: Missing scope.yml errors
 - **WHEN** scope.yml does not exist in the branch directory
 - **THEN** the system returns error "no_scope_config"
 
-### Scenario: Category structure parsed
-- **WHEN** bash_tools configuration is loaded
-- **THEN** the system parses bash_tools.categories.read_only, bash_tools.categories.safe_write, and bash_tools.categories.dangerous lists from YAML (using snake_case keys)
-- **AND** normalizes keys to kebab-case during parsing: {:bash-tools {:categories {:read-only [...] :safe-write [...]} :deny [...]}}
-- **NOTE:** YAML uses snake_case (bash_tools, read_only), Elisp uses kebab-case (:bash-tools, :read-only)
-
-### Scenario: Deny list parsed
+### Scenario: Deny list parsed without categories
 - **WHEN** bash_tools configuration is loaded
 - **THEN** the system parses bash_tools.deny list for globally denied commands
+- **AND** does NOT parse or expect categories section
 
 ### Scenario: Operation-specific path sections loaded (v4)
 - **WHEN** scope.yml v4 is loaded

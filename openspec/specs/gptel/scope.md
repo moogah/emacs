@@ -131,7 +131,7 @@ The scope system SHALL validate org-roam tools against org_roam_patterns section
 
 The scope system SHALL support bash validation type for tools that execute shell commands with semantic validation.
 
-**Config source:** `scope.yml` in the session's branch directory, under the `bash_tools` top-level key with nested `categories` structure.
+**Config source:** `scope.yml` in the session's branch directory, under the `bash_tools` top-level key with deny list only (no categories).
 
 **Tool:** `run_bash_command` - Executes shell commands with seven-stage validation pipeline using bash-parser integration.
 
@@ -159,12 +159,12 @@ The scope system SHALL validate bash commands through a seven-stage pipeline wit
 
 **Validation stages:**
 1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
-2. **Extract semantics** - Run plugins (file-ops, cloud-auth, security) to extract operations
-3. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
-4. **Pipeline validation** - Extract and validate ALL commands in pipelines/chains
-5. **Command categorization** - Check deny list, then read_only/safe_write/dangerous
-6. **File operation validation** - Match extracted file paths against operation-specific scope patterns
-7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers`
+2. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
+3. **Deny list check** - Block commands in `bash_tools.deny` (minimal list for edge cases)
+4. **Extract semantics** - Run plugins (file-ops, cloud-auth) to extract operations
+5. **No-op allowance** - Allow commands with zero file operations by default
+6. **File operation validation** - Match extracted file paths against operation-specific scope patterns (read/write/execute/modify/deny)
+7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers` (if cloud auth detected)
 
 #### Scenario: Command passes all seven stages
 - **WHEN** bash command completes all validation stages successfully
@@ -182,11 +182,13 @@ The scope system SHALL validate bash commands through a seven-stage pipeline wit
 - **WHEN** AST is available
 - **THEN** system runs file-ops, cloud-auth, and security plugins to extract operations
 
-### Requirement: Pipeline command validation
+### Requirement: Deny list validation
 
-The scope system SHALL extract and validate ALL commands in bash pipelines and chains, not just the base command. Closes security bypass where dangerous commands could hide in pipeline positions.
+The scope system SHALL check all commands in pipelines and chains against the bash_tools.deny list (stage 3). Commands in the deny list are blocked regardless of other permissions.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - `jf/gptel-scope--extract-pipeline-commands`, `jf/gptel-scope--validate-pipeline-commands`
+**Implementation**: `config/gptel/tools/scope-shell-tools.el` - deny list validation in validation pipeline
+
+**Purpose**: Minimal deny list for high-risk edge cases where semantic analysis alone is insufficient. Most commands are validated by operation-first model (file operations, cloud auth).
 
 #### Scenario: Extract commands from pipe
 - **WHEN** parsing "ls -la | grep foo"
@@ -196,9 +198,9 @@ The scope system SHALL extract and validate ALL commands in bash pipelines and c
 - **WHEN** parsing "mkdir foo && cd foo"
 - **THEN** system extracts two commands: "mkdir" and "cd"
 
-#### Scenario: All pipeline commands validated independently
+#### Scenario: All pipeline commands checked against deny list
 - **WHEN** command is "ls | xargs rm"
-- **AND** "ls" is in read_only but "rm" is in deny list
+- **AND** "rm" is in bash_tools.deny list
 - **THEN** validation fails with "command_denied" error for "rm" at pipeline position 1
 
 #### Scenario: Pipeline bypass prevented
@@ -206,7 +208,7 @@ The scope system SHALL extract and validate ALL commands in bash pipelines and c
 - **AND** "rm" is in deny list
 - **THEN** system rejects with error identifying "rm" in pipeline position 2
 
-**Note**: This requirement DEPRECATED in v3 (regex-based parsing could not extract pipeline commands). Implemented in v4 with bash-parser integration.
+**Note**: This requirement implemented in v4 with bash-parser integration. v3 used regex-based parsing and could not extract pipeline commands.
 
 ### Requirement: Operation-specific path validation
 
@@ -298,58 +300,36 @@ cloud:
 
 **Note**: New in v4. v3 had no cloud authentication awareness.
 
-### Requirement: Command categorization (v3 compatibility)
+### Requirement: No-op command allowance
 
-The scope system SHALL validate bash commands using category-based validation with three categories: read_only, safe_write, dangerous. This requirement maintained from v3 for backward compatibility.
+The scope system SHALL automatically allow commands with zero extracted file operations, enabling version checks, help flags, and informational commands without explicit configuration.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - command categorization stage (stage 5)
+**Implementation**: `config/gptel/tools/scope-shell-tools.el` - no-op allowance (stage 5 of validation pipeline)
 
-**Configuration format** (scope.yml):
-```yaml
-bash_tools:
-  categories:
-    read_only:
-      - ls
-      - cat
-      - grep
-      - git log
-    safe_write:
-      - mkdir
-      - touch
-      - git add
-      - git commit
-    dangerous:
-      - rm
-      - sudo
-  deny:
-    - rm
-    - sudo
-    - chmod
-```
+**Purpose**: Commands that perform no file operations are inherently low-risk and should not require explicit allowlist configuration. This includes version checks, help flags, and informational queries.
 
-**Category semantics** (unchanged from v3):
+#### Scenario: Version check allowed by default
+- **WHEN** command is "git --version"
+- **AND** semantic extraction finds zero file operations
+- **THEN** validation passes without checking path scopes or deny lists (no-op bypass)
 
-| Category | Meaning |
-|----------|---------|
-| `read_only` | Read-only commands; categorization only (no path enforcement at category level) |
-| `safe_write` | Non-destructive creation |
-| `dangerous` | Commands requiring explicit user approval |
-| `deny` | Never allowed; blocked even with scope expansion |
+#### Scenario: Help flag allowed by default
+- **WHEN** command is "ls --help"
+- **AND** semantic extraction finds zero file operations
+- **THEN** validation passes (no-op bypass)
 
-#### Scenario: Deny list checked first
-- **WHEN** command matches deny list
-- **THEN** system denies command (deny takes precedence)
-- **AND** returns custom `:message` field in error
+#### Scenario: Which command allowed by default
+- **WHEN** command is "which bash"
+- **AND** semantic extraction finds zero file operations
+- **THEN** validation passes (no-op bypass)
 
-#### Scenario: Read-only command allowed
-- **WHEN** command in `bash_tools.categories.read_only`
-- **THEN** system allows command (path validation handled separately in v4)
+#### Scenario: Commands with file operations skip no-op allowance
+- **WHEN** command is "cat /workspace/file.txt"
+- **AND** semantic extraction finds file operations
+- **THEN** no-op allowance stage is skipped
+- **AND** validation continues to stage 6 (file operation validation)
 
-#### Scenario: Command not in categories
-- **WHEN** command not in any category
-- **THEN** system denies with "command_not_allowed" error
-
-**Note**: v4 separates command categorization (stage 5) from path validation (stage 6). v3 combined these into single validation step.
+**Note**: New in v4. v3 required all commands to be in explicit category allowlists. v4 uses operation-first validation where commands with zero file operations are automatically permitted.
 
 ### Requirement: Allow-once temporary permissions
 
@@ -511,6 +491,13 @@ bash_tools:
   categories:
     read_only:
       commands: ["ls", "cat"]
+    safe_write:
+      commands: ["mkdir", "touch"]
+    dangerous:
+      commands: []
+  deny:
+    - rm
+    - sudo
 ```
 
 **v4 schema (incompatible):**
@@ -528,16 +515,12 @@ paths:
     - "/etc/**"
 
 bash_tools:
-  categories:
-    read_only:          # Command arrays now at category level
-      - ls
-      - cat
-    safe_write:
-      - mkdir
-    dangerous:
-      - rm
+  # categories section REMOVED - operation-first validation replaces category allowlists
   deny:
-    - sudo
+    - sudo              # Minimal deny list for high-risk edge cases
+    - dd
+    - chmod
+    - chown
 
 cloud:                  # NEW section
   auth_detection: "warn"
@@ -551,24 +534,31 @@ security:               # NEW section
 
 ### Migration Requirements
 
+**Category-based validation removed:**
+- v3: Commands required explicit allowlist membership in `bash_tools.categories` (read_only, safe_write, dangerous)
+- v4: Operation-first validation - commands validated by extracted file operations and path scopes
+- Impact: Remove entire `bash_tools.categories` section from scope.yml
+- Migration: Keep only `bash_tools.deny` list for high-risk edge cases (sudo, dd, chmod, chown)
+
 **Commands requiring new path sections:**
 - Execute operations (e.g., `bash /workspace/script.sh`) → Add `paths.execute`
 - Modify operations (e.g., `sed -i 's/foo/bar/' file.txt`) → Add `paths.modify`
 - Cloud commands (e.g., `aws-vault exec`) → Add `cloud` section
 
+**No-op allowance:**
+- v3: Version checks and help flags required explicit allowlist membership
+- v4: Commands with zero file operations automatically allowed (git --version, ls --help, which bash)
+- Impact: No configuration needed for informational commands
+
 **Pipeline validation:**
 - v3: Only validated base command (e.g., `ls` in `ls | xargs rm`)
-- v4: Validates ALL commands in pipeline (closes security bypass)
+- v4: Validates ALL commands in pipeline against deny list (closes security bypass)
 - Impact: Commands like `find . | xargs rm` now rejected if `rm` in deny list
 
 **File path validation:**
 - v3: Validated working directory only
 - v4: Extracts and validates file paths from command arguments
 - Impact: `cat /etc/passwd` now checks `/etc/passwd` against scope, not just working directory
-
-**bash_tools structure:**
-- v3: `categories.read_only.commands: ["ls"]`
-- v4: `categories.read_only: ["ls"]` (commands array moved up one level)
 
 ### Rollback Strategy
 
@@ -607,10 +597,12 @@ Users must manually update scope.yml files. Migration guide available at:
 ## Summary
 
 The Scope System v4 provides fine-grained tool permissions through:
-- **Seven-stage bash validation pipeline** (parse → semantics → completeness → pipelines → categories → file paths → cloud auth)
+- **Seven-stage bash validation pipeline** (parse → completeness → deny list → semantics → no-op allowance → file paths → cloud auth)
+- **Operation-first validation** (commands validated by extracted file operations, not category allowlists)
 - **Semantic command analysis** (bash-parser integration for AST extraction and operation detection)
 - **Operation-specific path validation** (read, write, execute, modify with glob patterns)
-- **Pipeline command validation** (validates ALL commands in pipes and chains, closes v3 security bypass)
+- **No-op allowance** (commands with zero file operations automatically allowed)
+- **Deny list validation** (validates ALL commands in pipelines/chains against minimal deny list)
 - **Cloud authentication detection** (AWS, GCP, Azure with allow/warn/deny policy)
 - **Security settings** (parse completeness enforcement, coverage thresholds)
 - **Path-based validation** (glob patterns with deny precedence)
@@ -620,6 +612,6 @@ The Scope System v4 provides fine-grained tool permissions through:
 - **Structured errors** (help LLMs understand denials and request expansions)
 
 **v4 vs v3:**
-- v3: Regex-based command parsing, directory-only validation, pipeline bypass
-- v4: Bash-parser semantic analysis, file path extraction, full pipeline validation
-- Breaking: v3 schemas NOT compatible, manual migration required
+- v3: Category-based allowlists (read_only, safe_write, dangerous), regex parsing, directory-only validation
+- v4: Operation-first validation (no categories), bash-parser semantic analysis, file path extraction, no-op allowance
+- Breaking: v3 schemas NOT compatible, manual migration required (remove categories section, keep only deny list)

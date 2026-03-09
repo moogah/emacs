@@ -68,16 +68,16 @@ The scope.yml v4 schema SHALL include security section for parse and coverage en
 - **WHEN** scope.yml has no security section
 - **THEN** system defaults to enforce_parse_complete: true and max_coverage_threshold: 0.8
 
-## Bash tools section unchanged
-The v4 schema SHALL maintain the existing bash_tools section structure from v3.
-
-#### Scenario: bash_tools.categories structure
-- **WHEN** scope.yml contains bash_tools
-- **THEN** categories.read_only, categories.safe_write, categories.dangerous arrays present
+## Bash tools section (v4 change)
+The v4 schema SHALL use deny-list only for bash_tools, removing the categories structure from v3.
 
 #### Scenario: bash_tools.deny structure
 - **WHEN** scope.yml contains bash_tools
-- **THEN** deny array present with denied command names
+- **THEN** deny array present with denied command names (no categories section)
+
+#### Scenario: bash_tools.categories rejected
+- **WHEN** scope.yml contains bash_tools.categories section
+- **THEN** system returns schema validation error "categories section no longer supported"
 
 ## Complete v4 schema example
 The v4 schema SHALL support complete scope documents with all sections.
@@ -86,7 +86,7 @@ The v4 schema SHALL support complete scope documents with all sections.
 - **WHEN** scope.yml is valid v4 format
 - **THEN** document contains:
   - paths section with read, write, execute, modify, deny arrays
-  - bash_tools section with categories and deny arrays
+  - bash_tools section with deny array only (no categories)
   - cloud section with auth_detection and allowed_providers
   - security section with enforce_parse_complete and max_coverage_threshold
 

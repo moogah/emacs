@@ -89,31 +89,18 @@ org_roam_patterns:
 
 Controls which org-roam nodes are accessible to tools.
 
-### Bash Tools - Category-Based Command Execution
+### Bash Tools - Command Deny List
 
 ```yaml
 bash_tools:
-  categories:
-    read_only:
-      commands: ["ls", "cat", "grep", "git log"]
-    safe_write:
-      commands: ["mkdir", "touch", "git add", "git commit"]
-    dangerous:
-      commands: []
   deny:
-    - "rm"
     - "sudo"
+    - "dd"
     - "chmod"
+    - "chown"
 ```
 
-**Category semantics**:
-
-| Category | Path Requirement | Meaning |
-|----------|------------------|---------|
-| `read_only` | `paths.read` (or write) | Read-only commands; write scope includes read |
-| `safe_write` | `paths.write` | Non-destructive creation commands |
-| `dangerous` | Both read AND write | Requires explicit user approval |
-| `deny` | Never allowed | Blocked even with scope expansion |
+**Deny list semantics**: Commands in the deny list are blocked even with scope expansion. The deny list should contain only edge cases for high-risk commands. Most commands are validated through operation-first validation against path scopes.
 
 ## Requirements
 
@@ -133,18 +120,15 @@ Scope profiles SHALL be plain YAML files with no frontmatter delimiters.
 - **THEN** the profile is valid
 - **AND** missing sections treated as empty (deny-by-default)
 
-#### Scenario: Profile includes bash_tools section
+#### Scenario: Profile includes bash_tools section without categories
 - **WHEN** a scope profile defines bash command permissions
-- **THEN** it includes a `bash_tools` top-level key with `categories` and `deny` subsections
-
-#### Scenario: Bash tools categories structure
-- **WHEN** bash_tools is present in a profile
-- **THEN** categories subsection includes `read_only`, `safe_write`, and `dangerous` keys
-- **AND** each category contains a `commands` array of command names
+- **THEN** it includes a `bash_tools` top-level key with only a `deny` subsection
+- **AND** no `categories` subsection is present
 
 #### Scenario: Bash tools deny list defined
 - **WHEN** bash_tools is present in a profile
 - **THEN** deny is an array of command names that are always rejected
+- **AND** deny list contains only edge cases (sudo, commands with parser limitations)
 
 #### Scenario: Bash tools section is optional
 - **WHEN** a scope profile omits bash_tools
@@ -180,19 +164,21 @@ Scope profiles SHALL be stored in `config/gptel/scope-profiles/` with `.yml` ext
 
 ### Requirement: Default bash-enabled profiles
 
-The system SHOULD provide default scope profiles that demonstrate bash tools configuration.
+The system SHOULD provide default scope profiles that demonstrate minimal bash_tools deny lists without categories.
 
-#### Scenario: bash-enabled profile provided
+#### Scenario: bash-enabled profile provided without categories
 - **WHEN** the configuration is installed
-- **THEN** a `bash-enabled.yml` profile SHALL exist demonstrating comprehensive bash command categorization
+- **THEN** a `bash-enabled.yml` profile SHALL exist with only bash_tools.deny section
+- **AND** profile demonstrates minimal deny list (sudo, dd, chmod, chown)
 
 #### Scenario: restricted profile has no bash
 - **WHEN** using the `restricted.yml` profile
 - **THEN** bash_tools section is omitted (no bash command access)
 
-#### Scenario: coding profile has bash
-- **WHEN** using the `coding.yml` profile
-- **THEN** bash_tools section includes common development commands (ls, grep, find, git)
+#### Scenario: system-explorer profile has minimal deny list
+- **WHEN** using the `system-explorer.yml` profile
+- **THEN** bash_tools section includes deny list only
+- **AND** deny list blocks destructive commands (rm, chmod, sudo)
 
 **Related specs:** See `bash-tools.md` for bash tools behavior and validation requirements.
 
