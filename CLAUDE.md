@@ -251,20 +251,13 @@ paths:
     - "~/.ssh/**"
 
 bash_tools:
-  categories:
-    read_only:
-      commands: ["ls", "cat", "grep", "find", "tree", "head", "tail", "wc", "file", "git", "pwd", "which"]
-    safe_write:
-      commands: ["mkdir", "touch", "echo", "git"]
-    dangerous:
-      commands: []
   deny:
-    - rm
-    - mv
-    - chmod
     - sudo
+    - dd
+    - chmod
     - chown
-    # Additional denied commands for security...
+    # Minimal deny list for high-risk edge cases
+    # Most commands validated by operation-first model
 
 cloud:
   auth_detection: "warn"      # "allow", "warn", or "deny"
@@ -301,36 +294,148 @@ sed -i 's/foo/bar/' /workspace/config/settings.conf
 
 #### Validation Pipeline
 
-Seven-stage validation with early exit on failure:
+Seven-stage **operation-first** validation with early exit on failure:
 
 1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
-2. **Extract semantics** - Run plugins (file-ops, cloud-auth) to extract operations
-3. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
-4. **Pipeline validation** - Extract and validate ALL commands in pipelines/chains
-5. **Command categorization** - Check deny list first, then read_only/safe_write/dangerous categories
+2. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
+3. **Deny list check** - Block commands in `bash_tools.deny` (minimal list for edge cases)
+4. **Extract semantics** - Run plugins (file-ops, cloud-auth) to extract operations
+5. **No-op allowance** - Allow commands with zero file operations (version checks, help flags)
 6. **File operation validation** - Match extracted file paths against operation-specific scope patterns (read/write/execute/modify/deny)
 7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers` (if cloud auth detected)
 
-**Example validation flow:**
+**No-Op Allowance** (Stage 5): Commands with zero extracted file operations are automatically allowed without requiring explicit allowlists. This enables version checks (`git --version`), help flags (`ls --help`), and informational commands (`which bash`) without manual configuration.
+
+**Example validation flows:**
 ```elisp
 ;; Command: cat /workspace/file.txt | grep foo
 ;; 1. Parse → AST with pipeline structure and tokens
-;; 2. Extract semantics → file-ops: [{:operation :read :path "/workspace/file.txt"}]
-;; 3. Parse complete? → yes (continue)
-;; 4. Pipeline commands → ["cat", "grep"]
-;; 5. Categorize → cat: read_only (allowed), grep: read_only (allowed)
+;; 2. Parse complete? → yes (continue)
+;; 3. Deny list → cat, grep not in deny list (continue)
+;; 4. Extract semantics → file-ops: [{:operation :read :path "/workspace/file.txt"}]
+;; 5. No-op allowance → has file operations (skip)
 ;; 6. Validate paths → /workspace/file.txt matches paths.read
 ;; 7. Cloud auth → none detected (skip)
 ;; Result: ALLOW
 
 ;; Command: ls | xargs rm
 ;; 1. Parse → AST with pipeline
-;; 2. Extract semantics → no file operations
-;; 3. Parse complete? → yes
-;; 4. Pipeline commands → ["ls", "xargs", "rm"]
-;; 5. Categorize → ls: read_only (ok), xargs: read_only (ok), rm: IN DENY LIST
-;; Result: DENY (command_denied error at position 2)
+;; 2. Parse complete? → yes
+;; 3. Deny list → ls, xargs not in deny list, rm IN DENY LIST
+;; Result: DENY (command_denied error)
+
+;; Command: git --version
+;; 1. Parse → AST with command
+;; 2. Parse complete? → yes
+;; 3. Deny list → git not in deny list (continue)
+;; 4. Extract semantics → no file operations
+;; 5. No-op allowance → zero file operations (ALLOW)
+;; Result: ALLOW (no-op bypass)
 ```
+
+#### Migration Guide: Removing Categories
+
+**Context**: The validation model has migrated from category-based allowlists (read_only, safe_write, dangerous) to operation-first validation. Commands are now validated by their semantic operations (file reads/writes) rather than category membership.
+
+**Detection**: Your scope profile needs migration if:
+- Schema loading fails with error: "bash_tools.categories section no longer supported"
+- Profile contains `bash_tools.categories` section with `read_only`, `safe_write`, or `dangerous` keys
+- Example old profile: `config/gptel/scope-profiles/bash-enabled.yml` with categories
+
+**Migration Steps**:
+
+1. **Identify old profile structure**:
+```yaml
+# OLD: Category-based allowlists
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "cat", "grep", "find"]
+    safe_write:
+      commands: ["mkdir", "touch", "echo"]
+    dangerous:
+      commands: []
+  deny:
+    - rm
+    - sudo
+```
+
+2. **Remove categories section** - Delete entire `categories` key and all subcategories
+
+3. **Keep deny list** - Retain `bash_tools.deny` for high-risk edge cases:
+```yaml
+# NEW: Operation-first with minimal deny list
+bash_tools:
+  deny:
+    - sudo    # System-level privilege escalation
+    - dd      # Raw disk operations
+    - chmod   # Permission modification
+    - chown   # Ownership modification
+```
+
+4. **Validation behavior changes**:
+   - **Previously**: Commands not in allowlist categories were denied by default
+   - **Now**: Commands validated by extracted file operations and path scopes
+   - **No-op commands**: Automatically allowed (git --version, ls --help, which bash)
+   - **File operations**: Validated against paths.read/write/execute/modify
+   - **Deny list**: Only blocks explicitly dangerous commands
+
+5. **Complete migration example**:
+
+**Before** (category-based):
+```yaml
+paths:
+  read: ["/workspace/**"]
+  write: ["/workspace/**"]
+
+bash_tools:
+  categories:
+    read_only:
+      commands: ["ls", "cat", "grep", "find", "tree", "head", "tail", "wc", "file", "git", "pwd", "which"]
+    safe_write:
+      commands: ["mkdir", "touch", "echo", "git"]
+    dangerous:
+      commands: []
+  deny:
+    - rm
+    - mv
+    - chmod
+    - sudo
+    - chown
+```
+
+**After** (operation-first):
+```yaml
+paths:
+  read: ["/workspace/**"]
+  write: ["/workspace/**"]
+
+bash_tools:
+  deny:
+    - sudo
+    - dd
+    - chmod
+    - chown
+```
+
+**Troubleshooting**:
+
+- **Error: "bash_tools.categories section no longer supported"**
+  - **Cause**: Profile still contains categories section
+  - **Fix**: Remove entire `categories` key from YAML file
+
+- **Error: "Command 'ls' not in allowed categories"**
+  - **Cause**: Using old validation code with new schema
+  - **Fix**: Update to latest scope-shell-tools.el implementation
+
+- **Behavior: Commands previously allowed now denied**
+  - **Cause**: Command has file operations not in path scopes
+  - **Fix**: Add required paths to paths.read/write/execute/modify
+  - **Example**: `cat /tmp/file.txt` requires `/tmp/**` in paths.read
+
+- **Behavior: Commands with --help or --version still work**
+  - **Expected**: No-op allowance automatically permits these
+  - **No action needed**: This is correct behavior
 
 #### Cloud Authentication Detection
 
@@ -392,16 +497,15 @@ security:
 **Common error types:**
 
 ```elisp
-;; Parse incomplete (Stage 3)
+;; Parse incomplete (Stage 2)
 {:error "parse_incomplete"
  :message "Parse incomplete: Unexpected token at line 2"
  :parse-errors "Unexpected token at line 2"}
 
-;; Command denied (Stage 5)
+;; Command denied (Stage 3)
 {:error "command_denied"
- :position 2
- :command "rm"
- :message "Command 'rm' at position 2 is in deny list"}
+ :command "sudo"
+ :message "Command 'sudo' is in deny list"}
 
 ;; Path out of scope (Stage 6)
 {:error "path_out_of_scope"
@@ -428,6 +532,11 @@ security:
  :provider :aws
  :command "aws-vault exec"
  :message "Cloud authentication denied: aws-vault exec (aws provider)"}
+
+;; Schema migration error (profile loading)
+{:error "schema_invalid"
+ :message "bash_tools.categories section no longer supported. Remove categories and keep only bash_tools.deny list."
+ :details "See CLAUDE.md migration guide for operation-first validation"}
 ```
 
 **Scope expansion workflow:**
