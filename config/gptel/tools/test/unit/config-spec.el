@@ -63,16 +63,13 @@
       (expect (plist-get security :enforce-parse-complete) :to-be t)
       (expect (plist-get security :max-coverage-threshold) :to-equal 0.8)))
 
-  (it "preserves bash-tools section with normalized keys"
-    (let* ((bash-tools '(:categories (:read_only (:commands ("ls" "cat")))
-                         :deny ("rm")))
+  (it "preserves bash-tools deny list with normalized keys"
+    (let* ((bash-tools '(:deny ("rm" "sudo")))
            (schema-plist (list :bash-tools bash-tools))
            (result (jf/gptel-scope--load-schema schema-plist))
            (result-bash-tools (plist-get result :bash-tools)))
-      ;; Keys are normalized to kebab-case by normalize-keys
-      (expect (plist-get (plist-get result-bash-tools :categories) :read-only)
-              :to-equal '(:commands ("ls" "cat")))
-      (expect (plist-get result-bash-tools :deny) :to-equal '("rm")))))
+      ;; Only deny list is preserved (categories removed)
+      (expect (plist-get result-bash-tools :deny) :to-equal '("rm" "sudo")))))
 
 ;;; Cloud Config Loading Tests
 

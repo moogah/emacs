@@ -183,15 +183,6 @@ Returns path to the created file."
     - \"/etc/**\"
 
 bash_tools:
-  categories:
-    read_only:
-      commands:
-        - ls
-        - cat
-    safe_write:
-      commands:
-        - mkdir
-        - touch
   deny:
     - rm
     - sudo
@@ -215,9 +206,6 @@ Returns path to the created file."
     - \"/workspace/**\"
 
 bash_tools:
-  categories:
-    read_only:
-      commands: [ls, cat]
   deny: [rm]
 
 cloud:
@@ -242,9 +230,6 @@ Returns path to the created file."
     - \"/workspace/**\"
 
 bash_tools:
-  categories:
-    read_only:
-      commands: [ls, cat]
   deny: [rm]
 
 cloud:

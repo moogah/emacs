@@ -54,10 +54,7 @@
   (list :paths (or (plist-get args :paths)
                    (test-combined--make-paths-config))
         :bash-tools (or (plist-get args :bash-tools)
-                        '(:categories (:read-only (:commands ())
-                                      :safe-write (:commands ())
-                                      :dangerous (:commands ()))
-                         :deny ()))
+                        '(:deny ()))
         :cloud (or (plist-get args :cloud)
                    '(:auth-detection "warn"))
         :security (or (plist-get args :security)
@@ -73,10 +70,7 @@
       (let* ((scope-config (test-combined--make-test-config
                             :paths (test-combined--make-paths-config
                                     :read '("/workspace/**"))
-                            :bash-tools '(:categories (:read-only (:commands ("cat" "grep"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
+                            :bash-tools '(:deny ())))
              (result nil))
         ;; Mock parse to return pipeline
         (spy-on 'jf/bash-parse :and-return-value
@@ -99,12 +93,8 @@
                             :paths (test-combined--make-paths-config
                                     :read '("/workspace/**"))
                             :cloud '(:auth-detection "warn")
-                            :bash-tools '(:categories (:read-only (:commands ("aws-vault" "cat"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
-             (result nil)
-             (warning-called nil))
+                            :bash-tools '(:deny ())))
+             (result nil))
         ;; Mock parse
         (spy-on 'jf/bash-parse :and-return-value
                 '(:parse-complete t
@@ -117,13 +107,11 @@
                                          :command-name "cat"))
                            :cloud-auth (:provider :aws
                                        :command "aws-vault exec prod"))))
-        ;; Capture warning
-        (spy-on 'warn :and-call-fake (lambda (&rest args) (setq warning-called t)))
         (setq result (jf/gptel-scope--validate-command-semantics
                       "aws-vault exec prod -- cat /workspace/file.txt" "/workspace" scope-config))
-        ;; Should pass with warning (cloud auth in warn mode)
-        (expect result :to-be nil)
-        (expect warning-called :to-be-truthy))))
+        ;; Should return warning plist (cloud auth in warn mode)
+        (expect (plist-get result :warning) :to-equal "cloud_auth_detected")
+        (expect (plist-get result :provider) :to-equal :aws))))
 
   (describe "pipeline + file operations + cloud auth"
     (it "validates all three layers together"
@@ -132,10 +120,7 @@
                                     :read '("/workspace/**")
                                     :write '("/tmp/**"))
                             :cloud '(:auth-detection "allow")
-                            :bash-tools '(:categories (:read-only (:commands ("aws" "grep"))
-                                                      :safe-write (:commands ("echo"))
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
+                            :bash-tools '(:deny ())))
              (result nil))
         ;; Mock parse with complex pipeline
         (spy-on 'jf/bash-parse :and-return-value
@@ -182,24 +167,22 @@
       (let* ((scope-config (test-combined--make-test-config
                             :security '(:max-coverage-threshold 0.8
                                        :enforce-parse-complete t)
-                            :bash-tools '(:categories (:read-only (:commands ("ls"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
+                            :bash-tools '(:deny ())))
              (result nil)
              (warning-called nil))
         ;; Mock parse
         (spy-on 'jf/bash-parse :and-return-value
                 '(:parse-complete t
                   :all-commands ((:command-name "ls"))))
-        ;; Mock semantics with low coverage
+        ;; Mock semantics with low coverage - coverage is direct property
         (spy-on 'jf/bash-extract-semantics :and-return-value
-                '(:coverage (:coverage-ratio 0.6)))  ; Below 0.8 threshold
+                '(:coverage (:coverage-ratio 0.6)
+                  :domains nil))  ; Below 0.8 threshold
         ;; Capture warning
         (spy-on 'warn :and-call-fake (lambda (&rest args) (setq warning-called t)))
         (setq result (jf/gptel-scope--validate-command-semantics
                       "ls" "/workspace" scope-config))
-        ;; Should warn but still pass (stage 6 is non-blocking)
+        ;; Should warn but still pass (stage 7 is non-blocking)
         (expect warning-called :to-be-truthy)
         (expect result :to-be nil)))))
 

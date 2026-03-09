@@ -52,10 +52,7 @@
   (list :paths (or (plist-get args :paths)
                    (test-pipeline--make-paths-config))
         :bash-tools (or (plist-get args :bash-tools)
-                        '(:categories (:read-only (:commands ())
-                                      :safe-write (:commands ())
-                                      :dangerous (:commands ()))
-                         :deny ()))
+                        '(:deny ()))
         :cloud (or (plist-get args :cloud)
                    '(:auth-detection "warn"))
         :security (or (plist-get args :security)
@@ -71,10 +68,7 @@
       (let* ((scope-config (test-pipeline--make-test-config
                             :paths (test-pipeline--make-paths-config
                                     :read '("/workspace/**"))
-                            :bash-tools (list :categories (list :read-only (list :commands '("ls"))
-                                                                :safe-write (list :commands '())
-                                                                :dangerous (list :commands '()))
-                                              :deny '())))
+                            :bash-tools (list :deny '())))
              (result (jf/gptel-scope--validate-command-semantics
                       "ls -la" "/workspace" scope-config)))
         ;; nil = success (all stages passed)
@@ -98,10 +92,7 @@
       (let* ((scope-config (test-pipeline--make-test-config
                             :security '(:enforce-parse-complete nil
                                        :max-coverage-threshold 0.8)
-                            :bash-tools (list :deny '()
-                                              :read-only (list :commands '("ls"))
-                                              :safe-write (list :commands '())
-                                              :dangerous (list :commands '()))))
+                            :bash-tools (list :deny '())))
              (result nil)
              (warning-called nil))
         ;; Mock incomplete parse but with extractable commands
@@ -120,10 +111,7 @@
   (describe "stage 2-3: pipeline command extraction and validation"
     (it "fails on denied command in pipeline"
       (let* ((scope-config (test-pipeline--make-test-config
-                            :bash-tools '(:categories (:read-only (:commands ("ls"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ("rm"))))
+                            :bash-tools '(:deny ("rm"))))
              (result nil))
         ;; Mock parse result with pipeline
         (spy-on 'jf/bash-parse :and-return-value
@@ -141,10 +129,7 @@
       (let* ((scope-config (test-pipeline--make-test-config
                             :paths (test-pipeline--make-paths-config
                                     :read '("/workspace/**"))
-                            :bash-tools '(:categories (:read-only (:commands ("cat"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
+                            :bash-tools '(:deny ())))
              (result nil))
         ;; Mock parse and semantics
         (spy-on 'jf/bash-parse :and-return-value
@@ -164,10 +149,7 @@
       (let* ((scope-config (test-pipeline--make-test-config
                             :paths (test-pipeline--make-paths-config
                                     :read '("/workspace/**"))
-                            :bash-tools '(:categories (:read-only (:commands ("cat"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
+                            :bash-tools '(:deny ())))
              (result nil))
         ;; Mock parse and semantics
         (spy-on 'jf/bash-parse :and-return-value
@@ -185,10 +167,7 @@
     (it "fails when cloud auth denied"
       (let* ((scope-config (test-pipeline--make-test-config
                             :cloud '(:auth-detection "deny")
-                            :bash-tools '(:categories (:read-only (:commands ("aws-vault"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
+                            :bash-tools '(:deny ())))
              (result nil))
         ;; Mock parse and semantics
         (spy-on 'jf/bash-parse :and-return-value
@@ -205,12 +184,8 @@
     (it "warns when cloud auth detected and mode=warn"
       (let* ((scope-config (test-pipeline--make-test-config
                             :cloud '(:auth-detection "warn")
-                            :bash-tools '(:categories (:read-only (:commands ("gcloud"))
-                                                      :safe-write (:commands ())
-                                                      :dangerous (:commands ()))
-                                         :deny ())))
-             (result nil)
-             (warning-msg nil))
+                            :bash-tools '(:deny ())))
+             (result nil))
         ;; Mock parse and semantics
         (spy-on 'jf/bash-parse :and-return-value
                 '(:parse-complete t
@@ -218,37 +193,34 @@
         (spy-on 'jf/bash-extract-semantics :and-return-value
                 '(:domains (:cloud-auth (:provider :gcp
                                         :command "gcloud auth login"))))
-        ;; Capture warning message
-        (spy-on 'warn :and-call-fake (lambda (&rest args)
-                                      (setq warning-msg (apply #'format args))))
         (setq result (jf/gptel-scope--validate-command-semantics
                       "gcloud auth login" "/workspace" scope-config))
-        ;; Warn mode returns nil (success) but logs warning
-        (expect result :to-be nil)
-        (expect warning-msg :to-match "Cloud authentication"))))
+        ;; Warn mode returns warning plist
+        (expect (plist-get result :warning) :to-equal "cloud_auth_detected")
+        (expect (plist-get result :provider) :to-equal :gcp)
+        (expect (plist-get result :message) :to-match "Cloud authentication"))))
 
   (describe "stage 6: coverage threshold (non-blocking)"
     (it "warns but does not fail when coverage below threshold"
       (let* ((scope-config (test-pipeline--make-test-config
                             :security '(:max-coverage-threshold 0.8
                                        :enforce-parse-complete t)
-                            :bash-tools (list :deny '()
-                                              :read-only (list :commands '("ls"))
-                                              :safe-write (list :commands '())
-                                              :dangerous (list :commands '()))))
+                            :bash-tools (list :deny '())))
              (result nil)
              (warning-called nil))
-        ;; Mock parse and semantics with low coverage
+        ;; Mock parse
         (spy-on 'jf/bash-parse :and-return-value
                 '(:parse-complete t
                   :all-commands ((:command-name "ls"))))
+        ;; Mock semantics with low coverage - coverage is direct property of semantics
         (spy-on 'jf/bash-extract-semantics :and-return-value
-                '(:coverage (:coverage-ratio 0.5)))  ; Below 0.8 threshold
+                '(:coverage (:coverage-ratio 0.5)
+                  :domains nil))  ; Below 0.8 threshold
         ;; Capture warning
         (spy-on 'warn :and-call-fake (lambda (&rest args) (setq warning-called t)))
         (setq result (jf/gptel-scope--validate-command-semantics
                       "ls" "/workspace" scope-config))
-        ;; Should warn but still pass (stage 6 is non-blocking)
+        ;; Should warn but still pass (stage 7 is non-blocking)
         (expect warning-called :to-be-truthy)
         (expect result :to-be nil))))
 
