@@ -277,39 +277,23 @@ Reference: specs/scope-schema/spec.md § Security configuration"
     (should (eq t (plist-get security :enforce-parse-complete)))
     (should (equal 0.8 (plist-get security :max-coverage-threshold)))))
 
-;;; Requirement 5: Bash tools section unchanged
+;;; Requirement 5: Bash tools section deny list only
 
-(ert-deftest test-scope-schema-bash-tools-categories ()
-  "Spec scenario: bash_tools.categories structure.
-Reference: specs/scope-schema/spec.md § Bash tools section unchanged"
-  (let* ((yml "bash_tools:
+(ert-deftest test-scope-schema-bash-tools-categories-rejected ()
+  "Spec scenario: bash_tools.categories section is rejected.
+Reference: specs/scope-schema/spec.md § Bash tools category removal"
+  (let ((yml "bash_tools:
   categories:
     read_only:
       commands: [\"ls\", \"cat\", \"grep\"]
     safe_write:
       commands: [\"mkdir\", \"touch\"]
     dangerous:
-      commands: []")
-         (config (test-scope-schema--parse-yml yml))
-         (bash-tools (plist-get config :bash-tools))
-         (categories (plist-get bash-tools :categories))
-         (read-only (plist-get categories :read-only))
-         (safe-write (plist-get categories :safe-write))
-         (dangerous (plist-get categories :dangerous)))
-    (should bash-tools)
-    (should categories)
-    ;; Check structure exists
-    (should read-only)
-    (should safe-write)
-    (should dangerous)
-    ;; Check command arrays
-    (should (plist-member read-only :commands))
-    (should (equal 3 (length (plist-get read-only :commands))))
-    (should (plist-member safe-write :commands))
-    (should (equal 2 (length (plist-get safe-write :commands))))
-    ;; Empty array should be nil (empty list)
-    (should (plist-member dangerous :commands))
-    (should (equal 0 (length (or (plist-get dangerous :commands) nil))))))
+      commands: []"))
+    ;; Profile loading should reject profiles with categories section
+    (should-error
+     (test-scope-schema--parse-yml yml)
+     :type 'error)))
 
 (ert-deftest test-scope-schema-bash-tools-deny ()
   "Spec scenario: bash_tools.deny structure.
@@ -339,13 +323,6 @@ Reference: specs/scope-schema/spec.md § Complete scope schema example"
   deny: [\"**/.git/**\", \"**/.env\"]
 
 bash_tools:
-  categories:
-    read_only:
-      commands: [\"ls\", \"cat\"]
-    safe_write:
-      commands: [\"mkdir\"]
-    dangerous:
-      commands: []
   deny: [\"rm\", \"sudo\"]
 
 cloud:
@@ -370,10 +347,10 @@ security:
       (should (plist-get paths :modify))
       (should (plist-get paths :deny)))
 
-    ;; Validate bash_tools subsections
+    ;; Validate bash_tools subsections (deny list only)
     (let ((bash-tools (plist-get config :bash-tools)))
-      (should (plist-get bash-tools :categories))
-      (should (plist-get bash-tools :deny)))
+      (should (plist-get bash-tools :deny))
+      (should-not (plist-get bash-tools :categories)))
 
     ;; Validate cloud subsections
     (let ((cloud (plist-get config :cloud)))
@@ -463,13 +440,6 @@ Reference: specs/scope-schema/spec.md § Backward compatibility"
   read: [\"/workspace/**\"]
   write: [\"/tmp/**\"]
 bash_tools:
-  categories:
-    read_only:
-      commands: [\"ls\"]
-    safe_write:
-      commands: [\"mkdir\"]
-    dangerous:
-      commands: []
   deny: [\"rm\"]")
          (config (test-scope-schema--parse-yml yml))
          (paths (plist-get config :paths)))
@@ -535,13 +505,6 @@ Reference: specs/scope-schema/spec.md § Validation on schema load"
   deny: [\"**/.git/**\"]
 
 bash_tools:
-  categories:
-    read_only:
-      commands: [\"ls\", \"cat\"]
-    safe_write:
-      commands: [\"mkdir\"]
-    dangerous:
-      commands: []
   deny: [\"rm\", \"sudo\"]
 
 cloud:
@@ -564,7 +527,7 @@ security:
       (should (listp (plist-get paths :deny))))
 
     (let ((bash-tools (plist-get config :bash-tools)))
-      (should (plist-get bash-tools :categories))
+      (should-not (plist-get bash-tools :categories))
       (should (listp (plist-get bash-tools :deny))))
 
     (let ((cloud (plist-get config :cloud)))
@@ -1023,32 +986,18 @@ security:
   "Test that bash_tools section is not modified by default merging.
 bash_tools has no defaults and should pass through unchanged."
   (let* ((yml "bash_tools:
-  categories:
-    read_only:
-      commands: [\"ls\"]
-    safe_write:
-      commands: []
-    dangerous:
-      commands: []
   deny: [\"rm\"]")
          (config (test-scope-schema--parse-yml yml))
          (bash-tools (plist-get config :bash-tools)))
     ;; bash_tools should be present and unmodified
     (should bash-tools)
-    (should (plist-get bash-tools :categories))
+    (should-not (plist-get bash-tools :categories))
     (should (equal '("rm") (plist-get bash-tools :deny)))))
 
 (ert-deftest test-scope-schema-defaults-minimal-plus-bash-tools ()
   "Test minimal schema with only bash_tools gets other defaults.
 Verifies that bash_tools presence doesn't prevent default merging."
   (let* ((yml "bash_tools:
-  categories:
-    read_only:
-      commands: [\"ls\"]
-    safe_write:
-      commands: []
-    dangerous:
-      commands: []
   deny: []")
          (config (test-scope-schema--parse-yml yml))
          (paths (plist-get config :paths))

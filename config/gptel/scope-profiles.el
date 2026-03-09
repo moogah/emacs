@@ -43,7 +43,10 @@ E.g., :org-roam-patterns becomes :org_roam_patterns."
   "Load scope profile PROFILE-NAME from the profiles directory.
 PROFILE-NAME is the base name without .yml extension.
 Returns a plist with :paths, :org-roam-patterns, :shell-commands, :bash-tools.
-Returns nil and logs a warning if the file is missing or cannot be parsed."
+Returns nil and logs a warning if the file is missing or cannot be parsed.
+
+VALIDATION: Rejects profiles with bash_tools.categories section.
+Migration: Remove categories section, keep only deny list."
   (let ((profile-file (expand-file-name
                        (concat profile-name ".yml")
                        jf/gptel--scope-profiles-directory)))
@@ -55,7 +58,12 @@ Returns nil and logs a warning if the file is missing or cannot be parsed."
           (with-temp-buffer
             (insert-file-contents profile-file)
             (let* ((parsed (yaml-parse-string (buffer-string) :object-type 'plist))
-                   (normalized (jf/gptel-scope-profile--normalize-keys parsed)))
+                   (normalized (jf/gptel-scope-profile--normalize-keys parsed))
+                   (bash-tools (plist-get normalized :bash-tools))
+                   (categories (when bash-tools (plist-get bash-tools :categories))))
+              ;; Validate: reject if categories section present
+              (when categories
+                (error "bash_tools.categories section no longer supported. Migration: Remove categories section, keep only deny list. See CLAUDE.md for migration guide"))
               (jf/gptel--log 'debug "Loaded scope profile: %s" profile-name)
               normalized))
         (error

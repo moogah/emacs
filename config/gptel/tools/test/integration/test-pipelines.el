@@ -44,17 +44,13 @@
 ;; for testing pipeline validation.
 
 (defun test-pipeline--make-categories ()
-  "Create test bash_tools categories for pipeline validation tests.
+  "Create test bash_tools structure for pipeline validation tests.
 
-Categories:
-- read_only: ls, cat, grep, find, head, tail, wc, test
-- safe_write: mkdir, touch, echo
-- dangerous: (none - we don't allow these in tests)
-- deny: rm, mv, chmod, sh, bash, eval, xargs (when used with dangerous commands)"
-  (list :deny '("rm" "mv" "chmod" "sh" "bash" "eval")
-        :read_only (list :commands '("ls" "cat" "grep" "find" "head" "tail" "wc" "test" "pwd"))
-        :safe_write (list :commands '("mkdir" "touch" "echo"))
-        :dangerous (list :commands '())))
+With category removal, only deny list is used for validation:
+- deny: rm, mv, chmod, sh, bash, eval
+
+Commands not in deny list pass validation (allowlist approach removed)."
+  (list :deny '("rm" "mv" "chmod" "sh" "bash" "eval")))
 
 (defun test-pipeline--extract-commands (command-string)
   "Helper: Parse COMMAND-STRING and extract pipeline commands.
@@ -130,17 +126,19 @@ Then validation passes"
   "Spec scenario: Second pipeline command denied.
 
 When command is 'ls | xargs rm'
-And 'ls' is in read_only but 'rm' is in deny list
-Then validation fails with 'command_denied' error for 'rm'
+And 'rm' is in deny list
+Then validation fails with 'command_denied' error for 'rm' at position 2
 
 This test documents closure of the pipeline bypass security vulnerability."
   (let* ((categories (test-pipeline--make-categories))
          (commands '("ls" "xargs" "rm"))
          (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
     (should result)  ; Failure = error plist
-    (should (equal (plist-get result :command) "xargs"))
+    (should (equal (plist-get result :error) "command_denied"))
+    (should (equal (plist-get result :command) "rm"))
+    (should (equal (plist-get result :position) 2))
     (should (stringp (plist-get result :message)))
-    (should (string-match-p "xargs" (plist-get result :message)))))
+    (should (string-match-p "rm" (plist-get result :message)))))
 
 (ert-deftest test-pipeline-middle-command-not-allowed ()
   "Spec scenario: Middle command in chain not allowed.
@@ -386,16 +384,18 @@ Then validation fails immediately at position 0"
 ;;; 8. Category Validation Tests
 
 (ert-deftest test-pipeline-command-not-in-any-category ()
-  "Test that command not in any category fails validation.
+  "Test that command not in deny list passes validation.
 
-When command is not in read_only, safe_write, or dangerous
-Then validation fails with 'not in allowed categories' error"
+With deny-list-only validation:
+When command is not in deny list (e.g., 'unknown-command')
+Then validation passes (returns nil)
+
+Note: Category membership checking has been removed.
+Commands are validated via: (1) deny list, (2) no-op allowance, (3) file operations."
   (let* ((categories (test-pipeline--make-categories))
          (commands '("unknown-command"))
          (result (jf/gptel-scope--validate-pipeline-commands commands categories)))
-    (should result)  ; Failure = error plist
-    (should (equal (plist-get result :command) "unknown-command"))
-    (should (string-match-p "not in allowed categories" (plist-get result :message)))))
+    (should-not result)))  ; Success = nil (command not in deny list)
 
 (ert-deftest test-pipeline-mixed-allowed-and-denied ()
   "Test pipeline with mix of allowed and denied commands.

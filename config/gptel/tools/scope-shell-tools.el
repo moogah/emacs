@@ -83,7 +83,10 @@ Security settings:
 Missing sections get safe defaults from `jf/gptel-scope-schema-defaults'.
 Present sections are validated for correctness.
 
-Returns merged plist with normalized kebab-case keys."
+Returns merged plist with normalized kebab-case keys.
+
+VALIDATION: Rejects schemas with bash_tools.categories section.
+Migration: Remove categories section, keep only deny list."
   (let* ((defaults jf/gptel-scope-schema-defaults)
          ;; Normalize snake_case to kebab-case
          (normalized (jf/gptel-scope--normalize-keys schema-plist))
@@ -92,39 +95,46 @@ Returns merged plist with normalized kebab-case keys."
          (cloud (plist-get normalized :cloud))
          (security (plist-get normalized :security))
          (bash-tools (plist-get normalized :bash-tools))
-         ;; Merge with defaults (missing sections → defaults)
-         (merged-paths (if paths
-                          (list :read (or (plist-get paths :read) ())
-                                :write (or (plist-get paths :write) ())
-                                :execute (or (plist-get paths :execute) ())
-                                :modify (or (plist-get paths :modify) ())
-                                :deny (or (plist-get paths :deny) ()))
-                        (plist-get defaults :paths)))
-         (merged-cloud (if cloud
-                          (list :auth-detection (or (plist-get cloud :auth-detection)
-                                                   (plist-get (plist-get defaults :cloud) :auth-detection))
-                                :allowed-providers (plist-get cloud :allowed-providers))
-                        (plist-get defaults :cloud)))
-         (merged-security (if security
-                             (list :enforce-parse-complete
-                                   (if (plist-member security :enforce-parse-complete)
-                                       (plist-get security :enforce-parse-complete)
-                                     (plist-get (plist-get defaults :security) :enforce-parse-complete))
-                                   :max-coverage-threshold
-                                   (if (plist-member security :max-coverage-threshold)
-                                       (plist-get security :max-coverage-threshold)
-                                     (plist-get (plist-get defaults :security) :max-coverage-threshold)))
-                           (plist-get defaults :security))))
-    ;; Validate present sections
-    (when cloud
-      (jf/gptel-scope--validate-cloud-config merged-cloud))
-    (when security
-      (jf/gptel-scope--validate-security-config merged-security))
-    ;; Return merged schema
-    (list :paths merged-paths
-          :cloud merged-cloud
-          :security merged-security
-          :bash-tools bash-tools)))
+         ;; Validate: reject if categories section present
+         (categories (when bash-tools (plist-get bash-tools :categories))))
+
+    ;; Early validation: reject profiles with categories
+    (when categories
+      (error "bash_tools.categories section no longer supported. Migration: Remove categories section, keep only deny list. See CLAUDE.md for migration guide"))
+
+    ;; Merge with defaults (missing sections → defaults)
+    (let ((merged-paths (if paths
+                            (list :read (or (plist-get paths :read) ())
+                                  :write (or (plist-get paths :write) ())
+                                  :execute (or (plist-get paths :execute) ())
+                                  :modify (or (plist-get paths :modify) ())
+                                  :deny (or (plist-get paths :deny) ()))
+                          (plist-get defaults :paths)))
+          (merged-cloud (if cloud
+                            (list :auth-detection (or (plist-get cloud :auth-detection)
+                                                     (plist-get (plist-get defaults :cloud) :auth-detection))
+                                  :allowed-providers (plist-get cloud :allowed-providers))
+                          (plist-get defaults :cloud)))
+          (merged-security (if security
+                               (list :enforce-parse-complete
+                                     (if (plist-member security :enforce-parse-complete)
+                                         (plist-get security :enforce-parse-complete)
+                                       (plist-get (plist-get defaults :security) :enforce-parse-complete))
+                                     :max-coverage-threshold
+                                     (if (plist-member security :max-coverage-threshold)
+                                         (plist-get security :max-coverage-threshold)
+                                       (plist-get (plist-get defaults :security) :max-coverage-threshold)))
+                             (plist-get defaults :security))))
+      ;; Validate present sections
+      (when cloud
+        (jf/gptel-scope--validate-cloud-config merged-cloud))
+      (when security
+        (jf/gptel-scope--validate-security-config merged-security))
+      ;; Return merged schema
+      (list :paths merged-paths
+            :cloud merged-cloud
+            :security merged-security
+            :bash-tools bash-tools))))
 ;; Load Schema:1 ends here
 
 ;; Normalize Keys
@@ -306,16 +316,16 @@ Examples (from parsed results):
 
 ;; Stage 3: Validate Pipeline Commands
 
-;; Validate each command in a pipeline against allowed categories.
+;; Validate each command in a pipeline against deny list only (no category checking).
 
 
 ;; [[file:scope-shell-tools.org::*Stage 3: Validate Pipeline Commands][Stage 3: Validate Pipeline Commands:1]]
-(defun jf/gptel-scope--validate-pipeline-commands (commands categories)
-  "Stage 3: Validate each command in COMMANDS against CATEGORIES.
+(defun jf/gptel-scope--validate-pipeline-commands (commands bash-tools)
+  "Stage 3: Validate each command in COMMANDS against BASH-TOOLS deny list.
 COMMANDS is a list of command strings.
-CATEGORIES is the bash_tools categories plist from scope.yml.
+BASH-TOOLS is the bash_tools plist from scope.yml.
 
-Returns nil if all commands allowed.
+Returns nil if all commands allowed (not in deny list).
 Returns error plist if validation fails with:
   :error - Error type
   :position - Index of first failing command (0-based)
@@ -323,36 +333,24 @@ Returns error plist if validation fails with:
   :message - Human-readable error message
 
 Examples:
-  (validate-pipeline-commands '(\"ls\" \"head\") categories)
+  (validate-pipeline-commands '(\"ls\" \"head\") bash-tools)
     → nil  ; both allowed
 
-  (validate-pipeline-commands '(\"ls\" \"xargs\" \"rm\") categories)
+  (validate-pipeline-commands '(\"ls\" \"xargs\" \"rm\") bash-tools)
     → (:error \"command_denied\" :position 2 :command \"rm\" :message \"...\")"
-  (let ((deny-list (plist-get categories :deny))
-        (read-only (plist-get (plist-get categories :read_only) :commands))
-        (safe-write (plist-get (plist-get categories :safe_write) :commands))
-        (dangerous (plist-get (plist-get categories :dangerous) :commands))
+  (let ((deny-list (plist-get bash-tools :deny))
         (pos 0))
     (catch 'validation-failed
       (dolist (cmd commands)
-        ;; Check deny list first
+        ;; Check deny list - if command is in deny list, reject it
         (when (member cmd deny-list)
           (throw 'validation-failed
                  (list :error "command_denied"
                        :position pos
                        :command cmd
                        :message (format "Command '%s' at position %d is in deny list" cmd pos))))
-        ;; Check if command is in any allowed category
-        (unless (or (member cmd read-only)
-                    (member cmd safe-write)
-                    (member cmd dangerous))
-          (throw 'validation-failed
-                 (list :error "command_not_allowed"
-                       :position pos
-                       :command cmd
-                       :message (format "Command '%s' at position %d is not in allowed categories" cmd pos))))
         (setq pos (1+ pos)))
-      ;; All commands validated successfully
+      ;; All commands validated successfully (none in deny list)
       nil)))
 ;; Stage 3: Validate Pipeline Commands:1 ends here
 
