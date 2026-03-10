@@ -668,7 +668,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                     :message "Added to write scope permanently")))))
 
           ;; Build violation info for expansion trigger
-          (let ((violation-info (list :tool "write_file"
+          (let ((violation-info (list :tool "write_file_in_scope"
                                       :resource filepath
                                       :operation :write
                                       :reason "path_out_of_scope"
@@ -681,7 +681,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (lambda (expansion-result)
                (setq wrapper-callback-result expansion-result))
              '("/home/user/**")
-             "write_file")
+             "write_file_in_scope")
 
             ;; Assert: Expansion UI was called
             (expect expansion-ui-called :to-be t)
@@ -722,7 +722,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                     (setq expansion-ui-called t)
                     ;; Simulate user choosing "Allow once"
                     (jf/gptel-scope-add-to-allow-once-list
-                     "write_file"
+                     "write_file_in_scope"
                      filepath)
                     ;; Invoke callback with approval
                     (funcall callback
@@ -732,7 +732,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                     :message "Allowed for this turn only")))))
 
           ;; Build violation info
-          (let ((violation-info (list :tool "write_file"
+          (let ((violation-info (list :tool "write_file_in_scope"
                                       :resource filepath
                                       :operation :write
                                       :reason "path_out_of_scope"
@@ -745,7 +745,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (lambda (expansion-result)
                (setq wrapper-callback-result expansion-result))
              (list filepath)
-             "write_file")
+             "write_file_in_scope")
 
             ;; Assert: Expansion UI was called
             (expect expansion-ui-called :to-be t)
@@ -758,7 +758,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
             ;; Assert: Allow-once permission was granted
             (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
             (let ((entry (car jf/gptel-scope--allow-once-list)))
-              (expect (car entry) :to-equal "write_file")
+              (expect (car entry) :to-equal "write_file_in_scope")
               (expect (cdr entry) :to-equal filepath))))
 
         ;; Cleanup
@@ -982,7 +982,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                     :message "Added to write scope permanently")))))
 
           ;; Build violation info for expansion trigger
-          (let ((violation-info (list :tool "edit_file"
+          (let ((violation-info (list :tool "edit_file_in_scope"
                                       :resource filepath
                                       :operation :write
                                       :reason "path_out_of_scope"
@@ -995,7 +995,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (lambda (expansion-result)
                (setq wrapper-callback-result expansion-result))
              '("/home/user/**")
-             "edit_file")
+             "edit_file_in_scope")
 
             ;; Assert: Expansion UI was called
             (expect expansion-ui-called :to-be t)
@@ -1036,7 +1036,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                     (setq expansion-ui-called t)
                     ;; Simulate user choosing "Allow once"
                     (jf/gptel-scope-add-to-allow-once-list
-                     "edit_file"
+                     "edit_file_in_scope"
                      filepath)
                     ;; Invoke callback with approval
                     (funcall callback
@@ -1046,7 +1046,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                     :message "Allowed for this turn only")))))
 
           ;; Build violation info
-          (let ((violation-info (list :tool "edit_file"
+          (let ((violation-info (list :tool "edit_file_in_scope"
                                       :resource filepath
                                       :operation :write
                                       :reason "path_out_of_scope"
@@ -1059,7 +1059,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (lambda (expansion-result)
                (setq wrapper-callback-result expansion-result))
              (list filepath)
-             "edit_file")
+             "edit_file_in_scope")
 
             ;; Assert: Expansion UI was called
             (expect expansion-ui-called :to-be t)
@@ -1072,7 +1072,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
             ;; Assert: Allow-once permission was granted
             (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
             (let ((entry (car jf/gptel-scope--allow-once-list)))
-              (expect (car entry) :to-equal "edit_file")
+              (expect (car entry) :to-equal "edit_file_in_scope")
               (expect (cdr entry) :to-equal filepath))))
 
         ;; Cleanup
@@ -1112,7 +1112,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                     :message "User denied request")))))
 
           ;; Build violation info
-          (let ((violation-info (list :tool "edit_file"
+          (let ((violation-info (list :tool "edit_file_in_scope"
                                       :resource filepath
                                       :operation :write
                                       :reason "path_out_of_scope"
@@ -1125,7 +1125,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (lambda (expansion-result)
                (setq wrapper-callback-result expansion-result))
              (list filepath)
-             "edit_file")
+             "edit_file_in_scope")
 
             ;; Assert: Expansion UI was called
             (expect expansion-ui-called :to-be t)
@@ -1240,7 +1240,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "Added to write scope")))))
 
         ;; Trigger expansion with write operation
-        (let ((violation-info (list :tool "write_file"
+        (let ((violation-info (list :tool "write_file_in_scope"
                                     :resource filepath
                                     :operation :write
                                     :reason "path_out_of_scope"
@@ -1249,7 +1249,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            violation-info
            (lambda (result) nil)
            (list "/home/user/**")
-           "write_file"))
+           "write_file_in_scope"))
 
         ;; Assert: Expansion UI was called with write operation
         (expect expansion-ui-called :to-be t)
@@ -1281,7 +1281,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "Added to write scope")))))
 
         ;; Trigger expansion with write operation (edit_file uses write validation)
-        (let ((violation-info (list :tool "edit_file"
+        (let ((violation-info (list :tool "edit_file_in_scope"
                                     :resource filepath
                                     :operation :write
                                     :reason "path_out_of_scope"
@@ -1290,7 +1290,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            violation-info
            (lambda (result) nil)
            (list "/home/user/**")
-           "edit_file"))
+           "edit_file_in_scope"))
 
         ;; Assert: Expansion UI was called with write operation
         (expect expansion-ui-called :to-be t)
