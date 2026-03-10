@@ -127,7 +127,10 @@ Run this after preset registration to inject skill content into presets."
 ;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
 (jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
 
-;; Load scope-core (required by scope-controlled tools, depends on scope-profiles)
+;; Load scope-metadata (required by scope-core for context-aware validation)
+(jf/load-module (expand-file-name "config/gptel/scope/scope-metadata.el" jf/emacs-dir))
+
+;; Load scope-core (required by scope-controlled tools; loaded after scope-profiles and scope-metadata)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
 
 ;; Load custom tools (tools must be registered before presets reference them)

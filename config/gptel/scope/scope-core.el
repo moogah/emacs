@@ -20,6 +20,7 @@
 (require 'cl-lib)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
+(require 'jf-gptel-scope-metadata)
 ;; Dependencies:1 ends here
 
 ;; Tool Category Constant
@@ -164,7 +165,11 @@ failures return errors immediately (sync behavior)."
               (condition-case err
                   (cl-block nil
                     (let* ((normalized-args (list ,@arg-names))
-                           (config (jf/gptel-scope--load-config)))
+                           (config (jf/gptel-scope--load-config))
+                           ;; Gather metadata for path tools before validation
+                           (validation-type (plist-get (cdr (assoc ,name jf/gptel-scope--tool-categories)) :validation))
+                           (metadata (when (eq validation-type 'path)
+                                      (jf/gptel-scope--gather-file-metadata (car normalized-args)))))
 
                       ;; Check allow-once FIRST (before checking if config exists)
                       ;; Allow-once permissions should work even if config loading fails
@@ -183,7 +188,7 @@ failures return errors immediately (sync behavior)."
 
                       ;; Check tool permission
                       (let ((check-result (jf/gptel-scope--check-tool-permission
-                                           config ,name normalized-args)))
+                                           config ,name normalized-args metadata)))
                         (if (plist-get check-result :allowed)
                             ;; Execute tool body and invoke callback
                             (funcall callback (json-serialize (progn ,@actual-body)))
@@ -196,7 +201,7 @@ failures return errors immediately (sync behavior)."
                              (if (plist-get expansion-result :approved)
                                  ;; User approved - retry validation
                                  (let ((retry-result (jf/gptel-scope--check-tool-permission
-                                                      config ,name normalized-args)))
+                                                      config ,name normalized-args metadata)))
                                    (if (plist-get retry-result :allowed)
                                        ;; Retry passed - execute tool body
                                        (funcall callback (json-serialize (progn ,@actual-body)))
@@ -232,7 +237,11 @@ failures return errors immediately (sync behavior)."
                                      `(,name (nth ,idx normalized-args)))
                                    arg-names
                                    (number-sequence 0 (1- (length arg-names))))
-                       (config (jf/gptel-scope--load-config)))
+                       (config (jf/gptel-scope--load-config))
+                       ;; Gather metadata for path tools before validation
+                       (validation-type (plist-get (cdr (assoc ,name jf/gptel-scope--tool-categories)) :validation))
+                       (metadata (when (eq validation-type 'path)
+                                  (jf/gptel-scope--gather-file-metadata (car normalized-args)))))
 
                     ;; Check allow-once FIRST (before checking if config exists)
                     ;; Allow-once permissions should work even if config loading fails
@@ -248,7 +257,7 @@ failures return errors immediately (sync behavior)."
 
                     ;; Check tool permission
                     (let ((check-result (jf/gptel-scope--check-tool-permission
-                                        config ,name normalized-args)))
+                                        config ,name normalized-args metadata)))
                       (if (plist-get check-result :allowed)
                           ;; Execute tool body
                           (progn ,@actual-body)
@@ -468,12 +477,13 @@ Returns t if any pattern matches, nil otherwise."
 
 
 ;; [[file:scope-core.org::*Path-Based Validator][Path-Based Validator:1]]
-(defun jf/gptel-scope--validate-path-tool (tool-name args category config)
+(defun jf/gptel-scope--validate-path-tool (tool-name args category config metadata)
   "Validate path-based tool against read/write/deny path lists.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (first arg should be filepath).
 CATEGORY is the tool category plist (:validation :operation).
 CONFIG is the scope configuration plist.
+METADATA is the file metadata plist (from scope-metadata module).
 
 Returns plist with:
   :allowed t/nil
@@ -517,11 +527,12 @@ Returns plist with:
 
 
 ;; [[file:scope-core.org::*Pattern-Based Validator][Pattern-Based Validator:1]]
-(defun jf/gptel-scope--validate-pattern-tool (tool-name args config)
+(defun jf/gptel-scope--validate-pattern-tool (tool-name args config metadata)
   "Validate org-roam tool against org_roam_patterns section.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (varies by tool).
 CONFIG is the scope configuration plist.
+METADATA is the metadata plist (nil for pattern tools).
 
 Returns plist with:
   :allowed t/nil
@@ -601,11 +612,12 @@ Returns plist with:
 
 
 ;; [[file:scope-core.org::*Implementation][Implementation:1]]
-(defun jf/gptel-scope--validate-bash-tool (tool-name args config)
+(defun jf/gptel-scope--validate-bash-tool (tool-name args config metadata)
   "Validate bash command against bash_tools categories and paths.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (command and directory).
 CONFIG is the scope configuration plist.
+METADATA is the metadata plist (nil for bash tools).
 
 Returns plist with:
   :allowed t/nil
@@ -768,11 +780,12 @@ Returns plist with:
 
 
 ;; [[file:scope-core.org::*Tool Permission Dispatch][Tool Permission Dispatch:1]]
-(defun jf/gptel-scope--check-tool-permission (config tool-name args)
+(defun jf/gptel-scope--check-tool-permission (config tool-name args metadata)
   "Validate TOOL-NAME with ARGS against CONFIG.
 CONFIG is the scope configuration plist from scope.yml.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list.
+METADATA is the metadata plist for context-aware validation.
 
 Returns plist with:
   :allowed t/nil
@@ -797,9 +810,9 @@ Returns plist with:
 
       ;; Route to validator
       (pcase validation-type
-        ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
-        ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
-        ('bash (jf/gptel-scope--validate-bash-tool tool-name args config))
+        ('path (jf/gptel-scope--validate-path-tool tool-name args category config metadata))
+        ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config metadata))
+        ('bash (jf/gptel-scope--validate-bash-tool tool-name args config metadata))
         (_
          ;; Unknown tool - deny by default
          (list :allowed nil
