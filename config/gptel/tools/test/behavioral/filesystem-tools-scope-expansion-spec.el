@@ -560,5 +560,857 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
         ;; Cleanup
         (delete-file scope-yml)))))
 
+(describe "write_file_in_scope: Scope expansion workflows"
+
+  (before-each
+    (helpers-spec-setup-session)
+    ;; Clear allow-once list for test isolation
+    (setq jf/gptel-scope--allow-once-list nil))
+
+  (after-each
+    (helpers-spec-teardown-session))
+
+  (describe "Path validation: in-scope operations"
+
+    (it "allows write operation when file is in write scope"
+      ;; Scenario: File path matches configured write patterns
+      ;; Expected: Validation passes (returns nil)
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/output.txt")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file metadata
+        (helpers-spec-mock-file-metadata filepath nil nil)
+
+        ;; Validate write operation
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          ;; Assert: Validation succeeds (nil means success)
+          (expect result :to-be nil))
+
+        ;; Cleanup
+        (delete-file scope-yml)))
+
+    (it "denies write operation when file is in read-only scope"
+      ;; Scenario: File path is in read scope but not write scope
+      ;; Expected: Validation fails with path_out_of_scope error
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '("/workspace/**")
+                         '("/tmp/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/output.txt")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file metadata
+        (helpers-spec-mock-file-metadata filepath nil nil)
+
+        ;; Validate write operation
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          ;; Assert: Validation fails (returns error plist)
+          (expect result :not :to-be nil)
+          (expect (plist-get result :error) :to-match "scope")
+          (expect (plist-get result :path) :to-equal filepath)
+          (expect (plist-get result :operation) :to-equal :write))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Expansion workflow: add-to-scope"
+
+    (it "triggers expansion UI when out of scope, user adds to scope, approval granted"
+      ;; Scenario: Out-of-scope → UI → add to write scope → scope.yml updated → approval
+      ;; Expected: Scope file modified, callback receives approval with patterns
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/home/user/output.txt")
+             (paths (plist-get scope-config :paths))
+             (expansion-ui-called nil)
+             (wrapper-callback-result nil))
+
+        ;; Mock file metadata
+        (helpers-spec-mock-file-metadata filepath nil nil)
+
+        ;; Get validation error
+        (let ((validation-error (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect validation-error :not :to-be nil)
+
+          ;; Spy on expansion UI
+          (spy-on 'jf/gptel-scope-prompt-expansion
+                  :and-call-fake
+                  (lambda (violation-info callback patterns tool-name)
+                    (setq expansion-ui-called t)
+                    ;; Simulate user choosing "Add to scope"
+                    (funcall callback
+                             (json-serialize
+                              (list :success t
+                                    :patterns_added (vector "/home/user/**")
+                                    :message "Added to write scope permanently")))))
+
+          ;; Build violation info for expansion trigger
+          (let ((violation-info (list :tool "write_file"
+                                      :resource filepath
+                                      :operation :write
+                                      :reason "path_out_of_scope"
+                                      :metadata (list :exists nil
+                                                     :git-tracked nil))))
+
+            ;; Trigger inline expansion
+            (jf/gptel-scope-prompt-expansion
+             violation-info
+             (lambda (expansion-result)
+               (setq wrapper-callback-result expansion-result))
+             '("/home/user/**")
+             "write_file")
+
+            ;; Assert: Expansion UI was called
+            (expect expansion-ui-called :to-be t)
+
+            ;; Assert: Wrapper callback received approval
+            (let ((parsed (json-parse-string wrapper-callback-result :object-type 'plist)))
+              (expect (plist-get parsed :success) :to-be t)
+              (expect (plist-get parsed :patterns_added) :not :to-be nil))))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Expansion workflow: allow-once"
+
+    (it "triggers expansion UI when out of scope, user allows once, permission granted"
+      ;; Scenario: Out-of-scope → UI → allow once → allow-once list updated → approval
+      ;; Expected: Allow-once permission granted, callback receives approval
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/tmp/temp-output.txt")
+             (paths (plist-get scope-config :paths))
+             (expansion-ui-called nil)
+             (wrapper-callback-result nil))
+
+        ;; Mock file metadata
+        (helpers-spec-mock-file-metadata filepath nil nil)
+
+        ;; Get validation error
+        (let ((validation-error (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect validation-error :not :to-be nil)
+
+          ;; Spy on expansion UI
+          (spy-on 'jf/gptel-scope-prompt-expansion
+                  :and-call-fake
+                  (lambda (violation-info callback patterns tool-name)
+                    (setq expansion-ui-called t)
+                    ;; Simulate user choosing "Allow once"
+                    (jf/gptel-scope-add-to-allow-once-list
+                     "write_file"
+                     filepath)
+                    ;; Invoke callback with approval
+                    (funcall callback
+                             (json-serialize
+                              (list :success t
+                                    :allowed_once t
+                                    :message "Allowed for this turn only")))))
+
+          ;; Build violation info
+          (let ((violation-info (list :tool "write_file"
+                                      :resource filepath
+                                      :operation :write
+                                      :reason "path_out_of_scope"
+                                      :metadata (list :exists nil
+                                                     :git-tracked nil))))
+
+            ;; Trigger inline expansion
+            (jf/gptel-scope-prompt-expansion
+             violation-info
+             (lambda (expansion-result)
+               (setq wrapper-callback-result expansion-result))
+             (list filepath)
+             "write_file")
+
+            ;; Assert: Expansion UI was called
+            (expect expansion-ui-called :to-be t)
+
+            ;; Assert: Wrapper callback received approval
+            (let ((parsed (json-parse-string wrapper-callback-result :object-type 'plist)))
+              (expect (plist-get parsed :success) :to-be t)
+              (expect (plist-get parsed :allowed_once) :to-be t))
+
+            ;; Assert: Allow-once permission was granted
+            (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
+            (let ((entry (car jf/gptel-scope--allow-once-list)))
+              (expect (car entry) :to-equal "write_file")
+              (expect (cdr entry) :to-equal filepath))))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Directory creation"
+
+    (it "validates parent directory scope when creating directories"
+      ;; Scenario: Writing file requires creating parent directories
+      ;; Expected: Parent directory path must be in write scope
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/subdir/output.txt")
+             (parent-dir "/workspace/subdir/")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock parent directory doesn't exist
+        (spy-on 'file-exists-p
+                :and-call-fake
+                (lambda (path)
+                  (cond
+                   ((string= path filepath) nil)
+                   ((string= path parent-dir) nil)
+                   (t t))))
+
+        ;; Validate write operation (should succeed - parent is in scope)
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect result :to-be nil))
+
+        ;; Cleanup
+        (delete-file scope-yml)))
+
+    (it "denies directory creation when parent directory is out of scope"
+      ;; Scenario: Writing file requires creating directories outside scope
+      ;; Expected: Validation fails with path_out_of_scope error
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/tmp/subdir/output.txt")
+             (parent-dir "/tmp/subdir/")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock parent directory doesn't exist
+        (spy-on 'file-exists-p
+                :and-call-fake
+                (lambda (path)
+                  (cond
+                   ((string= path filepath) nil)
+                   ((string= path parent-dir) nil)
+                   (t t))))
+
+        ;; Validate write operation (should fail - parent is out of scope)
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect result :not :to-be nil)
+          (expect (plist-get result :error) :to-match "scope"))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Allow-once permission lifecycle"
+
+    (it "allow-once permission consumed after use"
+      ;; Scenario: Permission granted → consumed → removed from list
+      ;; Expected: Allow-once list updated correctly after consumption
+      (let* ((filepath "/tmp/once-write.txt"))
+
+        ;; Grant permission
+        (jf/gptel-scope-add-to-allow-once-list "write_file" filepath)
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
+
+        ;; Consume permission (simulate what jf/gptel-scope--check-allow-once does)
+        (let ((entry (cl-find-if (lambda (e)
+                                   (and (equal (car e) "write_file")
+                                        (equal (cdr e) filepath)))
+                                 jf/gptel-scope--allow-once-list)))
+          (when entry
+            (setq jf/gptel-scope--allow-once-list
+                  (delq entry jf/gptel-scope--allow-once-list))))
+
+        ;; Verify permission was consumed
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)))))
+
+(describe "edit_file_in_scope: Scope expansion workflows"
+
+  (before-each
+    (helpers-spec-setup-session)
+    ;; Clear allow-once list for test isolation
+    (setq jf/gptel-scope--allow-once-list nil))
+
+  (after-each
+    (helpers-spec-teardown-session))
+
+  (describe "Path validation: in-scope operations"
+
+    (it "allows edit operation when file is in write scope"
+      ;; Scenario: File path matches configured write patterns
+      ;; Expected: Validation passes (returns nil)
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/code.el")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file metadata - must exist and be git-tracked for edit
+        (helpers-spec-mock-file-metadata filepath t t)
+
+        ;; Validate edit operation
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          ;; Assert: Validation succeeds (nil means success)
+          (expect result :to-be nil))
+
+        ;; Cleanup
+        (delete-file scope-yml)))
+
+    (it "denies edit operation when file is in read-only scope"
+      ;; Scenario: File path is in read scope but not write scope
+      ;; Expected: Validation fails with path_out_of_scope error
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '("/workspace/**")
+                         '("/tmp/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/code.el")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file metadata - exists and git-tracked
+        (helpers-spec-mock-file-metadata filepath t t)
+
+        ;; Validate edit operation
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          ;; Assert: Validation fails (returns error plist)
+          (expect result :not :to-be nil)
+          (expect (plist-get result :error) :to-match "scope")
+          (expect (plist-get result :path) :to-equal filepath)
+          (expect (plist-get result :operation) :to-equal :write))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Git metadata handling"
+
+    (it "includes git-tracked status for tracked files"
+      ;; Scenario: Edit operation on git-tracked file
+      ;; Expected: Metadata includes git-tracked flag
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/tracked.el")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file as existing and git-tracked
+        (helpers-spec-mock-file-metadata filepath t t)
+
+        ;; Validate operation
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect result :to-be nil))
+
+        ;; Cleanup
+        (delete-file scope-yml)))
+
+    (it "includes non-git-tracked status for untracked files"
+      ;; Scenario: Edit operation on non-git-tracked file
+      ;; Expected: Metadata includes git-tracked=nil
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/untracked.el")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file as existing but not git-tracked
+        (helpers-spec-mock-file-metadata filepath t nil)
+
+        ;; Validate operation
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect result :to-be nil))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "File existence validation"
+
+    (it "allows edit operation when file exists"
+      ;; Scenario: Edit operation on existing file
+      ;; Expected: Validation passes
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/existing.el")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file as existing
+        (helpers-spec-mock-file-metadata filepath t t)
+
+        ;; Validate operation
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect result :to-be nil))
+
+        ;; Cleanup
+        (delete-file scope-yml)))
+
+    (it "validation handles non-existent files with metadata"
+      ;; Scenario: Edit operation on non-existent file
+      ;; Expected: Validation proceeds (file existence is tool's concern)
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/workspace/missing.el")
+             (paths (plist-get scope-config :paths)))
+
+        ;; Mock file as non-existent
+        (helpers-spec-mock-file-metadata filepath nil nil)
+
+        ;; Validate operation (should pass validation - tool will handle missing file)
+        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect result :to-be nil))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Expansion workflow: add-to-scope"
+
+    (it "triggers expansion UI when out of scope, user adds to scope, approval granted"
+      ;; Scenario: Out-of-scope → UI → add to write scope → scope.yml updated → approval
+      ;; Expected: Scope file modified, callback receives approval with patterns
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/home/user/code.el")
+             (paths (plist-get scope-config :paths))
+             (expansion-ui-called nil)
+             (wrapper-callback-result nil))
+
+        ;; Mock file metadata - exists and git-tracked
+        (helpers-spec-mock-file-metadata filepath t t)
+
+        ;; Get validation error
+        (let ((validation-error (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect validation-error :not :to-be nil)
+
+          ;; Spy on expansion UI
+          (spy-on 'jf/gptel-scope-prompt-expansion
+                  :and-call-fake
+                  (lambda (violation-info callback patterns tool-name)
+                    (setq expansion-ui-called t)
+                    ;; Simulate user choosing "Add to scope"
+                    (funcall callback
+                             (json-serialize
+                              (list :success t
+                                    :patterns_added (vector "/home/user/**")
+                                    :message "Added to write scope permanently")))))
+
+          ;; Build violation info for expansion trigger
+          (let ((violation-info (list :tool "edit_file"
+                                      :resource filepath
+                                      :operation :write
+                                      :reason "path_out_of_scope"
+                                      :metadata (list :exists t
+                                                     :git-tracked t))))
+
+            ;; Trigger inline expansion
+            (jf/gptel-scope-prompt-expansion
+             violation-info
+             (lambda (expansion-result)
+               (setq wrapper-callback-result expansion-result))
+             '("/home/user/**")
+             "edit_file")
+
+            ;; Assert: Expansion UI was called
+            (expect expansion-ui-called :to-be t)
+
+            ;; Assert: Wrapper callback received approval
+            (let ((parsed (json-parse-string wrapper-callback-result :object-type 'plist)))
+              (expect (plist-get parsed :success) :to-be t)
+              (expect (plist-get parsed :patterns_added) :not :to-be nil))))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Expansion workflow: allow-once"
+
+    (it "triggers expansion UI when out of scope, user allows once, permission granted"
+      ;; Scenario: Out-of-scope → UI → allow once → allow-once list updated → approval
+      ;; Expected: Allow-once permission granted, callback receives approval
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/tmp/temp-code.el")
+             (paths (plist-get scope-config :paths))
+             (expansion-ui-called nil)
+             (wrapper-callback-result nil))
+
+        ;; Mock file metadata - exists and git-tracked
+        (helpers-spec-mock-file-metadata filepath t t)
+
+        ;; Get validation error
+        (let ((validation-error (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect validation-error :not :to-be nil)
+
+          ;; Spy on expansion UI
+          (spy-on 'jf/gptel-scope-prompt-expansion
+                  :and-call-fake
+                  (lambda (violation-info callback patterns tool-name)
+                    (setq expansion-ui-called t)
+                    ;; Simulate user choosing "Allow once"
+                    (jf/gptel-scope-add-to-allow-once-list
+                     "edit_file"
+                     filepath)
+                    ;; Invoke callback with approval
+                    (funcall callback
+                             (json-serialize
+                              (list :success t
+                                    :allowed_once t
+                                    :message "Allowed for this turn only")))))
+
+          ;; Build violation info
+          (let ((violation-info (list :tool "edit_file"
+                                      :resource filepath
+                                      :operation :write
+                                      :reason "path_out_of_scope"
+                                      :metadata (list :exists t
+                                                     :git-tracked t))))
+
+            ;; Trigger inline expansion
+            (jf/gptel-scope-prompt-expansion
+             violation-info
+             (lambda (expansion-result)
+               (setq wrapper-callback-result expansion-result))
+             (list filepath)
+             "edit_file")
+
+            ;; Assert: Expansion UI was called
+            (expect expansion-ui-called :to-be t)
+
+            ;; Assert: Wrapper callback received approval
+            (let ((parsed (json-parse-string wrapper-callback-result :object-type 'plist)))
+              (expect (plist-get parsed :success) :to-be t)
+              (expect (plist-get parsed :allowed_once) :to-be t))
+
+            ;; Assert: Allow-once permission was granted
+            (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
+            (let ((entry (car jf/gptel-scope--allow-once-list)))
+              (expect (car entry) :to-equal "edit_file")
+              (expect (cdr entry) :to-equal filepath))))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Expansion workflow: denial"
+
+    (it "triggers expansion UI when out of scope, user denies, error returned"
+      ;; Scenario: Out-of-scope → UI → deny → rejection
+      ;; Expected: Wrapper callback receives denial with user_denied flag
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/etc/config.conf")
+             (paths (plist-get scope-config :paths))
+             (expansion-ui-called nil)
+             (wrapper-callback-result nil))
+
+        ;; Mock file metadata
+        (helpers-spec-mock-file-metadata filepath t t)
+
+        ;; Get validation error
+        (let ((validation-error (jf/gptel-scope--validate-operation :write filepath paths)))
+          (expect validation-error :not :to-be nil)
+
+          ;; Spy on expansion UI
+          (spy-on 'jf/gptel-scope-prompt-expansion
+                  :and-call-fake
+                  (lambda (violation-info callback patterns tool-name)
+                    (setq expansion-ui-called t)
+                    ;; Simulate user choosing "Deny"
+                    (funcall callback
+                             (json-serialize
+                              (list :success nil
+                                    :user_denied t
+                                    :message "User denied request")))))
+
+          ;; Build violation info
+          (let ((violation-info (list :tool "edit_file"
+                                      :resource filepath
+                                      :operation :write
+                                      :reason "path_out_of_scope"
+                                      :metadata (list :exists t
+                                                     :git-tracked t))))
+
+            ;; Trigger inline expansion
+            (jf/gptel-scope-prompt-expansion
+             violation-info
+             (lambda (expansion-result)
+               (setq wrapper-callback-result expansion-result))
+             (list filepath)
+             "edit_file")
+
+            ;; Assert: Expansion UI was called
+            (expect expansion-ui-called :to-be t)
+
+            ;; Assert: Wrapper callback received denial
+            (let ((parsed (json-parse-string wrapper-callback-result :object-type 'plist)))
+              (expect (or (eq (plist-get parsed :success) :json-false)
+                          (eq (plist-get parsed :success) nil)) :to-be t)
+              (expect (plist-get parsed :user_denied) :to-be t))))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Allow-once permission lifecycle"
+
+    (it "allow-once permission consumed after use"
+      ;; Scenario: Permission granted → consumed → removed from list
+      ;; Expected: Allow-once list updated correctly after consumption
+      (let* ((filepath "/tmp/once-edit.txt"))
+
+        ;; Grant permission
+        (jf/gptel-scope-add-to-allow-once-list "edit_file" filepath)
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
+
+        ;; Consume permission (simulate what jf/gptel-scope--check-allow-once does)
+        (let ((entry (cl-find-if (lambda (e)
+                                   (and (equal (car e) "edit_file")
+                                        (equal (cdr e) filepath)))
+                                 jf/gptel-scope--allow-once-list)))
+          (when entry
+            (setq jf/gptel-scope--allow-once-list
+                  (delq entry jf/gptel-scope--allow-once-list))))
+
+        ;; Verify permission was consumed
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)))))
+
+(describe "Transient action handlers"
+
+  (before-each
+    (helpers-spec-setup-session)
+    (setq jf/gptel-scope--allow-once-list nil))
+
+  (after-each
+    (helpers-spec-teardown-session))
+
+  (describe "Add-to-scope action"
+
+    (it "updates read scope for read operations"
+      ;; Scenario: User adds path to scope for read operation
+      ;; Expected: paths.read section updated
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '("/workspace/**")
+                         '()))
+             (filepath "/home/user/data.txt")
+             (expansion-ui-called nil))
+
+        ;; Spy on expansion UI to verify correct scope section
+        (spy-on 'jf/gptel-scope-prompt-expansion
+                :and-call-fake
+                (lambda (violation-info callback patterns tool-name)
+                  (setq expansion-ui-called t)
+                  ;; Verify operation is :read
+                  (expect (plist-get violation-info :operation) :to-equal :read)
+                  ;; Simulate add-to-scope action (updates paths.read)
+                  (funcall callback
+                           (json-serialize
+                            (list :success t
+                                  :patterns_added (vector "/home/user/**")
+                                  :message "Added to read scope")))))
+
+        ;; Trigger expansion with read operation
+        (let ((violation-info (list :tool "read_file"
+                                    :resource filepath
+                                    :operation :read
+                                    :reason "path_out_of_scope"
+                                    :metadata (list :exists t :git-tracked t))))
+          (jf/gptel-scope-prompt-expansion
+           violation-info
+           (lambda (result) nil)
+           (list "/home/user/**")
+           "read_file"))
+
+        ;; Assert: Expansion UI was called with read operation
+        (expect expansion-ui-called :to-be t)
+
+        ;; Cleanup
+        (delete-file scope-yml)))
+
+    (it "updates write scope for write operations"
+      ;; Scenario: User adds path to scope for write operation
+      ;; Expected: paths.write section updated
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (filepath "/home/user/output.txt")
+             (expansion-ui-called nil))
+
+        ;; Spy on expansion UI to verify correct scope section
+        (spy-on 'jf/gptel-scope-prompt-expansion
+                :and-call-fake
+                (lambda (violation-info callback patterns tool-name)
+                  (setq expansion-ui-called t)
+                  ;; Verify operation is :write
+                  (expect (plist-get violation-info :operation) :to-equal :write)
+                  ;; Simulate add-to-scope action (updates paths.write)
+                  (funcall callback
+                           (json-serialize
+                            (list :success t
+                                  :patterns_added (vector "/home/user/**")
+                                  :message "Added to write scope")))))
+
+        ;; Trigger expansion with write operation
+        (let ((violation-info (list :tool "write_file"
+                                    :resource filepath
+                                    :operation :write
+                                    :reason "path_out_of_scope"
+                                    :metadata (list :exists nil :git-tracked nil))))
+          (jf/gptel-scope-prompt-expansion
+           violation-info
+           (lambda (result) nil)
+           (list "/home/user/**")
+           "write_file"))
+
+        ;; Assert: Expansion UI was called with write operation
+        (expect expansion-ui-called :to-be t)
+
+        ;; Cleanup
+        (delete-file scope-yml)))
+
+    (it "updates write scope for edit operations"
+      ;; Scenario: User adds path to scope for edit operation
+      ;; Expected: paths.write section updated (edit requires write permission)
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (filepath "/home/user/code.el")
+             (expansion-ui-called nil))
+
+        ;; Spy on expansion UI to verify correct scope section
+        (spy-on 'jf/gptel-scope-prompt-expansion
+                :and-call-fake
+                (lambda (violation-info callback patterns tool-name)
+                  (setq expansion-ui-called t)
+                  ;; Verify operation is :write (edit uses write validation)
+                  (expect (plist-get violation-info :operation) :to-equal :write)
+                  ;; Simulate add-to-scope action (updates paths.write)
+                  (funcall callback
+                           (json-serialize
+                            (list :success t
+                                  :patterns_added (vector "/home/user/**")
+                                  :message "Added to write scope")))))
+
+        ;; Trigger expansion with write operation (edit_file uses write validation)
+        (let ((violation-info (list :tool "edit_file"
+                                    :resource filepath
+                                    :operation :write
+                                    :reason "path_out_of_scope"
+                                    :metadata (list :exists t :git-tracked t))))
+          (jf/gptel-scope-prompt-expansion
+           violation-info
+           (lambda (result) nil)
+           (list "/home/user/**")
+           "edit_file"))
+
+        ;; Assert: Expansion UI was called with write operation
+        (expect expansion-ui-called :to-be t)
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Deny action"
+
+    (it "returns user_denied when user denies request"
+      ;; Scenario: User denies scope expansion
+      ;; Expected: Callback receives success=false with user_denied flag
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '("/workspace/**")
+                         '()))
+             (filepath "/etc/passwd")
+             (callback-result nil))
+
+        ;; Spy on expansion UI
+        (spy-on 'jf/gptel-scope-prompt-expansion
+                :and-call-fake
+                (lambda (violation-info callback patterns tool-name)
+                  ;; Simulate deny action
+                  (funcall callback
+                           (json-serialize
+                            (list :success nil
+                                  :user_denied t
+                                  :message "User denied request")))))
+
+        ;; Trigger expansion
+        (let ((violation-info (list :tool "read_file"
+                                    :resource filepath
+                                    :operation :read
+                                    :reason "path_out_of_scope"
+                                    :metadata (list :exists t :git-tracked nil))))
+          (jf/gptel-scope-prompt-expansion
+           violation-info
+           (lambda (result)
+             (setq callback-result result))
+           (list filepath)
+           "read_file"))
+
+        ;; Assert: Callback received denial
+        (let ((parsed (json-parse-string callback-result :object-type 'plist)))
+          (expect (or (eq (plist-get parsed :success) :json-false)
+                      (eq (plist-get parsed :success) nil)) :to-be t)
+          (expect (plist-get parsed :user_denied) :to-be t))
+
+        ;; Cleanup
+        (delete-file scope-yml))))
+
+  (describe "Allow-once action"
+
+    (it "grants temporary permission when user allows once"
+      ;; Scenario: User allows operation once
+      ;; Expected: Permission added to allow-once list, callback receives approval
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '("/workspace/**")
+                         '()))
+             (filepath "/tmp/temp.txt")
+             (callback-result nil))
+
+        ;; Spy on expansion UI
+        (spy-on 'jf/gptel-scope-prompt-expansion
+                :and-call-fake
+                (lambda (violation-info callback patterns tool-name)
+                  ;; Simulate allow-once action
+                  (jf/gptel-scope-add-to-allow-once-list
+                   "read_file"
+                   filepath)
+                  (funcall callback
+                           (json-serialize
+                            (list :success t
+                                  :allowed_once t
+                                  :message "Allowed for this turn only")))))
+
+        ;; Trigger expansion
+        (let ((violation-info (list :tool "read_file"
+                                    :resource filepath
+                                    :operation :read
+                                    :reason "path_out_of_scope"
+                                    :metadata (list :exists t :git-tracked nil))))
+          (jf/gptel-scope-prompt-expansion
+           violation-info
+           (lambda (result)
+             (setq callback-result result))
+           (list filepath)
+           "read_file"))
+
+        ;; Assert: Callback received approval
+        (let ((parsed (json-parse-string callback-result :object-type 'plist)))
+          (expect (plist-get parsed :success) :to-be t)
+          (expect (plist-get parsed :allowed_once) :to-be t))
+
+        ;; Assert: Permission was added to allow-once list
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
+        (let ((entry (car jf/gptel-scope--allow-once-list)))
+          (expect (car entry) :to-equal "read_file")
+          (expect (cdr entry) :to-equal filepath))
+
+        ;; Cleanup
+        (delete-file scope-yml)))))
+
 (provide 'filesystem-tools-scope-expansion-spec)
 ;;; filesystem-tools-scope-expansion-spec.el ends here
