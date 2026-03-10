@@ -41,6 +41,8 @@ Use request_scope_expansion if you need to read files outside approved patterns.
 
  "filesystem"
 
+ :async
+
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))
    (if (file-exists-p full-path)
@@ -85,6 +87,8 @@ When you receive a scope violation:
 
  "filesystem"
 
+ :async
+
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))
    ;; Ensure directory exists
@@ -110,10 +114,6 @@ When you receive a scope violation:
  "Edit a file by replacing old_string with new_string, respecting scope plan.
 Returns error if path is not in approved scope patterns.
 
-GIT-SAFE EDITING: This tool only allows editing files tracked by git.
-This prevents accidentally modifying ignored files like node_modules/, build artifacts, etc.
-If you get a 'file_not_git_tracked' error, the file must be added to git first.
-
 The file must already exist. Use write_file_in_scope to create new files.
 
 Example usage:
@@ -135,6 +135,8 @@ Returns scope violation error if path not approved."
 
  "filesystem"
 
+ :async
+
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))
    ;; Check if file exists
@@ -143,13 +145,6 @@ Returns scope violation error if path not approved."
        (list :success nil
              :error "file_not_found"
              :message (format "File does not exist: %s. Use write_file_in_scope to create new files." full-path))))
-
-   ;; Check if file is git-tracked (git-safe editing)
-   (unless (jf/gptel--file-is-git-tracked-p full-path)
-     (cl-return-from nil
-       (list :success nil
-             :error "file_not_git_tracked"
-             :message (format "Cannot edit file: %s is not tracked by git. This is a safety feature to prevent editing ignored files (node_modules, build artifacts, etc.). To edit this file, either: 1) Add it to git (git add %s), or 2) Use write_file_in_scope if you need to create/overwrite it." full-path filepath))))
 
    ;; Execute edit
    (let ((replaced nil))
