@@ -379,11 +379,12 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
   (describe "Allow-once permission lifecycle"
 
     (it "validation succeeds after allow-once permission granted"
-      ;; Scenario: Permission granted → validation check → allow-once detected
-      ;; Expected: Allow-once permission exists and can be checked
+      ;; Scenario: Permission granted → check-allow-once returns true
+      ;; Expected: Check function detects and consumes the permission
       (let* ((scope-yml (helpers-spec-make-scope-with-paths
                          '("/workspace/**")
                          '()))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
              (filepath "/tmp/temporary.txt"))
 
         ;; Initially, allow-once list is empty
@@ -394,33 +395,39 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
         ;; Verify permission was granted
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
-        (let ((entry (car jf/gptel-scope--allow-once-list)))
-          (expect (car entry) :to-equal "read_file")
-          (expect (cdr entry) :to-equal filepath))
+
+        ;; Check that permission can be consumed
+        (let ((consumed (jf/gptel-scope--check-allow-once "read_file" (list filepath) scope-config)))
+          (expect consumed :to-be t))
+
+        ;; Permission should be consumed
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)
 
         ;; Cleanup
         (delete-file scope-yml)))
 
     (it "allow-once permission can be consumed and removed"
-      ;; Scenario: Permission granted → consumed → removed from list
+      ;; Scenario: Permission granted → consumed via real function → removed from list
       ;; Expected: Allow-once list updated correctly after consumption
-      (let* ((filepath "/tmp/once.txt"))
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '("/workspace/**")
+                         '()))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/tmp/once.txt"))
 
         ;; Grant permission
         (jf/gptel-scope-add-to-allow-once-list "read_file" filepath)
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
 
-        ;; Consume permission (simulate what jf/gptel-scope--check-allow-once does)
-        (let ((entry (cl-find-if (lambda (e)
-                                   (and (equal (car e) "read_file")
-                                        (equal (cdr e) filepath)))
-                                 jf/gptel-scope--allow-once-list)))
-          (when entry
-            (setq jf/gptel-scope--allow-once-list
-                  (delq entry jf/gptel-scope--allow-once-list))))
+        ;; Consume permission using real function
+        (let ((consumed (jf/gptel-scope--check-allow-once "read_file" (list filepath) scope-config)))
+          (expect consumed :to-be t))
 
         ;; Verify permission was consumed
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)))
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)
+
+        ;; Cleanup
+        (delete-file scope-yml)))
 
     (it "allow-once permission is isolated per tool"
       ;; Scenario: Different tools have separate allow-once permissions
@@ -817,25 +824,27 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
   (describe "Allow-once permission lifecycle"
 
     (it "allow-once permission consumed after use"
-      ;; Scenario: Permission granted → consumed → removed from list
+      ;; Scenario: Permission granted → consumed via real function → removed from list
       ;; Expected: Allow-once list updated correctly after consumption
-      (let* ((filepath "/tmp/once-write.txt"))
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/tmp/once-write.txt"))
 
-        ;; Grant permission
-        (jf/gptel-scope-add-to-allow-once-list "write_file" filepath)
+        ;; Grant permission (use correct tool name)
+        (jf/gptel-scope-add-to-allow-once-list "write_file_in_scope" filepath)
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
 
-        ;; Consume permission (simulate what jf/gptel-scope--check-allow-once does)
-        (let ((entry (cl-find-if (lambda (e)
-                                   (and (equal (car e) "write_file")
-                                        (equal (cdr e) filepath)))
-                                 jf/gptel-scope--allow-once-list)))
-          (when entry
-            (setq jf/gptel-scope--allow-once-list
-                  (delq entry jf/gptel-scope--allow-once-list))))
+        ;; Consume permission using real function
+        (let ((consumed (jf/gptel-scope--check-allow-once "write_file_in_scope" (list filepath) scope-config)))
+          (expect consumed :to-be t))
 
         ;; Verify permission was consumed
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)))))
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)
+
+        ;; Cleanup
+        (delete-file scope-yml)))))
 
 (describe "edit_file_in_scope: Scope expansion workflows"
 
@@ -1133,25 +1142,27 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
   (describe "Allow-once permission lifecycle"
 
     (it "allow-once permission consumed after use"
-      ;; Scenario: Permission granted → consumed → removed from list
+      ;; Scenario: Permission granted → consumed via real function → removed from list
       ;; Expected: Allow-once list updated correctly after consumption
-      (let* ((filepath "/tmp/once-edit.txt"))
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '()
+                         '("/workspace/**")))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/tmp/once-edit.txt"))
 
-        ;; Grant permission
-        (jf/gptel-scope-add-to-allow-once-list "edit_file" filepath)
+        ;; Grant permission (use correct tool name)
+        (jf/gptel-scope-add-to-allow-once-list "edit_file_in_scope" filepath)
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
 
-        ;; Consume permission (simulate what jf/gptel-scope--check-allow-once does)
-        (let ((entry (cl-find-if (lambda (e)
-                                   (and (equal (car e) "edit_file")
-                                        (equal (cdr e) filepath)))
-                                 jf/gptel-scope--allow-once-list)))
-          (when entry
-            (setq jf/gptel-scope--allow-once-list
-                  (delq entry jf/gptel-scope--allow-once-list))))
+        ;; Consume permission using real function
+        (let ((consumed (jf/gptel-scope--check-allow-once "edit_file_in_scope" (list filepath) scope-config)))
+          (expect consumed :to-be t))
 
         ;; Verify permission was consumed
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)))))
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)
+
+        ;; Cleanup
+        (delete-file scope-yml)))))
 
 (describe "Transient action handlers"
 
@@ -1166,7 +1177,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
     (it "updates read scope for read operations"
       ;; Scenario: User adds path to scope for read operation
-      ;; Expected: paths.read section updated
+      ;; Expected: Expansion UI receives :read operation type
       (let* ((scope-yml (helpers-spec-make-scope-with-paths
                          '("/workspace/**")
                          '()))
@@ -1207,7 +1218,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
     (it "updates write scope for write operations"
       ;; Scenario: User adds path to scope for write operation
-      ;; Expected: paths.write section updated
+      ;; Expected: Expansion UI receives :write operation type
       (let* ((scope-yml (helpers-spec-make-scope-with-paths
                          '()
                          '("/workspace/**")))
@@ -1248,7 +1259,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
     (it "updates write scope for edit operations"
       ;; Scenario: User adds path to scope for edit operation
-      ;; Expected: paths.write section updated (edit requires write permission)
+      ;; Expected: Expansion UI receives :write operation type (edit requires write permission)
       (let* ((scope-yml (helpers-spec-make-scope-with-paths
                          '()
                          '("/workspace/**")))
