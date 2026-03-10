@@ -9,16 +9,41 @@ Implement multiple ready beads in parallel using isolated worktrees and spawned 
 
 ## 1. Discovery & Selection
 
+**Read execution plan from .openspec.yaml:**
+
+Prompt user for change name if not provided. Then:
+
+```bash
+cat openspec/changes/<change-name>/.openspec.yaml
+```
+
+**If execution plan exists:**
+
+Parse `execution.batches` to find first batch with open beads.
+
+Display batch overview:
+```
+Batch: foundation (3 beads, parallel)
+Strategy: parallel
+Estimated tokens: 120k
+Beads: emacs-a3f, emacs-a4g, emacs-a7j
+```
+
+Use AskUserQuestion:
+- "Run current batch" → proceed
+- "Select specific batch" → show list, let user choose
+- "Manual selection" → fall back to legacy mode
+
+**If no execution plan (legacy mode):**
+
 ```bash
 bd list --ready --json
 ```
 
-Parse JSON to find beads with status "open" and no `blockedBy` dependencies.
-
 **Selection**:
-- 0 beads: Exit with message
+- 0 beads: Exit
 - 1-3 beads: Auto-select with confirmation
-- 4+ beads: Use AskUserQuestion (multiSelect: true, max 5 recommended)
+- 4+ beads: Use AskUserQuestion (multiSelect: true, max 5)
 
 ## 2. Baseline Capture
 
@@ -78,32 +103,39 @@ Ensure `.worktrees/` is gitignored.
   "repo_root": "/Users/jefffarr/emacs",
   "baseline_snapshot": ".beads/orchestrator/baseline-1234567890.txt",
   "baseline_test_count": 588,
-  "baseline_unexpected_count": 0,
-  "baseline_aborted_count": 0,
-  "baseline_unknown_count": 0,
   "current_branch": "main",
-  "max_parallel": 5,
+  "execution_plan": {
+    "change_name": "gptel-org-mode-sessions",
+    "batch_id": "foundation",
+    "batch_strategy": "parallel",
+    "batch_estimated_tokens": 120000,
+    "next_batch_id": "core-logic",
+    "next_batch_depends_on": ["foundation"]
+  },
   "beads": [
     {
       "bead_id": "emacs-abc1",
       "worktree_path": "/Users/jefffarr/emacs/.worktrees/bead-emacs-abc1-1234567890",
       "branch_name": "bead-emacs-abc1-1234567890",
       "task_id": "task-xyz",
-      "status": "setup_complete",  // → in_progress → implementation_complete → merged
+      "estimated_tokens": 40000,
+      "status": "setup_complete",
       "regression_detected": false,
-      "tests_after_merge": null,
-      "unexpected_failures": null,
-      "aborted_tests": null,
-      "unknown_tests": null,
-      "test_snapshot_path": null,
       "bead_closed": false,
       "worktree_removed": false
     }
-  ],
-  "final_snapshot": null,
-  "final_test_count": null
+  ]
 }
 ```
+
+**Batch strategy enforcement:**
+
+If batch strategy is `sequential`:
+- Spawn agents ONE AT A TIME
+- Wait for each to complete before starting next
+
+If batch strategy is `parallel`:
+- Spawn ALL agents simultaneously
 
 **Agent spawning** (use Task tool, NOT TaskCreate):
 
@@ -116,7 +148,7 @@ Task(
 )
 ```
 
-Task tool returns immediately with a task_id. Store this in state file's `beads[].task_id` field.
+Task tool returns task_id. Store in state file's `beads[].task_id`.
 
 **NEVER use `run_in_background: true`** - blocks file writes.
 
@@ -238,7 +270,35 @@ After last successful merge, run final test snapshot: `./bin/run-tests.sh --snap
 
 ## 9. Summary Report
 
-Display session results: successfully merged (count, duration), conflicts (worktree paths), failures (worktree paths), test summary (baseline vs final), cleanup status, next steps.
+Display session results: successfully merged, conflicts, failures, test summary, cleanup status.
+
+**If more batches remain:**
+
+```
+Batch Complete: foundation ✓
+
+Successfully merged 3/3 beads
+Estimated tokens: 120k (actual: ~118k)
+
+Next Batch: core-logic
+Strategy: sequential
+Depends on: foundation ✓
+Beads: emacs-a5h, emacs-a6i
+
+Ready to start next batch?
+```
+
+**If all batches complete:**
+
+```
+All Batches Complete ✓
+
+Total beads: 8/8 merged
+Estimated tokens: 320k (actual: ~315k)
+Batches: foundation, core-logic, testing
+
+Archive change: `/opsx:archive`
+```
 
 ## Error Handling
 

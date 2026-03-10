@@ -63,10 +63,14 @@ Implement tasks from an OpenSpec change.
 
 5. **Show current progress**
 
+   Read execution plan from `.openspec.yaml` if it exists to show batch context.
+
    ```
    ## Implementing: <change-name>
 
+   **Batch:** foundation (3 beads, parallel)
    **Progress:** N/M beads complete
+
    **Open beads:**
    - emacs-a3f: 1.1 Create module
    - emacs-a4g: 1.2 Add deps

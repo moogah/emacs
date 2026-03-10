@@ -93,10 +93,23 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    ```
 
    **Granularity guidance:**
-   - Target: 1-4 hours of work per bead (one focused session)
-   - If section feels larger: split into multiple beads
-   - If section feels smaller: combine with related sections
-   - Ask AI: "Can this be completed in one session without dependencies?"
+   - Target: <50k tokens per bead (~20-30 min focused work)
+
+   **Split indicators** (break into separate beads):
+   - Multiple behavioral scenarios or edge cases
+   - Implementation + comprehensive tests
+   - Complex conditional logic (split by major branch)
+   - Multi-file changes unless tightly coupled
+
+   **Combine indicators:**
+   - Single function <30 lines with trivial test
+   - Tightly coupled changes (add function + call site)
+
+   **Token estimation heuristics:**
+   - Simple function: ~20-30k
+   - Function with edge cases: ~30-45k
+   - Multi-file coordination: ~40-50k
+   - Test suite: ~25-35k
 
    **Context extraction:**
    - Don't reference design.md - EXTRACT and EMBED relevant context
@@ -111,7 +124,39 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    - Shared utilities before dependents
    - Note: Will add with `bd dep add` after creation
 
-5. **Show preview and get approval**
+5. **Generate execution plan**
+
+   Group beads into batches with dependencies and strategy:
+
+   ```yaml
+   execution:
+     batches:
+       - id: foundation
+         strategy: parallel  # or sequential
+         estimated_tokens: 120000
+         beads:
+           - id: emacs-abc1
+             estimated_tokens: 40000
+       - id: core-logic
+         strategy: sequential
+         depends_on: [foundation]
+         estimated_tokens: 85000
+         beads:
+           - id: emacs-def4
+             estimated_tokens: 45000
+   ```
+
+   **Batch strategies:**
+   - `parallel`: No shared files, no dependencies
+   - `sequential`: Shared files or ordering requirements
+
+   **Common batch groupings:**
+   - Foundation: helpers, constants, utilities
+   - Core: main logic
+   - Integration: cross-module changes
+   - Testing: verification
+
+6. **Show preview and get approval**
 
    Display generated beads in structured format:
    ```
@@ -155,7 +200,7 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    - Ask: "Should I split larger beads, combine smaller ones, or adjust specific beads?"
    - Get feedback, regenerate, show preview again
 
-6. **Create beads in Beads DB**
+7. **Create beads in Beads DB**
 
    For each bead in the approved list:
 
@@ -185,38 +230,50 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    ]
    ```
 
-7. **Add dependencies**
+8. **Add dependencies**
 
    For beads with identified dependencies:
    ```bash
    bd dep add <dependent-bead-id> <prerequisite-bead-id>
    ```
 
-   Example: If bead 1.2 depends on 1.1:
-   ```bash
-   bd dep add emacs-a4g emacs-a3f
-   ```
+9. **Update .openspec.yaml**
 
-8. **Update .openspec.yaml**
-
-   Add bead tracking metadata:
+   Add execution plan and bead tracking:
    ```yaml
-   schema: spec-driven
-   created: 2026-02-09
+   schema: spec-driven-beads
+   created: 2026-03-10
+
+   execution:
+     batches:
+       - id: foundation
+         strategy: parallel
+         estimated_tokens: 120000
+         beads:
+           - id: emacs-a3f
+             estimated_tokens: 40000
+       - id: core-logic
+         strategy: sequential
+         depends_on: [foundation]
+         estimated_tokens: 85000
+         beads:
+           - id: emacs-a5h
+             estimated_tokens: 45000
+
+   beads:
+     foundation:
+       - emacs-a3f
+     core-logic:
+       - emacs-a5h
+
    metadata:
      tracking: beads
-     beads:
-       - emacs-a3f
-       - emacs-a4g
-       - emacs-a5h
-     beads_created: 2026-02-10T10:30:00Z
+     beads_created: 2026-03-10T10:30:00Z
+     total_beads: 8
+     estimated_total_tokens: 320000
    ```
 
-   Use **Edit** tool to update `.openspec.yaml`.
-
-   **Do NOT create tasks.md** - beads replace tasks entirely.
-
-9. **Show completion summary**
+10. **Show completion summary**
 
    Display:
    ```
@@ -291,15 +348,14 @@ Context: design.md § [section] '[section title]'
 
 - **Self-contained:** Extract and embed design context, don't just reference
 - **Actionable:** Each bead must have concrete implementation steps
-- **Scoped:** Target 1-4 hours per bead (one session)
+- **Scoped:** Target <50k tokens per bead
 - **Test-aware:** If tests exist, include which tests this bead makes pass
-- **Verified:** Each bead must have clear acceptance criteria (tests or manual)
+- **Verified:** Each bead must have clear acceptance criteria
 - **Linked:** Use labels and external-ref for traceability
 - **Sequenced:** Add dependencies where order matters
-- **No tasks.md:** Beads replace tasks.md entirely - don't create it
+- **Batched:** Group into execution plan with parallel/sequential strategy
 - **User approval:** Always preview and get confirmation before creating
 - **Context extraction:** Include WHY (rationale) not just WHAT (steps)
-- **TDD-compatible:** Beads can be "write test + implement" or just "implement" depending on whether tests already exist
 
 **Error Handling**
 
