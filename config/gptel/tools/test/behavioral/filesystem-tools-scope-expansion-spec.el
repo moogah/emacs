@@ -425,30 +425,40 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
     (it "allow-once permission is isolated per tool"
       ;; Scenario: Different tools have separate allow-once permissions
       ;; Expected: Permissions don't interfere across tools
-      (let* ((filepath "/tmp/shared.txt"))
+      (let* ((scope-yml (helpers-spec-make-scope-with-paths
+                         '("/workspace/**")
+                         '()))
+             (scope-config (helpers-spec-load-scope-config scope-yml))
+             (filepath "/tmp/shared.txt"))
 
         ;; Grant permission for read_file
         (jf/gptel-scope-add-to-allow-once-list "read_file" filepath)
 
-        ;; Grant permission for create_file (different tool)
-        (jf/gptel-scope-add-to-allow-once-list "create_file" filepath)
+        ;; Grant permission for write_file_in_scope (different tool)
+        (jf/gptel-scope-add-to-allow-once-list "write_file_in_scope" filepath)
 
         ;; Both permissions should exist
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 2)
 
-        ;; Consume read_file permission (simulate what jf/gptel-scope--check-allow-once does)
-        (let ((entry (cl-find-if (lambda (e)
-                                   (and (equal (car e) "read_file")
-                                        (equal (cdr e) filepath)))
-                                 jf/gptel-scope--allow-once-list)))
-          (when entry
-            (setq jf/gptel-scope--allow-once-list
-                  (delq entry jf/gptel-scope--allow-once-list))))
+        ;; Consume read_file permission using real function
+        (let ((consumed (jf/gptel-scope--check-allow-once "read_file" (list filepath) scope-config)))
+          (expect consumed :to-be t))
 
-        ;; Only create_file permission should remain
+        ;; Only write_file_in_scope permission should remain
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
         (let ((entry (car jf/gptel-scope--allow-once-list)))
-          (expect (car entry) :to-equal "create_file")))))
+          (expect (car entry) :to-equal "write_file_in_scope")
+          (expect (cdr entry) :to-equal filepath))
+
+        ;; Verify write_file_in_scope permission still works
+        (let ((consumed (jf/gptel-scope--check-allow-once "write_file_in_scope" (list filepath) scope-config)))
+          (expect consumed :to-be t))
+
+        ;; Now list should be empty
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)
+
+        ;; Cleanup
+        (delete-file scope-yml))))
 
   (describe "Metadata handling"
 
@@ -884,47 +894,8 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
         ;; Cleanup
         (delete-file scope-yml))))
 
-  (describe "Git metadata handling"
-
-    (it "includes git-tracked status for tracked files"
-      ;; Scenario: Edit operation on git-tracked file
-      ;; Expected: Metadata includes git-tracked flag
-      (let* ((scope-yml (helpers-spec-make-scope-with-paths
-                         '()
-                         '("/workspace/**")))
-             (scope-config (helpers-spec-load-scope-config scope-yml))
-             (filepath "/workspace/tracked.el")
-             (paths (plist-get scope-config :paths)))
-
-        ;; Mock file as existing and git-tracked
-        (helpers-spec-mock-file-metadata filepath t t)
-
-        ;; Validate operation
-        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
-          (expect result :to-be nil))
-
-        ;; Cleanup
-        (delete-file scope-yml)))
-
-    (it "includes non-git-tracked status for untracked files"
-      ;; Scenario: Edit operation on non-git-tracked file
-      ;; Expected: Metadata includes git-tracked=nil
-      (let* ((scope-yml (helpers-spec-make-scope-with-paths
-                         '()
-                         '("/workspace/**")))
-             (scope-config (helpers-spec-load-scope-config scope-yml))
-             (filepath "/workspace/untracked.el")
-             (paths (plist-get scope-config :paths)))
-
-        ;; Mock file as existing but not git-tracked
-        (helpers-spec-mock-file-metadata filepath t nil)
-
-        ;; Validate operation
-        (let ((result (jf/gptel-scope--validate-operation :write filepath paths)))
-          (expect result :to-be nil))
-
-        ;; Cleanup
-        (delete-file scope-yml))))
+  ;; NOTE: Git metadata handling is tested in "Metadata handling" section
+  ;; at line 455+ with proper verification via expansion UI spy
 
   (describe "File existence validation"
 
