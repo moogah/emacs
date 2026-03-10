@@ -53,12 +53,27 @@ Returns parsed plist, or signals user-error if parsing fails."
             (violation (plist-get scope :violation))
             (tool (plist-get violation :tool))
             (resource (plist-get violation :resource))
-            (reason (plist-get violation :reason)))
-       (format "Scope Violation: %s\n  Tool: %s\n  Resource: %s\n  Reason: %s"
-               (propertize "Access Denied" 'face 'error)
-               (propertize tool 'face 'font-lock-function-name-face)
-               (propertize resource 'face 'font-lock-string-face)
-               (propertize reason 'face 'warning))))
+            (reason (plist-get violation :reason))
+            (metadata (plist-get violation :metadata))
+            (git-tracked (when metadata (plist-get metadata :git-tracked)))
+            (exists (when metadata (plist-get metadata :exists))))
+       (concat
+        (format "Scope Violation: %s\n  Tool: %s\n  Resource: %s"
+                (propertize "Access Denied" 'face 'error)
+                (propertize tool 'face 'font-lock-function-name-face)
+                (propertize resource 'face 'font-lock-string-face))
+        ;; Display git status if metadata available
+        (when metadata
+          (format "\n  Git Status: %s"
+                  (propertize (if git-tracked "TRACKED" "NOT TRACKED")
+                              'face (if git-tracked 'success 'warning))))
+        ;; Display file status if metadata available
+        (when metadata
+          (format "\n  File Status: %s"
+                  (propertize (if exists "exists" "does not exist")
+                              'face (if exists 'success 'warning))))
+        (format "\n  Reason: %s"
+                (propertize reason 'face 'warning)))))
    [("d" "Deny (reject tool call)" jf/gptel-scope--deny-expansion
      :transient nil)
     ("a" "Add to scope (permanent)" jf/gptel-scope--add-to-scope

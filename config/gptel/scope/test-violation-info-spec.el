@@ -144,7 +144,26 @@
                       :resource "/test/file.el"
                       :operation 'read
                       :reason "Test message"
-                      :validation-type 'path))))))
+                      :validation-type 'path
+                      :metadata nil)))))
+
+  (describe "metadata passthrough"
+    (it "includes metadata when present in validation-error"
+      (let* ((validation-error '(:error "path_out_of_scope"
+                                 :path "/test/file.el"
+                                 :operation read
+                                 :message "Test message"
+                                 :metadata (:exists t :git-tracked t :git-repo "/repo")))
+             (result (jf/gptel-scope--build-violation-info validation-error "read_file")))
+        (expect (plist-get result :metadata) :to-equal '(:exists t :git-tracked t :git-repo "/repo"))))
+
+    (it "returns nil metadata when not present in validation-error"
+      (let* ((validation-error '(:error "path_out_of_scope"
+                                 :path "/test/file.el"
+                                 :operation read
+                                 :message "Test message"))
+             (result (jf/gptel-scope--build-violation-info validation-error "read_file")))
+        (expect (plist-get result :metadata) :to-be nil)))))
 
 (provide 'test-violation-info-spec)
 ;;; test-violation-info-spec.el ends here

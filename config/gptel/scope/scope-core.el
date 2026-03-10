@@ -838,6 +838,7 @@ Returns plist with:
   :operation - Operation type (read, write, etc.)
   :reason - Human-readable error message
   :validation-type - Validation strategy (path, pattern, bash, meta)
+  :metadata - File metadata plist (git-tracked, exists, etc.)
 
 This is a pure transformation function with no side effects."
   (let* ((error-type (or (plist-get validation-error :error)
@@ -852,12 +853,14 @@ This is a pure transformation function with no side effects."
                            (plist-get validation-error :path)))))
          (operation (plist-get validation-error :operation))
          (reason (plist-get validation-error :message))
-         (validation-type (jf/gptel-scope--infer-validation-type tool-name)))
+         (validation-type (jf/gptel-scope--infer-validation-type tool-name))
+         (metadata (plist-get validation-error :metadata)))
     (list :tool tool-name
           :resource resource
           :operation operation
           :reason reason
-          :validation-type validation-type)))
+          :validation-type validation-type
+          :metadata metadata)))
 ;; Build Violation Info from Validation Error:1 ends here
 
 ;; Trigger Inline Expansion
