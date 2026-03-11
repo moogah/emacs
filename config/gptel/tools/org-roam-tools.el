@@ -554,7 +554,7 @@ Detects if input is already org-mode format and skips conversion."
                      (insert (format "#+roam_refs: %s\n" ref))))
                  (insert "\n")
                  (when content
-                   (insert (jf/markdown-to-org content))
+                   (insert content)
                    (insert "\n")))
 
                ;; Update org-roam database
@@ -578,8 +578,6 @@ Use this to add new nodes to your knowledge base. The node will be created with 
 For gptel agents: Set capture_session_metadata to true and subdirectory to 'gptel' to create agent-attributed notes.
 
 The node is created as a file-level node (level 0) in your org-roam-directory (or a subdirectory). You can add tags, initial content, and reference URLs.
-
-MARKDOWN CONVERSION: Content will be automatically converted from markdown to org-mode format using pandoc (if available).
 
 IMPORTANT: This operation creates a new file. Confirm before proceeding.
 
