@@ -39,7 +39,7 @@ Activities integration provides the best experience for persistent gptel session
 
 Result:
 - Activity created at =~/emacs-activities/<activity-slug-date>/=
-- gptel session in =session/branches/main/session.md=
+- gptel session in =session/branches/main/session.org=
 - Session buffer opened in split window (right side)
 - Org-roam doc opened in left window (if not skipped)
 
@@ -47,7 +47,7 @@ Result:
 
 When you resume an activity (=M-x activities-resume=):
 - gptel session buffer opens automatically if one exists
-- Conversation history fully restored from =session.md=
+- Conversation history fully restored from =session.org=
 - Backend, model, and tool configuration preserved
 - Scope configuration remains active for file access controls
 
@@ -59,7 +59,7 @@ When you resume an activity (=M-x activities-resume=):
     ├── session/
     │   ├── branches/
     │   │   └── main/
-    │   │       ├── session.md        # Your conversation
+    │   │       ├── session.org        # Your conversation
     │   │       ├── metadata.yml      # Session metadata (preset, timestamps)
     │   │       └── scope.yml         # File access permissions
     │   ├── current -> branches/main  # Symlink to active branch
@@ -135,7 +135,7 @@ Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
 - scope.yml with file access permissions (from preset scope profile)
 - metadata.yml with session metadata and preset reference
-- session.md file for buffer to visit
+- session.org file for buffer to visit
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
@@ -172,12 +172,12 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                                :deny '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**"))))))
 
     ;; Create session directory structure using core helper
-    ;; This creates branches/main/, scope.yml, metadata.yml, session.md, and current symlink
+    ;; This creates branches/main/, scope.yml, metadata.yml, session.org, and current symlink
     (let* ((session-info (jf/gptel--create-session-core
                           session-id
                           session-dir
                           preset-name
-                          "###\n"          ; Minimal initial content
+                          "* Session\n\n"  ; Org-mode heading as initial content
                           worktree-scope   ; Scope plist (or nil)
                           nil))            ; No project-root
            (branch-dir (plist-get session-info :branch-dir))
