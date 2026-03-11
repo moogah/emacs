@@ -35,6 +35,61 @@ Branches are full-fledged session directories with:
 (require 'gptel-session-metadata)
 #+end_src
 
+* Format Detection Utilities
+
+Helper functions for detecting session file format (org-mode vs markdown).
+Used by branching operations to inherit parent format and by Local Variables writing.
+
+** Detect Session File Format
+
+#+begin_src emacs-lisp
+(defun jf/gptel--session-file-format (buffer-or-file)
+  "Detect the session file format from BUFFER-OR-FILE.
+BUFFER-OR-FILE may be a buffer object or a file path string.
+
+Returns a keyword indicating the format:
+  :org  - org-mode format (file extension \"org\")
+  :md   - markdown format (file extension \"md\")
+  nil   - unknown or unrecognized extension
+
+Use with pcase for idiomatic dispatch:
+  (pcase (jf/gptel--session-file-format (current-buffer))
+    (:org (message \"Org-mode session\"))
+    (:md  (message \"Markdown session\")))"
+  (let* ((file-path (cond
+                     ((bufferp buffer-or-file)
+                      (buffer-file-name buffer-or-file))
+                     ((stringp buffer-or-file)
+                      buffer-or-file)
+                     (t nil)))
+         (ext (when file-path
+                (file-name-extension file-path))))
+    (cond
+     ((equal ext "org") :org)
+     ((equal ext "md")  :md)
+     (t nil))))
+#+end_src
+
+** Get Session File Extension String
+
+#+begin_src emacs-lisp
+(defun jf/gptel--get-session-file-extension (buffer)
+  "Get the file extension string for BUFFER's session format.
+Returns \"org\" or \"md\" corresponding to the detected format.
+
+Intended for use in file path construction when creating branch
+sessions that inherit their parent's format:
+  (let* ((ext (jf/gptel--get-session-file-extension (current-buffer)))
+         (filename (concat \"session.\" ext)))
+    ...)
+
+Returns nil if the format cannot be determined."
+  (pcase (jf/gptel--session-file-format buffer)
+    (:org "org")
+    (:md  "md")
+    (_    nil)))
+#+end_src
+
 * Branch Point Detection
 
 Functions for finding user prompts in the buffer to use as branch points.
