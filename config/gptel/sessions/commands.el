@@ -133,8 +133,8 @@ Scans all sessions and removes duplicate blocks without opening buffers."
 (defun jf/gptel--auto-init-session-buffer ()
   "Auto-initialize gptel session if current buffer is a session file.
 Detects session files by path pattern:
-  - Branch sessions: */branches/<branch-name>/session.md
-  - Agent sessions:  */agents/<agent-name>/session.md
+  - Branch sessions: */branches/<branch-name>/session.{org,md}
+  - Agent sessions:  */agents/<agent-name>/session.{org,md}
 
 Handles two scenarios:
   1. Existing session (has gptel--preset in Local Variables) — delegate to
@@ -146,7 +146,8 @@ This runs on every file open via find-file-hook, so performance is critical."
   ;; Fast path guards (performance critical - runs on every file open)
   (when (and (buffer-file-name)                      ; Has file? (fast)
              (not (bound-and-true-p jf/gptel--session-id)) ; Not already initialized? (fast)
-             (string-suffix-p ".md" (buffer-file-name)))   ; Is .md file? (fast)
+             (or (string-suffix-p ".org" (buffer-file-name))  ; Is .org file? (fast)
+                 (string-suffix-p ".md" (buffer-file-name))))  ; Is .md file? (fast)
     (let* ((file-path (expand-file-name (buffer-file-name)))
            (file-name (file-name-nondirectory file-path))
            ;; Detect session type from path pattern
@@ -155,18 +156,18 @@ This runs on every file open via find-file-hook, so performance is critical."
            (session-dir nil)
            (session-type nil))
 
-      ;; Branch session: */branches/<branch>/session.md
-      (when (and (string= file-name "session.md")
-                 (string-match "/branches/\\([^/]+\\)/session\\.md$" file-path))
+      ;; Branch session: */branches/<branch>/session.{org,md}
+      (when (and (string-match-p "\\`session\\.\\(org\\|md\\)\\'" file-name)
+                 (string-match "/branches/\\([^/]+\\)/session\\.\\(org\\|md\\)$" file-path))
         (setq branch-name (match-string 1 file-path)
               branch-dir (file-name-directory file-path)
               session-dir (expand-file-name "../.." branch-dir)
               session-type 'branch))
 
-      ;; Agent session: */agents/<agent>/session.md
+      ;; Agent session: */agents/<agent>/session.{org,md}
       (when (and (not session-type)
-                 (string= file-name "session.md")
-                 (string-match "/agents/\\([^/]+\\)/session\\.md$" file-path))
+                 (string-match-p "\\`session\\.\\(org\\|md\\)\\'" file-name)
+                 (string-match "/agents/\\([^/]+\\)/session\\.\\(org\\|md\\)$" file-path))
         (let ((agent-dir (file-name-directory file-path)))
           (setq branch-name "main"
                 branch-dir agent-dir
