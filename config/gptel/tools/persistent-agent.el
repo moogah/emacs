@@ -196,7 +196,8 @@ gptel--known-presets, with zero inheritance from the parent session."
 
         ;; Initialize buffer with session tracking and preset configuration
         (with-current-buffer agent-buffer
-          (markdown-mode)
+          ;; Let Emacs auto-detect major mode from file extension
+          ;; (.org → org-mode, .md → markdown-mode) via auto-mode-alist
 
           ;; Set persistent session vars BEFORE preset application
           (setq-local jf/gptel--session-id session-id)
