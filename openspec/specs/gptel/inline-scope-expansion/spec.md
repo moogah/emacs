@@ -2,7 +2,7 @@
 
 The inline scope expansion capability enables scope-aware tools to automatically trigger the expansion UI when validation fails, allowing immediate execution upon user approval within a single tool call. This eliminates the multi-step flow previously required (validation failure → request_scope_expansion → retry).
 
-This integrates with the scope validation system (`config/gptel/scope/scope-core.org`), expansion UI (`config/gptel/scope/scope-expansion.org`), and bash tools (`config/gptel/tools/scope-shell-tools.org`).
+This integrates with the scope validation system (`config/gptel/scope/scope-core.org`), expansion UI (`config/gptel/scope/scope-expansion.org`), and bash tools (`config/gptel/scope/scope-shell-tools.org`).
 
 # Requirements
 

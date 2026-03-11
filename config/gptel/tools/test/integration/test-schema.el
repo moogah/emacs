@@ -44,7 +44,7 @@
   (require 'gptel-scope-profiles (expand-file-name "scope-profiles.el" gptel-dir))
   (require 'jf-gptel-scope-core (expand-file-name "scope-core.el" scope-dir))
   ;; Load scope-shell-tools for jf/gptel-scope--load-schema
-  (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" tools-dir)))
+  (require 'jf-gptel-scope-shell-tools (expand-file-name "../scope/scope-shell-tools.el" tools-dir)))
 
 ;;; Helper Functions
 

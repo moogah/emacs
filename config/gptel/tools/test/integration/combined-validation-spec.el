@@ -37,7 +37,7 @@
        (test-root-dir (expand-file-name "../.." test-dir))
        (tools-dir test-root-dir))
   (require 'bash-parser-core)
-  (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" tools-dir)))
+  (require 'jf-gptel-scope-shell-tools (expand-file-name "../scope/scope-shell-tools.el" tools-dir)))
 
 ;;; Helper Functions
 

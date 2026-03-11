@@ -126,7 +126,7 @@ bash_tools:
     - "sudo"
 #+end_example
 
-See =config/gptel/tools/scope-shell-tools.org= for complete documentation on the =run_bash_command= tool.
+See =config/gptel/scope/scope-shell-tools.org= for complete documentation on the =run_bash_command= tool.
 
 * Lexical Binding
 

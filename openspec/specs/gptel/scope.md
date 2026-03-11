@@ -135,7 +135,7 @@ The scope system SHALL support bash validation type for tools that execute shell
 
 **Tool:** `run_bash_command` - Executes shell commands with seven-stage validation pipeline using bash-parser integration.
 
-**Module:** `scope-shell-tools` (config/gptel/tools/scope-shell-tools.el) - Implements the run_bash_command tool using bash-parser semantic validation.
+**Module:** `scope-shell-tools` (config/gptel/scope/scope-shell-tools.el) - Implements the run_bash_command tool using bash-parser semantic validation.
 
 **Related specs:** See delta specs for detailed v4 behavior:
 - `scope-validation-pipelines/spec.md` - Pipeline command extraction and validation
@@ -155,7 +155,7 @@ The scope system SHALL support bash validation type for tools that execute shell
 
 The scope system SHALL validate bash commands through a seven-stage pipeline with early exit on failure, using bash-parser for semantic extraction.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - `jf/gptel-scope--validate-bash-tool` (seven-stage pipeline)
+**Implementation**: `config/gptel/scope/scope-shell-tools.el` - `jf/gptel-scope--validate-bash-tool` (seven-stage pipeline)
 
 **Validation stages:**
 1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
@@ -186,7 +186,7 @@ The scope system SHALL validate bash commands through a seven-stage pipeline wit
 
 The scope system SHALL check all commands in pipelines and chains against the bash_tools.deny list (stage 3). Commands in the deny list are blocked regardless of other permissions.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - deny list validation in validation pipeline
+**Implementation**: `config/gptel/scope/scope-shell-tools.el` - deny list validation in validation pipeline
 
 **Purpose**: Minimal deny list for high-risk edge cases where semantic analysis alone is insufficient. Most commands are validated by operation-first model (file operations, cloud auth).
 
@@ -214,7 +214,7 @@ The scope system SHALL check all commands in pipelines and chains against the ba
 
 The scope system SHALL validate file paths against operation-specific scope patterns (paths.read, paths.write, paths.execute, paths.modify) based on the operation type extracted from the command.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - file-ops plugin integration with bash-parser
+**Implementation**: `config/gptel/scope/scope-shell-tools.el` - file-ops plugin integration with bash-parser
 
 **v4 schema** (scope.yml):
 ```yaml
@@ -265,7 +265,7 @@ paths:
 
 The scope system SHALL detect cloud authentication commands (AWS, GCP, Azure) and enforce configurable policy (allow, warn, deny) with provider filtering.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - cloud-auth plugin integration with bash-parser
+**Implementation**: `config/gptel/scope/scope-shell-tools.el` - cloud-auth plugin integration with bash-parser
 
 **v4 schema** (scope.yml):
 ```yaml
@@ -304,7 +304,7 @@ cloud:
 
 The scope system SHALL automatically allow commands with zero extracted file operations, enabling version checks, help flags, and informational commands without explicit configuration.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - no-op allowance (stage 5 of validation pipeline)
+**Implementation**: `config/gptel/scope/scope-shell-tools.el` - no-op allowance (stage 5 of validation pipeline)
 
 **Purpose**: Commands that perform no file operations are inherently low-risk and should not require explicit allowlist configuration. This includes version checks, help flags, and informational queries.
 

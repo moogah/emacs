@@ -10,7 +10,7 @@ Defines the scope expansion workflow where LLMs request permission to access den
 
 The scope system SHALL provide request_scope_expansion tool that LLMs invoke to request permission for denied operations.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.org`
+**Implementation**: `config/gptel/scope/scope-shell-tools.org`
 
 #### Scenario: LLM requests expansion after denial
 - **WHEN** tool returns scope violation error
