@@ -158,6 +158,7 @@ failures return errors immediately (sync behavior)."
       :description ,description
       :args ,args
       :category ,category
+      ,@(when is-async '(:async t))  ; Pass :async t to gptel-make-tool
       :function
       ,(if is-async
            ;; ASYNC BRANCH: callback-first signature with inline expansion
