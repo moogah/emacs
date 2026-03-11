@@ -1,0 +1,333 @@
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/defaults.el (source)...
+Warning: exec-path-from-shell execution took 1345ms. See the README for tips on reducing this.
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/auth.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/avy.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/browser-hist.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/ripgrep.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/ultra-scroll.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/expand-region.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/evil.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/completion.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/completion/vertico.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/runtime/recentf...
+Cleaning up the recentf list...
+Cleaning up the recentf list...done (0 removed)
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/completion/consult.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/completion/marginalia.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/completion/embark.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/completion/corfu-company.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/completion/mini-frame.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/window-management.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/yasnippet.el (source)...
+[yas] Prepared just-in-time loading of snippets successfully.
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/testing.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/core/buttercup.el (source)...
+Buttercup testing framework loaded
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/look-and-feel.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/base-ui.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/frame-and-lines.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/modeline.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/themes.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/org-faces.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/terminal.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/vim-tab.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/look-and-feel/imenu.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/transient.el (source)...
+=== TRANSIENT DEBUG ===
+Before: transient loaded? nil
+After: transient loaded from /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/runtime/straight/build/transient/transient.elc
+After: transient-version = undefined
+After: has transient--set-layout? t
+=== END TRANSIENT DEBUG ===
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/activities/activities.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/activities/core.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/activities/projectile.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/activities/org-roam.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/activities/transient.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/language-modes.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/gtags.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/tree-sitter.el (source)...
+tsc-dyn-get: Using source :github (:loaded nil :recorded 0.19.4 :requested 0.19.4)
+tsc-dyn-get: Recorded version already satifies requested -> loading
+tree-sitter-langs: Grammar bundle v0.13.17 was already installed; skipped
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/lsp-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/projectile.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/copilot.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/yaml.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/json.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/markdown-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/terraform.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/puppet-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/python.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/typescript.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/javascript.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/golang.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/sql.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/language-modes/docker.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/major-modes/magit.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/major-modes/org.el (source)...
+org-super-agenda-mode enabled.
+ATTENTION: org-noter-pdf has many featues that depend on the package ‘pdf-tools’
+ATTENTION: org-noter-nov needs the package ‘nov’
+ATTENTION: org-noter-djvu needs the package ‘djvu’
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/major-modes/org-roam.el (source)...
+Clearing removed files... 
+Clearing removed files...done
+Processing modified files... 
+Processing modified files...done
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/major-modes/dirvish.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/major-modes/beads.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/bash-parser/bash-parser.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/gptel.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/skills/skills-core.el (source)...
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 12 skill(s) total (12 markdown, 0 org-roam)
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 12 skill(s) total (12 markdown, 0 org-roam)
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/skills/skills-roam.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/skills/skills-transient.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/constants.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/logging.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/preset-registration.el (source)...
+[GPTEL-INFO] Registered 9 presets from /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/presets/
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope-profiles.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/scope-metadata.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/scope-core.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/projectile-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/ggtags-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/treesitter-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/sql-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/meta-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/community-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/transient-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/filesystem.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/registry.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/metadata.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/branching.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/scope-commands.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/scope-expansion.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/scope-shell-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/tools/persistent-agent.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/commands.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/scope-filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/scope-org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/sessions/activities-integration.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/local/apploi-mac.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/cloud-auth-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/cloud-auth-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/deny-list-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/deny-list-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/error-messages-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/error-messages-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/file-operations-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/file-operations-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/no-op-allowance-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/no-op-allowance-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/parse-completeness-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/parse-completeness-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/path-resolution-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/path-resolution-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/pipeline-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/pipeline-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/resource-limits-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/.worktrees/bead-emacs-6v50-1773249309/config/gptel/scope/test/semantic/resource-limits-spec.el (source)...
+Running 153 specs.
+
+Cloud authentication validation (stage 7)
+  cloud authentication detection
+    detects AWS authentication in allow mode[32m    detects AWS authentication in allow mode[0m (0.08ms)
+    detects GCP authentication in allow mode[32m    detects GCP authentication in allow mode[0m (0.06ms)
+    detects Azure authentication in allow mode[32m    detects Azure authentication in allow mode[0m (0.06ms)
+    passes when no cloud auth detected even in deny mode[32m    passes when no cloud auth detected even in deny mode[0m (0.06ms)
+  cloud configuration loading
+    loads allow mode[32m    loads allow mode[0m (0.07ms)
+    loads warn mode[32m    loads warn mode[0m (0.06ms)
+    loads deny mode[32m    loads deny mode[0m (0.06ms)
+    defaults to warn when missing[32m    defaults to warn when missing[0m (0.07ms)
+  allow mode enforcement
+    allows AWS command silently[32m    allows AWS command silently[0m (0.08ms)
+  warn mode enforcement
+    warns for AWS command[32m    warns for AWS command[0m (0.10ms)
+    identifies provider in warning[32m    identifies provider in warning[0m (0.10ms)
+    includes actionable message and command[32m    includes actionable message and command[0m (0.12ms)
+  deny mode enforcement
+    denies AWS command[32m    denies AWS command[0m (0.07ms)
+    denies with allowed-providers list (provider in list, still denied by mode)[32m    denies with allowed-providers list (provider in list, still denied by mode)[0m (0.06ms)
+    denies disallowed provider with provider-specific error[32m    denies disallowed provider with provider-specific error[0m (0.10ms)
+  provider filtering
+    empty allowed list denies all providers[32m    empty allowed list denies all providers[0m (0.06ms)
+    unlisted provider denied[32m    unlisted provider denied[0m (0.10ms)
+    provider filtering overrides warn mode[32m    provider filtering overrides warn mode[0m (0.09ms)
+  structured error responses
+    denied error includes all required fields[32m    denied error includes all required fields[0m (0.17ms)
+    provider restriction error explains allowed list[32m    provider restriction error explains allowed list[0m (0.13ms)
+    invalid mode fails closed[32m    invalid mode fails closed[0m (0.06ms)
+  full pipeline behavioral validation
+    allows cloud auth with warning in warn mode[32m    allows cloud auth with warning in warn mode[0m (6.48ms)
+    allows cloud auth silently in allow mode[32m    allows cloud auth silently in allow mode[0m (5.87ms)
+    denies cloud auth in deny mode[32m    denies cloud auth in deny mode[0m (5.79ms)
+    denies unlisted provider even in warn mode[32m    denies unlisted provider even in warn mode[0m (6.64ms)
+    skips cloud auth validation when no cloud auth detected[32m    skips cloud auth validation when no cloud auth detected[0m (5.80ms)
+
+run_bash_command: Deny list bypass prevention (stage 3)
+  blocks simple denied command[32m  blocks simple denied command[0m (7.24ms)
+  blocks denied command in pipeline position 2[32m  blocks denied command in pipeline position 2[0m (6.86ms)
+  blocks denied command in complex pipeline[32m  blocks denied command in complex pipeline[0m (6.82ms)
+  blocks sudo in pipeline[32m  blocks sudo in pipeline[0m (6.92ms)
+  validates chain operators (&&)[32m  validates chain operators (&&)[0m (7.03ms)
+  validates chain operators (||)[32m  validates chain operators (||)[0m (6.91ms)
+  validates sequential commands (;)[32m  validates sequential commands (;)[0m (7.03ms)
+  allows commands not in deny list to proceed to next stage[32m  allows commands not in deny list to proceed to next stage[0m (6.86ms)
+  allows multiple non-denied commands in pipeline to proceed[32m  allows multiple non-denied commands in pipeline to proceed[0m (6.77ms)
+
+run_bash_command: Error message structure
+  command denied error includes command and position[32m  command denied error includes command and position[0m (6.45ms)
+  parse incomplete error includes parse errors[32m  parse incomplete error includes parse errors[0m (5.80ms)
+  path out of scope error includes operation details[32m  path out of scope error includes operation details[0m (62.16ms)
+  path denied error distinguishes from out-of-scope[32m  path denied error distinguishes from out-of-scope[0m (7.09ms)
+  cloud auth denied includes provider details[32m  cloud auth denied includes provider details[0m (6.58ms)
+  pipeline command denied includes full context[32m  pipeline command denied includes full context[0m (6.02ms)
+  multiple operation failure reports first violation[32m  multiple operation failure reports first violation[0m (6.21ms)
+  success response includes coverage metrics[32m  success response includes coverage metrics[0m (6.07ms)
+  warning structure for cloud auth in warn mode[32m  warning structure for cloud auth in warn mode[0m (5.97ms)
+
+File operation path validation (stage 6)
+  operation-specific scope matching
+    read operation matches paths.read[32m    read operation matches paths.read[0m (0.08ms)
+    read operation matches paths.write (write includes read)[32m    read operation matches paths.write (write includes read)[0m (0.07ms)
+    write operation requires paths.write[32m    write operation requires paths.write[0m (0.06ms)
+    execute operation requires paths.execute[32m    execute operation requires paths.execute[0m (0.06ms)
+    modify operation allowed by paths.modify[32m    modify operation allowed by paths.modify[0m (0.07ms)
+    modify operation allowed by paths.write (write includes modify)[32m    modify operation allowed by paths.write (write includes modify)[0m (0.07ms)
+    delete operation requires paths.write[32m    delete operation requires paths.write[0m (0.06ms)
+    delete operation denied without paths.write[32m    delete operation denied without paths.write[0m (0.06ms)
+    empty patterns deny all operations[32m    empty patterns deny all operations[0m (0.05ms)
+    nil patterns deny all operations[32m    nil patterns deny all operations[0m (0.06ms)
+  deny patterns precedence
+    read operation on denied path is rejected[32m    read operation on denied path is rejected[0m (0.06ms)
+    deny overrides read scope[32m    deny overrides read scope[0m (0.08ms)
+    deny overrides write scope[32m    deny overrides write scope[0m (0.07ms)
+    deny overrides execute scope[32m    deny overrides execute scope[0m (0.07ms)
+  multiple file operations validated independently
+    copy with both paths in scope succeeds[32m    copy with both paths in scope succeeds[0m (0.11ms)
+    copy with destination out of scope fails[32m    copy with destination out of scope fails[0m (0.13ms)
+    first operation fails reports immediately[32m    first operation fails reports immediately[0m (0.11ms)
+    multiple read operations all validated[32m    multiple read operations all validated[0m (0.13ms)
+    mixed operations (read/write/execute) all validated[32m    mixed operations (read/write/execute) all validated[0m (0.13ms)
+  path resolution
+    resolves relative path from directory[32m    resolves relative path from directory[0m (0.07ms)
+    resolves parent directory reference[32m    resolves parent directory reference[0m (0.07ms)
+    absolute path unchanged[32m    absolute path unchanged[0m (0.07ms)
+  structured error responses
+    path out of scope error includes required fields[32m    path out of scope error includes required fields[0m (0.18ms)
+    path denied error includes required fields[32m    path denied error includes required fields[0m (0.20ms)
+    error message is a string[32m    error message is a string[0m (0.10ms)
+  glob pattern matching
+    single-level wildcard matches[32m    single-level wildcard matches[0m (0.10ms)
+    recursive wildcard matches[32m    recursive wildcard matches[0m (0.08ms)
+    extension pattern matches[32m    extension pattern matches[0m (0.10ms)
+    multiple patterns checked in order[32m    multiple patterns checked in order[0m (0.18ms)
+    exact path match[32m    exact path match[0m (0.10ms)
+    wildcard in middle of pattern[32m    wildcard in middle of pattern[0m (0.11ms)
+    recursive wildcard in middle of pattern[32m    recursive wildcard in middle of pattern[0m (0.14ms)
+    overlapping patterns (any match allows)[32m    overlapping patterns (any match allows)[0m (0.07ms)
+    case-sensitive matching[32m    case-sensitive matching[0m (0.10ms)
+    dot files matched by wildcards[32m    dot files matched by wildcards[0m (0.08ms)
+    special characters in filenames matched literally[32m    special characters in filenames matched literally[0m (0.12ms)
+  full pipeline behavioral validation
+    allows read operation within read scope via pipeline[32m    allows read operation within read scope via pipeline[0m (6.24ms)
+    denies read operation outside scope via pipeline[32m    denies read operation outside scope via pipeline[0m (6.23ms)
+    denies write when only read scope exists via pipeline[32m    denies write when only read scope exists via pipeline[0m (6.05ms)
+    denies operations on deny list paths via pipeline[32m    denies operations on deny list paths via pipeline[0m (6.17ms)
+    denies when multiple file operations include paths outside scope[32m    denies when multiple file operations include paths outside scope[0m (6.64ms)
+    allows multiple operations when all within scope[32m    allows multiple operations when all within scope[0m (5.96ms)
+
+run_bash_command: No-op allowance (stage 5 short-circuit)
+  allows version checks without path configuration[32m  allows version checks without path configuration[0m (5.60ms)
+  allows help flags as no-ops[32m  allows help flags as no-ops[0m (6.80ms)
+  allows informational commands[32m  allows informational commands[0m (6.96ms)
+  denies no-op commands in deny list before no-op check[32m  denies no-op commands in deny list before no-op check[0m (6.24ms)
+  bypasses file path validation for no-op commands[32m  bypasses file path validation for no-op commands[0m (5.72ms)
+  enforces deny list even for zero-file-operation commands[32m  enforces deny list even for zero-file-operation commands[0m (5.94ms)
+
+run_bash_command: Parse completeness enforcement (stage 2)
+  strict mode rejects incomplete parse (syntax error)[32m  strict mode rejects incomplete parse (syntax error)[0m (5.58ms)
+  strict mode rejects incomplete loop[32m  strict mode rejects incomplete loop[0m (5.77ms)
+  strict mode rejects incomplete conditional[32m  strict mode rejects incomplete conditional[0m (5.72ms)
+  strict mode allows valid complex syntax[32m  strict mode allows valid complex syntax[0m (5.77ms)
+  strict mode allows valid conditionals[32m  strict mode allows valid conditionals[0m (5.79ms)
+  permissive mode allows incomplete parse with warningWarning (emacs): Parse incomplete: nil
+[32m  permissive mode allows incomplete parse with warning[0m (5.72ms)
+[33mWarning (emacs): Parse incomplete: nil[0m
+  permissive mode allows partial syntaxWarning (emacs): Parse incomplete: nil
+[32m  permissive mode allows partial syntax[0m (5.80ms)
+[33mWarning (emacs): Parse incomplete: nil[0m
+  default mode is strict[32m  default mode is strict[0m (4.52ms)
+  parse completeness checked before deny list[32m  parse completeness checked before deny list[0m (6.16ms)
+
+run_bash_command: Working directory and path resolution
+  relative paths resolved from directory argument[32m  relative paths resolved from directory argument[0m (5.38ms)
+  dot-dot paths resolved from directory[32m  dot-dot paths resolved from directory[0m (5.36ms)
+  path traversal detected and denied[32m  path traversal detected and denied[0m (5.87ms)
+  current directory (.) resolved[32m  current directory (.) resolved[0m (5.73ms)
+  directory itself in deny list blocks operation[32m  directory itself in deny list blocks operation[0m (6.09ms)
+  symlink directory resolved (mock file-truename)[32m  symlink directory resolved (mock file-truename)[0m (62.37ms)
+  absolute path in command bypasses directory context[32m  absolute path in command bypasses directory context[0m (6.51ms)
+  multiple relative paths resolved independently[32m  multiple relative paths resolved independently[0m (5.98ms)
+  working directory provided to command execution[32m  working directory provided to command execution[0m (0.40ms)
+
+Pipeline validation
+  pipeline command extraction
+    extracts commands from pipe[32m    extracts commands from pipe[0m (13.52ms)
+    extracts commands from multi-stage pipeline[32m    extracts commands from multi-stage pipeline[0m (3.26ms)
+    extracts commands from semicolon chain[32m    extracts commands from semicolon chain[0m (2.96ms)
+    extracts commands from AND chain[32m    extracts commands from AND chain[0m (3.04ms)
+    extracts commands from OR chain[32m    extracts commands from OR chain[0m (3.03ms)
+    extracts command with arguments (ignores args)[32m    extracts command with arguments (ignores args)[0m (2.94ms)
+    extracts git as base command[32m    extracts git as base command[0m (3.01ms)
+    returns nil for empty string[32m    returns nil for empty string[0m (0.11ms)
+    single command (no pipeline)[32m    single command (no pipeline)[0m (2.92ms)
+  pipeline deny list validation
+    all commands allowed passes[32m    all commands allowed passes[0m (0.06ms)
+    second command denied[32m    second command denied[0m (0.14ms)
+    middle command denied[32m    middle command denied[0m (0.14ms)
+    first command denied reports position 0[32m    first command denied reports position 0[0m (0.10ms)
+    empty command list passes[32m    empty command list passes[0m (0.06ms)
+    four-stage pipeline all allowed[32m    four-stage pipeline all allowed[0m (0.06ms)
+    command not in deny list passes[32m    command not in deny list passes[0m (0.06ms)
+    empty deny list allows everything[32m    empty deny list allows everything[0m (0.06ms)
+    fails at first denied command in mixed pipeline[32m    fails at first denied command in mixed pipeline[0m (0.10ms)
+    multiple denied commands fails at first[32m    multiple denied commands fails at first[0m (0.10ms)
+  security bypass prevention
+    prevents xargs rm bypass[32m    prevents xargs rm bypass[0m (0.11ms)
+    prevents sh execution bypass[32m    prevents sh execution bypass[0m (0.10ms)
+    prevents chmod bypass[32m    prevents chmod bypass[0m (0.07ms)
+    prevents curl pipe sh[32m    prevents curl pipe sh[0m (0.07ms)
+    prevents cat eval[32m    prevents cat eval[0m (0.07ms)
+    allows legitimate data pipeline[32m    allows legitimate data pipeline[0m (0.08ms)
+  structured error responses
+    error identifies command and position[32m    error identifies command and position[0m (0.10ms)
+    error includes message[32m    error includes message[0m (0.11ms)
+    third command failure reports position 2[32m    third command failure reports position 2[0m (0.10ms)
+  full pipeline behavioral validation
+    pipeline with mixed operations succeeds[32m    pipeline with mixed operations succeeds[0m (6.50ms)
+    pipeline with denied command fails at stage 3[32m    pipeline with denied command fails at stage 3[0m (5.91ms)
+    command substitution with execute operation denied[32m    command substitution with execute operation denied[0m (6.26ms)
+    no-op in deny list fails before no-op check[32m    no-op in deny list fails before no-op check[0m (6.28ms)
+    modify operation allowed via write scope (hierarchical)[32m    modify operation allowed via write scope (hierarchical)[0m (6.06ms)
+    deny pattern overrides broad permissions[32m    deny pattern overrides broad permissions[0m (6.16ms)
+    complete successful execution (validation phase)[32m    complete successful execution (validation phase)[0m (6.02ms)
+
+run_bash_command: Timeout and resource limits
+  allows command that completes within timeout[32m  allows command that completes within timeout[0m (0.40ms)
+  enforces timeout for command exceeding 30 seconds[32m  enforces timeout for command exceeding 30 seconds[0m (0.38ms)
+  warns when long-running command is terminated[32m  warns when long-running command is terminated[0m (0.38ms)
+  returns full output when within limit[32m  returns full output when within limit[0m (0.40ms)
+  truncates output exceeding 10,000 chars limit[32m  truncates output exceeding 10,000 chars limit[0m (1.03ms)
+  suggests filters in truncation notice[32m  suggests filters in truncation notice[0m (1.35ms)
+  captures non-zero exit code[32m  captures non-zero exit code[0m (0.43ms)
+  handles execution errors gracefully[32m  handles execution errors gracefully[0m (0.44ms)
+
+Ran 153 specs, [32m0 failed[0m, in 526.52ms.

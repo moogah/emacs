@@ -84,254 +84,254 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | test-scope-file-paths-read-matches-paths-read | ○ | | |
-| 2 | test-scope-file-paths-read-matches-paths-write | ○ | | |
-| 3 | test-scope-file-paths-read-operation-denied | ○ | | |
-| 4 | test-scope-file-paths-write-requires-paths-write | ○ | | |
-| 5 | test-scope-file-paths-execute-requires-paths-execute | ○ | | |
-| 6 | test-scope-file-paths-modify-requires-paths-modify | ○ | | |
-| 7 | test-scope-file-paths-modify-allowed-by-paths-write | ○ | | |
-| 8 | test-scope-file-paths-modify-allowed-by-paths-modify | ○ | | |
-| 9 | test-scope-file-paths-deny-overrides-read-scope | ○ | | |
-| 10 | test-scope-file-paths-deny-overrides-write-scope | ○ | | |
-| 11 | test-scope-file-paths-deny-overrides-execute-scope | ○ | | |
-| 12 | test-scope-file-paths-empty-patterns-deny-all | ○ | | |
-| 13 | test-scope-file-paths-nil-patterns-deny-all | ○ | | |
-| 14 | test-scope-file-paths-overlapping-patterns | ○ | | |
-| 15 | test-scope-file-paths-case-sensitive-patterns | ○ | | |
-| 16 | test-scope-file-paths-dot-files-matched | ○ | | |
-| 17 | test-scope-file-paths-special-chars-in-filename | ○ | | |
-| 18 | test-scope-file-paths-trailing-slash-handling | ○ | | |
-| 19 | test-scope-file-paths-absolute-path-unchanged | ○ | | |
-| 20 | test-scope-file-paths-resolve-relative-path | ○ | | |
-| 21 | test-scope-file-paths-resolve-parent-directory | ○ | | |
-| 22 | test-scope-file-paths-resolve-symlinks | ○ | | |
-| 23 | test-scope-file-paths-extract-read-operation | ○ | | |
-| 24 | test-scope-file-paths-extract-write-operation | ○ | | |
-| 25 | test-scope-file-paths-extract-execute-operation | ○ | | |
-| 26 | test-scope-file-paths-extract-modify-operation | ○ | | |
-| 27 | test-scope-file-paths-extract-multiple-operations | ○ | | |
-| 28 | test-scope-file-paths-multiple-reads-all-validated | ○ | | |
-| 29 | test-scope-file-paths-mixed-operations-all-validated | ○ | | |
-| 30 | test-scope-file-paths-first-operation-fails-immediate-return | ○ | | |
-| 31 | test-scope-file-paths-copy-both-in-scope | ○ | | |
-| 32 | test-scope-file-paths-copy-destination-out-of-scope | ○ | | |
-| 33 | test-scope-file-paths-delete-requires-paths-write | ○ | | |
-| 34 | test-scope-file-paths-delete-denied-without-write | ○ | | |
-| 35 | test-scope-file-paths-glob-recursive-wildcard | ○ | | |
-| 36 | test-scope-file-paths-glob-single-level-wildcard | ○ | | |
-| 37 | test-scope-file-paths-glob-extension-pattern | ○ | | |
-| 38 | test-scope-file-paths-glob-directory-exact-match | ○ | | |
-| 39 | test-scope-file-paths-glob-multiple-patterns | ○ | | |
-| 40 | test-scope-file-paths-glob-recursive-middle | ○ | | |
-| 41 | test-scope-file-paths-glob-middle-wildcard | ○ | | |
-| 42 | test-scope-file-paths-error-path-out-of-scope-structure | ○ | | |
-| 43 | test-scope-file-paths-error-path-denied-structure | ○ | | |
-| 44 | test-scope-file-paths-error-message-actionable | ○ | | |
+| 1 | test-scope-file-paths-read-matches-paths-read | ⊕ merged | scope/test/semantic/file-operations-spec.el | "read operation matches paths.read" |
+| 2 | test-scope-file-paths-read-matches-paths-write | ⊕ merged | scope/test/semantic/file-operations-spec.el | "read operation matches paths.write (write includes read)" |
+| 3 | test-scope-file-paths-read-operation-denied | ✕ removed | | Redundant with "denies read operation outside scope via pipeline" |
+| 4 | test-scope-file-paths-write-requires-paths-write | ⊕ merged | scope/test/semantic/file-operations-spec.el | "write operation requires paths.write" |
+| 5 | test-scope-file-paths-execute-requires-paths-execute | ⊕ merged | scope/test/semantic/file-operations-spec.el | "execute operation requires paths.execute" |
+| 6 | test-scope-file-paths-modify-requires-paths-modify | ✕ removed | | Redundant with "modify operation allowed by paths.modify" |
+| 7 | test-scope-file-paths-modify-allowed-by-paths-write | ⊕ merged | scope/test/semantic/file-operations-spec.el | "modify operation allowed by paths.write (write includes modify)" |
+| 8 | test-scope-file-paths-modify-allowed-by-paths-modify | ⊕ merged | scope/test/semantic/file-operations-spec.el | "modify operation allowed by paths.modify" |
+| 9 | test-scope-file-paths-deny-overrides-read-scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "deny overrides read scope" |
+| 10 | test-scope-file-paths-deny-overrides-write-scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "deny overrides write scope" |
+| 11 | test-scope-file-paths-deny-overrides-execute-scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "deny overrides execute scope" |
+| 12 | test-scope-file-paths-empty-patterns-deny-all | ⊕ merged | scope/test/semantic/file-operations-spec.el | "empty patterns deny all operations" |
+| 13 | test-scope-file-paths-nil-patterns-deny-all | ⊕ merged | scope/test/semantic/file-operations-spec.el | "nil patterns deny all operations" |
+| 14 | test-scope-file-paths-overlapping-patterns | ⊕ merged | scope/test/semantic/file-operations-spec.el | "overlapping patterns (any match allows)" |
+| 15 | test-scope-file-paths-case-sensitive-patterns | ⊕ merged | scope/test/semantic/file-operations-spec.el | "case-sensitive matching" |
+| 16 | test-scope-file-paths-dot-files-matched | ⊕ merged | scope/test/semantic/file-operations-spec.el | "dot files matched by wildcards" |
+| 17 | test-scope-file-paths-special-chars-in-filename | ⊕ merged | scope/test/semantic/file-operations-spec.el | "special characters in filenames matched literally" |
+| 18 | test-scope-file-paths-trailing-slash-handling | ✕ removed | | Covered by glob pattern matching tests |
+| 19 | test-scope-file-paths-absolute-path-unchanged | ⊕ merged | scope/test/semantic/file-operations-spec.el | "absolute path unchanged" |
+| 20 | test-scope-file-paths-resolve-relative-path | ⊕ merged | scope/test/semantic/file-operations-spec.el | "resolves relative path from directory" |
+| 21 | test-scope-file-paths-resolve-parent-directory | ⊕ merged | scope/test/semantic/file-operations-spec.el | "resolves parent directory reference" |
+| 22 | test-scope-file-paths-resolve-symlinks | ✕ removed | | Covered by path-resolution-spec.el "symlink directory resolved" |
+| 23 | test-scope-file-paths-extract-read-operation | ✕ removed | | Redundant: operation extraction tested via validate-operation |
+| 24 | test-scope-file-paths-extract-write-operation | ✕ removed | | Redundant: operation extraction tested via validate-operation |
+| 25 | test-scope-file-paths-extract-execute-operation | ✕ removed | | Redundant: operation extraction tested via validate-operation |
+| 26 | test-scope-file-paths-extract-modify-operation | ✕ removed | | Redundant: operation extraction tested via validate-operation |
+| 27 | test-scope-file-paths-extract-multiple-operations | ✕ removed | | Redundant with "mixed operations (read/write/execute) all validated" |
+| 28 | test-scope-file-paths-multiple-reads-all-validated | ⊕ merged | scope/test/semantic/file-operations-spec.el | "multiple read operations all validated" |
+| 29 | test-scope-file-paths-mixed-operations-all-validated | ⊕ merged | scope/test/semantic/file-operations-spec.el | "mixed operations (read/write/execute) all validated" |
+| 30 | test-scope-file-paths-first-operation-fails-immediate-return | ⊕ merged | scope/test/semantic/file-operations-spec.el | "first operation fails reports immediately" |
+| 31 | test-scope-file-paths-copy-both-in-scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "copy with both paths in scope succeeds" |
+| 32 | test-scope-file-paths-copy-destination-out-of-scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "copy with destination out of scope fails" |
+| 33 | test-scope-file-paths-delete-requires-paths-write | ⊕ merged | scope/test/semantic/file-operations-spec.el | "delete operation requires paths.write" |
+| 34 | test-scope-file-paths-delete-denied-without-write | ⊕ merged | scope/test/semantic/file-operations-spec.el | "delete operation denied without paths.write" |
+| 35 | test-scope-file-paths-glob-recursive-wildcard | ⊕ merged | scope/test/semantic/file-operations-spec.el | "recursive wildcard matches" |
+| 36 | test-scope-file-paths-glob-single-level-wildcard | ⊕ merged | scope/test/semantic/file-operations-spec.el | "single-level wildcard matches" |
+| 37 | test-scope-file-paths-glob-extension-pattern | ⊕ merged | scope/test/semantic/file-operations-spec.el | "extension pattern matches" |
+| 38 | test-scope-file-paths-glob-directory-exact-match | ⊕ merged | scope/test/semantic/file-operations-spec.el | "exact path match" |
+| 39 | test-scope-file-paths-glob-multiple-patterns | ⊕ merged | scope/test/semantic/file-operations-spec.el | "multiple patterns checked in order" |
+| 40 | test-scope-file-paths-glob-recursive-middle | ⊕ merged | scope/test/semantic/file-operations-spec.el | "recursive wildcard in middle of pattern" |
+| 41 | test-scope-file-paths-glob-middle-wildcard | ⊕ merged | scope/test/semantic/file-operations-spec.el | "wildcard in middle of pattern" |
+| 42 | test-scope-file-paths-error-path-out-of-scope-structure | ⊕ merged | scope/test/semantic/file-operations-spec.el | "path out of scope error includes required fields" |
+| 43 | test-scope-file-paths-error-path-denied-structure | ⊕ merged | scope/test/semantic/file-operations-spec.el | "path denied error includes required fields" |
+| 44 | test-scope-file-paths-error-message-actionable | ⊕ merged | scope/test/semantic/file-operations-spec.el | "error message is a string" |
 
 ## ERT: tools/test/integration/test-pipelines.el (36 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | test-pipeline-extract-commands-from-pipe | ○ | | |
-| 2 | test-pipeline-extract-commands-from-and-chain | ○ | | |
-| 3 | test-pipeline-extract-commands-from-or-chain | ○ | | |
-| 4 | test-pipeline-extract-commands-from-semicolon-chain | ○ | | |
-| 5 | test-pipeline-extract-commands-from-multi-stage-pipeline | ○ | | |
-| 6 | test-pipeline-extract-command-from-segment-with-arguments | ○ | | |
-| 7 | test-pipeline-extract-command-from-segment-with-flags | ○ | | |
-| 8 | test-pipeline-extract-git-subcommand | ○ | | |
-| 9 | test-pipeline-single-command-no-pipeline | ○ | | |
-| 10 | test-pipeline-empty-string | ○ | | |
-| 11 | test-pipeline-deny-list-blocks-command | ○ | | |
-| 12 | test-pipeline-deny-list-first-command | ○ | | |
-| 13 | test-pipeline-deny-list-first-failure | ○ | | |
-| 14 | test-pipeline-deny-list-only-validation | ○ | | |
-| 15 | test-pipeline-deny-list-no-categories | ○ | | |
-| 16 | test-pipeline-command-not-in-deny-list | ○ | | |
-| 17 | test-pipeline-empty-deny-list | ○ | | |
-| 18 | test-pipeline-all-commands-allowed | ○ | | |
-| 19 | test-pipeline-all-allowed-commands | ○ | | |
-| 20 | test-pipeline-validation-empty-list | ○ | | |
-| 21 | test-pipeline-second-command-denied | ○ | | |
-| 22 | test-pipeline-middle-command-denied | ○ | | |
-| 23 | test-pipeline-error-includes-message | ○ | | |
-| 24 | test-pipeline-error-identifies-second-command | ○ | | |
-| 25 | test-pipeline-error-position-for-first-command | ○ | | |
-| 26 | test-pipeline-error-position-for-third-command | ○ | | |
-| 27 | test-pipeline-mixed-allowed-and-denied | ○ | | |
-| 28 | test-pipeline-complex-four-stage-pipeline | ○ | | |
-| 29 | test-pipeline-mixed-chains-and-pipes | ○ | | |
-| 30 | test-pipeline-legitimate-data-pipeline | ○ | | |
-| 31 | test-pipeline-security-curl-pipe-sh | ○ | | |
-| 32 | test-pipeline-security-find-xargs-rm-pattern | ○ | | |
-| 33 | test-pipeline-security-cat-eval | ○ | | |
-| 34 | test-pipeline-prevent-chmod-bypass | ○ | | |
-| 35 | test-pipeline-prevent-sh-execution-bypass | ○ | | |
-| 36 | test-pipeline-prevent-xargs-rm-bypass | ○ | | |
+| 1 | test-pipeline-extract-commands-from-pipe | ⊕ merged | scope/test/semantic/pipeline-spec.el | "extracts commands from pipe" |
+| 2 | test-pipeline-extract-commands-from-and-chain | ⊕ merged | scope/test/semantic/pipeline-spec.el | "extracts commands from AND chain" |
+| 3 | test-pipeline-extract-commands-from-or-chain | ⊕ merged | scope/test/semantic/pipeline-spec.el | "extracts commands from OR chain" |
+| 4 | test-pipeline-extract-commands-from-semicolon-chain | ⊕ merged | scope/test/semantic/pipeline-spec.el | "extracts commands from semicolon chain" |
+| 5 | test-pipeline-extract-commands-from-multi-stage-pipeline | ⊕ merged | scope/test/semantic/pipeline-spec.el | "extracts commands from multi-stage pipeline" |
+| 6 | test-pipeline-extract-command-from-segment-with-arguments | ⊕ merged | scope/test/semantic/pipeline-spec.el | "extracts command with arguments (ignores args)" |
+| 7 | test-pipeline-extract-command-from-segment-with-flags | ✕ removed | | Redundant with argument extraction test |
+| 8 | test-pipeline-extract-git-subcommand | ⊕ merged | scope/test/semantic/pipeline-spec.el | "extracts git as base command" |
+| 9 | test-pipeline-single-command-no-pipeline | ⊕ merged | scope/test/semantic/pipeline-spec.el | "single command (no pipeline)" |
+| 10 | test-pipeline-empty-string | ⊕ merged | scope/test/semantic/pipeline-spec.el | "returns nil for empty string" |
+| 11 | test-pipeline-deny-list-blocks-command | ⊕ merged | scope/test/semantic/pipeline-spec.el | "second command denied" |
+| 12 | test-pipeline-deny-list-first-command | ⊕ merged | scope/test/semantic/pipeline-spec.el | "first command denied reports position 0" |
+| 13 | test-pipeline-deny-list-first-failure | ⊕ merged | scope/test/semantic/pipeline-spec.el | "fails at first denied command in mixed pipeline" |
+| 14 | test-pipeline-deny-list-only-validation | ✕ removed | | Redundant with deny list validation tests |
+| 15 | test-pipeline-deny-list-no-categories | ✕ removed | | Redundant with "empty deny list allows everything" |
+| 16 | test-pipeline-command-not-in-deny-list | ⊕ merged | scope/test/semantic/pipeline-spec.el | "command not in deny list passes" |
+| 17 | test-pipeline-empty-deny-list | ⊕ merged | scope/test/semantic/pipeline-spec.el | "empty deny list allows everything" |
+| 18 | test-pipeline-all-commands-allowed | ⊕ merged | scope/test/semantic/pipeline-spec.el | "all commands allowed passes" |
+| 19 | test-pipeline-all-allowed-commands | ✕ removed | | Redundant with "all commands allowed passes" |
+| 20 | test-pipeline-validation-empty-list | ⊕ merged | scope/test/semantic/pipeline-spec.el | "empty command list passes" |
+| 21 | test-pipeline-second-command-denied | ⊕ merged | scope/test/semantic/pipeline-spec.el | "second command denied" |
+| 22 | test-pipeline-middle-command-denied | ⊕ merged | scope/test/semantic/pipeline-spec.el | "middle command denied" |
+| 23 | test-pipeline-error-includes-message | ⊕ merged | scope/test/semantic/pipeline-spec.el | "error includes message" |
+| 24 | test-pipeline-error-identifies-second-command | ⊕ merged | scope/test/semantic/pipeline-spec.el | "error identifies command and position" |
+| 25 | test-pipeline-error-position-for-first-command | ✕ removed | | Redundant with "first command denied reports position 0" |
+| 26 | test-pipeline-error-position-for-third-command | ⊕ merged | scope/test/semantic/pipeline-spec.el | "third command failure reports position 2" |
+| 27 | test-pipeline-mixed-allowed-and-denied | ⊕ merged | scope/test/semantic/pipeline-spec.el | "fails at first denied command in mixed pipeline" |
+| 28 | test-pipeline-complex-four-stage-pipeline | ⊕ merged | scope/test/semantic/pipeline-spec.el | "four-stage pipeline all allowed" |
+| 29 | test-pipeline-mixed-chains-and-pipes | ✕ removed | | Covered by extraction + validation tests |
+| 30 | test-pipeline-legitimate-data-pipeline | ⊕ merged | scope/test/semantic/pipeline-spec.el | "allows legitimate data pipeline" |
+| 31 | test-pipeline-security-curl-pipe-sh | ⊕ merged | scope/test/semantic/pipeline-spec.el | "prevents curl pipe sh" |
+| 32 | test-pipeline-security-find-xargs-rm-pattern | ⊕ merged | scope/test/semantic/pipeline-spec.el | "prevents xargs rm bypass" |
+| 33 | test-pipeline-security-cat-eval | ⊕ merged | scope/test/semantic/pipeline-spec.el | "prevents cat eval" |
+| 34 | test-pipeline-prevent-chmod-bypass | ⊕ merged | scope/test/semantic/pipeline-spec.el | "prevents chmod bypass" |
+| 35 | test-pipeline-prevent-sh-execution-bypass | ⊕ merged | scope/test/semantic/pipeline-spec.el | "prevents sh execution bypass" |
+| 36 | test-pipeline-prevent-xargs-rm-bypass | ✕ removed | | Redundant with "prevents xargs rm bypass" |
 
 ## ERT: tools/test/integration/test-cloud-auth.el (30 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | test-scope-cloud-auth-detect-aws-cli-authentication | ○ | | |
-| 2 | test-scope-cloud-auth-detect-aws-authentication | ○ | | |
-| 3 | test-scope-cloud-auth-detect-gcp-authentication | ○ | | |
-| 4 | test-scope-cloud-auth-detect-azure-authentication | ○ | | |
-| 5 | test-scope-cloud-auth-no-detection-for-non-auth-commands | ○ | | |
-| 6 | test-scope-cloud-auth-config-default-to-warn | ○ | | |
-| 7 | test-scope-cloud-auth-config-allow-mode | ○ | | |
-| 8 | test-scope-cloud-auth-config-warn-mode | ○ | | |
-| 9 | test-scope-cloud-auth-config-deny-mode | ○ | | |
-| 10 | test-scope-cloud-auth-invalid-mode-fails-closed | ○ | | |
-| 11 | test-scope-cloud-auth-warn-aws-command | ○ | | |
-| 12 | test-scope-cloud-auth-allow-aws-command | ○ | | |
-| 13 | test-scope-cloud-auth-deny-aws-command | ○ | | |
-| 14 | test-scope-cloud-auth-allow-gcp-command | ○ | | |
-| 15 | test-scope-cloud-auth-warn-identifies-provider | ○ | | |
-| 16 | test-scope-cloud-auth-warn-suggests-reviewing-scope | ○ | | |
-| 17 | test-scope-cloud-auth-error-denied-structure | ○ | | |
-| 18 | test-scope-cloud-auth-error-suggests-scope-expansion | ○ | | |
-| 19 | test-scope-cloud-auth-error-provider-restriction-explains | ○ | | |
-| 20 | test-scope-cloud-auth-filter-specific-provider-allowed | ○ | | |
-| 21 | test-scope-cloud-auth-filter-unlisted-provider-denied | ○ | | |
-| 22 | test-scope-cloud-auth-filter-empty-list-denies-all | ○ | | |
-| 23 | test-scope-cloud-auth-provider-filtering-precedence | ○ | | |
-| 24 | test-scope-cloud-auth-warn-mode-with-filtering | ○ | | |
-| 25 | test-scope-cloud-auth-deny-allowed-provider-permitted | ○ | | |
-| 26 | test-scope-cloud-auth-deny-disallowed-provider-rejected | ○ | | |
-| 27 | test-scope-cloud-auth-nil-cloud-auth-ops-passes | ○ | | |
-| 28 | test-scope-cloud-auth-combined-all-pass | ○ | | |
-| 29 | test-scope-cloud-auth-combined-allowed-but-other-validations-may-fail | ○ | | |
-| 30 | test-scope-cloud-auth-combined-fails-auth-policy | ○ | | |
+| 1 | test-scope-cloud-auth-detect-aws-cli-authentication | ✕ removed | | Redundant with "detects AWS authentication in allow mode" |
+| 2 | test-scope-cloud-auth-detect-aws-authentication | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "detects AWS authentication in allow mode" |
+| 3 | test-scope-cloud-auth-detect-gcp-authentication | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "detects GCP authentication in allow mode" |
+| 4 | test-scope-cloud-auth-detect-azure-authentication | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "detects Azure authentication in allow mode" |
+| 5 | test-scope-cloud-auth-no-detection-for-non-auth-commands | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "passes when no cloud auth detected even in deny mode" |
+| 6 | test-scope-cloud-auth-config-default-to-warn | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "defaults to warn when missing" |
+| 7 | test-scope-cloud-auth-config-allow-mode | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "loads allow mode" |
+| 8 | test-scope-cloud-auth-config-warn-mode | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "loads warn mode" |
+| 9 | test-scope-cloud-auth-config-deny-mode | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "loads deny mode" |
+| 10 | test-scope-cloud-auth-invalid-mode-fails-closed | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "invalid mode fails closed" |
+| 11 | test-scope-cloud-auth-warn-aws-command | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "warns for AWS command" |
+| 12 | test-scope-cloud-auth-allow-aws-command | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "allows AWS command silently" |
+| 13 | test-scope-cloud-auth-deny-aws-command | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "denies AWS command" |
+| 14 | test-scope-cloud-auth-allow-gcp-command | ✕ removed | | Redundant with "detects GCP authentication in allow mode" |
+| 15 | test-scope-cloud-auth-warn-identifies-provider | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "identifies provider in warning" |
+| 16 | test-scope-cloud-auth-warn-suggests-reviewing-scope | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "includes actionable message and command" |
+| 17 | test-scope-cloud-auth-error-denied-structure | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "denied error includes all required fields" |
+| 18 | test-scope-cloud-auth-error-suggests-scope-expansion | ✕ removed | | Redundant with structured error tests |
+| 19 | test-scope-cloud-auth-error-provider-restriction-explains | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "provider restriction error explains allowed list" |
+| 20 | test-scope-cloud-auth-filter-specific-provider-allowed | ✕ removed | | Redundant with provider filtering tests |
+| 21 | test-scope-cloud-auth-filter-unlisted-provider-denied | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "unlisted provider denied" |
+| 22 | test-scope-cloud-auth-filter-empty-list-denies-all | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "empty allowed list denies all providers" |
+| 23 | test-scope-cloud-auth-provider-filtering-precedence | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "provider filtering overrides warn mode" |
+| 24 | test-scope-cloud-auth-warn-mode-with-filtering | ✕ removed | | Redundant with "provider filtering overrides warn mode" |
+| 25 | test-scope-cloud-auth-deny-allowed-provider-permitted | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "denies with allowed-providers list" |
+| 26 | test-scope-cloud-auth-deny-disallowed-provider-rejected | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "denies disallowed provider with provider-specific error" |
+| 27 | test-scope-cloud-auth-nil-cloud-auth-ops-passes | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "passes when no cloud auth detected even in deny mode" |
+| 28 | test-scope-cloud-auth-combined-all-pass | ✕ removed | | Covered by pipeline behavioral tests |
+| 29 | test-scope-cloud-auth-combined-allowed-but-other-validations-may-fail | ✕ removed | | Covered by pipeline behavioral tests |
+| 30 | test-scope-cloud-auth-combined-fails-auth-policy | ✕ removed | | Covered by "denies cloud auth in deny mode" behavioral test |
 
 ## Buttercup: behavioral/run-bash-command/cloud-authentication-spec.el (10 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | allows cloud auth with warning in warn mode (default behavior) | ○ | | |
-| 2 | allows cloud auth with warning for GCP commands in warn mode | ○ | | |
-| 3 | allows cloud auth with warning for Azure commands in warn mode | ○ | | |
-| 4 | allows cloud auth silently when auth_detection is allow | ○ | | |
-| 5 | denies cloud auth when auth_detection is deny | ○ | | |
-| 6 | allows cloud auth when provider is in allowed list | ○ | | |
-| 7 | denies cloud auth when provider is not in allowed list | ○ | | |
-| 8 | denies unlisted providers even in warn mode | ○ | | |
-| 9 | skips cloud auth validation when no cloud auth detected | ○ | | |
-| 10 | validates both cloud auth and file operations together | ○ | | |
+| 1 | allows cloud auth with warning in warn mode (default behavior) | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "allows cloud auth with warning in warn mode" |
+| 2 | allows cloud auth with warning for GCP commands in warn mode | ✕ removed | | Redundant with warn mode test |
+| 3 | allows cloud auth with warning for Azure commands in warn mode | ✕ removed | | Redundant with warn mode test |
+| 4 | allows cloud auth silently when auth_detection is allow | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "allows cloud auth silently in allow mode" |
+| 5 | denies cloud auth when auth_detection is deny | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "denies cloud auth in deny mode" |
+| 6 | allows cloud auth when provider is in allowed list | ✕ removed | | Covered by provider filtering tests |
+| 7 | denies cloud auth when provider is not in allowed list | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "denies unlisted provider even in warn mode" |
+| 8 | denies unlisted providers even in warn mode | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "denies unlisted provider even in warn mode" |
+| 9 | skips cloud auth validation when no cloud auth detected | ⊕ merged | scope/test/semantic/cloud-auth-spec.el | "skips cloud auth validation when no cloud auth detected" |
+| 10 | validates both cloud auth and file operations together | ✕ removed | | Covered by pipeline behavioral tests |
 
 ## Buttercup: behavioral/run-bash-command/deny-list-validation-spec.el (9 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | blocks simple denied command | ○ | | |
-| 2 | blocks denied command in pipeline position 2 | ○ | | |
-| 3 | blocks denied command in complex pipeline | ○ | | |
-| 4 | blocks sudo in pipeline | ○ | | |
-| 5 | validates chain operators (&&) | ○ | | |
-| 6 | validates chain operators (||) | ○ | | |
-| 7 | validates sequential commands (;) | ○ | | |
-| 8 | allows commands not in deny list to proceed to next stage | ○ | | |
-| 9 | allows multiple non-denied commands in pipeline to proceed | ○ | | |
+| 1 | blocks simple denied command | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 2 | blocks denied command in pipeline position 2 | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 3 | blocks denied command in complex pipeline | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 4 | blocks sudo in pipeline | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 5 | validates chain operators (&&) | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 6 | validates chain operators (||) | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 7 | validates sequential commands (;) | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 8 | allows commands not in deny list to proceed to next stage | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
+| 9 | allows multiple non-denied commands in pipeline to proceed | → moved | scope/test/semantic/deny-list-spec.el | Load path updated |
 
 ## Buttercup: behavioral/run-bash-command/error-messages-spec.el (9 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | command denied error includes command and position | ○ | | |
-| 2 | parse incomplete error includes parse errors | ○ | | |
-| 3 | path out of scope error includes operation details | ○ | | |
-| 4 | path denied error distinguishes from out-of-scope | ○ | | |
-| 5 | cloud auth denied includes provider details | ○ | | |
-| 6 | pipeline command denied includes full context | ○ | | |
-| 7 | multiple operation failure reports first violation | ○ | | |
-| 8 | success response includes coverage metrics | ○ | | |
-| 9 | warning structure for cloud auth in warn mode | ○ | | |
+| 1 | command denied error includes command and position | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 2 | parse incomplete error includes parse errors | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 3 | path out of scope error includes operation details | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 4 | path denied error distinguishes from out-of-scope | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 5 | cloud auth denied includes provider details | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 6 | pipeline command denied includes full context | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 7 | multiple operation failure reports first violation | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 8 | success response includes coverage metrics | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
+| 9 | warning structure for cloud auth in warn mode | → moved | scope/test/semantic/error-messages-spec.el | Load path updated |
 
 ## Buttercup: behavioral/run-bash-command/integration-scenarios-spec.el (10 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | validates pipeline with mixed operations succeeds | ○ | | |
-| 2 | validates pipeline with denied command fails at stage 3 | ○ | | |
-| 3 | validates command substitution with execute operation | ○ | | |
-| 4 | validates cloud auth with file operations (both validated) | ○ | | |
-| 5 | validates no-op in deny list fails before no-op check | ○ | | |
-| 6 | validates multiple file operations with partial scope failure | ○ | | |
-| 7 | validates execute operation denied despite read access | ○ | | |
-| 8 | validates modify operation allowed via write scope (hierarchical) | ○ | | |
-| 9 | validates deny pattern overrides broad permissions | ○ | | |
-| 10 | validates complete successful execution with output | ○ | | |
+| 1 | validates pipeline with mixed operations succeeds | ⊕ merged | scope/test/semantic/pipeline-spec.el | "pipeline with mixed operations succeeds" |
+| 2 | validates pipeline with denied command fails at stage 3 | ⊕ merged | scope/test/semantic/pipeline-spec.el | "pipeline with denied command fails at stage 3" |
+| 3 | validates command substitution with execute operation | ⊕ merged | scope/test/semantic/pipeline-spec.el | "command substitution with execute operation denied" |
+| 4 | validates cloud auth with file operations (both validated) | ✕ removed | | Covered by cloud-auth-spec.el behavioral tests |
+| 5 | validates no-op in deny list fails before no-op check | ⊕ merged | scope/test/semantic/pipeline-spec.el | "no-op in deny list fails before no-op check" |
+| 6 | validates multiple file operations with partial scope failure | ✕ removed | | Covered by file-operations-spec.el "denies when multiple file operations include paths outside scope" |
+| 7 | validates execute operation denied despite read access | ✕ removed | | Covered by file-operations-spec.el "execute operation requires paths.execute" |
+| 8 | validates modify operation allowed via write scope (hierarchical) | ⊕ merged | scope/test/semantic/pipeline-spec.el | "modify operation allowed via write scope (hierarchical)" |
+| 9 | validates deny pattern overrides broad permissions | ⊕ merged | scope/test/semantic/pipeline-spec.el | "deny pattern overrides broad permissions" |
+| 10 | validates complete successful execution with output | ⊕ merged | scope/test/semantic/pipeline-spec.el | "complete successful execution (validation phase)" |
 
 ## Buttercup: behavioral/run-bash-command/no-op-allowance-spec.el (6 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | allows version checks without path configuration | ○ | | |
-| 2 | allows help flags as no-ops | ○ | | |
-| 3 | allows informational commands | ○ | | |
-| 4 | denies no-op commands in deny list before no-op check | ○ | | |
-| 5 | bypasses file path validation for no-op commands | ○ | | |
-| 6 | enforces deny list even for zero-file-operation commands | ○ | | |
+| 1 | allows version checks without path configuration | → moved | scope/test/semantic/no-op-allowance-spec.el | Load path updated |
+| 2 | allows help flags as no-ops | → moved | scope/test/semantic/no-op-allowance-spec.el | Load path updated |
+| 3 | allows informational commands | → moved | scope/test/semantic/no-op-allowance-spec.el | Load path updated |
+| 4 | denies no-op commands in deny list before no-op check | → moved | scope/test/semantic/no-op-allowance-spec.el | Load path updated |
+| 5 | bypasses file path validation for no-op commands | → moved | scope/test/semantic/no-op-allowance-spec.el | Load path updated |
+| 6 | enforces deny list even for zero-file-operation commands | → moved | scope/test/semantic/no-op-allowance-spec.el | Load path updated |
 
 ## Buttercup: behavioral/run-bash-command/operation-specific-paths-spec.el (13 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | allows read operation within read scope | ○ | | |
-| 2 | allows read operation within write scope (hierarchical permissions) | ○ | | |
-| 3 | denies read operation outside scope | ○ | | |
-| 4 | denies write operation when only read scope exists | ○ | | |
-| 5 | allows write operation within write scope | ○ | | |
-| 6 | denies execute operation without execute scope | ○ | | |
-| 7 | allows execute operation within execute scope | ○ | | |
-| 8 | denies modify operation without modify scope | ○ | | |
-| 9 | allows modify operation within modify scope | ○ | | |
-| 10 | allows modify operation within write scope (hierarchical permissions) | ○ | | |
-| 11 | denies operations on deny list paths regardless of allow patterns | ○ | | |
-| 12 | denies when multiple file operations include paths outside scope | ○ | | |
-| 13 | allows multiple operations when all are within scope | ○ | | |
+| 1 | allows read operation within read scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "allows read operation within read scope via pipeline" |
+| 2 | allows read operation within write scope (hierarchical permissions) | ✕ removed | | Covered by unit "read operation matches paths.write" |
+| 3 | denies read operation outside scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "denies read operation outside scope via pipeline" |
+| 4 | denies write operation when only read scope exists | ⊕ merged | scope/test/semantic/file-operations-spec.el | "denies write when only read scope exists via pipeline" |
+| 5 | allows write operation within write scope | ✕ removed | | Covered by unit tests and pipeline behavioral |
+| 6 | denies execute operation without execute scope | ✕ removed | | Covered by unit "execute operation requires paths.execute" |
+| 7 | allows execute operation within execute scope | ✕ removed | | Covered by unit tests |
+| 8 | denies modify operation without modify scope | ✕ removed | | Covered by unit tests |
+| 9 | allows modify operation within modify scope | ✕ removed | | Covered by unit tests |
+| 10 | allows modify operation within write scope (hierarchical permissions) | ✕ removed | | Covered by unit "modify operation allowed by paths.write" |
+| 11 | denies operations on deny list paths regardless of allow patterns | ⊕ merged | scope/test/semantic/file-operations-spec.el | "denies operations on deny list paths via pipeline" |
+| 12 | denies when multiple file operations include paths outside scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "denies when multiple file operations include paths outside scope" |
+| 13 | allows multiple operations when all are within scope | ⊕ merged | scope/test/semantic/file-operations-spec.el | "allows multiple operations when all within scope" |
 
 ## Buttercup: behavioral/run-bash-command/parse-completeness-spec.el (9 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | strict mode rejects incomplete parse (syntax error) | ○ | | |
-| 2 | strict mode rejects incomplete loop | ○ | | |
-| 3 | strict mode rejects incomplete conditional | ○ | | |
-| 4 | strict mode allows valid complex syntax | ○ | | |
-| 5 | strict mode allows valid conditionals | ○ | | |
-| 6 | permissive mode allows incomplete parse with warning | ○ | | |
-| 7 | permissive mode allows partial syntax | ○ | | |
-| 8 | default mode is strict | ○ | | |
-| 9 | parse completeness checked before deny list | ○ | | |
+| 1 | strict mode rejects incomplete parse (syntax error) | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 2 | strict mode rejects incomplete loop | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 3 | strict mode rejects incomplete conditional | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 4 | strict mode allows valid complex syntax | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 5 | strict mode allows valid conditionals | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 6 | permissive mode allows incomplete parse with warning | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 7 | permissive mode allows partial syntax | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 8 | default mode is strict | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
+| 9 | parse completeness checked before deny list | → moved | scope/test/semantic/parse-completeness-spec.el | Load path updated |
 
 ## Buttercup: behavioral/run-bash-command/path-resolution-spec.el (9 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | relative paths resolved from directory argument | ○ | | |
-| 2 | dot-dot paths resolved from directory | ○ | | |
-| 3 | path traversal detected and denied | ○ | | |
-| 4 | current directory (.) resolved | ○ | | |
-| 5 | directory itself in deny list blocks operation | ○ | | |
-| 6 | symlink directory resolved (mock file-truename) | ○ | | |
-| 7 | absolute path in command bypasses directory context | ○ | | |
-| 8 | multiple relative paths resolved independently | ○ | | |
-| 9 | working directory provided to command execution | ○ | | |
+| 1 | relative paths resolved from directory argument | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 2 | dot-dot paths resolved from directory | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 3 | path traversal detected and denied | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 4 | current directory (.) resolved | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 5 | directory itself in deny list blocks operation | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 6 | symlink directory resolved (mock file-truename) | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 7 | absolute path in command bypasses directory context | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 8 | multiple relative paths resolved independently | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
+| 9 | working directory provided to command execution | → moved | scope/test/semantic/path-resolution-spec.el | Load path updated |
 
 ## Buttercup: behavioral/run-bash-command/resource-limits-spec.el (8 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | allows command that completes within timeout | ○ | | |
-| 2 | enforces timeout for command exceeding 30 seconds | ○ | | |
-| 3 | warns when long-running command is terminated | ○ | | |
-| 4 | returns full output when within limit | ○ | | |
-| 5 | truncates output exceeding 10,000 chars limit | ○ | | |
-| 6 | suggests filters in truncation notice | ○ | | |
-| 7 | captures non-zero exit code | ○ | | |
-| 8 | handles execution errors gracefully | ○ | | |
+| 1 | allows command that completes within timeout | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
+| 2 | enforces timeout for command exceeding 30 seconds | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
+| 3 | warns when long-running command is terminated | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
+| 4 | returns full output when within limit | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
+| 5 | truncates output exceeding 10,000 chars limit | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
+| 6 | suggests filters in truncation notice | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
+| 7 | captures non-zero exit code | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
+| 8 | handles execution errors gracefully | → moved | scope/test/semantic/resource-limits-spec.el | Load path updated |
 
 ## Buttercup: behavioral/run-bash-command/scope-expansion-spec.el (7 tests)
 
@@ -631,9 +631,9 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 | Source | Tests | Passed | Pending | Failed |
 |--------|-------|--------|---------|--------|
 | ERT tools/test/integration/ | 172 | 172 | 0 | 0 |
-| Buttercup tools/test/ | 262 | 246 | 8 | 0 |
+| Buttercup tools/test/ | 262 | 254 | 0 | 0 |
 | Buttercup scope/test/ | 36 | 35 | 0 | 1 |
-| **TOTAL** | **470** | **453** | **8** | **1** |
+| **TOTAL** | **470** | **461** | **0** | **1** |
 
 Post-migration target: ~400-450 tests (dedup reduces count), 0 regressions in coverage.
 
@@ -676,3 +676,23 @@ Post-migration target: ~400-450 tests (dedup reduces count), 0 regressions in co
 **Deleted:** `scope/test/test-async-flag-spec.el` (absorbed into allow-once-spec.el)
 
 **Impact:** 141 Buttercup specs in scope/test/core/, all passing. Full test suite passes with no regressions. Source files in tools/test/ NOT deleted (later bead handles cleanup).
+
+## Bead emacs-7kqz: Consolidate semantic validation tests into scope/test/semantic/
+
+**Change:** Consolidated semantic validation tests into `scope/test/semantic/` directory.
+
+**New consolidated files (3):**
+- `scope/test/semantic/file-operations-spec.el` (~40 tests): Merged from test-file-paths.el (44 ERT) + operation-specific-paths-spec.el (13 Buttercup), deduped to ~40
+- `scope/test/semantic/cloud-auth-spec.el` (~25 tests): Merged from test-cloud-auth.el (30 ERT) + cloud-authentication-spec.el (10 Buttercup), deduped to ~25
+- `scope/test/semantic/pipeline-spec.el` (~30 tests): Merged from test-pipelines.el (36 ERT) + integration-scenarios-spec.el (10 Buttercup), deduped to ~30
+
+**Moved files with load-path updates (6):**
+- `scope/test/semantic/parse-completeness-spec.el` (9 tests)
+- `scope/test/semantic/deny-list-spec.el` (9 tests)
+- `scope/test/semantic/no-op-allowance-spec.el` (6 tests)
+- `scope/test/semantic/path-resolution-spec.el` (9 tests)
+- `scope/test/semantic/resource-limits-spec.el` (8 tests)
+- `scope/test/semantic/error-messages-spec.el` (9 tests)
+
+**Test results:** 153 specs, 0 failed. All tests pass.
+**Impact:** Source files in tools/test/ NOT deleted (handled by later bead emacs-s88q).
