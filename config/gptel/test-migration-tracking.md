@@ -696,3 +696,70 @@ Post-migration target: ~400-450 tests (dedup reduces count), 0 regressions in co
 
 **Test results:** 153 specs, 0 failed. All tests pass.
 **Impact:** Source files in tools/test/ NOT deleted (handled by later bead emacs-s88q).
+
+## Bead emacs-s88q: Create slim tool tests + delete old source files
+
+**Change:** Replaced detailed validation tests in tools/test/ with slim, spy-based tests that verify tools make correct calls to the scope system. Deleted all old source files that were already migrated to scope/test/ by prior beads.
+
+**New files created (3):**
+- `tools/test/helpers-spec.el` (5 tests/helpers): Lightweight test helpers for tool-level tests. Provides mock scope validation response builders (success/failure), mock process execution result builders, and minimal session setup/teardown. Replaces the heavyweight helpers-spec that moved to scope/test/.
+- `tools/test/run-bash-command-spec.el` (~15 tests): Spy-based contract tests verifying run_bash_command calls jf/gptel-scope--check-tool-permission with correct args, executes jf/gptel-bash--execute-command on success, returns structured errors on failure, triggers inline expansion for async denial, and formats results correctly.
+- `tools/test/filesystem-tools-spec.el` (~19 tests): Spy-based contract tests verifying read_file/write_file_in_scope/edit_file_in_scope/list_directory call jf/gptel-scope--check-tool-permission with correct tool name and operation, execute file I/O on success, return errors without touching filesystem on failure, and trigger expansion UI on denial.
+
+**Retained (not deleted):**
+- `tools/test/test-arg-extraction-spec.el` (5 tests): gptel argument extraction bug reproduction tests, not in scope of migration.
+
+**Deleted directories/files (all content previously migrated by beads emacs-6v50, emacs-p4wm, emacs-7kqz):**
+
+| Source | Status | Notes |
+|--------|--------|-------|
+| tools/test/integration/ (entire directory) | ✕ removed | All 172 ERT tests migrated to scope/test/core/ and scope/test/semantic/ |
+| tools/test/behavioral/run-bash-command/ (entire directory) | ✕ removed | All 90 Buttercup tests migrated to scope/test/semantic/ |
+| tools/test/behavioral/filesystem-tools-scope-expansion-spec.el | ✕ removed | Split between scope/test/expansion/ and new filesystem-tools-spec.el |
+| tools/test/behavioral/workflows-spec.el | ✕ removed | Split between scope/test/expansion/ and scope/test/semantic/ |
+| tools/test/unit/ (entire directory) | ✕ removed | All 72 Buttercup tests migrated to scope/test/core/ |
+| tools/test/README.md | ✕ removed | Obsolete after reorganization |
+| tools/test/test-results.txt | ✕ removed | Stale snapshot |
+
+**New test entries (✚):**
+
+| # | Test Name | File | Notes |
+|---|-----------|------|-------|
+| 1 | passes tool name 'run_bash_command' to permission check | run-bash-command-spec.el | ✚ new spy-based contract test |
+| 2 | passes command and directory as args list | run-bash-command-spec.el | ✚ new |
+| 3 | passes config from jf/gptel-scope--load-config | run-bash-command-spec.el | ✚ new |
+| 4 | calls jf/gptel-bash--execute-command with command and directory | run-bash-command-spec.el | ✚ new |
+| 5 | returns success result with output, exit code, truncated flag | run-bash-command-spec.el | ✚ new |
+| 6 | packages warnings separately from output | run-bash-command-spec.el | ✚ new |
+| 7 | returns error plist when permission denied | run-bash-command-spec.el | ✚ new |
+| 8 | does not call jf/gptel-bash--execute-command when denied | run-bash-command-spec.el | ✚ new |
+| 9 | includes allowed-patterns in error for user guidance | run-bash-command-spec.el | ✚ new |
+| 10 | triggers inline expansion for async tools | run-bash-command-spec.el | ✚ new |
+| 11 | passes validation error to expansion function | run-bash-command-spec.el | ✚ new |
+| 12 | returns timeout error structure | run-bash-command-spec.el | ✚ new |
+| 13 | returns execution error structure | run-bash-command-spec.el | ✚ new |
+| 14 | passes truncation flag through execution result | run-bash-command-spec.el | ✚ new |
+| 15 | formats success result with all fields | run-bash-command-spec.el | ✚ new |
+| 16 | formats failure result correctly for non-zero exit code | run-bash-command-spec.el | ✚ new |
+| 17 | passes tool name 'read_file' to permission check | filesystem-tools-spec.el | ✚ new |
+| 18 | passes filepath as first arg | filesystem-tools-spec.el | ✚ new |
+| 19 | routes to path validation for read operation | filesystem-tools-spec.el | ✚ new |
+| 20 | returns file content when file exists | filesystem-tools-spec.el | ✚ new |
+| 21 | returns file_not_found error when file missing | filesystem-tools-spec.el | ✚ new |
+| 22 | returns structured scope violation error | filesystem-tools-spec.el | ✚ new |
+| 23 | does not read file when permission denied | filesystem-tools-spec.el | ✚ new |
+| 24 | passes tool name 'write_file_in_scope' | filesystem-tools-spec.el | ✚ new |
+| 25 | routes to path validation with write operation | filesystem-tools-spec.el | ✚ new |
+| 26 | creates file with content when allowed | filesystem-tools-spec.el | ✚ new |
+| 27 | does not write file when permission denied | filesystem-tools-spec.el | ✚ new |
+| 28 | returns error with allowed-patterns for guidance | filesystem-tools-spec.el | ✚ new |
+| 29 | routes to path validation with write operation (edit) | filesystem-tools-spec.el | ✚ new |
+| 30 | returns error without modifying when permission denied | filesystem-tools-spec.el | ✚ new |
+| 31 | lists files when directory exists | filesystem-tools-spec.el | ✚ new |
+| 32 | handles non-existent directory gracefully | filesystem-tools-spec.el | ✚ new |
+| 33 | triggers inline expansion when async tool is denied | filesystem-tools-spec.el | ✚ new |
+| 34 | passes denied resource to expansion for pattern inference | filesystem-tools-spec.el | ✚ new |
+
+**Test results:** 39 specs (34 new + 5 retained from test-arg-extraction-spec.el), 0 failed.
+**Full gptel suite:** 398 specs, 1 failed (pre-existing violation-info-spec.el failure, unrelated).
+**Impact:** tools/test/ reduced from 24 files across 4 directories to 4 flat files. Test count in tools/test/ reduced from ~262 Buttercup + 172 ERT to 39 Buttercup (validation logic now lives in scope/test/).
