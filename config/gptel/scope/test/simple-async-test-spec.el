@@ -105,7 +105,7 @@
 
       ;; Call tool
       (message "DEBUG: Calling tool with filepath=%s" test-filepath)
-      (funcall test-tool gptel-callback test-filepath)
+      (funcall (gptel-tool-function test-tool) gptel-callback test-filepath)
 
       ;; Check what happened
       (message "DEBUG: After tool call:")
