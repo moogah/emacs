@@ -5,6 +5,14 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 ---
 
+## Infrastructure: tools/test/helpers-spec.el
+
+| File | Status | Destination | Notes |
+|------|--------|-------------|-------|
+| helpers-spec.el | → moved | scope/test/helpers-spec.el | Shared test infrastructure (matchers, mocks, fixtures). Primary consumer location is now scope/test/. Tests in tools/test/ that `(require 'helpers-spec)` will need load-path updates in later beads. |
+
+---
+
 ## ERT: tools/test/integration/test-schema.el (62 tests)
 
 | # | Test Name | Status | Destination | Notes |
