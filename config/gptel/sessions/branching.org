@@ -209,6 +209,45 @@ Returns t if valid, signals error with helpful message if not."
 
 Function to copy session.md with truncated text and filtered bounds.
 
+** Write Local Variables
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-local-variables (format vars)
+  "Write Emacs Local Variables block in FORMAT-appropriate syntax.
+FORMAT is :org or :md keyword.
+VARS is an alist of (SYMBOL . VALUE) pairs.
+
+For :org format, writes:
+  # Local Variables:
+  # <var>: <value>
+  # End:
+
+For :md format, writes:
+  <!-- Local Variables: -->
+  <!-- <var>: <value> -->
+  <!-- End: -->
+
+VALUES are serialized with prin1-to-string to handle complex data structures.
+Inserts text at point in the current buffer."
+  (pcase format
+    (:org
+     (insert "# Local Variables:\n")
+     (dolist (pair vars)
+       (insert (format "# %s: %s\n"
+                       (car pair)
+                       (prin1-to-string (cdr pair)))))
+     (insert "# End:\n"))
+    (:md
+     (insert "<!-- Local Variables: -->\n")
+     (dolist (pair vars)
+       (insert (format "<!-- %s: %s -->\n"
+                       (car pair)
+                       (prin1-to-string (cdr pair)))))
+     (insert "<!-- End: -->\n"))
+    (_
+     (error "Unknown format: %S (expected :org or :md)" format))))
+#+end_src
+
 ** Copy Truncated Context with Bounds
 
 #+begin_src emacs-lisp
