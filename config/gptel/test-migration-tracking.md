@@ -17,68 +17,68 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | test-scope-schema-valid-document-loads | ○ | | |
-| 2 | test-scope-schema-full-document | ○ | | |
-| 3 | test-scope-schema-paths-read-section | ○ | | |
-| 4 | test-scope-schema-paths-write-section | ○ | | |
-| 5 | test-scope-schema-paths-execute-section | ○ | | |
-| 6 | test-scope-schema-paths-modify-section | ○ | | |
-| 7 | test-scope-schema-paths-deny-unchanged | ○ | | |
-| 8 | test-scope-schema-cloud-auth-detection-field | ○ | | |
-| 9 | test-scope-schema-cloud-allowed-providers-field | ○ | | |
-| 10 | test-scope-schema-cloud-missing-defaults | ○ | | |
-| 11 | test-scope-schema-security-enforce-parse-complete | ○ | | |
-| 12 | test-scope-schema-security-max-coverage-threshold | ○ | | |
-| 13 | test-scope-schema-security-missing-defaults | ○ | | |
-| 14 | test-scope-schema-bash-tools-deny | ○ | | |
-| 15 | test-scope-schema-bash-tools-categories-rejected | ○ | | |
-| 16 | test-scope-schema-kebab-case-normalization | ○ | | |
-| 17 | test-scope-schema-snake-case-keys | ○ | | |
-| 18 | test-scope-schema-nested-normalization | ○ | | |
-| 19 | test-scope-schema-boolean-false | ○ | | |
-| 20 | test-scope-schema-empty-arrays | ○ | | |
-| 21 | test-scope-schema-mixed-quote-styles | ○ | | |
-| 22 | test-scope-schema-numeric-threshold-variations | ○ | | |
-| 23 | test-scope-schema-legacy-document-no-execute-modify | ○ | | |
-| 24 | test-scope-schema-no-automatic-migration | ○ | | |
-| 25 | test-scope-schema-write-path-allows-read | ○ | | |
-| 26 | test-scope-schema-read-path-does-not-allow-write | ○ | | |
-| 27 | test-scope-schema-defaults-empty-schema | ○ | | |
-| 28 | test-scope-schema-defaults-partial-paths | ○ | | |
-| 29 | test-scope-schema-defaults-partial-cloud | ○ | | |
-| 30 | test-scope-schema-defaults-partial-security | ○ | | |
-| 31 | test-scope-schema-defaults-mixed-present-absent | ○ | | |
-| 32 | test-scope-schema-defaults-all-sections-override | ○ | | |
-| 33 | test-scope-schema-defaults-one-threshold | ○ | | |
-| 34 | test-scope-schema-defaults-zero-threshold | ○ | | |
-| 35 | test-scope-schema-defaults-override-cloud-auth | ○ | | |
-| 36 | test-scope-schema-defaults-override-security-enforce | ○ | | |
-| 37 | test-scope-schema-defaults-override-security-threshold | ○ | | |
-| 38 | test-scope-schema-defaults-empty-bash-tools | ○ | | |
-| 39 | test-scope-schema-defaults-minimal-plus-bash-tools | ○ | | |
-| 40 | test-scope-schema-invalid-paths-structure | ○ | | |
-| 41 | test-scope-schema-invalid-auth-detection | ○ | | |
-| 42 | test-scope-schema-invalid-coverage-threshold | ○ | | |
-| 43 | test-scope-schema-reject-invalid-yaml-syntax | ○ | | |
-| 44 | test-scope-schema-reject-paths-number | ○ | | |
-| 45 | test-scope-schema-reject-malformed-paths-object | ○ | | |
-| 46 | test-scope-schema-reject-mixed-types-in-path-array | ○ | | |
-| 47 | test-scope-schema-reject-duplicate-path-patterns | ○ | | |
-| 48 | test-scope-schema-reject-empty-auth-detection | ○ | | |
-| 49 | test-scope-schema-reject-numeric-auth-detection | ○ | | |
-| 50 | test-scope-schema-reject-invalid-auth-detection-typo | ○ | | |
-| 51 | test-scope-schema-reject-null-cloud-section | ○ | | |
-| 52 | test-scope-schema-reject-empty-cloud-providers-is-valid | ○ | | |
-| 53 | test-scope-schema-reject-non-boolean-enforce-parse-complete | ○ | | |
-| 54 | test-scope-schema-reject-numeric-enforce-parse-complete | ○ | | |
-| 55 | test-scope-schema-reject-non-numeric-coverage-threshold | ○ | | |
-| 56 | test-scope-schema-reject-negative-coverage-threshold | ○ | | |
-| 57 | test-scope-schema-reject-coverage-threshold-above-one | ○ | | |
-| 58 | test-scope-schema-reject-coverage-threshold-at-boundary | ○ | | |
-| 59 | test-scope-schema-reject-extremely-large-threshold | ○ | | |
-| 60 | test-scope-schema-reject-scientific-notation-threshold | ○ | | |
-| 61 | test-scope-schema-reject-invalid-bash-tools-structure | ○ | | |
-| 62 | test-scope-schema-reject-unknown-top-level-keys | ○ | | |
+| 1 | test-scope-schema-valid-document-loads | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads valid document successfully" |
+| 2 | test-scope-schema-full-document | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads all sections from complete document" |
+| 3 | test-scope-schema-paths-read-section | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads paths.read section" |
+| 4 | test-scope-schema-paths-write-section | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads paths.write section" |
+| 5 | test-scope-schema-paths-execute-section | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads paths.execute section" |
+| 6 | test-scope-schema-paths-modify-section | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads paths.modify section" |
+| 7 | test-scope-schema-paths-deny-unchanged | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads paths.deny section" |
+| 8 | test-scope-schema-cloud-auth-detection-field | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads auth_detection field" |
+| 9 | test-scope-schema-cloud-allowed-providers-field | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads allowed_providers field" |
+| 10 | test-scope-schema-cloud-missing-defaults | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "adds defaults when cloud section missing" |
+| 11 | test-scope-schema-security-enforce-parse-complete | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads enforce_parse_complete field" |
+| 12 | test-scope-schema-security-max-coverage-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads max_coverage_threshold field" |
+| 13 | test-scope-schema-security-missing-defaults | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "adds defaults when security section missing" |
+| 14 | test-scope-schema-bash-tools-deny | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads deny list" |
+| 15 | test-scope-schema-bash-tools-categories-rejected | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects categories section" |
+| 16 | test-scope-schema-kebab-case-normalization | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "normalizes all keys to kebab-case" |
+| 17 | test-scope-schema-snake-case-keys | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "handles snake_case keys" |
+| 18 | test-scope-schema-nested-normalization | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "normalizes nested structures" |
+| 19 | test-scope-schema-boolean-false | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects YAML boolean false" |
+| 20 | test-scope-schema-empty-arrays | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads empty arrays correctly" |
+| 21 | test-scope-schema-mixed-quote-styles | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "handles mixed YAML quote styles" |
+| 22 | test-scope-schema-numeric-threshold-variations | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "handles numeric threshold variations" |
+| 23 | test-scope-schema-legacy-document-no-execute-modify | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "legacy document does not auto-add execute/modify" |
+| 24 | test-scope-schema-no-automatic-migration | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "no automatic migration from legacy schemas" |
+| 25 | test-scope-schema-write-path-allows-read | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "write path section loads separately from read" |
+| 26 | test-scope-schema-read-path-does-not-allow-write | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "read path does not imply write" |
+| 27 | test-scope-schema-defaults-empty-schema | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "empty schema gets all defaults" |
+| 28 | test-scope-schema-defaults-partial-paths | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "partial paths section merges with defaults" |
+| 29 | test-scope-schema-defaults-partial-cloud | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "partial cloud section merges with defaults" |
+| 30 | test-scope-schema-defaults-partial-security | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "partial security section merges with defaults" |
+| 31 | test-scope-schema-defaults-mixed-present-absent | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "mixed present/absent sections merge correctly" |
+| 32 | test-scope-schema-defaults-all-sections-override | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "all sections can be overridden" |
+| 33 | test-scope-schema-defaults-one-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "1.0 threshold is preserved" |
+| 34 | test-scope-schema-defaults-zero-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "zero threshold is preserved" |
+| 35 | test-scope-schema-defaults-override-cloud-auth | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "user-specified cloud auth overrides default" |
+| 36 | test-scope-schema-defaults-override-security-enforce | ✕ removed | | Redundant with #30 (partial security merges) and #32 (all overrides) |
+| 37 | test-scope-schema-defaults-override-security-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "user-specified security threshold overrides default" |
+| 38 | test-scope-schema-defaults-empty-bash-tools | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "bash_tools not modified by default merging" |
+| 39 | test-scope-schema-defaults-minimal-plus-bash-tools | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "minimal plus bash_tools gets other defaults" |
+| 40 | test-scope-schema-invalid-paths-structure | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads invalid path structure as-is" |
+| 41 | test-scope-schema-invalid-auth-detection | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects invalid auth_detection value" |
+| 42 | test-scope-schema-invalid-coverage-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects invalid coverage threshold > 1.0" |
+| 43 | test-scope-schema-reject-invalid-yaml-syntax | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "handles malformed YAML syntax" |
+| 44 | test-scope-schema-reject-paths-number | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads numeric path value" |
+| 45 | test-scope-schema-reject-malformed-paths-object | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads malformed path object structure" |
+| 46 | test-scope-schema-reject-mixed-types-in-path-array | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads mixed types in path array" |
+| 47 | test-scope-schema-reject-duplicate-path-patterns | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads duplicate path patterns as-is" |
+| 48 | test-scope-schema-reject-empty-auth-detection | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects empty auth_detection" |
+| 49 | test-scope-schema-reject-numeric-auth-detection | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects numeric auth_detection" |
+| 50 | test-scope-schema-reject-invalid-auth-detection-typo | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects misspelled auth_detection" |
+| 51 | test-scope-schema-reject-null-cloud-section | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "handles null cloud section with defaults" |
+| 52 | test-scope-schema-reject-empty-cloud-providers-is-valid | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "accepts empty allowed_providers array" |
+| 53 | test-scope-schema-reject-non-boolean-enforce-parse-complete | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects non-boolean enforce_parse_complete" |
+| 54 | test-scope-schema-reject-numeric-enforce-parse-complete | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects numeric enforce_parse_complete" |
+| 55 | test-scope-schema-reject-non-numeric-coverage-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects non-numeric coverage threshold" |
+| 56 | test-scope-schema-reject-negative-coverage-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects negative coverage threshold" |
+| 57 | test-scope-schema-reject-coverage-threshold-above-one | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects coverage threshold above 1.0" |
+| 58 | test-scope-schema-reject-coverage-threshold-at-boundary | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "accepts boundary threshold values" |
+| 59 | test-scope-schema-reject-extremely-large-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "rejects extremely large threshold" |
+| 60 | test-scope-schema-reject-scientific-notation-threshold | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "handles scientific notation threshold" |
+| 61 | test-scope-schema-reject-invalid-bash-tools-structure | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "loads invalid bash_tools structure" |
+| 62 | test-scope-schema-reject-unknown-top-level-keys | ⊕ merged | scope/test/core/config-loading-spec.el | ERT->Buttercup: "ignores unknown top-level keys" |
 
 ## ERT: tools/test/integration/test-file-paths.el (44 tests)
 
@@ -455,73 +455,73 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | jf/gptel-scope--load-schema > merges provided paths with defaults | ○ | | |
-| 2 | jf/gptel-scope--load-schema > uses defaults when sections missing | ○ | | |
-| 3 | jf/gptel-scope--load-schema > preserves bash-tools deny list with normalized keys | ○ | | |
-| 4 | jf/gptel-scope--load-cloud-config > loads auth-detection setting | ○ | | |
-| 5 | jf/gptel-scope--load-cloud-config > returns nil for nil config | ○ | | |
-| 6 | jf/gptel-scope--load-security-config > loads both security settings | ○ | | |
-| 7 | jf/gptel-scope--load-security-config > returns nil for nil config | ○ | | |
-| 8 | jf/gptel-scope--infer-validation-type > infers path validation for read_file tool | ○ | | |
-| 9 | jf/gptel-scope--infer-validation-type > infers bash validation for run_bash_command tool | ○ | | |
-| 10 | jf/gptel-scope--extract-pipeline-commands > extracts all commands from pipeline | ○ | | |
-| 11 | jf/gptel-scope--extract-pipeline-commands > returns empty list for no commands | ○ | | |
-| 12 | jf/gptel-scope--extract-pipeline-commands > handles missing command-name gracefully | ○ | | |
+| 1 | jf/gptel-scope--load-schema > merges provided paths with defaults | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 2 | jf/gptel-scope--load-schema > uses defaults when sections missing | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 3 | jf/gptel-scope--load-schema > preserves bash-tools deny list with normalized keys | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 4 | jf/gptel-scope--load-cloud-config > loads auth-detection setting | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 5 | jf/gptel-scope--load-cloud-config > returns nil for nil config | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 6 | jf/gptel-scope--load-security-config > loads both security settings | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 7 | jf/gptel-scope--load-security-config > returns nil for nil config | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 8 | jf/gptel-scope--infer-validation-type > infers path validation for read_file tool | → moved | scope/test/core/tool-routing-spec.el | Expanded with more tools |
+| 9 | jf/gptel-scope--infer-validation-type > infers bash validation for run_bash_command tool | → moved | scope/test/core/tool-routing-spec.el | Expanded with more tools |
+| 10 | jf/gptel-scope--extract-pipeline-commands > extracts all commands from pipeline | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 11 | jf/gptel-scope--extract-pipeline-commands > returns empty list for no commands | → moved | scope/test/core/config-loading-spec.el | Same test |
+| 12 | jf/gptel-scope--extract-pipeline-commands > handles missing command-name gracefully | → moved | scope/test/core/config-loading-spec.el | Same test |
 
 ## Buttercup: unit/validators-spec.el (17 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | validate-operation > read > allows read if in read patterns | ○ | | |
-| 2 | validate-operation > read > allows read if in write patterns (write includes read) | ○ | | |
-| 3 | validate-operation > read > denies read if not in read or write patterns | ○ | | |
-| 4 | validate-operation > write > allows write if in write patterns | ○ | | |
-| 5 | validate-operation > write > denies write if not in write patterns | ○ | | |
-| 6 | validate-operation > modify > allows modify if in modify patterns | ○ | | |
-| 7 | validate-operation > modify > allows modify if in write patterns (write includes modify) | ○ | | |
-| 8 | validate-operation > execute > requires explicit execute permission | ○ | | |
-| 9 | validate-operation > execute > denies execute even if in write patterns | ○ | | |
-| 10 | validate-operation > deny > denies access even if in allow patterns | ○ | | |
-| 11 | validate-operation > deny > deny overrides write permission | ○ | | |
-| 12 | validate-cloud-config > accepts valid 'allow' mode | ○ | | |
-| 13 | validate-cloud-config > accepts valid 'warn' mode | ○ | | |
-| 14 | validate-cloud-config > accepts valid 'deny' mode | ○ | | |
-| 15 | validate-cloud-config > rejects invalid mode | ○ | | |
-| 16 | validate-cloud-config > handles nil config | ○ | | |
-| 17 | validate-security-config > accepts valid boolean enforce-parse-complete | ○ | | |
+| 1 | validate-operation > read > allows read if in read patterns | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 2 | validate-operation > read > allows read if in write patterns (write includes read) | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 3 | validate-operation > read > denies read if not in read or write patterns | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 4 | validate-operation > write > allows write if in write patterns | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 5 | validate-operation > write > denies write if not in write patterns | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 6 | validate-operation > modify > allows modify if in modify patterns | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 7 | validate-operation > modify > allows modify if in write patterns (write includes modify) | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 8 | validate-operation > execute > requires explicit execute permission | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 9 | validate-operation > execute > denies execute even if in write patterns | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 10 | validate-operation > deny > denies access even if in allow patterns | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 11 | validate-operation > deny > deny overrides write permission | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 12 | validate-cloud-config > accepts valid 'allow' mode | ○ | | Cloud config tests stay for emacs-7kqz bead |
+| 13 | validate-cloud-config > accepts valid 'warn' mode | ○ | | Cloud config tests stay for emacs-7kqz bead |
+| 14 | validate-cloud-config > accepts valid 'deny' mode | ○ | | Cloud config tests stay for emacs-7kqz bead |
+| 15 | validate-cloud-config > rejects invalid mode | ○ | | Cloud config tests stay for emacs-7kqz bead |
+| 16 | validate-cloud-config > handles nil config | ○ | | Cloud config tests stay for emacs-7kqz bead |
+| 17 | validate-security-config > accepts valid boolean enforce-parse-complete | → moved | scope/test/core/path-validation-spec.el | Same test |
 
-## Buttercup: unit/helpers-spec.el (30 tests)
+## Buttercup: unit/helpers-spec.el (28 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | glob-to-regex > single star > converts * to [^/]* | ○ | | |
-| 2 | glob-to-regex > single star > handles multiple single stars | ○ | | |
-| 3 | glob-to-regex > recursive /**/ > converts /**/ to /(?:.*/)? | ○ | | |
-| 4 | glob-to-regex > recursive /**/ > handles middle recursive wildcard | ○ | | |
-| 5 | glob-to-regex > recursive at end > converts /** at end to /.* | ○ | | |
-| 6 | glob-to-regex > recursive at end > matches everything after slash | ○ | | |
-| 7 | glob-to-regex > literal characters > escapes special regex characters | ○ | | |
-| 8 | glob-to-regex > literal characters > handles paths with dashes and underscores | ○ | | |
-| 9 | glob-to-regex > edge cases > handles empty pattern | ○ | | |
-| 10 | glob-to-regex > edge cases > handles pattern with only ** | ○ | | |
-| 11 | glob-to-regex > edge cases > anchors pattern with ^ and $ | ○ | | |
-| 12 | glob-match-p > exact matches > matches exact path | ○ | | |
-| 13 | glob-match-p > exact matches > rejects different path | ○ | | |
-| 14 | glob-match-p > single star > matches single directory component | ○ | | |
-| 15 | glob-match-p > single star > does not match across slashes | ○ | | |
-| 16 | glob-match-p > recursive > matches zero directories with /**/ | ○ | | |
-| 17 | glob-match-p > recursive > matches one directory with /**/ | ○ | | |
-| 18 | glob-match-p > recursive > matches multiple directories with /**/ | ○ | | |
-| 19 | glob-match-p > recursive > matches everything with /** at end | ○ | | |
-| 20 | glob-match-p > case sensitivity > is case-sensitive by default | ○ | | |
-| 21 | path-matches-any-pattern-p > returns t if path matches first pattern | ○ | | |
-| 22 | path-matches-any-pattern-p > returns t if path matches second pattern | ○ | | |
-| 23 | path-matches-any-pattern-p > returns nil if no patterns match | ○ | | |
-| 24 | path-matches-any-pattern-p > handles empty pattern list | ○ | | |
-| 25 | path-matches-any-pattern-p > normalizes path before matching | ○ | | |
-| 26 | normalize-keys > converts snake_case to kebab-case | ○ | | |
-| 27 | normalize-keys > recursively normalizes nested plists | ○ | | |
-| 28 | normalize-keys > preserves non-plist values | ○ | | |
+| 1 | glob-to-regex > single star > converts * to [^/]* | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 2 | glob-to-regex > single star > handles multiple single stars | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 3 | glob-to-regex > recursive /**/ > converts /**/ to /(?:.*/)? | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 4 | glob-to-regex > recursive /**/ > handles middle recursive wildcard | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 5 | glob-to-regex > recursive at end > converts /** at end to /.* | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 6 | glob-to-regex > recursive at end > matches everything after slash | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 7 | glob-to-regex > literal characters > escapes special regex characters | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 8 | glob-to-regex > literal characters > handles paths with dashes and underscores | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 9 | glob-to-regex > edge cases > handles empty pattern | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 10 | glob-to-regex > edge cases > handles pattern with only ** | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 11 | glob-to-regex > edge cases > anchors pattern with ^ and $ | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 12 | glob-match-p > exact matches > matches exact path | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 13 | glob-match-p > exact matches > rejects different path | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 14 | glob-match-p > single star > matches single directory component | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 15 | glob-match-p > single star > does not match across slashes | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 16 | glob-match-p > recursive > matches zero directories with /**/ | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 17 | glob-match-p > recursive > matches one directory with /**/ | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 18 | glob-match-p > recursive > matches multiple directories with /**/ | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 19 | glob-match-p > recursive > matches everything with /** at end | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 20 | glob-match-p > case sensitivity > is case-sensitive by default | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 21 | path-matches-any-pattern-p > returns t if path matches first pattern | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 22 | path-matches-any-pattern-p > returns t if path matches second pattern | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 23 | path-matches-any-pattern-p > returns nil if no patterns match | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 24 | path-matches-any-pattern-p > handles empty pattern list | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 25 | path-matches-any-pattern-p > normalizes path before matching | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 26 | normalize-keys > converts snake_case to kebab-case | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 27 | normalize-keys > recursively normalizes nested plists | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 28 | normalize-keys > preserves non-plist values | → moved | scope/test/core/path-validation-spec.el | Same test |
 
 ## Buttercup: unit/no-op-allowance-spec.el (15 tests)
 
@@ -547,21 +547,21 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | validate-security-config > accepts valid threshold in range | ○ | | |
-| 2 | validate-security-config > rejects threshold below 0.0 | ○ | | |
-| 3 | validate-security-config > rejects threshold above 1.0 | ○ | | |
-| 4 | validate-security-config > accepts edge values 0.0 and 1.0 | ○ | | |
-| 5 | validate-parse-completeness > returns nil for complete parse with strict mode | ○ | | |
-| 6 | validate-parse-completeness > returns error for incomplete parse with strict mode | ○ | | |
-| 7 | validate-parse-completeness > includes error details in message | ○ | | |
+| 1 | validate-security-config > accepts valid threshold in range | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 2 | validate-security-config > rejects threshold below 0.0 | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 3 | validate-security-config > rejects threshold above 1.0 | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 4 | validate-security-config > accepts edge values 0.0 and 1.0 | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 5 | validate-parse-completeness > returns nil for complete parse with strict mode | ○ | | Parse completeness stays for semantic/ (emacs-7kqz bead) |
+| 6 | validate-parse-completeness > returns error for incomplete parse with strict mode | ○ | | Parse completeness stays for semantic/ (emacs-7kqz bead) |
+| 7 | validate-parse-completeness > includes error details in message | ○ | | Parse completeness stays for semantic/ (emacs-7kqz bead) |
 
 ## Buttercup: unit/validators-spec.el (error structure tests) (3 tests)
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | validation error structure > includes all required fields for path_out_of_scope | ○ | | |
-| 2 | validation error structure > includes all required fields for path_denied | ○ | | |
-| 3 | validation error structure > formats human-readable messages | ○ | | |
+| 1 | validation error structure > includes all required fields for path_out_of_scope | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 2 | validation error structure > includes all required fields for path_denied | → moved | scope/test/core/path-validation-spec.el | Same test |
+| 3 | validation error structure > formats human-readable messages | → moved | scope/test/core/path-validation-spec.el | Same test |
 
 ## Buttercup: test-arg-extraction-spec.el (5 tests)
 
@@ -618,11 +618,11 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | async scoped tools > marks async tools as async in the registry | ○ | | |
-| 2 | async scoped tools > creates callback-first function signature for async tools | ○ | | |
-| 3 | sync scoped tools > does not mark sync tools as async | ○ | | |
-| 4 | regression test > read_file should be marked as async | ○ | | |
-| 5 | regression test > read_file function should have callback-first signature | ○ | | |
+| 1 | async scoped tools > marks async tools as async in the registry | ⊕ merged | scope/test/core/allow-once-spec.el | Absorbed into allow-once; source file deleted |
+| 2 | async scoped tools > creates callback-first function signature for async tools | ⊕ merged | scope/test/core/allow-once-spec.el | Absorbed into allow-once; source file deleted |
+| 3 | sync scoped tools > does not mark sync tools as async | ⊕ merged | scope/test/core/allow-once-spec.el | Absorbed into allow-once; source file deleted |
+| 4 | regression test > read_file should be marked as async | ⊕ merged | scope/test/core/allow-once-spec.el | Absorbed into allow-once; source file deleted |
+| 5 | regression test > read_file function should have callback-first signature | ⊕ merged | scope/test/core/allow-once-spec.el | Absorbed into allow-once; source file deleted |
 
 ---
 
@@ -641,3 +641,17 @@ Post-migration target: ~400-450 tests (dedup reduces count), 0 regressions in co
 
 **Change:** Moved `scope-shell-tools.{org,el}` from `config/gptel/tools/` to `config/gptel/scope/`.
 **Impact on tests:** No test logic or assertions changed. Updated require paths in 23 test files to point to new location. All 172 ERT tests pass. 304/306 Buttercup specs pass (2 pre-existing failures unrelated to move).
+
+## Bead emacs-p4wm: Consolidate scope core tests into scope/test/core/
+
+**Change:** Consolidated scope-core validation tests from tools/test/ into scope/test/core/. Converted ERT tests to Buttercup. Created 4 new consolidated spec files.
+
+**New files created:**
+- `scope/test/core/config-loading-spec.el` - Schema loading, defaults, YAML normalization (~50 tests from test-schema.el + config-spec.el)
+- `scope/test/core/path-validation-spec.el` - Operation validation, glob matching, key normalization, error structure (~46 tests from validators-spec.el + helpers-spec.el)
+- `scope/test/core/tool-routing-spec.el` - Validation type inference per tool category (~11 tests, expanded from config-spec.el)
+- `scope/test/core/allow-once-spec.el` - Allow-once lifecycle + async flag propagation (~13 tests, absorbed test-async-flag-spec.el)
+
+**Deleted:** `scope/test/test-async-flag-spec.el` (absorbed into allow-once-spec.el)
+
+**Impact:** 141 Buttercup specs in scope/test/core/, all passing. Full test suite passes with no regressions. Source files in tools/test/ NOT deleted (later bead handles cleanup).
