@@ -180,23 +180,34 @@ C-c t    # Open test menu
 ./bin/run-tests.sh -d config/bash-parser/test/behavioral
 ```
 
-**Scope validation test organization:** `config/gptel/tools/test/`
-- `test-scope-validation-pipeline.el` - End-to-end validation pipeline tests
-- `test-scope-validation-file-paths.el` - Operation-specific path validation (45+ scenarios)
-- `test-scope-validation-pipelines.el` - Pipeline command extraction and validation (25+ scenarios)
-- `test-scope-validation-cloud-auth.el` - Cloud authentication policy enforcement (30+ scenarios)
-- `test-scope-schema.el` - Schema loading and validation (35+ scenarios)
-- `test-scope-shell-tools-integration.el` - Integration tests with bash-parser
-- `test-scope-shell-tools-legacy.el` - Characterization tests for legacy behavior
+**Scope validation test organization:** `config/gptel/scope/test/`
+- `core/` - Config loading, path validation, tool routing, allow-once (4 spec files)
+- `semantic/` - Cloud auth, deny list, error messages, file operations, no-op, parse completeness, path resolution, pipelines, resource limits (9 spec files)
+- `expansion/` - Expansion integration, expansion UI (2 spec files)
+- `helpers-spec.el` - Shared test infrastructure (matchers, mocks, fixtures)
+- `metadata-spec.el` - Metadata extraction tests
 
-**Running scope validation tests:**
+**Tool-scope contract tests:** `config/gptel/tools/test/`
+- `filesystem-tools-spec.el` - Filesystem tool contract tests
+- `run-bash-command-spec.el` - Bash command tool contract tests
+- `test-arg-extraction-spec.el` - Argument extraction tests
+- `helpers-spec.el` - Tool test helpers
+
+**Running scope and tool tests:**
 ```bash
-# All scope validation tests
-./bin/run-tests.sh -d config/gptel/tools/test
+# All scope validation tests (359 specs)
+./bin/run-tests.sh -d config/gptel/scope
 
-# Specific capability
-./bin/run-tests.sh -p '^test-file-path-'
-./bin/run-tests.sh -p '^test-cloud-auth-'
+# Scope tests by layer
+./bin/run-tests.sh -d config/gptel/scope/test/core
+./bin/run-tests.sh -d config/gptel/scope/test/semantic
+./bin/run-tests.sh -d config/gptel/scope/test/expansion
+
+# Tool-scope contract tests (39 specs)
+./bin/run-tests.sh -d config/gptel/tools
+
+# All gptel tests (398 specs)
+./bin/run-tests.sh -d config/gptel
 ```
 
 ### GPTEL Architecture

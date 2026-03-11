@@ -763,3 +763,25 @@ Post-migration target: ~400-450 tests (dedup reduces count), 0 regressions in co
 **Test results:** 39 specs (34 new + 5 retained from test-arg-extraction-spec.el), 0 failed.
 **Full gptel suite:** 398 specs, 1 failed (pre-existing violation-info-spec.el failure, unrelated).
 **Impact:** tools/test/ reduced from 24 files across 4 directories to 4 flat files. Test count in tools/test/ reduced from ~262 Buttercup + 172 ERT to 39 Buttercup (validation logic now lives in scope/test/).
+
+---
+
+## Bead emacs-s2dz: Final cleanup and verification
+
+**Verification results (2026-03-11):**
+- scope/test: 359 Buttercup specs, 1 failed (pre-existing violation-info-spec.el)
+- tools/test: 39 Buttercup specs, 0 failed
+- Full gptel: 398 Buttercup specs, 1 failed (pre-existing)
+
+**Cleanup actions:**
+- Confirmed tools/test/integration/, tools/test/behavioral/, tools/test/unit/ already removed (emacs-s88q)
+- Confirmed test-async-flag-spec.el and integration-validator-expansion-spec.el already absorbed (not present)
+- Confirmed tools/test/ contains only tool-scope contract tests (no scope validation logic)
+- Updated Makefile: replaced 7 stale targets (tools/test/unit, integration, behavioral, schema, cloud-auth, pipelines, file-paths) with 5 current targets (scope, scope-core, scope-semantic, scope-expansion, tools)
+- Updated CLAUDE.md: replaced outdated tools/test/ file listing with current scope/test/ and tools/test/ organization
+
+**Final state:**
+- scope/test/: 17 spec files across core/ (4), semantic/ (9), expansion/ (2), plus 2 top-level
+- tools/test/: 4 spec files (filesystem-tools, run-bash-command, test-arg-extraction, helpers)
+- No orphaned test files, no scope validation logic tested only in tools/test/
+- Baseline 470 tests -> 398 Buttercup specs (72 tests removed as redundant during ERT->Buttercup consolidation)

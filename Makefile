@@ -140,28 +140,23 @@ test-buttercup-directory:
 	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-buttercup-directory-batch "$(DIR)")'
 
 # =============================================================================
-# Scope validation test targets - organized by test type and capability
+# Scope validation test targets - organized by layer
 # =============================================================================
 
-# Run scope validation tests by type
-test-scope-unit:
-	@./bin/run-tests.sh -f buttercup -t unit -d config/gptel/tools/test/unit
+# Run all scope tests (core + semantic + expansion)
+test-scope:
+	@./bin/run-tests.sh -f buttercup -d config/gptel/scope
 
-test-scope-integration:
-	@./bin/run-tests.sh -f ert -t integration -d config/gptel/tools/test/integration
+# Run scope tests by layer
+test-scope-core:
+	@./bin/run-tests.sh -f buttercup -d config/gptel/scope/test/core
 
-test-scope-behavioral:
-	@./bin/run-tests.sh -f buttercup -t behavioral -d config/gptel/tools/test/behavioral
+test-scope-semantic:
+	@./bin/run-tests.sh -f buttercup -d config/gptel/scope/test/semantic
 
-# Run scope validation tests by capability
-test-scope-schema:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c schema
+test-scope-expansion:
+	@./bin/run-tests.sh -f buttercup -d config/gptel/scope/test/expansion
 
-test-scope-cloud-auth:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c cloud-auth
-
-test-scope-pipelines:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c pipelines
-
-test-scope-file-paths:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c file-paths
+# Run tool-scope contract tests
+test-tools:
+	@./bin/run-tests.sh -f buttercup -d config/gptel/tools
