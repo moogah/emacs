@@ -44,9 +44,10 @@ All mocks are scoped via `cl-letf' and automatically restored on exit."
          (captured-deletes '()))
      (cl-letf (((symbol-function 'write-region)
                 (lambda (start end filename &optional append _visit &rest _args)
-                  (let ((content (if (stringp start)
-                                     start
-                                   (buffer-substring-no-properties start end))))
+                  (let ((content (cond
+                                  ((stringp start) start)
+                                  ((null start) (buffer-substring-no-properties (point-min) (point-max)))
+                                  (t (buffer-substring-no-properties start end)))))
                     (if append
                         (let ((existing (gethash filename captured-files "")))
                           (puthash filename (concat existing content) captured-files))
