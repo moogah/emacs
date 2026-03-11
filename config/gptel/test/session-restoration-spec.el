@@ -14,7 +14,8 @@
 ;; mock file content for reads.  All custom persistence code runs for real;
 ;; only Emacs primitives (insert-file-contents, file-exists-p, file-directory-p)
 ;; and upstream gptel functions (gptel--apply-preset, gptel-mode,
-;; gptel-get-preset) are mocked.
+;; gptel-get-preset) are mocked.  yaml-parse-string runs for real against
+;; seeded YAML content to preserve the round-trip parsing guarantee.
 ;;
 ;; Note: `with-seeded-files' only mocks file-exists-p for seeded paths and
 ;; delegates to real filesystem for others.  Since test paths don't exist on
@@ -26,6 +27,7 @@
 
 (require 'buttercup)
 (require 'cl-lib)
+(require 'yaml)
 
 ;; Load test helpers — use jf/emacs-dir (set by init.el, always available in test runner)
 (load (expand-file-name "config/gptel/test/persistence-test-helpers.el" jf/emacs-dir) nil t)
@@ -61,10 +63,7 @@
                         ((symbol-function 'make-symbolic-link)
                          (lambda (_target _linkname &optional _ok) nil))
                         ((symbol-function 'delete-file)
-                         (lambda (_f &optional _trash) nil))
-                        ((symbol-function 'yaml-parse-string)
-                         (lambda (_s &rest _)
-                           '(:session_id "my-session" :preset "executor"))))
+                         (lambda (_f &optional _trash) nil)))
                 (jf/gptel--auto-init-session-buffer)
                 (expect jf/gptel--session-id :to-equal "my-session")
                 (expect jf/gptel--branch-name :to-equal "main")))
@@ -90,10 +89,7 @@
                         ((symbol-function 'make-symbolic-link)
                          (lambda (_target _linkname &optional _ok) nil))
                         ((symbol-function 'delete-file)
-                         (lambda (_f &optional _trash) nil))
-                        ((symbol-function 'yaml-parse-string)
-                         (lambda (_s &rest _)
-                           '(:session_id "agent-session" :preset "researcher"))))
+                         (lambda (_f &optional _trash) nil)))
                 (jf/gptel--auto-init-session-buffer)
                 (expect jf/gptel--session-id :to-be-truthy)
                 (expect jf/gptel--branch-name :to-equal "main")))
@@ -141,11 +137,7 @@
                             ((symbol-function 'make-symbolic-link)
                              (lambda (_target _linkname &optional _ok) nil))
                             ((symbol-function 'delete-file)
-                             (lambda (_f &optional _trash) nil))
-                            ((symbol-function 'yaml-parse-string)
-                             (lambda (_s &rest _)
-                               '(:session_id "test-sess" :preset "executor"
-                                 :created "2026-01-01T00:00:00Z"))))
+                             (lambda (_f &optional _trash) nil)))
                     (jf/gptel--auto-init-session-buffer)
                     (expect apply-preset-called :to-equal 'executor)))))
           (remhash (jf/gptel--registry-key "test-sess" "main") jf/gptel--session-registry)
@@ -171,10 +163,7 @@
                             ((symbol-function 'make-symbolic-link)
                              (lambda (_target _linkname &optional _ok) nil))
                             ((symbol-function 'delete-file)
-                             (lambda (_f &optional _trash) nil))
-                            ((symbol-function 'yaml-parse-string)
-                             (lambda (_s &rest _)
-                               '(:session_id "test-sess" :preset "executor"))))
+                             (lambda (_f &optional _trash) nil)))
                     (jf/gptel--auto-init-session-buffer)
                     (expect jf/gptel--session-id :to-equal "test-sess")
                     (expect jf/gptel--session-dir :to-be-truthy)
@@ -206,10 +195,7 @@
                             ((symbol-function 'make-symbolic-link)
                              (lambda (_target _linkname &optional _ok) nil))
                             ((symbol-function 'delete-file)
-                             (lambda (_f &optional _trash) nil))
-                            ((symbol-function 'yaml-parse-string)
-                             (lambda (_s &rest _)
-                               '(:session_id "test-sess" :preset "executor"))))
+                             (lambda (_f &optional _trash) nil)))
                     (jf/gptel--auto-init-session-buffer)
                     (expect mode-called :to-be t)))))
           (remhash (jf/gptel--registry-key "test-sess" "main") jf/gptel--session-registry)
@@ -262,9 +248,6 @@
                             ((symbol-function 'gptel--apply-preset)
                              (lambda (_name _setter) nil))
                             ((symbol-function 'gptel-mode) (lambda (&optional _) nil))
-                            ((symbol-function 'yaml-parse-string)
-                             (lambda (_s &rest _)
-                               '(:session_id "test-sess" :preset "executor")))
                             ((symbol-function 'make-symbolic-link)
                              (lambda (_target _linkname &optional _ok) nil))
                             ((symbol-function 'delete-file)
@@ -319,9 +302,6 @@
                   (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                             ((symbol-function 'file-exists-p) (lambda (_) t))
                             ((symbol-function 'gptel-mode) (lambda (&optional _) nil))
-                            ((symbol-function 'yaml-parse-string)
-                             (lambda (_s &rest _)
-                               (error "YAML parsing error")))
                             ((symbol-function 'make-symbolic-link)
                              (lambda (_target _linkname &optional _ok) nil))
                             ((symbol-function 'delete-file)
@@ -350,9 +330,6 @@
                             ((symbol-function 'gptel-mode)
                              (lambda (&optional _arg)
                                (setq mode-called t)))
-                            ((symbol-function 'yaml-parse-string)
-                             (lambda (_s &rest _)
-                               '(:session_id "test-sess" :preset "nonexistent")))
                             ((symbol-function 'make-symbolic-link)
                              (lambda (_target _linkname &optional _ok) nil))
                             ((symbol-function 'delete-file)
