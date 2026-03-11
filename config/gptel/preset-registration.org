@@ -15,7 +15,7 @@ Pipeline stages (each a pure function):
 1. *Parse* -- Read file, extract YAML frontmatter and markdown body
 2. *Normalize* -- Convert snake_case keywords to kebab-case
 3. *Coerce* -- Fix YAML-to-elisp type mismatches
-4. *Extract scope* -- Strip scope keys, store in side table
+4. *Extract scope and mode* -- Strip scope and mode keys, store in side tables
 5. *Register* -- Call =gptel-make-preset= with cleaned plist
 
 * Lexical Binding
@@ -48,6 +48,21 @@ stripped from the preset plist and stored here for later use by the scope subsys
 Each entry is (PRESET-NAME . SCOPE-PLIST) where SCOPE-PLIST contains
 keys like :paths, :org-roam-patterns, :shell-commands, :scope-profile
 that were extracted from the preset file during registration.")
+#+end_src
+
+* Mode Defaults Storage
+
+Alist mapping preset name symbols to mode plists extracted during registration.
+The =:mode= key is stripped from the preset plist and stored here for later use
+by the session subsystem when determining file format (org-mode vs markdown-mode).
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-preset--mode-defaults nil
+  "Alist mapping preset name symbols to mode plists.
+Each entry is (PRESET-NAME . MODE-PLIST) where MODE-PLIST contains
+the :mode key extracted from the preset file during registration.
+Valid :mode values are \"org-mode\" and \"markdown-mode\".
+Defaults to \"org-mode\" when not specified in the preset.")
 #+end_src
 
 * Parse File
@@ -190,17 +205,54 @@ Return a new plist with scope keys removed."
     result))
 #+end_src
 
+* Extract Mode
+
+Strip the =:mode= key from the plist and store it in
+=jf/gptel-preset--mode-defaults=. Defaults to ="org-mode"= when not specified.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset--extract-mode (plist preset-name)
+  "Extract :mode key from PLIST and store under PRESET-NAME.
+If :mode is present, validate it and store in `jf/gptel-preset--mode-defaults'
+keyed by PRESET-NAME (a symbol).  If :mode is absent, store the default
+\"org-mode\".  Valid values are \"org-mode\" and \"markdown-mode\".
+Return a new plist with :mode removed."
+  (let ((mode-val (plist-get plist :mode))
+        (result nil))
+    ;; Build result plist without :mode
+    (let ((remaining plist))
+      (while remaining
+        (let ((key (pop remaining))
+              (val (pop remaining)))
+          (unless (eq key :mode)
+            (setq result (plist-put result key val))))))
+    ;; Default to "org-mode" if not specified
+    (let ((effective-mode (or mode-val "org-mode")))
+      ;; Validate
+      (unless (member effective-mode '("org-mode" "markdown-mode"))
+        (jf/gptel--log 'warn "Preset %s has invalid :mode \"%s\", defaulting to org-mode"
+                       preset-name effective-mode)
+        (setq effective-mode "org-mode"))
+      ;; Store in side table
+      (let ((mode-plist (list :mode effective-mode))
+            (existing (assq preset-name jf/gptel-preset--mode-defaults)))
+        (if existing
+            (setcdr existing mode-plist)
+          (push (cons preset-name mode-plist) jf/gptel-preset--mode-defaults))))
+    result))
+#+end_src
+
 * Register All Presets
 
 Orchestrate the full pipeline: scan for =.md= files, parse each, normalize,
-coerce, extract scope, and register via =gptel-make-preset=.
+coerce, extract scope, extract mode, and register via =gptel-make-preset=.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-preset-register-all ()
   "Register all preset files from `jf/gptel-presets-directory'.
 Scan for .md files and for each one: parse YAML frontmatter,
-normalize keys, coerce values, extract scope config, and register
-via `gptel-make-preset'.
+normalize keys, coerce values, extract scope and mode config, and
+register via `gptel-make-preset'.
 
 This function is idempotent -- re-registration updates existing entries.
 Logs the count of registered presets."
@@ -217,7 +269,8 @@ Logs the count of registered presets."
             (when parsed
               (let* ((normalized (jf/gptel-preset--normalize-keys parsed))
                      (coerced (jf/gptel-preset--coerce-values normalized))
-                     (cleaned (jf/gptel-preset--extract-scope coerced preset-name)))
+                     (scope-cleaned (jf/gptel-preset--extract-scope coerced preset-name))
+                     (cleaned (jf/gptel-preset--extract-mode scope-cleaned preset-name)))
                 (apply #'gptel-make-preset preset-name cleaned)
                 (setq count (1+ count))))))
         (jf/gptel--log 'info "Registered %d presets from %s" count presets-dir)))))
