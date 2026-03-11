@@ -154,90 +154,141 @@ Returns t if valid, signals error with helpful message if not."
 
 Function to copy session.md with truncated text and filtered bounds.
 
+** Format Detection and Local Variables Helpers
+
+Helper functions for format-aware session file handling.
+These stubs will be replaced by implementations from parallel beads.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--session-file-format (buffer-or-file)
+  "Detect session file format from BUFFER-OR-FILE. Returns :org or :md."
+  (let ((ext (file-name-extension
+              (if (bufferp buffer-or-file)
+                  (buffer-file-name buffer-or-file)
+                buffer-or-file))))
+    (pcase ext
+      ("org" :org)
+      ("md" :md)
+      (_ nil))))
+
+(defun jf/gptel--get-session-file-extension (buffer)
+  "Get session file extension string from BUFFER."
+  (file-name-extension (buffer-file-name buffer)))
+
+(defun jf/gptel--write-local-variables (format vars)
+  "Write Local Variables block in FORMAT (:org or :md) with VARS alist.
+Inserts at point. FORMAT is :org or :md. VARS is an alist of (symbol . value)."
+  (pcase format
+    (:org
+     (insert "# Local Variables:\n")
+     (dolist (var vars)
+       (insert (format "# %s: %s\n" (car var) (prin1-to-string (cdr var)))))
+     (insert "# End:\n"))
+    (:md
+     (insert "<!-- Local Variables: -->\n")
+     (dolist (var vars)
+       (insert (format "<!-- %s: %s -->\n" (car var) (prin1-to-string (cdr var)))))
+     (insert "<!-- End: -->\n"))))
+#+end_src
+
 ** Copy Truncated Context with Bounds
 
 #+begin_src emacs-lisp
 (defun jf/gptel--copy-truncated-context (source-file dest-file branch-position)
   "Copy SOURCE-FILE to DEST-FILE, truncating at BRANCH-POSITION.
 Filters gptel--bounds in Local Variables to only include regions before branch point.
+Detects source format and writes Local Variables in matching format.
 Returns t on success, signals error on failure."
-  (with-temp-buffer
-    ;; Read source file
-    (insert-file-contents source-file)
+  ;; Read Local Variables from source file by visiting it in a temp buffer
+  ;; and letting Emacs parse them via hack-local-variables
+  (let ((source-format (jf/gptel--session-file-format source-file))
+        (bounds nil)
+        (gptel-model-val nil)
+        (gptel-backend-val nil)
+        (gptel-tools-val nil))
 
-    ;; Extract bounds and gptel settings from Local Variables FIRST
-    ;; (before we start modifying the buffer)
-    (let ((bounds nil)
-          (gptel-model nil)
-          (gptel-backend nil)
-          (gptel-tools nil))
-      (save-excursion
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel--bounds: \\(.*\\) -->$" nil t)
-          (setq bounds (read (match-string 1))))
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel-model: \\(.*\\) -->$" nil t)
-          (setq gptel-model (match-string 1)))
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel--backend-name: \\(.*\\) -->$" nil t)
-          (setq gptel-backend (match-string 1)))
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel--tool-names: \\(.*\\) -->$" nil t)
-          (setq gptel-tools (match-string 1))))
+    ;; Extract buffer-local variables by visiting the file with local vars enabled
+    (with-temp-buffer
+      (insert-file-contents source-file)
+      (setq buffer-file-name source-file)
+      ;; Enable hack-local-variables to parse the Local Variables block
+      (let ((enable-local-variables t)
+            (hack-local-variables-hook nil))
+        (hack-local-variables))
+      ;; Extract the buffer-local values after parsing
+      (setq bounds (and (boundp 'gptel--bounds) (buffer-local-value 'gptel--bounds (current-buffer))))
+      (setq gptel-model-val (and (boundp 'gptel-model) (buffer-local-value 'gptel-model (current-buffer))))
+      (setq gptel-backend-val (and (boundp 'gptel--backend-name) (buffer-local-value 'gptel--backend-name (current-buffer))))
+      (setq gptel-tools-val (and (boundp 'gptel--tool-names) (buffer-local-value 'gptel--tool-names (current-buffer)))))
 
-      (unless bounds
-        (error "No bounds found in source file: %s" source-file))
+    (unless bounds
+      (error "No bounds found in source file: %s" source-file))
 
-      ;; Validate original bounds
-      (jf/gptel--validate-bounds bounds)
+    ;; Validate original bounds
+    (jf/gptel--validate-bounds bounds)
 
-      ;; Filter bounds to only include regions before branch point
-      (let ((filtered-bounds (jf/gptel--filter-bounds-before-position bounds branch-position)))
+    ;; Filter bounds to only include regions before branch point
+    (let ((filtered-bounds (jf/gptel--filter-bounds-before-position bounds branch-position)))
 
-        ;; Validate filtered bounds
-        (jf/gptel--validate-bounds filtered-bounds)
+      ;; Validate filtered bounds
+      (jf/gptel--validate-bounds filtered-bounds)
+
+      ;; Now work in a temp buffer to build the truncated output
+      (with-temp-buffer
+        (insert-file-contents source-file)
 
         ;; Truncate text at branch position
         (delete-region (min branch-position (point-max)) (point-max))
 
-        ;; Remove old Local Variables block
+        ;; Remove old Local Variables block (handle both org and md formats)
         (goto-char (point-min))
-        (when (re-search-forward "^<!-- Local Variables: -->$" nil t)
-          (let ((start (match-beginning 0)))
-            (when (re-search-forward "^<!-- End: -->$" nil t)
-              (delete-region start (match-end 0))
-              ;; Clean up trailing whitespace
-              (when (looking-at "\n+")
-                (delete-region (match-beginning 0) (match-end 0))))))
+        (let ((lv-start-re (pcase source-format
+                             (:org "^# Local Variables:$")
+                             (:md "^<!-- Local Variables: -->$")
+                             (_ "^\\(?:# Local Variables:\\|<!-- Local Variables: -->\\)$")))
+              (lv-end-re (pcase source-format
+                           (:org "^# End:$")
+                           (:md "^<!-- End: -->$")
+                           (_ "^\\(?:# End:\\|<!-- End: -->\\)$"))))
+          (when (re-search-forward lv-start-re nil t)
+            (let ((start (match-beginning 0)))
+              (when (re-search-forward lv-end-re nil t)
+                (delete-region start (match-end 0))
+                ;; Clean up trailing newlines
+                (when (looking-at "\n+")
+                  (delete-region (match-beginning 0) (match-end 0)))))))
 
-        ;; Build Local Variables block in this temp buffer (before writing)
+        ;; Append separator and new Local Variables block
         (goto-char (point-max))
         (unless (looking-back "\n\n" nil)
           (insert "\n"))
-        (insert "\n<!-- Local Variables: -->\n")
+        (insert "\n")
 
-        ;; Add gptel settings to Local Variables block
-        (when gptel-model
-          (insert (format "<!-- gptel-model: %s -->\n" gptel-model)))
-        (when gptel-backend
-          (insert (format "<!-- gptel--backend-name: %s -->\n" gptel-backend)))
-        (when gptel-tools
-          (insert (format "<!-- gptel--tool-names: %s -->\n" gptel-tools)))
-
-        ;; Add filtered bounds
-        (insert (format "<!-- gptel--bounds: %S -->\n" filtered-bounds))
-        (insert "<!-- End: -->\n")
+        ;; Build vars alist for the writer
+        (let ((vars nil))
+          (when gptel-model-val
+            (push (cons 'gptel-model gptel-model-val) vars))
+          (when gptel-backend-val
+            (push (cons 'gptel--backend-name gptel-backend-val) vars))
+          (when gptel-tools-val
+            (push (cons 'gptel--tool-names gptel-tools-val) vars))
+          (push (cons 'gptel--bounds filtered-bounds) vars)
+          ;; Write in reverse so order matches original (model, backend, tools, bounds)
+          (jf/gptel--write-local-variables
+           (or source-format :md)
+           (nreverse vars)))
 
         ;; Write complete file (with Local Variables) in one operation
-        (write-region (point-min) (point-max) dest-file nil 'silent)
+        (write-region (point-min) (point-max) dest-file nil 'silent))
 
-        (jf/gptel--log 'info "Copied truncated context: %d -> %d chars, bounds: %d types"
-                      (with-temp-buffer
-                        (insert-file-contents source-file)
-                        (buffer-size))
-                      branch-position
-                      (length filtered-bounds))
-        t))))
+      (jf/gptel--log 'info "Copied truncated context: %d -> %d chars, bounds: %d types, format: %s"
+                    (with-temp-buffer
+                      (insert-file-contents source-file)
+                      (buffer-size))
+                    branch-position
+                    (length filtered-bounds)
+                    source-format)
+      t)))
 #+end_src
 
 * Agent Copying
