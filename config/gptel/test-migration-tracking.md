@@ -337,13 +337,13 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | validates read operation when path is in read scope | ○ | | |
-| 2 | denies read operation when path is out of scope | ○ | | |
-| 3 | triggers expansion UI when validation fails, user approves with add-to-scope, scope updated | ○ | | |
-| 4 | triggers expansion UI when validation fails, user approves with allow-once, retry succeeds | ○ | | |
-| 5 | triggers expansion UI when validation fails, user denies, error returned | ○ | | |
-| 6 | deny action invokes callback with user_denied result | ○ | | |
-| 7 | validation succeeds after allow-once permission granted | ○ | | |
+| 1 | validates read operation when path is in read scope | → moved | scope/test/expansion/expansion-ui-spec.el | Bash command expansion UI test |
+| 2 | denies read operation when path is out of scope | → moved | scope/test/expansion/expansion-ui-spec.el | Bash command expansion UI test |
+| 3 | triggers expansion UI when validation fails, user approves with add-to-scope, scope updated | → moved | scope/test/expansion/expansion-ui-spec.el | Bash command expansion UI test |
+| 4 | triggers expansion UI when validation fails, user approves with allow-once, retry succeeds | → moved | scope/test/expansion/expansion-ui-spec.el | Bash command expansion UI test |
+| 5 | triggers expansion UI when validation fails, user denies, error returned | → moved | scope/test/expansion/expansion-ui-spec.el | Bash command expansion UI test |
+| 6 | deny action invokes callback with user_denied result | → moved | scope/test/expansion/expansion-ui-spec.el | Transient action handler (bash) |
+| 7 | validation succeeds after allow-once permission granted | → moved | scope/test/expansion/expansion-ui-spec.el | Allow-once lifecycle test |
 
 ## Buttercup: behavioral/filesystem-tools-scope-expansion-spec.el (37 tests)
 
@@ -376,11 +376,11 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 | 25 | edit_file_in_scope > triggers expansion UI when out of scope, user allows once, permission granted | ○ | | |
 | 26 | edit_file_in_scope > triggers expansion UI when out of scope, user denies, error returned | ○ | | |
 | 27 | edit_file_in_scope > allow-once permission consumed after use | ○ | | |
-| 28 | Transient > Add-to-scope > updates read scope for read operations | ○ | | |
-| 29 | Transient > Add-to-scope > updates write scope for write operations | ○ | | |
-| 30 | Transient > Add-to-scope > updates write scope for edit operations | ○ | | |
-| 31 | Transient > Deny > returns user_denied when user denies request | ○ | | |
-| 32 | Transient > Allow-once > grants temporary permission when user allows once | ○ | | |
+| 28 | Transient > Add-to-scope > updates read scope for read operations | → moved | scope/test/expansion/expansion-ui-spec.el | Filesystem transient action handler |
+| 29 | Transient > Add-to-scope > updates write scope for write operations | → moved | scope/test/expansion/expansion-ui-spec.el | Filesystem transient action handler |
+| 30 | Transient > Add-to-scope > updates write scope for edit operations | → moved | scope/test/expansion/expansion-ui-spec.el | Filesystem transient action handler |
+| 31 | Transient > Deny > returns user_denied when user denies request | → moved | scope/test/expansion/expansion-ui-spec.el | Filesystem transient action handler |
+| 32 | Transient > Allow-once > grants temporary permission when user allows once | → moved | scope/test/expansion/expansion-ui-spec.el | Filesystem transient action handler |
 
 ## Buttercup: behavioral/workflows-spec.el (30 tests)
 
@@ -577,13 +577,13 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 
 | # | Test Name | Status | Destination | Notes |
 |---|-----------|--------|-------------|-------|
-| 1 | Path validator integration > transforms path validator denial into valid violation-info | ○ | | |
-| 2 | Path validator integration > handles denied-pattern reason from path validator | ○ | | |
-| 3 | Pattern validator integration > transforms pattern validator denial into valid violation-info | ○ | | |
-| 4 | Bash validator integration > handles legacy validation-error format with :message field | ○ | | |
-| 5 | Bash validator integration > handles cloud auth denial with :message field | ○ | | |
-| 6 | Format priority > prioritizes :reason when both fields present | ○ | | |
-| 7 | Transformation robustness > returns nil for :reason when neither :reason nor :message present | ○ | | |
+| 1 | Path validator integration > transforms path validator denial into valid violation-info | ⊕ merged | scope/test/expansion/expansion-integration-spec.el | Absorbed into expansion integration |
+| 2 | Path validator integration > handles denied-pattern reason from path validator | ⊕ merged | scope/test/expansion/expansion-integration-spec.el | Absorbed into expansion integration |
+| 3 | Pattern validator integration > transforms pattern validator denial into valid violation-info | ⊕ merged | scope/test/expansion/expansion-integration-spec.el | Absorbed into expansion integration |
+| 4 | Bash validator integration > handles legacy validation-error format with :message field | ⊕ merged | scope/test/expansion/expansion-integration-spec.el | Absorbed into expansion integration |
+| 5 | Bash validator integration > handles cloud auth denial with :message field | ⊕ merged | scope/test/expansion/expansion-integration-spec.el | Absorbed into expansion integration |
+| 6 | Format priority > prioritizes :reason when both fields present | ⊕ merged | scope/test/expansion/expansion-integration-spec.el | Absorbed into expansion integration |
+| 7 | Transformation robustness > returns nil for :reason when neither :reason nor :message present | ⊕ merged | scope/test/expansion/expansion-integration-spec.el | Absorbed into expansion integration |
 
 ## Buttercup: scope/test/metadata-spec.el (24 tests)
 
@@ -641,3 +641,24 @@ Post-migration target: ~400-450 tests (dedup reduces count), 0 regressions in co
 
 **Change:** Moved `scope-shell-tools.{org,el}` from `config/gptel/tools/` to `config/gptel/scope/`.
 **Impact on tests:** No test logic or assertions changed. Updated require paths in 23 test files to point to new location. All 172 ERT tests pass. 304/306 Buttercup specs pass (2 pre-existing failures unrelated to move).
+
+## Bead emacs-6v50: Consolidate expansion tests into scope/test/expansion/
+
+**Change:** Consolidated scope expansion UI tests into `scope/test/expansion/`.
+
+**New files created:**
+- `scope/test/expansion/expansion-ui-spec.el` (14 tests): 7 moved from `scope-expansion-spec.el` + 5 moved from `filesystem-tools-scope-expansion-spec.el` (Transient section) + 2 existing inline tests
+- `scope/test/expansion/expansion-integration-spec.el` (11 tests): 7 absorbed from `integration-validator-expansion-spec.el` + 4 new end-to-end scenarios
+
+**Deleted:**
+- `scope/test/integration-validator-expansion-spec.el` (absorbed into expansion-integration-spec.el)
+
+**New tests (✚):**
+| # | Test Name | File | Notes |
+|---|-----------|------|-------|
+| 1 | path validation failure triggers expansion, add-to-scope approves | expansion-integration-spec.el | End-to-end path validator flow |
+| 2 | bash validation failure triggers expansion, allow-once grants access | expansion-integration-spec.el | End-to-end bash validator flow |
+| 3 | denial flow preserves original validation error context | expansion-integration-spec.el | End-to-end denial flow |
+| 4 | all validator types produce compatible violation-info for expansion UI | expansion-integration-spec.el | Cross-validator format consistency |
+
+**Impact:** All 25 expansion tests pass. Full suite passes with no regressions. Source files in tools/test/ NOT deleted (handled by later bead emacs-s88q).
