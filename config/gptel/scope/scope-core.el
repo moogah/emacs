@@ -867,7 +867,8 @@ This is a pure transformation function with no side effects."
                      (_ (or (plist-get validation-error :resource)
                            (plist-get validation-error :path)))))
          (operation (plist-get validation-error :operation))
-         (reason (plist-get validation-error :message))
+         (reason (or (plist-get validation-error :reason)   ; Check-result format (current)
+                     (plist-get validation-error :message))) ; Validation-error format (legacy/bash)
          (validation-type (jf/gptel-scope--infer-validation-type tool-name))
          (metadata (plist-get validation-error :metadata)))
     (list :tool tool-name

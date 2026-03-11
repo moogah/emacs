@@ -72,8 +72,10 @@ Returns parsed plist, or signals user-error if parsing fails."
           (format "\n  File Status: %s"
                   (propertize (if exists "exists" "does not exist")
                               'face (if exists 'success 'warning))))
-        (format "\n  Reason: %s"
-                (propertize reason 'face 'warning)))))
+        ;; Display reason if present (defensive: handle nil gracefully)
+        (when reason
+          (format "\n  Reason: %s"
+                  (propertize reason 'face 'warning))))))
    [("d" "Deny (reject tool call)" jf/gptel-scope--deny-expansion
      :transient nil)
     ("a" "Add to scope (permanent)" jf/gptel-scope--add-to-scope
