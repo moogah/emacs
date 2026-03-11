@@ -29,8 +29,9 @@
 (require 'cl-lib)
 (require 'yaml)
 
-;; Load test helpers — use jf/emacs-dir (set by init.el, always available in test runner)
-(load (expand-file-name "config/gptel/test/persistence-test-helpers.el" jf/emacs-dir) nil t)
+;; Ensure test directory is on load-path for require
+(add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name)))
+(require 'persistence-test-helpers)
 
 ;; Load production modules
 (require 'gptel-session-constants)
@@ -210,7 +211,7 @@
             (with-current-buffer buf
               (setq buffer-file-name "/sessions/test-sess/branches/main/session.md")
               ;; Simulate Emacs having loaded Local Variables (gptel--preset set)
-              (set (make-local-variable 'gptel--preset) 'executor)
+              (setq-local gptel--preset 'executor)
               (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                         ((symbol-function 'file-exists-p) (lambda (_) t))
                         ((symbol-function 'gptel-mode)

@@ -37,7 +37,7 @@ not yet written.  Override per-test by wrapping specific checks if you
 need \"already exists\" scenarios.
 
 All mocks are scoped via `cl-letf' and automatically restored on exit."
-  (declare (indent 0) (debug t))
+  (declare (indent defun) (debug t))
   `(let ((captured-files (make-hash-table :test 'equal))
          (captured-dirs '())
          (captured-symlinks (make-hash-table :test 'equal))
@@ -117,10 +117,7 @@ Returns nil if PATH was not written."
 Returns the parsed Emacs Lisp structure, or nil if PATH was not written.
 Requires `yaml' package to be available."
   (when-let ((content (gethash path captured-files)))
-    (with-temp-buffer
-      (insert content)
-      (goto-char (point-min))
-      (yaml-parse-string content :object-type 'alist))))
+    (yaml-parse-string content :object-type 'alist)))
 
 (defun captured-dir-p (captured-dirs path)
   "Return non-nil if PATH was created as a directory in CAPTURED-DIRS."

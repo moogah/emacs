@@ -20,8 +20,9 @@
 (require 'buttercup)
 (require 'cl-lib)
 
-;; Load test helpers — use jf/emacs-dir (set by init.el, always available in test runner)
-(load (expand-file-name "config/gptel/test/persistence-test-helpers.el" jf/emacs-dir) nil t)
+;; Ensure test directory is on load-path for require
+(add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name)))
+(require 'persistence-test-helpers)
 
 ;; Load production modules
 (require 'gptel-session-constants)
