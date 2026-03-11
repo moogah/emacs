@@ -151,6 +151,11 @@ C-c t    # Open test menu
 - Simple unit tests with minimal setup
 - Quick assertion-based tests
 
+**Test levels:**
+- **Unit** — Tests a single function with dependencies mocked for deterministic results.
+- **Integration** — Validates critical interactions and interfaces, typically at the module level.
+- **Behavioral** — Runs real code paths end-to-end, mocking only at the boundary between our code and external dependencies (Emacs primitives, third-party packages). Mocks are scoped to the function-under-test via `cl-letf` (not global). Tests declare preconditions explicitly rather than building up stateful test infrastructure.
+
 **Snapshot testing:**
 - Capture test output to git-tracked files for regression tracking
 - Default location: `DIR/test-results.txt` for directory-scoped tests
