@@ -132,5 +132,77 @@ Returns nil if LINKNAME was not created."
   "Return non-nil if PATH was deleted during captured I/O."
   (member path captured-deletes))
 
+(defmacro with-parent-session (session-dir session-id branch-dir &rest body)
+  "Execute BODY in a buffer simulating a parent persistent session.
+Sets buffer-local `jf/gptel--session-dir', `jf/gptel--session-id',
+`jf/gptel--branch-dir', and `jf/gptel--branch-name'.
+Cleans up the buffer and registry on exit.
+
+Within BODY, `parent-buffer' is bound to the parent buffer."
+  (declare (indent 3) (debug t))
+  `(let ((parent-buffer (generate-new-buffer "*gptel-test-parent*")))
+     (unwind-protect
+         (with-current-buffer parent-buffer
+           (setq-local jf/gptel--session-dir ,session-dir)
+           (setq-local jf/gptel--session-id ,session-id)
+           (setq-local jf/gptel--branch-dir ,branch-dir)
+           (setq-local jf/gptel--branch-name "main")
+           ;; Insert some content so overlay creation works (avoids bobp edge case)
+           (insert "\n\n")
+           ,@body)
+       (when (buffer-live-p parent-buffer)
+         (kill-buffer parent-buffer)))))
+
+(defmacro with-gptel-boundary-mocks (&rest body)
+  "Execute BODY with gptel upstream functions mocked and call-tracking.
+
+Binds the following variables within BODY:
+  `gptel-preset-calls'        — list of (NAME) calls to gptel-get-preset
+  `gptel-apply-preset-calls'  — list of (NAME SETTER) calls to gptel--apply-preset
+  `gptel-mode-calls'          — list of (&optional ARG) calls to gptel-mode
+  `gptel-request-calls'       — list of plists capturing gptel-request invocations
+  `gptel-request-buffer'      — buffer that was current when gptel-request was called
+
+The gptel-get-preset mock returns a minimal valid preset plist.
+The gptel--apply-preset mock calls the SETTER with `gptel-model' to simulate
+preset application (enough for downstream code that checks buffer-local vars).
+The gptel-request mock captures all keyword args without making network calls."
+  (declare (indent defun) (debug t))
+  `(let ((gptel-preset-calls '())
+         (gptel-apply-preset-calls '())
+         (gptel-mode-calls '())
+         (gptel-request-calls '())
+         (gptel-request-buffer nil))
+     (cl-letf (((symbol-function 'gptel-get-preset)
+                (lambda (name)
+                  (push (list name) gptel-preset-calls)
+                  ;; Return minimal valid preset
+                  '((gptel-model . "test-model"))))
+
+               ((symbol-function 'gptel--apply-preset)
+                (lambda (name setter)
+                  (push (list name setter) gptel-apply-preset-calls)
+                  ;; Call setter to simulate preset application
+                  (when setter
+                    (funcall setter 'gptel-model "test-model"))))
+
+               ((symbol-function 'gptel-mode)
+                (lambda (&optional arg)
+                  (push (list arg) gptel-mode-calls)))
+
+               ((symbol-function 'markdown-mode)
+                (lambda () nil))
+
+               ((symbol-function 'set-visited-file-name)
+                (lambda (filename &optional _no-query _along-with-file)
+                  (setq buffer-file-name filename)))
+
+               ((symbol-function 'gptel-request)
+                (lambda (&optional prompt &rest args)
+                  (setq gptel-request-buffer (current-buffer))
+                  (push (append (list :prompt prompt) args) gptel-request-calls)
+                  nil)))
+       ,@body)))
+
 (provide 'persistence-test-helpers)
 ;;; persistence-test-helpers.el ends here
