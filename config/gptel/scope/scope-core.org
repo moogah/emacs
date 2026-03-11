@@ -83,6 +83,7 @@ called by validators, even though conceptually it could be in a utilities sectio
 
 #+begin_src elisp
 (require 'cl-lib)
+(require 'gptel-request)  ; Provides gptel-make-tool function
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'jf-gptel-scope-metadata)

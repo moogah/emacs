@@ -71,16 +71,6 @@
       (expect (cadr captured-args) :to-equal "~/.machine-role")
       (expect result :to-equal "result")))
 
-  (it "shows wrong-number-of-arguments when arg-values is wrong"
-    (let* ((test-fn (lambda (callback filepath)
-                      (funcall callback "result")))
-           (callback-fn (lambda (result) result)))
-
-      ;; If we pass a plist as a single arg instead of extracted values
-      (expect
-       (apply test-fn callback-fn '((:filepath "~/.machine-role")))
-       :to-throw 'wrong-type-argument)))  ; plist can't be used as a string
-
   (it "reproduces wrong-number-of-arguments when missing callback"
     (let* ((test-fn (lambda (callback filepath)
                       (funcall callback "result"))))

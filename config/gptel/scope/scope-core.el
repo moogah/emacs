@@ -18,6 +18,7 @@
 
 ;; [[file:scope-core.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
+(require 'gptel-request)  ; Provides gptel-make-tool function
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'jf-gptel-scope-metadata)

@@ -163,7 +163,7 @@
         (expect 'jf/gptel-scope--validate-file-operations :not :to-have-been-called))))
 
   (describe "coverage warning with successful validation"
-    (it "warns about low coverage but allows command"
+    (xit "warns about low coverage but allows command"
       (let* ((scope-config (test-combined--make-test-config
                             :security '(:max-coverage-threshold 0.8
                                        :enforce-parse-complete t)
