@@ -33,9 +33,11 @@ patterns, shell commands) that can be referenced by presets."
   :type 'directory
   :group 'gptel)
 
-(defconst jf/gptel-session--context-file "session.md"
+(defconst jf/gptel-session--context-file "session.org"
   "File name for main conversation context.
-Uses markdown format (gptel's native format).")
+Uses org-mode format for superior features (folding, properties, agenda).
+gptel's gptel-org-convert-response handles automatic markdown-to-org
+conversion transparently when org-mode is active.")
 
 (defconst jf/gptel-session--tools-log-file "tools.org"
   "File name for tool call log.
