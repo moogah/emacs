@@ -107,6 +107,41 @@ Returns t if valid, signals error with helpful message if not."
             (error "Region start must be before end: %S" region))))))
   t)
 
+(defun jf/gptel--write-local-variables (format vars)
+  "Write Emacs Local Variables block in FORMAT-appropriate syntax.
+FORMAT is :org or :md keyword.
+VARS is an alist of (SYMBOL . VALUE) pairs.
+
+For :org format, writes:
+  # Local Variables:
+  # <var>: <value>
+  # End:
+
+For :md format, writes:
+  <!-- Local Variables: -->
+  <!-- <var>: <value> -->
+  <!-- End: -->
+
+VALUES are serialized with prin1-to-string to handle complex data structures.
+Inserts text at point in the current buffer."
+  (pcase format
+    (:org
+     (insert "# Local Variables:\n")
+     (dolist (pair vars)
+       (insert (format "# %s: %s\n"
+                       (car pair)
+                       (prin1-to-string (cdr pair)))))
+     (insert "# End:\n"))
+    (:md
+     (insert "<!-- Local Variables: -->\n")
+     (dolist (pair vars)
+       (insert (format "<!-- %s: %s -->\n"
+                       (car pair)
+                       (prin1-to-string (cdr pair)))))
+     (insert "<!-- End: -->\n"))
+    (_
+     (error "Unknown format: %S (expected :org or :md)" format))))
+
 (defun jf/gptel--copy-truncated-context (source-file dest-file branch-position)
   "Copy SOURCE-FILE to DEST-FILE, truncating at BRANCH-POSITION.
 Filters gptel--bounds in Local Variables to only include regions before branch point.
