@@ -70,4 +70,4 @@ request_scope_expansion(
 )
 ```
 
-See `config/gptel/tools/scope-shell-tools.org` for implementation details and complete documentation.
+See `config/gptel/scope/scope-shell-tools.org` for implementation details and complete documentation.

@@ -70,7 +70,7 @@ scope-shell-tools.el    (Tool implementation layer)
 
 ### scope-shell-tools.el (Tool Layer)
 
-**Location:** `config/gptel/tools/scope-shell-tools.el`
+**Location:** `config/gptel/scope/scope-shell-tools.el`
 
 **Purpose:** Implements bash execution and scope expansion request tools.
 
@@ -112,7 +112,7 @@ scope-shell-tools.el    (Tool implementation layer)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-expansion.el" jf/emacs-dir))
 
 ;; Line 163: Load scope-shell-tools (tool implementations)
-(jf/load-module (expand-file-name "config/gptel/tools/scope-shell-tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/scope/scope-shell-tools.el" jf/emacs-dir))
 
 ;; Lines 166+: Load persistent-agent, session commands, scoped filesystem/org-roam tools
 ```
@@ -242,7 +242,7 @@ The 'bash validation type flows through the system:
 - `config/gptel/gptel.org` - Module loading orchestration
 - `config/gptel/scope/scope-core.org` - Foundation layer source
 - `config/gptel/scope/scope-expansion.org` - UI layer source
-- `config/gptel/tools/scope-shell-tools.org` - Tool layer source
+- `config/gptel/scope/scope-shell-tools.org` - Tool layer source
 - `config/gptel/scope-profiles.el` - Template system (loaded before core)
 
 ## Maintenance Guidelines

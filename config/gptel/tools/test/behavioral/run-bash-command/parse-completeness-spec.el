@@ -37,7 +37,7 @@
        (test-root-dir (expand-file-name ".." test-parent-dir))
        (tools-dir test-root-dir))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" test-root-dir))
-  (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" tools-dir)))
+  (require 'jf-gptel-scope-shell-tools (expand-file-name "../scope/scope-shell-tools.el" tools-dir)))
 
 ;;; Test Suite
 

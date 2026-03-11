@@ -227,7 +227,7 @@ gptel/
 
 Controlled bash command execution with semantic validation using bash-parser integration.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.org`
+**Implementation**: `config/gptel/scope/scope-shell-tools.org`
 **Behavioral spec**: `openspec/specs/gptel/scope.md`
 
 **Validation approach**: Seven-stage operation-first validation pipeline validates commands by semantic operations (file reads/writes) rather than category membership. Uses bash-parser for AST extraction and semantic plugin system.

@@ -36,7 +36,7 @@
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (test-root-dir (expand-file-name ".." test-dir))
        (tools-dir (expand-file-name ".." test-root-dir)))
-  (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" tools-dir)))
+  (require 'jf-gptel-scope-shell-tools (expand-file-name "../scope/scope-shell-tools.el" tools-dir)))
 
 ;;; Helper: Create test categories for validation
 ;;

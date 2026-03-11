@@ -628,3 +628,8 @@ Status legend: ○ pending | → moved | ⊕ merged | ✕ removed (redundant) | 
 | **TOTAL** | **470** | **453** | **8** | **1** |
 
 Post-migration target: ~400-450 tests (dedup reduces count), 0 regressions in coverage.
+
+## Bead emacs-bdvf: Move scope-shell-tools to scope/ directory
+
+**Change:** Moved `scope-shell-tools.{org,el}` from `config/gptel/tools/` to `config/gptel/scope/`.
+**Impact on tests:** No test logic or assertions changed. Updated require paths in 23 test files to point to new location. All 172 ERT tests pass. 304/306 Buttercup specs pass (2 pre-existing failures unrelated to move).

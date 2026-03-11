@@ -33,7 +33,7 @@
        (test-root-dir (expand-file-name ".." test-dir))
        (tools-dir test-root-dir))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" test-root-dir))
-  (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" tools-dir)))
+  (require 'jf-gptel-scope-shell-tools (expand-file-name "../../scope/scope-shell-tools.el" tools-dir)))
 
 ;; Also need scope-core
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
