@@ -26,6 +26,9 @@
 ;; 5. Git tracking status (4 tests)
 ;; 6. File type detection (4 tests)
 ;; 7. Graceful degradation (3 tests)
+;;
+;; All tests use temporary files/directories and mocking.
+;; No dependencies on repository file structure.
 
 ;;; Code:
 
@@ -65,9 +68,20 @@
 
 (describe "jf/gptel-scope--gather-file-metadata - path handling"
 
-  (it "expands relative paths to absolute"
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "Makefile")))
-      (expect (plist-get metadata :path) :to-match "^/")))
+  (let (temp-file)
+    (before-each
+      (setq temp-file (make-temp-file "metadata-spec-")))
+    (after-each
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))
+
+    (it "expands relative paths to absolute"
+      ;; Use the temp file's basename in its parent directory
+      (let* ((dir (file-name-directory temp-file))
+             (name (file-name-nondirectory temp-file))
+             (default-directory dir)
+             (metadata (jf/gptel-scope--gather-file-metadata name)))
+        (expect (plist-get metadata :path) :to-match "^/"))))
 
   (it "preserves absolute paths"
     (let ((metadata (jf/gptel-scope--gather-file-metadata "/tmp/test.txt")))
@@ -87,9 +101,16 @@
 
 (describe "jf/gptel-scope--gather-file-metadata - file existence"
 
-  (it "detects existing files"
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "Makefile")))
-      (expect (plist-get metadata :exists) :to-be t)))
+  (let (temp-file)
+    (before-each
+      (setq temp-file (make-temp-file "metadata-spec-")))
+    (after-each
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))
+
+    (it "detects existing files"
+      (let ((metadata (jf/gptel-scope--gather-file-metadata temp-file)))
+        (expect (plist-get metadata :exists) :to-be t))))
 
   (it "detects existing directories"
     (let ((metadata (jf/gptel-scope--gather-file-metadata "/tmp")))
@@ -103,32 +124,60 @@
 
 (describe "jf/gptel-scope--gather-file-metadata - git repository detection"
 
-  (it "detects git repository for files in repo"
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "Makefile")))
-      (expect (plist-get metadata :git-repo) :to-be-truthy)))
+  (let (temp-file)
+    (before-each
+      (setq temp-file (make-temp-file "metadata-spec-")))
+    (after-each
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))
+
+    (it "detects git repository for files in repo"
+      ;; Mock locate-dominating-file to simulate being in a git repo
+      (spy-on 'locate-dominating-file :and-return-value "/fake/repo/")
+      (spy-on 'jf/gptel-scope--file-is-git-tracked-p :and-return-value nil)
+      (let ((metadata (jf/gptel-scope--gather-file-metadata temp-file)))
+        (expect (plist-get metadata :git-repo) :to-be-truthy))))
 
   (it "returns nil for files outside git repo"
     (let ((metadata (jf/gptel-scope--gather-file-metadata "/tmp/test.txt")))
       (expect (plist-get metadata :git-repo) :to-be nil)))
 
   (it "git-repo path ends with repository root directory"
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "Makefile")))
+    ;; Mock to return a known repo path and verify it's returned as-is
+    (spy-on 'locate-dominating-file :and-return-value "/fake/my-repo/")
+    (spy-on 'jf/gptel-scope--file-is-git-tracked-p :and-return-value nil)
+    (let ((metadata (jf/gptel-scope--gather-file-metadata "/fake/my-repo/somefile.txt")))
       (when-let ((git-repo (plist-get metadata :git-repo)))
-        (expect git-repo :to-match "emacs/$")))))
+        ;; Verify it ends with a directory name (trailing slash)
+        (expect git-repo :to-match "/$")
+        ;; Verify the directory name is extractable
+        (expect (file-name-nondirectory (directory-file-name git-repo))
+                :to-equal "my-repo")))))
 
 ;;; Git Tracking Status Tests
 
 (describe "jf/gptel-scope--gather-file-metadata - git tracking status"
 
-  (it "detects git-tracked files"
-    ;; Makefile is definitely tracked in the repo
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "Makefile")))
-      (expect (plist-get metadata :git-tracked) :to-be t)))
+  (let (temp-file)
+    (before-each
+      (setq temp-file (make-temp-file "metadata-spec-")))
+    (after-each
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))
 
-  (it "returns nil for untracked files in git repo"
-    ;; Runtime directory is gitignored
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "runtime/test.txt")))
-      (expect (plist-get metadata :git-tracked) :to-be nil)))
+    (it "detects git-tracked files"
+      ;; Mock git to report the file as tracked
+      (spy-on 'locate-dominating-file :and-return-value "/fake/repo/")
+      (spy-on 'jf/gptel-scope--file-is-git-tracked-p :and-return-value t)
+      (let ((metadata (jf/gptel-scope--gather-file-metadata temp-file)))
+        (expect (plist-get metadata :git-tracked) :to-be t)))
+
+    (it "returns nil for untracked files in git repo"
+      ;; Mock git to report file is in a repo but not tracked
+      (spy-on 'locate-dominating-file :and-return-value "/fake/repo/")
+      (spy-on 'jf/gptel-scope--file-is-git-tracked-p :and-return-value nil)
+      (let ((metadata (jf/gptel-scope--gather-file-metadata temp-file)))
+        (expect (plist-get metadata :git-tracked) :to-be nil))))
 
   (it "returns nil for files outside git repo"
     (let ((metadata (jf/gptel-scope--gather-file-metadata "/tmp/test.txt")))
@@ -143,21 +192,38 @@
 
 (describe "jf/gptel-scope--gather-file-metadata - file type detection"
 
-  (it "detects regular files"
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "Makefile")))
-      (expect (plist-get metadata :type) :to-equal 'file)))
+  (let (temp-file temp-dir)
+    (before-each
+      (setq temp-file (make-temp-file "metadata-spec-"))
+      (setq temp-dir (make-temp-file "metadata-spec-dir-" t)))
+    (after-each
+      (when (file-exists-p temp-file)
+        (delete-file temp-file))
+      (when (file-directory-p temp-dir)
+        (delete-directory temp-dir)))
 
-  (it "detects directories"
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "/tmp")))
-      (expect (plist-get metadata :type) :to-equal 'directory)))
+    (it "detects regular files"
+      (let ((metadata (jf/gptel-scope--gather-file-metadata temp-file)))
+        (expect (plist-get metadata :type) :to-equal 'file)))
+
+    (it "detects directories"
+      (let ((metadata (jf/gptel-scope--gather-file-metadata temp-dir)))
+        (expect (plist-get metadata :type) :to-equal 'directory))))
 
   (it "returns 'other for non-existent files"
     (let ((metadata (jf/gptel-scope--gather-file-metadata "/tmp/nonexistent-xyz123.txt")))
       (expect (plist-get metadata :type) :to-equal 'other)))
 
-  (it "detects config directory as directory"
-    (let ((metadata (jf/gptel-scope--gather-file-metadata "config")))
-      (expect (plist-get metadata :type) :to-equal 'directory))))
+  (let (temp-dir)
+    (before-each
+      (setq temp-dir (make-temp-file "metadata-spec-dir-" t)))
+    (after-each
+      (when (file-directory-p temp-dir)
+        (delete-directory temp-dir)))
+
+    (it "detects config directory as directory"
+      (let ((metadata (jf/gptel-scope--gather-file-metadata temp-dir)))
+        (expect (plist-get metadata :type) :to-equal 'directory)))))
 
 ;;; Graceful Degradation Tests
 
