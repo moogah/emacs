@@ -152,10 +152,19 @@ done
 
 cd "$REPO_ROOT"
 
-echo "========================================"
-echo "Emacs Configuration Test Runner"
-echo "========================================"
-echo ""
+# Suppress banner in report-only mode (no snapshot)
+if [ "$REPORT" = true ] && [ "$SNAPSHOT" != true ]; then
+    QUIET=true
+else
+    QUIET=false
+fi
+
+if [ "$QUIET" != true ]; then
+    echo "========================================"
+    echo "Emacs Configuration Test Runner"
+    echo "========================================"
+    echo ""
+fi
 
 # Auto-detect framework if needed
 if [ "$FRAMEWORK" = "auto" ]; then
@@ -185,8 +194,10 @@ if [ -n "$PATTERN" ] && [ "$FRAMEWORK" != "ert" ]; then
     FRAMEWORK="ert"
 fi
 
-echo "Framework: $FRAMEWORK"
-echo ""
+if [ "$QUIET" != true ]; then
+    echo "Framework: $FRAMEWORK"
+    echo ""
+fi
 
 # Build the elisp command for a single framework
 build_test_command() {
@@ -196,32 +207,25 @@ build_test_command() {
     case "$framework" in
         ert)
             if [ -n "$DIRECTORY" ] && [ -n "$PATTERN" ]; then
-                echo "Running ERT tests in: $DIRECTORY" >&2
-                echo "Matching pattern: $PATTERN" >&2
-                echo "" >&2
+                [ "$QUIET" != true ] && echo "Running ERT tests in: $DIRECTORY" >&2 && echo "Matching pattern: $PATTERN" >&2 && echo "" >&2
                 test_command="(progn (jf/test-load-all-test-files \"$DIRECTORY\") (ert-run-tests-batch-and-exit \"$PATTERN\"))"
             elif [ -n "$DIRECTORY" ]; then
-                echo "Running ERT tests in: $DIRECTORY" >&2
-                echo "" >&2
+                [ "$QUIET" != true ] && echo "Running ERT tests in: $DIRECTORY" >&2 && echo "" >&2
                 test_command="(jf/test-run-directory-batch \"$DIRECTORY\")"
             elif [ -n "$PATTERN" ]; then
-                echo "Running ERT tests matching: $PATTERN" >&2
-                echo "" >&2
+                [ "$QUIET" != true ] && echo "Running ERT tests matching: $PATTERN" >&2 && echo "" >&2
                 test_command="(jf/test-run-pattern-batch \"$PATTERN\")"
             else
-                echo "Running all ERT tests (auto-discovery)" >&2
-                echo "" >&2
+                [ "$QUIET" != true ] && echo "Running all ERT tests (auto-discovery)" >&2 && echo "" >&2
                 test_command="(jf/test-run-all-batch)"
             fi
             ;;
         buttercup)
             if [ -n "$DIRECTORY" ]; then
-                echo "Running Buttercup tests in: $DIRECTORY" >&2
-                echo "" >&2
+                [ "$QUIET" != true ] && echo "Running Buttercup tests in: $DIRECTORY" >&2 && echo "" >&2
                 test_command="(jf/test-run-buttercup-directory-batch \"$DIRECTORY\")"
             else
-                echo "Running all Buttercup tests (auto-discovery)" >&2
-                echo "" >&2
+                [ "$QUIET" != true ] && echo "Running all Buttercup tests (auto-discovery)" >&2 && echo "" >&2
                 test_command="(jf/test-run-all-buttercup-batch)"
             fi
             ;;
@@ -244,14 +248,15 @@ run_single_framework() {
     test_command=$(build_test_command "$framework")
 
     if [ "$SNAPSHOT" = true ] && [ "$REPORT" = true ]; then
-        make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" 2>&1 | tee -a "$SNAPSHOT_FILE" | tee -a "$REPORT_RAW_OUTPUT"
+        make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" 2>&1 | tee -a "$SNAPSHOT_FILE" >> "$REPORT_RAW_OUTPUT"
         return ${PIPESTATUS[0]}
     elif [ "$SNAPSHOT" = true ]; then
         make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" 2>&1 | tee -a "$SNAPSHOT_FILE"
         return ${PIPESTATUS[0]}
     elif [ "$REPORT" = true ]; then
-        make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" 2>&1 | tee -a "$REPORT_RAW_OUTPUT"
-        return ${PIPESTATUS[0]}
+        # Suppress all output — report will be the only thing printed
+        make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" >> "$REPORT_RAW_OUTPUT" 2>&1
+        return $?
     elif [ "$VERBOSE" = true ]; then
         make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" 2>&1
         return $?
@@ -313,9 +318,11 @@ if [ "$FRAMEWORK" = "both" ]; then
     run_single_framework "ert"
     ERT_EXIT=$?
 
-    echo ""
-    echo "----------------------------------------"
-    echo ""
+    if [ "$QUIET" != true ]; then
+        echo ""
+        echo "----------------------------------------"
+        echo ""
+    fi
 
     run_single_framework "buttercup"
     BUTTERCUP_EXIT=$?
@@ -332,8 +339,10 @@ else
     set -e
 fi
 
-echo ""
-echo "========================================"
+if [ "$QUIET" != true ]; then
+    echo ""
+    echo "========================================"
+fi
 
 # Extract summary if in snapshot mode
 if [ "$SNAPSHOT" = true ] && [ -f "$SNAPSHOT_FILE" ]; then
@@ -375,7 +384,7 @@ if [ "$SNAPSHOT" = true ] && [ -f "$SNAPSHOT_FILE" ]; then
     echo ""
     echo "Results saved to: $(realpath --relative-to="$REPO_ROOT" "$SNAPSHOT_FILE" 2>/dev/null || basename "$SNAPSHOT_FILE")"
     echo "Use 'git diff $(realpath --relative-to="$REPO_ROOT" "$SNAPSHOT_FILE" 2>/dev/null || basename "$SNAPSHOT_FILE")' to see changes"
-else
+elif [ "$QUIET" != true ]; then
     if [ $EXIT_CODE -eq 0 ]; then
         echo "✓ All tests passed"
     else
@@ -383,7 +392,9 @@ else
     fi
 fi
 
-echo "========================================"
+if [ "$QUIET" != true ]; then
+    echo "========================================"
+fi
 
 # Generate concise test report
 if [ "$REPORT" = true ] && [ -f "$REPORT_RAW_OUTPUT" ]; then
@@ -396,18 +407,25 @@ if [ "$REPORT" = true ] && [ -f "$REPORT_RAW_OUTPUT" ]; then
         echo ""
 
         # --- ERT ---
+        # Format: "Ran N tests, M results as expected, K unexpected"
+        # "results as expected" includes both passing tests AND expected failures
         ERT_SUMMARY=$(echo "$CLEAN_OUTPUT" | grep -E "^Ran [0-9]+ tests," | head -1)
         if [ -n "$ERT_SUMMARY" ]; then
             ERT_TOTAL=$(echo "$ERT_SUMMARY" | awk '{print $2}')
             ERT_EXPECTED=$(echo "$ERT_SUMMARY" | awk '{print $4}')
             ERT_UNEXPECTED=$(echo "$ERT_SUMMARY" | awk '{print $8}')
-            ERT_PASSED=$ERT_EXPECTED
 
-            echo "ERT: $ERT_TOTAL ran, $ERT_PASSED passed"
+            # Count expected failures from ERT output
+            # ERT marks them: "   passed (expected failure)  NNN/NNN  test-name"
+            ERT_EXPECTED_FAILURES=$(echo "$CLEAN_OUTPUT" | grep -cE "^[[:space:]]+passed \(expected failure\)" || true)
+
+            ERT_LINE="ERT: $ERT_TOTAL ran, $ERT_EXPECTED passed"
+            if [ "$ERT_EXPECTED_FAILURES" -gt 0 ] 2>/dev/null; then
+                ERT_LINE="$ERT_LINE ($ERT_EXPECTED_FAILURES expected failures)"
+            fi
+            echo "$ERT_LINE"
 
             if [ "$ERT_UNEXPECTED" != "0" ]; then
-                # Extract failed test names from ERT output
-                # ERT format: "   FAILED  test-name" or "   failed  NNN/NNN  test-name"
                 echo ""
                 echo "ERT failures:"
                 echo "$CLEAN_OUTPUT" | grep -E "^[[:space:]]+(FAILED|failed)[[:space:]]+" | \
@@ -422,17 +440,32 @@ if [ "$REPORT" = true ] && [ -f "$REPORT_RAW_OUTPUT" ]; then
         echo ""
 
         # --- Buttercup ---
-        BUTTERCUP_SUMMARY=$(echo "$CLEAN_OUTPUT" | grep -E "^Ran [0-9]+ specs," | head -1)
+        # Format without pending: "Ran 10 specs, 0 failed, in 0.5 seconds."
+        # Format with pending:    "Ran 8 out of 10 specs, 0 failed, in 0.5 seconds."
+        BUTTERCUP_SUMMARY=$(echo "$CLEAN_OUTPUT" | grep -E "^Ran [0-9]+ (out of [0-9]+ )?specs," | head -1)
         if [ -n "$BUTTERCUP_SUMMARY" ]; then
-            BC_TOTAL=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $2}')
-            BC_FAILED=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $4}')
-            BC_PASSED=$((BC_TOTAL - BC_FAILED))
+            if echo "$BUTTERCUP_SUMMARY" | grep -q "out of"; then
+                # Has pending specs: "Ran <active> out of <total> specs, <failed> failed"
+                BC_ACTIVE=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $2}')
+                BC_DEFINED=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $5}')
+                BC_FAILED=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $7}')
+                BC_PENDING=$((BC_DEFINED - BC_ACTIVE))
+            else
+                # No pending: "Ran <total> specs, <failed> failed"
+                BC_ACTIVE=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $2}')
+                BC_DEFINED=$BC_ACTIVE
+                BC_FAILED=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $4}')
+                BC_PENDING=0
+            fi
+            BC_PASSED=$((BC_ACTIVE - BC_FAILED))
 
-            echo "Buttercup: $BC_TOTAL ran, $BC_PASSED passed"
+            BC_LINE="Buttercup: $BC_ACTIVE ran, $BC_PASSED passed"
+            if [ "$BC_PENDING" -gt 0 ]; then
+                BC_LINE="$BC_LINE ($BC_PENDING pending)"
+            fi
+            echo "$BC_LINE"
 
             if [ "$BC_FAILED" != "0" ]; then
-                # Extract failed spec names from Buttercup output
-                # Buttercup format: spec name on line before "FAILED:"
                 echo ""
                 echo "Buttercup failures:"
                 echo "$CLEAN_OUTPUT" | grep -B1 "^FAILED:" | grep -v "^FAILED:" | grep -v "^--$" | \
@@ -449,8 +482,8 @@ if [ "$REPORT" = true ] && [ -f "$REPORT_RAW_OUTPUT" ]; then
         # Overall summary
         TOTAL_RAN=0
         TOTAL_PASSED=0
-        [ -n "$ERT_TOTAL" ] && TOTAL_RAN=$((TOTAL_RAN + ERT_TOTAL)) && TOTAL_PASSED=$((TOTAL_PASSED + ERT_PASSED))
-        [ -n "$BC_TOTAL" ] && TOTAL_RAN=$((TOTAL_RAN + BC_TOTAL)) && TOTAL_PASSED=$((TOTAL_PASSED + BC_PASSED))
+        [ -n "$ERT_TOTAL" ] && TOTAL_RAN=$((TOTAL_RAN + ERT_TOTAL)) && TOTAL_PASSED=$((TOTAL_PASSED + ERT_EXPECTED))
+        [ -n "$BC_ACTIVE" ] && TOTAL_RAN=$((TOTAL_RAN + BC_ACTIVE)) && TOTAL_PASSED=$((TOTAL_PASSED + BC_PASSED))
 
         echo "Total: $TOTAL_RAN ran, $TOTAL_PASSED passed"
     } > "$REPORT_FILE"
