@@ -124,6 +124,9 @@ Run this after preset registration to inject skill content into presets."
 ;; After preset registration, expand skills in preset system prompts
 (jf/gptel-preset--expand-all-preset-skills)
 
+;; Load scope-yaml boundary module (required by scope-profiles, scope-core, scope-shell-tools, scope-expansion)
+(jf/load-module (expand-file-name "config/gptel/scope/scope-yaml.el" jf/emacs-dir))
+
 ;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
 (jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
 

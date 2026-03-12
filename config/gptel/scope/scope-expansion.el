@@ -33,17 +33,12 @@ Signals user-error if any check fails."
 
 (defun jf/gptel-scope--read-scope-file-as-yaml (scope-file)
   "Read and parse SCOPE-FILE as YAML.
-Returns parsed plist, or signals user-error if parsing fails."
-  (let ((content (with-temp-buffer
-                   (insert-file-contents scope-file)
-                   (buffer-string))))
-    (condition-case err
-        (yaml-parse-string content
-                          :object-type 'plist
-                          :sequence-type 'list)
-      (error
-       (user-error "Failed to parse scope.yml (%s): %s"
-                   scope-file (error-message-string err))))))
+Delegates to scope-yaml module. Returns parsed plist."
+  (condition-case err
+      (jf/gptel-scope-yaml--parse-file scope-file)
+    (error
+     (user-error "Failed to parse scope.yml (%s): %s"
+                 scope-file (error-message-string err)))))
 
 (transient-define-prefix jf/gptel-scope-expansion-menu ()
   "Handle scope violation with 3-choice UI."
@@ -299,11 +294,8 @@ TOOL is the tool name (used to determine read vs write operation)."
 
 (defun jf/gptel-scope--kebab-to-snake (key)
   "Convert KEY from kebab-case to snake_case for YAML output.
-E.g., :org-roam-patterns becomes org_roam_patterns.
-
-Inverse function: jf/gptel-scope--normalize-plist-keys (scope-core.org)
-Round-trip property: Writing and reading YAML preserves key names."
-  (replace-regexp-in-string "-" "_" (substring (symbol-name key) 1)))
+Delegates to scope-yaml module."
+  (jf/gptel-scope-yaml--kebab-to-snake key))
 
 (defun jf/gptel-scope--write-yaml-nested-list (key-name value)
   "Write KEY-NAME with nested list VALUE to current buffer.

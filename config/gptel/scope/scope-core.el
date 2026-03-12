@@ -17,6 +17,7 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'jf-gptel-scope-metadata)
+(require 'jf-gptel-scope-yaml)
 ;; Dependencies:1 ends here
 
 ;; Tool Category Constant
@@ -330,25 +331,8 @@ Returns nil if scope.yml not found or can't be parsed."
 ;; [[file:scope-core.org::*Key Normalization Helper][Key Normalization Helper:1]]
 (defun jf/gptel-scope--normalize-plist-keys (plist)
   "Normalize all keys in PLIST by converting underscores to hyphens.
-Recursively processes nested plists.
-Example: :bash_tools -> :bash-tools, :read_only -> :read-only"
-  (when plist
-    (let ((result nil))
-      (while plist
-        (let* ((key (car plist))
-               (value (cadr plist))
-               (normalized-key (if (keywordp key)
-                                   (intern (concat ":" (replace-regexp-in-string
-                                                       "_" "-"
-                                                       (substring (symbol-name key) 1))))
-                                 key))
-               (normalized-value (if (and (listp value)
-                                         (keywordp (car value)))
-                                    (jf/gptel-scope--normalize-plist-keys value)
-                                  value)))
-          (setq result (append result (list normalized-key normalized-value)))
-          (setq plist (cddr plist))))
-      result)))
+Recursively processes nested plists. Delegates to scope-yaml module."
+  (jf/gptel-scope-yaml--normalize-keys plist))
 ;; Key Normalization Helper:1 ends here
 
 ;; Parse Scope YAML
@@ -363,25 +347,10 @@ Example: :bash_tools -> :bash-tools, :read_only -> :read-only"
 ;; jf/gptel-scope--load-schema is defined there and will be available when needed
 
 (defun jf/gptel-scope--parse-scope-yml (scope-file)
-  "Parse scope configuration from SCOPE-FILE (plain YAML, no frontmatter).
-Returns plist with NEW format:
-  :paths - Nested plist with :read, :write, :execute, :modify, :deny
-  :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
-  :bash-tools - Plist with :deny list (categories no longer supported)
-  :cloud - Cloud configuration
-  :security - Security settings
-
-Automatically normalizes all keys: underscored keys (bash_tools) are
-converted to hyphenated keys (bash-tools) for consistency.
-Merges with schema defaults from jf/gptel-scope--load-schema."
-  (with-temp-buffer
-    (insert-file-contents scope-file)
-    (let* ((parsed (yaml-parse-string (buffer-string)
-                                      :object-type 'plist
-                                      :sequence-type 'list))
-           (normalized (jf/gptel-scope--normalize-plist-keys parsed)))
-      ;; Use schema loader to merge with defaults and validate
-      (jf/gptel-scope--load-schema normalized))))
+  "Parse scope configuration from SCOPE-FILE.
+Delegates YAML parsing to scope-yaml module, then applies schema defaults."
+  (let ((normalized (jf/gptel-scope-yaml--parse-file scope-file)))
+    (jf/gptel-scope--load-schema normalized)))
 ;; Parse Scope YAML:1 ends here
 
 ;; Buffer-Local Allow-Once List

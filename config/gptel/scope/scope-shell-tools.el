@@ -145,35 +145,8 @@ Migration: Remove categories section, keep only deny list."
 ;; [[file:scope-shell-tools.org::*Normalize Keys][Normalize Keys:1]]
 (defun jf/gptel-scope--normalize-keys (plist)
   "Normalize PLIST keys from snake_case to kebab-case.
-Also normalizes YAML boolean keywords (:true, :false, :null) to elisp booleans.
-Recursively processes nested plists.
-
-Examples:
-  :auth_detection → :auth-detection
-  :max_coverage_threshold → :max-coverage-threshold
-  :enforce_parse_complete → :enforce-parse-complete
-  :true → t, :false/:null → nil"
-  (let ((result nil))
-    (while plist
-      (let* ((key (car plist))
-             (value (cadr plist))
-             (normalized-key (intern (replace-regexp-in-string
-                                     "_" "-"
-                                     (symbol-name key))))
-             (normalized-value (cond
-                                ;; Nested plist: recurse
-                                ((and (listp value)
-                                      (not (null value))
-                                      (keywordp (car value)))
-                                 (jf/gptel-scope--normalize-keys value))
-                                ;; Boolean keywords: normalize
-                                ((eq value :true) t)
-                                ((or (eq value :false) (eq value :null)) nil)
-                                ;; Other values: pass through
-                                (t value))))
-        (setq result (plist-put result normalized-key normalized-value))
-        (setq plist (cddr plist))))
-    result))
+Delegates to scope-yaml module."
+  (jf/gptel-scope-yaml--normalize-keys plist))
 ;; Normalize Keys:1 ends here
 
 ;; Validate Schema

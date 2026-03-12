@@ -14,6 +14,9 @@
 (require 'yaml)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
+(require 'jf-gptel-scope-yaml
+         (expand-file-name "scope/scope-yaml.el"
+                          (file-name-directory (or load-file-name buffer-file-name))))
 
 (defun jf/gptel-scope-profile--normalize-boolean (value)
   "Normalize YAML boolean keyword VALUE to elisp boolean.
@@ -27,34 +30,13 @@ Returns VALUE unchanged if it's not a boolean keyword."
 
 (defun jf/gptel-scope-profile--normalize-keys (parsed)
   "Normalize snake_case keys in PARSED plist to kebab-case.
-Also normalizes YAML boolean keywords (:true, :false, :null) to elisp booleans.
-Recursively processes nested plists.
-
-NOTE: Duplicated in preset-registration.org and scope-shell-tools.org
-due to module loading dependencies."
-  (let ((result nil))
-    (cl-loop for (key val) on parsed by #'cddr
-             do (let* ((key-name (symbol-name key))
-                       (normalized-name (replace-regexp-in-string "_" "-" key-name))
-                       (normalized-key (intern normalized-name))
-                       (normalized-val (cond
-                                        ;; Nested plist: recurse
-                                        ((and (listp val)
-                                              (not (null val))
-                                              (keywordp (car val)))
-                                         (jf/gptel-scope-profile--normalize-keys val))
-                                        ;; Boolean keyword: normalize
-                                        ((keywordp val)
-                                         (jf/gptel-scope-profile--normalize-boolean val))
-                                        ;; Other values: pass through
-                                        (t val))))
-                  (setq result (plist-put result normalized-key normalized-val))))
-    result))
+Delegates to scope-yaml module."
+  (jf/gptel-scope-yaml--normalize-keys parsed))
 
 (defun jf/gptel-scope-profile--kebab-to-snake (key)
   "Convert KEY from kebab-case keyword to snake_case keyword.
-E.g., :org-roam-patterns becomes :org_roam_patterns."
-  (intern (replace-regexp-in-string "-" "_" (symbol-name key))))
+Delegates to scope-yaml module."
+  (intern (concat ":" (jf/gptel-scope-yaml--kebab-to-snake key))))
 
 (defun jf/gptel-scope-profile--load (profile-name)
   "Load scope profile PROFILE-NAME from the profiles directory.

@@ -1,0 +1,83 @@
+;;; scope-yaml.el --- Scope YAML Boundary Module -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Single entry point for YAML <-> plist conversion.
+;; Consolidates normalize-keys, parse-string, parse-file,
+;; and kebab-to-snake into one boundary module.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'yaml)
+
+(defun jf/gptel-scope-yaml--convert-vectors (obj)
+  "Convert vectors to lists in OBJ, recursively.
+YAML parser returns vectors for sequences; convert to lists for plist compatibility."
+  (cond
+   ((vectorp obj)
+    (mapcar #'jf/gptel-scope-yaml--convert-vectors (append obj nil)))
+   ((and (listp obj) (not (null obj)))
+    (if (keywordp (car obj))
+        ;; Plist: process values
+        (let ((result nil))
+          (while obj
+            (push (car obj) result)
+            (push (jf/gptel-scope-yaml--convert-vectors (cadr obj)) result)
+            (setq obj (cddr obj)))
+          (nreverse result))
+      ;; Regular list
+      (mapcar #'jf/gptel-scope-yaml--convert-vectors obj)))
+   (t obj)))
+
+(defun jf/gptel-scope-yaml--normalize-keys (plist)
+  "Normalize PLIST keys from snake_case to kebab-case.
+Also normalizes YAML boolean keywords (:true, :false, :null) to elisp booleans.
+Recursively processes nested plists."
+  (let ((result nil))
+    (while plist
+      (let* ((key (car plist))
+             (value (cadr plist))
+             (normalized-key (intern (replace-regexp-in-string
+                                     "_" "-"
+                                     (symbol-name key))))
+             (normalized-value (cond
+                                ;; Nested plist: recurse
+                                ((and (listp value)
+                                      (not (null value))
+                                      (keywordp (car value)))
+                                 (jf/gptel-scope-yaml--normalize-keys value))
+                                ;; Boolean keywords: normalize
+                                ((eq value :true) t)
+                                ((or (eq value :false) (eq value :null)) nil)
+                                ;; Other values: pass through
+                                (t value))))
+        (setq result (plist-put result normalized-key normalized-value))
+        (setq plist (cddr plist))))
+    result))
+
+(defun jf/gptel-scope-yaml--kebab-to-snake (key)
+  "Convert KEY from kebab-case to snake_case for YAML output.
+E.g., :org-roam-patterns becomes org_roam_patterns."
+  (replace-regexp-in-string "-" "_" (substring (symbol-name key) 1)))
+
+(defun jf/gptel-scope-yaml--parse-string (yaml-string)
+  "Parse YAML-STRING and return normalized plist.
+Handles: yaml-parse-string, vector->list conversion, snake_case->kebab-case,
+boolean normalization (:true->t, :false->nil, :null->nil)."
+  (let* ((parsed (yaml-parse-string yaml-string
+                                    :object-type 'plist
+                                    :sequence-type 'list))
+         (converted (jf/gptel-scope-yaml--convert-vectors parsed)))
+    (jf/gptel-scope-yaml--normalize-keys converted)))
+
+(defun jf/gptel-scope-yaml--parse-file (file-path)
+  "Parse YAML file at FILE-PATH and return normalized plist."
+  (with-temp-buffer
+    (insert-file-contents file-path)
+    (jf/gptel-scope-yaml--parse-string (buffer-string))))
+
+(provide 'jf-gptel-scope-yaml)
+;;; scope-yaml.el ends here

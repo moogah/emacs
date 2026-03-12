@@ -27,6 +27,7 @@
 
 (require 'buttercup)
 (require 'cl-lib)
+(require 'jf-gptel-scope-yaml)
 
 ;; Load contract validation for mock self-validation
 ;; config/gptel/scope/test/ -> config/test/contracts/ (3 levels up, then test/contracts)
@@ -436,12 +437,7 @@ Also converts YAML boolean keywords to Emacs booleans:
 (defun helpers-spec-load-scope-config (scope-file)
   "Load scope configuration from SCOPE-FILE.
 Returns scope-config plist ready for validation functions."
-  (require 'yaml)
-  (let* ((parsed (with-temp-buffer
-                   (insert-file-contents scope-file)
-                   (yaml-parse-string (buffer-string) :object-type 'plist)))
-         ;; Convert all vectors to lists (YAML parser returns vectors for arrays)
-         (normalized (helpers-spec--convert-vectors-to-lists parsed))
+  (let* ((normalized (jf/gptel-scope-yaml--parse-file scope-file))
          (scope-config (jf/gptel-scope--load-schema normalized)))
     scope-config))
 

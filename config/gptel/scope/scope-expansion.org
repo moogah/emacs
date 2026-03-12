@@ -72,17 +72,12 @@ Signals user-error if any check fails."
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--read-scope-file-as-yaml (scope-file)
   "Read and parse SCOPE-FILE as YAML.
-Returns parsed plist, or signals user-error if parsing fails."
-  (let ((content (with-temp-buffer
-                   (insert-file-contents scope-file)
-                   (buffer-string))))
-    (condition-case err
-        (yaml-parse-string content
-                          :object-type 'plist
-                          :sequence-type 'list)
-      (error
-       (user-error "Failed to parse scope.yml (%s): %s"
-                   scope-file (error-message-string err))))))
+Delegates to scope-yaml module. Returns parsed plist."
+  (condition-case err
+      (jf/gptel-scope-yaml--parse-file scope-file)
+    (error
+     (user-error "Failed to parse scope.yml (%s): %s"
+                 scope-file (error-message-string err)))))
 #+end_src
 
 * Transient Menu
@@ -440,11 +435,8 @@ Both strategies achieve complete key conversion at all nesting levels.
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--kebab-to-snake (key)
   "Convert KEY from kebab-case to snake_case for YAML output.
-E.g., :org-roam-patterns becomes org_roam_patterns.
-
-Inverse function: jf/gptel-scope--normalize-plist-keys (scope-core.org)
-Round-trip property: Writing and reading YAML preserves key names."
-  (replace-regexp-in-string "-" "_" (substring (symbol-name key) 1)))
+Delegates to scope-yaml module."
+  (jf/gptel-scope-yaml--kebab-to-snake key))
 #+end_src
 
 ** YAML Writer Helpers
