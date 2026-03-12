@@ -59,15 +59,47 @@
         (helpers-spec-load-scope-config scope-yml)
       (delete-file scope-yml))))
 
+(defun integration-spec--read-only-broad-scope-config ()
+  "Scope config like system-explorer: broad read, no write.
+Allows reading everywhere (/**) but no write/execute/modify.
+This is the real-world config that triggers the :read-directory bug."
+  (let ((scope-yml (helpers-spec-make-scope-yml
+                    "paths:
+  read:
+    - \"/**\"
+  write: []
+  execute: []
+  modify: []
+  deny:
+    - \"**/.git/**\"
+    - \"**/.env\"
+
+bash_tools:
+  deny:
+    - sudo
+    - dd
+
+cloud:
+  auth_detection: \"deny\"
+
+security:
+  enforce_parse_complete: false
+  max_coverage_threshold: 0.9
+")))
+    (unwind-protect
+        (helpers-spec-load-scope-config scope-yml)
+      (delete-file scope-yml))))
+
 ;;; Test suites
 
 (describe "Bash-parser → scope integration (real modules, no mocks)"
 
-  (let (workspace-config cloud-deny-config)
+  (let (workspace-config cloud-deny-config read-only-broad-config)
 
     (before-all
       (setq workspace-config (integration-spec--workspace-scope-config))
-      (setq cloud-deny-config (integration-spec--cloud-deny-scope-config)))
+      (setq cloud-deny-config (integration-spec--cloud-deny-scope-config))
+      (setq read-only-broad-config (integration-spec--read-only-broad-scope-config)))
 
     ;; -- Scenario 1: simple read, allowed --
     (describe "cat /workspace/file.txt (simple read)"
@@ -232,6 +264,93 @@
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "ls /workspace" "/workspace" workspace-config)))
           (expect result :to-be nil))))
+
+    ;; -- Scenario 9: find with :read-directory on broad read scope --
+    ;; bash-parser emits :read-directory for find/ls. The scope validator must
+    ;; treat :read-directory as a read operation, allowing it when the path
+    ;; matches read patterns.
+    (describe "find /usr/lib -maxdepth 1 -name python (read-directory on broad read scope)"
+
+      (it "parse result satisfies contract"
+        (let ((parsed (jf/bash-parse "find /usr/lib -maxdepth 1 -name \"python\"")))
+          (expect parsed :to-satisfy-contract #'contract/bash-parse-result--validate)))
+
+      (it "semantics satisfy contract"
+        (let* ((parsed (jf/bash-parse "find /usr/lib -maxdepth 1 -name \"python\""))
+               (semantics (jf/bash-extract-semantics parsed)))
+          (expect semantics :to-satisfy-contract #'contract/bash-semantics--validate)))
+
+      (it "extracts :read-directory operation (not :read)"
+        (let* ((parsed (jf/bash-parse "find /usr/lib -maxdepth 1 -name \"python\""))
+               (semantics (jf/bash-extract-semantics parsed))
+               (file-ops (alist-get :filesystem (plist-get semantics :domains))))
+          (expect file-ops :not :to-be nil)
+          (expect (cl-some (lambda (op)
+                             (eq (plist-get op :operation) :read-directory))
+                           file-ops)
+                  :to-be-truthy)))
+
+      (it "is allowed by scope validation (/usr/lib is in read scope)"
+        (let ((result (jf/gptel-scope--validate-command-semantics
+                       "find /usr/lib -maxdepth 1 -name \"python\"" "/" read-only-broad-config)))
+          (expect result :to-be nil))))
+
+    ;; -- Scenario 10: validate-operation handles all read-like operations --
+    (describe "validate-operation handles :read-directory and :read-metadata as reads"
+
+      (it ":read-directory is allowed when path matches read patterns"
+        (let* ((paths-config (plist-get read-only-broad-config :paths))
+               (result (jf/gptel-scope--validate-operation
+                        :read-directory "/usr/local/bin" paths-config)))
+          (expect result :to-be nil)))
+
+      (it ":read-metadata is allowed when path matches read patterns"
+        (let* ((paths-config (plist-get read-only-broad-config :paths))
+               (result (jf/gptel-scope--validate-operation
+                        :read-metadata "/usr/local/bin" paths-config)))
+          (expect result :to-be nil)))
+
+      (it ":match-pattern is allowed when path matches read patterns"
+        (let* ((paths-config (plist-get read-only-broad-config :paths))
+               (result (jf/gptel-scope--validate-operation
+                        :match-pattern "/usr/local/bin" paths-config)))
+          (expect result :to-be nil))))
+
+    ;; -- Scenario 11: validate-operation handles all write-like operations --
+    (describe "validate-operation handles :create, :create-or-modify, :append as writes"
+
+      (it ":create is allowed when path matches write patterns"
+        (let* ((paths-config (plist-get workspace-config :paths))
+               (result (jf/gptel-scope--validate-operation
+                        :create "/workspace/new-file.txt" paths-config)))
+          (expect result :to-be nil)))
+
+      (it ":create-or-modify is allowed when path matches write patterns"
+        (let* ((paths-config (plist-get workspace-config :paths))
+               (result (jf/gptel-scope--validate-operation
+                        :create-or-modify "/workspace/file.txt" paths-config)))
+          (expect result :to-be nil)))
+
+      (it ":append is allowed when path matches write patterns"
+        (let* ((paths-config (plist-get workspace-config :paths))
+               (result (jf/gptel-scope--validate-operation
+                        :append "/workspace/file.txt" paths-config)))
+          (expect result :to-be nil))))
+
+    ;; -- Scenario 12: scope validator covers all contract-defined operations --
+    (describe "scope validator handles every contract-defined operation"
+      (it "no contract operations fall through to default deny"
+        (let* ((paths-config (plist-get workspace-config :paths))
+               ;; workspace-config has all pattern types populated, so every
+               ;; valid operation should be recognized and allowed for a
+               ;; path under /workspace
+               (unhandled-ops
+                (cl-remove-if
+                 (lambda (op)
+                   (null (jf/gptel-scope--validate-operation
+                          op "/workspace/file.txt" paths-config)))
+                 contract/bash--valid-operations)))
+          (expect unhandled-ops :to-equal nil))))
 
     ;; -- Bonus: contract validates each file-op individually --
     (describe "contract validation on individual file-ops from real parser"
