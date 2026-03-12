@@ -3,6 +3,7 @@
 ;;; Commentary:
 
 ;; Buttercup specs for the auto-discovery system in bash-commands-index.
+;; All tests use temp directories so results don't depend on repo state.
 
 ;;; Code:
 
@@ -16,98 +17,108 @@
 
   (describe "jf/bash-commands--discover-and-load"
 
+    ;; Each test creates a temp directory tree matching the expected
+    ;; layout: <root>/config/bash-parser/commands/*.el, then let-binds
+    ;; jf/emacs-dir to <root> so discover-and-load finds the temp files.
+
     (it "discovers .el files in the commands directory"
-      (let* ((commands-dir (expand-file-name "config/bash-parser/commands" jf/emacs-dir))
-             (el-files (directory-files commands-dir nil "\\.el$"))
-             (non-index (seq-remove
-                         (lambda (f) (string= f "index.el"))
-                         el-files)))
-        ;; There should be discoverable handler files
-        (expect (length non-index) :to-be-greater-than 0)
-        ;; Known handler files should be present
-        (expect (member "cat.el" non-index) :to-be-truthy)
-        (expect (member "git.el" non-index) :to-be-truthy)
-        ;; index.el should be excluded from non-index
-        (expect (member "index.el" non-index) :not :to-be-truthy)))
+      (let* ((temp-root (make-temp-file "bash-idx-discover-" t))
+             (commands-dir (expand-file-name "config/bash-parser/commands" temp-root)))
+        (unwind-protect
+            (progn
+              (make-directory commands-dir t)
+              (with-temp-file (expand-file-name "alpha.el" commands-dir)
+                (insert "(provide 'alpha)"))
+              (with-temp-file (expand-file-name "beta.el" commands-dir)
+                (insert "(provide 'beta)"))
+              (with-temp-file (expand-file-name "index.el" commands-dir)
+                (insert "(provide 'fake-index)"))
+              (let* ((jf/emacs-dir temp-root)
+                     (loaded (jf/bash-commands--discover-and-load))
+                     (names (mapcar #'file-name-nondirectory loaded)))
+                ;; Should discover the two handler files
+                (expect (length loaded) :to-equal 2)
+                (expect (member "alpha.el" names) :to-be-truthy)
+                (expect (member "beta.el" names) :to-be-truthy)
+                ;; index.el must be excluded
+                (expect (member "index.el" names) :not :to-be-truthy)))
+          (delete-directory temp-root t))))
 
     (it "excludes index.el from discovery"
-      (let* ((commands-dir (expand-file-name "config/bash-parser/commands" jf/emacs-dir))
-             (el-files (directory-files commands-dir t "\\.el$"))
-             (index-file (seq-find
-                          (lambda (f) (string= (file-name-nondirectory f) "index.el"))
-                          el-files)))
-        ;; index.el exists in the directory
-        (expect index-file :to-be-truthy)
-        ;; But discover-and-load should not include it in results
-        (let ((loaded (jf/bash-commands--discover-and-load)))
-          (expect (seq-find
-                   (lambda (f) (string= (file-name-nondirectory f) "index.el"))
-                   loaded)
-                  :to-equal nil))))
+      (let* ((temp-root (make-temp-file "bash-idx-exclude-" t))
+             (commands-dir (expand-file-name "config/bash-parser/commands" temp-root)))
+        (unwind-protect
+            (progn
+              (make-directory commands-dir t)
+              (with-temp-file (expand-file-name "index.el" commands-dir)
+                (insert "(provide 'fake-index)"))
+              (with-temp-file (expand-file-name "handler.el" commands-dir)
+                (insert "(provide 'handler)"))
+              (let* ((jf/emacs-dir temp-root)
+                     (loaded (jf/bash-commands--discover-and-load)))
+                (expect (seq-find
+                         (lambda (f) (string= (file-name-nondirectory f) "index.el"))
+                         loaded)
+                        :to-equal nil)
+                (expect (seq-find
+                         (lambda (f) (string= (file-name-nondirectory f) "handler.el"))
+                         loaded)
+                        :to-be-truthy)))
+          (delete-directory temp-root t))))
 
     (it "isolates errors - one failing file does not prevent others"
-      (let* ((commands-dir (expand-file-name "config/bash-parser/commands" jf/emacs-dir))
-             (bad-file (expand-file-name "test-bad-handler.el" commands-dir))
-             (good-file (expand-file-name "test-good-handler.el" commands-dir)))
+      (let* ((temp-root (make-temp-file "bash-idx-isolate-" t))
+             (commands-dir (expand-file-name "config/bash-parser/commands" temp-root)))
         (unwind-protect
             (progn
-              ;; Create a file that will error on load
-              (with-temp-file bad-file
+              (make-directory commands-dir t)
+              (with-temp-file (expand-file-name "bad-handler.el" commands-dir)
                 (insert "(error \"Intentional test error\")"))
-              ;; Create a file that loads successfully
-              (with-temp-file good-file
-                (insert "(provide 'test-good-handler)"))
-              ;; Discovery should succeed and load the good file
-              (let ((loaded (jf/bash-commands--discover-and-load)))
-                ;; Good file should be in loaded list
-                (expect (seq-find
-                         (lambda (f) (string= (file-name-nondirectory f) "test-good-handler.el"))
-                         loaded)
-                        :to-be-truthy)
+              (with-temp-file (expand-file-name "good-handler.el" commands-dir)
+                (insert "(provide 'good-handler)"))
+              (let* ((jf/emacs-dir temp-root)
+                     (loaded (jf/bash-commands--discover-and-load))
+                     (names (mapcar #'file-name-nondirectory loaded)))
+                ;; Good file should be loaded
+                (expect (member "good-handler.el" names) :to-be-truthy)
                 ;; Bad file should NOT be in loaded list
-                (expect (seq-find
-                         (lambda (f) (string= (file-name-nondirectory f) "test-bad-handler.el"))
-                         loaded)
-                        :to-equal nil)))
-          ;; Cleanup temp files
-          (when (file-exists-p bad-file) (delete-file bad-file))
-          (when (file-exists-p good-file) (delete-file good-file)))))
+                (expect (member "bad-handler.el" names) :not :to-be-truthy)))
+          (delete-directory temp-root t))))
 
     (it "returns empty list when no handler files exist"
-      ;; Create a temp directory with only an index.el to simulate empty discovery
-      (let ((temp-dir (make-temp-file "bash-commands-empty-" t)))
+      (let* ((temp-root (make-temp-file "bash-idx-empty-" t))
+             (commands-dir (expand-file-name "config/bash-parser/commands" temp-root)))
         (unwind-protect
             (progn
-              ;; Put only an index.el in the temp directory (should be skipped)
-              (with-temp-file (expand-file-name "index.el" temp-dir)
+              (make-directory commands-dir t)
+              ;; Only index.el — should be skipped
+              (with-temp-file (expand-file-name "index.el" commands-dir)
                 (insert "(provide 'fake-index)"))
-              ;; Override commands-dir by advising the function with a local scope
-              (let* ((el-files (directory-files temp-dir t "\\.el$"))
-                     (loaded nil))
-                (dolist (file el-files)
-                  (unless (string= (file-name-nondirectory file) "index.el")
-                    (condition-case _err
-                        (progn
-                          (load file nil t)
-                          (push file loaded))
-                      (error nil))))
-                ;; With only index.el present, loaded list should be empty
+              (let* ((jf/emacs-dir temp-root)
+                     (loaded (jf/bash-commands--discover-and-load)))
                 (expect loaded :to-equal nil)))
-          (delete-directory temp-dir t))))
+          (delete-directory temp-root t))))
 
     (it "returns list of successfully loaded file paths"
-      (let* ((commands-dir (expand-file-name "config/bash-parser/commands" jf/emacs-dir))
-             (good-file (expand-file-name "test-verify-handler.el" commands-dir)))
+      (let* ((temp-root (make-temp-file "bash-idx-paths-" t))
+             (commands-dir (expand-file-name "config/bash-parser/commands" temp-root)))
         (unwind-protect
             (progn
-              (with-temp-file good-file
-                (insert "(provide 'test-verify-handler)"))
-              (let ((loaded (jf/bash-commands--discover-and-load)))
+              (make-directory commands-dir t)
+              (with-temp-file (expand-file-name "one.el" commands-dir)
+                (insert "(provide 'one)"))
+              (with-temp-file (expand-file-name "two.el" commands-dir)
+                (insert "(provide 'two)"))
+              (let* ((jf/emacs-dir temp-root)
+                     (loaded (jf/bash-commands--discover-and-load)))
                 ;; Should return a list
                 (expect (listp loaded) :to-be-truthy)
-                ;; Each element should be a string (file path)
+                ;; Each element should be a full file path string
                 (dolist (f loaded)
-                  (expect (stringp f) :to-be-truthy))))
-          (when (file-exists-p good-file) (delete-file good-file)))))))
+                  (expect (stringp f) :to-be-truthy)
+                  (expect (file-name-absolute-p f) :to-be-truthy))
+                ;; Should contain exactly our two files
+                (expect (length loaded) :to-equal 2)))
+          (delete-directory temp-root t))))))
 
 ;;; index-spec.el ends here
