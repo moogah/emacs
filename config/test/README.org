@@ -1,0 +1,100 @@
+#+title: Testing Infrastructure
+#+author: Jeff Farr
+
+This document describes the testing infrastructure in this repository. Testing is very much in development---this document points out examples of the design and practices we want to be using.
+
+* Test Runner and Overview
+
+** Frameworks
+
+Tests use two frameworks:
+
+- *Buttercup* (preferred for new tests) --- BDD-style with =describe=/=it=/=expect= syntax
+- *ERT* (legacy/simple tests) --- built-in Emacs testing framework
+
+Both run in separate Emacs processes so ERT's =kill-emacs= cannot block Buttercup.
+
+** Running Tests
+
+#+begin_src bash
+# All tests (both frameworks, separate processes)
+./bin/run-tests.sh
+
+# By framework
+./bin/run-tests.sh -f buttercup
+./bin/run-tests.sh -f ert
+
+# By directory
+./bin/run-tests.sh -d config/gptel/scope
+./bin/run-tests.sh -d config/bash-parser/test/behavioral
+
+# By pattern (ERT)
+./bin/run-tests.sh -p '^test-glob-'
+
+# Via make
+make test
+make test-directory DIR=config/gptel
+#+end_src
+
+** Test Snapshots
+
+Capture test output to git-tracked files for regression tracking.
+
+#+begin_src bash
+# Directory-scoped snapshot (saved to DIR/test-results.txt)
+./bin/run-tests.sh -d config/foo --snapshot
+
+# Compare changes
+git diff config/foo/test-results.txt
+#+end_src
+
+** Test Reports
+
+Concise summary showing counts and failures.
+
+#+begin_src bash
+./bin/run-tests.sh --report
+make test-report
+make test-report DIR=config/gptel
+#+end_src
+
+* Types of Testing
+
+** Unit
+
+Test individual functions in isolation. Dependencies are mocked for deterministic results.
+
+** Integration
+
+Test collections of functions in an end-to-end fashion, mocking only external dependencies like Emacs primitives or base packages. Integration tests validate that cooperating modules share compatible interfaces.
+
+Example: =config/gptel/test/=
+
+** Behavioral
+
+Test behavioral specs. May sometimes overlap with integration tests, but are distinct. A behavioral test might say "can restore a session by opening the file" while an integration test would go deeper and validate that saving and restoring a session share a compatible interface.
+
+Behavioral tests are human-readable and should map to OpenSpec specs.
+
+Example: =config/bash-parser/test/corpus/runners/test-corpus-file-operations.el=
+
+** Contract
+
+Test the interface between distant and complex modules using intermediary functions and objects which validate that producers produce what consumers consume.
+
+- *Producer example:* =config/bash-parser/commands/test/complex-commands-spec.el=
+- *Consumer example:* =config/gptel/scope/test/integration/bash-parser-integration-spec.org=
+
+* Testing Method When Debugging
+
+A disciplined approach to fixing failures:
+
+1. Examine the failure and generate a hypothesis on the root cause.
+2. Write a test that fails as a result of the hypothesized root cause. Don't codify broken behavior in test assertions---if the behavior is wrong the test should fail.
+3. Run the test and confirm the failure.
+4. Apply the fix.
+5. Run the test to confirm the fix.
+
+#+begin_src bash
+./bin/run-tests.sh -d config/gptel/scope/test/integration
+#+end_src
