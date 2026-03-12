@@ -1,0 +1,2370 @@
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/defaults.el (source)...
+Warning: exec-path-from-shell execution took 1309ms. See the README for tips on reducing this.
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/auth.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/avy.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/browser-hist.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/ripgrep.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/ultra-scroll.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/expand-region.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/evil.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/vertico.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/runtime/recentf...
+Cleaning up the recentf list...
+Cleaning up the recentf list...done (0 removed)
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/consult.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/marginalia.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/embark.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/corfu-company.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/mini-frame.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/window-management.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/yasnippet.el (source)...
+[yas] Prepared just-in-time loading of snippets successfully.
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/testing.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/buttercup.el (source)...
+Buttercup testing framework loaded
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/look-and-feel.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/base-ui.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/frame-and-lines.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/modeline.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/themes.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/org-faces.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/terminal.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/vim-tab.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/imenu.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/transient.el (source)...
+=== TRANSIENT DEBUG ===
+Before: transient loaded? nil
+After: transient loaded from /Users/jefffarr/emacs-gptel-scoped-bash-tools/runtime/straight/build/transient/transient.elc
+After: transient-version = undefined
+After: has transient--set-layout? t
+=== END TRANSIENT DEBUG ===
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/activities.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/core.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/projectile.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/org-roam.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/transient.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/language-modes.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/gtags.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/tree-sitter.el (source)...
+tsc-dyn-get: Using source :github (:loaded nil :recorded 0.19.4 :requested 0.19.4)
+tsc-dyn-get: Recorded version already satifies requested -> loading
+tree-sitter-langs: Grammar bundle v0.13.17 was already installed; skipped
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/lsp-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/projectile.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/copilot.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/yaml.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/json.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/markdown-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/terraform.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/puppet-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/python.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/typescript.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/javascript.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/golang.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/sql.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/docker.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/magit.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/org.el (source)...
+org-super-agenda-mode enabled.
+ATTENTION: org-noter-pdf has many featues that depend on the package ‘pdf-tools’
+ATTENTION: org-noter-nov needs the package ‘nov’
+ATTENTION: org-noter-djvu needs the package ‘djvu’
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/org-roam.el (source)...
+Clearing removed files... 
+Clearing removed files...done
+Processing modified files... 
+Processing modified files...done
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/dirvish.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/beads.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/bash-parser.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/gptel.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/skills/skills-core.el (source)...
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 8 skill(s) total (8 markdown, 0 org-roam)
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 8 skill(s) total (8 markdown, 0 org-roam)
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/skills/skills-roam.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/skills/skills-transient.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/constants.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/logging.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/preset-registration.el (source)...
+[GPTEL-INFO] Registered 9 presets from /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/presets/
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope-profiles.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-metadata.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-core.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/projectile-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/ggtags-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/treesitter-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/sql-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/meta-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/community-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/transient-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/filesystem.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/registry.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/metadata.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/branching.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-commands.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-expansion.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-shell-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/persistent-agent.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/commands.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/activities-integration.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/local/apploi-mac.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/research/test-semantic-gaps.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/research/test-semantic-gaps.el (source)...
+
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-backward-compatibility.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-backward-compatibility.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-command-injection.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-command-injection.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-file-operations.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-file-operations.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-security-validator.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/behavioral/test-security-validator.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-conditional-context.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-conditional-context.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-directory-changing-commands.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-directory-changing-commands.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-heredoc-context.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-heredoc-context.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-loop-context.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-loop-context.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-pwd-directory-context.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/construct/test-pwd-directory-context.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/corpus/runners/test-corpus-file-operations.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/corpus/runners/test-corpus-file-operations.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/corpus/runners/test-corpus-parse.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/corpus/runners/test-corpus-parse.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/corpus/runners/test-corpus-script-execution.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/corpus/runners/test-corpus-script-execution.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-command-substitution.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-command-substitution.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-expect-file-ops-validation.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-expect-file-ops-validation.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-find-exec-patterns.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-find-exec-patterns.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-pattern-flow.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-pattern-flow.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-treesitter-workarounds.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/integration/test-treesitter-workarounds.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/analysis/test-bash-parser-recursive.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/analysis/test-bash-parser-recursive.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/analysis/test-input-validation.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/analysis/test-input-validation.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/analysis/test-parser-extension.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/analysis/test-parser-extension.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/bash-parser.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-ast-structure-dump.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-ast-structure-dump.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-ast-traversal-completeness.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-ast-traversal-completeness.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-cloud-auth-plugin.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-cloud-auth-plugin.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-coverage.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-coverage.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-filesystem-plugin.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-filesystem-plugin.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-glob-matching.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-glob-matching.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-plugins.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/core/test-plugins.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-bash-parser-semantics.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-bash-parser-semantics.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-command-semantics.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-command-semantics.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-semantics-validation.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-semantics-validation.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-variable-chain-ampersand.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-variable-chain-ampersand.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-variable-resolution-unit.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/unit/semantic/test-variable-resolution-unit.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/test-assertions.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/test-assertions.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/test-helper.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/test/test-helper.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/test-callback-closure.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/test-callback-closure.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test-violation-info-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test-violation-info-spec.el (source)...
+Loading: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/test-arg-extraction-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/test-arg-extraction-spec.el (source)...
+Running 796 tests (2026-03-12 11:42:48+0100, selector ‘t’)
+   passed    1/796  jf/bash-parser-test-background-001 (0.003848 sec)
+   passed    2/796  jf/bash-parser-test-background-002 (0.003090 sec)
+   passed    3/796  jf/bash-parser-test-chain-001 (0.002979 sec)
+   passed    4/796  jf/bash-parser-test-chain-002 (0.002964 sec)
+   passed    5/796  jf/bash-parser-test-chain-003 (0.003088 sec)
+   passed    6/796  jf/bash-parser-test-chain-004 (0.003142 sec)
+   passed    7/796  jf/bash-parser-test-complex-001 (0.003152 sec)
+   passed    8/796  jf/bash-parser-test-complex-002 (0.005995 sec)
+   passed    9/796  jf/bash-parser-test-complex-003 (0.003034 sec)
+   passed   10/796  jf/bash-parser-test-complex-004 (0.003228 sec)
+   passed   11/796  jf/bash-parser-test-complex-005 (0.003114 sec)
+   passed   12/796  jf/bash-parser-test-dangerous-001 (0.002956 sec)
+   passed   13/796  jf/bash-parser-test-dangerous-002 (0.002912 sec)
+   passed   14/796  jf/bash-parser-test-find-001 (0.003009 sec)
+   passed   15/796  jf/bash-parser-test-find-002 (0.003090 sec)
+   passed   16/796  jf/bash-parser-test-find-003 (0.003095 sec)
+   passed   17/796  jf/bash-parser-test-find-004 (0.003053 sec)
+   passed   18/796  jf/bash-parser-test-git-001 (0.002989 sec)
+   passed   19/796  jf/bash-parser-test-git-002 (0.003042 sec)
+   passed   20/796  jf/bash-parser-test-git-003 (0.003017 sec)
+   passed   21/796  jf/bash-parser-test-git-004 (0.003112 sec)
+   passed   22/796  jf/bash-parser-test-git-005 (0.003007 sec)
+   passed   23/796  jf/bash-parser-test-glob-001 (0.002993 sec)
+   passed   24/796  jf/bash-parser-test-glob-002 (0.002934 sec)
+   passed   25/796  jf/bash-parser-test-glob-003 (0.002944 sec)
+   passed   26/796  jf/bash-parser-test-glob-004 (0.003045 sec)
+   passed   27/796  jf/bash-parser-test-glob-005 (0.003054 sec)
+   passed   28/796  jf/bash-parser-test-glob-006 (0.003178 sec)
+   passed   29/796  jf/bash-parser-test-heredoc-001 (0.003071 sec)
+   passed   30/796  jf/bash-parser-test-manual-basic (0.002963 sec)
+   passed   31/796  jf/bash-parser-test-manual-dangerous-git-push (0.002932 sec)
+   passed   32/796  jf/bash-parser-test-manual-dangerous-rm (0.002983 sec)
+   passed   33/796  jf/bash-parser-test-manual-git-subcommand (0.002995 sec)
+   passed   34/796  jf/bash-parser-test-pipeline-001 (0.003139 sec)
+   passed   35/796  jf/bash-parser-test-pipeline-002 (0.003119 sec)
+   passed   36/796  jf/bash-parser-test-pipeline-003 (0.003039 sec)
+   passed   37/796  jf/bash-parser-test-quote-001 (0.003010 sec)
+   passed   38/796  jf/bash-parser-test-quote-002 (0.003044 sec)
+   passed   39/796  jf/bash-parser-test-quote-003 (0.002985 sec)
+   passed   40/796  jf/bash-parser-test-quote-004 (0.003181 sec)
+   passed   41/796  jf/bash-parser-test-quote-005 (0.002960 sec)
+   passed   42/796  jf/bash-parser-test-redirect-001 (0.002952 sec)
+   passed   43/796  jf/bash-parser-test-redirect-002 (0.003096 sec)
+   passed   44/796  jf/bash-parser-test-redirect-003 (0.002955 sec)
+   passed   45/796  jf/bash-parser-test-redirect-004 (0.002976 sec)
+   passed   46/796  jf/bash-parser-test-redirect-005 (0.002966 sec)
+   passed   47/796  jf/bash-parser-test-redirect-006 (0.002946 sec)
+   passed   48/796  jf/bash-parser-test-simple-001 (0.002993 sec)
+   passed   49/796  jf/bash-parser-test-simple-002 (0.003000 sec)
+   passed   50/796  jf/bash-parser-test-simple-003 (0.002984 sec)
+   passed   51/796  jf/bash-parser-test-simple-004 (0.003112 sec)
+   passed   52/796  jf/bash-parser-test-substitution-001 (0.006079 sec)
+   passed   53/796  jf/bash-parser-test-substitution-002 (0.006078 sec)
+   passed   54/796  jf/bash-parser-test-substitution-003 (0.006131 sec)
+   passed   55/796  jf/bash-parser-test-variable-001 (0.003017 sec)
+   passed   56/796  jf/bash-parser-test-variable-002 (0.003058 sec)
+   passed   57/796  jf/bash-parser-test-variable-003 (0.003007 sec)
+   passed   58/796  jf/bash-parser-test-variable-004 (0.002955 sec)
+   passed   59/796  jf/bash-parser-test-variable-005 (0.003056 sec)
+   passed   60/796  jf/bash-parser-test-variable-006 (0.003051 sec)
+   passed   61/796  jf/bash-parser-test-variable-007 (0.003045 sec)
+   passed   62/796  jf/bash-parser-test-variable-008 (0.003091 sec)
+   passed   63/796  jf/bash-parser-test-wrapper-001 (0.003016 sec)
+   passed   64/796  jf/bash-parser-test-wrapper-002 (0.002981 sec)
+   passed   65/796  jf/bash-parser-test-wrapper-003 (0.002968 sec)
+   passed   66/796  jf/bash-parser-test-wrapper-004 (0.002973 sec)
+   passed   67/796  test-arithmetic-expansion-still-works (0.003053 sec)
+AND chain: 11 total nodes, 11 visited
+   passed   68/796  test-ast-traversal-and-chain (0.003155 sec)
+Command substitution: 10 total nodes, 10 visited
+   passed   69/796  test-ast-traversal-command-substitution (0.002979 sec)
+Command with args: 7 total nodes, 7 visited
+   passed   70/796  test-ast-traversal-command-with-args (0.003073 sec)
+Complex chain: 20 total nodes, 20 visited
+   passed   71/796  test-ast-traversal-complex-chain (0.003000 sec)
+Multiple redirections: 15 total nodes, 15 visited
+   passed   72/796  test-ast-traversal-multiple-redirections (0.002968 sec)
+Nested subshells: 11 total nodes, 11 visited
+   passed   73/796  test-ast-traversal-nested-subshells (0.003006 sec)
+Nested substitution: 16 total nodes, 16 visited
+   passed   74/796  test-ast-traversal-nested-substitution (0.003089 sec)
+OR chain: 12 total nodes, 12 visited
+   passed   75/796  test-ast-traversal-or-chain (0.002980 sec)
+Output redirection: 9 total nodes, 9 visited
+   passed   76/796  test-ast-traversal-output-redirection (0.002933 sec)
+Find with exec: 13 total nodes, 13 visited
+   passed   77/796  test-ast-traversal-real-world-find-exec (0.002967 sec)
+Real git commit: 22 total nodes, 22 visited
+   passed   78/796  test-ast-traversal-real-world-git-commit (0.003022 sec)
+Pipeline+chain combo: 21 total nodes, 21 visited
+   passed   79/796  test-ast-traversal-real-world-pipeline-chain-combo (0.003041 sec)
+All node types: (">" "file_redirect" "|" "word" "command_name" "command" "pipeline" "redirected_statement" "program")
+Visited node types: (">" "file_redirect" "|" "word" "command_name" "command" "pipeline" "redirected_statement" "program")
+   passed   80/796  test-ast-traversal-reports-all-node-types (0.003137 sec)
+Simple command: 5 total nodes, 5 visited
+   passed   81/796  test-ast-traversal-simple-command (0.003091 sec)
+Simple pipeline: 11 total nodes, 11 visited
+   passed   82/796  test-ast-traversal-simple-pipeline (0.002997 sec)
+Subshell: 13 total nodes, 13 visited
+   passed   83/796  test-ast-traversal-subshell (0.003055 sec)
+Three-stage pipeline: 15 total nodes, 15 visited
+   passed   84/796  test-ast-traversal-three-stage-pipeline (0.003120 sec)
+   passed   85/796  test-backward-compat-copy-command (0.003203 sec)
+   passed   86/796  test-backward-compat-corpus-delete-operations (0.006026 sec)
+   passed   87/796  test-backward-compat-corpus-read-operations (0.009185 sec)
+   passed   88/796  test-backward-compat-corpus-write-operations (0.006192 sec)
+   passed   89/796  test-backward-compat-pipeline (0.003253 sec)
+   passed   90/796  test-backward-compat-simple-delete (0.003126 sec)
+   passed   91/796  test-backward-compat-simple-read (0.003110 sec)
+   passed   92/796  test-backward-compat-simple-write (0.003053 sec)
+   passed   93/796  test-backward-compat-unresolved-variables (0.003001 sec)
+   passed   94/796  test-backward-compat-variable-resolution (0.003013 sec)
+   passed   95/796  test-callback-closure-basic (0.000038 sec)
+   passed   96/796  test-callback-closure-preserved-in-transient (0.000066 sec)
+   passed   97/796  test-cd-absolute-path-multiple-operations (0.003256 sec)
+   passed   98/796  test-cd-absolute-path-simple (0.003179 sec)
+   passed   99/796  test-cd-absolute-path-with-relative-file (0.003169 sec)
+   passed  100/796  test-cd-and-run-script (0.003170 sec)
+   passed  101/796  test-cd-conditional-both-branches (0.009394 sec)
+   passed  102/796  test-cd-empty-string (0.003200 sec)
+   passed  103/796  test-cd-for-loop-files (0.006093 sec)
+   passed  104/796  test-cd-in-if-statement (0.012707 sec)
+   passed  105/796  test-cd-no-args (0.003691 sec)
+   passed  106/796  test-cd-relative-path-current-dir (0.003264 sec)
+   passed  107/796  test-cd-relative-path-dot-slash (0.003275 sec)
+   passed  108/796  test-cd-relative-path-parent (0.003109 sec)
+   passed  109/796  test-cd-relative-path-subdir (0.003073 sec)
+   passed  110/796  test-cd-semicolon-separator (0.003119 sec)
+   passed  111/796  test-cd-sequence-relative-after-absolute (0.003201 sec)
+   passed  112/796  test-cd-sequence-two-cds (0.003195 sec)
+   passed  113/796  test-cd-to-file-not-directory (0.003182 sec)
+   passed  114/796  test-cd-with-command-substitution (0.006397 sec)
+   passed  115/796  test-cd-with-dash (0.003180 sec)
+   passed  116/796  test-cd-with-operations-between (0.003413 sec)
+   passed  117/796  test-cd-with-or-fallback (0.003224 sec)
+   passed  118/796  test-cd-with-pwd-variable (0.003239 sec)
+   passed  119/796  test-cd-with-tilde (0.003089 sec)
+   passed  120/796  test-cd-with-variable-absolute (0.003108 sec)
+   passed  121/796  test-cd-with-variable-relative (0.003181 sec)
+   passed  122/796  test-cloud-auth-plugin-aws-no-auth-flags (0.003039 sec)
+   passed  123/796  test-cloud-auth-plugin-aws-profile (0.003007 sec)
+   passed  124/796  test-cloud-auth-plugin-aws-profile-and-region (0.003052 sec)
+   passed  125/796  test-cloud-auth-plugin-aws-region (0.002979 sec)
+   passed  126/796  test-cloud-auth-plugin-aws-vault-exec (0.002994 sec)
+   passed  127/796  test-cloud-auth-plugin-aws-vault-exec-nested (0.002990 sec)
+   passed  128/796  test-cloud-auth-plugin-aws-vault-invalid-subcommand (0.003036 sec)
+   passed  129/796  test-cloud-auth-plugin-aws-vault-login (0.002999 sec)
+   passed  130/796  test-cloud-auth-plugin-aws-vault-no-account (0.002918 sec)
+   passed  131/796  test-cloud-auth-plugin-azure-location (0.002956 sec)
+   passed  132/796  test-cloud-auth-plugin-azure-multiple-flags (0.003060 sec)
+   passed  133/796  test-cloud-auth-plugin-azure-subscription (0.003039 sec)
+   passed  134/796  test-cloud-auth-plugin-claims-auth-flags (0.003006 sec)
+   passed  135/796  test-cloud-auth-plugin-claims-command-name (0.003073 sec)
+   passed  136/796  test-cloud-auth-plugin-claims-positional-account (0.002982 sec)
+   passed  137/796  test-cloud-auth-plugin-complex-aws-command (0.003133 sec)
+   passed  138/796  test-cloud-auth-plugin-gcloud-account (0.003081 sec)
+   passed  139/796  test-cloud-auth-plugin-gcloud-all-flags (0.003088 sec)
+   passed  140/796  test-cloud-auth-plugin-gcloud-multiple-flags (0.003017 sec)
+   passed  141/796  test-cloud-auth-plugin-gcloud-project (0.002964 sec)
+   passed  142/796  test-cloud-auth-plugin-gcloud-region (0.003002 sec)
+   passed  143/796  test-cloud-auth-plugin-gcloud-zone (0.003066 sec)
+   passed  144/796  test-cloud-auth-plugin-in-orchestrator (0.003193 sec)
+   passed  145/796  test-cloud-auth-plugin-metadata (0.003006 sec)
+   passed  146/796  test-cloud-auth-plugin-predicate-aws (0.003047 sec)
+   passed  147/796  test-cloud-auth-plugin-predicate-aws-vault (0.002976 sec)
+   passed  148/796  test-cloud-auth-plugin-predicate-azure (0.002982 sec)
+   passed  149/796  test-cloud-auth-plugin-predicate-gcloud (0.003102 sec)
+   passed  150/796  test-cloud-auth-plugin-predicate-non-cloud (0.002992 sec)
+   passed  151/796  test-cloud-auth-plugin-registration (0.000053 sec)
+   passed  152/796  test-cmdsub-backtick-syntax (0.005838 sec)
+   passed  153/796  test-cmdsub-cat-wc (0.006020 sec)
+   passed  154/796  test-cmdsub-conditional-inside (0.006011 sec)
+   passed  155/796  test-cmdsub-cp-two-which (0.009047 sec)
+   passed  156/796  test-cmdsub-find-pipe-wc (0.006594 sec)
+   passed  157/796  test-cmdsub-find-sort (0.006031 sec)
+   passed  158/796  test-cmdsub-for-loop-basename (0.006030 sec)
+   passed  159/796  test-cmdsub-for-loop-find (0.006076 sec)
+   passed  160/796  test-cmdsub-git-commit-message (0.006384 sec)
+   passed  161/796  test-cmdsub-in-arithmetic (0.006058 sec)
+   passed  162/796  test-cmdsub-in-double-quotes (0.005995 sec)
+   passed  163/796  test-cmdsub-in-heredoc (0.006071 sec)
+   passed  164/796  test-cmdsub-in-test-conditional (0.006054 sec)
+   passed  165/796  test-cmdsub-multi-stage-pipe (0.006194 sec)
+   failed  166/796  test-cmdsub-nested-backticks (0.006390 sec)
+   passed  167/796  test-cmdsub-nested-basename (0.011885 sec)
+   passed  168/796  test-cmdsub-nested-dirname-which (0.012039 sec)
+   passed  169/796  test-cmdsub-nested-find (0.005982 sec)
+   passed  170/796  test-cmdsub-nested-quotes (0.005962 sec)
+   passed  171/796  test-cmdsub-recursive-depth-limiting (0.020636 sec)
+   passed  172/796  test-cmdsub-recursive-find-parse (0.006125 sec)
+   passed  173/796  test-cmdsub-recursive-parsing-empty (0.003124 sec)
+   passed  174/796  test-cmdsub-recursive-parsing-nested (0.011829 sec)
+   passed  175/796  test-cmdsub-recursive-parsing-simple (0.006063 sec)
+   passed  176/796  test-cmdsub-triple-nesting (0.023699 sec)
+   passed  177/796  test-cmdsub-two-with-globs (0.008849 sec)
+   passed  178/796  test-cmdsub-variable-assignment (0.005927 sec)
+   passed  179/796  test-cmdsub-with-pipe-inside (0.005899 sec)
+   passed  180/796  test-conditional-command-based (0.009905 sec)
+   passed  181/796  test-conditional-directory-test (0.005803 sec)
+   passed  182/796  test-conditional-else-branch (0.009032 sec)
+   passed  183/796  test-conditional-executable-test (0.006027 sec)
+   passed  184/796  test-conditional-exists-test (0.006046 sec)
+   passed  185/796  test-conditional-readable-test (0.006190 sec)
+   passed  186/796  test-conditional-test-vs-branch (0.005872 sec)
+   passed  187/796  test-conditional-then-branch (0.005982 sec)
+   passed  188/796  test-conditional-with-simple-path (0.005964 sec)
+   passed  189/796  test-conditional-writable-test (0.006123 sec)
+   passed  190/796  test-confidence-degradation-for-unresolved (0.003198 sec)
+   passed  191/796  test-confidence-high-for-fully-resolved (0.003107 sec)
+   passed  192/796  test-corpus-archive-001 (0.003147 sec)
+   passed  193/796  test-corpus-archive-002 (0.003112 sec)
+   passed  194/796  test-corpus-archive-003 (0.003068 sec)
+   passed  195/796  test-corpus-chain-001 (0.003224 sec)
+   passed  196/796  test-corpus-chain-002 (0.003250 sec)
+   passed  197/796  test-corpus-chain-003 (0.003167 sec)
+   passed  198/796  test-corpus-copy-001 (0.003139 sec)
+   passed  199/796  test-corpus-copy-002 (0.003041 sec)
+   passed  200/796  test-corpus-copy-003 (0.003176 sec)
+   passed  201/796  test-corpus-delete-001 (0.003197 sec)
+   passed  202/796  test-corpus-delete-002 (0.003114 sec)
+   passed  203/796  test-corpus-delete-003 (0.003018 sec)
+   passed  204/796  test-corpus-delete-004 (0.003021 sec)
+   passed  205/796  test-corpus-directory-001 (0.002986 sec)
+   passed  206/796  test-corpus-directory-002 (0.003103 sec)
+   passed  207/796  test-corpus-find-001 (0.003245 sec)
+   passed  208/796  test-corpus-find-002 (0.003167 sec)
+   passed  209/796  test-corpus-find-003 (0.003225 sec)
+   passed  210/796  test-corpus-git-001 (0.003034 sec)
+   passed  211/796  test-corpus-git-002 (0.003092 sec)
+   passed  212/796  test-corpus-git-003 (0.003112 sec)
+   passed  213/796  test-corpus-git-004 (0.003075 sec)
+   passed  214/796  test-corpus-glob-001 (0.002967 sec)
+   passed  215/796  test-corpus-glob-002 (0.002976 sec)
+   passed  216/796  test-corpus-glob-003 (0.003041 sec)
+   passed  217/796  test-corpus-glob-004 (0.003075 sec)
+Corpus jf/bash-command-substitution-corpus: 2/23 tests have :expect-file-ops
+Corpus jf/bash-combined-patterns-corpus: 1/39 tests have :expect-file-ops
+Corpus jf/bash-conditional-corpus: 1/18 tests have :expect-file-ops
+Corpus jf/bash-for-loop-corpus: 1/27 tests have :expect-file-ops
+Corpus jf/bash-heredoc-corpus: 1/23 tests have :expect-file-ops
+Total tests with :expect-file-ops: 6
+   passed  218/796  test-corpus-has-expect-file-ops (0.000109 sec)
+   passed  219/796  test-corpus-integration-001 (0.018323 sec)
+   passed  220/796  test-corpus-integration-002 (0.006203 sec)
+   passed  221/796  test-corpus-integration-003 (0.009078 sec)
+   passed  222/796  test-corpus-integration-004 (0.003205 sec)
+   passed  223/796  test-corpus-integration-005 (0.006170 sec)
+   passed  224/796  test-corpus-match-pattern-001 (0.003074 sec)
+   passed  225/796  test-corpus-match-pattern-002 (0.003084 sec)
+   passed  226/796  test-corpus-match-pattern-003 (0.003156 sec)
+   passed  227/796  test-corpus-match-pattern-004 (0.003030 sec)
+   passed  228/796  test-corpus-match-pattern-005 (0.003008 sec)
+   passed  229/796  test-corpus-match-pattern-006 (0.002962 sec)
+   passed  230/796  test-corpus-match-pattern-007 (0.003138 sec)
+   passed  231/796  test-corpus-match-pattern-008 (0.003089 sec)
+   passed  232/796  test-corpus-modify-001 (0.003015 sec)
+   passed  233/796  test-corpus-modify-002 (0.003104 sec)
+   passed  234/796  test-corpus-modify-003 (0.003072 sec)
+   passed  235/796  test-corpus-modify-004 (0.003101 sec)
+   passed  236/796  test-corpus-move-001 (0.003074 sec)
+   passed  237/796  test-corpus-move-002 (0.003156 sec)
+   passed  238/796  test-corpus-no-ops-001 (0.002997 sec)
+   passed  239/796  test-corpus-no-ops-002 (0.002950 sec)
+   passed  240/796  test-corpus-no-ops-003 (0.002963 sec)
+   passed  241/796  test-corpus-no-ops-004 (0.003016 sec)
+   passed  242/796  test-corpus-pipeline-001 (0.003206 sec)
+   passed  243/796  test-corpus-pipeline-002 (0.003174 sec)
+   passed  244/796  test-corpus-read-001 (0.003106 sec)
+   passed  245/796  test-corpus-read-002 (0.003057 sec)
+   passed  246/796  test-corpus-read-003 (0.003146 sec)
+   passed  247/796  test-corpus-read-004 (0.003048 sec)
+   passed  248/796  test-corpus-read-005 (0.003089 sec)
+   passed  249/796  test-corpus-read-006 (0.002994 sec)
+   passed  250/796  test-corpus-redirect-001 (0.003001 sec)
+   passed  251/796  test-corpus-redirect-002 (0.003011 sec)
+   passed  252/796  test-corpus-redirect-003 (0.003308 sec)
+   passed  253/796  test-corpus-redirect-004 (0.003143 sec)
+   passed  254/796  test-corpus-variable-001 (0.003052 sec)
+   passed  255/796  test-corpus-variable-002 (0.003096 sec)
+   passed  256/796  test-corpus-variable-003 (0.003059 sec)
+   passed  257/796  test-corpus-variable-004 (0.003120 sec)
+   passed  258/796  test-corpus-variable-005 (0.003419 sec)
+   passed  259/796  test-corpus-variable-chain-001 (0.003200 sec)
+   passed  260/796  test-corpus-variable-chain-002 (0.003157 sec)
+   passed  261/796  test-corpus-variable-chain-003 (0.003126 sec)
+   passed  262/796  test-corpus-write-001 (0.003018 sec)
+   passed  263/796  test-corpus-write-002 (0.002993 sec)
+   passed  264/796  test-corpus-write-003 (0.003201 sec)
+   passed  265/796  test-corpus-write-004 (0.003131 sec)
+   passed  266/796  test-coverage-by-type-multiple-types (0.000074 sec)
+   passed  267/796  test-coverage-by-type-single-type (0.000060 sec)
+   passed  268/796  test-coverage-full-coverage (0.000065 sec)
+   passed  269/796  test-coverage-no-coverage (0.000058 sec)
+   passed  270/796  test-coverage-partial-coverage (0.000071 sec)
+   passed  271/796  test-coverage-shared-claiming (0.000052 sec)
+   passed  272/796  test-coverage-unclaimed-tokens-list (0.000063 sec)
+   passed  273/796  test-coverage-zero-tokens (0.000047 sec)
+   passed  274/796  test-deploy-script-pattern (0.003330 sec)
+   passed  275/796  test-detect-braced-variable (0.000044 sec)
+   passed  276/796  test-detect-duplicate-variables (0.000042 sec)
+   passed  277/796  test-detect-mixed-variable-syntax (0.000040 sec)
+   passed  278/796  test-detect-multiple-variables (0.000036 sec)
+   passed  279/796  test-detect-no-variables (0.000036 sec)
+   passed  280/796  test-detect-simple-dollar-variable (0.000037 sec)
+   passed  281/796  test-detect-variable-at-end (0.000035 sec)
+   passed  282/796  test-detect-variable-order (0.000042 sec)
+   passed  283/796  test-double-paren-at-start-only (0.008977 sec)
+   passed  284/796  test-double-paren-chain (0.008774 sec)
+   passed  285/796  test-double-paren-simple-command (0.008844 sec)
+   passed  286/796  test-double-paren-with-args (0.008826 sec)
+
+=== AST Structure: find . -name ’*.log’ -exec rm {} \; ===
+[program] "find . -name '*.log' -exec rm {} \;" (pos 1-36)
+  [command] "find . -name '*.log' -exec rm {} \;" (pos 1-36)
+    [command_name] "find" (pos 1-5)
+      [word] "find" (pos 1-5)
+    [word] "." (pos 6-7)
+    [word] "-name" (pos 8-13)
+    [raw_string] "'*.log'" (pos 14-21)
+    [word] "-exec" (pos 22-27)
+    [word] "rm" (pos 28-30)
+    [concatenation] "{}" (pos 31-33)
+      [word] "{" (pos 31-32)
+      [word] "}" (pos 32-33)
+    [word] "\;" (pos 34-36)
+
+   passed  287/796  test-dump-ast-find-exec (0.003009 sec)
+
+=== AST Structure: git add . && git commit -m ’Fix bug’ && git push ===
+[program] "git add . && git commit -m 'Fix bug' ..." (pos 1-49)
+  [list] "git add . && git commit -m 'Fix bug' ..." (pos 1-49)
+    [list] "git add . && git commit -m 'Fix bug'" (pos 1-37)
+      [command] "git add ." (pos 1-10)
+        [command_name] "git" (pos 1-4)
+          [word] "git" (pos 1-4)
+        [word] "add" (pos 5-8)
+        [word] "." (pos 9-10)
+      [&&] "&&" (pos 11-13)
+      [command] "git commit -m 'Fix bug'" (pos 14-37)
+        [command_name] "git" (pos 14-17)
+          [word] "git" (pos 14-17)
+        [word] "commit" (pos 18-24)
+        [word] "-m" (pos 25-27)
+        [raw_string] "'Fix bug'" (pos 28-37)
+    [&&] "&&" (pos 38-40)
+    [command] "git push" (pos 41-49)
+      [command_name] "git" (pos 41-44)
+        [word] "git" (pos 41-44)
+      [word] "push" (pos 45-49)
+
+   passed  288/796  test-dump-ast-git-chain (0.003057 sec)
+
+=== AST Structure: cat file.txt | grep pattern ===
+[program] "cat file.txt | grep pattern" (pos 1-28)
+  [pipeline] "cat file.txt | grep pattern" (pos 1-28)
+    [command] "cat file.txt" (pos 1-13)
+      [command_name] "cat" (pos 1-4)
+        [word] "cat" (pos 1-4)
+      [word] "file.txt" (pos 5-13)
+    [|] "|" (pos 14-15)
+    [command] "grep pattern" (pos 16-28)
+      [command_name] "grep" (pos 16-20)
+        [word] "grep" (pos 16-20)
+      [word] "pattern" (pos 21-28)
+
+   passed  289/796  test-dump-ast-pipeline (0.002928 sec)
+
+=== AST Structure: echo hello ===
+[program] "echo hello" (pos 1-11)
+  [command] "echo hello" (pos 1-11)
+    [command_name] "echo" (pos 1-5)
+      [word] "echo" (pos 1-5)
+    [word] "hello" (pos 6-11)
+
+   passed  290/796  test-dump-ast-simple-command (0.002919 sec)
+
+=== AST Structure: cat file.txt | grep pattern | sort ===
+[program] "cat file.txt | grep pattern | sort" (pos 1-35)
+  [pipeline] "cat file.txt | grep pattern | sort" (pos 1-35)
+    [command] "cat file.txt" (pos 1-13)
+      [command_name] "cat" (pos 1-4)
+        [word] "cat" (pos 1-4)
+      [word] "file.txt" (pos 5-13)
+    [|] "|" (pos 14-15)
+    [command] "grep pattern" (pos 16-28)
+      [command_name] "grep" (pos 16-20)
+        [word] "grep" (pos 16-20)
+      [word] "pattern" (pos 21-28)
+    [|] "|" (pos 29-30)
+    [command] "sort" (pos 31-35)
+      [command_name] "sort" (pos 31-35)
+        [word] "sort" (pos 31-35)
+
+   passed  291/796  test-dump-ast-three-stage-pipeline (0.003046 sec)
+
+=== AST Structure: cat file.txt | grep pattern > out.txt ===
+[program] "cat file.txt | grep pattern > out.txt" (pos 1-38)
+  [redirected_statement] "cat file.txt | grep pattern > out.txt" (pos 1-38)
+    [pipeline] "cat file.txt | grep pattern" (pos 1-28)
+      [command] "cat file.txt" (pos 1-13)
+        [command_name] "cat" (pos 1-4)
+          [word] "cat" (pos 1-4)
+        [word] "file.txt" (pos 5-13)
+      [|] "|" (pos 14-15)
+      [command] "grep pattern" (pos 16-28)
+        [command_name] "grep" (pos 16-20)
+          [word] "grep" (pos 16-20)
+        [word] "pattern" (pos 21-28)
+    [file_redirect] "> out.txt" (pos 29-38)
+      [>] ">" (pos 29-30)
+      [word] "out.txt" (pos 31-38)
+
+   passed  292/796  test-dump-ast-with-redirections (0.002992 sec)
+   passed  293/796  test-execution-parity-relative-path (0.004179 sec)
+   passed  294/796  test-expect-file-ops-structure (0.000052 sec)
+   passed  295/796  test-extract-assignment-command-substitution-in-value (0.000053 sec)
+   passed  296/796  test-extract-assignment-from-positional-args (0.000046 sec)
+   passed  297/796  test-extract-assignment-multiple-in-args (0.000055 sec)
+   passed  298/796  test-extract-assignment-no-assignments (0.000042 sec)
+   passed  299/796  test-extract-assignment-skips-flags (0.000046 sec)
+   passed  300/796  test-extract-assignment-split-format (0.000049 sec)
+   passed  301/796  test-extract-assignment-unified-format (0.000042 sec)
+   passed  302/796  test-extract-assignment-unresolved-skipped (0.000045 sec)
+   passed  303/796  test-extract-assignment-with-relative-path (0.000051 sec)
+   passed  304/796  test-extract-assignment-with-variable-resolution (0.000048 sec)
+   passed  305/796  test-extraction-absolute-path (0.003201 sec)
+   passed  306/796  test-extraction-append-redirection (0.003054 sec)
+   passed  307/796  test-extraction-command-chain (0.003192 sec)
+   passed  308/796  test-extraction-command-with-multiple-file-arguments (0.003064 sec)
+   passed  309/796  test-extraction-command-with-no-file-operations (0.002994 sec)
+   passed  310/796  test-extraction-duplicate-file-operations (0.002990 sec)
+   failed  311/796  test-extraction-dynamic-redirect-multiple-subs (0.008991 sec)
+   failed  312/796  test-extraction-dynamic-redirect-nested (0.012365 sec)
+   failed  313/796  test-extraction-dynamic-redirect-simple (0.006222 sec)
+   failed  314/796  test-extraction-heredoc-dynamic-redirect (0.003215 sec)
+   passed  315/796  test-extraction-high-confidence-from-known-command (0.003089 sec)
+   passed  316/796  test-extraction-high-confidence-from-redirection (0.003048 sec)
+   passed  317/796  test-extraction-input-redirection (0.003154 sec)
+   passed  318/796  test-extraction-main-function-chain (0.003179 sec)
+   passed  319/796  test-extraction-main-function-pipeline (0.003114 sec)
+   passed  320/796  test-extraction-main-function-simple-command (0.003160 sec)
+   passed  321/796  test-extraction-metadata-for-positional-arg (0.003104 sec)
+   passed  322/796  test-extraction-metadata-for-redirection (0.003043 sec)
+   passed  323/796  test-extraction-multiple-redirections (0.003173 sec)
+   passed  324/796  test-extraction-output-redirection (0.002993 sec)
+   passed  325/796  test-extraction-pipeline-with-multiple-file-operations (0.003088 sec)
+   passed  326/796  test-extraction-recursive-glob-pattern (0.003112 sec)
+   passed  327/796  test-extraction-redirections-keep-high-confidence-with-variables (0.003106 sec)
+   passed  328/796  test-extraction-relative-path (0.003095 sec)
+   passed  329/796  test-extraction-same-file-different-operations (0.003030 sec)
+   passed  330/796  test-extraction-simple-glob-pattern (0.002964 sec)
+   passed  331/796  test-extraction-simple-read-command (0.003016 sec)
+   failed  332/796  test-extraction-xargs-null-separated (0.003270 sec)
+   failed  333/796  test-extraction-xargs-placeholder (0.003258 sec)
+   failed  334/796  test-extraction-xargs-simple-batch (0.003277 sec)
+   failed  335/796  test-extraction-xargs-with-flags (0.003210 sec)
+   passed  336/796  test-feature-detection-pattern-flow (0.000045 sec)
+   passed  337/796  test-feature-detection-recursive-analysis (0.000041 sec)
+   passed  338/796  test-feature-detection-unknown-feature (0.000043 sec)
+   passed  339/796  test-filesystem-plugin-basic-redirection (0.003039 sec)
+   passed  340/796  test-filesystem-plugin-exec-blocks (0.003051 sec)
+   passed  341/796  test-filesystem-plugin-in-orchestrator (0.003123 sec)
+   passed  342/796  test-filesystem-plugin-matches-existing-extraction (0.003180 sec)
+   passed  343/796  test-filesystem-plugin-metadata (0.003086 sec)
+   passed  344/796  test-filesystem-plugin-no-file-operations (0.003166 sec)
+   passed  345/796  test-filesystem-plugin-positional-args (0.003074 sec)
+   passed  346/796  test-filesystem-plugin-predicate-has-file-tokens (0.012270 sec)
+   passed  347/796  test-filesystem-plugin-registration (0.000058 sec)
+   passed  348/796  test-filesystem-plugin-token-claiming-command-name (0.003742 sec)
+   passed  349/796  test-filesystem-plugin-token-claiming-redirections (0.003117 sec)
+   passed  350/796  test-find-exec-rm-pattern (0.003305 sec)
+   passed  351/796  test-find-exec-workspace-validation (0.003111 sec)
+   passed  352/796  test-find-multiple-exec-blocks (0.003155 sec)
+   passed  353/796  test-find-pattern-metadata (0.000056 sec)
+   passed  354/796  test-glob-character-class-letters (0.000121 sec)
+   passed  355/796  test-glob-character-class-match (0.000086 sec)
+   passed  356/796  test-glob-character-class-no-match (0.000070 sec)
+   passed  357/796  test-glob-combined-wildcards (0.000088 sec)
+   passed  358/796  test-glob-complex-pattern (0.000082 sec)
+   passed  359/796  test-glob-double-star-at-end (0.000074 sec)
+   passed  360/796  test-glob-double-star-at-start (0.000082 sec)
+   passed  361/796  test-glob-double-star-in-middle (0.000076 sec)
+   passed  362/796  test-glob-double-star-multiple-segments (0.000086 sec)
+   passed  363/796  test-glob-double-star-zero-segments (0.000063 sec)
+   passed  364/796  test-glob-empty-path (0.000046 sec)
+   passed  365/796  test-glob-empty-pattern (0.000043 sec)
+   passed  366/796  test-glob-exact-match (0.000060 sec)
+   passed  367/796  test-glob-literal-dots (0.000064 sec)
+   passed  368/796  test-glob-literal-parens (0.000055 sec)
+   passed  369/796  test-glob-literal-plus-chars (0.000064 sec)
+   passed  370/796  test-glob-multiple-question-marks (0.000075 sec)
+   passed  371/796  test-glob-nested-double-stars (0.000082 sec)
+   passed  372/796  test-glob-no-match-different-directory (0.000061 sec)
+   passed  373/796  test-glob-path-must-match-from-start (0.000059 sec)
+   passed  374/796  test-glob-question-mark-no-match-directory-separator (0.000078 sec)
+   passed  375/796  test-glob-question-mark-no-match-two-chars (0.000048 sec)
+   passed  376/796  test-glob-question-mark-no-match-zero-chars (0.000053 sec)
+   passed  377/796  test-glob-question-mark-single-char (0.000075 sec)
+   passed  378/796  test-glob-recursive-wildcard-match (0.000076 sec)
+   passed  379/796  test-glob-root-path (0.000060 sec)
+   passed  380/796  test-glob-single-level-wildcard-match (0.000072 sec)
+   passed  381/796  test-glob-single-star-one-level-match (0.000066 sec)
+   passed  382/796  test-glob-single-star-rejects-multiple-levels (0.000064 sec)
+   passed  383/796  test-glob-to-regex-asterisk (0.000052 sec)
+   passed  384/796  test-glob-to-regex-character-class (0.000057 sec)
+   passed  385/796  test-glob-to-regex-escapes-special-chars (0.000057 sec)
+   passed  386/796  test-glob-to-regex-question (0.000048 sec)
+   passed  387/796  test-glob-trailing-slash-equivalence (0.000087 sec)
+   passed  388/796  test-glob-trailing-slash-handling (0.000060 sec)
+   passed  389/796  test-grep-pattern-metadata (0.000047 sec)
+   passed  390/796  test-heredoc-append-redirect (0.003148 sec)
+   passed  391/796  test-heredoc-embedded-substitution (0.009264 sec)
+   passed  392/796  test-heredoc-file-creation (0.003019 sec)
+   passed  393/796  test-heredoc-git-commit (0.003036 sec)
+   passed  394/796  test-heredoc-git-commit-multi-line (0.003093 sec)
+   passed  395/796  test-heredoc-multi-line-with-redirect (0.003155 sec)
+   passed  396/796  test-heredoc-mysql-input (0.003029 sec)
+   passed  397/796  test-heredoc-piped (0.003084 sec)
+   passed  398/796  test-heredoc-stderr-redirect (0.003031 sec)
+   passed  399/796  test-heredoc-to-command (0.002989 sec)
+Found 5 integration tests
+   passed  400/796  test-integration-tests-added (0.000073 sec)
+   passed  401/796  test-jf/bash-parse-detects-bash-c-injection (0.006152 sec)
+   passed  402/796  test-jf/bash-parse-detects-env-S-injection (0.002963 sec)
+   passed  403/796  test-jf/bash-parse-detects-sh-c-injection (0.005874 sec)
+   passed  404/796  test-jf/bash-parse-handles-flags-before-injection (0.006025 sec)
+   passed  405/796  test-jf/bash-parse-nested-injection-with-pipeline (0.006226 sec)
+   passed  406/796  test-jf/bash-parse-no-injection-without-flag (0.003014 sec)
+   passed  407/796  test-jf/bash-parse-strips-quotes-from-injection (0.006013 sec)
+   passed  408/796  test-loop-context-metadata (0.006138 sec)
+   passed  409/796  test-loop-empty-body (0.005894 sec)
+   passed  410/796  test-loop-multiple-commands (0.006167 sec)
+   passed  411/796  test-loop-unresolved-variable (0.009180 sec)
+   passed  412/796  test-loop-variable-from-glob (0.006185 sec)
+   passed  413/796  test-loop-variable-from-literal (0.005991 sec)
+   passed  414/796  test-loop-variable-from-substitution (0.008978 sec)
+   passed  415/796  test-loop-variable-glob-with-rm (0.006008 sec)
+   passed  416/796  test-loop-variable-substitution-cat (0.009233 sec)
+   passed  417/796  test-ls-pattern-metadata (0.000049 sec)
+   passed  418/796  test-multiple-cds-with-wildcards (0.003189 sec)
+   passed  419/796  test-nested-conditional-relative-test (0.005995 sec)
+   passed  420/796  test-nested-find-exec-relative-paths (0.003086 sec)
+   passed  421/796  test-nested-for-loop-relative-pattern (0.006140 sec)
+   passed  422/796  test-nested-subshells (0.009451 sec)
+   passed  423/796  test-not-pattern-producer-cat (0.000050 sec)
+   passed  424/796  test-not-pattern-producer-cp (0.000046 sec)
+   passed  425/796  test-not-pattern-producer-mv (0.000050 sec)
+   passed  426/796  test-not-pattern-producer-rm (0.000048 sec)
+   passed  427/796  test-not-pattern-producer-unknown (0.000044 sec)
+   passed  428/796  test-orchestrator-coverage-calculation (0.000090 sec)
+   passed  429/796  test-orchestrator-empty-predicates-always-runs (0.000077 sec)
+Error executing plugin failing-plugin: Plugin failure
+   passed  430/796  test-orchestrator-error-isolation (0.000093 sec)
+   passed  431/796  test-orchestrator-multiple-predicates-all-must-pass (0.000067 sec)
+   passed  432/796  test-orchestrator-parse-complete-passthrough (0.000067 sec)
+Error executing plugin plugin-2: Failure
+   passed  433/796  test-orchestrator-partial-results-on-error (0.000105 sec)
+   passed  434/796  test-orchestrator-plugin-results-included (0.000068 sec)
+Error in predicate for plugin failing-predicate-plugin: Predicate error
+   passed  435/796  test-orchestrator-predicate-error-handling (0.000077 sec)
+   passed  436/796  test-orchestrator-predicate-filtering (0.000075 sec)
+   passed  437/796  test-orchestrator-result-aggregation (0.000077 sec)
+   passed  438/796  test-orchestrator-runs-all-applicable-plugins (0.000090 sec)
+   passed  439/796  test-orchestrator-shared-token-claiming (0.000075 sec)
+   passed  440/796  test-parse-accepts-valid-command (0.003078 sec)
+   passed  441/796  test-parse-accepts-whitespace-padded-command (0.003098 sec)
+   passed  442/796  test-parse-complete-chain (0.003052 sec)
+   passed  443/796  test-parse-complete-pipeline (0.002981 sec)
+   passed  444/796  test-parse-complete-simple-command (0.002946 sec)
+   passed  445/796  test-parse-errors-on-failure (0.000045 sec)
+   passed  446/796  test-parse-rejects-empty-string (0.000081 sec)
+   passed  447/796  test-parse-rejects-list-input (0.000047 sec)
+   passed  448/796  test-parse-rejects-nil-input (0.000049 sec)
+   passed  449/796  test-parse-rejects-number-input (0.000043 sec)
+   passed  450/796  test-parse-rejects-symbol-input (0.000043 sec)
+   passed  451/796  test-parse-rejects-vector-input (0.000044 sec)
+   passed  452/796  test-parser-extension-already-marked-preserved (0.000051 sec)
+   passed  453/796  test-parser-extension-detect-bash-c-injection (0.006026 sec)
+   passed  454/796  test-parser-extension-detect-env-s-injection (0.003094 sec)
+   passed  455/796  test-parser-extension-detect-eval-injection (0.003166 sec)
+   passed  456/796  test-parser-extension-detect-python-c-injection (0.003006 sec)
+   passed  457/796  test-parser-extension-detect-sh-c-injection (0.005931 sec)
+   passed  458/796  test-parser-extension-direct-no-nesting-depth (0.003058 sec)
+   passed  459/796  test-parser-extension-direct-operation-unmarked (0.000056 sec)
+   passed  460/796  test-parser-extension-double-nesting-depth (0.039150 sec)
+   passed  461/796  test-parser-extension-end-to-end-bash-c (0.008954 sec)
+   passed  462/796  test-parser-extension-existing-unchanged (0.003039 sec)
+   passed  463/796  test-parser-extension-injection-with-flags-before (0.006053 sec)
+   passed  464/796  test-parser-extension-leverage-parsed-data (0.009446 sec)
+   passed  465/796  test-parser-extension-mark-exec-block-indirect (0.000070 sec)
+   passed  466/796  test-parser-extension-mixed-operations (0.000069 sec)
+   passed  467/796  test-parser-extension-nested-max-depth (0.000049 sec)
+   passed  468/796  test-parser-extension-nested-with-variables (0.002994 sec)
+   passed  469/796  test-parser-extension-new-extraction-available (0.000047 sec)
+   passed  470/796  test-parser-extension-no-false-positives (0.008969 sec)
+   passed  471/796  test-parser-extension-parse-nested-command (0.003049 sec)
+   passed  472/796  test-parser-extension-parse-nested-multiple-levels (0.008943 sec)
+   passed  473/796  test-parser-extension-parse-nested-preserve-inner-quotes (0.003219 sec)
+   passed  474/796  test-parser-extension-parse-nested-strip-double-quotes (0.003065 sec)
+   passed  475/796  test-parser-extension-parse-nested-strip-single-quotes (0.002990 sec)
+   passed  476/796  test-parser-extension-parse-return-format (0.002995 sec)
+   passed  477/796  test-parser-extension-single-nesting-depth (0.011956 sec)
+   passed  478/796  test-pattern-flow-cat-find (0.006157 sec)
+   passed  479/796  test-pattern-flow-cat-grep (0.006220 sec)
+   passed  480/796  test-pattern-flow-cat-ls (0.006115 sec)
+   passed  481/796  test-pattern-flow-head-find (0.006028 sec)
+   passed  482/796  test-pattern-flow-multiple-patterns (0.006089 sec)
+   passed  483/796  test-pattern-flow-nested (0.012041 sec)
+   passed  484/796  test-pattern-flow-no-pattern (0.006061 sec)
+   passed  485/796  test-pattern-flow-non-reading-command (0.006028 sec)
+   passed  486/796  test-pattern-flow-rm-ls (0.005966 sec)
+   passed  487/796  test-pattern-flow-with-redirection (0.006066 sec)
+   passed  488/796  test-pattern-producer-egrep (0.000052 sec)
+   passed  489/796  test-pattern-producer-fgrep (0.000047 sec)
+   passed  490/796  test-pattern-producer-find (0.000050 sec)
+   passed  491/796  test-pattern-producer-git-ls-files-metadata (0.000049 sec)
+   passed  492/796  test-pattern-producer-git-subcommand (0.000059 sec)
+   passed  493/796  test-pattern-producer-grep-long-flag (0.000046 sec)
+   passed  494/796  test-pattern-producer-grep-with-flag (0.000046 sec)
+   passed  495/796  test-pattern-producer-ls (0.000046 sec)
+   passed  496/796  test-plugin-priority-sorting-higher-first (0.000068 sec)
+   passed  497/796  test-plugin-re-registration-updates-entry (0.000057 sec)
+   passed  498/796  test-plugin-registration-basic (0.000052 sec)
+   passed  499/796  test-plugin-registration-requires-extractor-function (0.000046 sec)
+   passed  500/796  test-plugin-registration-requires-name (0.000046 sec)
+   passed  501/796  test-plugin-registration-requires-numeric-priority (0.000046 sec)
+   passed  502/796  test-plugin-registration-requires-predicates-list (0.000043 sec)
+   passed  503/796  test-plugin-registration-returns-name (0.000046 sec)
+   passed  504/796  test-plugin-result-struct-accessors (0.000047 sec)
+   passed  505/796  test-plugin-result-struct-creation (0.000048 sec)
+   passed  506/796  test-plugin-result-struct-type-predicate (0.000045 sec)
+   passed  507/796  test-plugin-same-priority-maintains-registration-order (0.000067 sec)
+   passed  508/796  test-popd-returns-to-previous (0.003373 sec)
+   passed  509/796  test-progress-bar-custom-width (0.000053 sec)
+   passed  510/796  test-progress-bar-empty (0.000049 sec)
+   passed  511/796  test-progress-bar-full (0.000053 sec)
+   passed  512/796  test-progress-bar-half (0.000054 sec)
+   passed  513/796  test-pushd-absolute-path (0.003160 sec)
+   passed  514/796  test-pwd-assignment-export (0.003168 sec)
+   passed  515/796  test-pwd-assignment-inline (0.003104 sec)
+   passed  516/796  test-pwd-assignment-simple (0.003218 sec)
+   passed  517/796  test-pwd-assignment-with-variable (0.003073 sec)
+   passed  518/796  test-pwd-backtick-substitution (0.005968 sec)
+   passed  519/796  test-pwd-context-empty-var-context (0.003152 sec)
+   passed  520/796  test-pwd-context-mixed-absolute-relative (0.003062 sec)
+   passed  521/796  test-pwd-context-multiple-operations (0.003189 sec)
+   passed  522/796  test-pwd-context-without-pwd-in-context (0.003026 sec)
+   passed  523/796  test-pwd-explicit-variable-in-redirection (0.003095 sec)
+   passed  524/796  test-pwd-explicit-variable-nested-path (0.003201 sec)
+   passed  525/796  test-pwd-explicit-variable-simple (0.003136 sec)
+   passed  526/796  test-pwd-substitution-nested (0.011883 sec)
+   passed  527/796  test-pwd-substitution-simple (0.006232 sec)
+   passed  528/796  test-pwd-without-var-context (0.003082 sec)
+   passed  529/796  test-recursive-chain-with-substitution (0.006194 sec)
+   passed  530/796  test-recursive-chain-with-variables (0.003266 sec)
+   passed  531/796  test-recursive-complex-scenario (0.015008 sec)
+   passed  532/796  test-recursive-deduplication (0.003085 sec)
+   passed  533/796  test-recursive-depth-limit (0.193415 sec)
+   passed  534/796  test-recursive-depth-limiting (0.000055 sec)
+   passed  535/796  test-recursive-depth-with-deep-nesting (0.025018 sec)
+   passed  536/796  test-recursive-empty-substitution (0.006095 sec)
+   passed  537/796  test-recursive-failed-parse-in-substitution (0.003051 sec)
+   passed  538/796  test-recursive-multi-level-nesting (0.011904 sec)
+   passed  539/796  test-recursive-nested-find (0.012503 sec)
+   passed  540/796  test-recursive-nested-in-chain (0.009318 sec)
+   passed  541/796  test-recursive-nested-in-conditional (0.006060 sec)
+   passed  542/796  test-recursive-nested-in-loop (0.009495 sec)
+   passed  543/796  test-recursive-nested-in-substitution (0.012675 sec)
+   passed  544/796  test-recursive-nested-substitution (0.012490 sec)
+   passed  545/796  test-recursive-nested-with-variables (0.006843 sec)
+   passed  546/796  test-recursive-pipeline (0.003351 sec)
+   passed  547/796  test-recursive-pipeline-with-substitution (0.006456 sec)
+   passed  548/796  test-recursive-single-substitution (0.006256 sec)
+   passed  549/796  test-recursive-substitution-grep (0.006091 sec)
+   passed  550/796  test-recursive-substitution-with-flags (0.006206 sec)
+   passed  551/796  test-recursive-triple-nesting (0.024361 sec)
+   passed  552/796  test-recursive-with-exec-blocks (0.003103 sec)
+   passed  553/796  test-recursive-with-redirections (0.006208 sec)
+   passed  554/796  test-relative-path-dot-alone (0.003269 sec)
+   passed  555/796  test-relative-path-dot-in-pipeline (0.003238 sec)
+   passed  556/796  test-relative-path-dot-ls (0.003174 sec)
+   passed  557/796  test-relative-path-dot-slash-file (0.003103 sec)
+   passed  558/796  test-relative-path-dot-slash-nested (0.003113 sec)
+   passed  559/796  test-relative-path-dot-slash-script-execution (0.003046 sec)
+   passed  560/796  test-relative-path-dot-slash-with-args (0.003145 sec)
+   passed  561/796  test-relative-path-parent-multiple-levels (0.003047 sec)
+   passed  562/796  test-relative-path-parent-script-execution (0.002977 sec)
+   passed  563/796  test-relative-path-parent-simple (0.003019 sec)
+   passed  564/796  test-relative-path-parent-with-subdir (0.003213 sec)
+   passed  565/796  test-resolve-all-variables-simple (0.000062 sec)
+   passed  566/796  test-resolve-assignment-combined-resolution (0.000061 sec)
+   passed  567/796  test-resolve-assignment-command-substitution-basename (0.000069 sec)
+   passed  568/796  test-resolve-assignment-command-substitution-dirname (0.000060 sec)
+   passed  569/796  test-resolve-assignment-command-substitution-pwd (0.000053 sec)
+   passed  570/796  test-resolve-assignment-relative-path (0.000063 sec)
+   passed  571/796  test-resolve-assignment-simple-variable (0.000053 sec)
+   passed  572/796  test-resolve-assignment-unresolved-command-substitution (0.000051 sec)
+   passed  573/796  test-resolve-assignment-unresolved-variable (0.000056 sec)
+   passed  574/796  test-resolve-braced-vs-simple (0.000062 sec)
+   passed  575/796  test-resolve-duplicate-variable-references (0.000053 sec)
+   passed  576/796  test-resolve-multiple-variables-fully (0.000059 sec)
+   passed  577/796  test-resolve-no-variables (0.000048 sec)
+   passed  578/796  test-resolve-none-no-context (0.000057 sec)
+   passed  579/796  test-resolve-normalizes-slashes (0.000049 sec)
+   passed  580/796  test-resolve-partial-some-unresolved (0.000059 sec)
+   passed  581/796  test-resolve-warns-on-control-chars (0.000062 sec)
+   passed  582/796  test-resolve-word-boundary (0.000048 sec)
+   passed  583/796  test-script-execution-bash-interpreter (0.003288 sec)
+   passed  584/796  test-script-execution-chain (0.003288 sec)
+   passed  585/796  test-script-execution-confidence-high-builtin (0.003060 sec)
+   passed  586/796  test-script-execution-confidence-high-interpreter (0.003090 sec)
+   passed  587/796  test-script-execution-confidence-low-path (0.003043 sec)
+   passed  588/796  test-script-execution-corpus (0.180687 sec)
+   passed  589/796  test-script-execution-go-build-not-execute (0.003113 sec)
+   passed  590/796  test-script-execution-go-run-subcommand (0.003027 sec)
+   passed  591/796  test-script-execution-go-test-subcommand (0.003033 sec)
+   passed  592/796  test-script-execution-nested-python (0.012133 sec)
+   passed  593/796  test-script-execution-nested-self-executing (0.011872 sec)
+   passed  594/796  test-script-execution-node-interpreter (0.003160 sec)
+   passed  595/796  test-script-execution-node-with-flags (0.003099 sec)
+   passed  596/796  test-script-execution-not-self-executing (0.003136 sec)
+   passed  597/796  test-script-execution-pipeline (0.003200 sec)
+   passed  598/796  test-script-execution-python-interpreter (0.003123 sec)
+   passed  599/796  test-script-execution-python3-with-args (0.003086 sec)
+   passed  600/796  test-script-execution-script-args-files (0.003113 sec)
+   passed  601/796  test-script-execution-script-args-flags (0.003036 sec)
+   passed  602/796  test-script-execution-script-args-none (0.003013 sec)
+   passed  603/796  test-script-execution-script-args-self-executing (0.003023 sec)
+   passed  604/796  test-script-execution-self-executing-absolute (0.003111 sec)
+   passed  605/796  test-script-execution-self-executing-parent (0.003131 sec)
+   passed  606/796  test-script-execution-self-executing-relative (0.003068 sec)
+   passed  607/796  test-script-execution-sh-interpreter (0.003090 sec)
+   passed  608/796  test-script-execution-shell-builtin-dot (0.003126 sec)
+   passed  609/796  test-script-execution-shell-builtin-source (0.003066 sec)
+   passed  610/796  test-script-execution-variable-resolved (0.003173 sec)
+   passed  611/796  test-script-execution-variable-unresolved (0.003182 sec)
+   passed  612/796  test-script-execution-zsh-interpreter (0.003003 sec)
+   passed  613/796  test-security-all-operations-allowed (0.012381 sec)
+   passed  614/796  test-security-all-operations-wildcard (0.012060 sec)
+   passed  615/796  test-security-all-vs-explicit-list (0.006137 sec)
+   passed  616/796  test-security-allow-command-matching-rules (0.003008 sec)
+   passed  617/796  test-security-allow-indirect-with-same-rules (0.012088 sec)
+   passed  618/796  test-security-apply-policy-to-indirect-operations (0.012787 sec)
+   passed  619/796  test-security-cd-detected-in-command-substitution (0.006019 sec)
+   passed  620/796  test-security-cd-not-detected-in-comments (0.003025 sec)
+   passed  621/796  test-security-cd-not-detected-in-heredoc (0.003024 sec)
+   passed  622/796  test-security-cd-violation-includes-guidance (0.003091 sec)
+   passed  623/796  test-security-cd-violation-with-working-directory-guidance (0.003121 sec)
+   passed  624/796  test-security-character-class-match (0.003254 sec)
+   passed  625/796  test-security-define-operation-specific-permissions (0.000058 sec)
+   passed  626/796  test-security-define-rule-with-multiple-patterns (0.000058 sec)
+   passed  627/796  test-security-define-rule-with-single-pattern (0.000059 sec)
+   passed  628/796  test-security-denial-reason-cd-command (0.003069 sec)
+   passed  629/796  test-security-denial-reason-multiple-unhandled (0.003143 sec)
+   passed  630/796  test-security-denial-reason-multiple-violations (0.003184 sec)
+   passed  631/796  test-security-denial-reason-nil-when-allowed (0.003096 sec)
+   passed  632/796  test-security-denial-reason-no-match (0.003143 sec)
+   passed  633/796  test-security-denial-reason-single-unhandled (0.003055 sec)
+   passed  634/796  test-security-denial-reason-single-violation (0.003021 sec)
+   passed  635/796  test-security-deny-command-violating-rules (0.003129 sec)
+   passed  636/796  test-security-double-star-multiple-segments (0.003139 sec)
+   passed  637/796  test-security-double-star-zero-segments (0.003362 sec)
+   passed  638/796  test-security-extract-unresolved-vars-multiple (0.000073 sec)
+   passed  639/796  test-security-extract-unresolved-vars-none (0.000055 sec)
+   passed  640/796  test-security-extract-unresolved-vars-single (0.000053 sec)
+   passed  641/796  test-security-first-matching-rule-applies (0.003131 sec)
+   passed  642/796  test-security-indirect-operation-violation-details (0.012065 sec)
+   passed  643/796  test-security-low-confidence-operation (0.003037 sec)
+   passed  644/796  test-security-missing-variable-context (0.003003 sec)
+   passed  645/796  test-security-more-specific-rule-before-general (0.006093 sec)
+   passed  646/796  test-security-multiple-violations (0.003169 sec)
+   passed  647/796  test-security-no-match-different-directory (0.003174 sec)
+   passed  648/796  test-security-partial-resolution-rejection (0.003111 sec)
+   passed  649/796  test-security-provide-variable-context (0.003132 sec)
+   passed  650/796  test-security-read-allowed-write-denied (0.006169 sec)
+   passed  651/796  test-security-recursive-wildcard-match (0.003101 sec)
+   passed  652/796  test-security-reject-all-indirect-strict-mode (0.011941 sec)
+   passed  653/796  test-security-reject-cd-in-chain (0.003194 sec)
+   passed  654/796  test-security-reject-cd-with-options (0.006060 sec)
+   passed  655/796  test-security-reject-simple-cd-command (0.003067 sec)
+   passed  656/796  test-security-reject-unresolved-variables (0.003121 sec)
+   passed  657/796  test-security-resolve-variables-before-matching (0.003085 sec)
+   passed  658/796  test-security-result-structure-allowed (0.003080 sec)
+   passed  659/796  test-security-result-structure-denied (0.003024 sec)
+   passed  660/796  test-security-single-level-wildcard-match (0.003029 sec)
+   passed  661/796  test-security-single-star-one-level (0.003176 sec)
+   passed  662/796  test-security-single-star-rejects-multiple-levels (0.003108 sec)
+   passed  663/796  test-security-unhandled-operations-fails-safely (0.003079 sec)
+   passed  664/796  test-security-variable-resolution-integration (0.003141 sec)
+   passed  665/796  test-security-variable-violation-details (0.003117 sec)
+   passed  666/796  test-security-violation-includes-guidance (0.003080 sec)
+   passed  667/796  test-security-violation-includes-indirect-flag (0.011975 sec)
+   passed  668/796  test-security-violation-includes-unresolved-vars (0.002958 sec)
+   passed  669/796  test-security-violation-with-matched-rule (0.003073 sec)
+   passed  670/796  test-security-violation-with-no-matched-rule (0.003064 sec)
+   passed  671/796  test-security-warn-indirect-policy (0.012158 sec)
+   passed  672/796  test-security-write-allowed-delete-denied (0.006206 sec)
+   passed  673/796  test-self-execution-absolute-path (0.003021 sec)
+   passed  674/796  test-self-execution-helper-function (0.000059 sec)
+   passed  675/796  test-self-execution-not-path-based (0.003007 sec)
+   passed  676/796  test-self-execution-parent-directory (0.003019 sec)
+   passed  677/796  test-self-execution-relative-path (0.003140 sec)
+   passed  678/796  test-semantics-bash-interpreter (0.000055 sec)
+   passed  679/796  test-semantics-bunzip2-command (0.000063 sec)
+   passed  680/796  test-semantics-bzip2-command (0.000057 sec)
+   passed  681/796  test-semantics-core-command-chgrp (0.000052 sec)
+   passed  682/796  test-semantics-core-command-find (0.000051 sec)
+   passed  683/796  test-semantics-core-command-mkdir (0.000049 sec)
+   passed  684/796  test-semantics-core-command-rmdir (0.000050 sec)
+   passed  685/796  test-semantics-core-command-tee (0.000054 sec)
+   passed  686/796  test-semantics-core-command-touch (0.000053 sec)
+   passed  687/796  test-semantics-create-operation-classification (0.000051 sec)
+   passed  688/796  test-semantics-create-or-modify-operation-classification (0.000055 sec)
+   passed  689/796  test-semantics-delete-operation-classification (0.000051 sec)
+   passed  690/796  test-semantics-docker-cp-subcommand (0.000055 sec)
+   passed  691/796  test-semantics-dot-builtin (0.000060 sec)
+   passed  692/796  test-semantics-exec-builtin (0.000059 sec)
+   passed  693/796  test-semantics-execute-operation-classification (0.000053 sec)
+   passed  694/796  test-semantics-flag-dependent-sed (0.000059 sec)
+   passed  695/796  test-semantics-flag-dependent-tar (0.000056 sec)
+   passed  696/796  test-semantics-git-add-subcommand (0.000054 sec)
+   passed  697/796  test-semantics-git-apply-subcommand (0.000052 sec)
+   passed  698/796  test-semantics-git-checkout-subcommand (0.000057 sec)
+   passed  699/796  test-semantics-git-clean-subcommand (0.000051 sec)
+   passed  700/796  test-semantics-git-clone-subcommand (0.000050 sec)
+   passed  701/796  test-semantics-git-diff-subcommand (0.000048 sec)
+   passed  702/796  test-semantics-git-merge-subcommand (0.000052 sec)
+   passed  703/796  test-semantics-git-pull-subcommand (0.000050 sec)
+   passed  704/796  test-semantics-git-rebase-subcommand (0.000051 sec)
+   passed  705/796  test-semantics-git-reset-subcommand (0.000063 sec)
+   passed  706/796  test-semantics-git-rm-subcommand (0.000052 sec)
+   passed  707/796  test-semantics-git-worktree-subcommand (0.000055 sec)
+   passed  708/796  test-semantics-go-build-subcommand (0.000052 sec)
+   passed  709/796  test-semantics-go-run-subcommand (0.000061 sec)
+   passed  710/796  test-semantics-go-test-subcommand (0.000062 sec)
+   passed  711/796  test-semantics-gunzip-command (0.000062 sec)
+   passed  712/796  test-semantics-gzip-command (0.000057 sec)
+   passed  713/796  test-semantics-last-argument-specification (0.000050 sec)
+   passed  714/796  test-semantics-lookup-chmod-skip-rules (0.000053 sec)
+   passed  715/796  test-semantics-lookup-chown-skip-rules (0.000051 sec)
+   passed  716/796  test-semantics-lookup-command-with-skip-rules (0.000053 sec)
+   passed  717/796  test-semantics-lookup-egrep-skip-rules (0.000056 sec)
+   passed  718/796  test-semantics-lookup-head-command (0.000052 sec)
+   passed  719/796  test-semantics-lookup-less-command (0.000049 sec)
+   passed  720/796  test-semantics-lookup-simple-read-command (0.000055 sec)
+   passed  721/796  test-semantics-lookup-tail-command (0.000052 sec)
+   passed  722/796  test-semantics-lookup-unknown-command (0.000047 sec)
+   passed  723/796  test-semantics-lookup-wc-command (0.000052 sec)
+   passed  724/796  test-semantics-modify-operation-classification (0.000050 sec)
+   passed  725/796  test-semantics-multi-operation-cp (0.000060 sec)
+   passed  726/796  test-semantics-multi-operation-ln (0.000053 sec)
+   passed  727/796  test-semantics-multi-operation-mv (0.000075 sec)
+   passed  728/796  test-semantics-named-args-dd (0.000062 sec)
+   passed  729/796  test-semantics-node-interpreter (0.000051 sec)
+   passed  730/796  test-semantics-perl-interpreter (0.000055 sec)
+   passed  731/796  test-semantics-php-interpreter (0.000054 sec)
+   passed  732/796  test-semantics-python-interpreter (0.000058 sec)
+   passed  733/796  test-semantics-python3-interpreter (0.000054 sec)
+   passed  734/796  test-semantics-range-specification (0.000050 sec)
+   passed  735/796  test-semantics-read-operation-classification (0.000050 sec)
+   passed  736/796  test-semantics-ruby-interpreter (0.000054 sec)
+   passed  737/796  test-semantics-sh-interpreter (0.000054 sec)
+   passed  738/796  test-semantics-single-index-specification (0.000049 sec)
+   passed  739/796  test-semantics-source-builtin (0.000061 sec)
+   passed  740/796  test-semantics-tee-with-append-flag (0.000055 sec)
+   passed  741/796  test-semantics-tee-with-append-long-flag (0.000049 sec)
+   passed  742/796  test-semantics-tee-without-flags (0.000048 sec)
+   passed  743/796  test-semantics-unzip-command (0.000053 sec)
+   passed  744/796  test-semantics-write-operation-classification (0.000053 sec)
+   passed  745/796  test-semantics-zsh-interpreter (0.000056 sec)
+   passed  746/796  test-single-paren-not-affected (0.006057 sec)
+   passed  747/796  test-subshell-cd-isolation (0.006213 sec)
+   passed  748/796  test-subshell-pwd-assignment-isolation (0.006189 sec)
+   passed  749/796  test-triple-paren (0.006111 sec)
+   passed  750/796  test-validate-defined-handler-function (0.000054 sec)
+   passed  751/796  test-validate-empty-subcommand-handler (0.000059 sec)
+   passed  752/796  test-validate-invalid-operation-type-flag-dependent (0.000068 sec)
+   passed  753/796  test-validate-invalid-operation-type-simple (0.000061 sec)
+   passed  754/796  test-validate-missing-custom-handler (0.000052 sec)
+   passed  755/796  test-validate-missing-flag-handlers (0.000055 sec)
+   passed  756/796  test-validate-missing-subcommand-handlers (0.000053 sec)
+   passed  757/796  test-validate-multiple-errors (0.000083 sec)
+   passed  758/796  test-validate-semantics-complex-missing-handlers (0.000067 sec)
+   passed  759/796  test-validate-semantics-custom-missing-handler (0.000057 sec)
+   passed  760/796  test-validate-semantics-database-valid (0.000107 sec)
+   passed  761/796  test-validate-semantics-flag-dependent-missing-handlers (0.000053 sec)
+   passed  762/796  test-validate-semantics-invalid-operations-type (0.000055 sec)
+   passed  763/796  test-validate-semantics-missing-operation (0.000056 sec)
+   passed  764/796  test-validate-semantics-missing-source (0.000054 sec)
+   passed  765/796  test-validate-semantics-not-plist (0.000054 sec)
+   passed  766/796  test-validate-semantics-valid-complex-command (0.000052 sec)
+   passed  767/796  test-validate-semantics-valid-custom (0.000050 sec)
+   passed  768/796  test-validate-semantics-valid-flag-dependent (0.000047 sec)
+   passed  769/796  test-validate-semantics-valid-simple-command (0.000050 sec)
+   passed  770/796  test-validate-undefined-handler-function (0.000053 sec)
+   passed  771/796  test-validate-valid-operation-types (0.000058 sec)
+   passed  772/796  test-variable-assignment-and-usage-in-chain (0.003256 sec)
+   passed  773/796  test-variable-assignment-without-usage (0.003192 sec)
+   passed  774/796  test-variable-chain-multi-level (0.003340 sec)
+   passed  775/796  test-variable-chain-parent-path-assignment (0.003355 sec)
+   passed  776/796  test-variable-chain-parent-path-assignment-ampersand (0.003267 sec)
+   passed  777/796  test-variable-chain-pwd-assignment (0.003294 sec)
+   passed  778/796  test-variable-chain-pwd-assignment-ampersand (0.003131 sec)
+   passed  779/796  test-variable-chain-relative-path-assignment (0.003142 sec)
+   passed  780/796  test-variable-chain-relative-path-assignment-ampersand (0.003112 sec)
+   passed  781/796  test-variable-empty-variable-context (0.003156 sec)
+   passed  782/796  test-variable-multiple-assignments (0.003325 sec)
+   passed  783/796  test-variable-multiple-variables-in-path (0.003219 sec)
+   passed  784/796  test-variable-partial-resolution (0.003113 sec)
+   passed  785/796  test-variable-provide-variable-context (0.003197 sec)
+   passed  786/796  test-variable-resolve-declared-variable (0.003109 sec)
+   passed  787/796  test-variable-simple-variable-reference (0.003027 sec)
+   passed  788/796  test-variable-unresolved-variable (0.003046 sec)
+   passed  789/796  test-variable-variable-with-braces (0.003009 sec)
+   passed  790/796  test-visualization-coverage-by-type (0.000108 sec)
+   passed  791/796  test-visualization-full-coverage (0.000079 sec)
+   passed  792/796  test-visualization-no-coverage (0.000086 sec)
+   passed  793/796  test-visualization-parse-incomplete (0.000071 sec)
+   passed  794/796  test-visualization-partial-coverage (0.000085 sec)
+   passed  795/796  test-visualization-progress-bar (0.000072 sec)
+   passed  796/796  test-visualization-zero-tokens (0.000064 sec)
+
+Ran 796 tests, 796 results as expected, 0 unexpected (2026-03-12 11:42:51+0100, 2.855232 sec)
+9 expected failures
+
+=== Semantic Gap Detection Tests ===
+
+✓ Simple command substitution (parser extracts correctly)
+  Command: echo $(whoami)
+  No gaps detected (as expected)
+
+✓ Nested command substitution (parser extracts correctly)
+  Command: ls -la $(dirname $(which openspec))
+  No gaps detected (as expected)
+
+✓ Command substitution in quoted string (parser extracts correctly)
+  Command: --eval '(setq dir "'$(pwd)'")'
+  No gaps detected (as expected)
+
+✓ Process substitution (NOT YET IMPLEMENTED)
+  Command: diff <(ls dir1) <(ls dir2)
+  Detected: (process-substitution)
+
+✓ For loop with variables (parser extracts correctly)
+  Command: for f in *.txt; do echo $f; done
+  No gaps detected (as expected)
+
+✓ Conditional statement (parser extracts correctly)
+  Command: if [ -f file ]; then rm file; fi
+  No gaps detected (as expected)
+
+✓ Heredoc content (parser extracts correctly)
+  Command: cat <<EOF
+Content here
+EOF
+  No gaps detected (as expected)
+
+✓ Simple command (no gaps expected)
+  Command: ls -la /tmp
+  No gaps detected (as expected)
+
+✓ Simple command with args (no gaps expected)
+  Command: git commit -m 'message'
+  No gaps detected (as expected)
+
+=== Test Complete ===
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/defaults.el (source)...
+Warning: exec-path-from-shell execution took 1406ms. See the README for tips on reducing this.
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/auth.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/avy.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/browser-hist.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/ripgrep.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/ultra-scroll.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/expand-region.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/evil.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/vertico.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/runtime/recentf...
+Cleaning up the recentf list...
+Cleaning up the recentf list...done (0 removed)
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/consult.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/marginalia.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/embark.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/corfu-company.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/completion/mini-frame.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/window-management.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/yasnippet.el (source)...
+[yas] Prepared just-in-time loading of snippets successfully.
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/testing.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/buttercup.el (source)...
+Buttercup testing framework loaded
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/look-and-feel.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/base-ui.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/frame-and-lines.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/modeline.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/themes.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/org-faces.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/terminal.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/vim-tab.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/look-and-feel/imenu.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/transient.el (source)...
+=== TRANSIENT DEBUG ===
+Before: transient loaded? nil
+After: transient loaded from /Users/jefffarr/emacs-gptel-scoped-bash-tools/runtime/straight/build/transient/transient.elc
+After: transient-version = undefined
+After: has transient--set-layout? t
+=== END TRANSIENT DEBUG ===
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/activities.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/core.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/projectile.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/org-roam.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/activities/transient.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/language-modes.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/gtags.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/tree-sitter.el (source)...
+tsc-dyn-get: Using source :github (:loaded nil :recorded 0.19.4 :requested 0.19.4)
+tsc-dyn-get: Recorded version already satifies requested -> loading
+tree-sitter-langs: Grammar bundle v0.13.17 was already installed; skipped
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/lsp-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/projectile.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/copilot.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/yaml.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/json.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/markdown-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/terraform.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/puppet-mode.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/python.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/typescript.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/javascript.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/golang.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/sql.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/language-modes/docker.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/magit.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/org.el (source)...
+org-super-agenda-mode enabled.
+ATTENTION: org-noter-pdf has many featues that depend on the package ‘pdf-tools’
+ATTENTION: org-noter-nov needs the package ‘nov’
+ATTENTION: org-noter-djvu needs the package ‘djvu’
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/org-roam.el (source)...
+Clearing removed files... 
+Clearing removed files...done
+Processing modified files... 
+Processing modified files...done
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/dirvish.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/major-modes/beads.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/bash-parser.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/gptel.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/skills/skills-core.el (source)...
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 8 skill(s) total (8 markdown, 0 org-roam)
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 8 skill(s) total (8 markdown, 0 org-roam)
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/skills/skills-roam.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/skills/skills-transient.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/constants.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/logging.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/preset-registration.el (source)...
+[GPTEL-INFO] Registered 9 presets from /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/presets/
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope-profiles.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-metadata.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-core.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/projectile-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/ggtags-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/treesitter-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/sql-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/meta-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/community-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/transient-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/filesystem.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/registry.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/metadata.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/branching.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-commands.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-expansion.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-shell-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/persistent-agent.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/commands.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/scope-org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/sessions/activities-integration.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/local/apploi-mac.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/complex-commands-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/complex-commands-spec.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/git.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/tar.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/find.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/ls.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/docker.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/go.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/flag-commands-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/flag-commands-spec.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/sed.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/grep.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/interpreters.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/dd.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/index-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/index-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/multi-domain-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/multi-domain-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/registry-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/registry-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/simple-commands-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/test/simple-commands-spec.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/cat.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/rm.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/cp.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/chmod.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/zip.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/head.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/tail.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/tee.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/mv.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/gzip.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/gunzip.el (source)...
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/bash-parser/commands/source.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/test/testing-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/test/testing-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/allow-once-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/allow-once-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/config-loading-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/config-loading-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/path-validation-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/path-validation-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/tool-routing-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/core/tool-routing-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/expansion/expansion-integration-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/expansion/expansion-integration-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/expansion/expansion-ui-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/expansion/expansion-ui-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/cloud-auth-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/cloud-auth-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/deny-list-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/deny-list-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/error-messages-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/error-messages-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/file-operations-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/file-operations-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/no-op-allowance-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/no-op-allowance-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/parse-completeness-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/parse-completeness-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/path-resolution-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/path-resolution-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/pipeline-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/pipeline-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/resource-limits-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/semantic/resource-limits-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/expansion-ui-handlers-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/expansion-ui-handlers-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/helpers-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/helpers-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/metadata-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/metadata-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/simple-async-test-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/simple-async-test-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/yaml-round-trip-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test/yaml-round-trip-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test-violation-info-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/scope/test-violation-info-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/filesystem-tools-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/filesystem-tools-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/helpers-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/helpers-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/run-bash-command-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/run-bash-command-spec.el (source)...
+Loading Buttercup test: /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/test-arg-extraction-spec.el
+Loading /Users/jefffarr/emacs-gptel-scoped-bash-tools/config/gptel/tools/test/test-arg-extraction-spec.el (source)...
+Running 612 specs.
+
+Git command handler
+  registration
+    is registered in the handler registry[32m    is registered in the handler registry[0m (0.08ms)
+  simple subcommands
+    classifies git add files as :read[32m    classifies git add files as :read[0m (0.19ms)
+    classifies git diff files as :read[32m    classifies git diff files as :read[0m (0.10ms)
+    classifies git checkout files as :modify[32m    classifies git checkout files as :modify[0m (0.06ms)
+    classifies git clean files as :delete[32m    classifies git clean files as :delete[0m (0.07ms)
+    classifies git rm files as :delete[32m    classifies git rm files as :delete[0m (0.06ms)
+    classifies git show files as :read[32m    classifies git show files as :read[0m (0.07ms)
+    classifies git ls-files as :read[32m    classifies git ls-files as :read[0m (0.07ms)
+    classifies git merge as :modify[32m    classifies git merge as :modify[0m (0.06ms)
+    classifies git pull as :modify[32m    classifies git pull as :modify[0m (0.10ms)
+    classifies git rebase as :modify[32m    classifies git rebase as :modify[0m (0.06ms)
+    classifies git reset as :modify[32m    classifies git reset as :modify[0m (0.06ms)
+    classifies git restore as :modify[32m    classifies git restore as :modify[0m (0.06ms)
+  indexed subcommands
+    classifies git apply with index 0 as :read[32m    classifies git apply with index 0 as :read[0m (0.13ms)
+    classifies git clone last arg as :write[32m    classifies git clone last arg as :write[0m (0.13ms)
+  git mv (multi-operation)
+    classifies sources as :delete and dest as :write[32m    classifies sources as :delete and dest as :write[0m (0.20ms)
+    handles multiple sources with mv[32m    handles multiple sources with mv[0m (0.17ms)
+  git worktree add
+    classifies worktree add target as :create[32m    classifies worktree add target as :create[0m (0.13ms)
+  nil returns
+    returns nil for unknown subcommand[32m    returns nil for unknown subcommand[0m (0.06ms)
+    returns nil when no subcommand given[32m    returns nil when no subcommand given[0m (0.05ms)
+    returns nil for subcommand with no file args[32m    returns nil for subcommand with no file args[0m (0.05ms)
+  result structure
+    includes :claimed-token-ids nil[32m    includes :claimed-token-ids nil[0m (0.06ms)
+    includes :metadata nil[32m    includes :metadata nil[0m (0.06ms)
+
+Tar command handler
+  registration
+    is registered in the handler registry[32m    is registered in the handler registry[0m (0.06ms)
+  create mode (-c)
+    classifies archive as :write and sources as :read[32m    classifies archive as :write and sources as :read[0m (0.25ms)
+  extract mode (-x)
+    classifies archive as :read and targets as :write[32m    classifies archive as :read and targets as :write[0m (0.17ms)
+  list mode (-t)
+    classifies archive as :read only[32m    classifies archive as :read only[0m (0.13ms)
+  nil returns
+    returns nil when no mode flag present[32m    returns nil when no mode flag present[0m (0.05ms)
+    returns nil when no archive file specified[32m    returns nil when no archive file specified[0m (0.06ms)
+
+Find command handler
+  registration
+    is registered in the handler registry[32m    is registered in the handler registry[0m (0.08ms)
+  search directory
+    classifies first positional arg as :read-directory[32m    classifies first positional arg as :read-directory[0m (0.17ms)
+  -name pattern
+    classifies -name arg as :match-pattern[32m    classifies -name arg as :match-pattern[0m (0.16ms)
+    handles -type flag before -name correctly[32m    handles -type flag before -name correctly[0m (0.13ms)
+  nil returns
+    returns nil with no positional args[32m    returns nil with no positional args[0m (0.06ms)
+
+Ls command handler
+  registration
+    is registered in the handler registry[32m    is registered in the handler registry[0m (0.06ms)
+  no args
+    returns nil when no positional args[32m    returns nil when no positional args[0m (0.05ms)
+  glob patterns
+    classifies * glob as :match-pattern[32m    classifies * glob as :match-pattern[0m (0.13ms)
+    classifies ? glob as :match-pattern[32m    classifies ? glob as :match-pattern[0m (0.06ms)
+    classifies [] glob as :match-pattern[32m    classifies [] glob as :match-pattern[0m (0.06ms)
+  literal dot
+    classifies . as :read-directory[32m    classifies . as :read-directory[0m (0.10ms)
+  non-matching args
+    returns nil for plain path without glob[32m    returns nil for plain path without glob[0m (0.05ms)
+
+Docker command handler
+  registration
+    is registered in the handler registry[32m    is registered in the handler registry[0m (0.08ms)
+  docker cp
+    classifies source as :read and dest as :write[32m    classifies source as :read and dest as :write[0m (0.26ms)
+    includes container paths as-is[32m    includes container paths as-is[0m (0.07ms)
+  nil returns
+    returns nil for non-cp subcommand[32m    returns nil for non-cp subcommand[0m (0.05ms)
+    returns nil for cp with insufficient args[32m    returns nil for cp with insufficient args[0m (0.06ms)
+
+Go command handler
+  registration
+    is registered in the handler registry[32m    is registered in the handler registry[0m (0.06ms)
+  go run
+    classifies target as :execute[32m    classifies target as :execute[0m (0.16ms)
+  go test
+    classifies target as :execute[32m    classifies target as :execute[0m (0.10ms)
+  go build
+    classifies target as :read[32m    classifies target as :read[0m (0.05ms)
+  nil returns
+    returns nil for unknown subcommand[32m    returns nil for unknown subcommand[0m (0.05ms)
+    returns nil when no target provided[32m    returns nil when no target provided[0m (0.05ms)
+
+Registry integration
+  extract-command-semantics
+    extracts git operations through the registry[32m    extracts git operations through the registry[0m (0.17ms)
+    extracts docker operations through the registry[32m    extracts docker operations through the registry[0m (0.10ms)
+
+sed command handler
+  without -i flag
+    returns :read for file args[32m    returns :read for file args[0m (0.14ms)
+    skips the sed expression (index 0)[32m    skips the sed expression (index 0)[0m (0.14ms)
+    returns nil when only expression and no file args[32m    returns nil when only expression and no file args[0m (0.05ms)
+  with -i flag
+    returns :modify for file args[32m    returns :modify for file args[0m (0.05ms)
+    returns :modify with --in-place flag[32m    returns :modify with --in-place flag[0m (0.06ms)
+  result structure
+    includes :domain :filesystem[32m    includes :domain :filesystem[0m (0.06ms)
+    includes :command in each operation[32m    includes :command in each operation[0m (0.06ms)
+    includes :confidence :high[32m    includes :confidence :high[0m (0.06ms)
+
+grep command handler
+  without -l flag
+    returns :read for file args[32m    returns :read for file args[0m (0.09ms)
+    skips the pattern (index 0)[32m    skips the pattern (index 0)[0m (0.06ms)
+  with -l flag
+    returns :match-pattern for file args[32m    returns :match-pattern for file args[0m (0.05ms)
+    returns :match-pattern with --files-with-matches flag[32m    returns :match-pattern with --files-with-matches flag[0m (0.06ms)
+  returns nil when only pattern and no file args
+    returns nil[32m    returns nil[0m (0.06ms)
+  alias registration
+    registers handler for grep[32m    registers handler for grep[0m (0.05ms)
+    registers handler for egrep[32m    registers handler for egrep[0m (0.06ms)
+    registers handler for fgrep[32m    registers handler for fgrep[0m (0.05ms)
+  preserves command name
+    uses egrep as :command when invoked as egrep[32m    uses egrep as :command when invoked as egrep[0m (0.05ms)
+
+interpreter command handler
+  without inline flags
+    returns :execute for python script[32m    returns :execute for python script[0m (0.14ms)
+    returns :execute for node script[32m    returns :execute for node script[0m (0.07ms)
+    returns :execute for bash script[32m    returns :execute for bash script[0m (0.06ms)
+    returns :execute for ruby script[32m    returns :execute for ruby script[0m (0.06ms)
+    returns :execute for perl script[32m    returns :execute for perl script[0m (0.06ms)
+  with inline flags
+    returns nil for python -c[32m    returns nil for python -c[0m (0.05ms)
+    returns nil for python -m[32m    returns nil for python -m[0m (0.06ms)
+    returns nil for node -e[32m    returns nil for node -e[0m (0.06ms)
+    returns nil for node --eval[32m    returns nil for node --eval[0m (0.06ms)
+    returns nil for node -p[32m    returns nil for node -p[0m (0.05ms)
+    returns nil for node --print[32m    returns nil for node --print[0m (0.06ms)
+    returns nil for bash -c[32m    returns nil for bash -c[0m (0.05ms)
+    returns nil for sh -c[32m    returns nil for sh -c[0m (0.06ms)
+    returns nil for zsh -c[32m    returns nil for zsh -c[0m (0.06ms)
+    returns nil for ruby -e[32m    returns nil for ruby -e[0m (0.05ms)
+    returns nil for perl -e[32m    returns nil for perl -e[0m (0.06ms)
+    returns nil for perl -E[32m    returns nil for perl -E[0m (0.06ms)
+    returns nil for php -r[32m    returns nil for php -r[0m (0.05ms)
+  with no positional args and no inline flags
+    returns nil[32m    returns nil[0m (0.06ms)
+  registration
+    registers all interpreter commands[32m    registers all interpreter commands[0m (0.43ms)
+  preserves command name
+    uses python3 as :command when invoked as python3[32m    uses python3 as :command when invoked as python3[0m (0.07ms)
+
+dd command handler
+  if= argument
+    extracts :read operation from if= arg[32m    extracts :read operation from if= arg[0m (0.14ms)
+  of= argument
+    extracts :write operation from of= arg[32m    extracts :write operation from of= arg[0m (0.09ms)
+  both if= and of=
+    extracts both :read and :write operations[32m    extracts both :read and :write operations[0m (0.19ms)
+  no if= or of= args
+    returns nil when no file args[32m    returns nil when no file args[0m (0.05ms)
+    returns nil with empty positional args[32m    returns nil with empty positional args[0m (0.05ms)
+  ignores empty values
+    ignores if= with empty value[32m    ignores if= with empty value[0m (0.05ms)
+    ignores of= with empty value[32m    ignores of= with empty value[0m (0.06ms)
+  result structure
+    includes :command dd[32m    includes :command dd[0m (0.05ms)
+    includes :confidence :high[32m    includes :confidence :high[0m (0.05ms)
+    registers handler for dd[32m    registers handler for dd[0m (0.05ms)
+
+bash-commands-index auto-discovery
+  jf/bash-commands--discover-and-load
+    discovers .el files in the commands directory[32m    discovers .el files in the commands directory[0m (0.20ms)
+    excludes index.el from discovery[32m    excludes index.el from discovery[0m (9.86ms)
+    isolates errors - one failing file does not prevent othersbash-commands-index: Error loading test-bad-handler.el: Intentional test error
+[32m    isolates errors - one failing file does not prevent others[0m (11.41ms)
+    returns empty list when no handler files exist[32m    returns empty list when no handler files exist[0m (8.99ms)
+    returns list of successfully loaded file paths[32m    returns list of successfully loaded file paths[0m (11.34ms)
+
+Multi-Domain Command Handlers
+  AWS CLI
+    filesystem handler
+      detects local file as :read source in s3 cp upload[32m      detects local file as :read source in s3 cp upload[0m (0.81ms)
+      detects local file as :write dest in s3 cp download[32m      detects local file as :write dest in s3 cp download[0m (0.77ms)
+      detects local dir as :read source in s3 sync[32m      detects local dir as :read source in s3 sync[0m (0.77ms)
+      detects local file as :delete in s3 mv[32m      detects local file as :delete in s3 mv[0m (0.73ms)
+      skips s3:// paths as remote[32m      skips s3:// paths as remote[0m (0.61ms)
+      returns nil for non-s3 subcommands[32m      returns nil for non-s3 subcommands[0m (0.62ms)
+      handles both local source and dest[32m      handles both local source and dest[0m (0.78ms)
+    authentication handler
+      extracts --profile value[32m      extracts --profile value[0m (0.77ms)
+      extracts --region value[32m      extracts --region value[0m (0.65ms)
+      extracts both --profile and --region[32m      extracts both --profile and --region[0m (0.69ms)
+      returns authentication domain even without profile/region[32m      returns authentication domain even without profile/region[0m (0.68ms)
+    network handler
+      returns network domain for any aws command[32m      returns network domain for any aws command[0m (0.71ms)
+      returns network domain for ec2 commands[32m      returns network domain for ec2 commands[0m (0.63ms)
+    multi-domain integration
+      registers three separate handlers for aws[32m      registers three separate handlers for aws[0m (0.77ms)
+      extracts all three domains via registry[32m      extracts all three domains via registry[0m (0.71ms)
+      isolates handler failure from other domainsHandler error for aws/:filesystem: Simulated failure
+[32m      isolates handler failure from other domains[0m (0.72ms)
+  curl
+    filesystem handler
+      detects -o output file as :write[32m      detects -o output file as :write[0m (0.76ms)
+      detects --output file as :write[32m      detects --output file as :write[0m (0.73ms)
+      detects -d @file as :read with @ stripped[32m      detects -d @file as :read with @ stripped[0m (0.74ms)
+      detects --data @file as :read[32m      detects --data @file as :read[0m (0.71ms)
+      ignores -d without @ prefix (inline data)[32m      ignores -d without @ prefix (inline data)[0m (0.60ms)
+      detects -T upload file as :read[32m      detects -T upload file as :read[0m (0.72ms)
+      detects --upload-file as :read[32m      detects --upload-file as :read[0m (0.69ms)
+      detects multiple file operations in one command[32m      detects multiple file operations in one command[0m (0.66ms)
+      returns nil when no file operations present[32m      returns nil when no file operations present[0m (0.73ms)
+    network handler
+      extracts https URL[32m      extracts https URL[0m (0.84ms)
+      extracts http URL[32m      extracts http URL[0m (0.62ms)
+      extracts URL from among flags[32m      extracts URL from among flags[0m (0.71ms)
+      returns nil when no URL present[32m      returns nil when no URL present[0m (0.59ms)
+    multi-domain integration
+      registers two separate handlers for curl[32m      registers two separate handlers for curl[0m (0.68ms)
+      extracts both domains via registry[32m      extracts both domains via registry[0m (0.66ms)
+      returns only network domain when no file ops[32m      returns only network domain when no file ops[0m (0.71ms)
+  domain independence
+    one command's handlers do not affect another command[32m    one command's handlers do not affect another command[0m (0.70ms)
+    handler errors in one domain do not prevent other domainsHandler error for curl/:filesystem: Test error
+[32m    handler errors in one domain do not prevent other domains[0m (0.74ms)
+
+Handler Registry
+  jf/bash-command-handlers initialization
+    is a hash table[32m    is a hash table[0m (0.07ms)
+    uses equal test for string keys[32m    uses equal test for string keys[0m (0.06ms)
+  jf/bash-register-command-handler
+    registers a handler for a command and domain[32m    registers a handler for a command and domain[0m (0.15ms)
+    signals error when :command is missing[32m    signals error when :command is missing[0m (0.06ms)
+    signals error when :domain is missing[32m    signals error when :domain is missing[0m (0.06ms)
+    signals error when :handler is missing[32m    signals error when :handler is missing[0m (0.04ms)
+    registers multiple handlers for the same domain[32m    registers multiple handlers for the same domain[0m (0.11ms)
+    registers handlers for multiple domains[32m    registers handlers for multiple domains[0m (0.10ms)
+  jf/bash-lookup-command-handlers
+    returns domain hash table for registered command[32m    returns domain hash table for registered command[0m (0.10ms)
+    returns nil for unregistered command[32m    returns nil for unregistered command[0m (0.06ms)
+    preserves handler registration order[32m    preserves handler registration order[0m (0.07ms)
+  jf/bash-extract-command-semantics
+    extracts semantics for single-domain command[32m    extracts semantics for single-domain command[0m (0.19ms)
+    extracts semantics for multi-domain command[32m    extracts semantics for multi-domain command[0m (0.13ms)
+    isolates handler errors and continuesHandler error for test-cmd/:broken: Test handler error
+[32m    isolates handler errors and continues[0m (0.12ms)
+    merges operations from multiple handlers in same domain[32m    merges operations from multiple handlers in same domain[0m (0.16ms)
+    collects and deduplicates claimed token IDs[32m    collects and deduplicates claimed token IDs[0m (0.15ms)
+    returns empty domains for unregistered command[32m    returns empty domains for unregistered command[0m (0.14ms)
+    skips handlers that return nil[32m    skips handlers that return nil[0m (0.07ms)
+
+Simple Read Commands
+  cat handler
+    extracts :read for single file[32m    extracts :read for single file[0m (0.15ms)
+    extracts :read for multiple files[32m    extracts :read for multiple files[0m (0.20ms)
+    returns empty operations for no args[32m    returns empty operations for no args[0m (0.07ms)
+
+Head/Tail Commands
+  head handler
+    extracts :read skipping -n flag arg[32m    extracts :read skipping -n flag arg[0m (0.10ms)
+    extracts :read for file without flags[32m    extracts :read for file without flags[0m (0.09ms)
+    skips -c flag arg too[32m    skips -c flag arg too[0m (0.10ms)
+  tail handler
+    extracts :read skipping -n flag arg[32m    extracts :read skipping -n flag arg[0m (0.09ms)
+
+Delete Commands
+  rm handler
+    extracts :delete for single file[32m    extracts :delete for single file[0m (0.12ms)
+    extracts :delete for multiple files[32m    extracts :delete for multiple files[0m (0.14ms)
+
+Multi-Operation Commands
+  cp handler
+    extracts :read for sources and :write for destination[32m    extracts :read for sources and :write for destination[0m (0.20ms)
+    handles multiple sources[32m    handles multiple sources[0m (0.20ms)
+    returns empty for single arg (no destination)[32m    returns empty for single arg (no destination)[0m (0.06ms)
+  mv handler
+    extracts :delete for sources and :write for destination[32m    extracts :delete for sources and :write for destination[0m (0.13ms)
+
+Modify Commands
+  chmod handler
+    extracts :modify skipping mode arg[32m    extracts :modify skipping mode arg[0m (0.14ms)
+    handles multiple files after mode[32m    handles multiple files after mode[0m (0.13ms)
+    returns empty for mode-only (no files)[32m    returns empty for mode-only (no files)[0m (0.05ms)
+
+Zip/Compression Commands
+  zip handler
+    extracts :write for zip file and :read for sources[32m    extracts :write for zip file and :read for sources[0m (0.20ms)
+  gzip handler
+    extracts :read and :write with .gz suffix[32m    extracts :read and :write with .gz suffix[0m (0.19ms)
+  gunzip handler
+    extracts :read and :write stripping .gz suffix[32m    extracts :read and :write stripping .gz suffix[0m (0.20ms)
+
+Tee Command
+  extracts :write without append flag[32m  extracts :write without append flag[0m (0.09ms)
+  extracts :append with -a flag[32m  extracts :append with -a flag[0m (0.10ms)
+  extracts :append with --append flag[32m  extracts :append with --append flag[0m (0.09ms)
+
+Execute Commands
+  source handler
+    extracts :execute for source command[32m    extracts :execute for source command[0m (0.12ms)
+    extracts :execute for dot command[32m    extracts :execute for dot command[0m (0.13ms)
+
+Buttercup basic tests
+  validates simple equality[32m  validates simple equality[0m (0.05ms)
+  validates string equality[32m  validates string equality[0m (0.06ms)
+  validates list equality[32m  validates list equality[0m (0.05ms)
+
+Setup and teardown
+  uses setup values[32m  uses setup values[0m (0.05ms)
+  has independent test runs[32m  has independent test runs[0m (0.05ms)
+
+Nested contexts
+  inner context
+    has access to both contexts[32m    has access to both contexts[0m (0.09ms)
+
+String matching
+  matches regexp patterns[32m  matches regexp patterns[0m (0.10ms)
+
+List operations
+  validates list membership[32m  validates list membership[0m (0.06ms)
+  validates list equality ignoring order[32m  validates list equality ignoring order[0m (0.08ms)
+
+Spy system
+  tracks function calls[32m  tracks function calls[0m (0.03ms)
+  tracks call arguments[32m  tracks call arguments[0m (0.03ms)
+
+Spy stubbing
+  returns stubbed value[32m  returns stubbed value[0m (0.07ms)
+  does not execute original[32m  does not execute original[0m (0.06ms)
+
+allow-once list management
+  jf/gptel-scope-add-to-allow-once-list
+    adds tool-name and resource to the list[32m    adds tool-name and resource to the list[0m (0.18ms)
+    supports multiple entries[32m    supports multiple entries[0m (0.05ms)
+  jf/gptel-scope--clear-allow-once
+    clears the allow-once list[32m    clears the allow-once list[0m (0.10ms)
+    handles clearing an already empty list[32m    handles clearing an already empty list[0m (0.07ms)
+  jf/gptel-scope--check-allow-once
+    returns t and consumes permission when matching entry exists[32m    returns t and consumes permission when matching entry exists[0m (0.13ms)
+    returns nil when no matching entry exists[32m    returns nil when no matching entry exists[0m (0.07ms)
+    returns nil when list is empty[32m    returns nil when list is empty[0m (0.06ms)
+
+gptel-make-scoped-tool async flag propagation
+  async scoped tools
+    marks async tools as async in the registry[32m    marks async tools as async in the registry[0m (0.13ms)
+    creates callback-first function signature for async tools[32m    creates callback-first function signature for async tools[0m (0.17ms)
+  sync scoped tools
+    does not mark sync tools as async[32m    does not mark sync tools as async[0m (0.11ms)
+
+regression test for read_file tool
+  read_file should be marked as async[32m  read_file should be marked as async[0m (0.15ms)
+  read_file function should have callback-first signature[32m  read_file function should have callback-first signature[0m (0.22ms)
+
+jf/gptel-scope--load-schema
+  merges provided paths with defaults[32m  merges provided paths with defaults[0m (0.16ms)
+  uses defaults when sections missing[32m  uses defaults when sections missing[0m (0.14ms)
+  preserves bash-tools deny list with normalized keys[32m  preserves bash-tools deny list with normalized keys[0m (0.07ms)
+
+jf/gptel-scope--load-cloud-config
+  loads auth-detection setting[32m  loads auth-detection setting[0m (0.06ms)
+  returns nil for nil config[32m  returns nil for nil config[0m (0.06ms)
+
+jf/gptel-scope--load-security-config
+  loads both security settings[32m  loads both security settings[0m (0.09ms)
+  returns nil for nil config[32m  returns nil for nil config[0m (0.05ms)
+
+scope schema path sections
+  loads paths.read section[32m  loads paths.read section[0m (1.05ms)
+  loads paths.write section[32m  loads paths.write section[0m (0.86ms)
+  loads paths.execute section[32m  loads paths.execute section[0m (1.09ms)
+  loads paths.modify section[32m  loads paths.modify section[0m (1.06ms)
+  loads paths.deny section[32m  loads paths.deny section[0m (1.16ms)
+
+scope schema write/read hierarchy
+  write path section loads separately from read[32m  write path section loads separately from read[0m (0.78ms)
+  read path does not imply write[32m  read path does not imply write[0m (0.86ms)
+
+scope schema cloud config
+  loads auth_detection field[32m  loads auth_detection field[0m (0.70ms)
+  loads allowed_providers field[32m  loads allowed_providers field[0m (1.17ms)
+  adds defaults when cloud section missing[32m  adds defaults when cloud section missing[0m (0.75ms)
+
+scope schema security config
+  loads enforce_parse_complete field[32m  loads enforce_parse_complete field[0m (0.77ms)
+  loads max_coverage_threshold field[32m  loads max_coverage_threshold field[0m (0.78ms)
+  adds defaults when security section missing[32m  adds defaults when security section missing[0m (0.77ms)
+
+scope schema bash_tools
+  rejects categories section[32m  rejects categories section[0m (2.63ms)
+  loads deny list[32m  loads deny list[0m (1.03ms)
+
+scope schema full document
+  loads all sections from complete document[32m  loads all sections from complete document[0m (5.19ms)
+
+scope schema YAML normalization
+  handles snake_case keys[32m  handles snake_case keys[0m (1.30ms)
+  normalizes all keys to kebab-case[32m  normalizes all keys to kebab-case[0m (2.00ms)
+  normalizes nested structures[32m  normalizes nested structures[0m (1.08ms)
+
+scope schema backward compatibility
+  legacy document with only read/write does not auto-add execute/modify[32m  legacy document with only read/write does not auto-add execute/modify[0m (1.16ms)
+  no automatic migration from legacy schemas[32m  no automatic migration from legacy schemas[0m (1.72ms)
+
+scope schema validation
+  rejects invalid auth_detection value[32m  rejects invalid auth_detection value[0m (0.70ms)
+  rejects invalid coverage threshold > 1.0[32m  rejects invalid coverage threshold > 1.0[0m (0.70ms)
+  loads invalid path structure as-is[32m  loads invalid path structure as-is[0m (0.59ms)
+  loads valid document successfully[32m  loads valid document successfully[0m (5.17ms)
+
+scope schema edge cases
+  loads empty arrays correctly[32m  loads empty arrays correctly[0m (1.44ms)
+  handles mixed YAML quote styles[32m  handles mixed YAML quote styles[0m (1.43ms)
+  rejects YAML boolean false[32m  rejects YAML boolean false[0m (0.77ms)
+  handles numeric threshold variations[32m  handles numeric threshold variations[0m (0.89ms)
+  handles null cloud section with defaults[32m  handles null cloud section with defaults[0m (1.04ms)
+  loads duplicate path patterns as-is[32m  loads duplicate path patterns as-is[0m (1.05ms)
+  ignores unknown top-level keys[32m  ignores unknown top-level keys[0m (1.63ms)
+
+scope schema rejection
+  rejects negative coverage threshold[32m  rejects negative coverage threshold[0m (0.74ms)
+  rejects coverage threshold above 1.0[32m  rejects coverage threshold above 1.0[0m (0.73ms)
+  rejects non-numeric coverage threshold[32m  rejects non-numeric coverage threshold[0m (0.75ms)
+  rejects misspelled auth_detection[32m  rejects misspelled auth_detection[0m (0.67ms)
+  rejects empty auth_detection[32m  rejects empty auth_detection[0m (0.63ms)
+  rejects numeric auth_detection[32m  rejects numeric auth_detection[0m (0.64ms)
+  rejects non-boolean enforce_parse_complete[32m  rejects non-boolean enforce_parse_complete[0m (0.71ms)
+  rejects numeric enforce_parse_complete[32m  rejects numeric enforce_parse_complete[0m (0.71ms)
+  rejects extremely large threshold[32m  rejects extremely large threshold[0m (0.73ms)
+  handles malformed YAML syntax[32m  handles malformed YAML syntax[0m (0.98ms)
+  loads malformed path object structure[32m  loads malformed path object structure[0m (0.75ms)
+  loads numeric path value[32m  loads numeric path value[0m (0.59ms)
+  loads mixed types in path array[32m  loads mixed types in path array[0m (1.07ms)
+  loads invalid bash_tools structure[32m  loads invalid bash_tools structure[0m (0.61ms)
+  accepts boundary threshold values[32m  accepts boundary threshold values[0m (1.45ms)
+  accepts empty allowed_providers array[32m  accepts empty allowed_providers array[0m (1.00ms)
+  handles scientific notation threshold[32m  handles scientific notation threshold[0m (0.80ms)
+
+scope schema default merging
+  empty schema gets all defaults[32m  empty schema gets all defaults[0m (0.68ms)
+  partial paths section merges with defaults[32m  partial paths section merges with defaults[0m (1.19ms)
+  partial cloud section merges with defaults[32m  partial cloud section merges with defaults[0m (0.93ms)
+  partial security section merges with defaults[32m  partial security section merges with defaults[0m (56.99ms)
+  user-specified cloud auth overrides default[32m  user-specified cloud auth overrides default[0m (0.75ms)
+  user-specified security threshold overrides default[32m  user-specified security threshold overrides default[0m (0.76ms)
+  mixed present/absent sections merge correctly[32m  mixed present/absent sections merge correctly[0m (1.68ms)
+  all sections can be overridden[32m  all sections can be overridden[0m (4.09ms)
+  bash_tools not modified by default merging[32m  bash_tools not modified by default merging[0m (0.71ms)
+  minimal plus bash_tools gets other defaults[32m  minimal plus bash_tools gets other defaults[0m (0.72ms)
+  zero threshold is preserved (not replaced by default)[32m  zero threshold is preserved (not replaced by default)[0m (0.77ms)
+  1.0 threshold is preserved[32m  1.0 threshold is preserved[0m (0.77ms)
+
+jf/gptel-scope--extract-pipeline-commands
+  extracts all commands from pipeline[32m  extracts all commands from pipeline[0m (0.06ms)
+  returns empty list for no commands[32m  returns empty list for no commands[0m (0.06ms)
+  handles missing command-name gracefully[32m  handles missing command-name gracefully[0m (0.06ms)
+
+jf/gptel-scope--validate-operation
+  read operation hierarchy
+    allows read if in read patterns[32m    allows read if in read patterns[0m (0.09ms)
+    allows read if in write patterns (write includes read)[32m    allows read if in write patterns (write includes read)[0m (0.07ms)
+    denies read if not in read or write patterns[32m    denies read if not in read or write patterns[0m (0.12ms)
+  write operation
+    allows write if in write patterns[32m    allows write if in write patterns[0m (0.07ms)
+    denies write if not in write patterns[32m    denies write if not in write patterns[0m (0.09ms)
+  modify operation hierarchy
+    allows modify if in modify patterns[32m    allows modify if in modify patterns[0m (0.06ms)
+    allows modify if in write patterns (write includes modify)[32m    allows modify if in write patterns (write includes modify)[0m (0.06ms)
+  execute operation
+    requires explicit execute permission[32m    requires explicit execute permission[0m (0.07ms)
+    denies execute even if in write patterns[32m    denies execute even if in write patterns[0m (0.06ms)
+  deny precedence
+    denies access even if in allow patterns[32m    denies access even if in allow patterns[0m (0.12ms)
+    deny overrides write permission[32m    deny overrides write permission[0m (0.08ms)
+
+jf/gptel-scope--validate-security-config
+  accepts valid boolean enforce-parse-complete[32m  accepts valid boolean enforce-parse-complete[0m (0.06ms)
+  accepts valid threshold in range[32m  accepts valid threshold in range[0m (0.05ms)
+  rejects threshold below 0.0[32m  rejects threshold below 0.0[0m (0.05ms)
+  rejects threshold above 1.0[32m  rejects threshold above 1.0[0m (0.04ms)
+  accepts edge values 0.0 and 1.0[32m  accepts edge values 0.0 and 1.0[0m (0.09ms)
+
+validation error structure
+  includes all required fields for path_out_of_scope[32m  includes all required fields for path_out_of_scope[0m (0.22ms)
+  includes all required fields for path_denied[32m  includes all required fields for path_denied[0m (0.29ms)
+  formats human-readable messages[32m  formats human-readable messages[0m (0.13ms)
+
+jf/gptel-scope--glob-to-regex
+  single star wildcard
+    converts * to [^/]*[32m    converts * to [^/]*[0m (0.06ms)
+    handles multiple single stars[32m    handles multiple single stars[0m (0.08ms)
+  recursive wildcard /**/
+    converts /**/ to /(?:.*/)?[32m    converts /**/ to /(?:.*/)?[0m (0.07ms)
+    handles middle recursive wildcard[32m    handles middle recursive wildcard[0m (0.07ms)
+  recursive wildcard at end
+    converts /** at end to /.*[32m    converts /** at end to /.*[0m (0.07ms)
+    matches everything after slash[32m    matches everything after slash[0m (0.06ms)
+  literal characters
+    escapes special regex characters[32m    escapes special regex characters[0m (0.06ms)
+    handles paths with dashes and underscores[32m    handles paths with dashes and underscores[0m (0.07ms)
+  edge cases
+    handles empty pattern[32m    handles empty pattern[0m (0.05ms)
+    handles pattern with only **[32m    handles pattern with only **[0m (0.05ms)
+    anchors pattern with ^ and $[32m    anchors pattern with ^ and $[0m (0.12ms)
+
+jf/gptel-scope--glob-match-p
+  exact matches
+    matches exact path[32m    matches exact path[0m (0.07ms)
+    rejects different path[32m    rejects different path[0m (0.07ms)
+  single star wildcard
+    matches single directory component[32m    matches single directory component[0m (0.08ms)
+    does not match across slashes[32m    does not match across slashes[0m (0.07ms)
+  recursive wildcard
+    matches zero directories with /**/[32m    matches zero directories with /**/[0m (0.07ms)
+    matches one directory with /**/[32m    matches one directory with /**/[0m (0.06ms)
+    matches multiple directories with /**/[32m    matches multiple directories with /**/[0m (0.07ms)
+    matches everything with /** at end[32m    matches everything with /** at end[0m (0.07ms)
+  case sensitivity
+    is case-sensitive by default[32m    is case-sensitive by default[0m (0.07ms)
+
+jf/gptel-scope--path-matches-any-pattern-p
+  returns t if path matches first pattern[32m  returns t if path matches first pattern[0m (0.07ms)
+  returns t if path matches second pattern[32m  returns t if path matches second pattern[0m (0.08ms)
+  returns nil if no patterns match[32m  returns nil if no patterns match[0m (0.07ms)
+  handles empty pattern list[32m  handles empty pattern list[0m (0.06ms)
+  normalizes path before matching[32m  normalizes path before matching[0m (0.08ms)
+
+jf/gptel-scope--normalize-keys
+  converts snake_case to kebab-case[32m  converts snake_case to kebab-case[0m (0.10ms)
+  recursively normalizes nested plists[32m  recursively normalizes nested plists[0m (0.10ms)
+  preserves non-plist values[32m  preserves non-plist values[0m (0.10ms)
+
+jf/gptel-scope--infer-validation-type
+  path validation routing
+    routes read_file to path validation[32m    routes read_file to path validation[0m (0.06ms)
+    routes write_file_in_scope to path validation[32m    routes write_file_in_scope to path validation[0m (0.06ms)
+    routes edit_file_in_scope to path validation[32m    routes edit_file_in_scope to path validation[0m (0.07ms)
+    routes list_project_files to path validation[32m    routes list_project_files to path validation[0m (0.06ms)
+    routes treesitter tools to path validation[32m    routes treesitter tools to path validation[0m (0.11ms)
+  bash validation routing
+    routes run_bash_command to bash validation[32m    routes run_bash_command to bash validation[0m (0.06ms)
+  pattern validation routing
+    routes org-roam tools to pattern validation[32m    routes org-roam tools to pattern validation[0m (0.14ms)
+  meta validation routing
+    routes PersistentAgent to meta validation[32m    routes PersistentAgent to meta validation[0m (0.07ms)
+    routes request_scope_expansion to meta validation[32m    routes request_scope_expansion to meta validation[0m (0.06ms)
+  unknown tools
+    returns nil for unknown tool names[32m    returns nil for unknown tool names[0m (0.06ms)
+    returns nil for empty string[32m    returns nil for empty string[0m (0.06ms)
+
+Validator -> build-violation-info -> Expansion UI Integration
+  Path validator integration
+    transforms path validator denial into valid violation-info[32m    transforms path validator denial into valid violation-info[0m (0.29ms)
+    handles denied-pattern reason from path validator[32m    handles denied-pattern reason from path validator[0m (0.07ms)
+  Pattern validator integration
+    transforms pattern validator denial into valid violation-info[32m    transforms pattern validator denial into valid violation-info[0m (0.21ms)
+  Bash validator integration (legacy :message format)
+    handles legacy validation-error format with :message field[32m    handles legacy validation-error format with :message field[0m (0.17ms)
+    handles cloud auth denial with :message field[32m    handles cloud auth denial with :message field[0m (0.07ms)
+  Format priority: :reason over :message
+    prioritizes :reason when both fields present[32m    prioritizes :reason when both fields present[0m (0.06ms)
+  Transformation robustness
+    returns nil for :reason when neither :reason nor :message present[32m    returns nil for :reason when neither :reason nor :message present[0m (0.10ms)
+
+End-to-end: Validator failure -> expansion -> approval flow
+  Path validator -> expansion -> add-to-scope
+    path validation failure triggers expansion, add-to-scope approves[32m    path validation failure triggers expansion, add-to-scope approves[0m (0.66ms)
+  Bash validator -> expansion -> allow-once -> retry succeeds
+    bash validation failure triggers expansion, allow-once grants access[32m    bash validation failure triggers expansion, allow-once grants access[0m (6.44ms)
+  Validation -> expansion -> denial preserves error
+    denial flow preserves original validation error context[32m    denial flow preserves original validation error context[0m (6.01ms)
+  Cross-validator violation-info format consistency
+    all validator types produce compatible violation-info for expansion UI[32m    all validator types produce compatible violation-info for expansion UI[0m (0.63ms)
+
+Inline scope expansion: bash command workflows
+  Semantic validation: in-scope commands
+    validates read operation when path is in read scope[32m    validates read operation when path is in read scope[0m (5.61ms)
+  Semantic validation: out-of-scope commands
+    denies read operation when path is out of scope[32m    denies read operation when path is out of scope[0m (5.86ms)
+  Inline expansion: trigger and approval flow
+    triggers expansion UI when validation fails, user approves with add-to-scope, scope updated[32m    triggers expansion UI when validation fails, user approves with add-to-scope, scope updated[0m (5.81ms)
+    triggers expansion UI when validation fails, user approves with allow-once, retry succeeds[32m    triggers expansion UI when validation fails, user approves with allow-once, retry succeeds[0m (5.79ms)
+    triggers expansion UI when validation fails, user denies, error returned[32m    triggers expansion UI when validation fails, user denies, error returned[0m (5.71ms)
+  Transient action handlers (bash)
+    add-to-scope action updates scope file and invokes callbackAdded /tmp/test.txt to scope
+[32m    add-to-scope action updates scope file and invokes callback[0m (1.10ms)
+    deny action invokes callback with user_denied result[32m    deny action invokes callback with user_denied result[0m (0.34ms)
+    allow-once action adds permission and invokes callbackAllowed cat /tmp/file.txt:/workspace once for this LLM turn
+[32m    allow-once action adds permission and invokes callback[0m (0.45ms)
+  Allow-once permission lifecycle
+    validation succeeds after allow-once permission granted[32m    validation succeeds after allow-once permission granted[0m (5.60ms)
+
+Transient action handlers (filesystem tools)
+  Add-to-scope action
+    updates read scope for read operations[32m    updates read scope for read operations[0m (0.93ms)
+    updates write scope for write operations[32m    updates write scope for write operations[0m (0.91ms)
+    updates write scope for edit operations[32m    updates write scope for edit operations[0m (0.95ms)
+  Deny action
+    returns user_denied when user denies request[32m    returns user_denied when user denies request[0m (0.89ms)
+  Allow-once action
+    grants temporary permission when user allows once[32m    grants temporary permission when user allows once[0m (1.07ms)
+
+Cloud authentication validation (stage 7)
+  cloud authentication detection
+    detects AWS authentication in allow mode[32m    detects AWS authentication in allow mode[0m (0.06ms)
+    detects GCP authentication in allow mode[32m    detects GCP authentication in allow mode[0m (0.05ms)
+    detects Azure authentication in allow mode[32m    detects Azure authentication in allow mode[0m (0.05ms)
+    passes when no cloud auth detected even in deny mode[32m    passes when no cloud auth detected even in deny mode[0m (0.05ms)
+  cloud configuration loading
+    loads allow mode[32m    loads allow mode[0m (0.05ms)
+    loads warn mode[32m    loads warn mode[0m (0.05ms)
+    loads deny mode[32m    loads deny mode[0m (0.05ms)
+    defaults to warn when missing[32m    defaults to warn when missing[0m (0.05ms)
+  allow mode enforcement
+    allows AWS command silently[32m    allows AWS command silently[0m (0.05ms)
+  warn mode enforcement
+    warns for AWS command[32m    warns for AWS command[0m (0.10ms)
+    identifies provider in warning[32m    identifies provider in warning[0m (0.09ms)
+    includes actionable message and command[32m    includes actionable message and command[0m (0.11ms)
+  deny mode enforcement
+    denies AWS command[32m    denies AWS command[0m (0.05ms)
+    denies with allowed-providers list (provider in list, still denied by mode)[32m    denies with allowed-providers list (provider in list, still denied by mode)[0m (0.06ms)
+    denies disallowed provider with provider-specific error[32m    denies disallowed provider with provider-specific error[0m (0.13ms)
+  provider filtering
+    empty allowed list denies all providers[32m    empty allowed list denies all providers[0m (0.06ms)
+    unlisted provider denied[32m    unlisted provider denied[0m (0.10ms)
+    provider filtering overrides warn mode[32m    provider filtering overrides warn mode[0m (0.06ms)
+  structured error responses
+    denied error includes all required fields[32m    denied error includes all required fields[0m (0.17ms)
+    provider restriction error explains allowed list[32m    provider restriction error explains allowed list[0m (0.14ms)
+    invalid mode fails closed[32m    invalid mode fails closed[0m (0.05ms)
+  full pipeline behavioral validation
+    allows cloud auth with warning in warn mode[32m    allows cloud auth with warning in warn mode[0m (4.84ms)
+    allows cloud auth silently in allow mode[32m    allows cloud auth silently in allow mode[0m (4.76ms)
+    denies cloud auth in deny mode[32m    denies cloud auth in deny mode[0m (4.66ms)
+    denies unlisted provider even in warn mode[32m    denies unlisted provider even in warn mode[0m (5.20ms)
+    skips cloud auth validation when no cloud auth detected[32m    skips cloud auth validation when no cloud auth detected[0m (4.59ms)
+
+run_bash_command: Deny list bypass prevention (stage 3)
+  blocks simple denied command[32m  blocks simple denied command[0m (5.43ms)
+  blocks denied command in pipeline position 2[32m  blocks denied command in pipeline position 2[0m (5.62ms)
+  blocks denied command in complex pipeline[32m  blocks denied command in complex pipeline[0m (5.50ms)
+  blocks sudo in pipeline[32m  blocks sudo in pipeline[0m (5.46ms)
+  validates chain operators (&&)[32m  validates chain operators (&&)[0m (5.63ms)
+  validates chain operators (||)[32m  validates chain operators (||)[0m (5.68ms)
+  validates sequential commands (;)[32m  validates sequential commands (;)[0m (5.50ms)
+  allows commands not in deny list to proceed to next stage[32m  allows commands not in deny list to proceed to next stage[0m (5.53ms)
+  allows multiple non-denied commands in pipeline to proceed[32m  allows multiple non-denied commands in pipeline to proceed[0m (5.63ms)
+
+run_bash_command: Error message structure
+  command denied error includes command and position[32m  command denied error includes command and position[0m (5.26ms)
+  parse incomplete error includes parse errors[32m  parse incomplete error includes parse errors[0m (4.83ms)
+  path out of scope error includes operation details[32m  path out of scope error includes operation details[0m (5.20ms)
+  path denied error distinguishes from out-of-scope[32m  path denied error distinguishes from out-of-scope[0m (5.23ms)
+  cloud auth denied includes provider details[32m  cloud auth denied includes provider details[0m (5.41ms)
+  pipeline command denied includes full context[32m  pipeline command denied includes full context[0m (5.01ms)
+  multiple operation failure reports first violation[32m  multiple operation failure reports first violation[0m (5.37ms)
+  success response includes coverage metrics[32m  success response includes coverage metrics[0m (63.53ms)
+  warning structure for cloud auth in warn mode[32m  warning structure for cloud auth in warn mode[0m (5.26ms)
+
+File operation path validation (stage 6)
+  operation-specific scope matching
+    read operation matches paths.read[32m    read operation matches paths.read[0m (0.08ms)
+    read operation matches paths.write (write includes read)[32m    read operation matches paths.write (write includes read)[0m (0.07ms)
+    write operation requires paths.write[32m    write operation requires paths.write[0m (0.07ms)
+    execute operation requires paths.execute[32m    execute operation requires paths.execute[0m (0.06ms)
+    modify operation allowed by paths.modify[32m    modify operation allowed by paths.modify[0m (0.07ms)
+    modify operation allowed by paths.write (write includes modify)[32m    modify operation allowed by paths.write (write includes modify)[0m (0.07ms)
+    delete operation requires paths.write[32m    delete operation requires paths.write[0m (0.06ms)
+    delete operation denied without paths.write[32m    delete operation denied without paths.write[0m (0.06ms)
+    empty patterns deny all operations[32m    empty patterns deny all operations[0m (0.06ms)
+    nil patterns deny all operations[32m    nil patterns deny all operations[0m (0.06ms)
+  deny patterns precedence
+    read operation on denied path is rejected[32m    read operation on denied path is rejected[0m (0.07ms)
+    deny overrides read scope[32m    deny overrides read scope[0m (0.08ms)
+    deny overrides write scope[32m    deny overrides write scope[0m (0.08ms)
+    deny overrides execute scope[32m    deny overrides execute scope[0m (0.07ms)
+  multiple file operations validated independently
+    copy with both paths in scope succeeds[32m    copy with both paths in scope succeeds[0m (0.09ms)
+    copy with destination out of scope fails[32m    copy with destination out of scope fails[0m (0.13ms)
+    first operation fails reports immediately[32m    first operation fails reports immediately[0m (0.11ms)
+    multiple read operations all validated[32m    multiple read operations all validated[0m (0.13ms)
+    mixed operations (read/write/execute) all validated[32m    mixed operations (read/write/execute) all validated[0m (0.12ms)
+  path resolution
+    resolves relative path from directory[32m    resolves relative path from directory[0m (0.07ms)
+    resolves parent directory reference[32m    resolves parent directory reference[0m (0.07ms)
+    absolute path unchanged[32m    absolute path unchanged[0m (0.08ms)
+  structured error responses
+    path out of scope error includes required fields[32m    path out of scope error includes required fields[0m (0.18ms)
+    path denied error includes required fields[32m    path denied error includes required fields[0m (0.20ms)
+    error message is a string[32m    error message is a string[0m (0.11ms)
+  glob pattern matching
+    single-level wildcard matches[32m    single-level wildcard matches[0m (0.10ms)
+    recursive wildcard matches[32m    recursive wildcard matches[0m (0.10ms)
+    extension pattern matches[32m    extension pattern matches[0m (0.10ms)
+    multiple patterns checked in order[32m    multiple patterns checked in order[0m (0.19ms)
+    exact path match[32m    exact path match[0m (0.11ms)
+    wildcard in middle of pattern[32m    wildcard in middle of pattern[0m (0.11ms)
+    recursive wildcard in middle of pattern[32m    recursive wildcard in middle of pattern[0m (0.14ms)
+    overlapping patterns (any match allows)[32m    overlapping patterns (any match allows)[0m (0.08ms)
+    case-sensitive matching[32m    case-sensitive matching[0m (0.11ms)
+    dot files matched by wildcards[32m    dot files matched by wildcards[0m (0.09ms)
+    special characters in filenames matched literally[32m    special characters in filenames matched literally[0m (0.12ms)
+  full pipeline behavioral validation
+    allows read operation within read scope via pipeline[32m    allows read operation within read scope via pipeline[0m (5.25ms)
+    denies read operation outside scope via pipeline[32m    denies read operation outside scope via pipeline[0m (5.01ms)
+    denies write when only read scope exists via pipeline[32m    denies write when only read scope exists via pipeline[0m (4.97ms)
+    denies operations on deny list paths via pipeline[32m    denies operations on deny list paths via pipeline[0m (5.03ms)
+    denies when multiple file operations include paths outside scope[32m    denies when multiple file operations include paths outside scope[0m (5.19ms)
+    allows multiple operations when all within scope[32m    allows multiple operations when all within scope[0m (5.16ms)
+
+run_bash_command: No-op allowance (stage 5 short-circuit)
+  allows version checks without path configuration[32m  allows version checks without path configuration[0m (4.67ms)
+  allows help flags as no-ops[32m  allows help flags as no-ops[0m (5.57ms)
+  allows informational commands[32m  allows informational commands[0m (5.52ms)
+  denies no-op commands in deny list before no-op check[32m  denies no-op commands in deny list before no-op check[0m (4.99ms)
+  bypasses file path validation for no-op commands[32m  bypasses file path validation for no-op commands[0m (4.65ms)
+  enforces deny list even for zero-file-operation commands[32m  enforces deny list even for zero-file-operation commands[0m (5.01ms)
+
+run_bash_command: Parse completeness enforcement (stage 2)
+  strict mode rejects incomplete parse (syntax error)[32m  strict mode rejects incomplete parse (syntax error)[0m (4.90ms)
+  strict mode rejects incomplete loop[32m  strict mode rejects incomplete loop[0m (4.67ms)
+  strict mode rejects incomplete conditional[32m  strict mode rejects incomplete conditional[0m (4.60ms)
+  strict mode allows valid complex syntax[32m  strict mode allows valid complex syntax[0m (4.88ms)
+  strict mode allows valid conditionals[32m  strict mode allows valid conditionals[0m (4.79ms)
+  permissive mode allows incomplete parse with warningWarning (emacs): Parse incomplete: nil
+[32m  permissive mode allows incomplete parse with warning[0m (4.72ms)
+[33mWarning (emacs): Parse incomplete: nil[0m
+  permissive mode allows partial syntaxWarning (emacs): Parse incomplete: nil
+[32m  permissive mode allows partial syntax[0m (4.72ms)
+[33mWarning (emacs): Parse incomplete: nil[0m
+  default mode is strict[32m  default mode is strict[0m (3.81ms)
+  parse completeness checked before deny list[32m  parse completeness checked before deny list[0m (5.06ms)
+
+run_bash_command: Working directory and path resolution
+  relative paths resolved from directory argument[32m  relative paths resolved from directory argument[0m (4.42ms)
+  dot-dot paths resolved from directory[32m  dot-dot paths resolved from directory[0m (4.47ms)
+  path traversal detected and denied[32m  path traversal detected and denied[0m (4.66ms)
+  current directory (.) resolved[32m  current directory (.) resolved[0m (4.65ms)
+  directory itself in deny list blocks operation[32m  directory itself in deny list blocks operation[0m (4.77ms)
+  symlink directory resolved (mock file-truename)[32m  symlink directory resolved (mock file-truename)[0m (4.82ms)
+  absolute path in command bypasses directory context[32m  absolute path in command bypasses directory context[0m (4.83ms)
+  multiple relative paths resolved independently[32m  multiple relative paths resolved independently[0m (4.81ms)
+  working directory provided to command execution[32m  working directory provided to command execution[0m (0.36ms)
+
+Pipeline validation
+  pipeline command extraction
+    extracts commands from pipe[32m    extracts commands from pipe[0m (13.44ms)
+    extracts commands from multi-stage pipeline[32m    extracts commands from multi-stage pipeline[0m (3.23ms)
+    extracts commands from semicolon chain[32m    extracts commands from semicolon chain[0m (3.05ms)
+    extracts commands from AND chain[32m    extracts commands from AND chain[0m (3.07ms)
+    extracts commands from OR chain[32m    extracts commands from OR chain[0m (3.10ms)
+    extracts command with arguments (ignores args)[32m    extracts command with arguments (ignores args)[0m (3.05ms)
+    extracts git as base command[32m    extracts git as base command[0m (2.98ms)
+    returns nil for empty string[32m    returns nil for empty string[0m (0.10ms)
+    single command (no pipeline)[32m    single command (no pipeline)[0m (2.95ms)
+  pipeline deny list validation
+    all commands allowed passes[32m    all commands allowed passes[0m (0.06ms)
+    second command denied[32m    second command denied[0m (0.14ms)
+    middle command denied[32m    middle command denied[0m (0.13ms)
+    first command denied reports position 0[32m    first command denied reports position 0[0m (0.10ms)
+    empty command list passes[32m    empty command list passes[0m (0.05ms)
+    four-stage pipeline all allowed[32m    four-stage pipeline all allowed[0m (0.06ms)
+    command not in deny list passes[32m    command not in deny list passes[0m (0.06ms)
+    empty deny list allows everything[32m    empty deny list allows everything[0m (0.06ms)
+    fails at first denied command in mixed pipeline[32m    fails at first denied command in mixed pipeline[0m (0.10ms)
+    multiple denied commands fails at first[32m    multiple denied commands fails at first[0m (0.10ms)
+  security bypass prevention
+    prevents xargs rm bypass[32m    prevents xargs rm bypass[0m (0.11ms)
+    prevents sh execution bypass[32m    prevents sh execution bypass[0m (0.09ms)
+    prevents chmod bypass[32m    prevents chmod bypass[0m (0.05ms)
+    prevents curl pipe sh[32m    prevents curl pipe sh[0m (0.06ms)
+    prevents cat eval[32m    prevents cat eval[0m (0.06ms)
+    allows legitimate data pipeline[32m    allows legitimate data pipeline[0m (0.06ms)
+  structured error responses
+    error identifies command and position[32m    error identifies command and position[0m (0.10ms)
+    error includes message[32m    error includes message[0m (0.10ms)
+    third command failure reports position 2[32m    third command failure reports position 2[0m (0.10ms)
+  full pipeline behavioral validation
+    pipeline with mixed operations succeeds[32m    pipeline with mixed operations succeeds[0m (5.45ms)
+    pipeline with denied command fails at stage 3[32m    pipeline with denied command fails at stage 3[0m (5.26ms)
+    command substitution with execute operation denied[32m    command substitution with execute operation denied[0m (5.61ms)
+    no-op in deny list fails before no-op check[32m    no-op in deny list fails before no-op check[0m (4.99ms)
+    modify operation allowed via write scope (hierarchical)[32m    modify operation allowed via write scope (hierarchical)[0m (64.78ms)
+    deny pattern overrides broad permissions[32m    deny pattern overrides broad permissions[0m (6.13ms)
+    complete successful execution (validation phase)[32m    complete successful execution (validation phase)[0m (5.15ms)
+
+run_bash_command: Timeout and resource limits
+  allows command that completes within timeout[32m  allows command that completes within timeout[0m (0.40ms)
+  enforces timeout for command exceeding 30 seconds[32m  enforces timeout for command exceeding 30 seconds[0m (0.35ms)
+  warns when long-running command is terminated[32m  warns when long-running command is terminated[0m (0.35ms)
+  returns full output when within limit[32m  returns full output when within limit[0m (0.37ms)
+  truncates output exceeding 10,000 chars limit[32m  truncates output exceeding 10,000 chars limit[0m (1.01ms)
+  suggests filters in truncation notice[32m  suggests filters in truncation notice[0m (1.35ms)
+  captures non-zero exit code[32m  captures non-zero exit code[0m (0.40ms)
+  handles execution errors gracefully[32m  handles execution errors gracefully[0m (0.43ms)
+
+Expansion UI Handlers (Real Implementation)
+  Deny action
+    retrieves callback from transient scope and invokes with denial JSON[32m    retrieves callback from transient scope and invokes with denial JSON[0m (0.20ms)
+    handles missing callback gracefullyWarning: No callback provided for scope expansion
+[32m    handles missing callback gracefully[0m (0.08ms)
+    handles callback invocation errors gracefullyError invoking callback: Boom!
+[32m    handles callback invocation errors gracefully[0m (0.07ms)
+  Add to scope action
+    adds path to scope and invokes callback with success JSONAdded /workspace/newfile.txt to scope
+[32m    adds path to scope and invokes callback with success JSON[0m (5.06ms)
+    handles pattern validation type (org-roam)Added subdirectory:personal/notes to scope
+[32m    handles pattern validation type (org-roam)[0m (4.79ms)
+    handles bash validation typeAdded grep to scope
+[32m    handles bash validation type[0m (4.72ms)
+    handles scope file not found error[32m    handles scope file not found error[0m (0.07ms)
+    handles scope file not writable error[32m    handles scope file not writable error[0m (0.06ms)
+    handles callback invocation errors gracefullyError invoking callback: Callback explosion!
+Added /workspace/file.txt to scope
+[32m    handles callback invocation errors gracefully[0m (4.87ms)
+  Allow once action
+    adds to allow-once list and invokes callback with allowed_once flagAllowed /tmp/temp.txt once for this LLM turn
+[32m    adds to allow-once list and invokes callback with allowed_once flag[0m (0.37ms)
+    handles callback invocation errors gracefullyError invoking callback: Boom!
+Allowed /tmp/test.txt once for this LLM turn
+[32m    handles callback invocation errors gracefully[0m (0.09ms)
+  Scope setup function
+    creates transient scope with correct structure[32m    creates transient scope with correct structure[0m (0.05ms)
+
+jf/gptel-scope--gather-file-metadata - plist structure
+  returns a plist[32m  returns a plist[0m (0.28ms)
+  contains all required keys[32m  contains all required keys[0m (0.45ms)
+  has exactly 6 key-value pairs[32m  has exactly 6 key-value pairs[0m (0.23ms)
+
+jf/gptel-scope--gather-file-metadata - path handling
+  expands relative paths to absolute[32m  expands relative paths to absolute[0m (0.82ms)
+  preserves absolute paths[32m  preserves absolute paths[0m (0.60ms)
+  expands ~ to home directory[32m  expands ~ to home directory[0m (0.60ms)
+  resolves symlinks for :real-path[32m  resolves symlinks for :real-path[0m (0.51ms)
+
+jf/gptel-scope--gather-file-metadata - file existence
+  detects existing files[32m  detects existing files[0m (0.73ms)
+  detects existing directories[32m  detects existing directories[0m (0.53ms)
+  detects non-existent files[32m  detects non-existent files[0m (0.57ms)
+
+jf/gptel-scope--gather-file-metadata - git repository detection
+  detects git repository for files in repo[32m  detects git repository for files in repo[0m (0.60ms)
+  returns nil for files outside git repo[32m  returns nil for files outside git repo[0m (0.56ms)
+  git-repo path ends with repository root directory[32m  git-repo path ends with repository root directory[0m (0.55ms)
+
+jf/gptel-scope--gather-file-metadata - git tracking status
+  detects git-tracked files[32m  detects git-tracked files[0m (0.58ms)
+  returns nil for untracked files in git repo[32m  returns nil for untracked files in git repo[0m (0.58ms)
+  returns nil for files outside git repo[32m  returns nil for files outside git repo[0m (0.58ms)
+  git-tracked is nil when git-repo is nil[32m  git-tracked is nil when git-repo is nil[0m (0.61ms)
+
+jf/gptel-scope--gather-file-metadata - file type detection
+  detects regular files[32m  detects regular files[0m (0.98ms)
+  detects directories[32m  detects directories[0m (1.00ms)
+  returns 'other for non-existent files[32m  returns 'other for non-existent files[0m (0.87ms)
+  detects config directory as directory[32m  detects config directory as directory[0m (1.01ms)
+
+jf/gptel-scope--gather-file-metadata - graceful degradation
+  handles non-existent files without errors[32m  handles non-existent files without errors[0m (0.19ms)
+  returns complete plist even for non-existent files[32m  returns complete plist even for non-existent files[0m (0.20ms)
+  handles paths with special characters[32m  handles paths with special characters[0m (0.21ms)
+
+Simple Async Tool Test
+  calls UI when validation failsDEBUG: Calling tool with filepath=/workspace/newfile.txt
+DEBUG: Loading config, paths-write=("/workspace/allowed/**")
+DEBUG: Mock UI called, violation=(:tool "write_file_in_scope" :resource "/workspace/newfile.txt" :operation nil :reason "not-in-scope" :validation-type path :metadata nil)
+DEBUG: Updating config from ("/workspace/allowed/**") to ("/workspace/allowed/**" "/workspace/newfile.txt")
+DEBUG: Invoking expansion callback with success
+DEBUG: Loading config, paths-write=("/workspace/allowed/**" "/workspace/newfile.txt")
+DEBUG: Tool body executing for /workspace/newfile.txt
+DEBUG: Final callback invoked with: {"success":true,"filepath":"/workspace/newfile.txt"}
+DEBUG: After tool call:
+  UI called: t
+  Tool executed: t
+  Config paths-write: ("/workspace/allowed/**" "/workspace/newfile.txt")
+  Final result: (:success t :filepath "/workspace/newfile.txt")
+[32m  calls UI when validation fails[0m (0.86ms)
+
+YAML Round-trip Tests
+  Reading and writing full scope files
+    preserves all sections when reading and writing back[32m    preserves all sections when reading and writing back[0m (21.72ms)
+    handles empty nested plist values[32m    handles empty nested plist values[0m (3.45ms)
+  Inline expansion with full scope files
+    preserves :cloud and :security when adding path[32m    preserves :cloud and :security when adding path[0m (21.14ms)
+    preserves :cloud and :security when adding bash command[32m    preserves :cloud and :security when adding bash command[0m (21.27ms)
+    preserves :cloud and :security when adding org-roam pattern[32m    preserves :cloud and :security when adding org-roam pattern[0m (21.42ms)
+
+jf/gptel-scope--infer-validation-type
+  returns path for read_file tool[32m  returns path for read_file tool[0m (0.06ms)
+  returns path for write_file_in_scope tool[32m  returns path for write_file_in_scope tool[0m (0.05ms)
+  returns pattern for create_roam_node_in_scope tool[32m  returns pattern for create_roam_node_in_scope tool[0m (0.06ms)
+  returns bash for run_bash_command tool[32m  returns bash for run_bash_command tool[0m (0.05ms)
+  returns meta for request_scope_expansion tool[32m  returns meta for request_scope_expansion tool[0m (0.05ms)
+  returns nil for unknown tool[32m  returns nil for unknown tool[0m (0.06ms)
+
+jf/gptel-scope--build-violation-info
+  error type: path_out_of_scope
+    extracts path as resource[32m    extracts path as resource[0m (0.23ms)
+  error type: command_denied
+    extracts command as resource[32m    extracts command as resource[0m (0.22ms)
+  error type: cloud_auth_denied
+    extracts provider as resource[32m    extracts provider as resource[0m (0.21ms)
+  error type: incomplete_parse
+    extracts command as resource[32m    extracts command as resource[0m (0.21ms)
+  default error type with :resource field
+    extracts resource field when error type doesn't match specific cases[32m    extracts resource field when error type doesn't match specific cases[0m (0.22ms)
+  default error type with :path field fallback
+    falls back to :path when no :resource field[32m    falls back to :path when no :resource field[0m (0.21ms)
+  using :reason field instead of :error
+    handles validation errors with :reason field[31m    handles validation errors with :reason field[0m[31m  Expected `(plist-get result :reason)' to be `equal' to `"Directory not in scope"', but instead it was `"directory-not-in-scope"' which does not match because: (array-elt 0 (different-atoms (100 "#x64" "?d") (68 "#x44" "?D"))).[0m (0.22ms)
+  all fields populated correctly
+    returns plist with all required fields[32m    returns plist with all required fields[0m (0.07ms)
+  metadata passthrough
+    includes metadata when present in validation-error[32m    includes metadata when present in validation-error[0m (0.06ms)
+    returns nil metadata when not present in validation-error[32m    returns nil metadata when not present in validation-error[0m (0.06ms)
+
+read_file: tool-scope contract
+  calls jf/gptel-scope--check-tool-permission with correct args
+    passes tool name 'read_file' to permission check[32m    passes tool name 'read_file' to permission check[0m (0.06ms)
+    passes filepath as first arg[32m    passes filepath as first arg[0m (0.06ms)
+    routes to path validation for read operation[32m    routes to path validation for read operation[0m (0.10ms)
+  on validation success, reads file
+    returns file content when file exists[32m    returns file content when file exists[0m (0.93ms)
+    returns file_not_found error when file missing[32m    returns file_not_found error when file missing[0m (0.08ms)
+  on validation failure, returns error without reading
+    returns structured scope violation error[32m    returns structured scope violation error[0m (0.19ms)
+    does not read file when permission denied[32m    does not read file when permission denied[0m (0.02ms)
+
+write_file_in_scope: tool-scope contract
+  calls permission check with write operation
+    passes tool name 'write_file_in_scope'[32m    passes tool name 'write_file_in_scope'[0m (0.06ms)
+    routes to path validation with write operation[32m    routes to path validation with write operation[0m (0.10ms)
+  on validation success, writes file
+    creates file with content when allowed[32m    creates file with content when allowed[0m (0.79ms)
+  on validation failure, returns error without writing
+    does not write file when permission denied[32m    does not write file when permission denied[0m (0.03ms)
+    returns error with allowed-patterns for guidance[32m    returns error with allowed-patterns for guidance[0m (0.06ms)
+
+edit_file_in_scope: tool-scope contract
+  routes to path validation with write operation[32m  routes to path validation with write operation[0m (0.10ms)
+  returns error without modifying when permission denied[32m  returns error without modifying when permission denied[0m (0.11ms)
+
+list_directory: basic tool behavior
+  lists files when directory exists[32m  lists files when directory exists[0m (0.93ms)
+  handles non-existent directory gracefully[32m  handles non-existent directory gracefully[0m (0.06ms)
+
+filesystem tools: expansion trigger
+  triggers inline expansion when async tool is denied[32m  triggers inline expansion when async tool is denied[0m (0.07ms)
+  passes denied resource to expansion for pattern inference[32m  passes denied resource to expansion for pattern inference[0m (0.06ms)
+
+run_bash_command: tool-scope contract
+  calls jf/gptel-scope--check-tool-permission with correct args
+    passes tool name 'run_bash_command' to permission check[32m    passes tool name 'run_bash_command' to permission check[0m (0.07ms)
+    passes command and directory as args list[32m    passes command and directory as args list[0m (0.06ms)
+    passes config from jf/gptel-scope--load-config[32m    passes config from jf/gptel-scope--load-config[0m (0.06ms)
+  on validation success, executes command
+    calls jf/gptel-bash--execute-command with command and directory[32m    calls jf/gptel-bash--execute-command with command and directory[0m (0.10ms)
+    returns success result with output, exit code, truncated flag[32m    returns success result with output, exit code, truncated flag[0m (0.15ms)
+    packages warnings separately from output[32m    packages warnings separately from output[0m (0.10ms)
+  on validation failure, returns structured error
+    returns error plist when permission denied[32m    returns error plist when permission denied[0m (0.14ms)
+    does not call jf/gptel-bash--execute-command when denied[32m    does not call jf/gptel-bash--execute-command when denied[0m (0.02ms)
+    includes allowed-patterns in error for user guidance[32m    includes allowed-patterns in error for user guidance[0m (0.06ms)
+  on validation failure with expansion
+    triggers inline expansion for async tools[32m    triggers inline expansion for async tools[0m (0.06ms)
+    passes validation error to expansion function[32m    passes validation error to expansion function[0m (0.06ms)
+  execution results: timeout and output limits
+    returns timeout error structure[32m    returns timeout error structure[0m (0.13ms)
+    returns execution error structure[32m    returns execution error structure[0m (0.13ms)
+    passes truncation flag through execution result[32m    passes truncation flag through execution result[0m (0.06ms)
+  result formatting
+    formats success result with all fields[32m    formats success result with all fields[0m (0.14ms)
+    formats failure result correctly for non-zero exit code[32m    formats failure result correctly for non-zero exit code[0m (0.10ms)
+
+gptel argument extraction for async tools
+  extracts single argument from plist correctly[32m  extracts single argument from plist correctly[0m (0.06ms)
+  extracts multiple arguments in correct order[32m  extracts multiple arguments in correct order[0m (0.06ms)
+  handles missing arguments[32m  handles missing arguments[0m (0.06ms)
+  demonstrates correct apply usage with callback[32m  demonstrates correct apply usage with callback[0m (0.19ms)
+  reproduces wrong-number-of-arguments when missing callback[32m  reproduces wrong-number-of-arguments when missing callback[0m (0.05ms)
+
+========================================
+[31mjf/gptel-scope--build-violation-info using :reason field instead of :error handles validation errors with :reason field[0m
+[31mFAILED[0m: Expected `(plist-get result :reason)' to be `equal' to `"Directory not in scope"', but instead it was `"directory-not-in-scope"' which does not match because: (array-elt 0 (different-atoms (100 "#x64" "?d") (68 "#x44" "?D"))).
+
+Ran 612 specs, [31m1 failed[0m, in 875.74ms.
+Debugger entered--Lisp error: (buttercup-run-specs-failed "")
+  buttercup--run-suites((... ... ... ... ... ... ... ... ... ... ... ... ... ... ...) nil)
+  buttercup-run()
+  (progn (let ((tail test-files)) (while tail (let ((file (car tail))) (message "Loading Buttercup test: %s" file) (load-file file) (setq tail (cdr tail))))) (buttercup-run))
+  (if test-files (progn (let ((tail test-files)) (while tail (let ((file (car tail))) (message "Loading Buttercup test: %s" file) (load-file file) (setq tail (cdr tail))))) (buttercup-run)) (message "No Buttercup test files found"))
+  (let ((backtrace-on-error-noninteractive nil) (test-files (jf/test-find-buttercup-test-files))) (if test-files (progn (let ((tail test-files)) (while tail (let ((file ...)) (message "Loading Buttercup test: %s" file) (load-file file) (setq tail (cdr tail))))) (buttercup-run)) (message "No Buttercup test files found")))
+  jf/test-run-all-buttercup-batch()
+  eval((jf/test-run-all-buttercup-batch) t)
+  command-line-1(("--load" "/Users/jefffarr/emacs-gptel-scoped-bash-tools/early-init.el" "--load" "/Users/jefffarr/emacs-gptel-scoped-bash-tools/init.el" "-l" "/Users/jefffarr/emacs-gptel-scoped-bash-tools/config/core/testing.el" "--eval" "(jf/test-run-all-buttercup-batch)"))
+  command-line()
+  normal-top-level()
+
+make: *** [emacs-test-eval] Error 255
