@@ -52,7 +52,7 @@ emacs-test-eval:
 # High-level test targets - User-facing convenience wrappers
 # =============================================================================
 
-.PHONY: test test-verbose test-pattern test-directory test-bash-parser test-gptel test-snapshot test-buttercup test-buttercup-directory test-scope-unit test-scope-integration test-scope-behavioral test-scope-schema test-scope-cloud-auth test-scope-pipelines test-scope-file-paths help
+.PHONY: test test-verbose test-pattern test-directory test-snapshot test-buttercup test-buttercup-directory help
 
 # Default target
 help:
@@ -67,41 +67,24 @@ help:
 	@echo "  make emacs-isolated EMACS_ARGS='...'  Run isolated Emacs with custom args"
 	@echo "  make emacs-test-eval EVAL_CMD='...'   Run tests with elisp eval"
 	@echo ""
-	@echo "Testing (ERT - legacy):"
-	@echo "  make test                       Run all ERT tests (auto-discovery)"
-	@echo "  make test-verbose               Run all ERT tests with verbose output"
+	@echo "Testing (both frameworks via run-tests.sh):"
+	@echo "  make test                       Run all tests (both frameworks)"
+	@echo "  make test-verbose               Run all tests with verbose output"
 	@echo "  make test-pattern PATTERN=X     Run ERT tests matching pattern"
-	@echo "  make test-directory DIR=X       Run ERT tests in specific directory"
-	@echo "  make test-snapshot DIR=X        Run ERT tests and capture snapshot"
+	@echo "  make test-directory DIR=X       Run tests in specific directory"
+	@echo "  make test-snapshot DIR=X        Run tests and capture snapshot"
 	@echo ""
-	@echo "Testing (Buttercup - preferred):"
+	@echo "Testing (Buttercup - direct):"
 	@echo "  make test-buttercup             Run all Buttercup tests"
 	@echo "  make test-buttercup-directory DIR=X  Run Buttercup tests in specific directory"
 	@echo ""
-	@echo "Module shortcuts:"
-	@echo "  make test-bash-parser           Run bash-parser tests (ERT)"
-	@echo "  make test-bash-parser-snapshot  Run and capture bash-parser snapshot"
-	@echo "  make test-gptel                 Run gptel tests (when available)"
-	@echo ""
-	@echo "Scope validation tests (by type):"
-	@echo "  make test-scope-unit            Run scope unit tests (Buttercup)"
-	@echo "  make test-scope-integration     Run scope integration tests (ERT)"
-	@echo "  make test-scope-behavioral      Run scope behavioral tests (Buttercup)"
-	@echo ""
-	@echo "Scope validation tests (by capability):"
-	@echo "  make test-scope-schema          Run schema validation tests"
-	@echo "  make test-scope-cloud-auth      Run cloud auth tests"
-	@echo "  make test-scope-pipelines       Run pipeline validation tests"
-	@echo "  make test-scope-file-paths      Run file path validation tests"
-	@echo ""
 	@echo "Examples:"
 	@echo "  make test-pattern PATTERN='^test-glob-'"
-	@echo "  make test-directory DIR=config/experiments/bash-parser"
-	@echo "  make test-snapshot DIR=config/experiments/bash-parser"
-	@echo "  make test-bash-parser-snapshot"
+	@echo "  make test-directory DIR=config/bash-parser"
+	@echo "  make test-snapshot DIR=config/bash-parser"
 	@echo ""
 
-# Run all tests
+# Run all tests (both frameworks)
 test:
 	@./bin/run-tests.sh
 
@@ -121,16 +104,6 @@ test-directory:
 test-snapshot:
 	@./bin/run-tests.sh -d "$(DIR)" --snapshot
 
-# Shortcuts for common modules
-test-bash-parser:
-	@./bin/run-tests.sh -d config/experiments/bash-parser
-
-test-bash-parser-snapshot:
-	@./bin/run-tests.sh -d config/experiments/bash-parser --snapshot
-
-test-gptel:
-	@./bin/run-tests.sh -d config/gptel
-
 # Run all Buttercup tests
 test-buttercup:
 	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-all-buttercup-batch)'
@@ -138,25 +111,3 @@ test-buttercup:
 # Run Buttercup tests in specific directory
 test-buttercup-directory:
 	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-buttercup-directory-batch "$(DIR)")'
-
-# =============================================================================
-# Scope validation test targets - organized by layer
-# =============================================================================
-
-# Run all scope tests (core + semantic + expansion)
-test-scope:
-	@./bin/run-tests.sh -f buttercup -d config/gptel/scope
-
-# Run scope tests by layer
-test-scope-core:
-	@./bin/run-tests.sh -f buttercup -d config/gptel/scope/test/core
-
-test-scope-semantic:
-	@./bin/run-tests.sh -f buttercup -d config/gptel/scope/test/semantic
-
-test-scope-expansion:
-	@./bin/run-tests.sh -f buttercup -d config/gptel/scope/test/expansion
-
-# Run tool-scope contract tests
-test-tools:
-	@./bin/run-tests.sh -f buttercup -d config/gptel/tools

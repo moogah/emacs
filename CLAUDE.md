@@ -114,20 +114,20 @@ emacs-isolated.sh (GUI)  - Interactive launches (independent)
 
 **Running tests:**
 ```bash
-# Via make (direct)
-make test                                # All ERT tests
-make test-buttercup                      # All Buttercup tests
-make test-bash-parser                    # Module shortcut (ERT)
-make test-directory DIR=config/gptel     # Custom directory (ERT)
-make test-buttercup-directory DIR=config/gptel  # Custom directory (Buttercup)
-
-# Via run-tests.sh (user-friendly CLI with auto-detection)
-./bin/run-tests.sh                       # All tests (both frameworks)
+# Via run-tests.sh (primary CLI with auto-detection)
+./bin/run-tests.sh                       # All tests (both frameworks, separate processes)
 ./bin/run-tests.sh -f buttercup          # Only Buttercup tests
 ./bin/run-tests.sh -f ert                # Only ERT tests
 ./bin/run-tests.sh -d config/gptel       # Directory-scoped (auto-detects framework)
 ./bin/run-tests.sh -p '^test-glob-'      # Pattern-scoped (ERT)
 ./bin/run-tests.sh -d config/foo -s      # With snapshot
+
+# Via make (convenience wrappers)
+make test                                # All tests (both frameworks)
+make test-buttercup                      # All Buttercup tests (direct)
+make test-directory DIR=config/gptel     # Tests in specific directory
+make test-buttercup-directory DIR=config/gptel  # Buttercup in directory (direct)
+make test-pattern PATTERN='^test-glob-'  # ERT pattern matching
 
 # Interactive (via transient menu)
 C-c t    # Open test menu
@@ -162,7 +162,7 @@ C-c t    # Open test menu
 - Scripts are thin wrappers (no coupling)
 - Tests co-located with modules (easy navigation)
 - Automatic discovery (no manual test registration)
-- Dual-framework support (run independently or together)
+- Dual-framework runs in separate Emacs processes (ERT's `kill-emacs` cannot block Buttercup)
 
 **Bash-parser test organization:** `config/bash-parser/test/`
 - `behavioral/` - User-facing scenarios from specs (WHAT) - 129 tests
@@ -263,12 +263,12 @@ See implementation and spec files for complete details.
 ./bin/emacs-isolated.sh -nw          # Terminal mode
 ./bin/emacs-isolated.sh myfile.txt   # Open file
 
-# Run tests (Makefile-based)
-make test                                    # All tests (auto-discovery)
-make test-bash-parser                        # Module-specific tests
-make test-directory DIR=config/gptel         # Custom directory
-make test-pattern PATTERN='^test-glob-'      # Pattern matching
-./bin/run-tests.sh -d config/foo --snapshot  # With CLI and snapshot
+# Run tests
+./bin/run-tests.sh                           # All tests (both frameworks)
+./bin/run-tests.sh -d config/bash-parser     # Directory-scoped
+./bin/run-tests.sh -f buttercup              # Buttercup only
+make test-directory DIR=config/gptel         # Via make
+./bin/run-tests.sh -d config/foo --snapshot  # With snapshot
 
 # Worktree workflow
 git worktree add ~/emacs-feature-name -b feature-name

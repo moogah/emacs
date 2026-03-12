@@ -22,8 +22,6 @@ FRAMEWORK="auto"  # auto, ert, buttercup, or both
 VERBOSE=false
 SNAPSHOT=false
 SNAPSHOT_FILE=""
-TEST_TYPE=""  # unit, integration, behavioral
-CAPABILITY=""  # schema, cloud-auth, pipelines, file-paths
 
 show_help() {
     cat << EOF
@@ -38,8 +36,6 @@ OPTIONS:
                            auto: auto-detects based on file extension or runs both
     -d, --directory DIR    Run tests only in specified directory
     -p, --pattern PATTERN  Run ERT tests matching regexp pattern (ERT only)
-    -t, --type TYPE        Filter by test type: unit, integration, behavioral
-    -c, --capability CAP   Filter by capability: schema, cloud-auth, pipelines, file-paths
     -s, --snapshot [FILE]  Capture output to snapshot file (for git tracking)
                            Default: test-results.txt in test directory
     -v, --verbose          Show verbose output
@@ -63,7 +59,7 @@ EXAMPLES:
     $(basename "$0") -f both
 
     # Run tests in specific directory (auto-detects framework)
-    $(basename "$0") -d config/experiments/bash-parser
+    $(basename "$0") -d config/bash-parser
     $(basename "$0") -d config/gptel
 
     # Run Buttercup tests in specific directory
@@ -72,16 +68,8 @@ EXAMPLES:
     # Run ERT tests matching pattern
     $(basename "$0") -f ert -p "^test-glob-"
 
-    # Filter by test type
-    $(basename "$0") -t unit -d config/gptel/tools/test
-    $(basename "$0") -f buttercup -t behavioral
-
-    # Filter by capability
-    $(basename "$0") -c schema -d config/gptel/tools/test/integration
-    $(basename "$0") -c cloud-auth
-
     # Capture output to snapshot file
-    $(basename "$0") -d config/experiments/bash-parser --snapshot
+    $(basename "$0") -d config/bash-parser --snapshot
     $(basename "$0") -s custom-results.txt
 
     # Verbose mode
@@ -118,22 +106,6 @@ while [[ $# -gt 0 ]]; do
             PATTERN="$2"
             shift 2
             ;;
-        -t|--type)
-            TEST_TYPE="$2"
-            if [[ ! "$TEST_TYPE" =~ ^(unit|integration|behavioral)$ ]]; then
-                echo "Error: Invalid test type '$TEST_TYPE'. Must be: unit, integration, or behavioral"
-                exit 1
-            fi
-            shift 2
-            ;;
-        -c|--capability)
-            CAPABILITY="$2"
-            if [[ ! "$CAPABILITY" =~ ^(schema|cloud-auth|pipelines|file-paths)$ ]]; then
-                echo "Error: Invalid capability '$CAPABILITY'. Must be: schema, cloud-auth, pipelines, or file-paths"
-                exit 1
-            fi
-            shift 2
-            ;;
         -s|--snapshot)
             SNAPSHOT=true
             # Check if next arg is a filename (not a flag)
@@ -167,51 +139,6 @@ echo "Emacs Configuration Test Runner"
 echo "========================================"
 echo ""
 
-# Apply test type filtering
-if [ -n "$TEST_TYPE" ]; then
-    if [ -n "$DIRECTORY" ]; then
-        # Append type subdirectory to existing directory
-        DIRECTORY="$DIRECTORY/$TEST_TYPE"
-    else
-        echo "Error: --type requires --directory to be specified"
-        exit 1
-    fi
-fi
-
-# Apply capability filtering
-if [ -n "$CAPABILITY" ]; then
-    if [ -n "$DIRECTORY" ]; then
-        # Look for capability file in directory
-        CAPABILITY_FILE=""
-        case "$CAPABILITY" in
-            schema)
-                CAPABILITY_FILE="schema.el"
-                ;;
-            cloud-auth)
-                CAPABILITY_FILE="cloud-auth.el"
-                ;;
-            pipelines)
-                CAPABILITY_FILE="pipelines.el"
-                ;;
-            file-paths)
-                CAPABILITY_FILE="file-paths.el"
-                ;;
-        esac
-
-        # Check if capability file exists
-        if [ -f "$REPO_ROOT/$DIRECTORY/$CAPABILITY_FILE" ]; then
-            # Update directory to point to specific file
-            DIRECTORY="$DIRECTORY/$CAPABILITY_FILE"
-        else
-            echo "Warning: Capability file $CAPABILITY_FILE not found in $DIRECTORY"
-            echo "Searching for pattern in directory instead..."
-        fi
-    else
-        echo "Error: --capability requires --directory to be specified"
-        exit 1
-    fi
-fi
-
 # Auto-detect framework if needed
 if [ "$FRAMEWORK" = "auto" ]; then
     if [ -n "$DIRECTORY" ]; then
@@ -241,16 +168,10 @@ if [ -n "$PATTERN" ] && [ "$FRAMEWORK" != "ert" ]; then
 fi
 
 echo "Framework: $FRAMEWORK"
-if [ -n "$TEST_TYPE" ]; then
-    echo "Test type: $TEST_TYPE"
-fi
-if [ -n "$CAPABILITY" ]; then
-    echo "Capability: $CAPABILITY"
-fi
 echo ""
 
-# Build the elisp command based on framework
-run_tests() {
+# Build the elisp command for a single framework
+build_test_command() {
     local framework=$1
     local test_command=""
 
@@ -291,14 +212,24 @@ run_tests() {
     echo "$test_command"
 }
 
-if [ "$FRAMEWORK" = "both" ]; then
-    # Run both frameworks sequentially
-    ERT_COMMAND=$(run_tests "ert")
-    BUTTERCUP_COMMAND=$(run_tests "buttercup")
-    TEST_COMMAND="(progn $ERT_COMMAND $BUTTERCUP_COMMAND)"
-else
-    TEST_COMMAND=$(run_tests "$FRAMEWORK")
-fi
+# Run a single framework in its own Emacs process
+# Returns exit code via the EXIT_CODE_VAR named in $2
+run_single_framework() {
+    local framework=$1
+    local test_command
+    test_command=$(build_test_command "$framework")
+
+    if [ "$SNAPSHOT" = true ]; then
+        make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" 2>&1 | tee -a "$SNAPSHOT_FILE"
+        return ${PIPESTATUS[0]}
+    elif [ "$VERBOSE" = true ]; then
+        make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command" 2>&1
+        return $?
+    else
+        make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$test_command"
+        return $?
+    fi
+}
 
 # Determine snapshot file location
 if [ "$SNAPSHOT" = true ]; then
@@ -319,20 +250,42 @@ if [ "$SNAPSHOT" = true ]; then
 
     echo "Capturing output to: $(realpath --relative-to="$REPO_ROOT" "$SNAPSHOT_FILE" 2>/dev/null || basename "$SNAPSHOT_FILE")"
     echo ""
+
+    # Clear snapshot file before appending
+    > "$SNAPSHOT_FILE"
 fi
 
-# Run tests using make (eliminates dependency on emacs-isolated.sh)
-# Makefile provides emacs-test-eval target with proper environment setup
-if [ "$SNAPSHOT" = true ]; then
-    # Snapshot mode: capture output with tee
-    make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$TEST_COMMAND" 2>&1 | tee "$SNAPSHOT_FILE"
-    EXIT_CODE=${PIPESTATUS[0]}
-elif [ "$VERBOSE" = true ]; then
-    make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$TEST_COMMAND" 2>&1
-    EXIT_CODE=$?
+# Run tests - separate Emacs processes for "both" mode
+EXIT_CODE=0
+
+if [ "$FRAMEWORK" = "both" ]; then
+    # Run ERT and Buttercup as separate Emacs processes
+    # This fixes the critical bug where ert-run-tests-batch-and-exit
+    # calls kill-emacs before Buttercup can run
+    ERT_EXIT=0
+    BUTTERCUP_EXIT=0
+
+    set +e
+    run_single_framework "ert"
+    ERT_EXIT=$?
+
+    echo ""
+    echo "----------------------------------------"
+    echo ""
+
+    run_single_framework "buttercup"
+    BUTTERCUP_EXIT=$?
+    set -e
+
+    # Fail if either framework failed
+    if [ $ERT_EXIT -ne 0 ] || [ $BUTTERCUP_EXIT -ne 0 ]; then
+        EXIT_CODE=1
+    fi
 else
-    make -C "$REPO_ROOT" emacs-test-eval EVAL_CMD="$TEST_COMMAND"
+    set +e
+    run_single_framework "$FRAMEWORK"
     EXIT_CODE=$?
+    set -e
 fi
 
 echo ""
@@ -344,25 +297,33 @@ if [ "$SNAPSHOT" = true ] && [ -f "$SNAPSHOT_FILE" ]; then
     echo "========================================"
     echo ""
 
-    # Extract summary statistics
-    TOTAL_TESTS=$(grep -E "^Ran [0-9]+ tests" "$SNAPSHOT_FILE" | head -1 | awk '{print $2}')
-    EXPECTED=$(grep -E "^Ran [0-9]+ tests" "$SNAPSHOT_FILE" | head -1 | awk '{print $4}')
-    UNEXPECTED=$(grep -E "^Ran [0-9]+ tests" "$SNAPSHOT_FILE" | head -1 | awk '{print $8}')
-
-    if [ -n "$TOTAL_TESTS" ]; then
-        echo "Total tests run: $TOTAL_TESTS"
-        echo "Expected results: $EXPECTED"
-        echo "Unexpected results: $UNEXPECTED"
-        echo ""
+    # Extract ERT summary statistics
+    ERT_SUMMARY=$(grep -E "^Ran [0-9]+ tests" "$SNAPSHOT_FILE" | head -1)
+    if [ -n "$ERT_SUMMARY" ]; then
+        TOTAL_TESTS=$(echo "$ERT_SUMMARY" | awk '{print $2}')
+        EXPECTED=$(echo "$ERT_SUMMARY" | awk '{print $4}')
+        UNEXPECTED=$(echo "$ERT_SUMMARY" | awk '{print $8}')
+        echo "ERT: $TOTAL_TESTS tests, $EXPECTED expected, $UNEXPECTED unexpected"
     fi
+
+    # Extract Buttercup summary statistics
+    BUTTERCUP_SUMMARY=$(grep -E "^Ran [0-9]+ specs," "$SNAPSHOT_FILE" | head -1)
+    if [ -n "$BUTTERCUP_SUMMARY" ]; then
+        SPEC_COUNT=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $2}')
+        FAILED_COUNT=$(echo "$BUTTERCUP_SUMMARY" | awk '{print $4}')
+        echo "Buttercup: $SPEC_COUNT specs, $FAILED_COUNT failed"
+    fi
+
+    echo ""
 
     if [ $EXIT_CODE -eq 0 ]; then
         echo "✓ All tests passed"
     else
         echo "✗ Some tests failed"
+        # Show ERT failures
         if [ -n "$UNEXPECTED" ] && [ "$UNEXPECTED" != "0" ]; then
             echo ""
-            echo "Failed tests:"
+            echo "Failed ERT tests:"
             grep "^   FAILED" "$SNAPSHOT_FILE" | head -10 || true
         fi
     fi
