@@ -1,4 +1,4 @@
-;;; bash-commands-index.el --- Auto-discovery for command handlers -*- lexical-binding: t; -*-
+;;; index.el --- Auto-discovery for command handlers -*- lexical-binding: t; -*-
 
 ;; Author: Jeff Farr
 ;; Keywords: bash, parser, commands, discovery
@@ -41,4 +41,4 @@ Returns a list of successfully loaded file paths."
 (jf/bash-commands--discover-and-load)
 
 (provide 'bash-commands-index)
-;;; bash-commands-index.el ends here
+;;; index.el ends here

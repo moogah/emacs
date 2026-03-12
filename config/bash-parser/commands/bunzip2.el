@@ -1,4 +1,7 @@
 ;;; bunzip2.el --- bunzip2 command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-bunzip2--filesystem-handler (parsed-command)
@@ -13,10 +16,11 @@ Each positional arg generates a :read and a :write stripping .bz2 suffix."
                                (substring arg 0 -4)
                              arg)))
           (push (list :file output-file :operation :write :confidence :high :command "bunzip2") operations))))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "bunzip2"

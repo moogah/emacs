@@ -1,5 +1,7 @@
 ;;; dd.el --- dd command handler -*- lexical-binding: t; -*-
 
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-dd--filesystem-handler (parsed-command)

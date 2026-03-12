@@ -37,5 +37,5 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
  :domain :filesystem
  :handler #'jf/bash-command-docker--filesystem-handler)
 
-(provide 'bash-command-docker-handler)
+(provide 'bash-command-docker)
 ;;; docker.el ends here

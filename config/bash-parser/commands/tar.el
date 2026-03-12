@@ -87,5 +87,5 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
  :domain :filesystem
  :handler #'jf/bash-command-tar--filesystem-handler)
 
-(provide 'bash-command-tar-handler)
+(provide 'bash-command-tar)
 ;;; tar.el ends here

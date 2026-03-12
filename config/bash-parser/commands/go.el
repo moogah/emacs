@@ -38,5 +38,5 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
  :domain :filesystem
  :handler #'jf/bash-command-go--filesystem-handler)
 
-(provide 'bash-command-go-handler)
+(provide 'bash-command-go)
 ;;; go.el ends here

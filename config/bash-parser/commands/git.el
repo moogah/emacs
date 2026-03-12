@@ -90,5 +90,5 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
  :domain :filesystem
  :handler #'jf/bash-command-git--filesystem-handler)
 
-(provide 'bash-command-git-handler)
+(provide 'bash-command-git)
 ;;; git.el ends here

@@ -1,4 +1,7 @@
 ;;; unzip.el --- unzip command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-unzip--filesystem-handler (parsed-command)
@@ -9,10 +12,11 @@ All positional args are read operations."
     (when positional-args
       (dolist (arg positional-args)
         (push (list :file arg :operation :read :confidence :high :command "unzip") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "unzip"

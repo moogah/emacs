@@ -59,5 +59,5 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
  :domain :filesystem
  :handler #'jf/bash-command-find--filesystem-handler)
 
-(provide 'bash-command-find-handler)
+(provide 'bash-command-find)
 ;;; find.el ends here

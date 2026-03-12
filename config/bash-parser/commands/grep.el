@@ -1,5 +1,7 @@
 ;;; grep.el --- grep/egrep/fgrep command handler -*- lexical-binding: t; -*-
 
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-grep--filesystem-handler (parsed-command)

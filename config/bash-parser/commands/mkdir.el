@@ -1,4 +1,7 @@
 ;;; mkdir.el --- mkdir command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-mkdir--filesystem-handler (parsed-command)
@@ -9,10 +12,11 @@ All positional args are create operations."
     (when positional-args
       (dolist (arg positional-args)
         (push (list :file arg :operation :create :confidence :high :command "mkdir") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "mkdir"

@@ -49,5 +49,5 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
  :domain :filesystem
  :handler #'jf/bash-command-ls--filesystem-handler)
 
-(provide 'bash-command-ls-handler)
+(provide 'bash-command-ls)
 ;;; ls.el ends here

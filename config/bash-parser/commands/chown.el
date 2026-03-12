@@ -1,4 +1,7 @@
 ;;; chown.el --- chown command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-chown--filesystem-handler (parsed-command)
@@ -9,10 +12,11 @@ First positional arg is the owner (skipped), remaining are :modify operations."
     (when (and positional-args (> (length positional-args) 1))
       (dolist (arg (cdr positional-args))
         (push (list :file arg :operation :modify :confidence :high :command "chown") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "chown"

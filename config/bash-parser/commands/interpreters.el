@@ -1,6 +1,9 @@
 ;;; interpreters.el --- Interpreter command handlers -*- lexical-binding: t; -*-
 
+;;; Code:
+
 (require 'bash-parser-semantics)
+(require 'seq)
 
 (defvar jf/bash-command-interpreter--inline-flags
   '(("python" . ("-c" "-m"))
