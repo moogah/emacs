@@ -67,7 +67,7 @@ called by validators, even though conceptually it could be in a utilities sectio
 
 * Lexical Binding
 
-#+begin_src elisp
+#+begin_src elisp :comments no
 ;;; scope-core.el --- GPTEL Scope Manager Core -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -271,9 +271,10 @@ failures return errors immediately (sync behavior)."
                            ,name
                            (lambda (expansion-result)
                              (if (plist-get expansion-result :approved)
-                                 ;; User approved - retry validation
-                                 (let ((retry-result (jf/gptel-scope--check-tool-permission
-                                                      config ,name normalized-args metadata)))
+                                 ;; User approved - reload config before retry
+                                 (let* ((fresh-config (jf/gptel-scope--load-config))
+                                        (retry-result (jf/gptel-scope--check-tool-permission
+                                                      fresh-config ,name normalized-args metadata)))
                                    (if (plist-get retry-result :allowed)
                                        ;; Retry passed - execute tool body
                                        (funcall callback (json-serialize (progn ,@actual-body)))

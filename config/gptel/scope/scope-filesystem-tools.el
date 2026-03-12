@@ -1,3 +1,13 @@
+;;; scope-filesystem-tools.el --- GPTEL Scope Filesystem Tools -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Scope-aware filesystem tools for gptel sessions.
+
+;;; Code:
+
 ;; Dependencies
 
 

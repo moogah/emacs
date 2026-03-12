@@ -365,6 +365,41 @@ VALUE can be either a list of strings or a plist of tool configurations."
                              do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
                                   (insert (format "    %s: %s\n" prop-name prop-val))))))))))
 
+(defun jf/gptel-scope--write-yaml-generic-nested-plist (key-name value)
+  "Write generic nested plist VALUE with KEY-NAME to current buffer.
+VALUE is a plist where each key maps to a simple value (string, number, symbol, or list).
+Used for :cloud, :security, and other nested config sections."
+  (insert (format "%s:\n" key-name))
+  (cl-loop for (subkey subvalue) on value by #'cddr
+           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
+                (cond
+                 ;; String value
+                 ((stringp subvalue)
+                  (insert (format "  %s: \"%s\"\n" subkey-name subvalue)))
+
+                 ;; Number value
+                 ((numberp subvalue)
+                  (insert (format "  %s: %s\n" subkey-name subvalue)))
+
+                 ;; Empty list (check before symbol, as nil is both null and symbolp)
+                 ((null subvalue)
+                  (insert (format "  %s: []\n" subkey-name)))
+
+                 ;; Symbol value (excluding nil, handled above)
+                 ((symbolp subvalue)
+                  (insert (format "  %s: %s\n" subkey-name subvalue)))
+
+                 ;; List of strings
+                 ((and (listp subvalue) (stringp (car subvalue)))
+                  (insert (format "  %s:\n" subkey-name))
+                  (dolist (item subvalue)
+                    (insert (format "    - \"%s\"\n" item))))
+
+                 ;; Unknown type
+                 (t
+                  (error "Unknown nested value type for key '%s.%s': %S"
+                         key-name subkey-name subvalue))))))
+
 (defun jf/gptel-scope--write-yaml-simple-value (key-name value)
   "Write simple (non-nested) VALUE with KEY-NAME to current buffer.
 Handles strings, numbers, symbols, and lists of strings."
@@ -386,6 +421,10 @@ Handles strings, numbers, symbols, and lists of strings."
     (insert (format "%s:\n" key-name))
     (dolist (item value)
       (insert (format "  - %s\n" item))))
+
+   ;; Generic nested plist (fallback for :cloud, :security, etc.)
+   ((and (listp value) (keywordp (car value)))
+    (jf/gptel-scope--write-yaml-generic-nested-plist key-name value))
 
    ;; Unknown type
    (t

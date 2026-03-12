@@ -72,7 +72,10 @@
       "Bash(bd dep remove:*)",
       "Bash(git submodule update:*)",
       "Bash(make test-buttercup-directory:*)",
-      "Bash(make test-buttercup-file:*)"
+      "Bash(make test-buttercup-file:*)",
+      "Bash(bd edit:*)",
+      "Bash(test:*)",
+      "Bash(make test-buttercup:*)"
     ]
   }
 }

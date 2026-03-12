@@ -103,7 +103,7 @@ UI implemented in scope-expansion.org.
 
 * File Header
 
-#+begin_src elisp
+#+begin_src elisp :comments no
 ;;; scope-shell-tools.el --- GPTEL Scope Shell and Meta Tools -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
