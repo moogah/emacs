@@ -877,21 +877,21 @@ Special handling for middle recursive wildcards:
 ;; [[file:scope-shell-tools.org::*Validate Single File Operation][Validate Single File Operation:1]]
 (defun jf/gptel-scope--validate-file-operation (file-op directory paths-config)
   "Validate single FILE-OP against PATHS-CONFIG.
-FILE-OP format: (:operation OP :path PATH :absolute-path ABS-PATH :command-name CMD)
+FILE-OP format: (:file PATH :operation OP :command CMD :confidence CONF)
+  as produced by bash-parser command handlers.
 DIRECTORY is the working directory for resolving relative paths.
 Returns nil if allowed, error plist if denied."
   (let* ((operation (plist-get file-op :operation))
-         (path (plist-get file-op :path))
-         (absolute-path (plist-get file-op :absolute-path))
-         (command-name (plist-get file-op :command-name))
+         (path (plist-get file-op :file))
          ;; Resolve path relative to directory if needed
-         (resolved-path (if (file-name-absolute-p path)
-                            (expand-file-name path)
-                          (expand-file-name path directory))))
+         (resolved-path (when path
+                          (if (file-name-absolute-p path)
+                              (expand-file-name path)
+                            (expand-file-name path directory)))))
 
-    ;; Use absolute-path from parser if available, otherwise use resolved path
-    (let ((final-path (or absolute-path resolved-path)))
-      (jf/gptel-scope--validate-operation operation final-path paths-config))))
+    ;; Validate resolved path
+    (when resolved-path
+      (jf/gptel-scope--validate-operation operation resolved-path paths-config))))
 ;; Validate Single File Operation:1 ends here
 
 ;; Validate All File Operations

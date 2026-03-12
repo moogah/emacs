@@ -56,7 +56,7 @@ Checks if RESULT has a file operation with OPERATION type and PATH."
          (matching-op (cl-find-if
                        (lambda (op)
                          (and (eq (plist-get op :operation) operation)
-                              (string= (plist-get op :path) path)))
+                              (string= (plist-get op :file) path)))
                        file-ops)))
     (if matching-op
         t
@@ -335,16 +335,16 @@ Returns a mock plist with :domains as alist matching bash-parser output."
         :parse-complete t))
 
 (defun helpers-spec--make-file-op (operation path &rest props)
-  "Build file operation plist.
+  "Build file operation plist matching bash-parser command handler output.
 OPERATION is a keyword (:read, :write, :execute, :modify).
 PATH is the file path string.
-PROPS are additional properties as plist (e.g., :command-name \"cat\").
+PROPS are additional properties as plist (e.g., :command \"cat\").
 
-Returns complete file-op plist."
-  (append (list :operation operation
-                :path path
-                :absolute-path (expand-file-name path)
-                :command-name (or (plist-get props :command-name) "unknown"))
+Returns file-op plist in bash-parser format: (:file PATH :operation OP :command CMD :confidence CONF)."
+  (append (list :file path
+                :operation operation
+                :confidence (or (plist-get props :confidence) :high)
+                :command (or (plist-get props :command) "unknown"))
           props))
 
 (defun helpers-spec-setup-bash-mocks ()

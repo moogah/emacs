@@ -45,16 +45,15 @@ Accepts :read, :write, :execute, :modify, :deny keywords."
         :modify (plist-get args :modify)
         :deny (plist-get args :deny)))
 
-(defun file-ops-spec--make-file-op (operation path &optional command-name absolute-path)
-  "Create file operation plist for testing.
+(defun file-ops-spec--make-file-op (operation path &optional command-name _absolute-path)
+  "Create file operation plist for testing in bash-parser format.
 OPERATION is keyword like :read, :write, :execute, :modify.
 PATH is the file path.
-COMMAND-NAME is optional command that performs operation.
-ABSOLUTE-PATH is optional pre-resolved absolute path."
-  (list :operation operation
-        :path path
-        :command-name (or command-name "test")
-        :absolute-path absolute-path))
+COMMAND-NAME is optional command that performs operation."
+  (list :file path
+        :operation operation
+        :confidence :high
+        :command (or command-name "test")))
 
 ;;; Test Suite
 
