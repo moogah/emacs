@@ -215,6 +215,46 @@
         (expect (plist-get result :domains) :to-be nil)
         (expect (plist-get result :claimed-token-ids) :to-be nil)))
 
+    (it "dispatches only to the matching command's handlers"
+      (let ((cat-handler (registry-test--make-handler
+                          :filesystem
+                          '((:file "cat-file.txt" :operation :read))))
+            (rm-handler (registry-test--make-handler
+                         :filesystem
+                         '((:file "rm-file.txt" :operation :delete)))))
+        (jf/bash-register-command-handler
+         :command "cat" :domain :filesystem :handler cat-handler)
+        (jf/bash-register-command-handler
+         :command "rm" :domain :filesystem :handler rm-handler)
+        ;; Dispatch for "cat" should only get cat-handler results
+        (let* ((result (jf/bash-extract-command-semantics
+                        '(:command-name "cat" :positional-args ("foo.txt"))))
+               (fs-ops (alist-get :filesystem (plist-get result :domains))))
+          (expect (length fs-ops) :to-equal 1)
+          (expect (plist-get (car fs-ops) :file) :to-equal "cat-file.txt"))))
+
+    (it "passes the full parsed-command to the handler"
+      (let* ((received-arg nil)
+             (spy-handler (lambda (parsed-command)
+                            (setq received-arg parsed-command)
+                            (list :domain :filesystem
+                                  :operations '((:file "x" :operation :read))))))
+        (jf/bash-register-command-handler
+         :command "spy" :domain :filesystem :handler spy-handler)
+        (jf/bash-extract-command-semantics
+         '(:command-name "spy" :positional-args ("a" "b") :flags ("-n")))
+        (expect received-arg :not :to-be nil)
+        (expect (plist-get received-arg :command-name) :to-equal "spy")
+        (expect (plist-get received-arg :positional-args) :to-equal '("a" "b"))
+        (expect (plist-get received-arg :flags) :to-equal '("-n"))))
+
+    (it "returns consistent plist structure even with no handlers"
+      (let ((result (jf/bash-extract-command-semantics
+                     '(:command-name "no-handlers"))))
+        ;; Should always return a plist with :domains and :claimed-token-ids
+        (expect (plist-member result :domains) :not :to-be nil)
+        (expect (plist-member result :claimed-token-ids) :not :to-be nil)))
+
     (it "skips handlers that return nil"
       (let ((nil-handler (registry-test--make-nil-handler))
             (good-handler (registry-test--make-handler
