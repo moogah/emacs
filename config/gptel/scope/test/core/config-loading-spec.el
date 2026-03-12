@@ -335,8 +335,10 @@ Returns normalized plist with vectors converted to lists."
       (expect (plist-get cloud :auth-detection) :to-equal "warn")
       (expect (length (plist-get cloud :allowed-providers)) :to-equal 3)))
 
-  (it "rejects YAML boolean false"
-    (expect (test-config--parse-yml "security:\n  enforce_parse_complete: false") :to-throw))
+  (it "normalizes YAML boolean false to elisp nil"
+    (let* ((config (test-config--parse-yml "security:\n  enforce_parse_complete: false"))
+           (security (plist-get config :security)))
+      (expect (plist-get security :enforce-parse-complete) :to-be nil)))
 
   (it "handles numeric threshold variations"
     (let* ((config (test-config--parse-yml "security:\n  max_coverage_threshold: 0.85"))

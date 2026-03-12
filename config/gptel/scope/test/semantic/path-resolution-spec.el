@@ -93,10 +93,10 @@ security:
       ;; Mock semantics: Read operation on relative path
       ;; Note: Path stays relative; validation function will resolve it
       (helpers-spec-mock-bash-semantics
-       (list (list :operation :read
-                   :path "./README.md"
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "cat"))
+       (list (list :file "./README.md"
+                   :operation :read
+                   :command "cat"
+                   :confidence :high))
        nil
        '(:ratio 1.0))
 
@@ -147,10 +147,10 @@ security:
 
       ;; Mock semantics: Read operation with parent directory navigation
       (helpers-spec-mock-bash-semantics
-       (list (list :operation :read
-                   :path "../other/file.txt"
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "cat"))
+       (list (list :file "../other/file.txt"
+                   :operation :read
+                   :command "cat"
+                   :confidence :high))
        nil
        '(:ratio 1.0))
 
@@ -202,10 +202,10 @@ security:
 
       ;; Mock semantics: Read operation that traverses to /etc
       (helpers-spec-mock-bash-semantics
-       (list (list :operation :read
-                   :path "../../etc/passwd"
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "cat"))
+       (list (list :file "../../etc/passwd"
+                   :operation :read
+                   :command "cat"
+                   :confidence :high))
        nil
        '(:ratio 1.0))
 
@@ -257,10 +257,10 @@ security:
 
       ;; Mock semantics: Read operation on current directory
       (helpers-spec-mock-bash-semantics
-       (list (list :operation :read
-                   :path "."
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "ls"))
+       (list (list :file "."
+                   :operation :read
+                   :command "ls"
+                   :confidence :high))
        nil
        '(:ratio 1.0))
 
@@ -313,10 +313,10 @@ security:
 
       ;; Mock semantics: Read operation on current directory (which is /etc)
       (helpers-spec-mock-bash-semantics
-       (list (list :operation :read
-                   :path "."
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "ls"))
+       (list (list :file "."
+                   :operation :read
+                   :command "ls"
+                   :confidence :high))
        nil
        '(:ratio 1.0))
 
@@ -378,10 +378,10 @@ security:
 
             ;; Mock semantics: Read operation on file.txt
             (helpers-spec-mock-bash-semantics
-             (list (list :operation :read
-                         :path "file.txt"
-                         :absolute-path nil  ; Let validation resolve it
-                         :command-name "cat"))
+             (list (list :file "file.txt"
+                         :operation :read
+                         :command "cat"
+                         :confidence :high))
              nil
              '(:ratio 1.0))
 
@@ -436,10 +436,10 @@ security:
 
       ;; Mock semantics: Read operation on absolute path
       (helpers-spec-mock-bash-semantics
-       (list (list :operation :read
-                   :path "/etc/passwd"
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "cat"))
+       (list (list :file "/etc/passwd"
+                   :operation :read
+                   :command "cat"
+                   :confidence :high))
        nil
        '(:ratio 1.0))
 
@@ -496,14 +496,14 @@ security:
 
       ;; Mock semantics: Read and write operations
       (helpers-spec-mock-bash-semantics
-       (list (list :operation :read
-                   :path "./src/file.txt"
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "cp")
-             (list :operation :write
-                   :path "./dst/file.txt"
-                   :absolute-path nil  ; Let validation resolve it
-                   :command-name "cp"))
+       (list (list :file "./src/file.txt"
+                   :operation :read
+                   :command "cp"
+                   :confidence :high)
+             (list :file "./dst/file.txt"
+                   :operation :write
+                   :command "cp"
+                   :confidence :high))
        nil
        '(:ratio 1.0))
 

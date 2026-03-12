@@ -119,8 +119,13 @@ UI implemented in scope-expansion.org.
 
 #+begin_src elisp
 (require 'cl-lib)
-(require 'jf-gptel-scope-core)
-(require 'jf-gptel-scope-expansion)  ; For jf/gptel-scope-prompt-expansion
+;; Use explicit path to break circular dependency (scope-core also requires this file)
+(require 'jf-gptel-scope-core
+         (expand-file-name "scope-core.el"
+                          (file-name-directory (or load-file-name buffer-file-name))))
+(require 'jf-gptel-scope-expansion
+         (expand-file-name "scope-expansion.el"
+                          (file-name-directory (or load-file-name buffer-file-name))))
 (require 'bash-parser-core)  ; For jf/bash-parse
 (require 'bash-parser-plugins)  ; For jf/bash-extract-semantics
 #+end_src
@@ -241,17 +246,19 @@ Migration: Remove categories section, keep only deny list."
 
 ** Normalize Keys
 
-Convert YAML snake_case keys to elisp kebab-case.
+Convert YAML snake_case keys to elisp kebab-case and normalize YAML boolean keywords.
 
 #+begin_src elisp
 (defun jf/gptel-scope--normalize-keys (plist)
   "Normalize PLIST keys from snake_case to kebab-case.
+Also normalizes YAML boolean keywords (:true, :false, :null) to elisp booleans.
 Recursively processes nested plists.
 
 Examples:
   :auth_detection → :auth-detection
   :max_coverage_threshold → :max-coverage-threshold
-  :enforce_parse_complete → :enforce-parse-complete"
+  :enforce_parse_complete → :enforce-parse-complete
+  :true → t, :false/:null → nil"
   (let ((result nil))
     (while plist
       (let* ((key (car plist))
@@ -259,11 +266,17 @@ Examples:
              (normalized-key (intern (replace-regexp-in-string
                                      "_" "-"
                                      (symbol-name key))))
-             (normalized-value (if (and (listp value)
-                                       (not (null value))
-                                       (keywordp (car value)))
-                                  (jf/gptel-scope--normalize-keys value)
-                                value)))
+             (normalized-value (cond
+                                ;; Nested plist: recurse
+                                ((and (listp value)
+                                      (not (null value))
+                                      (keywordp (car value)))
+                                 (jf/gptel-scope--normalize-keys value))
+                                ;; Boolean keywords: normalize
+                                ((eq value :true) t)
+                                ((or (eq value :false) (eq value :null)) nil)
+                                ;; Other values: pass through
+                                (t value))))
         (setq result (plist-put result normalized-key normalized-value))
         (setq plist (cddr plist))))
     result))
@@ -362,15 +375,21 @@ Validate security configuration values.
 (defun jf/gptel-scope--validate-security-config (security-plist)
   "Validate SECURITY-PLIST configuration.
 Checks:
-- enforce-parse-complete is boolean
+- enforce-parse-complete is boolean (normalizes :true/:false/:null keywords)
 - max-coverage-threshold is in [0.0, 1.0]
 
 Signals error if invalid."
   (when security-plist
     (let ((enforce-parse-complete (plist-get security-plist :enforce-parse-complete))
           (max-coverage-threshold (plist-get security-plist :max-coverage-threshold)))
-      ;; Validate enforce-parse-complete
+      ;; Validate enforce-parse-complete (with defensive normalization)
       (when (plist-member security-plist :enforce-parse-complete)
+        ;; Normalize YAML boolean keywords to elisp booleans (defensive)
+        (setq enforce-parse-complete
+              (cond ((eq enforce-parse-complete :true) t)
+                    ((or (eq enforce-parse-complete :false)
+                         (eq enforce-parse-complete :null)) nil)
+                    (t enforce-parse-complete)))
         (unless (or (eq enforce-parse-complete t)
                    (eq enforce-parse-complete nil))
           (error "Scope schema: security.enforce-parse-complete must be boolean, got %S"
@@ -621,7 +640,7 @@ Examples:
   python3 script.py → execute op → t (continue to file validation)
   ls /tmp → read op → t (continue to file validation)"
   (let* ((domains (plist-get semantics :domains))
-         (file-ops (plist-get domains :filesystem)))
+         (file-ops (alist-get :filesystem domains)))
     ;; If no file operations, allow (return nil to short-circuit)
     ;; If file operations exist, continue validation (return t)
     (if (or (null file-ops) (zerop (length file-ops)))
@@ -694,7 +713,7 @@ Error types: timeout, execution-failed."
       ;; Check for warnings (collect in list, don't modify output)
       (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
         (when path-warning
-          (setq warnings (list path-warning))))
+          (setq warnings (vector path-warning))))
 
       (list :output output
             :exit_code exit-code
@@ -752,13 +771,13 @@ Stages:
           (cl-return-from jf/gptel-scope--validate-command-semantics nil))
 
         ;; Stage 5: File operations validation (only if file ops exist)
-        (when-let ((file-ops (plist-get (plist-get semantics :domains) :filesystem)))
+        (when-let ((file-ops (alist-get :filesystem (plist-get semantics :domains))))
           (when-let ((error (jf/gptel-scope--validate-file-operations
                              file-ops directory scope-config)))
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
         ;; Stage 6: Cloud auth detection and policy enforcement
-        (when-let ((cloud-auth (plist-get (plist-get semantics :domains) :cloud-auth)))
+        (when-let ((cloud-auth (alist-get :cloud-auth (plist-get semantics :domains))))
           (when-let ((error (jf/gptel-scope--validate-cloud-auth
                              cloud-auth (plist-get scope-config :cloud))))
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
@@ -937,18 +956,32 @@ Examples:
 
  :async  ; Enable inline expansion for scope violations
 
- ;; Tool body - executed only if validation passes
- (let* ((result (jf/gptel-bash--execute-command command directory))
-        (exit-code (plist-get result :exit_code))
-        (output (plist-get result :output))
-        (truncated (plist-get result :truncated))
-        (warnings (plist-get result :warnings))
-        (success (zerop exit-code)))
-   (list :success success
-         :output output
-         :exit_code exit-code
-         :truncated truncated
-         :warnings warnings)))
+ ;; Tool body - semantic validation happens here
+ (let* ((config (jf/gptel-scope--load-config))
+        (validation-error (when config
+                           (jf/gptel-scope--validate-command-semantics command directory config))))
+
+   (if validation-error
+       ;; Validation failed - return error response
+       (list :success nil
+             :error (or (plist-get validation-error :error) "validation-failed")
+             :message (or (plist-get validation-error :message)
+                         (format "Command validation failed: %s" (plist-get validation-error :error)))
+             :command command
+             :directory directory)
+
+     ;; Validation passed - execute command
+     (let* ((result (jf/gptel-bash--execute-command command directory))
+            (exit-code (plist-get result :exit_code))
+            (output (plist-get result :output))
+            (truncated (plist-get result :truncated))
+            (warnings (plist-get result :warnings))
+            (success (zerop exit-code)))
+       (list :success success
+             :output output
+             :exit_code exit-code
+             :truncated truncated
+             :warnings warnings)))))
 #+end_src
 
 * Request Scope Expansion Tool (Meta Tool, v3.0 Async)
@@ -1189,21 +1222,21 @@ Validate a single file operation plist against path configuration.
 #+begin_src elisp
 (defun jf/gptel-scope--validate-file-operation (file-op directory paths-config)
   "Validate single FILE-OP against PATHS-CONFIG.
-FILE-OP format: (:operation OP :path PATH :absolute-path ABS-PATH :command-name CMD)
+FILE-OP format: (:file PATH :operation OP :command CMD :confidence CONF)
+  as produced by bash-parser command handlers.
 DIRECTORY is the working directory for resolving relative paths.
 Returns nil if allowed, error plist if denied."
   (let* ((operation (plist-get file-op :operation))
-         (path (plist-get file-op :path))
-         (absolute-path (plist-get file-op :absolute-path))
-         (command-name (plist-get file-op :command-name))
+         (path (plist-get file-op :file))
          ;; Resolve path relative to directory if needed
-         (resolved-path (if (file-name-absolute-p path)
-                            (expand-file-name path)
-                          (expand-file-name path directory))))
+         (resolved-path (when path
+                          (if (file-name-absolute-p path)
+                              (expand-file-name path)
+                            (expand-file-name path directory)))))
 
-    ;; Use absolute-path from parser if available, otherwise use resolved path
-    (let ((final-path (or absolute-path resolved-path)))
-      (jf/gptel-scope--validate-operation operation final-path paths-config))))
+    ;; Validate resolved path
+    (when resolved-path
+      (jf/gptel-scope--validate-operation operation resolved-path paths-config))))
 #+end_src
 
 ** Validate All File Operations
