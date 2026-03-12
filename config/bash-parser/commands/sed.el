@@ -1,5 +1,7 @@
 ;;; sed.el --- sed command handler -*- lexical-binding: t; -*-
 
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-sed--filesystem-handler (parsed-command)

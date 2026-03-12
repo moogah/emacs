@@ -1,4 +1,7 @@
 ;;; tail.el --- tail command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-tail--filesystem-handler (parsed-command)
@@ -18,10 +21,11 @@ Remaining positional args are read operations."
       (let ((args-to-process (nthcdr skip-count positional-args)))
         (dolist (arg args-to-process)
           (push (list :file arg :operation :read :confidence :high :command "tail") operations))))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "tail"

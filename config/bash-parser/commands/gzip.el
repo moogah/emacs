@@ -1,4 +1,7 @@
 ;;; gzip.el --- gzip command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-gzip--filesystem-handler (parsed-command)
@@ -10,10 +13,11 @@ Each positional arg generates a :read and a :write with .gz suffix."
       (dolist (arg positional-args)
         (push (list :file arg :operation :read :confidence :high :command "gzip") operations)
         (push (list :file (concat arg ".gz") :operation :write :confidence :high :command "gzip") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "gzip"

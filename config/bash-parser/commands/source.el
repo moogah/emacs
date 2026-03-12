@@ -1,4 +1,7 @@
 ;;; source.el --- source command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-source--filesystem-handler (parsed-command)
@@ -8,10 +11,11 @@ First positional arg (index 0) is an :execute operation."
         (operations nil))
     (when positional-args
       (push (list :file (car positional-args) :operation :execute :confidence :high :command "source") operations))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "source"

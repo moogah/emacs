@@ -1,4 +1,7 @@
 ;;; tee.el --- tee command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-tee--filesystem-handler (parsed-command)
@@ -15,10 +18,11 @@ With -a/--append flags, operations are :append; without, :write."
     (when positional-args
       (dolist (arg positional-args)
         (push (list :file arg :operation op-type :confidence :high :command "tee") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "tee"

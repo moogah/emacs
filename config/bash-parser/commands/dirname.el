@@ -1,4 +1,7 @@
 ;;; dirname.el --- dirname command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-dirname--filesystem-handler (parsed-command)
@@ -9,10 +12,11 @@ All positional args are read-metadata operations."
     (when positional-args
       (dolist (arg positional-args)
         (push (list :file arg :operation :read-metadata :confidence :high :command "dirname") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "dirname"

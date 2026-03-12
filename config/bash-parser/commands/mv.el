@@ -1,4 +1,7 @@
 ;;; mv.el --- mv command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-mv--filesystem-handler (parsed-command)
@@ -12,10 +15,11 @@ Sources (indices 0..-2) are :delete, destination (last arg) is :write."
         (dolist (src sources)
           (push (list :file src :operation :delete :confidence :high :command "mv") operations))
         (push (list :file dest :operation :write :confidence :high :command "mv") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "mv"

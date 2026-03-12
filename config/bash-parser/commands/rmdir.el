@@ -1,4 +1,7 @@
 ;;; rmdir.el --- rmdir command handler -*- lexical-binding: t; -*-
+
+;;; Code:
+
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-rmdir--filesystem-handler (parsed-command)
@@ -9,10 +12,11 @@ All positional args are delete operations."
     (when positional-args
       (dolist (arg positional-args)
         (push (list :file arg :operation :delete :confidence :high :command "rmdir") operations)))
-    (list :domain :filesystem
-          :operations (nreverse operations)
-          :claimed-token-ids nil
-          :metadata nil)))
+    (when operations
+      (list :domain :filesystem
+            :operations (nreverse operations)
+            :claimed-token-ids nil
+            :metadata nil))))
 
 (jf/bash-register-command-handler
   :command "rmdir"
