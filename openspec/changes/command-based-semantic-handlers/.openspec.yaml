@@ -1,2 +1,17 @@
 schema: spec-driven-beads
 created: 2026-03-11
+beads:
+  - id: emacs-l5ho
+    title: Handler Registry Core
+  - id: emacs-0e4u
+    title: Auto-Discovery System
+  - id: emacs-8w17
+    title: Simple and Multi-Op Command Handlers
+  - id: emacs-bo98
+    title: Flag-Dependent Command Handlers
+  - id: emacs-t7j9
+    title: Complex Command Handlers
+  - id: emacs-46ic
+    title: Multi-Domain Command Handlers
+  - id: emacs-rgts
+    title: Plugin Integration and Database Removal
