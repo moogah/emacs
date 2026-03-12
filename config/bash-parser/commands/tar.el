@@ -46,17 +46,6 @@ Looks for -f flag (standalone or combined) and returns the next argument."
           (when (< (1+ i) (length args))
             (setq archive-file (nth (1+ i) args))))))
       (setq i (1+ i)))
-    ;; Also check flags list for -f
-    (unless archive-file
-      (let ((flag-idx 0))
-        (while (and (< flag-idx (length flags)) (not archive-file))
-          (when (or (equal (nth flag-idx flags) "-f")
-                    (and (string-prefix-p "-" (nth flag-idx flags))
-                         (not (string-prefix-p "--" (nth flag-idx flags)))
-                         (string-match-p "f" (nth flag-idx flags))))
-            ;; The archive path would be in positional-args
-            nil)
-          (setq flag-idx (1+ flag-idx)))))
     archive-file))
 
 (defun jf/bash-command-tar--filesystem-handler (parsed-command)

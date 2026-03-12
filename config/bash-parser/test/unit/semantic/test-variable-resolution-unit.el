@@ -214,8 +214,6 @@
   "Test extraction of split assignment (command-name=VAR, args=(value))."
   (let* ((command '(:command-name "DIR" :positional-args ("/tmp")))
          (context nil)
-         ;; Mock the semantics lookup to return nil (not a known command)
-         (jf/bash-command-semantics-db nil)
          (assignments (jf/bash--extract-assignments-from-command command context)))
     (should (equal assignments '((DIR . "/tmp"))))))
 
@@ -248,7 +246,6 @@
   "Test that split assignment format rejects flag-like values."
   (let* ((command '(:command-name "VAR" :positional-args ("-flag")))
          (context nil)
-         (jf/bash-command-semantics-db nil)
          (assignments (jf/bash--extract-assignments-from-command command context)))
     (should (null assignments))))
 
