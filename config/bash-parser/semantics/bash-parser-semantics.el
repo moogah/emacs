@@ -48,7 +48,8 @@ Handlers are stored in registration order per domain."
         (setq domain-table (make-hash-table :test 'eq))
         (puthash command domain-table jf/bash-command-handlers))
       (let ((existing (gethash domain domain-table)))
-        (puthash domain (append existing (list handler)) domain-table)))))
+        (unless (memq handler existing)
+          (puthash domain (append existing (list handler)) domain-table))))))
 
 (defun jf/bash-lookup-command-handlers (command-name)
   "Look up all registered handlers for COMMAND-NAME.
