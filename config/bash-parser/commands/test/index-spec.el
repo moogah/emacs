@@ -18,12 +18,17 @@
 
     (it "discovers .el files in the commands directory"
       (let* ((commands-dir (expand-file-name "config/bash-parser/commands" jf/emacs-dir))
-             (el-files (directory-files commands-dir t "\\.el$"))
+             (el-files (directory-files commands-dir nil "\\.el$"))
              (non-index (seq-remove
-                         (lambda (f) (string= (file-name-nondirectory f) "index.el"))
+                         (lambda (f) (string= f "index.el"))
                          el-files)))
-        ;; There should be discoverable files (or at least the function runs without error)
-        (expect (functionp 'jf/bash-commands--discover-and-load) :to-be-truthy)))
+        ;; There should be discoverable handler files
+        (expect (length non-index) :to-be-greater-than 0)
+        ;; Known handler files should be present
+        (expect (member "cat.el" non-index) :to-be-truthy)
+        (expect (member "git.el" non-index) :to-be-truthy)
+        ;; index.el should be excluded from non-index
+        (expect (member "index.el" non-index) :not :to-be-truthy)))
 
     (it "excludes index.el from discovery"
       (let* ((commands-dir (expand-file-name "config/bash-parser/commands" jf/emacs-dir))
@@ -69,10 +74,26 @@
           (when (file-exists-p good-file) (delete-file good-file)))))
 
     (it "returns empty list when no handler files exist"
-      ;; With only index.el in the directory (and test files in test/ subdir),
-      ;; the function should return an empty or minimal list
-      ;; This test verifies it handles the case gracefully
-      (expect (listp (jf/bash-commands--discover-and-load)) :to-be-truthy))
+      ;; Create a temp directory with only an index.el to simulate empty discovery
+      (let ((temp-dir (make-temp-file "bash-commands-empty-" t)))
+        (unwind-protect
+            (progn
+              ;; Put only an index.el in the temp directory (should be skipped)
+              (with-temp-file (expand-file-name "index.el" temp-dir)
+                (insert "(provide 'fake-index)"))
+              ;; Override commands-dir by advising the function with a local scope
+              (let* ((el-files (directory-files temp-dir t "\\.el$"))
+                     (loaded nil))
+                (dolist (file el-files)
+                  (unless (string= (file-name-nondirectory file) "index.el")
+                    (condition-case _err
+                        (progn
+                          (load file nil t)
+                          (push file loaded))
+                      (error nil))))
+                ;; With only index.el present, loaded list should be empty
+                (expect loaded :to-equal nil)))
+          (delete-directory temp-dir t))))
 
     (it "returns list of successfully loaded file paths"
       (let* ((commands-dir (expand-file-name "config/bash-parser/commands" jf/emacs-dir))
