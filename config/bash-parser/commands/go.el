@@ -15,8 +15,9 @@ Subcommands:
   build -> :read (index 0 after subcommand)
 Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
   (let* ((positional-args (plist-get parsed-command :positional-args))
-         (subcommand (car positional-args))
-         (sub-args (cdr positional-args))
+         (explicit-subcommand (plist-get parsed-command :subcommand))
+         (subcommand (or explicit-subcommand (car positional-args)))
+         (sub-args (if explicit-subcommand positional-args (cdr positional-args)))
          (command "go")
          (ops nil))
     (when (and subcommand sub-args)

@@ -21,6 +21,7 @@
   (add-to-list 'load-path (expand-file-name "analysis" base-dir))
   (add-to-list 'load-path (expand-file-name "plugins" base-dir))
   (add-to-list 'load-path (expand-file-name "semantics" base-dir))
+  (add-to-list 'load-path (expand-file-name "commands" base-dir))
   (add-to-list 'load-path (expand-file-name "utils" base-dir)))
 
 ;; Protocol module (forward declarations - no dependencies)

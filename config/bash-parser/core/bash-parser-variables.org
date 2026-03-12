@@ -802,8 +802,8 @@ prevent runtime errors when the variable is later referenced."
                (string-match "^[A-Za-z_][A-Za-z0-9_]*$" command-name)  ; Valid var name (no =)
                positional-args
                (= (length positional-args) 1)  ; Exactly one positional arg
-               ;; Heuristic: if command is in semantics DB, it's not an assignment
-               (not (jf/bash-lookup-command-semantics command-name)))
+               ;; Heuristic: if command has registered handlers, it's not an assignment
+               (not (jf/bash-lookup-command-handlers command-name)))
       (let* ((var-name command-name)
              (var-value (car positional-args))
              (resolved-value (jf/bash--resolve-assignment-value var-value var-context)))

@@ -64,12 +64,16 @@ bash-parser-semantics.
 ** Functions from bash-parser-semantics
 
 These functions are implemented in bash-parser-semantics but called from
-bash-parser-file-ops.
+bash-parser-file-ops and bash-parser-variables.
 
 #+begin_src emacs-lisp
-;; Command semantics lookup
-(declare-function jf/bash-lookup-command-semantics "bash-parser-semantics"
+;; Command handler lookup
+(declare-function jf/bash-lookup-command-handlers "bash-parser-semantics"
                   (command-name))
+
+;; Command semantics extraction
+(declare-function jf/bash-extract-command-semantics "bash-parser-semantics"
+                  (parsed-command))
 #+end_src
 
 * Provide

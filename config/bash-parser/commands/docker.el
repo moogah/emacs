@@ -14,8 +14,9 @@ docker cp source dest: sources are :read, dest is :write.
 Container paths (containing \":\") are included as-is.
 Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
   (let* ((positional-args (plist-get parsed-command :positional-args))
-         (subcommand (car positional-args))
-         (sub-args (cdr positional-args))
+         (explicit-subcommand (plist-get parsed-command :subcommand))
+         (subcommand (or explicit-subcommand (car positional-args)))
+         (sub-args (if explicit-subcommand positional-args (cdr positional-args)))
          (command "docker")
          (operations nil))
     (when (and (equal subcommand "cp")

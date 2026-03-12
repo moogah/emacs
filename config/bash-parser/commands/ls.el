@@ -9,9 +9,10 @@
 (require 'bash-parser-semantics)
 
 (defun jf/bash-command-ls--has-glob-p (path)
-  "Return non-nil if PATH contains glob characters (*, ?, [])."
+  "Return non-nil if PATH contains glob characters (*, ?, [], {,})."
   (and (stringp path)
-       (string-match-p "[*?\\[]" path)))
+       (or (string-match-p "[*?\\[]" path)
+           (string-match-p "{.*,.*}" path))))
 
 (defun jf/bash-command-ls--filesystem-handler (parsed-command)
   "Extract filesystem operations from ls PARSED-COMMAND.

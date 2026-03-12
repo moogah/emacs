@@ -49,10 +49,15 @@ Only handles 'add' subcommand from ARGS.  COMMAND is used for metadata."
 (defun jf/bash-command-git--filesystem-handler (parsed-command)
   "Extract filesystem operations from git PARSED-COMMAND.
 Dispatches based on git subcommand to determine file operations.
+Uses :subcommand from parsed-command if set by parser, otherwise
+falls back to first positional arg as subcommand.
 Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
   (let* ((positional-args (plist-get parsed-command :positional-args))
-         (subcommand (car positional-args))
-         (sub-args (cdr positional-args))
+         (explicit-subcommand (plist-get parsed-command :subcommand))
+         (subcommand (or explicit-subcommand (car positional-args)))
+         (sub-args (if explicit-subcommand
+                       positional-args
+                     (cdr positional-args)))
          (command "git")
          (ops nil))
     (when subcommand

@@ -747,10 +747,11 @@ arguments represent file paths and what operations they perform.
 
 #+begin_src emacs-lisp
 (defun jf/bash-extract-operations-from-positional-args (parsed-command &optional var-context)
-  "Extract file operations from positional arguments in PARSED-COMMAND.
+  "Extract file operations from positional arguments using command handlers.
 
-Uses command semantics database to determine which positional arguments
-represent file paths and what operations they represent.
+Delegates to registered command handlers via `jf/bash-extract-command-semantics'
+to determine which positional arguments represent file paths and what operations
+they perform.  Applies variable resolution from VAR-CONTEXT to resulting paths.
 
 PARSED-COMMAND is the output of `jf/bash-parse'.
 VAR-CONTEXT is optional alist mapping variable names (symbols) to values (strings).
@@ -758,97 +759,66 @@ VAR-CONTEXT is optional alist mapping variable names (symbols) to values (string
 Returns list of operation plists with:
   :file - File path (string, possibly with variables)
   :operation - Operation type (:read, :write, :delete, :modify, etc.)
-  :confidence - Confidence level (:high for known commands, nil for unknown)
-  :source - Source of file path (:positional-arg)
+  :confidence - Confidence level (:high for known commands, :medium for unresolved vars)
+  :source - Source of file path (from handler, defaults to :positional-arg)
   :command - Command name that performs the operation
 
-Returns empty list if:
-- Command is not in semantics database
-- Command has no positional arguments
-- No positional args map to file operations per semantics
+Handler results may include additional properties like :pattern, :search-scope,
+etc. which are preserved in the output.
 
-Example:
-  (jf/bash-extract-operations-from-positional-args
-    (jf/bash-parse \"cat /workspace/foo.txt\"))
-  => ((:file \"/workspace/foo.txt\" :operation :read
-       :confidence :high :source :positional-arg :command \"cat\"))
-
-  (jf/bash-extract-operations-from-positional-args
-    (jf/bash-parse \"cp src.txt dst.txt\"))
-  => ((:file \"src.txt\" :operation :read :confidence :high ...)
-      (:file \"dst.txt\" :operation :write :confidence :high ...))
-
-  (jf/bash-extract-operations-from-positional-args
-    (jf/bash-parse \"grep pattern file.txt\"))
-  => ((:file \"file.txt\" :operation :read :confidence :high ...))
-      ;; Note: pattern arg at index 0 is skipped per semantics"
-  (let* ((command-name (plist-get parsed-command :command-name))
-         (subcommand (plist-get parsed-command :subcommand))
-         (flags (plist-get parsed-command :flags))
-         (positional-args (plist-get parsed-command :positional-args))
-         (args (plist-get parsed-command :args))
-         (operations nil))
-
-    ;; Only proceed if we have a command and positional args
-    (when (and command-name positional-args)
-      (let ((semantics (jf/bash-lookup-command-semantics command-name)))
-        (when semantics
-          ;; Validate semantics entry (fail fast with clear errors)
-          (condition-case err
-              (jf/bash--validate-semantics-entry (intern command-name) semantics)
-            (error
-             ;; Log validation error instead of crashing
-             (message "Warning: Semantics validation failed for command %s: %s"
-                      command-name (error-message-string err))
-             ;; Return early with empty operations
-             (setq semantics nil)))
-          (when semantics
-            (let ((ops-spec (plist-get semantics :operations)))
-            (cond
-             ;; Complex command (git, docker, etc.) - handle subcommand
-             ((eq ops-spec :complex)
-              ;; For complex commands, subcommand is either explicitly set
-              ;; or the first positional arg
-              (let* ((effective-subcommand (or subcommand (car positional-args)))
-                     (subcommand-args (if subcommand
-                                         positional-args
-                                       (cdr positional-args))))
-                (when effective-subcommand
-                  (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
-                    (when-let ((handler-spec (alist-get (intern effective-subcommand) subcommand-handlers)))
-                      (setq operations
-                            (jf/bash--extract-ops-from-positional-specs
-                             handler-spec subcommand-args command-name var-context args)))))))
-
-             ;; Flag-dependent command (tar, sed, etc.) - check flags
-             ((eq ops-spec :flag-dependent)
-              (let* ((flag-handlers (plist-get semantics :flag-handlers))
-                     (matched-handler
-                      (cl-loop for handler in flag-handlers
-                               for trigger-flags = (car handler)
-                               for handler-spec = (cdr handler)
-                               when (or (null trigger-flags)  ; Empty trigger matches always
-                                        (seq-some (lambda (f) (jf/bash--flag-present-p f flags)) trigger-flags))
-                               return handler-spec)))  ; Can be () or operation spec list
-                ;; Extract operations if handler matched (even if handler-spec is empty list)
-                (when matched-handler
-                  (setq operations
-                        (jf/bash--extract-ops-from-positional-specs
-                         matched-handler positional-args command-name var-context args)))))
-
-             ;; Custom command handler - delegate to custom function
-             ((eq ops-spec :custom)
-              (let ((custom-handler (plist-get semantics :handler)))
-                (when (and custom-handler (fboundp custom-handler))
-                  (setq operations (funcall custom-handler parsed-command var-context)))))
-
-             ;; Simple command - direct operation specs
-             ((listp ops-spec)
-              (setq operations
-                    (jf/bash--extract-ops-from-positional-specs
-                     ops-spec positional-args command-name var-context args)))))))))
-
-    operations))
+Returns empty list if no command handlers are registered for this command."
+  (let* ((result (jf/bash-extract-command-semantics parsed-command))
+         (domains (plist-get result :domains))
+         (filesystem-ops (alist-get :filesystem domains))
+         (resolved-ops nil))
+    (dolist (op filesystem-ops)
+      (let* ((file (plist-get op :file))
+             ;; Pre-resolve command substitutions ($(pwd), $(basename ...), etc.)
+             (cmd-resolved (if (and file var-context
+                                    (fboundp 'jf/bash--resolve-command-substitution))
+                               (jf/bash--resolve-command-substitution file var-context)
+                             file))
+             ;; Skip unresolvable command substitutions
+             (skip (or (eq cmd-resolved :unresolved)
+                       (and (stringp cmd-resolved)
+                            (string-match-p "\\$(" cmd-resolved))))
+             (resolved (when (and cmd-resolved (not skip))
+                         (jf/bash--resolve-path-variables cmd-resolved var-context)))
+             (final-path (cond
+                          (skip nil)  ; will be skipped
+                          ((null resolved) cmd-resolved)
+                          ((stringp resolved) resolved)
+                          (t (plist-get resolved :path))))
+             (unresolved-vars (when (and resolved (listp resolved))
+                                (plist-get resolved :unresolved)))
+             (has-pattern (or (plist-get op :pattern)
+                             (jf/bash--has-glob-pattern-p final-path)))
+             (operation (plist-get op :operation))
+             ;; Build base operation, preserving handler properties
+             (base-op (list :file final-path
+                            :operation operation
+                            :confidence (if unresolved-vars
+                                            :medium
+                                          (or (plist-get op :confidence) :high))
+                            :source (or (plist-get op :source) :positional-arg)
+                            :command (plist-get op :command))))
+        ;; Skip unresolvable command substitutions
+        (unless skip
+          ;; Append unresolved variable info
+          (when unresolved-vars
+            (setq base-op (append base-op (list :unresolved t :unresolved-vars unresolved-vars))))
+          ;; Auto-detect glob patterns
+          (when has-pattern
+            (setq base-op (append base-op (list :pattern t))))
+          ;; Append handler-specific properties (search-scope, etc.)
+          (dolist (key '(:search-scope))
+            (when-let ((val (plist-get op key)))
+              (setq base-op (append base-op (list key val)))))
+          ;; Always include :script-args for execute operations
+          (when (eq operation :execute)
+            (setq base-op (append base-op (list :script-args (or (plist-get op :script-args) '())))))
+          (push base-op resolved-ops))))
+    (nreverse resolved-ops)))
 #+end_src
 
 *** Helper: Apply Operation Specs

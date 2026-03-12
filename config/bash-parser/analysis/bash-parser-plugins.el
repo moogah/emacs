@@ -146,6 +146,22 @@ Orchestration behavior:
              (message "Error executing plugin %s: %s"
                       plugin-name (error-message-string err)))))))
 
+    ;; Execute command handlers after universal plugins
+    (let* ((cmd-result (jf/bash-extract-command-semantics parsed-command))
+           (cmd-domains (plist-get cmd-result :domains))
+           (cmd-claimed-ids (plist-get cmd-result :claimed-token-ids)))
+      ;; Merge command handler domains not already provided by plugins
+      (dolist (domain-entry cmd-domains)
+        (let ((domain (car domain-entry))
+              (operations (cdr domain-entry)))
+          (when operations
+            (unless (assq domain domains-alist)
+              (push (cons domain operations) domains-alist)))))
+      ;; Include command handler claimed token IDs in coverage
+      (when cmd-claimed-ids
+        (setq all-claimed-token-ids
+              (append cmd-claimed-ids all-claimed-token-ids))))
+
     ;; Calculate coverage
     (let ((coverage (jf/bash-calculate-coverage tokens all-claimed-token-ids)))
       ;; Return semantic analysis result
@@ -157,6 +173,11 @@ Orchestration behavior:
 (require 'bash-parser-coverage)
 
 (require 'bash-parser-file-ops)
+
+;; Load command handler index (auto-discovers and loads all command handlers)
+(let ((index-path (expand-file-name "config/bash-parser/commands/index.el" jf/emacs-dir)))
+  (when (file-exists-p index-path)
+    (load index-path nil t)))
 
 (defun jf/bash-plugin-filesystem--find-token-for-path (path tokens)
   "Find token in TOKENS list matching PATH string.

@@ -23,17 +23,26 @@ Otherwise, first positional arg is an :execute operation."
   (let* ((cmd (plist-get parsed-command :command-name))
          (flags (plist-get parsed-command :flags))
          (positional-args (plist-get parsed-command :positional-args))
+         (args (plist-get parsed-command :args))
          (inline-flags (cdr (assoc cmd jf/bash-command-interpreter--inline-flags))))
     (if (seq-some (lambda (f) (member f flags)) inline-flags)
         nil
       (when positional-args
-        (list :domain :filesystem
-              :operations (list (list :file (car positional-args)
-                                     :operation :execute
-                                     :confidence :high
-                                     :command cmd))
-              :claimed-token-ids nil
-              :metadata nil)))))
+        (let* ((script-file (car positional-args))
+               ;; Use raw args list to capture flags too (e.g., --port 3000 --verbose)
+               (script-pos (cl-position script-file args :test #'equal))
+               (script-args (if script-pos
+                                (nthcdr (1+ script-pos) args)
+                              (cdr positional-args))))
+          (list :domain :filesystem
+                :operations (list (list :file script-file
+                                       :operation :execute
+                                       :confidence :high
+                                       :source :positional-arg
+                                       :command cmd
+                                       :script-args script-args))
+                :claimed-token-ids nil
+                :metadata nil))))))
 
 (dolist (cmd '("python" "python3" "node" "bash" "sh" "zsh" "ruby" "perl" "php"))
   (jf/bash-register-command-handler

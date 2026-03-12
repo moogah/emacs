@@ -34,12 +34,18 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
     (when search-dir
       (push (list :file search-dir
                   :operation :read-directory
+                  :confidence :high
+                  :source :positional-arg
                   :command command)
             operations))
     ;; Add :match-pattern for -name pattern
     (when name-pattern
       (push (list :file name-pattern
                   :operation :match-pattern
+                  :confidence :high
+                  :source :flag-arg
+                  :pattern t
+                  :search-scope search-dir
                   :command command)
             operations))
     (when operations
