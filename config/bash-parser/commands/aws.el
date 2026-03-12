@@ -32,13 +32,13 @@ Returns filesystem domain result or nil if no local file ops."
       (while (< i (length args))
         (let ((arg (nth i args)))
           (cond
-           ;; Skip flags and their values
+           ;; Long flag with separate value: skip the next arg too
            ((string-prefix-p "--" arg)
-            (setq i (1+ i)))  ; skip flag value on next iteration
+            (setq i (1+ i)))
+           ;; Short flag: skip (value is typically part of the flag itself)
            ((and (string-prefix-p "-" arg)
                  (not (string-prefix-p "--" arg))
                  (> (length arg) 1))
-            ;; Short flag, might consume next arg - skip conservatively
             nil)
            (t
             (push arg positionals))))
