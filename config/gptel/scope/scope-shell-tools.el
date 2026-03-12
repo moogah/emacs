@@ -746,29 +746,26 @@ Deny precedence: paths.deny overrides all allow patterns."
                 :message (format "Path denied by scope: %s" path))))
 
       ;; Operation-specific validation with hierarchy
+      ;; All 11 contract-defined operations (contract/bash--valid-operations)
       (let ((allowed
              (pcase operation
-               (:read
-                ;; Read allowed if in read OR write patterns (write includes read)
+               ((or :read :read-directory :read-metadata :match-pattern)
+                ;; Read-like: allowed if in read OR write patterns (write includes read)
                 (or (jf/gptel-scope--path-matches-any-pattern-p path read-patterns)
                     (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
 
-               (:write
-                ;; Write requires explicit write permission
+               ((or :write :create :create-or-modify :append :delete)
+                ;; Write-like: requires explicit write permission
                 (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
 
                (:modify
-                ;; Modify allowed if in modify OR write patterns (write includes modify)
+                ;; Modify-like: allowed if in modify OR write patterns
                 (or (jf/gptel-scope--path-matches-any-pattern-p path modify-patterns)
                     (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
 
                (:execute
-                ;; Execute requires explicit execute permission (high risk)
+                ;; Execute-like: requires explicit execute permission (high risk)
                 (jf/gptel-scope--path-matches-any-pattern-p path execute-patterns))
-
-               (:delete
-                ;; Delete is a write operation
-                (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
 
                (_ nil))))  ; Unknown operation - deny by default
 
