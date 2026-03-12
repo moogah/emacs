@@ -328,9 +328,9 @@ FILE-OPS is a list of file operation plists.
 CLOUD-AUTH is a plist with :detected and optionally :provider.
 COVERAGE is a plist with :ratio.
 
-Returns a mock plist with :domains {:filesystem file-ops :cloud-auth cloud-auth}."
-  (list :domains (list :filesystem file-ops
-                       :cloud-auth cloud-auth)
+Returns a mock plist with :domains as alist matching bash-parser output."
+  (list :domains (list (cons :filesystem file-ops)
+                       (cons :cloud-auth cloud-auth))
         :coverage coverage
         :parse-complete t))
 

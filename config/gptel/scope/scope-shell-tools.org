@@ -640,7 +640,7 @@ Examples:
   python3 script.py → execute op → t (continue to file validation)
   ls /tmp → read op → t (continue to file validation)"
   (let* ((domains (plist-get semantics :domains))
-         (file-ops (plist-get domains :filesystem)))
+         (file-ops (alist-get :filesystem domains)))
     ;; If no file operations, allow (return nil to short-circuit)
     ;; If file operations exist, continue validation (return t)
     (if (or (null file-ops) (zerop (length file-ops)))
@@ -713,7 +713,7 @@ Error types: timeout, execution-failed."
       ;; Check for warnings (collect in list, don't modify output)
       (let ((path-warning (jf/gptel-bash--check-absolute-paths command)))
         (when path-warning
-          (setq warnings (list path-warning))))
+          (setq warnings (vector path-warning))))
 
       (list :output output
             :exit_code exit-code
@@ -771,13 +771,13 @@ Stages:
           (cl-return-from jf/gptel-scope--validate-command-semantics nil))
 
         ;; Stage 5: File operations validation (only if file ops exist)
-        (when-let ((file-ops (plist-get (plist-get semantics :domains) :filesystem)))
+        (when-let ((file-ops (alist-get :filesystem (plist-get semantics :domains))))
           (when-let ((error (jf/gptel-scope--validate-file-operations
                              file-ops directory scope-config)))
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
         ;; Stage 6: Cloud auth detection and policy enforcement
-        (when-let ((cloud-auth (plist-get (plist-get semantics :domains) :cloud-auth)))
+        (when-let ((cloud-auth (alist-get :cloud-auth (plist-get semantics :domains))))
           (when-let ((error (jf/gptel-scope--validate-cloud-auth
                              cloud-auth (plist-get scope-config :cloud))))
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
