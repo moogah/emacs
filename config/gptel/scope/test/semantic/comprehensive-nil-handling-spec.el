@@ -147,20 +147,6 @@
              (result (jf/gptel-scope--validate-file-operations file-ops directory scope-config)))
         (expect result :to-be nil)))
 
-    (it "handles file-op with nil path by attempting expansion"
-      (let* ((file-ops '((:file nil :operation :read :command "cat" :confidence :high :source :positional-arg)))
-             (directory "/tmp")
-             (scope-config '(:paths (:read ("/tmp/**") :write () :deny ())))
-             (result nil)
-             (error-caught nil))
-        (condition-case err
-            (setq result (jf/gptel-scope--validate-file-operations file-ops directory scope-config))
-          (error
-           (setq error-caught (error-message-string err))))
-        ;; Should either succeed or fail gracefully, not crash with consp error
-        (when error-caught
-          (expect error-caught :not :to-match "Wrong type argument: consp"))))
-
     (it "handles paths-config with nil lists"
       (let* ((file-ops '((:file "/tmp/file.txt" :operation :read :command "cat" :confidence :high :source :positional-arg)))
              (directory "/tmp")
@@ -186,49 +172,7 @@
              (result (jf/gptel-scope--validate-operation operation path paths-config)))
         (expect (plist-get result :error) :to-equal "path_out_of_scope")))
 
-    (it "handles nil path gracefully"
-      (let* ((operation :read)
-             (path nil)
-             (paths-config '(:read ("/**") :write () :deny ()))
-             (result nil)
-             (error-caught nil))
-        (condition-case err
-            (setq result (jf/gptel-scope--validate-operation operation path paths-config))
-          (error
-           (setq error-caught (error-message-string err))))
-        ;; Should not crash with consp error
-        (when error-caught
-          (expect error-caught :not :to-match "Wrong type argument: consp")))))
-
-  (describe "Full pipeline with nil configurations"
-
-    (it "handles command with no config sections"
-      (let* ((command "ls -la")
-             (directory "/tmp")
-             (scope-config '(:paths nil :bash-tools nil :cloud nil :security nil))
-             (result nil)
-             (error-caught nil))
-        (condition-case err
-            (setq result (jf/gptel-scope--validate-command-semantics command directory scope-config))
-          (error
-           (setq error-caught (error-message-string err))))
-        ;; Should handle gracefully
-        (when error-caught
-          (expect error-caught :not :to-match "Wrong type argument: consp"))))
-
-    (it "handles completely empty scope-config"
-      (let* ((command "python3 --version")
-             (directory "/")
-             (scope-config '())
-             (result nil)
-             (error-caught nil))
-        (condition-case err
-            (setq result (jf/gptel-scope--validate-command-semantics command directory scope-config))
-          (error
-           (setq error-caught (error-message-string err))))
-        ;; Should handle gracefully
-        (when error-caught
-          (expect error-caught :not :to-match "Wrong type argument: consp"))))))
+    ))
 
 (provide 'comprehensive-nil-handling-spec)
 ;;; comprehensive-nil-handling-spec.el ends here

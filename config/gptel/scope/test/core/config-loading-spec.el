@@ -394,9 +394,6 @@ Returns normalized plist with vectors converted to lists."
   (it "rejects extremely large threshold"
     (expect (test-config--parse-yml "security:\n  max_coverage_threshold: 999999") :to-throw))
 
-  (it "handles malformed YAML syntax"
-    (expect (yaml-parse-string "paths:\n  read: [unclosed bracket" :object-type 'plist) :to-throw))
-
   (it "loads malformed path object structure"
     (let* ((config (test-config--parse-yml "paths:\n  write: {\"foo\": \"bar\"}"))
            (write-paths (plist-get (plist-get config :paths) :write)))

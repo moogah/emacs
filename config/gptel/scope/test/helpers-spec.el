@@ -254,35 +254,6 @@ security:
   enforce_parse_complete: true
 " providers-yaml))))
 
-;;; Validation Helper Functions
-
-(defun helpers-spec-validate-command (command &optional scope-file)
-  "Validate COMMAND using SCOPE-FILE.
-If SCOPE-FILE is nil, uses minimal scope.
-Returns validation result plist."
-  (let ((scope (or scope-file (helpers-spec-make-minimal-scope))))
-    (unwind-protect
-        (progn
-          ;; This is a placeholder - actual validation would call
-          ;; jf/gptel-scope--validate-bash-command or similar
-          ;; For now, return a mock result for test infrastructure
-          (list :status :success
-                :command command
-                :scope scope))
-      (when (and scope (not scope-file))
-        (delete-file scope)))))
-
-(defun helpers-spec-parse-command (command)
-  "Parse COMMAND and return semantic extraction result.
-Returns plist with :status, :ast, :semantics, :coverage."
-  ;; This is a placeholder - actual parsing would call bash-parser
-  ;; For now, return a mock result for test infrastructure
-  (list :status :success
-        :command command
-        :ast '(:type pipeline)
-        :semantics '()
-        :coverage '(:ratio 1.0)))
-
 ;;; Assertion Helpers
 
 (defun helpers-spec-assert-validation-success (result)

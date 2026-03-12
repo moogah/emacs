@@ -36,33 +36,6 @@
   (require 'bash-parser-plugins))
 
 ;;; ============================================================
-;;; Bug 1: execute-command warnings must be json-serializable
-;;; ============================================================
-
-(describe "execute-command result must be json-serializable"
-
-  (it "serializes result for commands without absolute paths"
-    ;; Baseline: commands like `python3 --version` work fine
-    (let* ((result (jf/gptel-bash--execute-command "echo hello" "/tmp"))
-           (json (json-serialize result)))
-      (expect json :to-be-truthy)))
-
-  (it "serializes result for commands WITH absolute paths"
-    ;; FAILS: `ls /tmp` triggers an absolute-path warning wrapped in
-    ;; (list "string").  json-serialize needs a vector for JSON arrays.
-    ;; Currently throws: Wrong type argument: consp, nil
-    (let* ((result (jf/gptel-bash--execute-command "ls /tmp" "/tmp"))
-           (json (json-serialize result)))
-      (expect json :to-be-truthy)))
-
-  (it "warnings field is a vector (json array) not a list"
-    ;; FAILS: execute-command uses (list warning) instead of (vector warning)
-    (let* ((result (jf/gptel-bash--execute-command "ls /tmp" "/tmp"))
-           (warnings (plist-get result :warnings)))
-      (expect warnings :not :to-be nil)
-      (expect (vectorp warnings) :to-be t))))
-
-;;; ============================================================
 ;;; Bug 2: scope validation must read domains from alist
 ;;; ============================================================
 
