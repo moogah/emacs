@@ -96,7 +96,8 @@ security:
        (list (list :file "./README.md"
                    :operation :read
                    :command "cat"
-                   :confidence :high))
+                   :confidence :high
+                   :source :positional-arg))
        nil
        '(:ratio 1.0))
 
@@ -150,7 +151,8 @@ security:
        (list (list :file "../other/file.txt"
                    :operation :read
                    :command "cat"
-                   :confidence :high))
+                   :confidence :high
+                   :source :positional-arg))
        nil
        '(:ratio 1.0))
 
@@ -205,7 +207,8 @@ security:
        (list (list :file "../../etc/passwd"
                    :operation :read
                    :command "cat"
-                   :confidence :high))
+                   :confidence :high
+                   :source :positional-arg))
        nil
        '(:ratio 1.0))
 
@@ -260,7 +263,8 @@ security:
        (list (list :file "."
                    :operation :read
                    :command "ls"
-                   :confidence :high))
+                   :confidence :high
+                   :source :positional-arg))
        nil
        '(:ratio 1.0))
 
@@ -316,7 +320,8 @@ security:
        (list (list :file "."
                    :operation :read
                    :command "ls"
-                   :confidence :high))
+                   :confidence :high
+                   :source :positional-arg))
        nil
        '(:ratio 1.0))
 
@@ -439,7 +444,8 @@ security:
        (list (list :file "/etc/passwd"
                    :operation :read
                    :command "cat"
-                   :confidence :high))
+                   :confidence :high
+                   :source :positional-arg))
        nil
        '(:ratio 1.0))
 
@@ -499,11 +505,13 @@ security:
        (list (list :file "./src/file.txt"
                    :operation :read
                    :command "cp"
-                   :confidence :high)
+                   :confidence :high
+                   :source :positional-arg)
              (list :file "./dst/file.txt"
                    :operation :write
                    :command "cp"
-                   :confidence :high))
+                   :confidence :high
+                   :source :positional-arg))
        nil
        '(:ratio 1.0))
 

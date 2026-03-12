@@ -125,7 +125,7 @@
         (expect result :to-be nil)))
 
     (it "continues validation when filesystem has operations"
-      (let* ((semantics '(:domains ((:filesystem . ((:file "/tmp" :operation :read :command "cat" :confidence :high))))))
+      (let* ((semantics '(:domains ((:filesystem . ((:file "/tmp" :operation :read :command "cat" :confidence :high :source :positional-arg))))))
              (result (jf/gptel-scope--check-no-op semantics)))
         ;; Has file ops → return t to continue validation
         (expect result :to-be t))))
@@ -148,7 +148,7 @@
         (expect result :to-be nil)))
 
     (it "handles file-op with nil path by attempting expansion"
-      (let* ((file-ops '((:file nil :operation :read :command "cat" :confidence :high)))
+      (let* ((file-ops '((:file nil :operation :read :command "cat" :confidence :high :source :positional-arg)))
              (directory "/tmp")
              (scope-config '(:paths (:read ("/tmp/**") :write () :deny ())))
              (result nil)
@@ -162,7 +162,7 @@
           (expect error-caught :not :to-match "Wrong type argument: consp"))))
 
     (it "handles paths-config with nil lists"
-      (let* ((file-ops '((:file "/tmp/file.txt" :operation :read :command "cat" :confidence :high)))
+      (let* ((file-ops '((:file "/tmp/file.txt" :operation :read :command "cat" :confidence :high :source :positional-arg)))
              (directory "/tmp")
              (scope-config '(:paths (:read nil :write nil :deny nil)))
              (result (jf/gptel-scope--validate-file-operations file-ops directory scope-config)))

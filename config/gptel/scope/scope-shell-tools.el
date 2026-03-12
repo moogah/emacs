@@ -524,7 +524,8 @@ Stages:
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
         ;; Stage 6: Cloud auth detection and policy enforcement
-        (when-let ((cloud-auth (alist-get :cloud-auth (plist-get semantics :domains))))
+        ;; bash-parser registers cloud auth under :authentication domain
+        (when-let ((cloud-auth (alist-get :authentication (plist-get semantics :domains))))
           (when-let ((error (jf/gptel-scope--validate-cloud-auth
                              cloud-auth (plist-get scope-config :cloud))))
             (cl-return-from jf/gptel-scope--validate-command-semantics error)))
@@ -921,7 +922,7 @@ Returns nil if all operations allowed, error plist for first violation."
 (defun jf/gptel-scope--validate-cloud-auth (cloud-auth-ops cloud-config)
   "Stage 6: Detect and enforce cloud authentication policy.
 
-CLOUD-AUTH-OPS is the :cloud-auth domain from bash-parser semantics.
+CLOUD-AUTH-OPS is the :authentication domain from bash-parser semantics.
 CLOUD-CONFIG is the :cloud section from scope configuration.
 
 Returns nil if validation passes, error plist if denied."

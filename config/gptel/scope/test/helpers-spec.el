@@ -28,6 +28,15 @@
 (require 'buttercup)
 (require 'cl-lib)
 
+;; Load contract validation for mock self-validation
+;; config/gptel/scope/test/ -> config/core/contracts/ (3 levels up, then core/contracts)
+(let ((contracts-dir (expand-file-name "../../../core/contracts/"
+                                       (file-name-directory (or load-file-name buffer-file-name)))))
+  (add-to-list 'load-path contracts-dir))
+(require 'contract-core)
+(require 'contract-bash-parser)
+(contract--register-buttercup-matcher)
+
 ;;; Custom Matchers
 
 (buttercup-define-matcher :to-be-validation-success (result)
@@ -306,46 +315,74 @@ Throws error if validation succeeded or has different error."
   "Original value of jf/bash-extract-semantics.")
 
 (defun helpers-spec--mock-parse-result (command commands parse-complete)
-  "Mock jf/bash-parse results.
+  "Mock jf/bash-parse results with contract self-validation.
 COMMAND is the input command string.
 COMMANDS is the list of all extracted command names (strings).
 PARSE-COMPLETE is a boolean flag indicating parse completeness.
 
 Returns a mock plist with :success, :all-commands, :parse-complete.
 :all-commands is a list of command plists with :command-name field."
-  (let ((all-commands (mapcar (lambda (cmd-name)
-                                (list :command-name cmd-name))
-                              commands)))
-    (list :success t
-          :all-commands all-commands
-          :parse-complete parse-complete
-          :tokens '()  ; Empty for now, add if needed
-          :command command)))
+  (let* ((all-commands (mapcar (lambda (cmd-name)
+                                 (list :command-name cmd-name))
+                               commands))
+         (result (list :success t
+                       :all-commands all-commands
+                       :parse-complete parse-complete
+                       :tokens '()
+                       :command command)))
+    (when-let ((error (contract/bash-parse-result--validate result)))
+      (error "Mock parse-result violates contract: %s" error))
+    result))
 
 (defun helpers-spec--mock-semantics (file-ops cloud-auth coverage)
-  "Mock jf/bash-extract-semantics results.
+  "Mock jf/bash-extract-semantics results with contract self-validation.
 FILE-OPS is a list of file operation plists.
-CLOUD-AUTH is a plist with :detected and optionally :provider.
-COVERAGE is a plist with :ratio.
+CLOUD-AUTH is a cloud auth plist (or nil).  Note: scope consumer expects a flat
+  plist here (:provider :aws :command \"cmd\"), not a list-of-plists as bash-parser
+  produces.  This is a known consumer-side gap (scope should car the domain value).
+COVERAGE is a plist with coverage statistics.
 
 Returns a mock plist with :domains as alist matching bash-parser output."
-  (list :domains (list (cons :filesystem file-ops)
-                       (cons :cloud-auth cloud-auth))
-        :coverage coverage
-        :parse-complete t))
+  (let* ((domains (delq nil
+                        (list (cons :filesystem file-ops)
+                              (when cloud-auth
+                                (cons :authentication cloud-auth)))))
+         (result (list :domains domains
+                       :coverage coverage
+                       :parse-complete t)))
+    ;; Validate file-ops individually (contract-enforced)
+    (dolist (op file-ops)
+      (when-let ((error (contract/bash-file-op--validate op)))
+        (error "Mock file-op in semantics violates contract: %s" error)))
+    ;; Validate top-level structure (alist domains, required keys)
+    (when-let ((error (contract--validate-plist result
+                        '((:domains listp)
+                          (:coverage listp)
+                          (:parse-complete booleanp)))))
+      (error "Mock semantics violates contract: %s" error))
+    ;; Validate domains is an alist (not plist)
+    (when domains
+      (when-let ((error (contract/bash-domains--validate domains)))
+        (error "Mock semantics domains violates contract: %s" error)))
+    result))
 
 (defun helpers-spec--make-file-op (operation path &rest props)
-  "Build file operation plist matching bash-parser command handler output.
+  "Build file operation plist with contract self-validation.
 OPERATION is a keyword (:read, :write, :execute, :modify).
 PATH is the file path string.
-PROPS are additional properties as plist (e.g., :command \"cat\").
+PROPS are additional properties as plist (e.g., :command \"cat\" :source :positional-arg).
 
-Returns file-op plist in bash-parser format: (:file PATH :operation OP :command CMD :confidence CONF)."
-  (append (list :file path
-                :operation operation
-                :confidence (or (plist-get props :confidence) :high)
-                :command (or (plist-get props :command) "unknown"))
-          props))
+Returns file-op plist in bash-parser format: (:file PATH :operation OP :command CMD
+ :confidence CONF :source SRC)."
+  (let ((result (append (list :file path
+                              :operation operation
+                              :confidence (or (plist-get props :confidence) :high)
+                              :source (or (plist-get props :source) :positional-arg)
+                              :command (or (plist-get props :command) "unknown"))
+                        props)))
+    (when-let ((error (contract/bash-file-op--validate result)))
+      (error "Mock file-op violates contract: %s" error))
+    result))
 
 (defun helpers-spec-setup-bash-mocks ()
   "Set up bash-parser mocking infrastructure.

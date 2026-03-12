@@ -53,6 +53,7 @@ COMMAND-NAME is optional command that performs operation."
   (list :file path
         :operation operation
         :confidence :high
+        :source :positional-arg
         :command (or command-name "test")))
 
 ;;; Test Suite
