@@ -269,6 +269,9 @@ See implementation and spec files for complete details.
 ./bin/run-tests.sh -f buttercup              # Buttercup only
 make test-directory DIR=config/gptel         # Via make
 ./bin/run-tests.sh -d config/foo --snapshot  # With snapshot
+./bin/run-tests.sh --report                  # Concise report (counts + failures)
+make test-report                             # Via make
+make test-report DIR=config/gptel            # Directory-scoped report
 
 # Worktree workflow
 git worktree add ~/emacs-feature-name -b feature-name

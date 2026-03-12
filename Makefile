@@ -52,7 +52,7 @@ emacs-test-eval:
 # High-level test targets - User-facing convenience wrappers
 # =============================================================================
 
-.PHONY: test test-verbose test-pattern test-directory test-snapshot test-buttercup test-buttercup-directory help
+.PHONY: test test-verbose test-pattern test-directory test-snapshot test-report test-buttercup test-buttercup-directory help
 
 # Default target
 help:
@@ -73,6 +73,8 @@ help:
 	@echo "  make test-pattern PATTERN=X     Run ERT tests matching pattern"
 	@echo "  make test-directory DIR=X       Run tests in specific directory"
 	@echo "  make test-snapshot DIR=X        Run tests and capture snapshot"
+	@echo "  make test-report                Run all tests with concise report"
+	@echo "  make test-report DIR=X          Run tests in directory with report"
 	@echo ""
 	@echo "Testing (Buttercup - direct):"
 	@echo "  make test-buttercup             Run all Buttercup tests"
@@ -103,6 +105,14 @@ test-directory:
 # Run tests and capture snapshot
 test-snapshot:
 	@./bin/run-tests.sh -d "$(DIR)" --snapshot
+
+# Run tests with concise report (counts + failures only)
+test-report:
+ifdef DIR
+	@./bin/run-tests.sh -d "$(DIR)" --report
+else
+	@./bin/run-tests.sh --report
+endif
 
 # Run all Buttercup tests
 test-buttercup:
