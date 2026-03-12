@@ -45,19 +45,22 @@
   "Valid file-op source indicators from bash-parser.")
 
 (defconst contract/bash--valid-cloud-providers
-  '(:aws-cli :aws-vault :gcloud :azure)
-  "Valid cloud auth provider keywords from bash-parser.")
+  '(:aws :aws-cli :aws-vault :gcloud :azure)
+  "Valid cloud auth provider keywords from bash-parser.
+:aws is used by command-specific handlers (aws.el), :aws-cli by universal plugin.")
 
 (defconst contract/bash--valid-domain-keys
-  '(:filesystem :authentication)
-  "Valid domain keys in the semantics :domains alist.")
+  '(:filesystem :authentication :network)
+  "Valid domain keys in the semantics :domains alist.
+:network is produced by command handlers (e.g., aws.el) for implicit network access.")
 
 ;;; File Operation Contract
 
 (defun contract/bash-file-op--validate (file-op)
   "Validate a single FILE-OP plist from bash-parser.
 Expected shape: (:file STRING :operation KEYWORD :confidence KEYWORD
-                 :source KEYWORD :command STRING ...)
+                 :command STRING [:source KEYWORD] ...)
+:source is optional — universal plugin includes it, command-specific handlers may not.
 Returns nil if valid, error string if invalid."
   (cl-block validate
   (let ((errors nil))
@@ -84,9 +87,9 @@ Returns nil if valid, error string if invalid."
       (unless (memq (plist-get file-op :confidence) contract/bash--valid-confidence-levels)
         (push (format ":confidence %S not in valid set" (plist-get file-op :confidence)) errors)))
 
-    ;; Required: :source (valid keyword)
-    (if (not (plist-member file-op :source))
-        (push "Missing required key :source" errors)
+    ;; Optional: :source (valid keyword if present)
+    ;; Universal plugin includes :source, command-specific handlers (aws.el etc.) may omit it
+    (when (plist-member file-op :source)
       (unless (memq (plist-get file-op :source) contract/bash--valid-sources)
         (push (format ":source %S not in valid set" (plist-get file-op :source)) errors)))
 
@@ -102,8 +105,8 @@ Returns nil if valid, error string if invalid."
 
 (defun contract/bash-cloud-auth-op--validate (cloud-auth-op)
   "Validate a single CLOUD-AUTH-OP plist from bash-parser.
-Expected shape: (:operation :authenticate :provider KEYWORD
-                 :context PLIST :command STRING)
+Expected shape: (:provider KEYWORD :command STRING [:operation :authenticate] [:context PLIST])
+:operation is optional — universal plugin includes it, command handlers (aws.el) may omit it.
 Returns nil if valid, error string if invalid."
   (cl-block validate
   (let ((errors nil))
@@ -111,9 +114,9 @@ Returns nil if valid, error string if invalid."
       (cl-return-from validate
         (format "Expected plist, got %s" (type-of cloud-auth-op))))
 
-    ;; Required: :operation must be :authenticate
-    (if (not (plist-member cloud-auth-op :operation))
-        (push "Missing required key :operation" errors)
+    ;; Optional: :operation (must be :authenticate if present)
+    ;; Universal plugin includes :operation :authenticate, command handlers may omit it
+    (when (plist-member cloud-auth-op :operation)
       (unless (eq (plist-get cloud-auth-op :operation) :authenticate)
         (push (format ":operation must be :authenticate, got %S"
                       (plist-get cloud-auth-op :operation))

@@ -49,10 +49,16 @@
              '(:file "/tmp/test.txt" :operation :read :source :positional-arg))
             :to-match "Missing required key :confidence"))
 
-  (it "rejects missing :source key"
+  (it "accepts file-op without :source (optional — command handlers may omit it)"
     (expect (contract/bash-file-op--validate
              '(:file "/tmp/test.txt" :operation :read :confidence :high))
-            :to-match "Missing required key :source"))
+            :to-be nil))
+
+  (it "rejects invalid :source value when present"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :operation :read :confidence :high
+               :source :invented))
+            :to-match ":source.*not in valid set"))
 
   (it "rejects invalid operation type"
     (expect (contract/bash-file-op--validate
@@ -98,7 +104,12 @@
   (it "rejects wrong :operation"
     (expect (contract/bash-cloud-auth-op--validate
              '(:operation :read :provider :aws-cli))
-            :to-match ":operation must be :authenticate")))
+            :to-match ":operation must be :authenticate"))
+
+  (it "accepts command-handler format (no :operation, :aws provider)"
+    (expect (contract/bash-cloud-auth-op--validate
+             '(:provider :aws :command "aws"))
+            :to-be nil)))
 
 (describe "contract/bash-domains--validate"
   (it "accepts valid domains alist"
