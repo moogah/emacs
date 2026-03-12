@@ -2,6 +2,11 @@
 
 (require 'bash-parser-semantics)
 
+;; Load contract validation helpers
+(require 'contract-test-helpers
+         (expand-file-name "contract-test-helpers.el"
+                           (file-name-directory (or load-file-name buffer-file-name))))
+
 ;; Load command handler files from parent directory
 (let ((commands-dir (file-name-directory
                      (directory-file-name
@@ -15,7 +20,9 @@
 ;;; Helper
 
 (defun flag-test--ops (result)
-  "Extract operations list from handler RESULT."
+  "Extract operations list from handler RESULT.
+Validates each operation against the file-op contract."
+  (contract-test--validate-handler-result result "flag command handler")
   (plist-get result :operations))
 
 (defun flag-test--first-op (result)

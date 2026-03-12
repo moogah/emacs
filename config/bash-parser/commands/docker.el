@@ -24,8 +24,8 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
       (let ((sources (butlast sub-args))
             (dest (car (last sub-args))))
         (dolist (src sources)
-          (push (list :file src :operation :read :command command) operations))
-        (push (list :file dest :operation :write :command command) operations))
+          (push (list :file src :operation :read :confidence :high :command command) operations))
+        (push (list :file dest :operation :write :confidence :high :command command) operations))
       (when operations
         (list :domain :filesystem
               :operations (nreverse operations)

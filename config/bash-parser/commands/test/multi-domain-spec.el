@@ -2,6 +2,11 @@
 
 (require 'bash-parser-semantics)
 
+;; Load contract validation helpers
+(require 'contract-test-helpers
+         (expand-file-name "contract-test-helpers.el"
+                           (file-name-directory (or load-file-name buffer-file-name))))
+
 ;;; Helper to reset registry between tests
 
 (defun multi-domain-test--reset-registry ()
@@ -10,6 +15,11 @@
   ;; Re-load the handler files to re-register
   (load (expand-file-name "config/bash-parser/commands/aws.el" jf/emacs-dir) nil t)
   (load (expand-file-name "config/bash-parser/commands/curl.el" jf/emacs-dir) nil t))
+
+(defun multi-domain-test--validate-result (result context)
+  "Validate handler RESULT against contracts. Returns RESULT."
+  (contract-test--validate-handler-result result context)
+  result)
 
 ;;; Tests
 
@@ -28,6 +38,7 @@
                          :args ("s3" "cp" "local.txt" "s3://bucket/")
                          :positional-args ("s3" "cp" "local.txt" "s3://bucket/")
                          :flags nil))))
+          (multi-domain-test--validate-result result "aws s3 cp upload")
           (expect result :not :to-be nil)
           (expect (plist-get result :domain) :to-equal :filesystem)
           (let ((ops (plist-get result :operations)))
@@ -41,6 +52,7 @@
                          :args ("s3" "cp" "s3://bucket/file.txt" "local.txt")
                          :positional-args ("s3" "cp" "s3://bucket/file.txt" "local.txt")
                          :flags nil))))
+          (multi-domain-test--validate-result result "aws s3 cp download")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (length ops) :to-equal 1)
@@ -53,6 +65,7 @@
                          :args ("s3" "sync" "local-dir/" "s3://bucket/")
                          :positional-args ("s3" "sync" "local-dir/" "s3://bucket/")
                          :flags nil))))
+          (multi-domain-test--validate-result result "aws s3 sync")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (length ops) :to-equal 1)
@@ -65,6 +78,7 @@
                          :args ("s3" "mv" "local.txt" "s3://bucket/")
                          :positional-args ("s3" "mv" "local.txt" "s3://bucket/")
                          :flags nil))))
+          (multi-domain-test--validate-result result "aws s3 mv")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (length ops) :to-equal 1)
@@ -93,6 +107,7 @@
                          :args ("s3" "cp" "source.txt" "dest.txt")
                          :positional-args ("s3" "cp" "source.txt" "dest.txt")
                          :flags nil))))
+          (multi-domain-test--validate-result result "aws s3 cp local-to-local")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (length ops) :to-equal 2)))))
@@ -105,6 +120,7 @@
                          :args ("--profile" "prod" "s3" "ls")
                          :positional-args ("s3" "ls")
                          :flags ("--profile")))))
+          (multi-domain-test--validate-result result "aws auth --profile")
           (expect (plist-get result :domain) :to-equal :authentication)
           (let* ((ops (plist-get result :operations))
                  (op (car ops))
@@ -118,6 +134,7 @@
                          :args ("--region" "us-east-1" "s3" "ls")
                          :positional-args ("s3" "ls")
                          :flags ("--region")))))
+          (multi-domain-test--validate-result result "aws auth --region")
           (let* ((ops (plist-get result :operations))
                  (op (car ops))
                  (context (plist-get op :context)))
@@ -129,6 +146,7 @@
                          :args ("--profile" "prod" "--region" "eu-west-1" "s3" "ls")
                          :positional-args ("s3" "ls")
                          :flags ("--profile" "--region")))))
+          (multi-domain-test--validate-result result "aws auth --profile+--region")
           (let* ((ops (plist-get result :operations))
                  (op (car ops))
                  (context (plist-get op :context)))
@@ -141,6 +159,7 @@
                          :args ("s3" "ls")
                          :positional-args ("s3" "ls")
                          :flags nil))))
+          (multi-domain-test--validate-result result "aws auth bare")
           (expect (plist-get result :domain) :to-equal :authentication)
           (let* ((ops (plist-get result :operations))
                  (op (car ops)))
@@ -178,15 +197,16 @@
           (expect (gethash :network domains) :not :to-be nil)))
 
       (it "extracts all three domains via registry"
-        (let ((result (jf/bash-extract-command-semantics
-                       '(:command-name "aws"
-                         :args ("--profile" "prod" "s3" "cp" "local.txt" "s3://bucket/")
-                         :positional-args ("s3" "cp" "local.txt" "s3://bucket/")
-                         :flags ("--profile")))))
-          (let ((domains (plist-get result :domains)))
-            (expect (alist-get :filesystem domains) :not :to-be nil)
-            (expect (alist-get :authentication domains) :not :to-be nil)
-            (expect (alist-get :network domains) :not :to-be nil))))
+        (let* ((result (jf/bash-extract-command-semantics
+                        '(:command-name "aws"
+                          :args ("--profile" "prod" "s3" "cp" "local.txt" "s3://bucket/")
+                          :positional-args ("s3" "cp" "local.txt" "s3://bucket/")
+                          :flags ("--profile"))))
+               (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "aws multi-domain registry")
+          (expect (alist-get :filesystem domains) :not :to-be nil)
+          (expect (alist-get :authentication domains) :not :to-be nil)
+          (expect (alist-get :network domains) :not :to-be nil)))
 
       (it "isolates handler failure from other domains"
         ;; Override filesystem handler to error, auth and network should still work
@@ -200,6 +220,7 @@
                           :positional-args ("s3" "cp" "local.txt" "s3://bucket/")
                           :flags nil)))
                (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "aws handler-isolation")
           ;; Filesystem should be absent (handler errored)
           (expect (alist-get :filesystem domains) :to-be nil)
           ;; Auth and network should still be present
@@ -216,6 +237,7 @@
                          :args ("-o" "output.html" "https://example.com")
                          :positional-args ("output.html" "https://example.com")
                          :flags ("-o")))))
+          (multi-domain-test--validate-result result "curl -o filesystem")
           (expect result :not :to-be nil)
           (expect (plist-get result :domain) :to-equal :filesystem)
           (let ((ops (plist-get result :operations)))
@@ -229,6 +251,7 @@
                          :args ("--output" "result.json" "https://api.example.com")
                          :positional-args ("result.json" "https://api.example.com")
                          :flags ("--output")))))
+          (multi-domain-test--validate-result result "curl --output filesystem")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (plist-get (car ops) :file) :to-equal "result.json")
@@ -240,6 +263,7 @@
                          :args ("-d" "@data.json" "https://api.example.com")
                          :positional-args ("@data.json" "https://api.example.com")
                          :flags ("-d")))))
+          (multi-domain-test--validate-result result "curl -d @file filesystem")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (length ops) :to-equal 1)
@@ -252,6 +276,7 @@
                          :args ("--data" "@payload.xml" "https://api.example.com")
                          :positional-args ("@payload.xml" "https://api.example.com")
                          :flags ("--data")))))
+          (multi-domain-test--validate-result result "curl --data @file filesystem")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (plist-get (car ops) :file) :to-equal "payload.xml"))))
@@ -270,6 +295,7 @@
                          :args ("-T" "upload.bin" "https://example.com/upload")
                          :positional-args ("upload.bin" "https://example.com/upload")
                          :flags ("-T")))))
+          (multi-domain-test--validate-result result "curl -T filesystem")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (length ops) :to-equal 1)
@@ -282,6 +308,7 @@
                          :args ("--upload-file" "file.dat" "https://example.com/put")
                          :positional-args ("file.dat" "https://example.com/put")
                          :flags ("--upload-file")))))
+          (multi-domain-test--validate-result result "curl --upload-file filesystem")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (plist-get (car ops) :file) :to-equal "file.dat")
@@ -293,6 +320,7 @@
                          :args ("-d" "@data.json" "-o" "response.json" "https://api.example.com")
                          :positional-args ("@data.json" "response.json" "https://api.example.com")
                          :flags ("-d" "-o")))))
+          (multi-domain-test--validate-result result "curl multi-file filesystem")
           (expect result :not :to-be nil)
           (let ((ops (plist-get result :operations)))
             (expect (length ops) :to-equal 2))))
@@ -357,24 +385,26 @@
           (expect (gethash :network domains) :not :to-be nil)))
 
       (it "extracts both domains via registry"
-        (let ((result (jf/bash-extract-command-semantics
-                       '(:command-name "curl"
-                         :args ("-o" "output.html" "https://example.com")
-                         :positional-args ("output.html" "https://example.com")
-                         :flags ("-o")))))
-          (let ((domains (plist-get result :domains)))
-            (expect (alist-get :filesystem domains) :not :to-be nil)
-            (expect (alist-get :network domains) :not :to-be nil))))
+        (let* ((result (jf/bash-extract-command-semantics
+                        '(:command-name "curl"
+                          :args ("-o" "output.html" "https://example.com")
+                          :positional-args ("output.html" "https://example.com")
+                          :flags ("-o"))))
+               (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "curl multi-domain registry")
+          (expect (alist-get :filesystem domains) :not :to-be nil)
+          (expect (alist-get :network domains) :not :to-be nil)))
 
       (it "returns only network domain when no file ops"
-        (let ((result (jf/bash-extract-command-semantics
-                       '(:command-name "curl"
-                         :args ("https://example.com")
-                         :positional-args ("https://example.com")
-                         :flags nil))))
-          (let ((domains (plist-get result :domains)))
-            (expect (alist-get :filesystem domains) :to-be nil)
-            (expect (alist-get :network domains) :not :to-be nil))))))
+        (let* ((result (jf/bash-extract-command-semantics
+                        '(:command-name "curl"
+                          :args ("https://example.com")
+                          :positional-args ("https://example.com")
+                          :flags nil)))
+               (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "curl network-only")
+          (expect (alist-get :filesystem domains) :to-be nil)
+          (expect (alist-get :network domains) :not :to-be nil)))))
 
   (describe "domain independence"
 
@@ -397,6 +427,7 @@
                         :positional-args ("out.html" "https://example.com")
                         :flags ("-o"))))
              (domains (plist-get result :domains)))
+        (contract-test--validate-domains domains "curl error-isolation")
         ;; Filesystem errored out
         (expect (alist-get :filesystem domains) :to-be nil)
         ;; Network still works

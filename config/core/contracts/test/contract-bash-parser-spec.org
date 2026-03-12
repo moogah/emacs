@@ -1,0 +1,378 @@
+#+title: Bash-Parser Contract Tests — Verifying the Boundary Specification
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle contract-bash-parser-spec.el
+#+auto_tangle: y
+
+* Purpose
+
+These tests validate that the bash-parser contract /validators/ correctly accept
+valid producer output and reject invalid data. They are testing the contracts
+themselves, not the producer or consumer.
+
+Think of it this way: the contracts are executable specifications. These tests
+are the specification's own test suite — they verify the spec is correctly written
+before we rely on it to catch bugs elsewhere.
+
+** The Boundary Under Contract
+
+#+begin_example
+┌─────────────────────┐         ┌─────────────────────┐
+│    bash-parser       │  ────►  │   scope-validator    │
+│    (PRODUCER)        │  data   │   (CONSUMER)         │
+│                      │  flows  │                      │
+│ jf/bash-parse        │         │ validate-command-    │
+│ jf/bash-extract-     │         │   semantics          │
+│   semantics          │         │                      │
+└─────────────────────┘         └─────────────────────┘
+           │                              │
+           │         contracts            │
+           └──────►  (this spec)  ◄───────┘
+                   single source
+                    of truth
+#+end_example
+
+- *Producer:* =config/bash-parser/= — tree-sitter-based parsing, semantic plugins
+- *Consumer:* =config/gptel/scope/= — 7-stage validation pipeline
+- *Contract:* =config/core/contracts/contract-bash-parser.el= — THIS FILE TESTS THIS
+
+** What These Tests Catch
+
+A contract that accepts everything is useless. These tests verify both polarities:
+
+- *Accept tests:* Valid producer output passes validation (the contract isn't too strict)
+- *Reject tests:* Invalid or stale data fails validation (the contract isn't too loose)
+
+The reject tests are especially important — they encode the exact bugs we've hit:
+- =:path= instead of =:file= (old mock format)
+- =:cloud-auth= instead of =:authentication= (wrong domain key)
+- Plist where alist expected (the silent-nil class of bug)
+
+* Setup
+
+#+begin_src emacs-lisp
+;;; contract-bash-parser-spec.el --- Tests for bash-parser contracts -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; Tests that bash-parser contract validators correctly accept valid data
+;; and reject invalid data. Also validates contracts against real bash-parser
+;; output to confirm they match actual producer shapes.
+
+;;; Code:
+
+(require 'buttercup)
+
+;; Add contracts directory to load-path
+(let ((contracts-dir (expand-file-name "../" (file-name-directory (or load-file-name buffer-file-name)))))
+  (add-to-list 'load-path contracts-dir))
+
+(require 'contract-core)
+(require 'contract-bash-parser)
+
+;; Register matcher after buttercup is loaded
+(contract--register-buttercup-matcher)
+#+end_src
+
+* File Operation Contract Tests
+
+The file-op is the most common data shape crossing the boundary. Every =cat=,
+=grep=, =ls=, =cp=, etc. produces one or more file-ops.
+
+** Producer Variants
+
+Two kinds of bash-parser plugins produce file-ops in slightly different shapes:
+
+- *Universal plugin* (=bash-parser-file-ops.el=) — includes all fields: =:file=,
+  =:operation=, =:confidence=, =:source=, =:command=
+- *Command-specific handlers* (=aws.el=, etc.) — may omit =:source= and =:command=
+
+The contract accommodates both by making =:source= and =:command= optional.
+
+#+begin_src emacs-lisp
+(describe "contract/bash-file-op--validate"
+  (it "accepts valid file operation"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :operation :read :confidence :high
+               :source :positional-arg :command "cat"))
+            :to-be nil))
+
+  (it "accepts file-op with optional context flags"
+    (expect (contract/bash-file-op--validate
+             '(:file "*.txt" :operation :read :confidence :medium
+               :source :loop-glob :command "ls"
+               :pattern t :loop-context t))
+            :to-be nil))
+
+  (it "rejects missing :file key"
+    (expect (contract/bash-file-op--validate
+             '(:operation :read :confidence :high :source :positional-arg))
+            :to-match "Missing required key :file"))
+
+  (it "rejects missing :operation key"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :confidence :high :source :positional-arg))
+            :to-match "Missing required key :operation"))
+
+  (it "rejects missing :confidence key"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :operation :read :source :positional-arg))
+            :to-match "Missing required key :confidence"))
+
+  (it "accepts file-op without :source (optional — command handlers may omit it)"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :operation :read :confidence :high))
+            :to-be nil))
+
+  (it "rejects invalid :source value when present"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :operation :read :confidence :high
+               :source :invented))
+            :to-match ":source.*not in valid set"))
+
+  (it "rejects invalid operation type"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :operation :frobnicate :confidence :high
+               :source :positional-arg))
+            :to-match ":operation.*not in valid set"))
+
+  (it "rejects invalid confidence level"
+    (expect (contract/bash-file-op--validate
+             '(:file "/tmp/test.txt" :operation :read :confidence :absolute
+               :source :positional-arg))
+            :to-match ":confidence.*not in valid set"))
+
+  (it "rejects :path key (old mock format - should be :file)"
+    (expect (contract/bash-file-op--validate
+             '(:path "/tmp/test.txt" :operation :read :confidence :high
+               :source :positional-arg))
+            :to-match "Missing required key :file")))
+#+end_src
+
+The last test — "rejects =:path= key" — encodes the exact mismatch we discovered.
+Mocks used =:path=, bash-parser uses =:file=. If someone introduces a new mock
+with =:path=, the self-validating mock builder will catch it before any tests run.
+
+* Cloud Auth Operation Contract Tests
+
+Cloud auth detection flows through the same boundary but with a different shape.
+The consumer (scope validator) uses this to decide whether to warn, deny, or
+allow cloud provider authentication.
+
+#+begin_src emacs-lisp
+(describe "contract/bash-cloud-auth-op--validate"
+  (it "accepts valid cloud auth operation"
+    (expect (contract/bash-cloud-auth-op--validate
+             '(:operation :authenticate :provider :aws-cli
+               :command "aws s3 ls"
+               :context (:profile "default" :region "us-east-1")))
+            :to-be nil))
+
+  (it "accepts minimal cloud auth (no context)"
+    (expect (contract/bash-cloud-auth-op--validate
+             '(:operation :authenticate :provider :gcloud :command "gcloud compute list"))
+            :to-be nil))
+
+  (it "rejects missing :provider"
+    (expect (contract/bash-cloud-auth-op--validate
+             '(:operation :authenticate :command "aws s3 ls"))
+            :to-match "Missing required key :provider"))
+
+  (it "rejects invalid provider"
+    (expect (contract/bash-cloud-auth-op--validate
+             '(:operation :authenticate :provider :heroku :command "heroku ps"))
+            :to-match ":provider.*not in valid set"))
+
+  (it "rejects wrong :operation"
+    (expect (contract/bash-cloud-auth-op--validate
+             '(:operation :read :provider :aws-cli))
+            :to-match ":operation must be :authenticate"))
+
+  (it "accepts command-handler format (no :operation, :aws provider)"
+    (expect (contract/bash-cloud-auth-op--validate
+             '(:provider :aws :command "aws"))
+            :to-be nil)))
+#+end_src
+
+The last test — "accepts command-handler format" — documents that the =aws.el=
+handler emits =:aws= (not =:aws-cli=) and omits =:operation=. Both shapes are
+valid producer output.
+
+* Domains Alist Contract Tests
+
+This is where the most impactful bug class lives. Domains is an *alist*, but if
+accessed with =plist-get= (a common Emacs Lisp habit), every lookup silently
+returns nil.
+
+#+begin_src emacs-lisp
+(describe "contract/bash-domains--validate"
+  (it "accepts valid domains alist"
+    (expect (contract/bash-domains--validate
+             '((:filesystem . ((:file "f.txt" :operation :read
+                                :confidence :high :source :positional-arg)))))
+            :to-be nil))
+
+  (it "accepts empty domains"
+    (expect (contract/bash-domains--validate nil)
+            :to-be nil))
+
+  (it "catches plist format (the original bug class)"
+    ;; This is the exact bug: (:filesystem ops) is a plist, not an alist
+    (expect (contract/bash-domains--validate
+             '(:filesystem ((:file "f.txt" :operation :read))))
+            :to-match "not a cons cell"))
+
+  (it "rejects :cloud-auth domain key (should be :authentication)"
+    (expect (contract/bash-domains--validate
+             '((:filesystem . nil) (:cloud-auth . nil)))
+            :to-match "Unknown alist key :cloud-auth"))
+
+  (it "accepts :authentication domain"
+    (expect (contract/bash-domains--validate
+             '((:authentication . ((:operation :authenticate
+                                    :provider :aws-cli)))))
+            :to-be nil)))
+#+end_src
+
+The "catches plist format" test is the single most important reject test in the
+contract suite. The data =(:filesystem ops)= vs =((:filesystem . ops))= looks
+nearly identical in source code, but the access patterns are completely different.
+
+* Semantics Contract Tests (Deep Validation)
+
+The semantics validator is a *deep validator* — it checks the top-level plist
+structure, then delegates into the domains alist, then into each file-op and
+cloud-auth-op within domains. This means a single call validates the entire
+nested structure.
+
+#+begin_src emacs-lisp
+(describe "contract/bash-semantics--validate"
+  (it "accepts valid semantics with file ops"
+    (let ((semantics
+           (list :domains (list (cons :filesystem
+                                     '((:file "/tmp/f.txt" :operation :read
+                                        :confidence :high :source :positional-arg
+                                        :command "cat"))))
+                 :coverage '(:total-tokens 3 :claimed-tokens 3 :coverage-percent 100)
+                 :parse-complete t)))
+      (expect (contract/bash-semantics--validate semantics)
+              :to-be nil)))
+
+  (it "accepts valid semantics with cloud auth"
+    (let ((semantics
+           (list :domains (list (cons :authentication
+                                     '((:operation :authenticate
+                                        :provider :aws-cli
+                                        :command "aws s3 ls"))))
+                 :coverage '(:total-tokens 3 :claimed-tokens 2 :coverage-percent 67)
+                 :parse-complete t)))
+      (expect (contract/bash-semantics--validate semantics)
+              :to-be nil)))
+
+  (it "accepts semantics with empty domains"
+    (let ((semantics (list :domains nil
+                           :coverage '(:total-tokens 0 :claimed-tokens 0)
+                           :parse-complete t)))
+      (expect (contract/bash-semantics--validate semantics)
+              :to-be nil)))
+
+  (it "rejects missing :domains"
+    (expect (contract/bash-semantics--validate
+             '(:coverage (:ratio 1.0) :parse-complete t))
+            :to-match "Missing required key :domains"))
+
+  (it "rejects plist domains (catches the alist vs plist bug)"
+    (let ((semantics (list :domains '(:filesystem ((:file "f.txt")))
+                           :coverage '(:ratio 1.0)
+                           :parse-complete t)))
+      (expect (contract/bash-semantics--validate semantics)
+              :to-match "not a cons cell")))
+
+  (it "rejects :cloud-auth domain key (should be :authentication)"
+    (let ((semantics
+           (list :domains (list (cons :cloud-auth '((:provider :aws-cli))))
+                 :coverage '(:ratio 1.0)
+                 :parse-complete t)))
+      (expect (contract/bash-semantics--validate semantics)
+              :to-match "Unknown alist key :cloud-auth")))
+
+  (it "surfaces invalid file-op within domains"
+    (let ((semantics
+           (list :domains (list (cons :filesystem
+                                     '((:path "/tmp/f.txt" :operation :read))))
+                 :coverage '(:ratio 1.0)
+                 :parse-complete t)))
+      (expect (contract/bash-semantics--validate semantics)
+              :to-match "Missing required key :file"))))
+#+end_src
+
+The "surfaces invalid file-op within domains" test verifies that deep validation
+works — a =:path= (wrong) instead of =:file= (right) nested three levels deep
+inside the semantics structure is still caught and reported with a path-qualified
+error message like =:domains.:filesystem[0]: Missing required key :file=.
+
+* Parse Result Contract Tests
+
+#+begin_src emacs-lisp
+(describe "contract/bash-parse-result--validate"
+  (it "accepts valid simple parse result"
+    (expect (contract/bash-parse-result--validate
+             '(:success t :all-commands ((:command-name "cat")) :parse-complete t
+               :tokens () :command-count 1 :command-name "cat"))
+            :to-be nil))
+
+  (it "accepts minimal parse result"
+    (expect (contract/bash-parse-result--validate
+             '(:success t :all-commands () :parse-complete t))
+            :to-be nil))
+
+  (it "accepts failed parse result"
+    (expect (contract/bash-parse-result--validate
+             '(:success nil :all-commands () :parse-complete nil
+               :error "Unexpected token"))
+            :to-be nil))
+
+  (it "rejects missing :success"
+    (expect (contract/bash-parse-result--validate
+             '(:all-commands () :parse-complete t))
+            :to-match "Missing required key :success"))
+
+  (it "rejects missing :all-commands"
+    (expect (contract/bash-parse-result--validate
+             '(:success t :parse-complete t))
+            :to-match "Missing required key :all-commands"))
+
+  (it "rejects missing :parse-complete"
+    (expect (contract/bash-parse-result--validate
+             '(:success t :all-commands ()))
+            :to-match "Missing required key :parse-complete")))
+#+end_src
+
+* Matcher Integration Tests
+
+Verify that the =:to-satisfy-contract= Buttercup matcher works with the
+bash-parser-specific contracts, not just the generic primitives.
+
+#+begin_src emacs-lisp
+;; Buttercup matcher integration
+(describe ":to-satisfy-contract with bash-parser contracts"
+  (it "works with file-op contract"
+    (let ((op '(:file "/tmp/f.txt" :operation :read :confidence :high
+                :source :positional-arg :command "cat")))
+      (expect op :to-satisfy-contract #'contract/bash-file-op--validate)))
+
+  (it "works with semantics contract"
+    (let ((semantics (list :domains (list (cons :filesystem
+                                               '((:file "/tmp/f.txt" :operation :read
+                                                  :confidence :high :source :positional-arg))))
+                           :coverage '(:total-tokens 2 :claimed-tokens 2 :coverage-percent 100)
+                           :parse-complete t)))
+      (expect semantics :to-satisfy-contract #'contract/bash-semantics--validate))))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'contract-bash-parser-spec)
+
+;;; contract-bash-parser-spec.el ends here
+#+end_src

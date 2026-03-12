@@ -1,3 +1,81 @@
+#+title: Bash-Parser Integration Tests — Real Producer, Real Consumer, No Mocks
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle bash-parser-integration-spec.el
+#+auto_tangle: y
+
+* Purpose
+
+These are the *Phase 3 wiring tests* — the final layer of contract testing that
+uses real modules end-to-end with zero mocks. They validate that data actually
+flows correctly from the bash-parser (producer) through the scope validator
+(consumer), with contract checks at each handoff point.
+
+** Why Integration Tests Exist Alongside Contract Tests
+
+Self-validating mocks (Layer 2) catch shape mismatches at mock construction time.
+But they can't catch:
+
+- *New enum values* the producer starts emitting that no mock has used yet
+- *Behavioral differences* between mock and real output (e.g., the producer
+  returns a list-of-plists where the mock returns a flat plist)
+- *Wiring errors* where the right data is produced but the consumer reads it wrong
+
+Integration tests catch all three because nothing is mocked.
+
+** The Data Flow Under Test
+
+Each scenario follows this exact path through real code:
+
+#+begin_example
+1. jf/bash-parse("cat /workspace/file.txt")        ← real tree-sitter
+       │
+       ▼  contract check
+   contract/bash-parse-result--validate             ← validates parse output
+       │
+       ▼
+2. jf/bash-extract-semantics(parsed)                ← real plugin pipeline
+       │
+       ▼  contract check
+   contract/bash-semantics--validate                ← validates semantics output
+       │
+       ▼
+3. jf/gptel-scope--validate-command-semantics(...)  ← real 7-stage pipeline
+       │
+       ▼
+   Decision: nil (allowed) | plist (denied/warning)
+#+end_example
+
+** Relationship to Other Test Layers
+
+#+begin_example
+Layer 1: Contract unit tests (config/core/contracts/test/)
+         "Do the validators themselves work correctly?"
+              │
+Layer 2: Self-validating mocks (helpers-spec.el)
+         "Do our mocks match the contract?"
+         Used by 468+ scope unit/semantic tests
+              │
+Layer 3: Integration tests (THIS FILE)
+         "Does real data actually flow correctly end-to-end?"
+#+end_example
+
+** Components Involved
+
+| Component | Role | Location |
+|---|---|---|
+| bash-parser core | Producer (parse) | =config/bash-parser/core/bash-parser-core.el= |
+| bash-parser plugins | Producer (semantics) | =config/bash-parser/analysis/bash-parser-plugins.el= |
+| contract validators | Boundary check | =config/core/contracts/contract-bash-parser.el= |
+| scope-shell-tools | Consumer (validation) | =config/gptel/scope/scope-shell-tools.el= |
+| helpers-spec | Fixture builders | =config/gptel/scope/test/helpers-spec.el= |
+| tree-sitter bash grammar | Runtime dependency | Must be installed for these tests to run |
+
+* Setup and Dependencies
+
+The dependency loading is explicit — we walk up the directory tree to find each
+component. This avoids relying on =load-path= state from other test files.
+
+#+begin_src emacs-lisp
 ;;; bash-parser-integration-spec.el --- Wiring tests: real bash-parser → contract → real scope validation -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
@@ -42,7 +120,15 @@
            (expand-file-name "scope/scope-shell-tools.el" gptel-dir))
   ;; Helpers for scope config builders
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir)))
+#+end_src
 
+* Scope Configuration Fixtures
+
+Two scope configs used across all scenarios. Built from YAML using the same
+=helpers-spec= builders that the unit tests use — the difference is that
+everything /downstream/ of these fixtures is real.
+
+#+begin_src emacs-lisp
 ;;; Scope config fixtures
 
 (defun integration-spec--workspace-scope-config ()
@@ -58,7 +144,23 @@
     (unwind-protect
         (helpers-spec-load-scope-config scope-yml)
       (delete-file scope-yml))))
+#+end_src
 
+* Test Scenarios
+
+Each scenario tests a different class of bash command through the full pipeline.
+Within each scenario, we validate:
+
+1. Parse result shape (contract check on producer output)
+2. Semantics shape (contract check on semantic extraction)
+3. Correct domain extraction (file-ops, cloud-auth, etc.)
+4. Final scope decision (allowed, denied, or warning)
+
+The entire test suite is in a single source block to preserve the Buttercup
+nesting structure — all scenarios share the outer =describe= and =let= bindings
+for scope configs. See the scenario-by-scenario documentation below the block.
+
+#+begin_src emacs-lisp
 ;;; Test suites
 
 (describe "Bash-parser → scope integration (real modules, no mocks)"
@@ -248,7 +350,83 @@
                (auth-ops (alist-get :authentication (plist-get semantics :domains))))
           (dolist (op auth-ops)
             (expect op :to-satisfy-contract #'contract/bash-cloud-auth-op--validate)))))))
+#+end_src
 
+** Scenario Guide
+
+The test block above contains 8 scenarios plus a bonus validation suite. Here is
+what each scenario exercises and why:
+
+*** Scenario 1: Simple Read (=cat /workspace/file.txt=)
+
+The baseline. Producer emits a =:read= file-op with =:file= pointing to the
+target path. Consumer allows it because the path matches the read scope. This is
+the simplest possible happy path.
+
+*** Scenario 2: Read with Glob (=grep pattern /workspace/*.txt=)
+
+Glob patterns exercise the parser's path extraction for wildcard arguments.
+
+*** Scenario 3: Write via Redirection (=echo hello > /workspace/out.txt=)
+
+Shell redirects (=>=) are a known gap in the parser's extraction. The universal
+file-ops plugin may or may not detect redirects depending on the command. If the
+redirect isn't extracted, the command is treated as a no-op and auto-allowed.
+
+*** Scenario 4: Cloud Auth Detection (=aws s3 ls=)
+
+Exercises the =:authentication= domain — a completely different data shape from
+file-ops. Documents the *list-of-plists bug* (see below).
+
+*** Scenario 5: No-Op Short Circuit (=python3 --version=)
+
+Commands with zero file operations and no cloud auth are auto-allowed. Tests the
+fast path for safe commands.
+
+*** Scenario 6: Pipeline (=cat /workspace/a.txt | head -10=)
+
+Pipelines produce multiple commands in the parse result. Semantic plugins must
+extract file-ops from all commands.
+
+*** Scenario 7: Denied Command (=rm /workspace/file.txt=)
+
+Tests the deny-list stage of the 7-stage pipeline. =rm= is on the deny list
+regardless of file-op paths.
+
+*** Scenario 8: Directory Read (=ls /workspace=)
+
+=ls= produces =:read-directory= — a distinct operation type from =:read=. Validates
+that the scope validator handles all operation types in the valid set.
+
+** The List-of-Plists Bug (Scenario 4)
+
+The producer (bash-parser) stores domain values as a list of operation plists:
+
+#+begin_example elisp
+(alist-get :authentication domains)
+;; => ((:provider :aws :command "aws") (:provider :aws :command "aws"))
+;;     ^--- list of plists
+#+end_example
+
+But scope's =validate-cloud-auth= does:
+
+#+begin_example elisp
+(plist-get cloud-auth-ops :provider)
+;;          ^--- treats it as a flat plist
+#+end_example
+
+=plist-get= on a list-of-plists returns nil, so cloud auth validation is
+*silently bypassed*. The integration test documents this as the actual (broken)
+behavior — the test asserts the /buggy/ result (nil/allowed) with a comment
+explaining what the correct result should be.
+
+This pattern — documenting known bugs as passing tests with explanatory comments —
+prevents the test suite from permanently failing while keeping the bug visible.
+
+* Provide
+
+#+begin_src emacs-lisp
 (provide 'bash-parser-integration-spec)
 
 ;;; bash-parser-integration-spec.el ends here
+#+end_src

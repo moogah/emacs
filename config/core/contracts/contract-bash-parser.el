@@ -40,7 +40,7 @@
   "Valid confidence levels from bash-parser.")
 
 (defconst contract/bash--valid-sources
-  '(:redirection :positional-arg :exec-block :test-expression
+  '(:redirection :positional-arg :flag-arg :exec-block :test-expression
     :loop-glob :command-name)
   "Valid file-op source indicators from bash-parser.")
 

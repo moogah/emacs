@@ -66,6 +66,7 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
       ;; Archive file operation
       (push (list :file archive-file
                   :operation (if (eq mode :create) :write :read)
+                  :confidence :high
                   :command command)
             operations)
       ;; Positional args (source/extracted files)
@@ -74,6 +75,7 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
           (unless (equal file archive-file)
             (push (list :file file
                         :operation (if (eq mode :create) :read :write)
+                        :confidence :high
                         :command command)
                   operations))))
       (when operations

@@ -8,6 +8,17 @@
 (require 'bash-parser-plugins)
 (require 'bash-parser-semantics)
 
+;; Load contract validation helpers
+(let* ((contracts-dir (expand-file-name "config/core/contracts/" jf/emacs-dir)))
+  (add-to-list 'load-path contracts-dir))
+(require 'contract-core)
+(require 'contract-bash-parser)
+
+;; Load the shared contract-test-helpers from commands/test/
+(require 'contract-test-helpers
+         (expand-file-name "config/bash-parser/commands/test/contract-test-helpers.el"
+                           jf/emacs-dir))
+
 ;;; Helpers
 
 (defvar handler-merge-test--saved-plugins nil
@@ -56,7 +67,7 @@ PREDICATES defaults to empty (always runs)."
     (it "includes handler :domains in orchestrator result"
       (let ((handler (handler-merge-test--make-handler
                       :filesystem
-                      '((:file "test.txt" :operation :read)))))
+                      '((:file "test.txt" :operation :read :confidence :high)))))
         (jf/bash-register-command-handler
          :command "cat" :domain :filesystem :handler handler)
         (let* ((parsed (list :command-name "cat"
@@ -66,6 +77,7 @@ PREDICATES defaults to empty (always runs)."
                (result (jf/bash-extract-semantics parsed))
                (domains (plist-get result :domains))
                (fs-ops (cdr (assq :filesystem domains))))
+          (contract-test--validate-domains domains "handler-merge single handler")
           (expect fs-ops :not :to-be nil)
           (expect (length fs-ops) :to-equal 1)
           (expect (plist-get (car fs-ops) :file) :to-equal "test.txt")
@@ -74,7 +86,7 @@ PREDICATES defaults to empty (always runs)."
     (it "includes handler claimed-token-ids in orchestrator coverage"
       (let ((handler (handler-merge-test--make-handler
                       :filesystem
-                      '((:file "a.txt" :operation :read))
+                      '((:file "a.txt" :operation :read :confidence :high))
                       '(1 2))))
         (jf/bash-register-command-handler
          :command "cat" :domain :filesystem :handler handler)
@@ -84,19 +96,21 @@ PREDICATES defaults to empty (always runs)."
                                        (:id 3 :text "extra"))
                              :parse-complete t))
                (result (jf/bash-extract-semantics parsed))
-               (coverage (plist-get result :coverage))
-               (claimed (plist-get coverage :claimed-tokens))
-               (unclaimed (plist-get coverage :unclaimed-tokens)))
-          ;; Handler claimed 2 of 3 tokens
-          (expect claimed :to-equal 2)
-          ;; Only token 3 should be unclaimed
-          (expect (length unclaimed) :to-equal 1)
-          (expect (plist-get (car unclaimed) :id) :to-equal 3))))
+               (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "handler-merge token coverage")
+          (let* ((coverage (plist-get result :coverage))
+                 (claimed (plist-get coverage :claimed-tokens))
+                 (unclaimed (plist-get coverage :unclaimed-tokens)))
+            ;; Handler claimed 2 of 3 tokens
+            (expect claimed :to-equal 2)
+            ;; Only token 3 should be unclaimed
+            (expect (length unclaimed) :to-equal 1)
+            (expect (plist-get (car unclaimed) :id) :to-equal 3)))))
 
     (it "includes multi-domain handler results in orchestrator output"
       (let ((fs-handler (handler-merge-test--make-handler
                          :filesystem
-                         '((:file "data.csv" :operation :read))))
+                         '((:file "data.csv" :operation :read :confidence :high))))
             (auth-handler (handler-merge-test--make-handler
                            :authentication
                            '((:provider :aws :context nil)))))
@@ -110,6 +124,7 @@ PREDICATES defaults to empty (always runs)."
                              :parse-complete t))
                (result (jf/bash-extract-semantics parsed))
                (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "handler-merge multi-domain")
           (expect (assq :filesystem domains) :not :to-be nil)
           (expect (assq :authentication domains) :not :to-be nil)))))
 
@@ -119,11 +134,11 @@ PREDICATES defaults to empty (always runs)."
       ;; Register a plugin that claims :filesystem
       (handler-merge-test--make-plugin
        'test-fs-plugin :filesystem
-       '((:file "plugin-file.txt" :operation :read)))
+       '((:file "plugin-file.txt" :operation :read :confidence :high)))
       ;; Register a handler that also claims :filesystem
       (let ((handler (handler-merge-test--make-handler
                       :filesystem
-                      '((:file "handler-file.txt" :operation :write)))))
+                      '((:file "handler-file.txt" :operation :write :confidence :high)))))
         (jf/bash-register-command-handler
          :command "testcmd" :domain :filesystem :handler handler)
         (let* ((parsed (list :command-name "testcmd"
@@ -132,6 +147,7 @@ PREDICATES defaults to empty (always runs)."
                (result (jf/bash-extract-semantics parsed))
                (domains (plist-get result :domains))
                (fs-ops (cdr (assq :filesystem domains))))
+          (contract-test--validate-domains domains "handler-merge plugin-over-handler")
           ;; Should have plugin's file, not handler's
           (expect (length fs-ops) :to-equal 1)
           (expect (plist-get (car fs-ops) :file) :to-equal "plugin-file.txt")
@@ -141,11 +157,11 @@ PREDICATES defaults to empty (always runs)."
       ;; Plugin claims :authentication
       (handler-merge-test--make-plugin
        'test-auth-plugin :authentication
-       '((:provider :gcp :context nil)))
+       '((:provider :gcloud :context nil)))
       ;; Handler claims :filesystem (no plugin conflict)
       (let ((handler (handler-merge-test--make-handler
                       :filesystem
-                      '((:file "data.txt" :operation :read)))))
+                      '((:file "data.txt" :operation :read :confidence :high)))))
         (jf/bash-register-command-handler
          :command "gcloud" :domain :filesystem :handler handler)
         (let* ((parsed (list :command-name "gcloud"
@@ -153,6 +169,7 @@ PREDICATES defaults to empty (always runs)."
                              :parse-complete t))
                (result (jf/bash-extract-semantics parsed))
                (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "handler-merge different-domains")
           ;; Both domains should be present
           (expect (assq :authentication domains) :not :to-be nil)
           (expect (assq :filesystem domains) :not :to-be nil)
@@ -164,11 +181,11 @@ PREDICATES defaults to empty (always runs)."
       ;; Plugin claims :filesystem
       (handler-merge-test--make-plugin
        'test-fs-plugin :filesystem
-       '((:file "plugin-file.txt" :operation :read)))
+       '((:file "plugin-file.txt" :operation :read :confidence :high)))
       ;; Handler claims :filesystem (conflict) AND :authentication (no conflict)
       (let ((fs-handler (handler-merge-test--make-handler
                          :filesystem
-                         '((:file "handler-file.txt" :operation :write))))
+                         '((:file "handler-file.txt" :operation :write :confidence :high))))
             (auth-handler (handler-merge-test--make-handler
                            :authentication
                            '((:provider :aws :context nil)))))
@@ -181,6 +198,7 @@ PREDICATES defaults to empty (always runs)."
                              :parse-complete t))
                (result (jf/bash-extract-semantics parsed))
                (domains (plist-get result :domains)))
+          (contract-test--validate-domains domains "handler-merge partial-conflict")
           ;; :filesystem should have plugin's result (plugin wins)
           (let ((fs-ops (cdr (assq :filesystem domains))))
             (expect (plist-get (car fs-ops) :file) :to-equal "plugin-file.txt"))

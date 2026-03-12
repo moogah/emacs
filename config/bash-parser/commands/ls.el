@@ -30,12 +30,14 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
          ((jf/bash-command-ls--has-glob-p arg)
           (push (list :file arg
                       :operation :match-pattern
+                      :confidence :high
                       :command command)
                 operations))
          ;; Literal "."
          ((equal arg ".")
           (push (list :file arg
                       :operation :read-directory
+                      :confidence :high
                       :command command)
                 operations)))))
     (when operations

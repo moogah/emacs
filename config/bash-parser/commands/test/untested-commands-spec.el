@@ -2,6 +2,11 @@
 
 (require 'bash-parser-semantics)
 
+;; Load contract validation helpers
+(require 'contract-test-helpers
+         (expand-file-name "contract-test-helpers.el"
+                           (file-name-directory (or load-file-name buffer-file-name))))
+
 ;; Load all command handlers under test
 (let ((commands-dir (expand-file-name ".." (file-name-directory (or load-file-name buffer-file-name)))))
   (dolist (cmd '("less" "wc" "chown" "chgrp" "mkdir" "rmdir" "touch" "exec" "ln" "bzip2" "bunzip2" "unzip"))
@@ -15,13 +20,16 @@
 
 (defun untested-cmd-test--extract-ops (command-name &rest plist-args)
   "Call the handler for COMMAND-NAME with PLIST-ARGS merged into parsed-command.
-Returns the :operations list from the filesystem domain."
+Returns the :operations list from the filesystem domain.
+Validates each operation against the file-op contract."
   (let* ((parsed (append (list :command-name command-name) plist-args))
          ;; Temporarily ensure our saved handlers are active
          (jf/bash-command-handlers untested-cmd-test--saved-handlers)
          (result (jf/bash-extract-command-semantics parsed))
-         (domains (plist-get result :domains)))
-    (alist-get :filesystem domains)))
+         (domains (plist-get result :domains))
+         (ops (alist-get :filesystem domains)))
+    (contract-test--validate-file-ops ops (format "%s handler" command-name))
+    ops))
 
 ;;; Tests
 

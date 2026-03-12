@@ -24,9 +24,9 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
       (let ((target (car sub-args)))
         (setq ops
               (pcase subcommand
-                ("run" (list (list :file target :operation :execute :command command)))
-                ("test" (list (list :file target :operation :execute :command command)))
-                ("build" (list (list :file target :operation :read :command command)))))))
+                ("run" (list (list :file target :operation :execute :confidence :high :command command)))
+                ("test" (list (list :file target :operation :execute :confidence :high :command command)))
+                ("build" (list (list :file target :operation :read :confidence :high :command command)))))))
     (when ops
       (list :domain :filesystem
             :operations ops

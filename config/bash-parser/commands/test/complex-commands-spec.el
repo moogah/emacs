@@ -2,6 +2,11 @@
 
 (require 'bash-parser-semantics)
 
+;; Load contract validation helpers
+(require 'contract-test-helpers
+         (expand-file-name "contract-test-helpers.el"
+                           (file-name-directory (or load-file-name buffer-file-name))))
+
 ;; Load command handler files via load-file (filenames don't match feature names)
 (let ((commands-dir (expand-file-name "config/bash-parser/commands/" jf/emacs-dir)))
   (dolist (file '("git.el" "tar.el" "find.el" "ls.el" "docker.el" "go.el"))
@@ -10,8 +15,11 @@
 ;;; Helper functions
 
 (defun complex-test--get-ops (result)
-  "Extract operations list from handler RESULT."
-  (plist-get result :operations))
+  "Extract operations list from handler RESULT.
+Validates each operation against the file-op contract."
+  (let ((ops (plist-get result :operations)))
+    (contract-test--validate-handler-result result "complex command handler")
+    ops))
 
 (defun complex-test--get-op (result index)
   "Get operation at INDEX from handler RESULT."

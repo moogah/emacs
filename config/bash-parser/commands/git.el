@@ -12,7 +12,7 @@
 COMMAND is used for metadata."
   (when args
     (mapcar (lambda (arg)
-              (list :file arg :operation operation :command command))
+              (list :file arg :operation operation :confidence :high :command command))
             args)))
 
 (defun jf/bash-command-git--handle-indexed (args index operation command)
@@ -23,7 +23,7 @@ INDEX supports -1 for last element.  COMMAND is used for metadata."
                    (nth (+ (length args) index) args)
                  (nth index args))))
       (when arg
-        (list (list :file arg :operation operation :command command))))))
+        (list (list :file arg :operation operation :confidence :high :command command))))))
 
 (defun jf/bash-command-git--handle-mv (args command)
   "Create operations for git mv ARGS: sources :delete, dest :write.
@@ -33,9 +33,9 @@ COMMAND is used for metadata."
           (dest (car (last args))))
       (append
        (mapcar (lambda (arg)
-                 (list :file arg :operation :delete :command command))
+                 (list :file arg :operation :delete :confidence :high :command command))
                sources)
-       (list (list :file dest :operation :write :command command))))))
+       (list (list :file dest :operation :write :confidence :high :command command))))))
 
 (defun jf/bash-command-git--handle-worktree (args command)
   "Create operations for git worktree subcommands.
@@ -44,7 +44,7 @@ Only handles 'add' subcommand from ARGS.  COMMAND is used for metadata."
     (let ((worktree-sub (car args))
           (worktree-args (cdr args)))
       (when (and (equal worktree-sub "add") worktree-args)
-        (list (list :file (car worktree-args) :operation :create :command command))))))
+        (list (list :file (car worktree-args) :operation :create :confidence :high :command command))))))
 
 (defun jf/bash-command-git--filesystem-handler (parsed-command)
   "Extract filesystem operations from git PARSED-COMMAND.

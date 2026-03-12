@@ -1,3 +1,74 @@
+#+title: Contract Core — Cross-Boundary Validation Primitives
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle contract-core.el
+#+auto_tangle: y
+
+* Why Contracts Exist
+
+When two modules communicate through data structures, each side builds assumptions
+about the shape of that data. Unit tests for each module typically mock the other
+side — and those mocks encode assumptions that may not match reality.
+
+We discovered this the hard way: *800+ passing unit tests* coexisted with *5 real
+data mismatches* at the bash-parser → scope boundary. The mocks were wrong, and
+every test that used them was testing against a fiction.
+
+Contracts solve this by establishing a *single source of truth* for the data shape
+at module boundaries. They're executable specifications that answer two questions:
+- What must a *producer* output?
+- What can a *consumer* assume?
+
+** Design Principles
+
+- *Validators return nil on success, a descriptive error string on failure.* This means
+  test failures explain /what/ is wrong, not just that something failed.
+- *Contracts live at the boundary, not in either module.* They're in =config/core/contracts/=,
+  neutral territory that neither bash-parser nor scope owns.
+- *Self-validating mocks.* Mock builders call contract validators on construction.
+  A mock with the wrong shape errors immediately — at test authoring time, not in
+  production.
+
+** The Three-Layer Testing Model
+
+Contracts enable a three-layer testing approach:
+
+1. *Contract unit tests* (=config/core/contracts/test/=) — validate that contract
+   validators themselves correctly accept and reject data shapes.
+
+2. *Self-validating mocks* (=helpers-spec.el=) — mock builders call contracts on
+   construction. If you build a mock with =:path= instead of =:file=, it fails
+   immediately rather than silently passing 400 downstream tests.
+
+3. *Integration tests* (=config/gptel/scope/test/integration/=) — no mocks at all.
+   Real bash-parser → real contract check → real scope validation. These catch
+   mismatches that even self-validating mocks can't detect (e.g., when the
+   producer adds a new enum value that no mock uses yet).
+
+** What Contracts Catch
+
+| Bug class                                 | Unit tests alone | With contracts      |
+|-------------------------------------------+------------------+---------------------|
+| Wrong field name (=:path= vs =:file=)    | Passes (mock matches) | Fails at mock build |
+| Missing field (=:source= omitted)        | Passes (mock never had it) | Fails at mock build |
+| Wrong structure (plist vs alist)          | Passes (mock matches consumer) | Fails at validation |
+| Wrong enum (=:cloud-auth= vs =:authentication=) | Passes (mock uses same wrong key) | Fails at integration |
+| Silent nil from =plist-get= on alist     | Passes (appears to work) | Documented as known bug |
+
+* Validation Primitives
+
+Two generic validators that all contracts are built on, plus a list-of-items
+validator for collections.
+
+** Plist Validator
+:PROPERTIES:
+:ID: contract-validate-plist
+:END:
+
+Validates a plist against required and optional key specifications. Each spec is
+a =(KEY PREDICATE)= pair. Required keys must be present and satisfy their
+predicate. Optional keys are only checked when present.
+
+#+begin_src emacs-lisp
 ;;; contract-core.el --- Cross-boundary contract validation primitives -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
@@ -67,7 +138,23 @@ Example:
 
       (when errors
         (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
 
+** Alist Validator
+:PROPERTIES:
+:ID: contract-validate-alist
+:END:
+
+Validates an alist (list of cons cells). This validator specifically exists to
+catch the *plist-get-on-alist* class of bug: if data is structured as an alist
+=((:key . value) ...)= but accessed with =plist-get= (which expects =(:key value
+...)=), the access silently returns nil.
+
+This was the root cause of the domains mismatch — bash-parser outputs domains as
+an alist, but scope was reading them with =plist-get=, getting nil for every
+domain lookup.
+
+#+begin_src emacs-lisp
 (defun contract--validate-alist (data allowed-keys &optional value-predicate)
   "Validate DATA as an alist.
 ALLOWED-KEYS is a list of allowed car values (keywords or symbols).
@@ -119,7 +206,14 @@ Example:
 
       (when errors
         (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
 
+** List-of-Items Validator
+
+Validates that every element in a list satisfies a given item validator. Used for
+collections like "list of file-ops" or "list of cloud-auth-ops" within a domain.
+
+#+begin_src emacs-lisp
 (defun contract--validate-plist-in-list (data-list item-validator)
   "Validate that DATA-LIST is a list where each element satisfies ITEM-VALIDATOR.
 ITEM-VALIDATOR is a function that returns nil if valid, error string if invalid.
@@ -136,7 +230,15 @@ Returns nil if valid, descriptive error string if invalid."
         (cl-incf idx))
       (when errors
         (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
 
+* Buttercup Integration
+
+The =:to-satisfy-contract= matcher integrates contracts into Buttercup's
+assertion syntax, so test failures produce clear contract violation messages
+rather than generic "expected nil" output.
+
+#+begin_src emacs-lisp
 ;; Buttercup matcher - register when buttercup is available
 (defun contract--register-buttercup-matcher ()
   "Register :to-satisfy-contract Buttercup matcher."
@@ -152,7 +254,37 @@ VALIDATOR is a function that returns nil if valid, error string if invalid."
 
 (when (featurep 'buttercup)
   (contract--register-buttercup-matcher))
+#+end_src
 
+Usage in tests:
+
+#+begin_example elisp
+(expect my-data :to-satisfy-contract #'contract/bash-file-op--validate)
+#+end_example
+
+On failure, the output includes both the violation description and the actual data:
+
+#+begin_example
+Contract violation: Missing required key :file
+Data: (:path "/tmp/test.txt" :operation :read :confidence :high)
+#+end_example
+
+* Provide
+
+#+begin_src emacs-lisp
 (provide 'contract-core)
 
 ;;; contract-core.el ends here
+#+end_src
+
+* Running Tests
+
+Contract core tests live in =test/contract-core-spec.el= (Buttercup):
+
+#+begin_example shell
+./bin/run-tests.sh -d config/core/contracts
+#+end_example
+
+Tests cover both accept paths (valid data returns nil) and reject paths (invalid
+data returns descriptive errors). This is important — a contract that accepts
+everything is useless.

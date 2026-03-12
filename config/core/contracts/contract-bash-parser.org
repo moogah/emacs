@@ -1,0 +1,517 @@
+#+title: Bash-Parser Contracts — Data Shape Definitions for the Parser ↔ Scope Boundary
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle contract-bash-parser.el
+#+auto_tangle: y
+
+* Overview
+
+This file defines the contracts for data flowing across the bash-parser → scope
+boundary. These are the *single source of truth* for what bash-parser produces
+and what scope validation can assume about the data it receives.
+
+** The Boundary
+
+#+begin_example
+bash-parser (tree-sitter)
+  │
+  ├─ jf/bash-parse ──────────────► parse-result contract
+  │
+  └─ jf/bash-extract-semantics ──► semantics contract
+       │                               │
+       ├─ :domains alist ──────────► domains contract
+       │   ├─ :filesystem ─────────► list of file-op contracts
+       │   ├─ :authentication ─────► list of cloud-auth-op contracts
+       │   └─ :network ───────────► list of network-op plists
+       │
+       └─ :coverage, :parse-complete
+#+end_example
+
+** Source of Truth References
+
+These contracts were derived from actual producer output, not documentation:
+
+- *Parse result:* =config/bash-parser/core/bash-parser-core.el= (=jf/bash-parse=)
+- *Semantics:* =config/bash-parser/analysis/bash-parser-plugins.el= (=jf/bash-extract-semantics=)
+- *File ops:* =config/bash-parser/plugins/bash-parser-file-ops.el=
+- *Cloud auth:* =config/bash-parser/plugins/bash-parser-cloud-auth.el=
+
+** Known Producer Variants
+
+Bash-parser has two kinds of plugins that produce data in slightly different shapes:
+
+- *Universal plugins* (file-ops, cloud-auth) — include all fields: =:source=,
+  =:operation=, =:command=
+- *Command-specific handlers* (aws.el, etc.) — may omit =:source= and =:operation=,
+  may use =:aws= instead of =:aws-cli= as provider
+
+The contracts accommodate both by marking these fields as optional. The Phase 3
+integration tests (=config/gptel/scope/test/integration/=) validate real output
+from both plugin types.
+
+* File Header and Dependencies
+
+#+begin_src emacs-lisp
+;;; contract-bash-parser.el --- Contracts for bash-parser ↔ scope boundary -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: testing, contracts
+
+;;; Commentary:
+
+;; Contract definitions for data flowing across the bash-parser → scope boundary.
+;; These are the single source of truth for what bash-parser produces and what
+;; scope validation can assume.
+;;
+;; Source of truth references:
+;; - Parse result: config/bash-parser/core/bash-parser-core.el (jf/bash-parse)
+;; - Semantics: config/bash-parser/analysis/bash-parser-plugins.el (jf/bash-extract-semantics)
+;; - File ops: config/bash-parser/plugins/bash-parser-file-ops.el
+;; - Cloud auth: config/bash-parser/plugins/bash-parser-cloud-auth.el
+;;
+;; Contracts:
+;; - contract/bash-parse-result--validate  — jf/bash-parse output shape
+;; - contract/bash-semantics--validate     — jf/bash-extract-semantics output shape
+;; - contract/bash-file-op--validate       — individual file operation plist
+;; - contract/bash-cloud-auth-op--validate — individual cloud auth operation plist
+;; - contract/bash-domains--validate       — :domains alist structure
+
+;;; Code:
+
+(require 'contract-core)
+#+end_src
+
+* Valid Value Sets
+
+Centralized enumerations of allowed values. When bash-parser adds a new
+operation, confidence level, source, or provider, it gets added here — and
+any mock using an outdated value will fail contract validation immediately.
+
+These constants are also useful for consumer code that needs to branch on
+operation types or providers.
+
+** File Operations
+
+#+begin_src emacs-lisp
+;;; Valid Value Sets
+
+(defconst contract/bash--valid-operations
+  '(:read :write :delete :modify :create :create-or-modify :append
+    :match-pattern :read-directory :read-metadata :execute)
+  "Valid file operation types from bash-parser.")
+#+end_src
+
+** Confidence Levels
+
+#+begin_src emacs-lisp
+(defconst contract/bash--valid-confidence-levels
+  '(:high :medium :low)
+  "Valid confidence levels from bash-parser.")
+#+end_src
+
+** Source Indicators
+
+Where the file path was extracted from in the AST:
+
+#+begin_src emacs-lisp
+(defconst contract/bash--valid-sources
+  '(:redirection :positional-arg :flag-arg :exec-block :test-expression
+    :loop-glob :command-name)
+  "Valid file-op source indicators from bash-parser.")
+#+end_src
+
+** Cloud Providers
+
+#+begin_src emacs-lisp
+(defconst contract/bash--valid-cloud-providers
+  '(:aws :aws-cli :aws-vault :gcloud :azure)
+  "Valid cloud auth provider keywords from bash-parser.
+:aws is used by command-specific handlers (aws.el), :aws-cli by universal plugin.")
+#+end_src
+
+Note: =:aws= and =:aws-cli= are *both valid* because different plugin types use
+different symbols. The command-specific handler (=aws.el=) emits =:aws=; the
+universal cloud-auth plugin emits =:aws-cli=. Scope validation must handle both.
+
+** Domain Keys
+
+#+begin_src emacs-lisp
+(defconst contract/bash--valid-domain-keys
+  '(:filesystem :authentication :network)
+  "Valid domain keys in the semantics :domains alist.
+:network is produced by command handlers (e.g., aws.el) for implicit network access.")
+#+end_src
+
+* File Operation Contract
+:PROPERTIES:
+:ID: contract-bash-file-op
+:END:
+
+A file operation represents one file access detected by bash-parser. This is the
+most common data shape flowing across the boundary.
+
+** Expected Shape
+
+#+begin_example elisp
+(:file "/path/to/file.txt"      ; STRING  — required
+ :operation :read                ; KEYWORD — required, from valid-operations
+ :confidence :high               ; KEYWORD — required, from valid-confidence-levels
+ :command "cat"                  ; STRING  — optional
+ :source :positional-arg)        ; KEYWORD — optional, from valid-sources
+#+end_example
+
+=:source= is optional because command-specific handlers (aws.el, etc.) may omit
+it — they know where the path came from implicitly. The universal file-ops plugin
+always includes it.
+
+** Validator
+
+#+begin_src emacs-lisp
+;;; File Operation Contract
+
+(defun contract/bash-file-op--validate (file-op)
+  "Validate a single FILE-OP plist from bash-parser.
+Expected shape: (:file STRING :operation KEYWORD :confidence KEYWORD
+                 :command STRING [:source KEYWORD] ...)
+:source is optional — universal plugin includes it, command-specific handlers may not.
+Returns nil if valid, error string if invalid."
+  (cl-block validate
+  (let ((errors nil))
+    ;; Must be a list
+    (unless (listp file-op)
+      (cl-return-from validate
+        (format "Expected plist, got %s" (type-of file-op))))
+
+    ;; Required: :file (string path)
+    (if (not (plist-member file-op :file))
+        (push "Missing required key :file" errors)
+      (unless (stringp (plist-get file-op :file))
+        (push (format ":file must be string, got %S" (plist-get file-op :file)) errors)))
+
+    ;; Required: :operation (valid keyword)
+    (if (not (plist-member file-op :operation))
+        (push "Missing required key :operation" errors)
+      (unless (memq (plist-get file-op :operation) contract/bash--valid-operations)
+        (push (format ":operation %S not in valid set" (plist-get file-op :operation)) errors)))
+
+    ;; Required: :confidence (valid keyword)
+    (if (not (plist-member file-op :confidence))
+        (push "Missing required key :confidence" errors)
+      (unless (memq (plist-get file-op :confidence) contract/bash--valid-confidence-levels)
+        (push (format ":confidence %S not in valid set" (plist-get file-op :confidence)) errors)))
+
+    ;; Optional: :source (valid keyword if present)
+    ;; Universal plugin includes :source, command-specific handlers (aws.el etc.) may omit it
+    (when (plist-member file-op :source)
+      (unless (memq (plist-get file-op :source) contract/bash--valid-sources)
+        (push (format ":source %S not in valid set" (plist-get file-op :source)) errors)))
+
+    ;; Optional: :command (string if present)
+    (when (plist-member file-op :command)
+      (unless (stringp (plist-get file-op :command))
+        (push (format ":command must be string, got %S" (plist-get file-op :command)) errors)))
+
+    (when errors
+      (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+** History: The :path vs :file Mismatch
+
+The original mock helpers used =:path= as the field name for file paths. The
+real bash-parser uses =:file=. This meant every scope test was reading from a
+field that didn't exist in production data — and =plist-get= on a missing key
+returns nil, so the tests passed anyway. The contract caught this immediately:
+
+#+begin_example
+Mock file-op violates contract: Missing required key :file
+#+end_example
+
+* Cloud Auth Operation Contract
+:PROPERTIES:
+:ID: contract-bash-cloud-auth-op
+:END:
+
+A cloud auth operation represents detected cloud provider authentication.
+
+** Expected Shape
+
+#+begin_example elisp
+(:provider :aws-cli              ; KEYWORD — required, from valid-cloud-providers
+ :command "aws s3 ls"            ; STRING  — optional
+ :operation :authenticate        ; KEYWORD — optional, must be :authenticate if present
+ :context (:profile "default"))  ; PLIST   — optional
+#+end_example
+
+** Validator
+
+#+begin_src emacs-lisp
+;;; Cloud Auth Operation Contract
+
+(defun contract/bash-cloud-auth-op--validate (cloud-auth-op)
+  "Validate a single CLOUD-AUTH-OP plist from bash-parser.
+Expected shape: (:provider KEYWORD :command STRING [:operation :authenticate] [:context PLIST])
+:operation is optional — universal plugin includes it, command handlers (aws.el) may omit it.
+Returns nil if valid, error string if invalid."
+  (cl-block validate
+  (let ((errors nil))
+    (unless (listp cloud-auth-op)
+      (cl-return-from validate
+        (format "Expected plist, got %s" (type-of cloud-auth-op))))
+
+    ;; Optional: :operation (must be :authenticate if present)
+    ;; Universal plugin includes :operation :authenticate, command handlers may omit it
+    (when (plist-member cloud-auth-op :operation)
+      (unless (eq (plist-get cloud-auth-op :operation) :authenticate)
+        (push (format ":operation must be :authenticate, got %S"
+                      (plist-get cloud-auth-op :operation))
+              errors)))
+
+    ;; Required: :provider (valid keyword)
+    (if (not (plist-member cloud-auth-op :provider))
+        (push "Missing required key :provider" errors)
+      (unless (memq (plist-get cloud-auth-op :provider) contract/bash--valid-cloud-providers)
+        (push (format ":provider %S not in valid set" (plist-get cloud-auth-op :provider)) errors)))
+
+    ;; Optional: :command (string if present)
+    (when (plist-member cloud-auth-op :command)
+      (unless (stringp (plist-get cloud-auth-op :command))
+        (push (format ":command must be string, got %S" (plist-get cloud-auth-op :command)) errors)))
+
+    ;; Optional: :context (plist if present)
+    (when (plist-member cloud-auth-op :context)
+      (let ((ctx (plist-get cloud-auth-op :context)))
+        (when (and ctx (not (listp ctx)))
+          (push (format ":context must be plist, got %S" ctx) errors))))
+
+    (when errors
+      (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+** Known Bug: List-of-Plists Gap
+
+The bash-parser produces domain values as a *list of plists*:
+
+#+begin_example elisp
+;; What bash-parser produces in :domains:
+((:authentication . ((:provider :aws :command "aws") (:provider :aws :command "aws"))))
+#+end_example
+
+But scope's =validate-cloud-auth= does =(plist-get cloud-auth-ops :provider)= on
+the domain value directly — treating it as a flat plist. Since =plist-get= on a
+list-of-plists returns nil, cloud auth validation is *silently bypassed*.
+
+This is documented in the Phase 3 integration tests as a known bug. The contract
+itself validates individual operations correctly — the gap is in how scope
+unwraps the domain value.
+
+* Domains Alist Contract
+:PROPERTIES:
+:ID: contract-bash-domains
+:END:
+
+The =:domains= field is an *alist* (association list), not a plist. This
+distinction is critical — =plist-get= on an alist silently returns nil, which
+was the root cause of an entire class of bugs.
+
+** Expected Shape
+
+#+begin_example elisp
+;; ALIST — access with (alist-get :filesystem domains), NOT (plist-get domains :filesystem)
+((:filesystem . (file-op-1 file-op-2 ...))
+ (:authentication . (auth-op-1 auth-op-2 ...))
+ (:network . (network-op-1 ...)))
+#+end_example
+
+** Validator
+
+#+begin_src emacs-lisp
+;;; Domains Alist Contract
+
+(defun contract/bash-domains--validate (domains)
+  "Validate DOMAINS alist from bash-parser semantics.
+Expected shape: ((:filesystem . FILE-OPS-LIST) (:authentication . AUTH-OPS-LIST))
+This is an ALIST, not a plist. Using plist-get on it will silently return nil.
+Returns nil if valid, error string if invalid."
+  (contract--validate-alist domains
+    contract/bash--valid-domain-keys
+    #'listp))
+#+end_src
+
+** Why Alist and Not Plist?
+
+The bash-parser's plugin system aggregates results from multiple plugins. Each
+plugin may contribute to the same domain. Alists support duplicate keys and are
+a natural fit for accumulation; plists require manual merge logic.
+
+The contract validator specifically checks for cons cells to catch the case where
+a plist is accidentally passed where an alist is expected.
+
+* Semantics Result Contract
+:PROPERTIES:
+:ID: contract-bash-semantics
+:END:
+
+The top-level output of =jf/bash-extract-semantics=, which runs all semantic
+plugins on a parsed command and aggregates their results.
+
+** Expected Shape
+
+#+begin_example elisp
+(:domains ALIST          ; see domains contract above
+ :coverage PLIST         ; (:total-tokens N :claimed-tokens N :coverage-percent N)
+ :parse-complete BOOL    ; whether the parse covered the full command
+ :plugin-results LIST)   ; optional — raw per-plugin output
+#+end_example
+
+** Validator
+
+This is a *deep validator* — it validates the top-level plist structure, then
+delegates to =contract/bash-domains--validate= for the domains alist, then to
+=contract/bash-file-op--validate= and =contract/bash-cloud-auth-op--validate=
+for each item within domains.
+
+#+begin_src emacs-lisp
+;;; Semantics Result Contract
+
+(defun contract/bash-semantics--validate (semantics)
+  "Validate SEMANTICS plist from jf/bash-extract-semantics.
+Expected shape: (:domains ALIST :coverage PLIST :parse-complete BOOL)
+Returns nil if valid, error string if invalid."
+  (cl-block validate
+    (let ((errors nil))
+      ;; Top-level plist validation
+      (when-let ((plist-error
+                  (contract--validate-plist semantics
+                    '((:domains listp)
+                      (:coverage listp)
+                      (:parse-complete booleanp))
+                    '((:plugin-results listp)))))
+        (cl-return-from validate plist-error))
+
+      ;; Validate :domains is an alist (not a plist)
+      (let ((domains (plist-get semantics :domains)))
+        (when domains
+          (when-let ((domain-error (contract/bash-domains--validate domains)))
+            (push (format ":domains: %s" domain-error) errors))
+
+          ;; Validate file ops within :filesystem domain
+          (when-let ((file-ops (alist-get :filesystem domains)))
+            (let ((idx 0))
+              (dolist (op file-ops)
+                (when-let ((op-error (contract/bash-file-op--validate op)))
+                  (push (format ":domains.:filesystem[%d]: %s" idx op-error) errors))
+                (cl-incf idx))))
+
+          ;; Validate cloud auth ops within :authentication domain
+          (when-let ((auth-ops (alist-get :authentication domains)))
+            (let ((idx 0))
+              (dolist (op auth-ops)
+                (when-let ((op-error (contract/bash-cloud-auth-op--validate op)))
+                  (push (format ":domains.:authentication[%d]: %s" idx op-error) errors))
+                (cl-incf idx))))))
+
+      (when errors
+        (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+* Parse Result Contract
+:PROPERTIES:
+:ID: contract-bash-parse-result
+:END:
+
+The output of =jf/bash-parse=, which runs tree-sitter on a bash command string
+and returns structured data about the command(s) found.
+
+** Expected Shape
+
+#+begin_example elisp
+(:success BOOL            ; required — whether parsing succeeded
+ :all-commands LIST       ; required — list of command plists with :command-name
+ :parse-complete BOOL     ; required — whether all tokens were accounted for
+ :tokens LIST             ; optional — raw token list
+ :command-count INT       ; optional — number of commands found
+ :error STRING            ; optional — error message on failure
+ :parse-errors LIST       ; optional — list of parse errors
+ :type SYMBOL             ; optional — command type
+ :command-name STRING     ; optional — primary command name
+ :subcommand STRING       ; optional — subcommand (e.g., "s3" in "aws s3 ls")
+ :flags LIST              ; optional — extracted flags
+ :positional-args LIST    ; optional — extracted positional arguments
+ :args LIST               ; optional — all arguments
+ :dangerous-p BOOL)       ; optional — whether command is flagged as dangerous
+#+end_example
+
+** Validator
+
+#+begin_src emacs-lisp
+;;; Parse Result Contract
+
+(defun contract/bash-parse-result--validate (parse-result)
+  "Validate PARSE-RESULT plist from jf/bash-parse.
+Expected shape: (:success BOOL :all-commands LIST :parse-complete BOOL
+                 :tokens LIST :command-count INT ...)
+Returns nil if valid, error string if invalid."
+  (contract--validate-plist parse-result
+    '((:success booleanp)
+      (:all-commands listp)
+      (:parse-complete booleanp))
+    '((:tokens listp)
+      (:command-count integerp)
+      (:error stringp)
+      (:parse-errors listp)
+      (:type symbolp)
+      (:command-name stringp)
+      (:subcommand stringp)
+      (:flags listp)
+      (:positional-args listp)
+      (:args listp)
+      (:dangerous-p booleanp))))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'contract-bash-parser)
+
+;;; contract-bash-parser.el ends here
+#+end_src
+
+* Running Tests
+
+** Contract Unit Tests
+
+Test that validators correctly accept valid data and reject invalid data:
+
+#+begin_example shell
+./bin/run-tests.sh -d config/core/contracts    # 55 specs
+#+end_example
+
+** Integration Tests (Phase 3)
+
+Test real bash-parser output through real contracts and real scope validation:
+
+#+begin_example shell
+./bin/run-tests.sh -d config/gptel/scope/test/integration    # 29 specs
+#+end_example
+
+** All Scope Tests (with self-validating mocks)
+
+Every mock builder in =helpers-spec.el= now calls contract validators on
+construction, so all 468+ scope specs implicitly test contract compliance:
+
+#+begin_example shell
+./bin/run-tests.sh -d config/gptel/scope    # 468+ specs
+#+end_example
+
+* How to Add a New Contract
+
+1. Define valid value sets as =defconst= in this file
+2. Write a validator function that returns nil or an error string
+3. Add tests in =test/contract-bash-parser-spec.el= covering both accept and reject cases
+4. Wire the validator into mock builders in =config/gptel/scope/test/helpers-spec.el=
+5. Optionally add an integration test in =config/gptel/scope/test/integration/=
+
+When the bash-parser adds a new enum value (operation, source, provider, etc.),
+add it to the corresponding =defconst= — all mocks and integration tests will
+automatically validate against the updated set.
