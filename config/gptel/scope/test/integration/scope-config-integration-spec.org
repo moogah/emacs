@@ -1,0 +1,261 @@
+#+title: Scope Config Integration Tests — Internal Consumer Compatibility
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle scope-config-integration-spec.el
+#+auto_tangle: y
+
+* Purpose
+
+These integration tests validate that internal scope consumers work correctly
+with the canonical scope-config data structure. Unlike the bash-parser
+integration tests which exercise the full command pipeline, these tests focus
+on the *data format boundary* between YAML parsing and scope consumer functions.
+
+** Why These Tests Matter
+
+The scope configuration flows through several transformation stages:
+
+#+begin_example
+1. YAML string/file
+       │
+       ▼
+2. jf/gptel-scope-yaml--parse-string   ← normalize keys, convert vectors, booleans
+       │
+       ▼
+3. jf/gptel-scope--load-schema         ← merge with defaults
+       │
+       ▼
+4. Consumer functions                   ← validate-operation, validate-cloud-auth
+#+end_example
+
+Each stage can introduce format mismatches:
+- YAML booleans (:true/:false) vs elisp booleans (t/nil)
+- Missing sections not filled by defaults
+- Snake_case keys not normalized to kebab-case
+- Vectors not converted to lists
+
+These tests use REAL YAML strings parsed through the REAL pipeline — no mocks.
+
+** Relationship to Other Test Layers
+
+#+begin_example
+Contract validators (config/test/contracts/)
+    "Is this plist a valid scope config?"
+
+Scope config integration tests (THIS FILE)
+    "Do real parsed configs satisfy contracts and work with consumers?"
+
+Bash-parser integration tests (bash-parser-integration-spec.el)
+    "Does bash-parser output flow through scope validation end-to-end?"
+#+end_example
+
+* Setup and Dependencies
+
+The dependency loading walks up the directory tree to find each component,
+following the same pattern as =bash-parser-integration-spec.el=.
+
+#+begin_src emacs-lisp
+;;; scope-config-integration-spec.el --- Integration tests for scope config consumers -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: tests
+
+;;; Commentary:
+
+;; Integration tests validating that internal scope consumers
+;; (validate-operation, validate-cloud-auth, load-schema) work correctly
+;; with scope configs parsed from real YAML through the real pipeline.
+;;
+;; No mocks — every test uses jf/gptel-scope-yaml--parse-string and
+;; jf/gptel-scope--load-schema with real YAML input.
+
+;;; Code:
+
+(require 'buttercup)
+(require 'cl-lib)
+
+;; Load dependencies via path resolution
+(let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
+       ;; test/integration/ -> test/ -> scope/ -> gptel/ -> config/
+       (scope-test-dir (expand-file-name ".." test-dir))
+       (scope-dir (expand-file-name ".." scope-test-dir))
+       (gptel-dir (expand-file-name ".." scope-dir))
+       (config-dir (expand-file-name ".." gptel-dir))
+       (contracts-dir (expand-file-name "test/contracts/" config-dir)))
+  ;; Contract infrastructure
+  (add-to-list 'load-path contracts-dir)
+  (require 'contract-core)
+  (require 'contract-bash-parser)
+  (require 'contract-scope-config)
+  (contract--register-buttercup-matcher)
+  ;; Scope validation (pulls in scope-yaml, scope-shell-tools)
+  (require 'jf-gptel-scope-shell-tools
+           (expand-file-name "scope/scope-shell-tools.el" gptel-dir))
+  ;; Scope expansion (provides write-yaml-plist for round-trip test)
+  (require 'jf-gptel-scope-expansion
+           (expand-file-name "scope/scope-expansion.el" gptel-dir))
+  ;; Helpers for scope config builders
+  (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir)))
+#+end_src
+
+* Test Scenarios
+
+All scenarios share a single =describe= block. Each scenario exercises a
+different aspect of the parsed-config-to-consumer boundary.
+
+** Scenario 1: Parse Round-Trip
+
+Verifies that data survives a parse-serialize-parse cycle. This catches
+serialization bugs that silently corrupt config on save.
+
+** Scenario 2: Schema Merge with Defaults
+
+Verifies that minimal YAML (just =paths.read=) produces a complete config
+with all default sections filled in and passing contract validation.
+
+** Scenario 3: Path Validator Compatibility (Permissive)
+
+All 11 contract-defined operations should be allowed when every path
+category is set to =/**=.
+
+** Scenario 4: Path Validator Compatibility (Restrictive)
+
+All 11 operations should be denied when all path categories are empty.
+
+** Scenario 5: Cloud Validator Compatibility
+
+Tests both "deny" and "allow" modes with a cloud auth operation plist.
+
+** Scenario 6: Contract Satisfaction
+
+Multiple config variants (minimal, full) should all satisfy the
+=scope-config= contract after parsing and schema loading.
+
+** Scenario 7: YAML Boolean Normalization
+
+Verifies that YAML =true= becomes elisp =t= (not =:true=) through the
+full pipeline.
+
+#+begin_src emacs-lisp
+;;; Test suites
+
+(describe "Scope config integration"
+
+  ;; -- Scenario 1: Parse round-trip --
+  (describe "parse round-trip"
+    (it "preserves paths data through parse -> serialize -> parse cycle"
+      (let* ((yaml-str "paths:\n  read:\n    - \"/tmp/**\"\n    - \"/home/**\"\n  write:\n    - \"/tmp/**\"\n  execute:\n    []\n  modify:\n    []\n  deny:\n    - \"/etc/**\"\ncloud:\n  auth_detection: \"warn\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
+             (first-parse (jf/gptel-scope--load-schema
+                           (jf/gptel-scope-yaml--parse-string yaml-str)))
+             ;; Serialize back to YAML
+             (serialized (with-temp-buffer
+                           (jf/gptel-scope--write-yaml-plist first-parse)
+                           (buffer-string)))
+             ;; Parse again
+             (second-parse (jf/gptel-scope--load-schema
+                            (jf/gptel-scope-yaml--parse-string serialized)))
+             (first-paths (plist-get first-parse :paths))
+             (second-paths (plist-get second-parse :paths)))
+        (expect (plist-get first-paths :read) :to-equal (plist-get second-paths :read))
+        (expect (plist-get first-paths :write) :to-equal (plist-get second-paths :write))
+        (expect (plist-get first-paths :deny) :to-equal (plist-get second-paths :deny)))))
+
+  ;; -- Scenario 2: Schema merge with defaults --
+  (describe "schema merge with defaults"
+    (it "fills in all defaults for minimal YAML"
+      (let* ((yaml-str "paths:\n  read:\n    - \"/tmp/**\"\n")
+             (config (jf/gptel-scope--load-schema
+                      (jf/gptel-scope-yaml--parse-string yaml-str))))
+        ;; Contract validation passes
+        (expect config :to-satisfy-contract #'contract/scope-config--validate)
+        ;; Defaults filled in
+        (expect (plist-get (plist-get config :paths) :write) :to-equal '())
+        (expect (plist-get (plist-get config :paths) :execute) :to-equal '())
+        (expect (plist-get (plist-get config :paths) :modify) :to-equal '())
+        (expect (plist-get (plist-get config :paths) :deny) :to-equal '())
+        (expect (plist-get (plist-get config :cloud) :auth-detection) :to-equal "warn")
+        (expect (plist-get (plist-get config :security) :enforce-parse-complete) :to-be t)
+        (expect (plist-get (plist-get config :security) :max-coverage-threshold) :to-equal 0.8))))
+
+  ;; -- Scenario 3: Path validator compatibility (permissive) --
+  (describe "path validator with permissive config"
+    (it "allows all 11 operations with permissive paths"
+      (let* ((yml-file (helpers-spec-make-scope-yml
+                        (helpers-spec--scope-with-paths
+                         '("/**") '("/**") '("/**") '("/**") nil)))
+             (config (unwind-protect
+                         (helpers-spec-load-scope-config yml-file)
+                       (delete-file yml-file)))
+             (paths-config (plist-get config :paths)))
+        (dolist (op contract/bash--valid-operations)
+          (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
+                  :to-be nil)))))
+
+  ;; -- Scenario 4: Path validator compatibility (restrictive) --
+  (describe "path validator with restrictive config"
+    (it "denies all 11 operations with empty paths"
+      (let* ((yml-file (helpers-spec-make-scope-yml
+                        (helpers-spec--scope-with-paths
+                         nil nil nil nil nil)))
+             (config (unwind-protect
+                         (helpers-spec-load-scope-config yml-file)
+                       (delete-file yml-file)))
+             (paths-config (plist-get config :paths)))
+        (dolist (op contract/bash--valid-operations)
+          (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
+                  :not :to-be nil)))))
+
+  ;; -- Scenario 5: Cloud validator compatibility --
+  (describe "cloud validator compatibility"
+    (it "cloud auth deny mode blocks auth operations"
+      (let* ((yaml-str "paths:\n  read:\n    - \"/**\"\n  write: []\n  execute: []\n  modify: []\n  deny: []\ncloud:\n  auth_detection: \"deny\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
+             (config (jf/gptel-scope--load-schema
+                      (jf/gptel-scope-yaml--parse-string yaml-str)))
+             (cloud-config (plist-get config :cloud))
+             (cloud-auth-op '(:provider :aws-cli :command "aws s3 ls")))
+        (expect (jf/gptel-scope--validate-cloud-auth cloud-auth-op cloud-config)
+                :not :to-be nil)))
+
+    (it "cloud auth allow mode permits auth operations"
+      (let* ((yaml-str "paths:\n  read: []\n  write: []\n  execute: []\n  modify: []\n  deny: []\ncloud:\n  auth_detection: \"allow\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
+             (config (jf/gptel-scope--load-schema
+                      (jf/gptel-scope-yaml--parse-string yaml-str)))
+             (cloud-config (plist-get config :cloud))
+             (cloud-auth-op '(:provider :aws-cli :command "aws s3 ls")))
+        (expect (jf/gptel-scope--validate-cloud-auth cloud-auth-op cloud-config)
+                :to-be nil))))
+
+  ;; -- Scenario 6: Parsed config satisfies contract --
+  (describe "parsed configs satisfy scope-config contract"
+    (it "parsed config always satisfies scope-config contract"
+      (dolist (yaml-str (list
+                         ;; Minimal
+                         "paths:\n  read:\n    - \"/tmp/**\"\n"
+                         ;; Full
+                         "paths:\n  read:\n    - \"/**\"\n  write:\n    - \"/**\"\n  execute:\n    - \"/usr/bin/**\"\n  modify:\n    - \"/tmp/**\"\n  deny:\n    - \"/etc/**\"\ncloud:\n  auth_detection: \"allow\"\nsecurity:\n  enforce_parse_complete: false\n  max_coverage_threshold: 0.5\n"))
+        (let ((config (jf/gptel-scope--load-schema
+                       (jf/gptel-scope-yaml--parse-string yaml-str))))
+          (expect config :to-satisfy-contract #'contract/scope-config--validate)))))
+
+  ;; -- Scenario 7: YAML boolean normalization --
+  (describe "YAML boolean normalization"
+    (it "normalizes YAML boolean keywords to elisp booleans"
+      (let* ((yaml-str "paths:\n  read: []\n  write: []\n  execute: []\n  modify: []\n  deny: []\ncloud:\n  auth_detection: \"warn\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
+             (config (jf/gptel-scope--load-schema
+                      (jf/gptel-scope-yaml--parse-string yaml-str))))
+        ;; enforce_parse_complete should be t, not :true
+        (expect (plist-get (plist-get config :security) :enforce-parse-complete)
+                :to-be t)
+        ;; Verify it's not :true (YAML keyword)
+        (expect (plist-get (plist-get config :security) :enforce-parse-complete)
+                :not :to-equal :true)))))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'scope-config-integration-spec)
+
+;;; scope-config-integration-spec.el ends here
+#+end_src
