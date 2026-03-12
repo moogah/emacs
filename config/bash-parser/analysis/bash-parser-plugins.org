@@ -4,7 +4,12 @@
 
 * Overview
 
-This module provides the plugin infrastructure for the bash parser semantic extraction system.
+This module provides the plugin infrastructure and semantic extraction orchestrator
+for the bash parser. The orchestrator implements a three-layer architecture:
+
+- Layer 0: Grammar-level extraction (unconditional) — redirections and compound decomposition
+- Layer 1: Domain plugins (predicate-gated) — cloud-auth and other domain-specific extractors
+- Layer 2: Command handlers — per-command semantic dispatch
 
 * Plugin Result Structure
 
@@ -106,38 +111,153 @@ as a stable fallback for equal priorities."
 
 ** Overview
 
-The orchestrator coordinates plugin execution to extract semantic meaning from parsed commands.
+The orchestrator coordinates three extraction layers to extract semantic meaning
+from parsed commands:
+
+1. Grammar-level extraction (unconditional) — calls the recursive engine to extract
+   file operations from redirections and compound structures
+2. Domain plugins (predicate-gated) — cloud-auth and other domain-specific extractors
+3. Command handlers — per-command semantic dispatch for non-filesystem domains
+
+** Token Claiming from Operations
+
+After the recursive engine returns operations, we build claimed-token-ids by matching
+operation file paths against the token inventory. This replaces the old filesystem
+plugin's token-claiming helpers.
+
+#+begin_src emacs-lisp
+(defun jf/bash--claim-tokens-for-operations (operations parsed-command)
+  "Claim tokens for file OPERATIONS in PARSED-COMMAND.
+
+OPERATIONS is a list of operation plists from the recursive engine.
+PARSED-COMMAND is the parse result plist.
+
+Returns list of claimed token IDs.
+
+Token claiming strategy:
+  - For redirection operations: claim redirection tokens
+  - For positional-arg operations: claim command-name and matching positional tokens
+  - For exec-block operations: claim command-name and file path tokens
+  - For other sources: claim based on file path only"
+  (let ((tokens (plist-get parsed-command :tokens))
+        (claimed-ids '())
+        (command-name (plist-get parsed-command :command-name)))
+
+    ;; Claim all redirection tokens
+    (when tokens
+      (dolist (token tokens)
+        (when (eq (plist-get token :type) :redirection)
+          (push (plist-get token :id) claimed-ids))))
+
+    ;; Claim tokens for each operation
+    (dolist (op operations)
+      (let* ((source (plist-get op :source))
+             (file (plist-get op :file))
+             (op-command (plist-get op :command)))
+
+        (pcase source
+          ;; Redirection operations already claimed above
+          (:redirection nil)
+
+          ;; Positional arg operations: claim command-name and file path tokens
+          (:positional-arg
+           ;; Claim command-name token if it matches operation command
+           (when (and command-name op-command (string= command-name op-command))
+             (dolist (token tokens)
+               (when (and (eq (plist-get token :type) :command-name)
+                          (string= (plist-get token :value) command-name))
+                 (push (plist-get token :id) claimed-ids))))
+
+           ;; Claim token for file path
+           (when file
+             (dolist (token tokens)
+               (when (and (null (cl-find (plist-get token :id) claimed-ids))
+                          (plist-get token :value)
+                          (string= file (plist-get token :value)))
+                 (push (plist-get token :id) claimed-ids)
+                 (cl-return)))))
+
+          ;; Exec block operations: claim command-name and file path tokens
+          (:exec-block
+           (when op-command
+             (dolist (token tokens)
+               (when (and (eq (plist-get token :type) :command-name)
+                          (string= (plist-get token :value) op-command))
+                 (push (plist-get token :id) claimed-ids))))
+
+           (when file
+             (dolist (token tokens)
+               (when (and (plist-get token :value)
+                          (string= file (plist-get token :value)))
+                 (push (plist-get token :id) claimed-ids)
+                 (cl-return)))))
+
+          ;; Other sources: claim based on file path only
+          (_
+           (when file
+             (dolist (token tokens)
+               (when (and (plist-get token :value)
+                          (string= file (plist-get token :value)))
+                 (push (plist-get token :id) claimed-ids)
+                 (cl-return))))))))
+
+    ;; Remove duplicates and return
+    (delete-dups (nreverse claimed-ids))))
+#+end_src
 
 ** Orchestrator Function
 
 #+begin_src emacs-lisp
-(defun jf/bash-extract-semantics (parsed-command)
-  "Extract semantic information from PARSED-COMMAND using registered plugins.
+(defun jf/bash-extract-semantics (parsed-command &optional var-context)
+  "Extract semantic information from PARSED-COMMAND.
+
+Implements a three-layer extraction architecture:
+  Layer 0: Grammar-level extraction (unconditional)
+           Calls the recursive engine to extract file operations from
+           redirections and compound structures.
+  Layer 1: Domain plugins (predicate-gated)
+           Runs registered plugins (e.g., cloud-auth) on the parsed command.
+  Layer 2: Command handlers
+           Per-command semantic dispatch for non-filesystem domains.
 
 PARSED-COMMAND is a plist with:
   :tokens - List of token plists
   :parse-complete - Boolean indicating if parse was fully understood
 
+VAR-CONTEXT is an optional alist mapping variable names to values,
+threaded to the recursive engine for variable resolution.
+
 Returns a plist with:
-  :domains - Alist of (domain . operations) from all successful plugins
+  :domains - Alist of (domain . operations) from all extraction layers
   :coverage - Coverage plist from `jf/bash-calculate-coverage'
   :parse-complete - Pass-through from input
-  :plugin-results - List of raw plugin results for debugging
-
-Orchestration behavior:
-  - Evaluates plugin predicates to determine applicability
-  - Empty predicate list means plugin always runs
-  - Any predicate returning nil skips the plugin
-  - Wraps each plugin call in error isolation (condition-case)
-  - Logs errors but continues with remaining plugins
-  - Partial results are better than no results"
+  :plugin-results - List of raw plugin results for debugging"
   (let* ((tokens (plist-get parsed-command :tokens))
          (parse-complete (plist-get parsed-command :parse-complete))
          (plugin-results '())
          (all-claimed-token-ids '())
          (domains-alist '()))
 
-    ;; Execute each registered plugin
+    ;; Layer 0: Grammar-level extraction (unconditional)
+    ;; Call the recursive engine directly — no predicate gate
+    (condition-case err
+        (let* ((fs-operations (jf/bash--extract-file-operations-impl
+                               parsed-command var-context))
+               (fs-claimed-ids (jf/bash--claim-tokens-for-operations
+                                fs-operations parsed-command)))
+          ;; Add filesystem domain if operations were found
+          (when fs-operations
+            (push (cons :filesystem fs-operations) domains-alist))
+          ;; Accumulate claimed tokens
+          (when fs-claimed-ids
+            (setq all-claimed-token-ids
+                  (append fs-claimed-ids all-claimed-token-ids))))
+      (error
+       (message "Error in grammar-level extraction: %s"
+                (error-message-string err))))
+
+    ;; Layer 1: Domain plugins (predicate-gated)
+    ;; Runs remaining plugins (e.g., cloud-auth) — filesystem is no longer a plugin
     (dolist (plugin jf/bash-semantic-plugins)
       (let* ((plugin-name (plist-get plugin :name))
              (predicates (plist-get plugin :predicates))
@@ -183,11 +303,12 @@ Orchestration behavior:
              (message "Error executing plugin %s: %s"
                       plugin-name (error-message-string err)))))))
 
-    ;; Execute command handlers after universal plugins
+    ;; Layer 2: Command handlers
+    ;; Dispatch for non-filesystem domains (filesystem already handled in Layer 0)
     (let* ((cmd-result (jf/bash-extract-command-semantics parsed-command))
            (cmd-domains (plist-get cmd-result :domains))
            (cmd-claimed-ids (plist-get cmd-result :claimed-token-ids)))
-      ;; Merge command handler domains not already provided by plugins
+      ;; Merge command handler domains not already provided by earlier layers
       (dolist (domain-entry cmd-domains)
         (let ((domain (car domain-entry))
               (operations (cdr domain-entry)))
@@ -216,14 +337,7 @@ The orchestrator requires the coverage calculation function.
 (require 'bash-parser-coverage)
 #+end_src
 
-* Filesystem Plugin
-
-** Overview
-
-The filesystem plugin wraps existing filesystem extraction logic in the plugin protocol.
-This validates the plugin architecture by wrapping a mature, tested extraction subsystem.
-
-** Dependencies
+* Dependencies
 
 #+begin_src emacs-lisp
 (require 'bash-parser-file-ops)
@@ -232,209 +346,6 @@ This validates the plugin architecture by wrapping a mature, tested extraction s
 (let ((index-path (expand-file-name "config/bash-parser/commands/index.el" jf/emacs-dir)))
   (when (file-exists-p index-path)
     (load index-path nil t)))
-#+end_src
-
-** Token Claiming Logic
-
-The plugin must identify which tokens it understood during extraction.
-
-*** Helper: Find Tokens for File Path
-
-#+begin_src emacs-lisp
-(defun jf/bash-plugin-filesystem--find-token-for-path (path tokens)
-  "Find token in TOKENS list matching PATH string.
-
-PATH is a file path string from an operation.
-TOKENS is the list of token plists from parsed command.
-
-Returns token ID if found, nil otherwise.
-
-Matching strategy:
-  - For literal paths: exact string match against token :value
-  - For variable references: match variable token types
-  - For patterns: match pattern token values"
-  (when (and path tokens)
-    (let ((found-token nil))
-      (dolist (token tokens)
-        (when (null found-token)
-          (let ((token-value (plist-get token :value))
-                (token-type (plist-get token :type))
-                (token-id (plist-get token :id)))
-            ;; Match exact path value
-            (when (and token-value (string= path token-value))
-              (setq found-token token-id)))))
-      found-token)))
-#+end_src
-
-*** Helper: Claim Tokens for Redirection
-
-#+begin_src emacs-lisp
-(defun jf/bash-plugin-filesystem--claim-redirection-tokens (parsed-command)
-  "Claim tokens for redirections in PARSED-COMMAND.
-
-PARSED-COMMAND is the parse result plist.
-
-Returns list of token IDs for all redirection tokens."
-  (let ((tokens (plist-get parsed-command :tokens))
-        (claimed-ids '()))
-    (when tokens
-      (dolist (token tokens)
-        (when (eq (plist-get token :type) :redirection)
-          (push (plist-get token :id) claimed-ids))))
-    (nreverse claimed-ids)))
-#+end_src
-
-*** Helper: Claim Tokens for Operations
-
-#+begin_src emacs-lisp
-(defun jf/bash-plugin-filesystem--claim-operation-tokens (operations parsed-command)
-  "Claim tokens for file OPERATIONS in PARSED-COMMAND.
-
-OPERATIONS is list of operation plists from extraction.
-PARSED-COMMAND is the parse result plist.
-
-Returns list of claimed token IDs.
-
-Token claiming strategy:
-  - For redirection operations: claim redirection tokens
-  - For positional-arg operations: claim command-name and matching positional tokens
-  - For exec-block operations: claim command-name tokens in exec blocks"
-  (let ((tokens (plist-get parsed-command :tokens))
-        (claimed-ids '())
-        (command-name (plist-get parsed-command :command-name)))
-
-    ;; Claim redirection tokens
-    (setq claimed-ids (append claimed-ids
-                              (jf/bash-plugin-filesystem--claim-redirection-tokens parsed-command)))
-
-    ;; Claim tokens for each operation
-    (dolist (op operations)
-      (let* ((source (plist-get op :source))
-             (file (plist-get op :file))
-             (op-command (plist-get op :command)))
-
-        (pcase source
-          ;; Redirection operations already claimed above
-          (:redirection nil)
-
-          ;; Positional arg operations: claim command-name and file path tokens
-          (:positional-arg
-           ;; Claim command-name token if it matches operation command
-           (when (and command-name op-command (string= command-name op-command))
-             (dolist (token tokens)
-               (when (and (eq (plist-get token :type) :command-name)
-                          (string= (plist-get token :value) command-name))
-                 (push (plist-get token :id) claimed-ids))))
-
-           ;; Claim token for file path
-           (when-let ((token-id (jf/bash-plugin-filesystem--find-token-for-path file tokens)))
-             (push token-id claimed-ids)))
-
-          ;; Exec block operations: claim command-name and file path tokens
-          (:exec-block
-           (when op-command
-             (dolist (token tokens)
-               (when (and (eq (plist-get token :type) :command-name)
-                          (string= (plist-get token :value) op-command))
-                 (push (plist-get token :id) claimed-ids))))
-
-           (when-let ((token-id (jf/bash-plugin-filesystem--find-token-for-path file tokens)))
-             (push token-id claimed-ids)))
-
-          ;; Other sources: claim based on file path only
-          (_
-           (when-let ((token-id (jf/bash-plugin-filesystem--find-token-for-path file tokens)))
-             (push token-id claimed-ids))))))
-
-    ;; Remove duplicates and return
-    (delete-dups (nreverse claimed-ids))))
-#+end_src
-
-** Plugin Predicates
-
-*** Has File-Related Tokens Predicate
-
-#+begin_src emacs-lisp
-(defun jf/bash-plugin-filesystem--has-file-tokens-p (parsed-command)
-  "Return t if PARSED-COMMAND has tokens indicating file operations.
-
-PARSED-COMMAND is the parse result plist with :tokens field.
-
-File operation indicators:
-  - Redirection tokens (>, >>, <, etc.)
-  - Commands known to operate on files
-
-Returns t if file operations likely present, nil otherwise.
-
-Note: We do NOT use presence of positional args as a predicate since many
-commands like echo, printf, etc. have positional args but don't operate on files."
-  (let ((tokens (plist-get parsed-command :tokens))
-        (command-name (plist-get parsed-command :command-name)))
-    (or
-     ;; Has redirection tokens
-     (seq-some (lambda (token)
-                 (eq (plist-get token :type) :redirection))
-               tokens)
-
-     ;; Command name suggests file operations
-     (and command-name
-          (member command-name
-                  '("cat" "ls" "rm" "cp" "mv" "touch" "mkdir"
-                    "grep" "find" "sed" "awk" "head" "tail"
-                    "chmod" "chown" "tar" "zip" "unzip"))))))
-#+end_src
-
-** Plugin Extractor
-
-#+begin_src emacs-lisp
-(defun jf/bash-plugin-filesystem (parsed-command)
-  "Extract filesystem operations from PARSED-COMMAND using existing logic.
-
-PARSED-COMMAND is the parse result plist from jf/bash-parse.
-
-Returns jf/bash-plugin-result struct with:
-  - domain: :filesystem
-  - operations: List of file operation plists
-  - claimed-token-ids: List of token IDs for understood operations
-  - metadata: Plist with extraction metadata
-
-This plugin uses the internal implementation to avoid circular dependency
-with the deprecated public API wrapper."
-  (condition-case err
-      (let* ((operations (jf/bash--extract-file-operations-impl parsed-command nil))
-             (claimed-ids (jf/bash-plugin-filesystem--claim-operation-tokens
-                          operations parsed-command)))
-
-        (make-jf/bash-plugin-result
-         :domain :filesystem
-         :operations operations
-         :claimed-token-ids claimed-ids
-         :metadata (list :operation-count (length operations)
-                        :extraction-source 'jf/bash-extract-file-operations)))
-    (error
-     ;; Return nil on error - orchestrator will log and continue
-     (message "Filesystem plugin error: %s" (error-message-string err))
-     nil)))
-#+end_src
-
-** Plugin Registration
-
-Register the filesystem plugin with priority 100 (universal predicates run early).
-
-#+begin_src emacs-lisp
-(defun jf/bash-register-filesystem-plugin ()
-  "Register the filesystem extraction plugin.
-
-Priority: 100 (universal predicates - high priority)
-Predicates: Check for file-related tokens
-Extractor: jf/bash-plugin-filesystem
-
-Call this function to activate the filesystem plugin."
-  (jf/bash-register-plugin
-   :name 'filesystem
-   :priority 100
-   :extractor #'jf/bash-plugin-filesystem
-   :predicates (list #'jf/bash-plugin-filesystem--has-file-tokens-p)))
 #+end_src
 
 * Provide Module
