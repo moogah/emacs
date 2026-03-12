@@ -1,7 +1,3 @@
-;; File Header
-
-
-;; [[file:scope-shell-tools.org::*File Header][File Header:1]]
 ;;; scope-shell-tools.el --- GPTEL Scope Shell and Meta Tools -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -11,7 +7,6 @@
 ;; Scope-aware shell execution and meta tools for v3.0 preset-based permission management.
 
 ;;; Code:
-;; File Header:1 ends here
 
 ;; Dependencies
 

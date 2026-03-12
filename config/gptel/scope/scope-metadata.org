@@ -14,6 +14,20 @@ This module provides metadata gathering functions for file context before valida
 3. *Graceful degradation*: Git metadata gathering handles missing git gracefully
 4. *Future-ready*: Metadata enables git-based policies without changing validation code
 
+* File Header
+
+#+begin_src elisp :comments no
+;;; scope-metadata.el --- GPTEL Scope Metadata Utilities -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Metadata gathering for scope validation in gptel sessions.
+
+;;; Code:
+#+end_src
+
 * Dependencies
 
 #+begin_src elisp

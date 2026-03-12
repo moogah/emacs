@@ -1,7 +1,3 @@
-;; Lexical Binding
-
-
-;; [[file:scope-core.org::*Lexical Binding][Lexical Binding:1]]
 ;;; scope-core.el --- GPTEL Scope Manager Core -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
@@ -11,7 +7,6 @@
 ;; Core infrastructure for scope-aware tools in gptel sessions.
 
 ;;; Code:
-;; Lexical Binding:1 ends here
 
 ;; Dependencies
 
@@ -201,9 +196,10 @@ failures return errors immediately (sync behavior)."
                            ,name
                            (lambda (expansion-result)
                              (if (plist-get expansion-result :approved)
-                                 ;; User approved - retry validation
-                                 (let ((retry-result (jf/gptel-scope--check-tool-permission
-                                                      config ,name normalized-args metadata)))
+                                 ;; User approved - reload config before retry
+                                 (let* ((fresh-config (jf/gptel-scope--load-config))
+                                        (retry-result (jf/gptel-scope--check-tool-permission
+                                                      fresh-config ,name normalized-args metadata)))
                                    (if (plist-get retry-result :allowed)
                                        ;; Retry passed - execute tool body
                                        (funcall callback (json-serialize (progn ,@actual-body)))

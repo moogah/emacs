@@ -12,6 +12,20 @@ This module provides scope management commands for gptel sessions.
 2. =jf/gptel--select-projects= - Interactive project selection
 3. =jf/gptel--list-all-sessions= - List session IDs for completion
 
+* File Header
+
+#+begin_src elisp :comments no
+;;; scope-commands.el --- GPTEL Scope User Commands -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; User-facing commands for scope management in gptel sessions.
+
+;;; Code:
+#+end_src
+
 * Dependencies
 
 #+begin_src elisp
