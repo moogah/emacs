@@ -132,6 +132,94 @@
                      '(:command-name "egrep" :positional-args ("pattern" "file.txt") :flags ()))))
         (expect (plist-get (flag-test--first-op result) :command) :to-equal "egrep")))))
 
+;;; egrep
+
+(describe "egrep command handler"
+
+  (describe "without -l flag"
+
+    (it "returns :read for file args"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "egrep" :positional-args ("pattern" "file.txt") :flags ()))))
+        (expect (plist-get (flag-test--first-op result) :operation) :to-equal :read)
+        (expect (plist-get (flag-test--first-op result) :file) :to-equal "file.txt")))
+
+    (it "skips the pattern (index 0)"
+      (let* ((result (jf/bash-command-grep--filesystem-handler
+                      '(:command-name "egrep" :positional-args ("pattern" "a.txt" "b.txt") :flags ())))
+             (ops (flag-test--ops result)))
+        (expect (length ops) :to-equal 2))))
+
+  (describe "with -l flag"
+
+    (it "returns :match-pattern for file args"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "egrep" :positional-args ("pattern" "file.txt") :flags ("-l")))))
+        (expect (plist-get (flag-test--first-op result) :operation) :to-equal :match-pattern)))
+
+    (it "returns :match-pattern with --files-with-matches flag"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "egrep" :positional-args ("pattern" "file.txt") :flags ("--files-with-matches")))))
+        (expect (plist-get (flag-test--first-op result) :operation) :to-equal :match-pattern))))
+
+  (describe "returns nil when only pattern and no file args"
+
+    (it "returns nil"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "egrep" :positional-args ("pattern") :flags ()))))
+        (expect result :to-be nil))))
+
+  (describe "preserves command name"
+
+    (it "uses egrep as :command when invoked as egrep"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "egrep" :positional-args ("pattern" "file.txt") :flags ()))))
+        (expect (plist-get (flag-test--first-op result) :command) :to-equal "egrep")))))
+
+;;; fgrep
+
+(describe "fgrep command handler"
+
+  (describe "without -l flag"
+
+    (it "returns :read for file args"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "fgrep" :positional-args ("pattern" "file.txt") :flags ()))))
+        (expect (plist-get (flag-test--first-op result) :operation) :to-equal :read)
+        (expect (plist-get (flag-test--first-op result) :file) :to-equal "file.txt")))
+
+    (it "skips the pattern (index 0)"
+      (let* ((result (jf/bash-command-grep--filesystem-handler
+                      '(:command-name "fgrep" :positional-args ("pattern" "a.txt" "b.txt") :flags ())))
+             (ops (flag-test--ops result)))
+        (expect (length ops) :to-equal 2))))
+
+  (describe "with -l flag"
+
+    (it "returns :match-pattern for file args"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "fgrep" :positional-args ("pattern" "file.txt") :flags ("-l")))))
+        (expect (plist-get (flag-test--first-op result) :operation) :to-equal :match-pattern)))
+
+    (it "returns :match-pattern with --files-with-matches flag"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "fgrep" :positional-args ("pattern" "file.txt") :flags ("--files-with-matches")))))
+        (expect (plist-get (flag-test--first-op result) :operation) :to-equal :match-pattern))))
+
+  (describe "returns nil when only pattern and no file args"
+
+    (it "returns nil"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "fgrep" :positional-args ("pattern") :flags ()))))
+        (expect result :to-be nil))))
+
+  (describe "preserves command name"
+
+    (it "uses fgrep as :command when invoked as fgrep"
+      (let ((result (jf/bash-command-grep--filesystem-handler
+                     '(:command-name "fgrep" :positional-args ("pattern" "file.txt") :flags ()))))
+        (expect (plist-get (flag-test--first-op result) :command) :to-equal "fgrep")))))
+
 ;;; interpreters
 
 (describe "interpreter command handler"
