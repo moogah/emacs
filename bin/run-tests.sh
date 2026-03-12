@@ -416,8 +416,9 @@ if [ "$REPORT" = true ] && [ -f "$REPORT_RAW_OUTPUT" ]; then
             ERT_UNEXPECTED=$(echo "$ERT_SUMMARY" | awk '{print $8}')
 
             # Count expected failures from ERT output
-            # ERT marks them: "   passed (expected failure)  NNN/NNN  test-name"
-            ERT_EXPECTED_FAILURES=$(echo "$CLEAN_OUTPUT" | grep -cE "^[[:space:]]+passed \(expected failure\)" || true)
+            # ERT prints "N expected failures" on its own line after the summary
+            ERT_EXPECTED_FAILURES=$(echo "$CLEAN_OUTPUT" | grep -oE "^[0-9]+ expected failures?" | awk '{print $1}')
+            ERT_EXPECTED_FAILURES=${ERT_EXPECTED_FAILURES:-0}
 
             ERT_LINE="ERT: $ERT_TOTAL ran, $ERT_EXPECTED passed"
             if [ "$ERT_EXPECTED_FAILURES" -gt 0 ] 2>/dev/null; then
