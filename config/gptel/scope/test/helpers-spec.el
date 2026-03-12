@@ -186,6 +186,7 @@ Returns path to the created file."
   (helpers-spec-make-scope-yml
    "paths:
   read:
+    - \"/workspace\"
     - \"/workspace/**\"
   write:
     - \"/workspace/**\"

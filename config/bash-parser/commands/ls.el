@@ -2,7 +2,7 @@
 
 ;; Filesystem handler for ls command.
 ;; No args returns nil. Glob patterns produce :match-pattern.
-;; Literal "." produces :read-directory.
+;; Any other path produces :read-directory.
 
 ;;; Code:
 
@@ -18,7 +18,7 @@
   "Extract filesystem operations from ls PARSED-COMMAND.
 No args returns nil (no operations).
 Glob patterns (*, ?, []) produce :match-pattern.
-Literal \".\" produces :read-directory.
+Any other path produces :read-directory.
 Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
   (let* ((positional-args (plist-get parsed-command :positional-args))
          (command "ls")
@@ -33,8 +33,8 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
                       :confidence :high
                       :command command)
                 operations))
-         ;; Literal "."
-         ((equal arg ".")
+         ;; Any other path (including ".", "/tmp", etc.)
+         (t
           (push (list :file arg
                       :operation :read-directory
                       :confidence :high

@@ -33,11 +33,10 @@ The parser is organized into layers for better maintainability:
 
 **Analysis Layer** (analysis/):
 - **bash-parser-coverage** - Coverage calculation and visualization
-- **bash-parser-plugins** - Plugin registry and orchestration
+- **bash-parser-plugins** - Semantic extraction orchestrator
 
-**Domain Plugins** (plugins/):
+**Domain Modules** (plugins/):
 - **bash-parser-file-ops** - File operations extraction
-- **bash-parser-cloud-auth** - Cloud authentication detection
 - **bash-parser-security** - Security validation with rule matching
 
 **Semantics** (semantics/):
@@ -105,15 +104,12 @@ Load all parser subsystems in dependency order.
 ;; Core parsing (depends on security - for dangerous pattern detection)
 (require 'bash-parser-core)
 
-;; Analysis layer (plugin system and coverage)
+;; Analysis layer (orchestrator and coverage)
 (require 'bash-parser-coverage)
 (require 'bash-parser-plugins)
 
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
-
-;; Domain plugins
-(require 'bash-parser-cloud-auth)
 
 ;; Recursive analysis (depends on file-ops)
 (require 'bash-parser-recursive)

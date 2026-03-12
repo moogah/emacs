@@ -38,15 +38,12 @@
 ;; Core parsing (depends on security - for dangerous pattern detection)
 (require 'bash-parser-core)
 
-;; Analysis layer (plugin system and coverage)
+;; Analysis layer (orchestrator and coverage)
 (require 'bash-parser-coverage)
 (require 'bash-parser-plugins)
 
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
-
-;; Domain plugins
-(require 'bash-parser-cloud-auth)
 
 ;; Recursive analysis (depends on file-ops)
 (require 'bash-parser-recursive)

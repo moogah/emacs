@@ -720,8 +720,11 @@
 
     (:id "match-pattern-004"
      :command "ls /tmp"
-     :note "Ls without glob - no operations (just lists)"
-     :expect-ops ())
+     :note "Ls with plain path produces :read-directory"
+     :expect-ops ((:file "/tmp"
+                   :operation :read-directory
+                   :confidence :high
+                   :source :positional-arg)))
 
     (:id "match-pattern-005"
      :command "find /var/log -name 'error*.log'"

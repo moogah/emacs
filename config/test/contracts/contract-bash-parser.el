@@ -15,7 +15,6 @@
 ;; - Parse result: config/bash-parser/core/bash-parser-core.el (jf/bash-parse)
 ;; - Semantics: config/bash-parser/analysis/bash-parser-plugins.el (jf/bash-extract-semantics)
 ;; - File ops: config/bash-parser/plugins/bash-parser-file-ops.el
-;; - Cloud auth: config/bash-parser/plugins/bash-parser-cloud-auth.el
 ;;
 ;; Contracts:
 ;; - contract/bash-parse-result--validate  — jf/bash-parse output shape
@@ -47,7 +46,7 @@
 (defconst contract/bash--valid-cloud-providers
   '(:aws :aws-cli :aws-vault :gcloud :azure)
   "Valid cloud auth provider keywords from bash-parser.
-:aws is used by command-specific handlers (aws.el), :aws-cli by universal plugin.")
+:aws is used by command handlers (aws.el), :aws-cli is a legacy variant.")
 
 (defconst contract/bash--valid-domain-keys
   '(:filesystem :authentication :network)
@@ -167,7 +166,7 @@ Returns nil if valid, error string if invalid."
                     '((:domains listp)
                       (:coverage listp)
                       (:parse-complete booleanp))
-                    '((:plugin-results listp)))))
+                    nil)))
         (cl-return-from validate plist-error))
 
       ;; Validate :domains is an alist (not a plist)

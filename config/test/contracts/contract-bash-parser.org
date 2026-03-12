@@ -33,20 +33,14 @@ These contracts were derived from actual producer output, not documentation:
 - *Parse result:* =config/bash-parser/core/bash-parser-core.el= (=jf/bash-parse=)
 - *Semantics:* =config/bash-parser/analysis/bash-parser-plugins.el= (=jf/bash-extract-semantics=)
 - *File ops:* =config/bash-parser/plugins/bash-parser-file-ops.el=
-- *Cloud auth:* =config/bash-parser/plugins/bash-parser-cloud-auth.el=
 
 ** Known Producer Variants
 
-Bash-parser has two kinds of plugins that produce data in slightly different shapes:
+The grammar extraction layer (file-ops) includes all fields: =:source=,
+=:operation=, =:command=. Command handlers may omit =:source= or use different
+provider symbols (e.g., =:aws= instead of =:aws-cli=).
 
-- *Universal plugins* (file-ops, cloud-auth) — include all fields: =:source=,
-  =:operation=, =:command=
-- *Command-specific handlers* (aws.el, etc.) — may omit =:source= and =:operation=,
-  may use =:aws= instead of =:aws-cli= as provider
-
-The contracts accommodate both by marking these fields as optional. The Phase 3
-integration tests (=config/gptel/scope/test/integration/=) validate real output
-from both plugin types.
+The contracts accommodate both by marking these fields as optional.
 
 * File Header and Dependencies
 
@@ -68,7 +62,6 @@ from both plugin types.
 ;; - Parse result: config/bash-parser/core/bash-parser-core.el (jf/bash-parse)
 ;; - Semantics: config/bash-parser/analysis/bash-parser-plugins.el (jf/bash-extract-semantics)
 ;; - File ops: config/bash-parser/plugins/bash-parser-file-ops.el
-;; - Cloud auth: config/bash-parser/plugins/bash-parser-cloud-auth.el
 ;;
 ;; Contracts:
 ;; - contract/bash-parse-result--validate  — jf/bash-parse output shape
@@ -127,12 +120,11 @@ Where the file path was extracted from in the AST:
 (defconst contract/bash--valid-cloud-providers
   '(:aws :aws-cli :aws-vault :gcloud :azure)
   "Valid cloud auth provider keywords from bash-parser.
-:aws is used by command-specific handlers (aws.el), :aws-cli by universal plugin.")
+:aws is used by command handlers (aws.el), :aws-cli is a legacy variant.")
 #+end_src
 
-Note: =:aws= and =:aws-cli= are *both valid* because different plugin types use
-different symbols. The command-specific handler (=aws.el=) emits =:aws=; the
-universal cloud-auth plugin emits =:aws-cli=. Scope validation must handle both.
+Note: =:aws= and =:aws-cli= are *both valid*. Command handlers use =:aws=;
+=:aws-cli= is retained for backward compatibility.
 
 ** Domain Keys
 
@@ -352,16 +344,15 @@ a plist is accidentally passed where an alist is expected.
 :ID: contract-bash-semantics
 :END:
 
-The top-level output of =jf/bash-extract-semantics=, which runs all semantic
-plugins on a parsed command and aggregates their results.
+The top-level output of =jf/bash-extract-semantics=, which runs grammar-level
+extraction and command handlers on a parsed command and aggregates their results.
 
 ** Expected Shape
 
 #+begin_example elisp
 (:domains ALIST          ; see domains contract above
  :coverage PLIST         ; (:total-tokens N :claimed-tokens N :coverage-percent N)
- :parse-complete BOOL    ; whether the parse covered the full command
- :plugin-results LIST)   ; optional — raw per-plugin output
+ :parse-complete BOOL)   ; whether the parse covered the full command
 #+end_example
 
 ** Validator
@@ -386,7 +377,7 @@ Returns nil if valid, error string if invalid."
                     '((:domains listp)
                       (:coverage listp)
                       (:parse-complete booleanp))
-                    '((:plugin-results listp)))))
+                    nil)))
         (cl-return-from validate plist-error))
 
       ;; Validate :domains is an alist (not a plist)

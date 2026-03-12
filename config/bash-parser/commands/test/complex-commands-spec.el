@@ -327,11 +327,15 @@ Validates each operation against the file-op contract."
         (expect (complex-test--op-operation (complex-test--get-op result 0)) :to-equal :read-directory)
         (expect (complex-test--op-file (complex-test--get-op result 0)) :to-equal "."))))
 
-  (describe "non-matching args"
-    (it "returns nil for plain path without glob"
-      (expect (jf/bash-command-ls--filesystem-handler
-               '(:command-name "ls" :positional-args ("somefile.txt")))
-              :to-be nil))))
+  (describe "plain paths"
+    (it "classifies plain path as :read-directory"
+      (let ((result (jf/bash-command-ls--filesystem-handler
+                     '(:command-name "ls" :positional-args ("somefile.txt")))))
+        (expect result :not :to-be nil)
+        (expect (plist-get (car (plist-get result :operations)) :operation)
+                :to-equal :read-directory)
+        (expect (plist-get (car (plist-get result :operations)) :file)
+                :to-equal "somefile.txt")))))
 
 
 (describe "Docker command handler"
