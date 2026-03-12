@@ -35,19 +35,12 @@ Archive a completed change in the experimental workflow.
 
 3. **Check implementation completion status**
 
-   Check for incomplete work items (Beads or tasks.md if present).
-
-   **If using Beads tracking** (`.openspec.yaml` has `metadata.tracking: beads`):
+   Check for incomplete beads:
    - Query beads with `bd list --label openspec --long --limit 0 --json`
    - Filter to beads with external_ref "opsx:<change-name>"
    - Count open vs closed beads
    - **If open beads found:** Display warning, prompt for confirmation
-
-   **If using tasks.md** (legacy):
-   - Read `tasks.md` and count `- [ ]` (incomplete) vs `- [x]` (complete)
-   - **If incomplete tasks found:** Display warning, prompt for confirmation
-
-   **If neither exists:** Proceed without warning.
+   - **If no beads exist:** Proceed without warning
 
 4. **Assess delta spec sync state**
 
@@ -128,7 +121,7 @@ All artifacts complete. All work items complete.
 
 **Warnings:**
 - Archived with 2 incomplete artifacts
-- Archived with 3 incomplete work items (beads/tasks)
+- Archived with 3 incomplete beads
 - Delta spec sync was skipped (user chose to skip)
 
 Review the archive if this was not intentional.

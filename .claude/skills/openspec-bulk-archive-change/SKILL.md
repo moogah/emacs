@@ -40,9 +40,11 @@ This skill allows you to batch-archive changes, handling spec conflicts intellig
       - Parse `schemaName` and `artifacts` list
       - Note which artifacts are `done` vs other states
 
-   b. **Task completion** - Read `openspec/changes/<name>/tasks.md`
-      - Count `- [ ]` (incomplete) vs `- [x]` (complete)
-      - If no tasks file exists, note as "No tasks"
+   b. **Bead completion** - Query beads for this change
+      - Run `bd list --label openspec --long --limit 0 --json`
+      - Filter to beads with external_ref "opsx:<name>"
+      - Count open vs closed beads
+      - If no beads exist, note as "No beads"
 
    c. **Delta specs** - Check `openspec/changes/<name>/specs/` directory
       - List which capability specs exist

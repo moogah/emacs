@@ -37,18 +37,14 @@ Archive a completed change in the experimental workflow.
    - Use **AskUserQuestion tool** to confirm user wants to proceed
    - Proceed if user confirms
 
-3. **Check task completion status**
+3. **Check implementation completion status**
 
-   Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
-
-   Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
-
-   **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
-
-   **If no tasks file exists:** Proceed without task-related warning.
+   Check for incomplete beads:
+   - Query beads with `bd list --label openspec --long --limit 0 --json`
+   - Filter to beads with external_ref "opsx:<change-name>"
+   - Count open vs closed beads
+   - **If open beads found:** Display warning, prompt for confirmation
+   - **If no beads exist:** Proceed without warning
 
 4. **Assess delta spec sync state**
 
@@ -88,8 +84,8 @@ Archive a completed change in the experimental workflow.
    - Change name
    - Schema that was used
    - Archive location
-   - Whether specs were synced (if applicable)
-   - Note about any warnings (incomplete artifacts/tasks)
+   - Spec sync status (synced / sync skipped / no delta specs)
+   - Note about any warnings (incomplete artifacts/beads)
 
 **Output On Success**
 
@@ -101,7 +97,7 @@ Archive a completed change in the experimental workflow.
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
 
-All artifacts complete. All tasks complete.
+All artifacts complete. All work items complete.
 ```
 
 **Guardrails**

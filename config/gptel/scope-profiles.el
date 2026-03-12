@@ -15,34 +15,38 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 
-(defun jf/gptel-scope-profile--snake-to-kebab (key)
-  "Convert KEY from snake_case keyword to kebab-case keyword.
-E.g., :org_roam_patterns becomes :org-roam-patterns."
-  (intern (replace-regexp-in-string "_" "-" (symbol-name key))))
+(defun jf/gptel-scope-profile--normalize-keys (parsed)
+  "Normalize snake_case keys in PARSED plist to kebab-case.
+Recursively processes nested plists.
+
+NOTE: Duplicated in preset-registration.org and scope-shell-tools.org
+due to module loading dependencies."
+  (let ((result nil))
+    (cl-loop for (key val) on parsed by #'cddr
+             do (let* ((key-name (symbol-name key))
+                       (normalized-name (replace-regexp-in-string "_" "-" key-name))
+                       (normalized-key (intern normalized-name))
+                       (normalized-val (if (and (listp val)
+                                               (not (null val))
+                                               (keywordp (car val)))
+                                          (jf/gptel-scope-profile--normalize-keys val)
+                                        val)))
+                  (setq result (plist-put result normalized-key normalized-val))))
+    result))
 
 (defun jf/gptel-scope-profile--kebab-to-snake (key)
   "Convert KEY from kebab-case keyword to snake_case keyword.
 E.g., :org-roam-patterns becomes :org_roam_patterns."
   (intern (replace-regexp-in-string "-" "_" (symbol-name key))))
 
-(defun jf/gptel-scope-profile--normalize-keys (parsed)
-  "Normalize snake_case keys in PARSED plist to kebab-case.
-Handles top-level keys only; nested structures (sub-plists) are
-also normalized recursively."
-  (let ((result nil))
-    (cl-loop for (key val) on parsed by #'cddr
-             do (let ((new-key (jf/gptel-scope-profile--snake-to-kebab key))
-                      (new-val (if (and (listp val) (keywordp (car-safe val)))
-                                   (jf/gptel-scope-profile--normalize-keys val)
-                                 val)))
-                  (setq result (plist-put result new-key new-val))))
-    result))
-
 (defun jf/gptel-scope-profile--load (profile-name)
   "Load scope profile PROFILE-NAME from the profiles directory.
 PROFILE-NAME is the base name without .yml extension.
-Returns a plist with :paths, :org-roam-patterns, :shell-commands.
-Returns nil and logs a warning if the file is missing or cannot be parsed."
+Returns a plist with :paths, :org-roam-patterns, :shell-commands, :bash-tools.
+Returns nil and logs a warning if the file is missing or cannot be parsed.
+
+VALIDATION: Rejects profiles with bash_tools.categories section.
+Migration: Remove categories section, keep only deny list."
   (let ((profile-file (expand-file-name
                        (concat profile-name ".yml")
                        jf/gptel--scope-profiles-directory)))
@@ -54,7 +58,12 @@ Returns nil and logs a warning if the file is missing or cannot be parsed."
           (with-temp-buffer
             (insert-file-contents profile-file)
             (let* ((parsed (yaml-parse-string (buffer-string) :object-type 'plist))
-                   (normalized (jf/gptel-scope-profile--normalize-keys parsed)))
+                   (normalized (jf/gptel-scope-profile--normalize-keys parsed))
+                   (bash-tools (plist-get normalized :bash-tools))
+                   (categories (when bash-tools (plist-get bash-tools :categories))))
+              ;; Validate: reject if categories section present
+              (when categories
+                (error "bash_tools.categories section no longer supported. Migration: Remove categories section, keep only deny list. See CLAUDE.md for migration guide"))
               (jf/gptel--log 'debug "Loaded scope profile: %s" profile-name)
               normalized))
         (error
@@ -186,36 +195,109 @@ If SCOPE-PLIST is nil or empty, writes minimal YAML with empty sections."
         (effective-plist (or scope-plist
                              (list :paths (list :read nil :write nil :deny nil)
                                    :org-roam-patterns (list :subdirectory nil :tags nil :node-ids nil)
-                                   :shell-commands (list :allow nil :deny nil)))))
+                                   :bash-tools (list :categories (list :read-only (list :commands nil)
+                                                                       :safe-write (list :commands nil)
+                                                                       :dangerous (list :commands nil))
+                                                     :deny nil)))))
     (with-temp-file scope-file
       (insert (jf/gptel-scope-profile--plist-to-yaml effective-plist 0))
       (insert "\n"))
     (jf/gptel--log 'info "Wrote scope file: %s" scope-file)))
 
+(defun jf/gptel-scope-profile--merge-lists (list1 list2)
+  "Merge LIST1 and LIST2, removing duplicates.
+Preserves order: LIST1 items first, then new items from LIST2.
+Returns nil if both lists are nil."
+  (when (or list1 list2)
+    (let ((result (copy-sequence list1)))
+      (dolist (item list2)
+        (unless (member item result)
+          (setq result (append result (list item)))))
+      result)))
+
+(defun jf/gptel-scope-profile--deep-merge (base override)
+  "Deep merge two plists, with OVERRIDE taking precedence.
+
+Merging rules:
+- Nested plists: recursively merge
+- Lists: concatenate and deduplicate (base first, then override)
+- Scalars: override wins
+- nil: treated as absence (override's nil doesn't clear base's value)
+
+Returns a new plist with merged values.
+
+This is schema-agnostic - works for any plist structure including
+future additions to scope configuration."
+  (if (null override)
+      base
+    (let ((result (copy-sequence base)))
+      ;; Iterate over all keys in override
+      (cl-loop for (key val) on override by #'cddr
+               do (let ((base-val (plist-get base key)))
+                    (setq result
+                          (plist-put result key
+                                     (cond
+                                      ;; Both are plists: recursively merge
+                                      ((and (listp base-val) (listp val)
+                                            (keywordp (car-safe base-val))
+                                            (keywordp (car-safe val)))
+                                       (jf/gptel-scope-profile--deep-merge base-val val))
+
+                                      ;; Both are lists (not plists): merge and deduplicate
+                                      ((and (listp base-val) (listp val)
+                                            (not (keywordp (car-safe base-val)))
+                                            (not (keywordp (car-safe val))))
+                                       (jf/gptel-scope-profile--merge-lists base-val val))
+
+                                      ;; Override is nil: keep base value (nil means absence)
+                                      ((null val)
+                                       base-val)
+
+                                      ;; Otherwise: override wins
+                                      (t val))))))
+      result)))
+
 (defun jf/gptel-scope-profile--create-for-session (preset-name target-dir &optional project-root worktree-paths)
   "Create scope.yml for a session in TARGET-DIR.
 PRESET-NAME is used to resolve the scope profile.
 PROJECT-ROOT is used for variable expansion.
-WORKTREE-PATHS, if provided, bypasses profile resolution and writes
-explicit paths directly (used by activities integration).
+WORKTREE-PATHS, if provided, is deep-merged with the preset's scope
+configuration (paths are concatenated, bash_tools preserved, etc.).
 
 Flow:
-  1. If WORKTREE-PATHS provided: write them directly as scope
-  2. Otherwise: resolve profile for PRESET-NAME
-  3. Expand variables with PROJECT-ROOT
-  4. Write scope.yml to TARGET-DIR"
-  (let ((scope-plist
-         (cond
-          ;; Explicit worktree paths bypass profile resolution
-          (worktree-paths
-           (jf/gptel--log 'info "Using explicit worktree paths for session scope")
-           worktree-paths)
+  1. Resolve profile for PRESET-NAME (get bash_tools, org_roam_patterns, etc.)
+  2. Expand variables with PROJECT-ROOT
+  3. If WORKTREE-PATHS provided: deep-merge into preset's scope config
+  4. Write scope.yml to TARGET-DIR
 
-          ;; Resolve from preset's scope configuration
-          (t
-           (let ((resolved (jf/gptel-scope-profile--resolve preset-name)))
-             (when resolved
-               (jf/gptel-scope-profile--expand-variables resolved project-root)))))))
+Deep merge is schema-agnostic and works for any future scope configuration:
+- Lists (read/write paths): concatenated and deduplicated
+- Nested plists: recursively merged
+- Scalars: worktree-paths wins"
+  (let* ((resolved (jf/gptel-scope-profile--resolve preset-name))
+         (expanded (when resolved
+                     (jf/gptel-scope-profile--expand-variables resolved project-root)))
+         (scope-plist
+          (cond
+           ;; Deep merge worktree paths with preset's scope configuration
+           ((and worktree-paths expanded)
+            (jf/gptel--log 'info "Deep-merging worktree paths with preset scope configuration")
+            (jf/gptel-scope-profile--deep-merge expanded worktree-paths))
+
+           ;; Only worktree paths (no preset scope config)
+           (worktree-paths
+            (jf/gptel--log 'info "Using explicit worktree paths (preset has no scope config)")
+            worktree-paths)
+
+           ;; Only preset scope config (no worktree paths)
+           (expanded
+            (jf/gptel--log 'info "Using preset scope configuration")
+            expanded)
+
+           ;; Neither available
+           (t
+            (jf/gptel--log 'warn "No scope configuration available for preset: %s" preset-name)
+            nil))))
     (jf/gptel-scope-profile--write-scope-yml target-dir scope-plist)))
 
 (provide 'gptel-scope-profiles)

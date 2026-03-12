@@ -28,23 +28,8 @@ Implement tasks from an OpenSpec change.
    - `schemaName`: The workflow being used (e.g., "spec-driven")
    - Which artifact contains the tasks (typically "tasks" for spec-driven, check status for others)
 
-3. **Detect tracking mode (Beads vs Tasks.md)**
+3. **Query beads for this change**
 
-   Read `.openspec.yaml` from the change directory to check tracking mode:
-
-   ```bash
-   cat openspec/changes/<name>/.openspec.yaml
-   ```
-
-   Check for `metadata.tracking` field:
-   - If `tracking: beads`: Use **Bead-based workflow** (proceed to step 3a)
-   - If not present or `tracking: tasks`: Use **Task-based workflow** (proceed to step 3b)
-
-   Store the tracking mode for use in later steps.
-
-3a. **Get apply instructions (Bead-based workflow)**
-
-   **Query beads for this change:**
    ```bash
    bd list --label openspec --long --limit 0 --json
    ```
@@ -62,30 +47,11 @@ Implement tasks from an OpenSpec change.
    openspec instructions apply --change "<name>" --json
    ```
 
-   This returns context file paths (proposal, design, specs) - ignore task list since we're using beads.
+   This returns context file paths (proposal, design, specs).
 
    **Handle states:**
-   - If no beads found: suggest running `/opsx:to-beads` to create beads from tasks
+   - If no beads found: suggest running `/opsx:create-beads` to create beads from design
    - If all beads closed: congratulate, suggest archive
-   - Otherwise: proceed to implementation
-
-   **Skip to step 4** (Read context files)
-
-3b. **Get apply instructions (Task-based workflow)**
-
-   ```bash
-   openspec instructions apply --change "<name>" --json
-   ```
-
-   This returns:
-   - Context file paths (varies by schema)
-   - Progress (total, complete, remaining)
-   - Task list with status
-   - Dynamic instruction based on current state
-
-   **Handle states:**
-   - If `state: "blocked"` (missing artifacts): show message, suggest using `/opsx:continue`
-   - If `state: "all_done"`: congratulate, suggest archive
    - Otherwise: proceed to implementation
 
 4. **Read context files**
@@ -97,13 +63,14 @@ Implement tasks from an OpenSpec change.
 
 5. **Show current progress**
 
-   Display depends on tracking mode:
+   Read execution plan from `.openspec.yaml` if it exists to show batch context.
 
-   **Bead-based:**
    ```
-   ## Implementing: <change-name> (beads tracking)
+   ## Implementing: <change-name>
 
+   **Batch:** foundation (3 beads, parallel)
    **Progress:** N/M beads complete
+
    **Open beads:**
    - emacs-a3f: 1.1 Create module
    - emacs-a4g: 1.2 Add deps
@@ -114,68 +81,44 @@ Implement tasks from an OpenSpec change.
    Starting with: emacs-a3f
    ```
 
-   **Task-based:**
-   ```
-   ## Implementing: <change-name> (tasks.md)
-
-   **Progress:** N/M tasks complete
-   **Remaining tasks:**
-   - [ ] 1.1 Create module
-   - [ ] 1.2 Add deps
-   ```
-
 6. **Implement work (loop until done or blocked)**
-
-   **Bead-based workflow:**
 
    For each open bead (in creation order):
    - Show bead details: `bd show <bead-id>`
    - Extract task description and context (all context is IN the bead - self-contained)
    - Make the code changes required
    - Keep changes minimal and focused
+   - **Run tests** (if architecture.md exists):
+     - Check architecture.md for test command
+     - Run tests related to this bead's changes
+     - If tests fail, fix implementation
+     - If new scenarios discovered, create discovery bead for missing tests
    - **Discovery workflow**: If you discover unexpected work:
      - Create follow-up bead with `--deps "discovered-from:<current-bead-id>"`
-     - Types: bugs, questions, related work, blockers
+     - Types: bugs, questions, related work, blockers, missing tests
      - DON'T expand scope of current bead
      - DON'T update design.md (user reviews discoveries later)
    - Close the bead: `bd close <bead-id> --comment "Implemented: <summary>"`
    - Update `.openspec.yaml` bead status to "closed"
    - Continue to next bead
 
-   **Task-based workflow:**
-
-   For each pending task:
-   - Show which task is being worked on
-   - Make the code changes required
-   - Keep changes minimal and focused
-   - Mark task complete in the tasks file: `- [ ]` → `- [x]`
-   - Continue to next task
-
-   **Pause if (both modes):**
-   - Task is unclear → ask for clarification
+   **Pause if:**
+   - Bead is unclear → ask for clarification
    - Implementation reveals a design issue → suggest updating artifacts
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
 
 7. **On completion or pause, show status**
 
-   **Bead mode:**
    - Beads completed this session
    - Overall progress: "N/M beads closed"
    - If all done: suggest archive
    - If paused: explain why and wait for guidance
 
-   **Task mode:**
-   - Tasks completed this session
-   - Overall progress: "N/M tasks complete"
-   - If all done: suggest archive
-   - If paused: explain why and wait for guidance
-
 **Output During Implementation**
 
-**Bead-based tracking:**
 ```
-## Implementing: <change-name> (beads tracking)
+## Implementing: <change-name>
 
 Working on bead emacs-a3f (1/5): 1.1 Create module
 [...implementation happening...]
@@ -186,27 +129,12 @@ Working on bead emacs-a4g (2/5): 1.2 Add deps
 ✓ Bead closed: emacs-a4g
 ```
 
-**Task-based tracking:**
-```
-## Implementing: <change-name> (tasks.md)
-
-Working on task 3/7: <task description>
-[...implementation happening...]
-✓ Task complete
-
-Working on task 4/7: <task description>
-[...implementation happening...]
-✓ Task complete
-```
-
 **Output On Completion**
 
-**Bead-based:**
 ```
 ## Implementation Complete
 
 **Change:** <change-name>
-**Tracking:** Beads
 **Progress:** 5/5 beads closed ✓
 
 ### Completed This Session
@@ -217,30 +145,13 @@ Working on task 4/7: <task description>
 All beads closed! You can archive this change with `/opsx:archive`.
 ```
 
-**Task-based:**
-```
-## Implementation Complete
-
-**Change:** <change-name>
-**Tracking:** Tasks.md
-**Progress:** 7/7 tasks complete ✓
-
-### Completed This Session
-- [x] Task 1
-- [x] Task 2
-...
-
-All tasks complete! You can archive this change with `/opsx:archive`.
-```
-
 **Output On Pause (Issue Encountered)**
 
 ```
 ## Implementation Paused
 
 **Change:** <change-name>
-**Tracking:** <beads|tasks.md>
-**Progress:** 4/7 items complete
+**Progress:** 4/7 beads complete
 
 ### Issue Encountered
 <description of the issue>
@@ -254,17 +165,16 @@ What would you like to do?
 ```
 
 **Guardrails**
-- Keep going through work items (beads or tasks) until done or blocked
+- Keep going through beads until done or blocked
 - Always read context files before starting (from the apply instructions output)
-- If work item is ambiguous, pause and ask before implementing
+- If bead is ambiguous, pause and ask before implementing
 - If implementation reveals issues, pause and suggest artifact updates
-- Keep code changes minimal and scoped to each work item
-- **Bead mode**: Close bead and update `.openspec.yaml` immediately after completing
-- **Task mode**: Update task checkbox immediately after completing: `- [ ]` → `- [x]`
+- Keep code changes minimal and scoped to each bead
+- Close bead and update `.openspec.yaml` immediately after completing
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
-- **Bead mode**: Always query current bead status with `bd show` before working on it
-- **Bead mode**: Always update both the bead (close) and `.openspec.yaml` (metadata.beads status)
+- Always query current bead status with `bd show` before working on it
+- Always update both the bead (close) and `.openspec.yaml` (metadata.beads status)
 
 **Fluid Workflow Integration**
 

@@ -1,3 +1,13 @@
+;;; scope-commands.el --- GPTEL Scope User Commands -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; User-facing commands for scope management in gptel sessions.
+
+;;; Code:
+
 ;; Dependencies
 
 

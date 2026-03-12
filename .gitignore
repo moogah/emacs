@@ -30,3 +30,6 @@ state/**
 
 # OS
 .DS_Store
+
+# worktrees
+.worktrees/

@@ -1,0 +1,111 @@
+;; Author: Jeff Farr
+;; Keywords: bash, parser, semantics, handlers
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Command handler registry for bash parser.
+;; Provides a hash-table-based system for mapping commands to
+;; domain-specific handler functions.
+
+;;; Code:
+
+;;; bash-parser-semantics.el --- Command handler registry -*- lexical-binding: t; -*-
+
+;; Require protocol module for forward declarations
+(require 'bash-parser-protocol)
+
+(defvar jf/bash-command-handlers (make-hash-table :test 'equal)
+  "Registry mapping command names to domain-specific handler functions.
+
+Structure: {command-name => {domain-keyword => [handler-fn ...]}}.
+
+Outer hash table is keyed by command name (string, equal test).
+Inner hash table is keyed by domain keyword (e.g., :filesystem, :authentication).
+Values are lists of handler functions in registration order.")
+
+(defun jf/bash-register-command-handler (&rest args)
+  "Register a handler function for a command and semantic domain.
+
+Keyword arguments:
+  :command  - String: command name (e.g., \"aws\", \"cat\")
+  :domain   - Keyword: semantic domain (e.g., :filesystem)
+  :handler  - Function: handler implementation
+
+All three parameters are required.  Signals an error if any are missing.
+
+Handlers are stored in registration order per domain."
+  (let ((command (plist-get args :command))
+        (domain (plist-get args :domain))
+        (handler (plist-get args :handler)))
+    (unless command
+      (error "jf/bash-register-command-handler: :command is required"))
+    (unless domain
+      (error "jf/bash-register-command-handler: :domain is required"))
+    (unless handler
+      (error "jf/bash-register-command-handler: :handler is required"))
+    (let ((domain-table (gethash command jf/bash-command-handlers)))
+      (unless domain-table
+        (setq domain-table (make-hash-table :test 'eq))
+        (puthash command domain-table jf/bash-command-handlers))
+      (let ((existing (gethash domain domain-table)))
+        (unless (memq handler existing)
+          (puthash domain (append existing (list handler)) domain-table))))))
+
+(defun jf/bash-lookup-command-handlers (command-name)
+  "Look up all registered handlers for COMMAND-NAME.
+
+Returns a hash table mapping domain keywords to lists of handler functions,
+or nil if no handlers are registered for this command."
+  (gethash command-name jf/bash-command-handlers))
+
+(defun jf/bash-extract-command-semantics (parsed-command)
+  "Execute all registered handlers for PARSED-COMMAND and collect results.
+
+Looks up the command name from PARSED-COMMAND, executes all registered
+handlers across all domains, merges results by domain, and collects
+claimed token IDs.
+
+Each handler receives PARSED-COMMAND and should return a plist:
+  (:domain KEYWORD :operations [...] :claimed-token-ids [...] :metadata {...})
+or nil if the handler has nothing to contribute.
+
+Returns a plist:
+  (:domains ((domain . operations) ...)
+   :claimed-token-ids (id ...))
+
+Errors in individual handlers are logged and isolated - they do not
+prevent other handlers from executing."
+  (let* ((command-name (plist-get parsed-command :command-name))
+         (domain-table (when command-name
+                         (jf/bash-lookup-command-handlers command-name)))
+         (domains-alist nil)
+         (all-claimed-ids nil))
+    (when domain-table
+      (maphash
+       (lambda (domain handlers)
+         (dolist (handler handlers)
+           (condition-case err
+               (let ((result (funcall handler parsed-command)))
+                 (when result
+                   (let ((ops (plist-get result :operations))
+                         (claimed (plist-get result :claimed-token-ids)))
+                     (when ops
+                       (let ((existing (alist-get domain domains-alist)))
+                         (setf (alist-get domain domains-alist)
+                               (append existing ops))))
+                     (when claimed
+                       (setq all-claimed-ids
+                             (append all-claimed-ids claimed))))))
+             (error
+              (message "Handler error for %s/%s: %s"
+                       command-name domain (error-message-string err))))))
+       domain-table))
+    ;; Deduplicate claimed token IDs
+    (when all-claimed-ids
+      (setq all-claimed-ids (delete-dups all-claimed-ids)))
+    (list :domains domains-alist
+          :claimed-token-ids all-claimed-ids)))
+
+(provide 'bash-parser-semantics)
+;;; bash-parser-semantics.el ends here

@@ -1,0 +1,65 @@
+{
+  "session_id": "orch-1772808920",
+  "baseline_snapshot": ".beads/orchestrator/baseline-1772808920.txt",
+  "current_branch": "gptel-scoped-bash-tools",
+  "max_parallel": 3,
+  "status": "complete",
+  "beads": [
+    {
+      "bead_id": "emacs-m6r6",
+      "worktree_path": ".worktrees/bead-emacs-m6r6-1772808920",
+      "branch_name": "bead-emacs-m6r6-1772808920",
+      "commit": "fa8bd95",
+      "merge_commit": "b82ff52",
+      "task_id": "aecf3ba",
+      "status": "merged",
+      "regression_detected": false,
+      "regression_fixed": true,
+      "fix_commit": "a5da9b3",
+      "bead_closed": true,
+      "worktree_removed": true
+    },
+    {
+      "bead_id": "emacs-dvz3",
+      "worktree_path": ".worktrees/bead-emacs-dvz3-1772808920",
+      "branch_name": "bead-emacs-dvz3-1772808920",
+      "commit": "e1cd24c",
+      "merge_commit": "7588ed0",
+      "task_id": "aec5b19",
+      "status": "merged",
+      "regression_detected": false,
+      "bead_closed": true,
+      "worktree_removed": true
+    },
+    {
+      "bead_id": "emacs-64np",
+      "worktree_path": ".worktrees/bead-emacs-m6r6-1772808920/.worktrees/bead-emacs-64np-1772808920",
+      "branch_name": "bead-emacs-64np-1772808920",
+      "commit": "87d1b40",
+      "merge_commit": "146c1b2",
+      "task_id": "a207c76",
+      "status": "merged",
+      "regression_detected": false,
+      "bead_closed": true,
+      "worktree_removed": true
+    },
+    {
+      "bead_id": "emacs-t3ga",
+      "worktree_path": ".worktrees/bead-emacs-m6r6-1772808920/.worktrees/bead-emacs-64np-1772808920/.worktrees/bead-emacs-t3ga-1772808920",
+      "branch_name": "bead-emacs-t3ga-1772808920",
+      "commit": "aa0c221",
+      "merge_commit": "3d875c9",
+      "task_id": "abacee3",
+      "status": "merged",
+      "regression_detected": false,
+      "bead_closed": true,
+      "worktree_removed": true
+    }
+  ],
+  "notes": [
+    "Regression detected in emacs-m6r6: missing jf/bash--match-segments function",
+    "Fixed in commit a5da9b3 by manually restoring function from .org file",
+    "Root cause: org-babel tangling issue - function in .org but not tangled to .el",
+    "All 544 tests passing after fix (1 new test added by emacs-t3ga)"
+  ]
+}

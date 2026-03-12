@@ -23,7 +23,7 @@ Branches SHALL be first-class session objects with independent evolution.
 - **WHEN** a branch is created from a parent branch
 - **THEN** the new branch SHALL have its own directory under `branches/`
 - **AND** contain a complete session.md file (not a reference or delta)
-- **AND** contain its own scope-plan.yml, preset.md, and branch-metadata.yml
+- **AND** contain its own scope-plan.yml, scope.yml, and branch-metadata.yml
 - **AND** be registered independently in the session registry
 - **AND** support further branching (branches can have child branches)
 
@@ -268,7 +268,7 @@ The system SHALL copy configuration files from the parent branch to the new bran
 
 Configuration inheritance SHALL copy:
 - `scope-plan.yml` - Session metadata (session_id, created, type, preset)
-- `preset.md` - Model configuration and system message
+- `scope.yml` - Mutable scope configuration
 
 Configuration files SHALL be copied as-is, preserving content exactly.
 
@@ -280,11 +280,11 @@ The new branch's scope-plan.yml SHALL maintain the same `session_id`, ensuring a
 - **AND** the session_id field SHALL remain unchanged
 - **AND** the created and updated timestamps SHALL be inherited
 
-#### Scenario: Copying preset.md
+#### Scenario: Copying scope.yml
 - **WHEN** creating a new branch from a parent
-- **THEN** the parent's preset.md SHALL be copied to the new branch directory
-- **AND** the system message and model configuration SHALL be identical
-- **AND** subsequent changes to preset in either branch SHALL NOT affect the other
+- **THEN** the parent's scope.yml SHALL be copied to the new branch directory
+- **AND** the scope configuration SHALL be identical
+- **AND** subsequent changes to scope in either branch SHALL NOT affect the other
 
 #### Scenario: Session ID consistency
 - **WHEN** a session has multiple branches (main, feature-1, feature-2)
@@ -357,7 +357,7 @@ Auto-initialization for branches SHALL:
 1. Detect files matching pattern `*/branches/*/session.md`
 2. Extract session-id and branch-name from the file path
 3. Set buffer-local variables (session-id, session-dir, branch-name, branch-dir)
-4. Load preset configuration from preset.md
+4. Load preset configuration from scope.yml
 5. Enable gptel-mode and auto-save
 
 This behavior is inherited from the persistence system's find-file-hook.
@@ -408,7 +408,7 @@ The system SHALL validate branch creation preconditions and handle errors gracef
 Validation SHALL ensure:
 - Source buffer is session-initialized
 - Branch point selection succeeds
-- Parent branch has required metadata files (scope-plan.yml, preset.md)
+- Parent branch has required metadata files (scope-plan.yml, scope.yml)
 - Filesystem operations succeed (directory creation, file copying)
 
 Errors SHALL be logged at ERROR level and reported to the user.
@@ -419,7 +419,7 @@ Errors SHALL be logged at ERROR level and reported to the user.
 - **AND** display an error message: "Not a gptel session buffer"
 
 #### Scenario: Missing parent metadata
-- **WHEN** the parent branch is missing scope-plan.yml or preset.md
+- **WHEN** the parent branch is missing scope-plan.yml or scope.yml
 - **THEN** the system SHALL abort branch creation
 - **AND** log an ERROR with details of missing files
 - **AND** report failure to the user
@@ -477,7 +477,7 @@ The system SHALL build on session persistence fundamentals, reusing core infrast
 
 Branching SHALL depend on:
 - Directory structure (branches/ subdirectory, session.md, metadata files)
-- Metadata formats (scope-plan.yml, preset.md, branch-metadata.yml)
+- Metadata formats (scope-plan.yml, scope.yml, branch-metadata.yml)
 - Path resolution functions (branch-dir-path, context-file-path)
 - Registry for session/branch tracking
 - Auto-initialization via find-file-hook

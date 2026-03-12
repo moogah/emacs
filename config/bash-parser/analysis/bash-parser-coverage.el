@@ -1,0 +1,160 @@
+;;; bash-parser-coverage.el --- Coverage calculation for bash parser plugins -*- lexical-binding: t; -*-
+
+;; Author: Jeff Farr
+;; Keywords: bash, parser, coverage, testing
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Coverage calculation and visualization for bash parser plugin analysis.
+;; Calculates which tokens have been claimed by plugins and identifies gaps.
+
+;;; Code:
+
+(require 'cl-lib)
+
+(defun jf/bash-calculate-coverage (tokens claimed-token-ids)
+  "Calculate coverage metrics for TOKENS given CLAIMED-TOKEN-IDS.
+
+TOKENS is a list of token plists (each with :id, :type, :value, etc).
+CLAIMED-TOKEN-IDS is a list of token IDs that have been claimed by plugins.
+
+Returns a plist with:
+  :total-tokens - Total number of tokens
+  :claimed-tokens - Number of unique claimed tokens
+  :coverage-ratio - Float ratio of claimed/total (0.0 to 1.0)
+  :coverage-by-type - Alist of (type . ratio) for each token type
+  :unclaimed-tokens - List of unclaimed token plists
+
+Special cases:
+  - Zero tokens returns coverage ratio 1.0 (perfect coverage of nothing)
+  - Shared claiming (token claimed by multiple plugins) doesn't exceed 1.0"
+  (let* ((total-tokens (length tokens))
+         ;; Handle zero tokens case
+         (coverage-ratio (if (zerop total-tokens)
+                            1.0
+                          (let* ((unique-claimed-ids (cl-remove-duplicates claimed-token-ids))
+                                 (claimed-count (length unique-claimed-ids)))
+                            (/ (float claimed-count) (float total-tokens)))))
+         ;; Calculate coverage by type
+         (tokens-by-type (make-hash-table :test 'eq))
+         (claimed-by-type (make-hash-table :test 'eq))
+         coverage-by-type
+         unclaimed-tokens)
+
+    ;; Group tokens by type
+    (dolist (token tokens)
+      (let ((token-type (plist-get token :type))
+            (token-id (plist-get token :id)))
+        ;; Count total by type
+        (puthash token-type
+                 (1+ (gethash token-type tokens-by-type 0))
+                 tokens-by-type)
+        ;; Count claimed by type
+        (when (member token-id claimed-token-ids)
+          (puthash token-type
+                   (1+ (gethash token-type claimed-by-type 0))
+                   claimed-by-type))
+        ;; Collect unclaimed tokens
+        (unless (member token-id claimed-token-ids)
+          (push token unclaimed-tokens))))
+
+    ;; Calculate ratio for each type
+    (maphash (lambda (type total)
+               (let* ((claimed (gethash type claimed-by-type 0))
+                      (ratio (if (zerop total)
+                                1.0
+                              (/ (float claimed) (float total)))))
+                 (push (cons type ratio) coverage-by-type)))
+             tokens-by-type)
+
+    ;; Sort coverage-by-type by type name for consistent output
+    (setq coverage-by-type
+          (cl-sort coverage-by-type #'string< :key (lambda (pair) (symbol-name (car pair)))))
+
+    ;; Reverse unclaimed-tokens to restore parse order
+    (setq unclaimed-tokens (nreverse unclaimed-tokens))
+
+    ;; Return coverage plist
+    (list :total-tokens total-tokens
+          :claimed-tokens (length (cl-remove-duplicates claimed-token-ids))
+          :coverage-ratio coverage-ratio
+          :coverage-by-type coverage-by-type
+          :unclaimed-tokens unclaimed-tokens)))
+
+(defun jf/bash-visualize-coverage (coverage parse-complete)
+  "Format COVERAGE plist for human-readable output.
+
+COVERAGE is a plist from `jf/bash-calculate-coverage'.
+PARSE-COMPLETE is a boolean indicating if parser fully understood syntax.
+
+Returns a formatted string with:
+  - Parse complete status (✓/✗)
+  - Overall coverage percentage with bar
+  - Coverage by token type with bars
+  - List of unclaimed tokens with details"
+  (let* ((total-tokens (plist-get coverage :total-tokens))
+         (claimed-tokens (plist-get coverage :claimed-tokens))
+         (coverage-ratio (plist-get coverage :coverage-ratio))
+         (coverage-by-type (plist-get coverage :coverage-by-type))
+         (unclaimed-tokens (plist-get coverage :unclaimed-tokens))
+         (percentage (* 100 coverage-ratio))
+         (lines '()))
+
+    ;; Parse complete status
+    (push (format "Parse Complete: %s" (if parse-complete "✓" "✗")) lines)
+    (push "" lines)
+
+    ;; Overall coverage
+    (push (format "Overall Coverage: %.1f%% (%d/%d tokens)"
+                  percentage claimed-tokens total-tokens)
+          lines)
+    (push (jf/bash--coverage-bar coverage-ratio 40) lines)
+    (push "" lines)
+
+    ;; Coverage by type
+    (when coverage-by-type
+      (push "Coverage by Type:" lines)
+      (dolist (pair coverage-by-type)
+        (let* ((type (car pair))
+               (ratio (cdr pair))
+               (type-pct (* 100 ratio)))
+          (push (format "  %s: %.1f%%  %s"
+                        (symbol-name type)
+                        type-pct
+                        (jf/bash--coverage-bar ratio 30))
+                lines)))
+      (push "" lines))
+
+    ;; Unclaimed tokens
+    (if unclaimed-tokens
+        (progn
+          (push (format "Unclaimed Tokens (%d):" (length unclaimed-tokens)) lines)
+          (dolist (token unclaimed-tokens)
+            (let ((type (plist-get token :type))
+                  (value (plist-get token :value))
+                  (start (plist-get token :start))
+                  (end (plist-get token :end)))
+              (push (format "  [%s] \"%s\" (pos %d-%d)"
+                            (symbol-name type)
+                            value
+                            start
+                            end)
+                    lines))))
+      (push "All tokens claimed!" lines))
+
+    ;; Join lines in reverse order (we pushed in reverse)
+    (string-join (nreverse lines) "\n")))
+
+(defun jf/bash--coverage-bar (ratio width)
+  "Create an ASCII progress bar for RATIO (0.0 to 1.0) with WIDTH characters.
+
+Returns a string like: [████████████            ] 50%"
+  (let* ((filled-width (round (* ratio width)))
+         (empty-width (- width filled-width))
+         (filled-bar (make-string filled-width ?█))
+         (empty-bar (make-string empty-width ?░)))
+    (format "[%s%s]" filled-bar empty-bar)))
+
+(provide 'bash-parser-coverage)
+;;; bash-parser-coverage.el ends here

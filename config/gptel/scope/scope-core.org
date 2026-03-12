@@ -17,19 +17,26 @@ The scope system uses YAML plan documents stored alongside context files:
 - Default policy: Deny by default, explicit tool configuration required
 - Convention: Filesystem is source of truth, no in-memory tracking needed
 
-Example v2.0 structure:
+Example scope.yml structure:
 #+begin_example yaml
-version: "2.0"
-tools:
-  write_file_in_scope:
-    allowed: true
-    patterns: ["/project/**"]
-    deny_patterns: ["**/.git/**"]
+paths:
+  read: ["/**"]
+  write: ["/project/**"]
+  deny: ["**/.git/**", "**/.env"]
 
-  read_file:
-    allowed: true
-    patterns: ["/**"]
-    deny_patterns: ["**/.env"]
+org_roam_patterns:
+  subdirectory: ["gptel/**"]
+  tags: ["gptel"]
+
+bash_tools:
+  categories:
+    read_only:
+      commands: [ls, find, grep, cat, pwd]
+    safe_write:
+      commands: [mkdir, touch, echo]
+    dangerous:
+      commands: []
+  deny: [rm, sudo, mv, chmod]
 #+end_example
 
 ** Key Design Principles
@@ -40,12 +47,46 @@ tools:
 4. *LLM mediates user communication*: No automatic prompts, LLM uses request_scope_expansion
 5. *Read operations scope-controlled*: But templates grant permissive =/**= patterns by default
 
+** Module Organization
+
+This module is organized into the following sections:
+
+1. *Dependencies* - Required modules
+2. *Tool Categorization System* - Maps tools to validation strategies
+3. *Tool Wrapper Macro* - Public API for creating scoped tools
+4. *Scope Configuration Location Convention* - Filesystem conventions
+5. *Configuration Loading Functions* - Load and parse scope.yml
+6. *Allow-Once Mechanism* - Temporary permissions for single use
+7. *Validation System* - Validators for each tool category
+8. *Glob Pattern Matching* - Utility functions for path matching
+9. *Error Formatting* - Standardized error responses
+
+*Note:* Sections are ordered by dependency relationships rather than conceptual grouping.
+For example, glob pattern matching appears after validation system because it's
+called by validators, even though conceptually it could be in a utilities section.
+
+* Lexical Binding
+
+#+begin_src elisp :comments no
+;;; scope-core.el --- GPTEL Scope Manager Core -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Core infrastructure for scope-aware tools in gptel sessions.
+
+;;; Code:
+#+end_src
+
 * Dependencies
 
 #+begin_src elisp
 (require 'cl-lib)
+(require 'gptel-request)  ; Provides gptel-make-tool function
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
+(require 'jf-gptel-scope-metadata)
 #+end_src
 
 * Tool Categorization System
@@ -96,7 +137,9 @@ The core categorization system maps each tool to its validation strategy and ope
     ("link_roam_nodes_in_scope" . (:validation pattern :operation write))
 
     ;; Command-based: shell operations
-    ("run_approved_command" . (:validation command :operation write))
+
+    ;; Bash validation: scoped bash commands
+    ("run_bash_command" . (:validation bash :operation write))
 
     ;; Meta tools (always pass)
     ("PersistentAgent" . (:validation meta :operation delegate))
@@ -104,13 +147,13 @@ The core categorization system maps each tool to its validation strategy and ope
   "Tool → validation strategy mapping.
 
 Each tool maps to a plist with:
-  :validation - Validation strategy (path, pattern, command, meta)
+  :validation - Validation strategy (path, pattern, command, bash, meta)
   :operation - Operation type (read, write, delegate, meta)
 
 Validation strategies:
   path    - Validate against paths.read/write/deny lists
   pattern - Validate against org_roam_patterns
-  command - Validate against shell_commands.allow/deny lists
+  bash    - Validate against bash_tools.categories and paths
   meta    - Always allowed (no validation)
 
 Operation types:
@@ -148,13 +191,14 @@ This macro wraps the common pattern used by all scope-aware tools:
 6. Return formatted error if denied
 
 #+begin_src elisp
-(defmacro gptel-make-scoped-tool (name description args category &rest body)
+(defmacro gptel-make-scoped-tool (name description args category &optional async-keyword &rest body)
   "Create a scope-aware gptel tool with automatic validation.
 
 NAME: Tool name string (e.g., \"write_file_in_scope\")
 DESCRIPTION: Tool description for LLM
 ARGS: List of argument specs (same format as gptel-make-tool :args)
 CATEGORY: Resource category (\"filesystem\", \"org_roam\", \"shell\")
+ASYNC-KEYWORD: Optional :async flag for async tools with inline expansion
 BODY: Tool implementation - executed only if scope check passes
 
 The macro automatically:
@@ -163,62 +207,245 @@ The macro automatically:
 - Normalizes arguments (vector->list)
 - Formats errors on scope violation
 - Handles exceptions
+- Supports inline expansion for async tools (when :async is present)
 
 BODY is executed with tool arguments available as variables and should
 return the success result plist. The first argument in ARGS should be
-the primary resource identifier (filepath, node-id, command, etc.)."
-  (let* ((arg-names (mapcar (lambda (arg-spec)
+the primary resource identifier (filepath, node-id, command, etc.).
+
+If ASYNC-KEYWORD is :async, the tool uses callback-first signature and
+triggers inline expansion on validation failure. Otherwise, validation
+failures return errors immediately (sync behavior)."
+  (let* ((is-async (eq async-keyword :async))
+         (actual-body (if is-async body (cons async-keyword body)))
+         (arg-names (mapcar (lambda (arg-spec)
                              (intern (plist-get arg-spec :name)))
                            (eval args)))
-         (lambda-list arg-names))
+         (lambda-list (if is-async
+                          (cons 'callback arg-names)
+                        arg-names)))
     `(gptel-make-tool
       :name ,name
       :description ,description
       :args ,args
       :category ,category
+      ,@(when is-async '(:async t))  ; Pass :async t to gptel-make-tool
       :function
-      (lambda (&rest raw-args)
-        (condition-case err
-            (cl-block nil
-              (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
-                   ,@(cl-mapcar (lambda (name idx)
-                                 `(,name (nth ,idx normalized-args)))
-                               arg-names
-                               (number-sequence 0 (1- (length arg-names))))
-                   (config (jf/gptel-scope--load-config)))
+      ,(if is-async
+           ;; ASYNC BRANCH: callback-first signature with inline expansion
+           `(lambda (callback ,@arg-names)
+              (condition-case err
+                  (cl-block nil
+                    (let* ((normalized-args (list ,@arg-names))
+                           (config (jf/gptel-scope--load-config))
+                           ;; Gather metadata for path tools before validation
+                           (validation-type (plist-get (cdr (assoc ,name jf/gptel-scope--tool-categories)) :validation))
+                           (metadata (when (eq validation-type 'path)
+                                      (jf/gptel-scope--gather-file-metadata (car normalized-args)))))
 
-              ;; Check allow-once FIRST (before checking if config exists)
-              ;; Allow-once permissions should work even if config loading fails
-              (when (jf/gptel-scope--check-allow-once ,name normalized-args config)
-                (cl-return-from nil (progn ,@body)))
+                      ;; Check allow-once FIRST (before checking if config exists)
+                      ;; Allow-once permissions should work even if config loading fails
+                      (when (jf/gptel-scope--check-allow-once ,name normalized-args config)
+                        (cl-return-from nil
+                          (funcall callback (json-serialize (progn ,@actual-body)))))
 
-              ;; Check config exists (only if allow-once didn't grant permission)
-              (unless config
-                (cl-return-from nil
-                  (list :success nil
-                        :error "no_scope_config"
-                        :message "No scope configuration found. Ensure scope.yml exists with paths section.")))
+                      ;; Check config exists (only if allow-once didn't grant permission)
+                      (unless config
+                        (cl-return-from nil
+                          (funcall callback
+                                   (json-serialize
+                                    (list :success nil
+                                          :error "no_scope_config"
+                                          :message "No scope configuration found. Ensure scope.yml exists with paths section.")))))
 
-              ;; Check tool permission
-              (let ((check-result (jf/gptel-scope--check-tool-permission
-                                  config ,name normalized-args)))
-                (if (plist-get check-result :allowed)
-                    ;; Execute tool body
-                    (progn ,@body)
+                      ;; Check tool permission
+                      (let ((check-result (jf/gptel-scope--check-tool-permission
+                                           config ,name normalized-args metadata)))
+                        (if (plist-get check-result :allowed)
+                            ;; Execute tool body and invoke callback
+                            (funcall callback (json-serialize (progn ,@actual-body)))
 
-                  ;; Format and return error
-                  ;; TODO: Trigger expansion UI instead of immediate return (Task #7)
-                  (jf/gptel-scope--format-tool-error
-                   ,name
-                   (nth 0 normalized-args)  ; Primary resource (first arg)
-                   check-result)))))
+                          ;; Validation failed - trigger inline expansion
+                          (jf/gptel-scope--trigger-inline-expansion
+                           check-result
+                           ,name
+                           (lambda (expansion-result)
+                             (if (plist-get expansion-result :approved)
+                                 ;; User approved - reload config before retry
+                                 (let* ((fresh-config (jf/gptel-scope--load-config))
+                                        (retry-result (jf/gptel-scope--check-tool-permission
+                                                      fresh-config ,name normalized-args metadata)))
+                                   (if (plist-get retry-result :allowed)
+                                       ;; Retry passed - execute tool body
+                                       (funcall callback (json-serialize (progn ,@actual-body)))
+                                     ;; Retry failed - return error
+                                     (funcall callback
+                                              (json-serialize
+                                               (jf/gptel-scope--format-tool-error
+                                                ,name
+                                                (nth 0 normalized-args)
+                                                retry-result)))))
+                               ;; User denied - return original error
+                               (funcall callback
+                                        (json-serialize
+                                         (jf/gptel-scope--format-tool-error
+                                          ,name
+                                          (nth 0 normalized-args)
+                                          check-result))))))))))
 
-          ;; Handle unexpected errors
-          (error
-           (list :success nil
-                 :error "tool_exception"
-                 :message (format "Tool error: %s" (error-message-string err)))))))))
+                ;; Handle unexpected errors
+                (error
+                 (funcall callback
+                          (json-serialize
+                           (list :success nil
+                                 :error "tool_exception"
+                                 :message (format "Tool error: %s" (error-message-string err))))))))
+
+         ;; SYNC BRANCH: current behavior (immediate error on validation failure)
+         `(lambda (&rest raw-args)
+            (condition-case err
+                (cl-block nil
+                  (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
+                       ,@(cl-mapcar (lambda (name idx)
+                                     `(,name (nth ,idx normalized-args)))
+                                   arg-names
+                                   (number-sequence 0 (1- (length arg-names))))
+                       (config (jf/gptel-scope--load-config))
+                       ;; Gather metadata for path tools before validation
+                       (validation-type (plist-get (cdr (assoc ,name jf/gptel-scope--tool-categories)) :validation))
+                       (metadata (when (eq validation-type 'path)
+                                  (jf/gptel-scope--gather-file-metadata (car normalized-args)))))
+
+                    ;; Check allow-once FIRST (before checking if config exists)
+                    ;; Allow-once permissions should work even if config loading fails
+                    (when (jf/gptel-scope--check-allow-once ,name normalized-args config)
+                      (cl-return-from nil (progn ,@actual-body)))
+
+                    ;; Check config exists (only if allow-once didn't grant permission)
+                    (unless config
+                      (cl-return-from nil
+                        (list :success nil
+                              :error "no_scope_config"
+                              :message "No scope configuration found. Ensure scope.yml exists with paths section.")))
+
+                    ;; Check tool permission
+                    (let ((check-result (jf/gptel-scope--check-tool-permission
+                                        config ,name normalized-args metadata)))
+                      (if (plist-get check-result :allowed)
+                          ;; Execute tool body
+                          (progn ,@actual-body)
+
+                        ;; Format and return error
+                        ;; Note: Expansion UI is triggered by LLM via request_scope_expansion tool,
+                        ;; not automatically here. This maintains LLM-mediated communication pattern.
+                        (jf/gptel-scope--format-tool-error
+                         ,name
+                         (nth 0 normalized-args)  ; Primary resource (first arg)
+                         check-result)))))
+
+              ;; Handle unexpected errors
+              (error
+               (list :success nil
+                     :error "tool_exception"
+                     :message (format "Tool error: %s" (error-message-string err))))))))))
 #+end_src
+
+** Usage Examples
+
+*** Simple Read-Only Tool
+
+#+begin_example elisp
+(gptel-make-scoped-tool
+ "read_file_in_scope"
+ "Read file contents if in read scope."
+
+ (list '(:name "filepath"
+         :type string
+         :description "Absolute file path to read"))
+
+ "filesystem"
+
+ ;; Tool body - filepath is available as a variable
+ (condition-case err
+     (list :success t
+           :content (with-temp-buffer
+                     (insert-file-contents filepath)
+                     (buffer-string)))
+   (error
+    (list :success nil
+          :error "read_failed"
+          :message (error-message-string err)))))
+#+end_example
+
+*** Tool with Multiple Arguments
+
+#+begin_example elisp
+(gptel-make-scoped-tool
+ "run_bash_command"
+ "Execute shell command in specified directory."
+
+ (list '(:name "command"
+         :type string
+         :description "Shell command to execute")
+       '(:name "directory"
+         :type string
+         :description "Working directory"))
+
+ "bash"
+
+ ;; Both command and directory are available as variables
+ (let* ((result (jf/gptel-bash--execute-command command directory))
+        (exit-code (plist-get result :exit_code)))
+   (list :success (zerop exit-code)
+         :output (plist-get result :output)
+         :exit_code exit-code)))
+#+end_example
+
+*** Valid Category Values
+
+- ="filesystem"= - For file read/write operations (validates against :paths)
+- ="org_roam"= - For org-roam node operations (validates against :org-roam-patterns)
+- ="bash"= - For bash category-based operations (validates against :bash-tools)
+
+*** Body Requirements
+
+The BODY must return a plist with at minimum:
+- =:success= - Boolean indicating operation success
+
+On success, include operation-specific fields:
+- =:content=, =:output=, =:result=, etc.
+
+On failure, include:
+- =:error= - Error type string
+- =:message= - Human-readable error message
+
+The macro handles:
+- Scope validation errors (returns formatted error automatically)
+- Unexpected exceptions (wrapped in condition-case)
+
+You only need to handle tool-specific errors in BODY.
+
+*** Common Patterns
+
+*Error handling in body:*
+#+begin_example elisp
+(condition-case err
+    (progn
+      ;; risky operation
+      (list :success t :result value))
+  (error
+   (list :success nil
+         :error "operation_failed"
+         :message (error-message-string err))))
+#+end_example
+
+*Argument binding:*
+Arguments are automatically bound as variables matching their =:name= field.
+If ARGS contains =(:name "filepath")=, the variable =filepath= is available in BODY.
+
+*First argument convention:*
+The first argument should be the primary resource identifier (filepath, node-id, command, etc.)
+This is used for error formatting when scope validation fails.
 
 * Scope Configuration Location Convention
 
@@ -229,7 +456,46 @@ Tools locate scope configuration using a simple filesystem convention:
 Scope configuration contains:
 - =paths= section for filesystem/projectile/treesitter tools
 - =org_roam_patterns= section for org-roam tools
-- =shell_commands= section for shell command tools
+- =bash_tools= section for bash command tools with category-based validation
+
+** Bash Tools Configuration Structure
+
+The =bash_tools= section categorizes commands by operational impact and validates directory scope:
+
+#+begin_example yaml
+bash_tools:
+  categories:
+    read_only:
+      commands: [ls, find, grep, rg, pwd, cat, head, tail, wc, file]
+    safe_write:
+      commands: [mkdir, touch, echo]
+    dangerous:
+      commands: []  # Requires explicit user approval
+  deny:
+    - rm
+    - sudo
+    - mv
+    - chmod
+    - shutdown
+    - reboot
+#+end_example
+
+*** Command Categories
+
+- *read_only* - Commands that only read data, allowed in paths.read or paths.write
+- *safe_write* - Commands that create/modify safely, require paths.write
+- *dangerous* - Commands requiring explicit approval via request_scope_expansion
+- *deny* - Commands never allowed (destructive/security-sensitive)
+
+*** Validation Flow
+
+1. Check deny list first (highest priority)
+2. Categorize base command (first token before pipes/redirects)
+3. Resolve directory to absolute path and real path (symlink resolution)
+4. Validate directory against category's path scope requirement:
+   - read_only: requires paths.read OR paths.write
+   - safe_write: requires paths.write
+   - dangerous: always denied unless explicitly approved
 
 This eliminates the need for complex lookups:
 - No registry required
@@ -258,7 +524,9 @@ Returns plist with:
   :paths-write - List of allowed write paths
   :paths-deny - List of denied paths
   :org-roam-patterns - Plist with :subdirectory, :tags, :node-ids
-  :shell-commands - Plist with :allow and :deny lists
+  :bash-tools - Plist with :categories and :deny lists
+                (YAML uses snake_case: bash_tools, read_only
+                 Elisp uses kebab-case: :bash-tools, :read-only)
 
 Uses buffer-local jf/gptel--branch-dir if available.
 Returns nil if scope.yml not found or can't be parsed."
@@ -275,36 +543,105 @@ Returns nil if scope.yml not found or can't be parsed."
      nil)))
 #+end_src
 
+** Key Normalization Helper
+
+Normalize YAML keys by converting underscores to hyphens for internal consistency.
+
+*Bidirectional conversion:*
+- *Read path*: YAML =bash_tools= (snake_case) → Elisp =:bash-tools= (kebab-case)
+- *Write path*: Elisp =:bash-tools= (kebab-case) → YAML =bash_tools= (snake_case)
+
+This normalization is automatic and bidirectional:
+1. When loading scope.yml, =jf/gptel-scope--normalize-plist-keys= converts all underscore keys to hyphens
+2. When writing scope.yml, =jf/gptel-scope--kebab-to-snake= (in scope-expansion.org) converts hyphens back to underscores
+
+*Example:* Users write =bash_tools= in YAML files, but code uses =:bash-tools= internally.
+
+This is especially important for =bash_tools= since it's the most recent addition to the schema.
+
+#+begin_src elisp
+(defun jf/gptel-scope--normalize-plist-keys (plist)
+  "Normalize all keys in PLIST by converting underscores to hyphens.
+Recursively processes nested plists.
+Example: :bash_tools -> :bash-tools, :read_only -> :read-only"
+  (when plist
+    (let ((result nil))
+      (while plist
+        (let* ((key (car plist))
+               (value (cadr plist))
+               (normalized-key (if (keywordp key)
+                                   (intern (concat ":" (replace-regexp-in-string
+                                                       "_" "-"
+                                                       (substring (symbol-name key) 1))))
+                                 key))
+               (normalized-value (if (and (listp value)
+                                         (keywordp (car value)))
+                                    (jf/gptel-scope--normalize-plist-keys value)
+                                  value)))
+          (setq result (append result (list normalized-key normalized-value)))
+          (setq plist (cddr plist))))
+      result)))
+#+end_src
+
 ** Parse Scope YAML
 
 Parse scope configuration from a plain YAML file (no frontmatter).
+Automatically normalizes all keys from underscore to hyphenated format.
 
 #+begin_src elisp
 (defun jf/gptel-scope--parse-scope-yml (scope-file)
   "Parse scope configuration from SCOPE-FILE (plain YAML, no frontmatter).
 Returns plist with :paths-read, :paths-write, :paths-deny,
-:org-roam-patterns, and :shell-commands."
+:org-roam-patterns, and :bash-tools.
+
+Automatically normalizes all keys: underscored keys (bash_tools) are
+converted to hyphenated keys (bash-tools) for consistency."
   (with-temp-buffer
     (insert-file-contents scope-file)
     (let* ((parsed (yaml-parse-string (buffer-string)
                                       :object-type 'plist
                                       :sequence-type 'list))
-           (paths (plist-get parsed :paths))
-           (org-roam (or (plist-get parsed :org-roam-patterns)
-                         (plist-get parsed :org_roam_patterns)))
-           (shell (or (plist-get parsed :shell-commands)
-                      (plist-get parsed :shell_commands))))
+           (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+           (paths (plist-get normalized :paths))
+           (org-roam (plist-get normalized :org-roam-patterns))
+           (bash-tools (plist-get normalized :bash-tools)))
       (list :paths-read (plist-get paths :read)
             :paths-write (plist-get paths :write)
             :paths-deny (plist-get paths :deny)
             :org-roam-patterns org-roam
-            :shell-commands shell))))
+            :bash-tools bash-tools))))
 #+end_src
 
 
 * Allow-Once Mechanism
 
 Temporary permissions that last only for the current LLM response turn.
+
+** Consumption Semantics
+
+*IMPORTANT:* Allow-once permissions are consumed *before* the tool body executes,
+not after. This is a deliberate design choice with the following implications:
+
+1. *Single-use guarantee:* Each permission can only be used once, even if multiple
+   tool calls in the same LLM response attempt to use it.
+
+2. *Permission consumed on check:* The permission is removed from the list when
+   =jf/gptel-scope--check-allow-once= returns =t=, before the tool body runs.
+
+3. *No rollback on failure:* If the tool body errors after the permission check,
+   the permission is already consumed and cannot be retried.
+
+4. *Race condition potential:* If an LLM response is interrupted (network error,
+   timeout, user cancels) after permission check but before tool completion, the
+   permission is consumed but the operation may not have completed.
+
+This behavior is intentional to maintain security: allowing retry after failure
+could enable repeated attempts at sensitive operations. Users can grant another
+allow-once permission if needed.
+
+The alternative approach (consuming after execution) would require tracking
+tool execution state and handling partial failures, adding significant complexity
+for minimal benefit.
 
 ** Buffer-Local Allow-Once List
 
@@ -323,6 +660,10 @@ Cleared automatically after LLM response completes via gptel-post-response-funct
 Extracts resource from ARGS based on tool category.
 Returns t if found (and consumes the permission), nil otherwise.
 
+IMPORTANT: Permission is consumed when this function returns t, BEFORE the
+tool body executes. This ensures single-use semantics but means permissions
+cannot be retried if the tool body fails. See 'Consumption Semantics' above.
+
 CONFIG is the scope configuration (used to determine tool category)."
   (when jf/gptel-scope--allow-once-list
     (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
@@ -331,22 +672,29 @@ CONFIG is the scope configuration (used to determine tool category)."
                       ('path (expand-file-name (car args)))
                       ('pattern (format "%s:%s" tool-name (car args)))
                       ('command (car args))
+                      ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))  ; Composite: command:directory
                       (_ nil))))
       (when resource
-        (when-let ((entry (assoc tool-name jf/gptel-scope--allow-once-list)))
-          (when (equal (cdr entry) resource)
-            ;; Consume permission (single-use)
-            (setq jf/gptel-scope--allow-once-list
-                  (delq entry jf/gptel-scope--allow-once-list))
-            t))))))
+        ;; Find entry matching BOTH tool-name AND resource
+        ;; Can't use assoc since multiple entries may have same tool-name
+        (when-let ((entry (cl-find-if (lambda (e)
+                                       (and (equal (car e) tool-name)
+                                            (equal (cdr e) resource)))
+                                     jf/gptel-scope--allow-once-list)))
+          ;; Consume permission (single-use)
+          (setq jf/gptel-scope--allow-once-list
+                (delq entry jf/gptel-scope--allow-once-list))
+          t)))))
 #+end_src
 
 ** Add to Allow-Once List
 
 #+begin_src elisp
-(defun jf/gptel-scope--add-to-allow-once-list (tool-name resource)
+(defun jf/gptel-scope-add-to-allow-once-list (tool-name resource)
   "Add TOOL-NAME and RESOURCE to allow-once list.
-Permission is valid only for current LLM turn."
+Permission is valid only for current LLM turn.
+
+This is a public API function used by scope-expansion and other modules."
   (push (cons tool-name resource) jf/gptel-scope--allow-once-list))
 #+end_src
 
@@ -387,12 +735,13 @@ Returns t if any pattern matches, nil otherwise."
 Validates filesystem, projectile, and treesitter tools against path lists.
 
 #+begin_src elisp
-(defun jf/gptel-scope--validate-path-tool (tool-name args category config)
+(defun jf/gptel-scope--validate-path-tool (tool-name args category config metadata)
   "Validate path-based tool against read/write/deny path lists.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (first arg should be filepath).
 CATEGORY is the tool category plist (:validation :operation).
 CONFIG is the scope configuration plist.
+METADATA is the file metadata plist (from scope-metadata module).
 
 Returns plist with:
   :allowed t/nil
@@ -435,11 +784,12 @@ Returns plist with:
 Validates org-roam tools against org_roam_patterns section.
 
 #+begin_src elisp
-(defun jf/gptel-scope--validate-pattern-tool (tool-name args config)
+(defun jf/gptel-scope--validate-pattern-tool (tool-name args config metadata)
   "Validate org-roam tool against org_roam_patterns section.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (varies by tool).
 CONFIG is the scope configuration plist.
+METADATA is the metadata plist (nil for pattern tools).
 
 Returns plist with:
   :allowed t/nil
@@ -497,7 +847,7 @@ Returns plist with:
                  :tool tool-name))))
 
       ("link_roam_nodes_in_scope"
-       (let ((node-ids (plist-get org-roam-config :node_ids)))
+       (let ((node-ids (plist-get org-roam-config :node-ids)))
          ;; Check if wildcard "*" is in allowed node_ids
          (if (member "*" node-ids)
              (list :allowed t)
@@ -515,52 +865,267 @@ Returns plist with:
              :tool tool-name)))))
 #+end_src
 
-** Command-Based Validator
+** Bash-Based Validator
 
-Validates shell commands against allowlist and denylist.
+Validates bash commands against category-based permissions and directory scope.
+
+*Used by:* =run_bash_command= tool (see scope-shell-tools.org)
+
+This validator implements the category-based validation strategy for bash commands, checking:
+1. Command is not in deny list
+2. Command is in a known category (read_only, safe_write, dangerous)
+3. Directory matches category's path scope requirement
+
+*Function naming convention:*
+
+The bash validator function is named =jf/gptel-scope--validate-bash-tool= (using the =scope= namespace), while helper functions in scope-shell-tools.org use the =jf/gptel-bash--= prefix. This reflects their different roles:
+- =jf/gptel-scope--*= functions are part of the core scope validation system
+- =jf/gptel-bash--*= functions are tool-specific helpers for command parsing and execution
+
+This separation keeps validation logic in scope-core.org and tool implementation details in scope-shell-tools.org.
+
+*** Validator Return Values
+
+The bash validator returns structured error information to help the LLM understand what went wrong and how to fix it.
+
+*Success case:*
+#+begin_example
+(:allowed t)
+#+end_example
+
+*Error cases:*
+
+1. *Command not allowed* (command not in any category):
+   #+begin_example
+   (:allowed nil
+    :reason "command-not-allowed"
+    :tool "run_bash_command"
+    :resource "tree"
+    :command "tree"
+    :message "Command 'tree' is not in any bash_tools category (read_only, safe_write, dangerous). Use request_scope_expansion to request adding this command to an appropriate category.")
+   #+end_example
+
+2. *Denied command* (in bash_tools.deny list):
+   #+begin_example
+   (:allowed nil
+    :reason "denied-command"
+    :tool "run_bash_command"
+    :resource "rm -rf /tmp/file"
+    :command "rm -rf /tmp/file"
+    :message "Command 'rm' is explicitly denied in bash_tools.deny list.")
+   #+end_example
+
+3. *Directory not in scope* (directory doesn't match paths.read or paths.write):
+   #+begin_example
+   (:allowed nil
+    :reason "directory-not-in-scope"
+    :tool "run_bash_command"
+    :resource "/Users/jefffarr/other-project"
+    :command "ls -la"
+    :directory "/Users/jefffarr/other-project"
+    :required-scope "read"
+    :allowed-patterns ("/Users/jefffarr/emacs/**" "/Users/jefffarr/projects/**")
+    :message "Directory '/Users/jefffarr/other-project' is not in scope for read operations. Command 'ls' requires read access. Use request_scope_expansion to request access.")
+   #+end_example
+
+4. *Dangerous command* (requires explicit approval):
+   #+begin_example
+   (:allowed nil
+    :reason "dangerous-command"
+    :tool "run_bash_command"
+    :resource "dangerous-cmd"
+    :command "dangerous-cmd"
+    :message "Command 'dangerous-cmd' is categorized as dangerous and requires explicit user approval via request_scope_expansion.")
+   #+end_example
+
+5. *No bash_tools configuration*:
+   #+begin_example
+   (:allowed nil
+    :reason "command-not-allowed"
+    :tool "run_bash_command"
+    :resource "ls"
+    :command "ls"
+    :message "No bash_tools configuration found. All commands denied by default.")
+   #+end_example
+
+These structured errors allow the LLM to:
+- Understand exactly why the command was rejected
+- See which patterns would allow the command (=:allowed-patterns=)
+- Know what scope level is required (=:required-scope=)
+- Call =request_scope_expansion= with appropriate justification
+
+*Error field consistency:*
+
+The bash validator includes custom =:message= fields for LLM-friendly error messages. This is consistent with how =jf/gptel-scope--format-tool-error= (line 1040) works:
+- The validator returns =:message= in check-result
+- =format-tool-error= uses this custom message if present
+- Falls back to generic message format if =:message= not provided
+
+This pattern allows validators to provide context-specific guidance while maintaining a consistent error structure across all validation types.
+
+*** Implementation
 
 #+begin_src elisp
-(defun jf/gptel-scope--validate-command-tool (tool-name args config)
-  "Validate shell command against shell_commands allowlist/denylist.
+(defun jf/gptel-scope--validate-bash-tool (tool-name args config metadata)
+  "Validate bash command against bash_tools categories and paths.
 TOOL-NAME is the tool being validated.
-ARGS is the tool arguments list (first arg should be command string).
+ARGS is the tool arguments list (command and directory).
 CONFIG is the scope configuration plist.
+METADATA is the metadata plist (nil for bash tools).
 
 Returns plist with:
   :allowed t/nil
   :reason STRING (if denied)
-  :resource STRING (the command, if denied)
+  :resource STRING (the denied resource - command or directory)
+  :command STRING (the command, if denied)
+  :directory STRING (the directory, if denied)
   :tool STRING (tool name, if denied)
-  :allowed-patterns LIST (allowlist, if denied for not matching)."
-  (cl-block jf/gptel-scope--validate-command-tool
+  :message STRING (descriptive message)
+  :required-scope STRING (read/write, if denied)
+  :allowed-patterns LIST (if denied for directory not in scope)."
+  (cl-block jf/gptel-scope--validate-bash-tool
     (let* ((command-full (car args))
-           (command-name (car (split-string command-full)))
-           (shell-config (plist-get config :shell-commands))
-           (allowed (plist-get shell-config :allow))
-           (denied (plist-get shell-config :deny)))
+           (directory (cadr args))
+           (bash-config (plist-get config :bash-tools))
+           (categories (plist-get bash-config :categories))
+           (deny-list (plist-get bash-config :deny))
+           (read-paths (plist-get config :paths-read))
+           (write-paths (plist-get config :paths-write))
+           (deny-paths (plist-get config :paths-deny)))
 
-      ;; Check deny patterns (substring matching)
-      (when denied
-        (dolist (deny-pattern denied)
-          (when (string-match-p (regexp-quote deny-pattern) command-full)
-            (cl-return-from jf/gptel-scope--validate-command-tool
-              (list :allowed nil
-                    :reason "denied-command"
-                    :resource command-full
-                    :tool tool-name)))))
-
-      ;; Check allowlist (exact command name match or wildcard)
-      (unless (or (member command-name allowed)
-                  (member "*" allowed))
-        (cl-return-from jf/gptel-scope--validate-command-tool
+      ;; If bash_tools section is missing, deny all commands
+      (unless bash-config
+        (cl-return-from jf/gptel-scope--validate-bash-tool
           (list :allowed nil
-                :reason "not-in-allowlist"
-                :resource command-full
+                :reason "command-not-allowed"
                 :tool tool-name
-                :allowed-patterns allowed)))
+                :resource command-full
+                :command command-full
+                :message "No bash_tools configuration found. All commands denied by default.")))
 
-      ;; Passed
-      (list :allowed t))))
+      ;; Validate bash_tools structure is well-formed
+      (unless (and categories (listp categories))
+        (cl-return-from jf/gptel-scope--validate-bash-tool
+          (list :allowed nil
+                :reason "malformed-config"
+                :tool tool-name
+                :resource command-full
+                :command command-full
+                :message "Malformed bash_tools configuration: missing or invalid 'categories' section.")))
+
+      ;; Validate required category sections exist
+      (let ((read-only-section (plist-get categories :read-only))
+            (safe-write-section (plist-get categories :safe-write))
+            (dangerous-section (plist-get categories :dangerous)))
+        (unless (and read-only-section safe-write-section dangerous-section)
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "malformed-config"
+                  :tool tool-name
+                  :resource command-full
+                  :command command-full
+                  :message "Malformed bash_tools configuration: missing required category (read_only, safe_write, or dangerous)."))))
+
+      ;; Parse command to extract base command
+      ;; Note: Empty command lists are valid (they mean "no commands in this category")
+      (let* ((command-parts (split-string command-full "[ |><;&]+" t))
+             (base-command (car command-parts)))
+
+        ;; Check deny list first (highest priority)
+        (when (member base-command deny-list)
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed nil
+                  :reason "denied-command"
+                  :tool tool-name
+                  :resource (format "%s:%s" command-full (expand-file-name directory))
+                  :command command-full
+                  :message (format "Command '%s' is explicitly denied in bash_tools.deny list."
+                                 base-command))))
+
+        ;; Categorize command
+        (let ((category nil)
+              (read-only (plist-get (plist-get categories :read-only) :commands))
+              (safe-write (plist-get (plist-get categories :safe-write) :commands))
+              (dangerous (plist-get (plist-get categories :dangerous) :commands)))
+
+          (cond
+           ((member base-command read-only) (setq category 'read-only))
+           ((member base-command safe-write) (setq category 'safe-write))
+           ((member base-command dangerous) (setq category 'dangerous))
+           (t
+            ;; Unknown command - deny and suggest scope expansion
+            (cl-return-from jf/gptel-scope--validate-bash-tool
+              (list :allowed nil
+                    :reason "command-not-allowed"
+                    :tool tool-name
+                    :resource (format "%s:%s" command-full (expand-file-name directory))
+                    :command command-full
+                    :message (format "Command '%s' is not in any bash_tools category (read_only, safe_write, dangerous). Use request_scope_expansion to request adding this command to an appropriate category."
+                                   base-command)))))
+
+          ;; Dangerous commands always denied (require explicit expansion)
+          (when (eq category 'dangerous)
+            (cl-return-from jf/gptel-scope--validate-bash-tool
+              (list :allowed nil
+                    :reason "dangerous-command"
+                    :tool tool-name
+                    :resource (format "%s:%s" command-full (expand-file-name directory))
+                    :command command-full
+                    :message (format "Command '%s' is categorized as dangerous and requires explicit user approval via request_scope_expansion."
+                                   base-command))))
+
+          ;; Resolve directory to absolute path
+          (let* ((abs-directory (expand-file-name directory))
+                 (real-directory (file-truename abs-directory))
+                 (required-scope (if (eq category 'read-only) "read" "write")))
+
+            ;; Check deny paths first (overrides all)
+            (when (jf/gptel-scope--matches-any-pattern real-directory deny-paths)
+              (cl-return-from jf/gptel-scope--validate-bash-tool
+                (list :allowed nil
+                      :reason "denied-path"
+                      :tool tool-name
+                      :resource (format "%s:%s" command-full real-directory)
+                      :command command-full
+                      :directory real-directory
+                      :message (format "Directory '%s' is explicitly denied in paths.deny list."
+                                     real-directory))))
+
+            ;; Validate directory against category requirement
+            (pcase category
+              ('read-only
+               ;; Read commands allowed in paths.read OR paths.write
+               (unless (or (jf/gptel-scope--matches-any-pattern real-directory read-paths)
+                          (jf/gptel-scope--matches-any-pattern real-directory write-paths))
+                 (cl-return-from jf/gptel-scope--validate-bash-tool
+                   (list :allowed nil
+                         :reason "directory-not-in-scope"
+                         :tool tool-name
+                         :resource (format "%s:%s" command-full real-directory)
+                         :command command-full
+                         :directory real-directory
+                         :required-scope required-scope
+                         :allowed-patterns (append read-paths write-paths)
+                         :message (format "Directory '%s' is not in scope for read operations. Command '%s' requires read access. Use request_scope_expansion to request access."
+                                        real-directory base-command)))))
+
+              ('safe-write
+               ;; Write commands require paths.write only
+               (unless (jf/gptel-scope--matches-any-pattern real-directory write-paths)
+                 (cl-return-from jf/gptel-scope--validate-bash-tool
+                   (list :allowed nil
+                         :reason "directory-not-in-scope"
+                         :tool tool-name
+                         :resource (format "%s:%s" command-full real-directory)
+                         :command command-full
+                         :directory real-directory
+                         :required-scope required-scope
+                         :allowed-patterns write-paths
+                         :message (format "Directory '%s' is not in scope for write operations. Command '%s' requires write access. Use request_scope_expansion to request access."
+                                        real-directory base-command))))))
+
+            ;; Passed all checks
+            (list :allowed t)))))))
 #+end_src
 
 ** Tool Permission Dispatch
@@ -568,11 +1133,12 @@ Returns plist with:
 Central dispatcher that routes permission checks to tool-specific validators based on tool categories.
 
 #+begin_src elisp
-(defun jf/gptel-scope--check-tool-permission (config tool-name args)
+(defun jf/gptel-scope--check-tool-permission (config tool-name args metadata)
   "Validate TOOL-NAME with ARGS against CONFIG.
 CONFIG is the scope configuration plist from scope.yml.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list.
+METADATA is the metadata plist for context-aware validation.
 
 Returns plist with:
   :allowed t/nil
@@ -580,32 +1146,135 @@ Returns plist with:
   :resource STRING (what was denied, if applicable)
   :tool STRING (tool name, if denied)
   :allowed-patterns LIST (if denied for not matching)."
-
-  ;; Check allow-once first (highest priority)
-  (when (jf/gptel-scope--check-allow-once tool-name args config)
-    (cl-return-from jf/gptel-scope--check-tool-permission
-      (list :allowed t :reason "allow-once")))
-
-  ;; Lookup tool category
-  (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
-         (validation-type (plist-get category :validation)))
-
-    ;; Meta tools always pass
-    (when (eq validation-type 'meta)
+  (cl-block jf/gptel-scope--check-tool-permission
+    ;; Check allow-once first (highest priority)
+    (when (jf/gptel-scope--check-allow-once tool-name args config)
       (cl-return-from jf/gptel-scope--check-tool-permission
-        (list :allowed t)))
+        (list :allowed t :reason "allow-once")))
 
-    ;; Route to validator
-    (pcase validation-type
-      ('path (jf/gptel-scope--validate-path-tool tool-name args category config))
-      ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config))
-      ('command (jf/gptel-scope--validate-command-tool tool-name args config))
-      (_
-       ;; Unknown tool - deny by default
-       (list :allowed nil
-             :reason "unknown-tool"
-             :resource tool-name
-             :tool tool-name)))))
+    ;; Lookup tool category
+    (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
+           (validation-type (plist-get category :validation)))
+
+      ;; Meta tools always pass
+      (when (eq validation-type 'meta)
+        (cl-return-from jf/gptel-scope--check-tool-permission
+          (list :allowed t)))
+
+      ;; Route to validator
+      (pcase validation-type
+        ('path (jf/gptel-scope--validate-path-tool tool-name args category config metadata))
+        ('pattern (jf/gptel-scope--validate-pattern-tool tool-name args config metadata))
+        ('bash (jf/gptel-scope--validate-bash-tool tool-name args config metadata))
+        (_
+         ;; Unknown tool - deny by default
+         (list :allowed nil
+               :reason "unknown-tool"
+               :resource tool-name
+               :tool tool-name))))))
+#+end_src
+
+** Validation Type Inference
+
+Infer the validation type for a tool based on the tool categories constant.
+
+#+begin_src elisp
+(defun jf/gptel-scope--infer-validation-type (tool-name)
+  "Infer validation type for TOOL-NAME from tool categories.
+Returns symbol (path, pattern, bash, meta) or nil if tool not found."
+  (when-let ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories))))
+    (plist-get category :validation)))
+#+end_src
+
+** Build Violation Info from Validation Error
+
+Transform validation error plist into violation info format expected by expansion UI.
+
+#+begin_src elisp
+(defun jf/gptel-scope--build-violation-info (validation-error tool-name)
+  "Transform VALIDATION-ERROR plist into violation-info format.
+VALIDATION-ERROR is the error plist returned by validators.
+TOOL-NAME is the tool that was denied.
+
+Returns plist with:
+  :tool - Tool name
+  :resource - The denied resource (path, command, provider, etc.)
+  :operation - Operation type (read, write, etc.)
+  :reason - Human-readable error message
+  :validation-type - Validation strategy (path, pattern, bash, meta)
+  :metadata - File metadata plist (git-tracked, exists, etc.)
+
+This is a pure transformation function with no side effects."
+  (let* ((error-type (or (plist-get validation-error :error)
+                         (plist-get validation-error :reason)
+                         "unknown"))
+         (resource (pcase error-type
+                     ("path_out_of_scope" (plist-get validation-error :path))
+                     ("command_denied" (plist-get validation-error :command))
+                     ("cloud_auth_denied" (plist-get validation-error :provider))
+                     ("incomplete_parse" (plist-get validation-error :command))
+                     (_ (or (plist-get validation-error :resource)
+                           (plist-get validation-error :path)))))
+         (operation (plist-get validation-error :operation))
+         (reason (or (plist-get validation-error :reason)   ; Check-result format (current)
+                     (plist-get validation-error :message))) ; Validation-error format (legacy/bash)
+         (validation-type (jf/gptel-scope--infer-validation-type tool-name))
+         (metadata (plist-get validation-error :metadata)))
+    (list :tool tool-name
+          :resource resource
+          :operation operation
+          :reason reason
+          :validation-type validation-type
+          :metadata metadata)))
+#+end_src
+
+** Trigger Inline Expansion
+
+Invoke expansion UI with proper callback chain to coordinate user response with validation wrapper.
+
+#+begin_src elisp
+(defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name wrapper-callback)
+  "Trigger inline expansion UI for VALIDATION-ERROR.
+VALIDATION-ERROR is the error plist returned by validators.
+TOOL-NAME is the tool that was denied.
+WRAPPER-CALLBACK is the wrapper's callback function to invoke with approval result.
+
+This function:
+1. Builds violation-info from validation-error
+2. Extracts resource for patterns list
+3. Creates expansion-callback that parses JSON and invokes wrapper callback
+4. Calls jf/gptel-scope-prompt-expansion to show UI
+
+The callback chain is: User action → Expansion UI → This callback → Wrapper → Tool body.
+
+Implementation note: The expansion-callback lambda closes over wrapper-callback using
+lexical binding (enabled via file header). The closure will be invoked later by
+transient menu actions when the user makes a choice.
+
+Returns nil (no return value needed - async coordination via callbacks)."
+  (let* ((violation-info (jf/gptel-scope--build-violation-info validation-error tool-name))
+         (resource (plist-get violation-info :resource))
+         (patterns (list resource))  ; Single resource for inline expansion
+         (expansion-callback
+          (lambda (result-json)
+            "Parse expansion UI result and invoke wrapper callback with approval.
+RESULT-JSON is a JSON string with :success, :allowed_once, :patterns_added, etc."
+            (condition-case err
+                (let* ((parsed (json-parse-string result-json :object-type 'plist))
+                       (success (plist-get parsed :success)))
+                  (if success
+                      ;; User approved (either allow-once or add-to-scope)
+                      (funcall wrapper-callback (list :approved t))
+                    ;; User denied
+                    (funcall wrapper-callback (list :approved nil :reason "user_denied"))))
+              (error
+               ;; JSON parsing or callback error - treat as denial
+               (message "Error in expansion-callback: %s" (error-message-string err))
+               (funcall wrapper-callback (list :approved nil :reason "callback_error")))))))
+
+    ;; Show expansion UI with callback
+    (jf/gptel-scope-prompt-expansion violation-info expansion-callback patterns tool-name)
+    nil))  ; No return value - async coordination
 #+end_src
 
 
@@ -663,17 +1332,27 @@ Create standardized error response for tool-level permission violations.
   "Format tool permission error for LLM.
 TOOL-NAME: Name of the tool that was denied
 RESOURCE: The resource that was denied (path, node-id, command, etc.)
-CHECK-RESULT: Plist from validator with :allowed, :patterns, :deny_patterns"
-  (let ((patterns (plist-get check-result :patterns))
-        (deny-patterns (plist-get check-result :deny_patterns))
-        (error-type (or (plist-get check-result :error) "scope_violation"))
-        (custom-message (plist-get check-result :message)))
+CHECK-RESULT: Plist from validator with :allowed, :patterns/:allowed-patterns, :deny-patterns, :reason/:error"
+  (let ((patterns (or (plist-get check-result :allowed-patterns)  ; Bash validator uses :allowed-patterns
+                      (plist-get check-result :patterns)))        ; Other validators use :patterns
+        (deny-patterns (plist-get check-result :deny-patterns))
+        (error-type (or (plist-get check-result :reason)          ; Bash validator uses :reason
+                        (plist-get check-result :error)           ; Other validators use :error
+                        "scope-violation"))
+        (custom-message (plist-get check-result :message))
+        ;; Extract bash-specific fields (will be nil for non-bash tools)
+        (command (plist-get check-result :command))
+        (directory (plist-get check-result :directory))
+        (required-scope (plist-get check-result :required-scope)))
     (list :success nil
           :error error-type
           :tool tool-name
           :resource resource
-          :allowed_patterns patterns
-          :deny_patterns deny-patterns
+          :command command                    ; Pass through bash command field
+          :directory directory                ; Pass through bash directory field
+          :required-scope required-scope      ; Pass through required scope level
+          :allowed-patterns patterns
+          :deny-patterns deny-patterns
           :message (or custom-message
                       (format "Tool '%s' denied for resource '%s'. Use request_scope_expansion to ask user for approval."
                              tool-name

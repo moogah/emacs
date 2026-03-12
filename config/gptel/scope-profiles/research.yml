@@ -1,10 +1,49 @@
+# Research profile: Read-only exploration with no write access
+# Use case: Investigating codebases, analyzing files, searching content
+# Security: Prevents any file creation or modification
+
 paths:
-  read: ["/**"]
+  read: ["/**"]  # Read access to entire filesystem (excluding deny list)
+  # No write paths - research is strictly read-only
+
+  # V4 Schema: Execute permissions for running scripts/binaries
+  # Empty for research profile - read-only exploration only
+  execute: []
+
+  # V4 Schema: Modify permissions for in-place file edits
+  # Empty for research profile - no modifications allowed
+  modify: []
+
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
+
 org_roam_patterns:
   subdirectory: ["**"]
   tags: ["*"]
   node_ids: ["*"]
-shell_commands:
-  allow: ["ls", "find", "grep", "rg"]
-  deny: ["rm -rf", "sudo", "git push", "git reset"]
+
+bash_tools:
+  # Deny list: Commands never allowed, even with scope expansion
+  # Minimal set for security: privilege escalation, destructive operations
+  deny:
+    - "sudo"
+    - "dd"
+    - "chmod"
+    - "chown"
+
+# V4 Schema: Cloud authentication detection
+# Research profile is read-only, but still validate cloud auth attempts
+cloud:
+  # Options: "allow" (permit), "warn" (notify user), "deny" (block)
+  # "deny" for research profile - no cloud operations in read-only mode
+  auth_detection: "deny"
+
+# V4 Schema: Security and parsing strictness
+# Strict parsing for research safety
+security:
+  # Require complete bash parse coverage before command execution
+  # true = strict (reject unparseable commands), false = lenient (allow on parse failure)
+  enforce_parse_complete: true
+
+  # Maximum bash coverage threshold (0.0 to 1.0)
+  # Standard threshold for read-only operations
+  max_coverage_threshold: 0.8

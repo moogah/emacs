@@ -1,3 +1,13 @@
+;;; scope-org-roam-tools.el --- GPTEL Scope Org-Roam Tools -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Scope-aware org-roam tools for gptel sessions.
+
+;;; Code:
+
 ;; Dependencies
 
 

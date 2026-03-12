@@ -1,0 +1,49 @@
+# Bash-enabled profile: Extended bash tool access for system exploration
+# Use case: System debugging, comprehensive file exploration, git workflows
+# Security: Broad read access with controlled write access, extended command set
+
+paths:
+  read: ["/**"]  # Read access to entire filesystem (excluding deny list)
+  write: ["${project_root}/**"]  # Write access limited to project directory
+
+  # V4 Schema: Execute permissions for running scripts/binaries
+  # Empty by default - extended bash profile still requires explicit execute approval
+  execute: []
+
+  # V4 Schema: Modify permissions for in-place file edits (sed, awk, etc.)
+  # Empty by default - prevents destructive in-place modifications
+  modify: []
+
+  deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
+
+org_roam_patterns:
+  subdirectory: ["**"]
+  tags: ["*"]
+  node_ids: ["*"]
+
+bash_tools:
+  # Deny list: Commands never allowed, even with scope expansion
+  # Minimal set for security: privilege escalation, destructive operations
+  deny:
+    - "sudo"
+    - "dd"
+    - "chmod"
+    - "chown"
+
+# V4 Schema: Cloud authentication detection
+# Extended bash tools may interact with cloud services
+cloud:
+  # Options: "allow" (permit), "warn" (notify user), "deny" (block)
+  # Default "warn" - alerts user to cloud authentication attempts
+  auth_detection: "warn"
+
+# V4 Schema: Security and parsing strictness
+# Important for extended bash command set
+security:
+  # Require complete bash parse coverage before command execution
+  # true = strict (reject unparseable commands), false = lenient (allow on parse failure)
+  enforce_parse_complete: true
+
+  # Maximum bash coverage threshold (0.0 to 1.0)
+  # Higher threshold for extended bash profile to support complex commands
+  max_coverage_threshold: 0.8

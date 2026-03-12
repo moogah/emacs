@@ -1,0 +1,1836 @@
+Loading /Users/jefffarr/emacs/config/core/defaults.el (source)...
+Loading /Users/jefffarr/emacs/config/core/auth.el (source)...
+Loading /Users/jefffarr/emacs/config/core/avy.el (source)...
+Loading /Users/jefffarr/emacs/config/core/browser-hist.el (source)...
+Loading /Users/jefffarr/emacs/config/core/ripgrep.el (source)...
+Loading /Users/jefffarr/emacs/config/core/ultra-scroll.el (source)...
+Loading /Users/jefffarr/emacs/config/core/expand-region.el (source)...
+Loading /Users/jefffarr/emacs/config/core/evil.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/vertico.el (source)...
+Loading /Users/jefffarr/emacs/runtime/recentf...
+Cleaning up the recentf list...
+Cleaning up the recentf list...done (0 removed)
+Loading /Users/jefffarr/emacs/config/core/completion/consult.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/marginalia.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/embark.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/corfu-company.el (source)...
+Loading /Users/jefffarr/emacs/config/core/completion/mini-frame.el (source)...
+Loading /Users/jefffarr/emacs/config/core/window-management.el (source)...
+Loading /Users/jefffarr/emacs/config/core/yasnippet.el (source)...
+[yas] Prepared just-in-time loading of snippets successfully.
+Loading /Users/jefffarr/emacs/config/core/testing.el (source)...
+Loading /Users/jefffarr/emacs/config/core/buttercup.el (source)...
+Buttercup testing framework loaded
+Loading /Users/jefffarr/emacs/config/look-and-feel/look-and-feel.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/base-ui.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/frame-and-lines.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/modeline.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/themes.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/org-faces.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/terminal.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/vim-tab.el (source)...
+Loading /Users/jefffarr/emacs/config/look-and-feel/imenu.el (source)...
+Loading /Users/jefffarr/emacs/config/transient.el (source)...
+=== TRANSIENT DEBUG ===
+Before: transient loaded? nil
+After: transient loaded from /Users/jefffarr/emacs/runtime/straight/build/transient/transient.elc
+After: transient-version = undefined
+After: has transient--set-layout? t
+=== END TRANSIENT DEBUG ===
+Loading /Users/jefffarr/emacs/config/activities/activities.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/core.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/projectile.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/org-roam.el (source)...
+Loading /Users/jefffarr/emacs/config/activities/transient.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/language-modes.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/gtags.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/tree-sitter.el (source)...
+tsc-dyn-get: Using source :github (:loaded nil :recorded 0.19.4 :requested 0.19.4)
+tsc-dyn-get: Recorded version already satifies requested -> loading
+tree-sitter-langs: Grammar bundle v0.13.17 was already installed; skipped
+Loading /Users/jefffarr/emacs/config/language-modes/lsp-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/projectile.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/copilot.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/yaml.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/json.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/markdown-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/terraform.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/puppet-mode.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/python.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/typescript.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/javascript.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/golang.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/sql.el (source)...
+Loading /Users/jefffarr/emacs/config/language-modes/docker.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/magit.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/org.el (source)...
+org-super-agenda-mode enabled.
+ATTENTION: org-noter-pdf has many featues that depend on the package ‘pdf-tools’
+ATTENTION: org-noter-nov needs the package ‘nov’
+ATTENTION: org-noter-djvu needs the package ‘djvu’
+Loading /Users/jefffarr/emacs/config/major-modes/org-roam.el (source)...
+Clearing removed files... 
+Clearing removed files...done
+Processing modified files... 
+Processing modified files...done
+Loading /Users/jefffarr/emacs/config/major-modes/dirvish.el (source)...
+Loading /Users/jefffarr/emacs/config/major-modes/beads.el (source)...
+Loading /Users/jefffarr/emacs/config/bash-parser/bash-parser.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/gptel.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-core.el (source)...
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 13 skill(s) total (13 markdown, 0 org-roam)
+Checking org-roam skills: featurep=nil enabled=unbound
+Loaded 13 skill(s) total (13 markdown, 0 org-roam)
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-roam.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/skills/skills-transient.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/constants.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/logging.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/preset-registration.el (source)...
+[GPTEL-INFO] Registered 9 presets from /Users/jefffarr/emacs/config/gptel/presets/
+Loading /Users/jefffarr/emacs/config/gptel/scope-profiles.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-core.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/projectile-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/ggtags-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/treesitter-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/sql-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/meta-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/community-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/transient-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/filesystem.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/registry.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/metadata.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/branching.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-commands.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-expansion.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/scope-shell-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/tools/persistent-agent.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/commands.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-filesystem-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/scope/scope-org-roam-tools.el (source)...
+Loading /Users/jefffarr/emacs/config/gptel/sessions/activities-integration.el (source)...
+Loading /Users/jefffarr/emacs/config/local/personal.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/research/test-semantic-gaps.el
+Loading /Users/jefffarr/emacs/config/bash-parser/research/test-semantic-gaps.el (source)...
+
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-backward-compatibility.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-backward-compatibility.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-command-injection.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-command-injection.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-file-operations.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-file-operations.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-security-validator.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/behavioral/test-security-validator.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/construct/test-conditional-context.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/construct/test-conditional-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/construct/test-directory-changing-commands.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/construct/test-directory-changing-commands.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/construct/test-heredoc-context.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/construct/test-heredoc-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/construct/test-loop-context.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/construct/test-loop-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/construct/test-pwd-directory-context.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/construct/test-pwd-directory-context.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/corpus/runners/test-corpus-file-operations.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/corpus/runners/test-corpus-file-operations.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/corpus/runners/test-corpus-parse.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/corpus/runners/test-corpus-parse.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/corpus/runners/test-corpus-script-execution.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/corpus/runners/test-corpus-script-execution.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/integration/test-command-substitution.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/integration/test-command-substitution.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/integration/test-expect-file-ops-validation.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/integration/test-expect-file-ops-validation.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/integration/test-find-exec-patterns.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/integration/test-find-exec-patterns.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/integration/test-pattern-flow.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/integration/test-pattern-flow.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/integration/test-treesitter-workarounds.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/integration/test-treesitter-workarounds.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/analysis/test-bash-parser-recursive.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/analysis/test-bash-parser-recursive.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/analysis/test-input-validation.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/analysis/test-input-validation.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/analysis/test-parser-extension.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/analysis/test-parser-extension.el (source)...
+Loading /Users/jefffarr/emacs/config/bash-parser/bash-parser.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-ast-structure-dump.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-ast-structure-dump.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-ast-traversal-completeness.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-ast-traversal-completeness.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-cloud-auth-plugin.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-cloud-auth-plugin.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-coverage.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-coverage.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-filesystem-plugin.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-filesystem-plugin.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-glob-matching.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-glob-matching.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-plugins.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/core/test-plugins.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-bash-parser-semantics.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-bash-parser-semantics.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-command-semantics.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-command-semantics.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-semantics-validation.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-semantics-validation.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-variable-chain-ampersand.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-variable-chain-ampersand.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-variable-resolution-unit.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/unit/semantic/test-variable-resolution-unit.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/test-assertions.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/test-assertions.el (source)...
+Loading: /Users/jefffarr/emacs/config/bash-parser/test/test-helper.el
+Loading /Users/jefffarr/emacs/config/bash-parser/test/test-helper.el (source)...
+Loading: /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-shell-tools-legacy.el
+Loading /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-shell-tools-legacy.el (source)...
+Loading: /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-validation-cloud-auth.el
+Loading /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-validation-cloud-auth.el (source)...
+Loading: /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-validation-file-paths.el
+Loading /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-validation-file-paths.el (source)...
+Loading: /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-validation-pipelines.el
+Loading /Users/jefffarr/emacs/config/gptel/tools/test/test-scope-validation-pipelines.el (source)...
+Running 934 tests (2026-03-08 16:28:52+0100, selector ‘t’)
+   passed    1/934  jf/bash-parser-test-background-001 (0.002810 sec)
+   passed    2/934  jf/bash-parser-test-background-002 (0.002235 sec)
+   passed    3/934  jf/bash-parser-test-chain-001 (0.002214 sec)
+   passed    4/934  jf/bash-parser-test-chain-002 (0.002176 sec)
+   passed    5/934  jf/bash-parser-test-chain-003 (0.002186 sec)
+   passed    6/934  jf/bash-parser-test-chain-004 (0.002230 sec)
+   passed    7/934  jf/bash-parser-test-complex-001 (0.002162 sec)
+   passed    8/934  jf/bash-parser-test-complex-002 (0.004364 sec)
+   passed    9/934  jf/bash-parser-test-complex-003 (0.002152 sec)
+   passed   10/934  jf/bash-parser-test-complex-004 (0.002170 sec)
+   passed   11/934  jf/bash-parser-test-complex-005 (0.002140 sec)
+   passed   12/934  jf/bash-parser-test-dangerous-001 (0.002142 sec)
+   passed   13/934  jf/bash-parser-test-dangerous-002 (0.002193 sec)
+   passed   14/934  jf/bash-parser-test-find-001 (0.002285 sec)
+   passed   15/934  jf/bash-parser-test-find-002 (0.002212 sec)
+   passed   16/934  jf/bash-parser-test-find-003 (0.002221 sec)
+   passed   17/934  jf/bash-parser-test-find-004 (0.002204 sec)
+   passed   18/934  jf/bash-parser-test-git-001 (0.002239 sec)
+   passed   19/934  jf/bash-parser-test-git-002 (0.002178 sec)
+   passed   20/934  jf/bash-parser-test-git-003 (0.002151 sec)
+   passed   21/934  jf/bash-parser-test-git-004 (0.002138 sec)
+   passed   22/934  jf/bash-parser-test-git-005 (0.002147 sec)
+   passed   23/934  jf/bash-parser-test-glob-001 (0.002170 sec)
+   passed   24/934  jf/bash-parser-test-glob-002 (0.002200 sec)
+   passed   25/934  jf/bash-parser-test-glob-003 (0.002162 sec)
+   passed   26/934  jf/bash-parser-test-glob-004 (0.002114 sec)
+   passed   27/934  jf/bash-parser-test-glob-005 (0.002120 sec)
+   passed   28/934  jf/bash-parser-test-glob-006 (0.002172 sec)
+   passed   29/934  jf/bash-parser-test-heredoc-001 (0.002154 sec)
+   passed   30/934  jf/bash-parser-test-manual-basic (0.002132 sec)
+   passed   31/934  jf/bash-parser-test-manual-dangerous-git-push (0.002126 sec)
+   passed   32/934  jf/bash-parser-test-manual-dangerous-rm (0.002188 sec)
+   passed   33/934  jf/bash-parser-test-manual-git-subcommand (0.002125 sec)
+   passed   34/934  jf/bash-parser-test-pipeline-001 (0.002170 sec)
+   passed   35/934  jf/bash-parser-test-pipeline-002 (0.002225 sec)
+   passed   36/934  jf/bash-parser-test-pipeline-003 (0.002170 sec)
+   passed   37/934  jf/bash-parser-test-quote-001 (0.002330 sec)
+   passed   38/934  jf/bash-parser-test-quote-002 (0.002178 sec)
+   passed   39/934  jf/bash-parser-test-quote-003 (0.002275 sec)
+   passed   40/934  jf/bash-parser-test-quote-004 (0.002151 sec)
+   passed   41/934  jf/bash-parser-test-quote-005 (0.002146 sec)
+   passed   42/934  jf/bash-parser-test-redirect-001 (0.002134 sec)
+   passed   43/934  jf/bash-parser-test-redirect-002 (0.002166 sec)
+   passed   44/934  jf/bash-parser-test-redirect-003 (0.002174 sec)
+   passed   45/934  jf/bash-parser-test-redirect-004 (0.002248 sec)
+   passed   46/934  jf/bash-parser-test-redirect-005 (0.002181 sec)
+   passed   47/934  jf/bash-parser-test-redirect-006 (0.002305 sec)
+   passed   48/934  jf/bash-parser-test-simple-001 (0.002208 sec)
+   passed   49/934  jf/bash-parser-test-simple-002 (0.002115 sec)
+   passed   50/934  jf/bash-parser-test-simple-003 (0.002114 sec)
+   passed   51/934  jf/bash-parser-test-simple-004 (0.002101 sec)
+   passed   52/934  jf/bash-parser-test-substitution-001 (0.004208 sec)
+   passed   53/934  jf/bash-parser-test-substitution-002 (0.004256 sec)
+   passed   54/934  jf/bash-parser-test-substitution-003 (0.004247 sec)
+   passed   55/934  jf/bash-parser-test-variable-001 (0.002118 sec)
+   passed   56/934  jf/bash-parser-test-variable-002 (0.002123 sec)
+   passed   57/934  jf/bash-parser-test-variable-003 (0.002110 sec)
+   passed   58/934  jf/bash-parser-test-variable-004 (0.002083 sec)
+   passed   59/934  jf/bash-parser-test-variable-005 (0.002093 sec)
+   passed   60/934  jf/bash-parser-test-variable-006 (0.002235 sec)
+   passed   61/934  jf/bash-parser-test-variable-007 (0.002203 sec)
+   passed   62/934  jf/bash-parser-test-variable-008 (0.002145 sec)
+   passed   63/934  jf/bash-parser-test-wrapper-001 (0.002153 sec)
+   passed   64/934  jf/bash-parser-test-wrapper-002 (0.002115 sec)
+   passed   65/934  jf/bash-parser-test-wrapper-003 (0.002159 sec)
+   passed   66/934  jf/bash-parser-test-wrapper-004 (0.002143 sec)
+   passed   67/934  test-arithmetic-expansion-still-works (0.002150 sec)
+AND chain: 11 total nodes, 11 visited
+   passed   68/934  test-ast-traversal-and-chain (0.002121 sec)
+Command substitution: 10 total nodes, 10 visited
+   passed   69/934  test-ast-traversal-command-substitution (0.002294 sec)
+Command with args: 7 total nodes, 7 visited
+   passed   70/934  test-ast-traversal-command-with-args (0.002170 sec)
+Complex chain: 20 total nodes, 20 visited
+   passed   71/934  test-ast-traversal-complex-chain (0.002128 sec)
+Multiple redirections: 15 total nodes, 15 visited
+   passed   72/934  test-ast-traversal-multiple-redirections (0.002071 sec)
+Nested subshells: 11 total nodes, 11 visited
+   passed   73/934  test-ast-traversal-nested-subshells (0.002112 sec)
+Nested substitution: 16 total nodes, 16 visited
+   passed   74/934  test-ast-traversal-nested-substitution (0.002088 sec)
+OR chain: 12 total nodes, 12 visited
+   passed   75/934  test-ast-traversal-or-chain (0.002078 sec)
+Output redirection: 9 total nodes, 9 visited
+   passed   76/934  test-ast-traversal-output-redirection (0.002073 sec)
+Find with exec: 13 total nodes, 13 visited
+   passed   77/934  test-ast-traversal-real-world-find-exec (0.002085 sec)
+Real git commit: 22 total nodes, 22 visited
+   passed   78/934  test-ast-traversal-real-world-git-commit (0.002094 sec)
+Pipeline+chain combo: 21 total nodes, 21 visited
+   passed   79/934  test-ast-traversal-real-world-pipeline-chain-combo (0.002155 sec)
+All node types: (">" "file_redirect" "|" "word" "command_name" "command" "pipeline" "redirected_statement" "program")
+Visited node types: (">" "file_redirect" "|" "word" "command_name" "command" "pipeline" "redirected_statement" "program")
+   passed   80/934  test-ast-traversal-reports-all-node-types (0.002164 sec)
+Simple command: 5 total nodes, 5 visited
+   passed   81/934  test-ast-traversal-simple-command (0.002181 sec)
+Simple pipeline: 11 total nodes, 11 visited
+   passed   82/934  test-ast-traversal-simple-pipeline (0.002180 sec)
+Subshell: 13 total nodes, 13 visited
+   passed   83/934  test-ast-traversal-subshell (0.002128 sec)
+Three-stage pipeline: 15 total nodes, 15 visited
+   passed   84/934  test-ast-traversal-three-stage-pipeline (0.002132 sec)
+   passed   85/934  test-backward-compat-copy-command (0.002205 sec)
+   passed   86/934  test-backward-compat-corpus-delete-operations (0.004336 sec)
+   passed   87/934  test-backward-compat-corpus-read-operations (0.006466 sec)
+   passed   88/934  test-backward-compat-corpus-write-operations (0.004230 sec)
+   passed   89/934  test-backward-compat-pipeline (0.002219 sec)
+   passed   90/934  test-backward-compat-simple-delete (0.002342 sec)
+   passed   91/934  test-backward-compat-simple-read (0.002187 sec)
+   passed   92/934  test-backward-compat-simple-write (0.002146 sec)
+   passed   93/934  test-backward-compat-unresolved-variables (0.002184 sec)
+   passed   94/934  test-backward-compat-variable-resolution (0.002136 sec)
+   passed   95/934  test-cd-absolute-path-multiple-operations (0.002293 sec)
+   passed   96/934  test-cd-absolute-path-simple (0.002222 sec)
+   passed   97/934  test-cd-absolute-path-with-relative-file (0.002233 sec)
+   passed   98/934  test-cd-and-run-script (0.002207 sec)
+   passed   99/934  test-cd-conditional-both-branches (0.006814 sec)
+   passed  100/934  test-cd-empty-string (0.002190 sec)
+   passed  101/934  test-cd-for-loop-files (0.004358 sec)
+   passed  102/934  test-cd-in-if-statement (0.008825 sec)
+   passed  103/934  test-cd-no-args (0.002263 sec)
+   passed  104/934  test-cd-relative-path-current-dir (0.002239 sec)
+   passed  105/934  test-cd-relative-path-dot-slash (0.002230 sec)
+   passed  106/934  test-cd-relative-path-parent (0.002297 sec)
+   passed  107/934  test-cd-relative-path-subdir (0.002250 sec)
+   passed  108/934  test-cd-semicolon-separator (0.002214 sec)
+   passed  109/934  test-cd-sequence-relative-after-absolute (0.002284 sec)
+   passed  110/934  test-cd-sequence-two-cds (0.002331 sec)
+   passed  111/934  test-cd-to-file-not-directory (0.002230 sec)
+   passed  112/934  test-cd-with-command-substitution (0.004491 sec)
+   passed  113/934  test-cd-with-dash (0.002425 sec)
+   passed  114/934  test-cd-with-operations-between (0.002351 sec)
+   passed  115/934  test-cd-with-or-fallback (0.002245 sec)
+   passed  116/934  test-cd-with-pwd-variable (0.002206 sec)
+   passed  117/934  test-cd-with-tilde (0.002269 sec)
+   passed  118/934  test-cd-with-variable-absolute (0.002242 sec)
+   passed  119/934  test-cd-with-variable-relative (0.002230 sec)
+   passed  120/934  test-cloud-auth-plugin-aws-no-auth-flags (0.002364 sec)
+   passed  121/934  test-cloud-auth-plugin-aws-profile (0.002335 sec)
+   passed  122/934  test-cloud-auth-plugin-aws-profile-and-region (0.002167 sec)
+   passed  123/934  test-cloud-auth-plugin-aws-region (0.002159 sec)
+   passed  124/934  test-cloud-auth-plugin-aws-vault-exec (0.002155 sec)
+   passed  125/934  test-cloud-auth-plugin-aws-vault-exec-nested (0.002139 sec)
+   passed  126/934  test-cloud-auth-plugin-aws-vault-invalid-subcommand (0.002181 sec)
+   passed  127/934  test-cloud-auth-plugin-aws-vault-login (0.002202 sec)
+   passed  128/934  test-cloud-auth-plugin-aws-vault-no-account (0.002157 sec)
+   passed  129/934  test-cloud-auth-plugin-azure-location (0.002217 sec)
+   passed  130/934  test-cloud-auth-plugin-azure-multiple-flags (0.002172 sec)
+   passed  131/934  test-cloud-auth-plugin-azure-subscription (0.002146 sec)
+   passed  132/934  test-cloud-auth-plugin-claims-auth-flags (0.002151 sec)
+   passed  133/934  test-cloud-auth-plugin-claims-command-name (0.002145 sec)
+   passed  134/934  test-cloud-auth-plugin-claims-positional-account (0.002143 sec)
+   passed  135/934  test-cloud-auth-plugin-complex-aws-command (0.002523 sec)
+   passed  136/934  test-cloud-auth-plugin-gcloud-account (0.002191 sec)
+   passed  137/934  test-cloud-auth-plugin-gcloud-all-flags (0.002153 sec)
+   passed  138/934  test-cloud-auth-plugin-gcloud-multiple-flags (0.002126 sec)
+   passed  139/934  test-cloud-auth-plugin-gcloud-project (0.002160 sec)
+   passed  140/934  test-cloud-auth-plugin-gcloud-region (0.002088 sec)
+   passed  141/934  test-cloud-auth-plugin-gcloud-zone (0.002139 sec)
+   passed  142/934  test-cloud-auth-plugin-in-orchestrator (0.002256 sec)
+   passed  143/934  test-cloud-auth-plugin-metadata (0.002196 sec)
+   passed  144/934  test-cloud-auth-plugin-predicate-aws (0.002240 sec)
+   passed  145/934  test-cloud-auth-plugin-predicate-aws-vault (0.002102 sec)
+   passed  146/934  test-cloud-auth-plugin-predicate-azure (0.002076 sec)
+   passed  147/934  test-cloud-auth-plugin-predicate-gcloud (0.002091 sec)
+   passed  148/934  test-cloud-auth-plugin-predicate-non-cloud (0.002068 sec)
+   passed  149/934  test-cloud-auth-plugin-registration (0.000037 sec)
+   passed  150/934  test-cmdsub-backtick-syntax (0.004177 sec)
+   passed  151/934  test-cmdsub-cat-wc (0.004528 sec)
+   passed  152/934  test-cmdsub-conditional-inside (0.004227 sec)
+   passed  153/934  test-cmdsub-cp-two-which (0.006238 sec)
+   passed  154/934  test-cmdsub-find-pipe-wc (0.004403 sec)
+   passed  155/934  test-cmdsub-find-sort (0.004353 sec)
+   passed  156/934  test-cmdsub-for-loop-basename (0.004147 sec)
+   passed  157/934  test-cmdsub-for-loop-find (0.004271 sec)
+   passed  158/934  test-cmdsub-git-commit-message (0.004202 sec)
+   passed  159/934  test-cmdsub-in-arithmetic (0.004432 sec)
+   passed  160/934  test-cmdsub-in-double-quotes (0.004273 sec)
+   passed  161/934  test-cmdsub-in-heredoc (0.004279 sec)
+   passed  162/934  test-cmdsub-in-test-conditional (0.004310 sec)
+   passed  163/934  test-cmdsub-multi-stage-pipe (0.004474 sec)
+   failed  164/934  test-cmdsub-nested-backticks (0.004278 sec)
+   passed  165/934  test-cmdsub-nested-basename (0.008485 sec)
+   passed  166/934  test-cmdsub-nested-dirname-which (0.008559 sec)
+   passed  167/934  test-cmdsub-nested-find (0.004350 sec)
+   passed  168/934  test-cmdsub-nested-quotes (0.004449 sec)
+   passed  169/934  test-cmdsub-recursive-depth-limiting (0.015007 sec)
+   passed  170/934  test-cmdsub-recursive-find-parse (0.004322 sec)
+   passed  171/934  test-cmdsub-recursive-parsing-empty (0.002811 sec)
+   passed  172/934  test-cmdsub-recursive-parsing-nested (0.008730 sec)
+   passed  173/934  test-cmdsub-recursive-parsing-simple (0.004249 sec)
+   passed  174/934  test-cmdsub-triple-nesting (0.017487 sec)
+   passed  175/934  test-cmdsub-two-with-globs (0.006286 sec)
+   passed  176/934  test-cmdsub-variable-assignment (0.004357 sec)
+   passed  177/934  test-cmdsub-with-pipe-inside (0.004289 sec)
+   passed  178/934  test-conditional-command-based (0.006454 sec)
+   passed  179/934  test-conditional-directory-test (0.004473 sec)
+   passed  180/934  test-conditional-else-branch (0.006768 sec)
+   passed  181/934  test-conditional-executable-test (0.004419 sec)
+   passed  182/934  test-conditional-exists-test (0.004355 sec)
+   passed  183/934  test-conditional-readable-test (0.004360 sec)
+   passed  184/934  test-conditional-test-vs-branch (0.004223 sec)
+   passed  185/934  test-conditional-then-branch (0.004164 sec)
+   passed  186/934  test-conditional-with-simple-path (0.004338 sec)
+   passed  187/934  test-conditional-writable-test (0.004773 sec)
+   passed  188/934  test-confidence-degradation-for-unresolved (0.002240 sec)
+   passed  189/934  test-confidence-high-for-fully-resolved (0.002272 sec)
+   passed  190/934  test-corpus-archive-001 (0.002258 sec)
+   passed  191/934  test-corpus-archive-002 (0.002247 sec)
+   passed  192/934  test-corpus-archive-003 (0.002304 sec)
+   passed  193/934  test-corpus-chain-001 (0.002419 sec)
+   passed  194/934  test-corpus-chain-002 (0.002342 sec)
+   passed  195/934  test-corpus-chain-003 (0.002322 sec)
+   passed  196/934  test-corpus-copy-001 (0.002217 sec)
+   passed  197/934  test-corpus-copy-002 (0.002218 sec)
+   passed  198/934  test-corpus-copy-003 (0.002225 sec)
+   passed  199/934  test-corpus-delete-001 (0.002272 sec)
+   passed  200/934  test-corpus-delete-002 (0.002252 sec)
+   passed  201/934  test-corpus-delete-003 (0.002400 sec)
+   passed  202/934  test-corpus-delete-004 (0.002408 sec)
+   passed  203/934  test-corpus-directory-001 (0.002513 sec)
+   passed  204/934  test-corpus-directory-002 (0.002479 sec)
+   passed  205/934  test-corpus-find-001 (0.002539 sec)
+   passed  206/934  test-corpus-find-002 (0.003579 sec)
+   passed  207/934  test-corpus-find-003 (0.003362 sec)
+   passed  208/934  test-corpus-git-001 (0.002515 sec)
+   passed  209/934  test-corpus-git-002 (0.002245 sec)
+   passed  210/934  test-corpus-git-003 (0.002163 sec)
+   passed  211/934  test-corpus-git-004 (0.002169 sec)
+   passed  212/934  test-corpus-glob-001 (0.002164 sec)
+   passed  213/934  test-corpus-glob-002 (0.002161 sec)
+   passed  214/934  test-corpus-glob-003 (0.002265 sec)
+   passed  215/934  test-corpus-glob-004 (0.002182 sec)
+Corpus jf/bash-command-substitution-corpus: 2/23 tests have :expect-file-ops
+Corpus jf/bash-combined-patterns-corpus: 1/39 tests have :expect-file-ops
+Corpus jf/bash-conditional-corpus: 1/18 tests have :expect-file-ops
+Corpus jf/bash-for-loop-corpus: 1/27 tests have :expect-file-ops
+Corpus jf/bash-heredoc-corpus: 1/23 tests have :expect-file-ops
+Total tests with :expect-file-ops: 6
+   passed  216/934  test-corpus-has-expect-file-ops (0.000086 sec)
+   passed  217/934  test-corpus-integration-001 (0.013122 sec)
+   passed  218/934  test-corpus-integration-002 (0.004501 sec)
+   passed  219/934  test-corpus-integration-003 (0.006442 sec)
+   passed  220/934  test-corpus-integration-004 (0.002269 sec)
+   passed  221/934  test-corpus-integration-005 (0.004364 sec)
+   passed  222/934  test-corpus-match-pattern-001 (0.002291 sec)
+   passed  223/934  test-corpus-match-pattern-002 (0.002321 sec)
+   passed  224/934  test-corpus-match-pattern-003 (0.002222 sec)
+   passed  225/934  test-corpus-match-pattern-004 (0.002185 sec)
+   passed  226/934  test-corpus-match-pattern-005 (0.002195 sec)
+   passed  227/934  test-corpus-match-pattern-006 (0.002123 sec)
+   passed  228/934  test-corpus-match-pattern-007 (0.002303 sec)
+   passed  229/934  test-corpus-match-pattern-008 (0.002216 sec)
+   passed  230/934  test-corpus-modify-001 (0.002346 sec)
+   passed  231/934  test-corpus-modify-002 (0.002211 sec)
+   passed  232/934  test-corpus-modify-003 (0.002258 sec)
+   passed  233/934  test-corpus-modify-004 (0.002220 sec)
+   passed  234/934  test-corpus-move-001 (0.002218 sec)
+   passed  235/934  test-corpus-move-002 (0.002266 sec)
+   passed  236/934  test-corpus-no-ops-001 (0.002220 sec)
+   passed  237/934  test-corpus-no-ops-002 (0.002203 sec)
+   passed  238/934  test-corpus-no-ops-003 (0.002135 sec)
+   passed  239/934  test-corpus-no-ops-004 (0.002125 sec)
+   passed  240/934  test-corpus-pipeline-001 (0.002261 sec)
+   passed  241/934  test-corpus-pipeline-002 (0.002272 sec)
+   passed  242/934  test-corpus-read-001 (0.002203 sec)
+   passed  243/934  test-corpus-read-002 (0.002279 sec)
+   passed  244/934  test-corpus-read-003 (0.002240 sec)
+   passed  245/934  test-corpus-read-004 (0.002275 sec)
+   passed  246/934  test-corpus-read-005 (0.002277 sec)
+   passed  247/934  test-corpus-read-006 (0.002227 sec)
+   passed  248/934  test-corpus-redirect-001 (0.002388 sec)
+   passed  249/934  test-corpus-redirect-002 (0.002323 sec)
+   passed  250/934  test-corpus-redirect-003 (0.002344 sec)
+   passed  251/934  test-corpus-redirect-004 (0.002316 sec)
+   passed  252/934  test-corpus-variable-001 (0.002333 sec)
+   passed  253/934  test-corpus-variable-002 (0.002424 sec)
+   passed  254/934  test-corpus-variable-003 (0.002291 sec)
+   passed  255/934  test-corpus-variable-004 (0.002330 sec)
+   passed  256/934  test-corpus-variable-005 (0.002300 sec)
+   passed  257/934  test-corpus-variable-chain-001 (0.002306 sec)
+   passed  258/934  test-corpus-variable-chain-002 (0.002322 sec)
+   passed  259/934  test-corpus-variable-chain-003 (0.002381 sec)
+   passed  260/934  test-corpus-write-001 (0.002238 sec)
+   passed  261/934  test-corpus-write-002 (0.002261 sec)
+   passed  262/934  test-corpus-write-003 (0.002304 sec)
+   passed  263/934  test-corpus-write-004 (0.002476 sec)
+   passed  264/934  test-coverage-by-type-multiple-types (0.000064 sec)
+   passed  265/934  test-coverage-by-type-single-type (0.000043 sec)
+   passed  266/934  test-coverage-full-coverage (0.000041 sec)
+   passed  267/934  test-coverage-no-coverage (0.000037 sec)
+   passed  268/934  test-coverage-partial-coverage (0.000044 sec)
+   passed  269/934  test-coverage-shared-claiming (0.000038 sec)
+   passed  270/934  test-coverage-unclaimed-tokens-list (0.000046 sec)
+   passed  271/934  test-coverage-zero-tokens (0.000034 sec)
+   passed  272/934  test-deploy-script-pattern (0.002598 sec)
+   passed  273/934  test-detect-braced-variable (0.000028 sec)
+   passed  274/934  test-detect-duplicate-variables (0.000024 sec)
+   passed  275/934  test-detect-mixed-variable-syntax (0.000022 sec)
+   passed  276/934  test-detect-multiple-variables (0.000022 sec)
+   passed  277/934  test-detect-no-variables (0.000022 sec)
+   passed  278/934  test-detect-simple-dollar-variable (0.000023 sec)
+   passed  279/934  test-detect-variable-at-end (0.000022 sec)
+   passed  280/934  test-detect-variable-order (0.000022 sec)
+   passed  281/934  test-double-paren-at-start-only (0.006566 sec)
+   passed  282/934  test-double-paren-chain (0.006952 sec)
+   passed  283/934  test-double-paren-simple-command (0.006596 sec)
+   passed  284/934  test-double-paren-with-args (0.006577 sec)
+
+=== AST Structure: find . -name ’*.log’ -exec rm {} \; ===
+[program] "find . -name '*.log' -exec rm {} \;" (pos 1-36)
+  [command] "find . -name '*.log' -exec rm {} \;" (pos 1-36)
+    [command_name] "find" (pos 1-5)
+      [word] "find" (pos 1-5)
+    [word] "." (pos 6-7)
+    [word] "-name" (pos 8-13)
+    [raw_string] "'*.log'" (pos 14-21)
+    [word] "-exec" (pos 22-27)
+    [word] "rm" (pos 28-30)
+    [concatenation] "{}" (pos 31-33)
+      [word] "{" (pos 31-32)
+      [word] "}" (pos 32-33)
+    [word] "\;" (pos 34-36)
+
+   passed  285/934  test-dump-ast-find-exec (0.002328 sec)
+
+=== AST Structure: git add . && git commit -m ’Fix bug’ && git push ===
+[program] "git add . && git commit -m 'Fix bug' ..." (pos 1-49)
+  [list] "git add . && git commit -m 'Fix bug' ..." (pos 1-49)
+    [list] "git add . && git commit -m 'Fix bug'" (pos 1-37)
+      [command] "git add ." (pos 1-10)
+        [command_name] "git" (pos 1-4)
+          [word] "git" (pos 1-4)
+        [word] "add" (pos 5-8)
+        [word] "." (pos 9-10)
+      [&&] "&&" (pos 11-13)
+      [command] "git commit -m 'Fix bug'" (pos 14-37)
+        [command_name] "git" (pos 14-17)
+          [word] "git" (pos 14-17)
+        [word] "commit" (pos 18-24)
+        [word] "-m" (pos 25-27)
+        [raw_string] "'Fix bug'" (pos 28-37)
+    [&&] "&&" (pos 38-40)
+    [command] "git push" (pos 41-49)
+      [command_name] "git" (pos 41-44)
+        [word] "git" (pos 41-44)
+      [word] "push" (pos 45-49)
+
+   passed  286/934  test-dump-ast-git-chain (0.002280 sec)
+
+=== AST Structure: cat file.txt | grep pattern ===
+[program] "cat file.txt | grep pattern" (pos 1-28)
+  [pipeline] "cat file.txt | grep pattern" (pos 1-28)
+    [command] "cat file.txt" (pos 1-13)
+      [command_name] "cat" (pos 1-4)
+        [word] "cat" (pos 1-4)
+      [word] "file.txt" (pos 5-13)
+    [|] "|" (pos 14-15)
+    [command] "grep pattern" (pos 16-28)
+      [command_name] "grep" (pos 16-20)
+        [word] "grep" (pos 16-20)
+      [word] "pattern" (pos 21-28)
+
+   passed  287/934  test-dump-ast-pipeline (0.002211 sec)
+
+=== AST Structure: echo hello ===
+[program] "echo hello" (pos 1-11)
+  [command] "echo hello" (pos 1-11)
+    [command_name] "echo" (pos 1-5)
+      [word] "echo" (pos 1-5)
+    [word] "hello" (pos 6-11)
+
+   passed  288/934  test-dump-ast-simple-command (0.002179 sec)
+
+=== AST Structure: cat file.txt | grep pattern | sort ===
+[program] "cat file.txt | grep pattern | sort" (pos 1-35)
+  [pipeline] "cat file.txt | grep pattern | sort" (pos 1-35)
+    [command] "cat file.txt" (pos 1-13)
+      [command_name] "cat" (pos 1-4)
+        [word] "cat" (pos 1-4)
+      [word] "file.txt" (pos 5-13)
+    [|] "|" (pos 14-15)
+    [command] "grep pattern" (pos 16-28)
+      [command_name] "grep" (pos 16-20)
+        [word] "grep" (pos 16-20)
+      [word] "pattern" (pos 21-28)
+    [|] "|" (pos 29-30)
+    [command] "sort" (pos 31-35)
+      [command_name] "sort" (pos 31-35)
+        [word] "sort" (pos 31-35)
+
+   passed  289/934  test-dump-ast-three-stage-pipeline (0.002273 sec)
+
+=== AST Structure: cat file.txt | grep pattern > out.txt ===
+[program] "cat file.txt | grep pattern > out.txt" (pos 1-38)
+  [redirected_statement] "cat file.txt | grep pattern > out.txt" (pos 1-38)
+    [pipeline] "cat file.txt | grep pattern" (pos 1-28)
+      [command] "cat file.txt" (pos 1-13)
+        [command_name] "cat" (pos 1-4)
+          [word] "cat" (pos 1-4)
+        [word] "file.txt" (pos 5-13)
+      [|] "|" (pos 14-15)
+      [command] "grep pattern" (pos 16-28)
+        [command_name] "grep" (pos 16-20)
+          [word] "grep" (pos 16-20)
+        [word] "pattern" (pos 21-28)
+    [file_redirect] "> out.txt" (pos 29-38)
+      [>] ">" (pos 29-30)
+      [word] "out.txt" (pos 31-38)
+
+   passed  290/934  test-dump-ast-with-redirections (0.002242 sec)
+   passed  291/934  test-execution-parity-relative-path (0.003071 sec)
+   passed  292/934  test-expect-file-ops-structure (0.000034 sec)
+   passed  293/934  test-extract-assignment-command-substitution-in-value (0.000038 sec)
+   passed  294/934  test-extract-assignment-from-positional-args (0.000028 sec)
+   passed  295/934  test-extract-assignment-multiple-in-args (0.000031 sec)
+   passed  296/934  test-extract-assignment-no-assignments (0.000023 sec)
+   passed  297/934  test-extract-assignment-skips-flags (0.000028 sec)
+   passed  298/934  test-extract-assignment-split-format (0.000025 sec)
+   passed  299/934  test-extract-assignment-unified-format (0.000026 sec)
+   passed  300/934  test-extract-assignment-unresolved-skipped (0.000028 sec)
+   passed  301/934  test-extract-assignment-with-relative-path (0.000030 sec)
+   passed  302/934  test-extract-assignment-with-variable-resolution (0.000031 sec)
+   passed  303/934  test-extraction-absolute-path (0.002368 sec)
+   passed  304/934  test-extraction-append-redirection (0.002379 sec)
+   passed  305/934  test-extraction-command-chain (0.002321 sec)
+   passed  306/934  test-extraction-command-with-multiple-file-arguments (0.002269 sec)
+   passed  307/934  test-extraction-command-with-no-file-operations (0.002224 sec)
+   passed  308/934  test-extraction-duplicate-file-operations (0.002215 sec)
+   failed  309/934  test-extraction-dynamic-redirect-multiple-subs (0.007332 sec)
+   failed  310/934  test-extraction-dynamic-redirect-nested (0.009315 sec)
+   failed  311/934  test-extraction-dynamic-redirect-simple (0.004678 sec)
+   failed  312/934  test-extraction-heredoc-dynamic-redirect (0.002690 sec)
+   passed  313/934  test-extraction-high-confidence-from-known-command (0.002317 sec)
+   passed  314/934  test-extraction-high-confidence-from-redirection (0.002267 sec)
+   passed  315/934  test-extraction-input-redirection (0.002291 sec)
+   passed  316/934  test-extraction-main-function-chain (0.002355 sec)
+   passed  317/934  test-extraction-main-function-pipeline (0.002398 sec)
+   passed  318/934  test-extraction-main-function-simple-command (0.002394 sec)
+   passed  319/934  test-extraction-metadata-for-positional-arg (0.002425 sec)
+   passed  320/934  test-extraction-metadata-for-redirection (0.002217 sec)
+   passed  321/934  test-extraction-multiple-redirections (0.002232 sec)
+   passed  322/934  test-extraction-output-redirection (0.002217 sec)
+   passed  323/934  test-extraction-pipeline-with-multiple-file-operations (0.002333 sec)
+   passed  324/934  test-extraction-recursive-glob-pattern (0.002215 sec)
+   passed  325/934  test-extraction-redirections-keep-high-confidence-with-variables (0.002240 sec)
+   passed  326/934  test-extraction-relative-path (0.002276 sec)
+   passed  327/934  test-extraction-same-file-different-operations (0.002196 sec)
+   passed  328/934  test-extraction-simple-glob-pattern (0.002158 sec)
+   passed  329/934  test-extraction-simple-read-command (0.002148 sec)
+   failed  330/934  test-extraction-xargs-null-separated (0.002282 sec)
+   failed  331/934  test-extraction-xargs-placeholder (0.002312 sec)
+   failed  332/934  test-extraction-xargs-simple-batch (0.002307 sec)
+   failed  333/934  test-extraction-xargs-with-flags (0.002375 sec)
+   passed  334/934  test-feature-detection-pattern-flow (0.000024 sec)
+   passed  335/934  test-feature-detection-recursive-analysis (0.000021 sec)
+   passed  336/934  test-feature-detection-unknown-feature (0.000022 sec)
+   passed  337/934  test-filesystem-plugin-basic-redirection (0.002252 sec)
+   passed  338/934  test-filesystem-plugin-exec-blocks (0.002252 sec)
+   passed  339/934  test-filesystem-plugin-in-orchestrator (0.002218 sec)
+   passed  340/934  test-filesystem-plugin-matches-existing-extraction (0.002206 sec)
+   passed  341/934  test-filesystem-plugin-metadata (0.002231 sec)
+   passed  342/934  test-filesystem-plugin-no-file-operations (0.002397 sec)
+   passed  343/934  test-filesystem-plugin-positional-args (0.002561 sec)
+   passed  344/934  test-filesystem-plugin-predicate-has-file-tokens (0.009120 sec)
+   passed  345/934  test-filesystem-plugin-registration (0.000052 sec)
+   passed  346/934  test-filesystem-plugin-token-claiming-command-name (0.002331 sec)
+   passed  347/934  test-filesystem-plugin-token-claiming-redirections (0.002277 sec)
+   passed  348/934  test-find-exec-rm-pattern (0.002335 sec)
+   passed  349/934  test-find-exec-workspace-validation (0.002337 sec)
+   passed  350/934  test-find-multiple-exec-blocks (0.002416 sec)
+   passed  351/934  test-find-pattern-metadata (0.000043 sec)
+   passed  352/934  test-glob-character-class-letters (0.000081 sec)
+   passed  353/934  test-glob-character-class-match (0.000056 sec)
+   passed  354/934  test-glob-character-class-no-match (0.000043 sec)
+   passed  355/934  test-glob-combined-wildcards (0.000056 sec)
+   passed  356/934  test-glob-complex-pattern (0.000062 sec)
+   passed  357/934  test-glob-double-star-at-end (0.000045 sec)
+   passed  358/934  test-glob-double-star-at-start (0.000054 sec)
+   passed  359/934  test-glob-double-star-in-middle (0.000052 sec)
+   passed  360/934  test-glob-double-star-multiple-segments (0.000056 sec)
+   passed  361/934  test-glob-double-star-zero-segments (0.000039 sec)
+   passed  362/934  test-glob-empty-path (0.000025 sec)
+   passed  363/934  test-glob-empty-pattern (0.000023 sec)
+   passed  364/934  test-glob-exact-match (0.000038 sec)
+   passed  365/934  test-glob-literal-dots (0.000038 sec)
+   passed  366/934  test-glob-literal-parens (0.000066 sec)
+   passed  367/934  test-glob-literal-plus-chars (0.000041 sec)
+   passed  368/934  test-glob-multiple-question-marks (0.000049 sec)
+   passed  369/934  test-glob-nested-double-stars (0.000054 sec)
+   passed  370/934  test-glob-no-match-different-directory (0.000038 sec)
+   passed  371/934  test-glob-path-must-match-from-start (0.000034 sec)
+   passed  372/934  test-glob-question-mark-no-match-directory-separator (0.000050 sec)
+   passed  373/934  test-glob-question-mark-no-match-two-chars (0.000030 sec)
+   passed  374/934  test-glob-question-mark-no-match-zero-chars (0.000031 sec)
+   passed  375/934  test-glob-question-mark-single-char (0.000049 sec)
+   passed  376/934  test-glob-recursive-wildcard-match (0.000049 sec)
+   passed  377/934  test-glob-root-path (0.000035 sec)
+   passed  378/934  test-glob-single-level-wildcard-match (0.000047 sec)
+   passed  379/934  test-glob-single-star-one-level-match (0.000042 sec)
+   passed  380/934  test-glob-single-star-rejects-multiple-levels (0.000039 sec)
+   passed  381/934  test-glob-to-regex-asterisk (0.000031 sec)
+   passed  382/934  test-glob-to-regex-character-class (0.000035 sec)
+   passed  383/934  test-glob-to-regex-escapes-special-chars (0.000034 sec)
+   passed  384/934  test-glob-to-regex-question (0.000030 sec)
+   passed  385/934  test-glob-trailing-slash-equivalence (0.000057 sec)
+   passed  386/934  test-glob-trailing-slash-handling (0.000039 sec)
+   passed  387/934  test-grep-pattern-metadata (0.000030 sec)
+   passed  388/934  test-heredoc-append-redirect (0.002634 sec)
+   passed  389/934  test-heredoc-embedded-substitution (0.006648 sec)
+   passed  390/934  test-heredoc-file-creation (0.002419 sec)
+   passed  391/934  test-heredoc-git-commit (0.002365 sec)
+   passed  392/934  test-heredoc-git-commit-multi-line (0.002423 sec)
+   passed  393/934  test-heredoc-multi-line-with-redirect (0.002232 sec)
+   passed  394/934  test-heredoc-mysql-input (0.002213 sec)
+   passed  395/934  test-heredoc-piped (0.002225 sec)
+   passed  396/934  test-heredoc-stderr-redirect (0.002376 sec)
+   passed  397/934  test-heredoc-to-command (0.002396 sec)
+Found 5 integration tests
+   passed  398/934  test-integration-tests-added (0.000063 sec)
+   passed  399/934  test-jf/bash-parse-detects-bash-c-injection (0.004483 sec)
+   passed  400/934  test-jf/bash-parse-detects-env-S-injection (0.002131 sec)
+   passed  401/934  test-jf/bash-parse-detects-sh-c-injection (0.004175 sec)
+   passed  402/934  test-jf/bash-parse-handles-flags-before-injection (0.004214 sec)
+   passed  403/934  test-jf/bash-parse-nested-injection-with-pipeline (0.004358 sec)
+   passed  404/934  test-jf/bash-parse-no-injection-without-flag (0.002175 sec)
+   passed  405/934  test-jf/bash-parse-strips-quotes-from-injection (0.004422 sec)
+   passed  406/934  test-legacy-absolute-path-home-directory (0.000034 sec)
+   passed  407/934  test-legacy-absolute-path-multiple (0.000027 sec)
+   passed  408/934  test-legacy-absolute-path-no-paths (0.000027 sec)
+   passed  409/934  test-legacy-absolute-path-relative-paths (0.000027 sec)
+   passed  410/934  test-legacy-absolute-path-unix (0.000027 sec)
+   passed  411/934  test-legacy-execute-absolute-path-warning (0.007896 sec)
+   passed  412/934  test-legacy-execute-directory-change (0.002880 sec)
+   passed  413/934  test-legacy-execute-multiline-output (0.002635 sec)
+   passed  414/934  test-legacy-execute-no-truncation-small-output (0.002585 sec)
+   passed  415/934  test-legacy-execute-nonexistent-command (0.002673 sec)
+   passed  416/934  test-legacy-execute-output-truncation (0.650644 sec)
+   passed  417/934  test-legacy-execute-relative-path-no-warning (0.004386 sec)
+   passed  418/934  test-legacy-execute-simple-failure (0.002524 sec)
+   passed  419/934  test-legacy-execute-simple-success (0.002288 sec)
+SKIPPED: test-legacy-execute-timeout (would take 30+ seconds)
+   passed  420/934  test-legacy-execute-timeout (0.000034 sec)
+Test test-legacy-integration-chained-command-bypass backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8585 (apply fn-8583 args-8584))
+  (unwind-protect (setq value-8585 (apply fn-8583 args-8584)) (setq fo
+  (if (unwind-protect (setq value-8585 (apply fn-8583 args-8584)) (set
+  (let (form-description-8587) (if (unwind-protect (setq value-8585 (a
+  (let ((value-8585 'ert-form-evaluation-aborted-8586)) (let (form-des
+  (let* ((fn-8583 #'equal) (args-8584 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8583 #'equal) (args-8584 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-integration-chained-comma
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-integration-chained-command-bypass condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  421/934  test-legacy-integration-chained-command-bypass (0.000056 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:345
+Test test-legacy-integration-dangerous-command backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8555 (apply fn-8553 args-8554))
+  (unwind-protect (setq value-8555 (apply fn-8553 args-8554)) (setq fo
+  (if (unwind-protect (setq value-8555 (apply fn-8553 args-8554)) (set
+  (let (form-description-8557) (if (unwind-protect (setq value-8555 (a
+  (let ((value-8555 'ert-form-evaluation-aborted-8556)) (let (form-des
+  (let* ((fn-8553 #'equal) (args-8554 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8553 #'equal) (args-8554 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-integration-dangerous-com
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-integration-dangerous-command condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  422/934  test-legacy-integration-dangerous-command (0.000090 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:313
+Test test-legacy-integration-git-commands backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8600 (apply fn-8598 args-8599))
+  (unwind-protect (setq value-8600 (apply fn-8598 args-8599)) (setq fo
+  (if (unwind-protect (setq value-8600 (apply fn-8598 args-8599)) (set
+  (let (form-description-8602) (if (unwind-protect (setq value-8600 (a
+  (let ((value-8600 'ert-form-evaluation-aborted-8601)) (let (form-des
+  (let* ((fn-8598 #'equal) (args-8599 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8598 #'equal) (args-8599 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-integration-git-commands 
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-integration-git-commands condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  423/934  test-legacy-integration-git-commands (0.000080 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:357
+Test test-legacy-integration-pipeline-bypass backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8570 (apply fn-8568 args-8569))
+  (unwind-protect (setq value-8570 (apply fn-8568 args-8569)) (setq fo
+  (if (unwind-protect (setq value-8570 (apply fn-8568 args-8569)) (set
+  (let (form-description-8572) (if (unwind-protect (setq value-8570 (a
+  (let ((value-8570 'ert-form-evaluation-aborted-8571)) (let (form-des
+  (let* ((fn-8568 #'equal) (args-8569 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8568 #'equal) (args-8569 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-integration-pipeline-bypa
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-integration-pipeline-bypass condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  424/934  test-legacy-integration-pipeline-bypass (0.000079 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:322
+Test test-legacy-integration-simple-read-command backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8525 (apply fn-8523 args-8524))
+  (unwind-protect (setq value-8525 (apply fn-8523 args-8524)) (setq fo
+  (if (unwind-protect (setq value-8525 (apply fn-8523 args-8524)) (set
+  (let (form-description-8527) (if (unwind-protect (setq value-8525 (a
+  (let ((value-8525 'ert-form-evaluation-aborted-8526)) (let (form-des
+  (let* ((fn-8523 #'equal) (args-8524 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8523 #'equal) (args-8524 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-integration-simple-read-c
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-integration-simple-read-command condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  425/934  test-legacy-integration-simple-read-command (0.000087 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:297
+Test test-legacy-integration-simple-write-command backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8540 (apply fn-8538 args-8539))
+  (unwind-protect (setq value-8540 (apply fn-8538 args-8539)) (setq fo
+  (if (unwind-protect (setq value-8540 (apply fn-8538 args-8539)) (set
+  (let (form-description-8542) (if (unwind-protect (setq value-8540 (a
+  (let ((value-8540 'ert-form-evaluation-aborted-8541)) (let (form-des
+  (let* ((fn-8538 #'equal) (args-8539 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8538 #'equal) (args-8539 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-integration-simple-write-
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-integration-simple-write-command condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  426/934  test-legacy-integration-simple-write-command (0.000084 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:305
+Test test-legacy-parse-command-substitution backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8315 (apply fn-8313 args-8314))
+  (unwind-protect (setq value-8315 (apply fn-8313 args-8314)) (setq fo
+  (if (unwind-protect (setq value-8315 (apply fn-8313 args-8314)) (set
+  (let (form-description-8317) (if (unwind-protect (setq value-8315 (a
+  (let ((value-8315 'ert-form-evaluation-aborted-8316)) (let (form-des
+  (let* ((fn-8313 #'equal) (args-8314 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8313 #'equal) (args-8314 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-command-substitutio
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-command-substitution condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  427/934  test-legacy-parse-command-substitution (0.000076 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:87
+Test test-legacy-parse-command-with-ampersand backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8335 (apply fn-8333 args-8334))
+  (unwind-protect (setq value-8335 (apply fn-8333 args-8334)) (setq fo
+  (if (unwind-protect (setq value-8335 (apply fn-8333 args-8334)) (set
+  (let (form-description-8337) (if (unwind-protect (setq value-8335 (a
+  (let ((value-8335 'ert-form-evaluation-aborted-8336)) (let (form-des
+  (let* ((fn-8333 #'equal) (args-8334 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8333 #'equal) (args-8334 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-command-with-ampers
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-command-with-ampersand condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  428/934  test-legacy-parse-command-with-ampersand (0.000088 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:102
+Test test-legacy-parse-command-with-arguments backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8260 (apply fn-8258 args-8259))
+  (unwind-protect (setq value-8260 (apply fn-8258 args-8259)) (setq fo
+  (if (unwind-protect (setq value-8260 (apply fn-8258 args-8259)) (set
+  (let (form-description-8262) (if (unwind-protect (setq value-8260 (a
+  (let ((value-8260 'ert-form-evaluation-aborted-8261)) (let (form-des
+  (let* ((fn-8258 #'equal) (args-8259 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8258 #'equal) (args-8259 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-command-with-argume
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-command-with-arguments condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  429/934  test-legacy-parse-command-with-arguments (0.000085 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:54
+Test test-legacy-parse-command-with-flags backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8245 (apply fn-8243 args-8244))
+  (unwind-protect (setq value-8245 (apply fn-8243 args-8244)) (setq fo
+  (if (unwind-protect (setq value-8245 (apply fn-8243 args-8244)) (set
+  (let (form-description-8247) (if (unwind-protect (setq value-8245 (a
+  (let ((value-8245 'ert-form-evaluation-aborted-8246)) (let (form-des
+  (let* ((fn-8243 #'equal) (args-8244 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8243 #'equal) (args-8244 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-command-with-flags 
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-command-with-flags condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  430/934  test-legacy-parse-command-with-flags (0.000093 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:46
+Test test-legacy-parse-command-with-semicolon backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8325 (apply fn-8323 args-8324))
+  (unwind-protect (setq value-8325 (apply fn-8323 args-8324)) (setq fo
+  (if (unwind-protect (setq value-8325 (apply fn-8323 args-8324)) (set
+  (let (form-description-8327) (if (unwind-protect (setq value-8325 (a
+  (let ((value-8325 'ert-form-evaluation-aborted-8326)) (let (form-des
+  (let* ((fn-8323 #'equal) (args-8324 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8323 #'equal) (args-8324 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-command-with-semico
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-command-with-semicolon condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  431/934  test-legacy-parse-command-with-semicolon (0.000088 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:94
+Test test-legacy-parse-complex-pipeline backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8365 (apply fn-8363 args-8364))
+  (unwind-protect (setq value-8365 (apply fn-8363 args-8364)) (setq fo
+  (if (unwind-protect (setq value-8365 (apply fn-8363 args-8364)) (set
+  (let (form-description-8367) (if (unwind-protect (setq value-8365 (a
+  (let ((value-8365 'ert-form-evaluation-aborted-8366)) (let (form-des
+  (let* ((fn-8363 #'equal) (args-8364 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8363 #'equal) (args-8364 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-complex-pipeline :d
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-complex-pipeline condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  432/934  test-legacy-parse-complex-pipeline (0.000092 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:125
+Test test-legacy-parse-logical-and backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8345 (apply fn-8343 args-8344))
+  (unwind-protect (setq value-8345 (apply fn-8343 args-8344)) (setq fo
+  (if (unwind-protect (setq value-8345 (apply fn-8343 args-8344)) (set
+  (let (form-description-8347) (if (unwind-protect (setq value-8345 (a
+  (let ((value-8345 'ert-form-evaluation-aborted-8346)) (let (form-des
+  (let* ((fn-8343 #'equal) (args-8344 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8343 #'equal) (args-8344 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-logical-and :docume
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-logical-and condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  433/934  test-legacy-parse-logical-and (0.000092 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:109
+Test test-legacy-parse-logical-or backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8355 (apply fn-8353 args-8354))
+  (unwind-protect (setq value-8355 (apply fn-8353 args-8354)) (setq fo
+  (if (unwind-protect (setq value-8355 (apply fn-8353 args-8354)) (set
+  (let (form-description-8357) (if (unwind-protect (setq value-8355 (a
+  (let ((value-8355 'ert-form-evaluation-aborted-8356)) (let (form-des
+  (let* ((fn-8353 #'equal) (args-8354 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8353 #'equal) (args-8354 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-logical-or :documen
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-logical-or condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  434/934  test-legacy-parse-logical-or (0.000086 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:117
+Test test-legacy-parse-pipeline-first-command backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8275 (apply fn-8273 args-8274))
+  (unwind-protect (setq value-8275 (apply fn-8273 args-8274)) (setq fo
+  (if (unwind-protect (setq value-8275 (apply fn-8273 args-8274)) (set
+  (let (form-description-8277) (if (unwind-protect (setq value-8275 (a
+  (let ((value-8275 'ert-form-evaluation-aborted-8276)) (let (form-des
+  (let* ((fn-8273 #'equal) (args-8274 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8273 #'equal) (args-8274 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-pipeline-first-comm
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-pipeline-first-command condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  435/934  test-legacy-parse-pipeline-first-command (0.000092 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:62
+Test test-legacy-parse-redirect-input backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8305 (apply fn-8303 args-8304))
+  (unwind-protect (setq value-8305 (apply fn-8303 args-8304)) (setq fo
+  (if (unwind-protect (setq value-8305 (apply fn-8303 args-8304)) (set
+  (let (form-description-8307) (if (unwind-protect (setq value-8305 (a
+  (let ((value-8305 'ert-form-evaluation-aborted-8306)) (let (form-des
+  (let* ((fn-8303 #'equal) (args-8304 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8303 #'equal) (args-8304 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-redirect-input :doc
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-redirect-input condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  436/934  test-legacy-parse-redirect-input (0.000082 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:80
+Test test-legacy-parse-redirect-output backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8290 (apply fn-8288 args-8289))
+  (unwind-protect (setq value-8290 (apply fn-8288 args-8289)) (setq fo
+  (if (unwind-protect (setq value-8290 (apply fn-8288 args-8289)) (set
+  (let (form-description-8292) (if (unwind-protect (setq value-8290 (a
+  (let ((value-8290 'ert-form-evaluation-aborted-8291)) (let (form-des
+  (let* ((fn-8288 #'equal) (args-8289 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8288 #'equal) (args-8289 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-redirect-output :do
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-redirect-output condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  437/934  test-legacy-parse-redirect-output (0.000079 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:72
+Test test-legacy-parse-simple-command backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8230 (apply fn-8228 args-8229))
+  (unwind-protect (setq value-8230 (apply fn-8228 args-8229)) (setq fo
+  (if (unwind-protect (setq value-8230 (apply fn-8228 args-8229)) (set
+  (let (form-description-8232) (if (unwind-protect (setq value-8230 (a
+  (let ((value-8230 'ert-form-evaluation-aborted-8231)) (let (form-des
+  (let* ((fn-8228 #'equal) (args-8229 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8228 #'equal) (args-8229 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-simple-command :doc
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-simple-command condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  438/934  test-legacy-parse-simple-command (0.000083 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:38
+Test test-legacy-parse-whitespace-handling backtrace:
+  signal(void-function (jf/gptel-bash--parse-command))
+  apply(signal (void-function (jf/gptel-bash--parse-command)))
+  (setq value-8375 (apply fn-8373 args-8374))
+  (unwind-protect (setq value-8375 (apply fn-8373 args-8374)) (setq fo
+  (if (unwind-protect (setq value-8375 (apply fn-8373 args-8374)) (set
+  (let (form-description-8377) (if (unwind-protect (setq value-8375 (a
+  (let ((value-8375 'ert-form-evaluation-aborted-8376)) (let (form-des
+  (let* ((fn-8373 #'equal) (args-8374 (condition-case err (list (jf/gp
+  #f(lambda () [t] (let* ((fn-8373 #'equal) (args-8374 (condition-case
+  #f(compiled-function () #<bytecode -0x20fbfc01d2af499>)()
+  handler-bind-1(#f(compiled-function () #<bytecode -0x20fbfc01d2af499
+  ert--run-test-internal(#s(ert--test-execution-info :test #s(ert-test
+  ert-run-test(#s(ert-test :name test-legacy-parse-whitespace-handling
+  ert-run-or-rerun-test(#s(ert--stats :selector t :tests ... :test-map
+  ert-run-tests(t #f(compiled-function (event-type &rest event-args) #
+  ert-run-tests-batch(nil)
+  ert-run-tests-batch-and-exit()
+  (let ((test-files (jf/test-find-test-files))) (let ((tail test-files
+  jf/test-run-all-batch()
+  (progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch))
+  eval((progn (jf/test-run-all-batch) (jf/test-run-all-buttercup-batch
+  command-line-1(("--load" "/Users/jefffarr/emacs/early-init.el" "--lo
+  command-line()
+  normal-top-level()
+Test test-legacy-parse-whitespace-handling condition:
+    (void-function jf/gptel-bash--parse-command)
+   FAILED  439/934  test-legacy-parse-whitespace-handling (0.000084 sec) at config/gptel/tools/test/test-scope-shell-tools-legacy.el:133
+   passed  440/934  test-loop-context-metadata (0.004945 sec)
+   passed  441/934  test-loop-empty-body (0.004772 sec)
+   passed  442/934  test-loop-multiple-commands (0.004658 sec)
+   passed  443/934  test-loop-unresolved-variable (0.006475 sec)
+   passed  444/934  test-loop-variable-from-glob (0.005111 sec)
+   passed  445/934  test-loop-variable-from-literal (0.004402 sec)
+   passed  446/934  test-loop-variable-from-substitution (0.006579 sec)
+   passed  447/934  test-loop-variable-glob-with-rm (0.004487 sec)
+   passed  448/934  test-loop-variable-substitution-cat (0.006605 sec)
+   passed  449/934  test-ls-pattern-metadata (0.000038 sec)
+   passed  450/934  test-multiple-cds-with-wildcards (0.002277 sec)
+   passed  451/934  test-nested-conditional-relative-test (0.004368 sec)
+   passed  452/934  test-nested-find-exec-relative-paths (0.002254 sec)
+   passed  453/934  test-nested-for-loop-relative-pattern (0.004425 sec)
+   passed  454/934  test-nested-subshells (0.006781 sec)
+   passed  455/934  test-not-pattern-producer-cat (0.000034 sec)
+   passed  456/934  test-not-pattern-producer-cp (0.000031 sec)
+   passed  457/934  test-not-pattern-producer-mv (0.000027 sec)
+   passed  458/934  test-not-pattern-producer-rm (0.000027 sec)
+   passed  459/934  test-not-pattern-producer-unknown (0.000026 sec)
+   passed  460/934  test-orchestrator-coverage-calculation (0.000064 sec)
+   passed  461/934  test-orchestrator-empty-predicates-always-runs (0.000047 sec)
+Error executing plugin failing-plugin: Plugin failure
+   passed  462/934  test-orchestrator-error-isolation (0.000068 sec)
+   passed  463/934  test-orchestrator-multiple-predicates-all-must-pass (0.000045 sec)
+   passed  464/934  test-orchestrator-parse-complete-passthrough (0.000046 sec)
+Error executing plugin plugin-2: Failure
+   passed  465/934  test-orchestrator-partial-results-on-error (0.000069 sec)
+   passed  466/934  test-orchestrator-plugin-results-included (0.000052 sec)
+Error in predicate for plugin failing-predicate-plugin: Predicate error
+   passed  467/934  test-orchestrator-predicate-error-handling (0.000054 sec)
+   passed  468/934  test-orchestrator-predicate-filtering (0.000053 sec)
+   passed  469/934  test-orchestrator-result-aggregation (0.000056 sec)
+   passed  470/934  test-orchestrator-runs-all-applicable-plugins (0.000055 sec)
+   passed  471/934  test-orchestrator-shared-token-claiming (0.000054 sec)
+   passed  472/934  test-parse-accepts-valid-command (0.002184 sec)
+   passed  473/934  test-parse-accepts-whitespace-padded-command (0.002153 sec)
+   passed  474/934  test-parse-complete-chain (0.002168 sec)
+   passed  475/934  test-parse-complete-pipeline (0.002178 sec)
+   passed  476/934  test-parse-complete-simple-command (0.002206 sec)
+   passed  477/934  test-parse-errors-on-failure (0.000038 sec)
+   passed  478/934  test-parse-rejects-empty-string (0.000033 sec)
+   passed  479/934  test-parse-rejects-list-input (0.000036 sec)
+   passed  480/934  test-parse-rejects-nil-input (0.000031 sec)
+   passed  481/934  test-parse-rejects-number-input (0.000030 sec)
+   passed  482/934  test-parse-rejects-symbol-input (0.000029 sec)
+   passed  483/934  test-parse-rejects-vector-input (0.000030 sec)
+   passed  484/934  test-parser-extension-already-marked-preserved (0.000039 sec)
+   passed  485/934  test-parser-extension-detect-bash-c-injection (0.004258 sec)
+   passed  486/934  test-parser-extension-detect-env-s-injection (0.002167 sec)
+   passed  487/934  test-parser-extension-detect-eval-injection (0.002284 sec)
+   passed  488/934  test-parser-extension-detect-python-c-injection (0.002283 sec)
+   passed  489/934  test-parser-extension-detect-sh-c-injection (0.004407 sec)
+   passed  490/934  test-parser-extension-direct-no-nesting-depth (0.002266 sec)
+   passed  491/934  test-parser-extension-direct-operation-unmarked (0.000041 sec)
+   passed  492/934  test-parser-extension-double-nesting-depth (0.028332 sec)
+   passed  493/934  test-parser-extension-end-to-end-bash-c (0.006522 sec)
+   passed  494/934  test-parser-extension-existing-unchanged (0.002153 sec)
+   passed  495/934  test-parser-extension-injection-with-flags-before (0.004542 sec)
+   passed  496/934  test-parser-extension-leverage-parsed-data (0.006440 sec)
+   passed  497/934  test-parser-extension-mark-exec-block-indirect (0.000054 sec)
+   passed  498/934  test-parser-extension-mixed-operations (0.000042 sec)
+   passed  499/934  test-parser-extension-nested-max-depth (0.000049 sec)
+   passed  500/934  test-parser-extension-nested-with-variables (0.002278 sec)
+   passed  501/934  test-parser-extension-new-extraction-available (0.000035 sec)
+   passed  502/934  test-parser-extension-no-false-positives (0.006412 sec)
+   passed  503/934  test-parser-extension-parse-nested-command (0.002241 sec)
+   passed  504/934  test-parser-extension-parse-nested-multiple-levels (0.006453 sec)
+   passed  505/934  test-parser-extension-parse-nested-preserve-inner-quotes (0.002178 sec)
+   passed  506/934  test-parser-extension-parse-nested-strip-double-quotes (0.002267 sec)
+   passed  507/934  test-parser-extension-parse-nested-strip-single-quotes (0.002174 sec)
+   passed  508/934  test-parser-extension-parse-return-format (0.002192 sec)
+   passed  509/934  test-parser-extension-single-nesting-depth (0.008790 sec)
+   passed  510/934  test-pattern-flow-cat-find (0.004467 sec)
+   passed  511/934  test-pattern-flow-cat-grep (0.004641 sec)
+   passed  512/934  test-pattern-flow-cat-ls (0.004370 sec)
+   passed  513/934  test-pattern-flow-head-find (0.004482 sec)
+   passed  514/934  test-pattern-flow-multiple-patterns (0.004537 sec)
+   passed  515/934  test-pattern-flow-nested (0.008921 sec)
+   passed  516/934  test-pattern-flow-no-pattern (0.004269 sec)
+   passed  517/934  test-pattern-flow-non-reading-command (0.004529 sec)
+   passed  518/934  test-pattern-flow-rm-ls (0.004544 sec)
+   passed  519/934  test-pattern-flow-with-redirection (0.004399 sec)
+   passed  520/934  test-pattern-producer-egrep (0.000038 sec)
+   passed  521/934  test-pattern-producer-fgrep (0.000032 sec)
+   passed  522/934  test-pattern-producer-find (0.000033 sec)
+   passed  523/934  test-pattern-producer-git-ls-files-metadata (0.000036 sec)
+   passed  524/934  test-pattern-producer-git-subcommand (0.000038 sec)
+   passed  525/934  test-pattern-producer-grep-long-flag (0.000029 sec)
+   passed  526/934  test-pattern-producer-grep-with-flag (0.000031 sec)
+   passed  527/934  test-pattern-producer-ls (0.000032 sec)
+   passed  528/934  test-pipeline-all-commands-allowed (0.000031 sec)
+   passed  529/934  test-pipeline-all-safe-write-commands (0.000032 sec)
+   passed  530/934  test-pipeline-command-not-in-any-category (0.000035 sec)
+   passed  531/934  test-pipeline-complex-four-stage-pipeline (0.000027 sec)
+   passed  532/934  test-pipeline-deny-list-checked-before-allowed-categories (0.000030 sec)
+   passed  533/934  test-pipeline-deny-list-first-command (0.000029 sec)
+   passed  534/934  test-pipeline-empty-string (0.000031 sec)
+   passed  535/934  test-pipeline-error-identifies-second-command (0.000032 sec)
+   passed  536/934  test-pipeline-error-includes-message (0.000029 sec)
+   passed  537/934  test-pipeline-error-position-for-first-command (0.000028 sec)
+   passed  538/934  test-pipeline-error-position-for-third-command (0.000030 sec)
+   passed  539/934  test-pipeline-extract-command-from-segment-with-arguments (0.002265 sec)
+   passed  540/934  test-pipeline-extract-command-from-segment-with-flags (0.002169 sec)
+   passed  541/934  test-pipeline-extract-commands-from-and-chain (0.002229 sec)
+   passed  542/934  test-pipeline-extract-commands-from-multi-stage-pipeline (0.002328 sec)
+   passed  543/934  test-pipeline-extract-commands-from-or-chain (0.002218 sec)
+   passed  544/934  test-pipeline-extract-commands-from-pipe (0.002231 sec)
+   passed  545/934  test-pipeline-extract-commands-from-semicolon-chain (0.002250 sec)
+   passed  546/934  test-pipeline-extract-git-subcommand (0.002162 sec)
+   passed  547/934  test-pipeline-legitimate-data-pipeline (0.000031 sec)
+   passed  548/934  test-pipeline-middle-command-not-allowed (0.000037 sec)
+   passed  549/934  test-pipeline-mixed-allowed-and-denied (0.000032 sec)
+   passed  550/934  test-pipeline-mixed-chains-and-pipes (0.002222 sec)
+   passed  551/934  test-pipeline-prevent-chmod-bypass (0.000030 sec)
+   passed  552/934  test-pipeline-prevent-sh-execution-bypass (0.000031 sec)
+   passed  553/934  test-pipeline-prevent-xargs-rm-bypass (0.000033 sec)
+   passed  554/934  test-pipeline-second-command-denied (0.000034 sec)
+   passed  555/934  test-pipeline-security-cat-eval (0.000030 sec)
+   passed  556/934  test-pipeline-security-curl-pipe-sh (0.000031 sec)
+   passed  557/934  test-pipeline-security-find-xargs-rm-pattern (0.000031 sec)
+   passed  558/934  test-pipeline-single-command-no-pipeline (0.002273 sec)
+   passed  559/934  test-pipeline-validation-empty-list (0.000033 sec)
+   passed  560/934  test-plugin-priority-sorting-higher-first (0.000061 sec)
+   passed  561/934  test-plugin-re-registration-updates-entry (0.000042 sec)
+   passed  562/934  test-plugin-registration-basic (0.000038 sec)
+   passed  563/934  test-plugin-registration-requires-extractor-function (0.000033 sec)
+   passed  564/934  test-plugin-registration-requires-name (0.000031 sec)
+   passed  565/934  test-plugin-registration-requires-numeric-priority (0.000031 sec)
+   passed  566/934  test-plugin-registration-requires-predicates-list (0.000031 sec)
+   passed  567/934  test-plugin-registration-returns-name (0.000033 sec)
+   passed  568/934  test-plugin-result-struct-accessors (0.000035 sec)
+   passed  569/934  test-plugin-result-struct-creation (0.000033 sec)
+   passed  570/934  test-plugin-result-struct-type-predicate (0.000033 sec)
+   passed  571/934  test-plugin-same-priority-maintains-registration-order (0.000046 sec)
+   passed  572/934  test-popd-returns-to-previous (0.002439 sec)
+   passed  573/934  test-progress-bar-custom-width (0.000036 sec)
+   passed  574/934  test-progress-bar-empty (0.000031 sec)
+   passed  575/934  test-progress-bar-full (0.000029 sec)
+   passed  576/934  test-progress-bar-half (0.000029 sec)
+   passed  577/934  test-pushd-absolute-path (0.002416 sec)
+   passed  578/934  test-pwd-assignment-export (0.002264 sec)
+   passed  579/934  test-pwd-assignment-inline (0.002215 sec)
+   passed  580/934  test-pwd-assignment-simple (0.002266 sec)
+   passed  581/934  test-pwd-assignment-with-variable (0.002335 sec)
+   passed  582/934  test-pwd-backtick-substitution (0.004598 sec)
+   passed  583/934  test-pwd-context-empty-var-context (0.002293 sec)
+   passed  584/934  test-pwd-context-mixed-absolute-relative (0.002237 sec)
+   passed  585/934  test-pwd-context-multiple-operations (0.002283 sec)
+   passed  586/934  test-pwd-context-without-pwd-in-context (0.002154 sec)
+   passed  587/934  test-pwd-explicit-variable-in-redirection (0.002296 sec)
+   passed  588/934  test-pwd-explicit-variable-nested-path (0.002351 sec)
+   passed  589/934  test-pwd-explicit-variable-simple (0.002226 sec)
+   passed  590/934  test-pwd-substitution-nested (0.008627 sec)
+   passed  591/934  test-pwd-substitution-simple (0.004543 sec)
+   passed  592/934  test-pwd-without-var-context (0.002305 sec)
+   passed  593/934  test-recursive-chain-with-substitution (0.004491 sec)
+   passed  594/934  test-recursive-chain-with-variables (0.002322 sec)
+   passed  595/934  test-recursive-complex-scenario (0.011362 sec)
+   passed  596/934  test-recursive-deduplication (0.002293 sec)
+   passed  597/934  test-recursive-depth-limit (0.139924 sec)
+   passed  598/934  test-recursive-depth-limiting (0.000047 sec)
+   passed  599/934  test-recursive-depth-with-deep-nesting (0.018707 sec)
+   passed  600/934  test-recursive-empty-substitution (0.004596 sec)
+   passed  601/934  test-recursive-failed-parse-in-substitution (0.002263 sec)
+   passed  602/934  test-recursive-multi-level-nesting (0.008764 sec)
+   passed  603/934  test-recursive-nested-find (0.008765 sec)
+   passed  604/934  test-recursive-nested-in-chain (0.006688 sec)
+   passed  605/934  test-recursive-nested-in-conditional (0.004540 sec)
+   passed  606/934  test-recursive-nested-in-loop (0.006839 sec)
+   passed  607/934  test-recursive-nested-in-substitution (0.008861 sec)
+   passed  608/934  test-recursive-nested-substitution (0.008780 sec)
+   passed  609/934  test-recursive-nested-with-variables (0.004598 sec)
+   passed  610/934  test-recursive-pipeline (0.002541 sec)
+   passed  611/934  test-recursive-pipeline-with-substitution (0.004561 sec)
+   passed  612/934  test-recursive-single-substitution (0.004522 sec)
+   passed  613/934  test-recursive-substitution-grep (0.004315 sec)
+   passed  614/934  test-recursive-substitution-with-flags (0.005114 sec)
+   passed  615/934  test-recursive-triple-nesting (0.017683 sec)
+   passed  616/934  test-recursive-with-exec-blocks (0.002305 sec)
+   passed  617/934  test-recursive-with-redirections (0.004422 sec)
+   passed  618/934  test-relative-path-dot-alone (0.002235 sec)
+   passed  619/934  test-relative-path-dot-in-pipeline (0.002343 sec)
+   passed  620/934  test-relative-path-dot-ls (0.002338 sec)
+   passed  621/934  test-relative-path-dot-slash-file (0.002468 sec)
+   passed  622/934  test-relative-path-dot-slash-nested (0.002282 sec)
+   passed  623/934  test-relative-path-dot-slash-script-execution (0.002147 sec)
+   passed  624/934  test-relative-path-dot-slash-with-args (0.002193 sec)
+   passed  625/934  test-relative-path-parent-multiple-levels (0.002175 sec)
+   passed  626/934  test-relative-path-parent-script-execution (0.002170 sec)
+   passed  627/934  test-relative-path-parent-simple (0.002212 sec)
+   passed  628/934  test-relative-path-parent-with-subdir (0.002392 sec)
+   passed  629/934  test-resolve-all-variables-simple (0.000047 sec)
+   passed  630/934  test-resolve-assignment-combined-resolution (0.000036 sec)
+   passed  631/934  test-resolve-assignment-command-substitution-basename (0.000048 sec)
+   passed  632/934  test-resolve-assignment-command-substitution-dirname (0.000037 sec)
+   passed  633/934  test-resolve-assignment-command-substitution-pwd (0.000031 sec)
+   passed  634/934  test-resolve-assignment-relative-path (0.000037 sec)
+   passed  635/934  test-resolve-assignment-simple-variable (0.000038 sec)
+   passed  636/934  test-resolve-assignment-unresolved-command-substitution (0.000032 sec)
+   passed  637/934  test-resolve-assignment-unresolved-variable (0.000033 sec)
+   passed  638/934  test-resolve-braced-vs-simple (0.000039 sec)
+   passed  639/934  test-resolve-duplicate-variable-references (0.000034 sec)
+   passed  640/934  test-resolve-multiple-variables-fully (0.000036 sec)
+   passed  641/934  test-resolve-no-variables (0.000030 sec)
+   passed  642/934  test-resolve-none-no-context (0.000034 sec)
+   passed  643/934  test-resolve-normalizes-slashes (0.000031 sec)
+   passed  644/934  test-resolve-partial-some-unresolved (0.000034 sec)
+   passed  645/934  test-resolve-warns-on-control-chars (0.000036 sec)
+   passed  646/934  test-resolve-word-boundary (0.000032 sec)
+   passed  647/934  test-scope-cloud-auth-allow-aws-command (0.000032 sec)
+   passed  648/934  test-scope-cloud-auth-allow-gcp-command (0.000027 sec)
+   passed  649/934  test-scope-cloud-auth-combined-all-pass (0.000033 sec)
+   passed  650/934  test-scope-cloud-auth-combined-allowed-but-other-validations-may-fail (0.000028 sec)
+   passed  651/934  test-scope-cloud-auth-combined-fails-auth-policy (0.000031 sec)
+   passed  652/934  test-scope-cloud-auth-config-allow-mode (0.000030 sec)
+   passed  653/934  test-scope-cloud-auth-config-default-to-warn (0.000031 sec)
+   passed  654/934  test-scope-cloud-auth-config-deny-mode (0.000027 sec)
+   passed  655/934  test-scope-cloud-auth-config-warn-mode (0.000029 sec)
+   passed  656/934  test-scope-cloud-auth-deny-allowed-provider-permitted (0.000034 sec)
+   passed  657/934  test-scope-cloud-auth-deny-aws-command (0.000030 sec)
+   passed  658/934  test-scope-cloud-auth-deny-disallowed-provider-rejected (0.000032 sec)
+   passed  659/934  test-scope-cloud-auth-detect-aws-authentication (0.000028 sec)
+   passed  660/934  test-scope-cloud-auth-detect-aws-cli-authentication (0.000028 sec)
+   passed  661/934  test-scope-cloud-auth-detect-azure-authentication (0.000030 sec)
+   passed  662/934  test-scope-cloud-auth-detect-gcp-authentication (0.000028 sec)
+   passed  663/934  test-scope-cloud-auth-error-denied-structure (0.000033 sec)
+   passed  664/934  test-scope-cloud-auth-error-provider-restriction-explains (0.000035 sec)
+   passed  665/934  test-scope-cloud-auth-error-suggests-scope-expansion (0.000029 sec)
+   passed  666/934  test-scope-cloud-auth-filter-empty-list-denies-all (0.000029 sec)
+   passed  667/934  test-scope-cloud-auth-filter-specific-provider-allowed (0.000058 sec)
+   passed  668/934  test-scope-cloud-auth-filter-unlisted-provider-denied (0.000031 sec)
+   passed  669/934  test-scope-cloud-auth-invalid-mode-fails-closed (0.000030 sec)
+   passed  670/934  test-scope-cloud-auth-nil-cloud-auth-ops-passes (0.000027 sec)
+   passed  671/934  test-scope-cloud-auth-no-detection-for-non-auth-commands (0.000029 sec)
+   passed  672/934  test-scope-cloud-auth-provider-filtering-precedence (0.000031 sec)
+   passed  673/934  test-scope-cloud-auth-warn-aws-command (0.000032 sec)
+   passed  674/934  test-scope-cloud-auth-warn-identifies-provider (0.000032 sec)
+   passed  675/934  test-scope-cloud-auth-warn-mode-with-filtering (0.000030 sec)
+   passed  676/934  test-scope-cloud-auth-warn-suggests-reviewing-scope (0.000028 sec)
+   passed  677/934  test-scope-file-paths-absolute-path-unchanged (0.000050 sec)
+   passed  678/934  test-scope-file-paths-case-sensitive-patterns (0.000046 sec)
+   passed  679/934  test-scope-file-paths-copy-both-in-scope (0.000056 sec)
+   passed  680/934  test-scope-file-paths-copy-destination-out-of-scope (0.000054 sec)
+   passed  681/934  test-scope-file-paths-delete-denied-without-write (0.000031 sec)
+   passed  682/934  test-scope-file-paths-delete-requires-paths-write (0.000063 sec)
+   passed  683/934  test-scope-file-paths-deny-overrides-execute-scope (0.000057 sec)
+   passed  684/934  test-scope-file-paths-deny-overrides-read-scope (0.000052 sec)
+   passed  685/934  test-scope-file-paths-deny-overrides-write-scope (0.000046 sec)
+   passed  686/934  test-scope-file-paths-dot-files-matched (0.000044 sec)
+   passed  687/934  test-scope-file-paths-empty-patterns-deny-all (0.000033 sec)
+   passed  688/934  test-scope-file-paths-error-message-actionable (0.000032 sec)
+   passed  689/934  test-scope-file-paths-error-path-denied-structure (0.000051 sec)
+   passed  690/934  test-scope-file-paths-error-path-out-of-scope-structure (0.000032 sec)
+   passed  691/934  test-scope-file-paths-execute-requires-paths-execute (0.000029 sec)
+   passed  692/934  test-scope-file-paths-extract-execute-operation (0.000038 sec)
+   passed  693/934  test-scope-file-paths-extract-modify-operation (0.000041 sec)
+   passed  694/934  test-scope-file-paths-extract-multiple-operations (0.000056 sec)
+   passed  695/934  test-scope-file-paths-extract-read-operation (0.000040 sec)
+   passed  696/934  test-scope-file-paths-extract-write-operation (0.000034 sec)
+   passed  697/934  test-scope-file-paths-first-operation-fails-immediate-return (0.000037 sec)
+   passed  698/934  test-scope-file-paths-glob-directory-exact-match (0.000046 sec)
+   passed  699/934  test-scope-file-paths-glob-extension-pattern (0.000049 sec)
+   passed  700/934  test-scope-file-paths-glob-middle-wildcard (0.000051 sec)
+   passed  701/934  test-scope-file-paths-glob-multiple-patterns (0.000080 sec)
+   passed  702/934  test-scope-file-paths-glob-recursive-middle (0.000056 sec)
+   passed  703/934  test-scope-file-paths-glob-recursive-wildcard (0.000042 sec)
+   passed  704/934  test-scope-file-paths-glob-single-level-wildcard (0.000040 sec)
+   passed  705/934  test-scope-file-paths-mixed-operations-all-validated (0.000072 sec)
+   passed  706/934  test-scope-file-paths-modify-allowed-by-paths-modify (0.000040 sec)
+   passed  707/934  test-scope-file-paths-modify-allowed-by-paths-write (0.000038 sec)
+   passed  708/934  test-scope-file-paths-modify-requires-paths-modify (0.000039 sec)
+   passed  709/934  test-scope-file-paths-multiple-reads-all-validated (0.000071 sec)
+   passed  710/934  test-scope-file-paths-nil-patterns-deny-all (0.000033 sec)
+   passed  711/934  test-scope-file-paths-overlapping-patterns (0.000038 sec)
+   passed  712/934  test-scope-file-paths-read-matches-paths-read (0.000037 sec)
+   passed  713/934  test-scope-file-paths-read-matches-paths-write (0.000038 sec)
+   passed  714/934  test-scope-file-paths-read-operation-denied (0.000037 sec)
+   passed  715/934  test-scope-file-paths-resolve-parent-directory (0.000041 sec)
+   passed  716/934  test-scope-file-paths-resolve-relative-path (0.000044 sec)
+   passed  717/934  test-scope-file-paths-resolve-symlinks (0.000044 sec)
+   passed  718/934  test-scope-file-paths-special-chars-in-filename (0.000046 sec)
+   passed  719/934  test-scope-file-paths-trailing-slash-handling (0.000037 sec)
+   passed  720/934  test-scope-file-paths-write-requires-paths-write (0.000030 sec)
+   passed  721/934  test-script-execution-bash-interpreter (0.002465 sec)
+   passed  722/934  test-script-execution-chain (0.002293 sec)
+   passed  723/934  test-script-execution-confidence-high-builtin (0.002194 sec)
+   passed  724/934  test-script-execution-confidence-high-interpreter (0.002229 sec)
+   passed  725/934  test-script-execution-confidence-low-path (0.002201 sec)
+   passed  726/934  test-script-execution-corpus (0.129273 sec)
+   passed  727/934  test-script-execution-go-build-not-execute (0.002300 sec)
+   passed  728/934  test-script-execution-go-run-subcommand (0.002308 sec)
+   passed  729/934  test-script-execution-go-test-subcommand (0.002212 sec)
+   passed  730/934  test-script-execution-nested-python (0.008657 sec)
+   passed  731/934  test-script-execution-nested-self-executing (0.008924 sec)
+   passed  732/934  test-script-execution-node-interpreter (0.002246 sec)
+   passed  733/934  test-script-execution-node-with-flags (0.002232 sec)
+   passed  734/934  test-script-execution-not-self-executing (0.002200 sec)
+   passed  735/934  test-script-execution-pipeline (0.002445 sec)
+   passed  736/934  test-script-execution-python-interpreter (0.002294 sec)
+   passed  737/934  test-script-execution-python3-with-args (0.002195 sec)
+   passed  738/934  test-script-execution-script-args-files (0.002437 sec)
+   passed  739/934  test-script-execution-script-args-flags (0.002243 sec)
+   passed  740/934  test-script-execution-script-args-none (0.002208 sec)
+   passed  741/934  test-script-execution-script-args-self-executing (0.002170 sec)
+   passed  742/934  test-script-execution-self-executing-absolute (0.002214 sec)
+   passed  743/934  test-script-execution-self-executing-parent (0.002187 sec)
+   passed  744/934  test-script-execution-self-executing-relative (0.002274 sec)
+   passed  745/934  test-script-execution-sh-interpreter (0.002200 sec)
+   passed  746/934  test-script-execution-shell-builtin-dot (0.002163 sec)
+   passed  747/934  test-script-execution-shell-builtin-source (0.002446 sec)
+   passed  748/934  test-script-execution-variable-resolved (0.002296 sec)
+   passed  749/934  test-script-execution-variable-unresolved (0.002341 sec)
+   passed  750/934  test-script-execution-zsh-interpreter (0.002352 sec)
+   passed  751/934  test-security-all-operations-allowed (0.008881 sec)
+   passed  752/934  test-security-all-operations-wildcard (0.008674 sec)
+   passed  753/934  test-security-all-vs-explicit-list (0.004419 sec)
+   passed  754/934  test-security-allow-command-matching-rules (0.002178 sec)
+   passed  755/934  test-security-allow-indirect-with-same-rules (0.008751 sec)
+   passed  756/934  test-security-apply-policy-to-indirect-operations (0.008902 sec)
+   passed  757/934  test-security-cd-detected-in-command-substitution (0.004418 sec)
+   passed  758/934  test-security-cd-not-detected-in-comments (0.002290 sec)
+   passed  759/934  test-security-cd-not-detected-in-heredoc (0.002393 sec)
+   passed  760/934  test-security-cd-violation-includes-guidance (0.002211 sec)
+   passed  761/934  test-security-cd-violation-with-working-directory-guidance (0.002537 sec)
+   passed  762/934  test-security-character-class-match (0.002274 sec)
+   passed  763/934  test-security-define-operation-specific-permissions (0.000039 sec)
+   passed  764/934  test-security-define-rule-with-multiple-patterns (0.000039 sec)
+   passed  765/934  test-security-define-rule-with-single-pattern (0.000039 sec)
+   passed  766/934  test-security-denial-reason-cd-command (0.002175 sec)
+   passed  767/934  test-security-denial-reason-multiple-unhandled (0.002262 sec)
+   passed  768/934  test-security-denial-reason-multiple-violations (0.002336 sec)
+   passed  769/934  test-security-denial-reason-nil-when-allowed (0.002167 sec)
+   passed  770/934  test-security-denial-reason-no-match (0.002198 sec)
+   passed  771/934  test-security-denial-reason-single-unhandled (0.002227 sec)
+   passed  772/934  test-security-denial-reason-single-violation (0.002162 sec)
+   passed  773/934  test-security-deny-command-violating-rules (0.002152 sec)
+   passed  774/934  test-security-double-star-multiple-segments (0.002211 sec)
+   passed  775/934  test-security-double-star-zero-segments (0.002223 sec)
+   passed  776/934  test-security-extract-unresolved-vars-multiple (0.000034 sec)
+   passed  777/934  test-security-extract-unresolved-vars-none (0.000036 sec)
+   passed  778/934  test-security-extract-unresolved-vars-single (0.000030 sec)
+   passed  779/934  test-security-first-matching-rule-applies (0.002181 sec)
+   passed  780/934  test-security-indirect-operation-violation-details (0.008840 sec)
+   passed  781/934  test-security-low-confidence-operation (0.002254 sec)
+   passed  782/934  test-security-missing-variable-context (0.002341 sec)
+   passed  783/934  test-security-more-specific-rule-before-general (0.004536 sec)
+   passed  784/934  test-security-multiple-violations (0.002258 sec)
+   passed  785/934  test-security-no-match-different-directory (0.002258 sec)
+   passed  786/934  test-security-partial-resolution-rejection (0.002250 sec)
+   passed  787/934  test-security-provide-variable-context (0.002244 sec)
+   passed  788/934  test-security-read-allowed-write-denied (0.004525 sec)
+   passed  789/934  test-security-recursive-wildcard-match (0.002265 sec)
+   passed  790/934  test-security-reject-all-indirect-strict-mode (0.008640 sec)
+   passed  791/934  test-security-reject-cd-in-chain (0.002220 sec)
+   passed  792/934  test-security-reject-cd-with-options (0.004316 sec)
+   passed  793/934  test-security-reject-simple-cd-command (0.002181 sec)
+   passed  794/934  test-security-reject-unresolved-variables (0.002308 sec)
+   passed  795/934  test-security-resolve-variables-before-matching (0.002351 sec)
+   passed  796/934  test-security-result-structure-allowed (0.002172 sec)
+   passed  797/934  test-security-result-structure-denied (0.002163 sec)
+   passed  798/934  test-security-single-level-wildcard-match (0.002172 sec)
+   passed  799/934  test-security-single-star-one-level (0.002177 sec)
+   passed  800/934  test-security-single-star-rejects-multiple-levels (0.002196 sec)
+   passed  801/934  test-security-unhandled-operations-fails-safely (0.002154 sec)
+   passed  802/934  test-security-variable-resolution-integration (0.002211 sec)
+   passed  803/934  test-security-variable-violation-details (0.002673 sec)
+   passed  804/934  test-security-violation-includes-guidance (0.002290 sec)
+   passed  805/934  test-security-violation-includes-indirect-flag (0.008529 sec)
+   passed  806/934  test-security-violation-includes-unresolved-vars (0.002186 sec)
+   passed  807/934  test-security-violation-with-matched-rule (0.002163 sec)
+   passed  808/934  test-security-violation-with-no-matched-rule (0.002122 sec)
+   passed  809/934  test-security-warn-indirect-policy (0.008974 sec)
+   passed  810/934  test-security-write-allowed-delete-denied (0.004465 sec)
+   passed  811/934  test-self-execution-absolute-path (0.002221 sec)
+   passed  812/934  test-self-execution-helper-function (0.000045 sec)
+   passed  813/934  test-self-execution-not-path-based (0.002227 sec)
+   passed  814/934  test-self-execution-parent-directory (0.002183 sec)
+   passed  815/934  test-self-execution-relative-path (0.002402 sec)
+   passed  816/934  test-semantics-bash-interpreter (0.000041 sec)
+   passed  817/934  test-semantics-bunzip2-command (0.000036 sec)
+   passed  818/934  test-semantics-bzip2-command (0.000037 sec)
+   passed  819/934  test-semantics-core-command-chgrp (0.000031 sec)
+   passed  820/934  test-semantics-core-command-find (0.000035 sec)
+   passed  821/934  test-semantics-core-command-mkdir (0.000033 sec)
+   passed  822/934  test-semantics-core-command-rmdir (0.000029 sec)
+   passed  823/934  test-semantics-core-command-tee (0.000032 sec)
+   passed  824/934  test-semantics-core-command-touch (0.000028 sec)
+   passed  825/934  test-semantics-create-operation-classification (0.000028 sec)
+   passed  826/934  test-semantics-create-or-modify-operation-classification (0.000030 sec)
+   passed  827/934  test-semantics-delete-operation-classification (0.000030 sec)
+   passed  828/934  test-semantics-docker-cp-subcommand (0.000032 sec)
+   passed  829/934  test-semantics-dot-builtin (0.000035 sec)
+   passed  830/934  test-semantics-exec-builtin (0.000032 sec)
+   passed  831/934  test-semantics-execute-operation-classification (0.000033 sec)
+   passed  832/934  test-semantics-flag-dependent-sed (0.000036 sec)
+   passed  833/934  test-semantics-flag-dependent-tar (0.000033 sec)
+   passed  834/934  test-semantics-git-add-subcommand (0.000037 sec)
+   passed  835/934  test-semantics-git-apply-subcommand (0.000031 sec)
+   passed  836/934  test-semantics-git-checkout-subcommand (0.000032 sec)
+   passed  837/934  test-semantics-git-clean-subcommand (0.000030 sec)
+   passed  838/934  test-semantics-git-clone-subcommand (0.000029 sec)
+   passed  839/934  test-semantics-git-diff-subcommand (0.000028 sec)
+   passed  840/934  test-semantics-git-merge-subcommand (0.000028 sec)
+   passed  841/934  test-semantics-git-pull-subcommand (0.000030 sec)
+   passed  842/934  test-semantics-git-rebase-subcommand (0.000029 sec)
+   passed  843/934  test-semantics-git-reset-subcommand (0.000028 sec)
+   passed  844/934  test-semantics-git-rm-subcommand (0.000029 sec)
+   passed  845/934  test-semantics-git-worktree-subcommand (0.000030 sec)
+   passed  846/934  test-semantics-go-build-subcommand (0.000031 sec)
+   passed  847/934  test-semantics-go-run-subcommand (0.000032 sec)
+   passed  848/934  test-semantics-go-test-subcommand (0.000032 sec)
+   passed  849/934  test-semantics-gunzip-command (0.000035 sec)
+   passed  850/934  test-semantics-gzip-command (0.000034 sec)
+   passed  851/934  test-semantics-last-argument-specification (0.000029 sec)
+   passed  852/934  test-semantics-lookup-chmod-skip-rules (0.000032 sec)
+   passed  853/934  test-semantics-lookup-chown-skip-rules (0.000029 sec)
+   passed  854/934  test-semantics-lookup-command-with-skip-rules (0.000033 sec)
+   passed  855/934  test-semantics-lookup-egrep-skip-rules (0.000031 sec)
+   passed  856/934  test-semantics-lookup-head-command (0.000033 sec)
+   passed  857/934  test-semantics-lookup-less-command (0.000030 sec)
+   passed  858/934  test-semantics-lookup-simple-read-command (0.000032 sec)
+   passed  859/934  test-semantics-lookup-tail-command (0.000031 sec)
+   passed  860/934  test-semantics-lookup-unknown-command (0.000029 sec)
+   passed  861/934  test-semantics-lookup-wc-command (0.000032 sec)
+   passed  862/934  test-semantics-modify-operation-classification (0.000027 sec)
+   passed  863/934  test-semantics-multi-operation-cp (0.000034 sec)
+   passed  864/934  test-semantics-multi-operation-ln (0.000031 sec)
+   passed  865/934  test-semantics-multi-operation-mv (0.000033 sec)
+   passed  866/934  test-semantics-named-args-dd (0.000035 sec)
+   passed  867/934  test-semantics-node-interpreter (0.000031 sec)
+   passed  868/934  test-semantics-perl-interpreter (0.000033 sec)
+   passed  869/934  test-semantics-php-interpreter (0.000032 sec)
+   passed  870/934  test-semantics-python-interpreter (0.000031 sec)
+   passed  871/934  test-semantics-python3-interpreter (0.000031 sec)
+   passed  872/934  test-semantics-range-specification (0.000028 sec)
+   passed  873/934  test-semantics-read-operation-classification (0.000027 sec)
+   passed  874/934  test-semantics-ruby-interpreter (0.000031 sec)
+   passed  875/934  test-semantics-sh-interpreter (0.000031 sec)
+   passed  876/934  test-semantics-single-index-specification (0.000028 sec)
+   passed  877/934  test-semantics-source-builtin (0.000031 sec)
+   passed  878/934  test-semantics-tee-with-append-flag (0.000030 sec)
+   passed  879/934  test-semantics-tee-with-append-long-flag (0.000029 sec)
+   passed  880/934  test-semantics-tee-without-flags (0.000029 sec)
+   passed  881/934  test-semantics-unzip-command (0.000030 sec)
+   passed  882/934  test-semantics-write-operation-classification (0.000027 sec)
+   passed  883/934  test-semantics-zsh-interpreter (0.000030 sec)
+   passed  884/934  test-single-paren-not-affected (0.004434 sec)
+   passed  885/934  test-subshell-cd-isolation (0.004523 sec)
+   passed  886/934  test-subshell-pwd-assignment-isolation (0.004662 sec)
+   passed  887/934  test-triple-paren (0.004286 sec)
+   passed  888/934  test-validate-defined-handler-function (0.000034 sec)
+   passed  889/934  test-validate-empty-subcommand-handler (0.000036 sec)
+   passed  890/934  test-validate-invalid-operation-type-flag-dependent (0.000041 sec)
+   passed  891/934  test-validate-invalid-operation-type-simple (0.000035 sec)
+   passed  892/934  test-validate-missing-custom-handler (0.000031 sec)
+   passed  893/934  test-validate-missing-flag-handlers (0.000031 sec)
+   passed  894/934  test-validate-missing-subcommand-handlers (0.000032 sec)
+   passed  895/934  test-validate-multiple-errors (0.000050 sec)
+   passed  896/934  test-validate-semantics-complex-missing-handlers (0.000036 sec)
+   passed  897/934  test-validate-semantics-custom-missing-handler (0.000031 sec)
+   passed  898/934  test-validate-semantics-database-valid (0.000072 sec)
+   passed  899/934  test-validate-semantics-flag-dependent-missing-handlers (0.000031 sec)
+   passed  900/934  test-validate-semantics-invalid-operations-type (0.000031 sec)
+   passed  901/934  test-validate-semantics-missing-operation (0.000033 sec)
+   passed  902/934  test-validate-semantics-missing-source (0.000030 sec)
+   passed  903/934  test-validate-semantics-not-plist (0.000032 sec)
+   passed  904/934  test-validate-semantics-valid-complex-command (0.000028 sec)
+   passed  905/934  test-validate-semantics-valid-custom (0.000027 sec)
+   passed  906/934  test-validate-semantics-valid-flag-dependent (0.000026 sec)
+   passed  907/934  test-validate-semantics-valid-simple-command (0.000026 sec)
+   passed  908/934  test-validate-undefined-handler-function (0.000030 sec)
+   passed  909/934  test-validate-valid-operation-types (0.000036 sec)
+   passed  910/934  test-variable-assignment-and-usage-in-chain (0.002366 sec)
+   passed  911/934  test-variable-assignment-without-usage (0.002362 sec)
+   passed  912/934  test-variable-chain-multi-level (0.002412 sec)
+   passed  913/934  test-variable-chain-parent-path-assignment (0.002625 sec)
+   passed  914/934  test-variable-chain-parent-path-assignment-ampersand (0.002459 sec)
+   passed  915/934  test-variable-chain-pwd-assignment (0.002435 sec)
+   passed  916/934  test-variable-chain-pwd-assignment-ampersand (0.002481 sec)
+   passed  917/934  test-variable-chain-relative-path-assignment (0.002296 sec)
+   passed  918/934  test-variable-chain-relative-path-assignment-ampersand (0.002260 sec)
+   passed  919/934  test-variable-empty-variable-context (0.002338 sec)
+   passed  920/934  test-variable-multiple-assignments (0.002345 sec)
+   passed  921/934  test-variable-multiple-variables-in-path (0.002551 sec)
+   passed  922/934  test-variable-partial-resolution (0.002254 sec)
+   passed  923/934  test-variable-provide-variable-context (0.002209 sec)
+   passed  924/934  test-variable-resolve-declared-variable (0.002201 sec)
+   passed  925/934  test-variable-simple-variable-reference (0.002221 sec)
+   passed  926/934  test-variable-unresolved-variable (0.002235 sec)
+   passed  927/934  test-variable-variable-with-braces (0.002293 sec)
+   passed  928/934  test-visualization-coverage-by-type (0.000084 sec)
+   passed  929/934  test-visualization-full-coverage (0.000058 sec)
+   passed  930/934  test-visualization-no-coverage (0.000060 sec)
+   passed  931/934  test-visualization-parse-incomplete (0.000044 sec)
+   passed  932/934  test-visualization-partial-coverage (0.000061 sec)
+   passed  933/934  test-visualization-progress-bar (0.000044 sec)
+   passed  934/934  test-visualization-zero-tokens (0.000080 sec)
+
+Ran 934 tests, 915 results as expected, 19 unexpected (2026-03-08 16:28:55+0100, 3.583628 sec)
+9 expected failures
+
+19 unexpected results:
+   FAILED  test-legacy-integration-chained-command-bypass
+   FAILED  test-legacy-integration-dangerous-command
+   FAILED  test-legacy-integration-git-commands
+   FAILED  test-legacy-integration-pipeline-bypass
+   FAILED  test-legacy-integration-simple-read-command
+   FAILED  test-legacy-integration-simple-write-command
+   FAILED  test-legacy-parse-command-substitution
+   FAILED  test-legacy-parse-command-with-ampersand
+   FAILED  test-legacy-parse-command-with-arguments
+   FAILED  test-legacy-parse-command-with-flags
+   FAILED  test-legacy-parse-command-with-semicolon
+   FAILED  test-legacy-parse-complex-pipeline
+   FAILED  test-legacy-parse-logical-and
+   FAILED  test-legacy-parse-logical-or
+   FAILED  test-legacy-parse-pipeline-first-command
+   FAILED  test-legacy-parse-redirect-input
+   FAILED  test-legacy-parse-redirect-output
+   FAILED  test-legacy-parse-simple-command
+   FAILED  test-legacy-parse-whitespace-handling
+
+=== Semantic Gap Detection Tests ===
+
+✓ Simple command substitution (parser extracts correctly)
+  Command: echo $(whoami)
+  No gaps detected (as expected)
+
+✓ Nested command substitution (parser extracts correctly)
+  Command: ls -la $(dirname $(which openspec))
+  No gaps detected (as expected)
+
+✓ Command substitution in quoted string (parser extracts correctly)
+  Command: --eval '(setq dir "'$(pwd)'")'
+  No gaps detected (as expected)
+
+✓ Process substitution (NOT YET IMPLEMENTED)
+  Command: diff <(ls dir1) <(ls dir2)
+  Detected: (process-substitution)
+
+✓ For loop with variables (parser extracts correctly)
+  Command: for f in *.txt; do echo $f; done
+  No gaps detected (as expected)
+
+✓ Conditional statement (parser extracts correctly)
+  Command: if [ -f file ]; then rm file; fi
+  No gaps detected (as expected)
+
+✓ Heredoc content (parser extracts correctly)
+  Command: cat <<EOF
+Content here
+EOF
+  No gaps detected (as expected)
+
+✓ Simple command (no gaps expected)
+  Command: ls -la /tmp
+  No gaps detected (as expected)
+
+✓ Simple command with args (no gaps expected)
+  Command: git commit -m 'message'
+  No gaps detected (as expected)
+
+=== Test Complete ===
+make: *** [emacs-test-eval] Error 1

@@ -39,7 +39,7 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
      - "Recreate all beads" → close existing, create new
      - "Cancel" → exit
 
-3. **Read design and specs**
+3. **Read design, specs, and tests**
 
    Read all context files:
    ```bash
@@ -50,6 +50,8 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    - design.md (required)
    - specs/**/*.md (if exist)
    - proposal.md (for high-level context)
+   - architecture.md (if exists - for test info)
+   - tests/** (if exist - for test coverage)
 
    Parse design.md structure:
    - Extract sections (## headings)
@@ -109,49 +111,33 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    - Shared utilities before dependents
    - Note: Will add with `bd dep add` after creation
 
-5. **Show preview and get approval**
+5. **Generate execution plan**
 
-   Display generated beads in structured format:
-   ```
-   ## Proposed Beads for <change-name>
+   Group beads into batches with dependencies and strategy:
 
-   ### Group 1: Setup (2 beads)
-
-   **Bead 1.1: Create module structure**
-   Files: config/gptel/presets.el (new)
-   Scope: ~2 hours
-   [Preview first 10 lines of description...]
-
-   **Bead 1.2: Add dependencies**
-   Files: config/gptel/gptel.el
-   Scope: ~1 hour
-   Depends on: 1.1
-   [Preview...]
-
-   ### Group 2: Core Implementation (3 beads)
-
-   **Bead 2.1: Implement resolver chain**
-   Files: config/gptel/presets.el
-   Scope: ~3 hours
-   [Preview...]
-
-   ...
-
-   Total: 8 beads across 3 groups
-   Estimated: ~15 hours total
+   ```yaml
+   execution:
+     batches:
+       - id: foundation
+         strategy: parallel  # or sequential
+         beads:
+           - emacs-abc1
+       - id: core-logic
+         strategy: sequential
+         depends_on: [foundation]
+         beads:
+           - emacs-def4
    ```
 
-   Use **AskUserQuestion**:
-   - "Create these beads?"
-   - Options:
-     - "Yes, create all" → proceed to step 6
-     - "Show full descriptions" → display all, then ask again
-     - "Adjust granularity" → ask for feedback, regenerate
-     - "Cancel" → exit
+   **Batch strategies:**
+   - `parallel`: No shared files, no dependencies
+   - `sequential`: Shared files or ordering requirements
 
-   If "Adjust granularity":
-   - Ask: "Should I split larger beads, combine smaller ones, or adjust specific beads?"
-   - Get feedback, regenerate, show preview again
+   **Common batch groupings:**
+   - Foundation: helpers, constants, utilities
+   - Core: main logic
+   - Integration: cross-module changes
+   - Testing: verification
 
 6. **Create beads in Beads DB**
 
@@ -190,29 +176,36 @@ Generate self-contained, actionable Beads issues from OpenSpec design.md and spe
    bd dep add <dependent-bead-id> <prerequisite-bead-id>
    ```
 
-   Example: If bead 1.2 depends on 1.1:
-   ```bash
-   bd dep add emacs-a4g emacs-a3f
-   ```
-
 8. **Update .openspec.yaml**
 
-   Add bead tracking metadata:
+   Add execution plan and bead tracking:
    ```yaml
-   schema: spec-driven
-   created: 2026-02-09
+   schema: spec-driven-beads
+   created: 2026-03-10
+
+   execution:
+     batches:
+       - id: foundation
+         strategy: parallel
+         beads:
+           - emacs-a3f
+       - id: core-logic
+         strategy: sequential
+         depends_on: [foundation]
+         beads:
+           - emacs-a5h
+
+   beads:
+     foundation:
+       - emacs-a3f
+     core-logic:
+       - emacs-a5h
+
    metadata:
      tracking: beads
-     beads:
-       - emacs-a3f
-       - emacs-a4g
-       - emacs-a5h
-     beads_created: 2026-02-10T10:30:00Z
+     beads_created: 2026-03-10T10:30:00Z
+     total_beads: 8
    ```
-
-   Use **Edit** tool to update `.openspec.yaml`.
-
-   **Do NOT create tasks.md** - beads replace tasks entirely.
 
 9. **Show completion summary**
 
@@ -258,10 +251,16 @@ Files to modify:
 - [path/to/file1.ext]
 - [path/to/file2.ext]
 
+Test coverage (if tests exist):
+- [test-file.el::test-function-name] (FAILING/SKIPPED)
+- [another-test.el::test-name] (FAILING/SKIPPED)
+- [If no tests: "No existing tests - verification manual"]
+
 Implementation steps:
 1. [Specific actionable step with details]
 2. [Another step, include code patterns if relevant]
 3. [Be concrete - mention functions, variables, patterns]
+4. [If tests exist: Run tests to verify (command from architecture.md)]
 
 Design rationale: [WHY from design.md - extract and embed]
 [The architectural reasoning that explains this implementation]
@@ -272,9 +271,9 @@ Design pattern: [Pattern to follow]
 [Reference similar code: "See config/core/X.el for similar pattern"]
 
 Verification:
-- [How to test this works - be specific]
+- [If tests: Run <test-command> and verify tests pass]
+- [Additional manual checks if needed]
 - [Acceptance criteria - what "done" means]
-- [Commands to run: tests, linters, manual checks]
 
 Context: design.md § [section] '[section title]'
 ```
@@ -284,12 +283,14 @@ Context: design.md § [section] '[section title]'
 - **Self-contained:** Extract and embed design context, don't just reference
 - **Actionable:** Each bead must have concrete implementation steps
 - **Scoped:** Target 1-4 hours per bead (one session)
+- **Test-aware:** If tests exist, include which tests this bead makes pass
 - **Verified:** Each bead must have clear acceptance criteria
 - **Linked:** Use labels and external-ref for traceability
 - **Sequenced:** Add dependencies where order matters
-- **No tasks.md:** Beads replace tasks.md entirely - don't create it
+- **Batched:** Group into execution plan with parallel/sequential strategy
 - **User approval:** Always preview and get confirmation before creating
 - **Context extraction:** Include WHY (rationale) not just WHAT (steps)
+- **TDD-compatible:** Beads can be "write test + implement" or just "implement" depending on whether tests already exist
 
 **Error Handling**
 
@@ -304,5 +305,4 @@ Context: design.md § [section] '[section title]'
 This skill enables:
 - `/opsx:apply` will work with these self-contained beads
 - `/opsx:verify` will check bead completion
-- `/bead-work` can implement individual beads
 - Discovery workflow (`discovered-from`) tracks tactical issues

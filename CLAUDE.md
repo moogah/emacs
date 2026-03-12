@@ -76,6 +76,145 @@ Uses straight.el (not package.el). Storage in `runtime/straight/`.
   :config (setq package-setting value))
 ```
 
+### Testing Infrastructure
+
+**Frameworks:** Support for both **Buttercup** (preferred) and **ERT** (legacy).
+
+**Framework Selection:**
+- **Buttercup** (preferred for new tests): BDD-style framework with `describe`/`it`/`expect` syntax, built-in setup/teardown, and spy system
+- **ERT** (maintain existing): Built-in testing framework - no forced migration required
+- Both frameworks supported side-by-side
+
+**Architecture:** Makefile provides single source of truth for Emacs invocation. No script-to-script dependencies.
+
+```
+Makefile (core)          - Emacs detection, environment setup, low-level targets
+  ↓
+run-tests.sh (CLI)       - User-friendly interface, argument parsing, snapshots, framework selection
+emacs-isolated.sh (GUI)  - Interactive launches (independent)
+```
+
+**Test organization:**
+- **Buttercup tests**: `*-spec.el` suffix (preferred for new tests)
+- **ERT tests**: `*-test.el` suffix (existing tests)
+- Framework: `config/core/testing.el` provides discovery and runner functions for both
+- Location: `config/*/test/` or co-located with modules
+
+**Test naming conventions:**
+```elisp
+;; Buttercup (preferred)
+(describe "Module name"
+  (it "does something"
+    (expect result :to-equal expected)))
+
+;; ERT (legacy)
+(ert-deftest test-module-something ()
+  (should (equal result expected)))
+```
+
+**Running tests:**
+```bash
+# Via run-tests.sh (primary CLI with auto-detection)
+./bin/run-tests.sh                       # All tests (both frameworks, separate processes)
+./bin/run-tests.sh -f buttercup          # Only Buttercup tests
+./bin/run-tests.sh -f ert                # Only ERT tests
+./bin/run-tests.sh -d config/gptel       # Directory-scoped (auto-detects framework)
+./bin/run-tests.sh -p '^test-glob-'      # Pattern-scoped (ERT)
+./bin/run-tests.sh -d config/foo -s      # With snapshot
+
+# Via make (convenience wrappers)
+make test                                # All tests (both frameworks)
+make test-buttercup                      # All Buttercup tests (direct)
+make test-directory DIR=config/gptel     # Tests in specific directory
+make test-buttercup-directory DIR=config/gptel  # Buttercup in directory (direct)
+make test-pattern PATTERN='^test-glob-'  # ERT pattern matching
+
+# Interactive (via transient menu)
+C-c t    # Open test menu
+# Then choose ERT or Buttercup options
+```
+
+**Test discovery functions** (in `config/core/testing.el`):
+- **ERT**: `jf/test-run-all-batch`, `jf/test-run-directory-batch`, `jf/test-run-pattern-batch`
+- **Buttercup**: `jf/test-run-all-buttercup-batch`, `jf/test-run-buttercup-directory-batch`
+- Load functions: `jf/test-load-all-test-files`, `jf/test-load-all-buttercup-test-files`
+
+**When to use Buttercup:**
+- New test suites (preferred going forward)
+- Tests requiring significant setup/teardown (before-each, after-each)
+- Behavioral/integration tests with shared fixtures
+- Tests needing function mocking or call verification (spies)
+- Hierarchical test organization (nested describe blocks)
+
+**When to use ERT:**
+- Maintaining existing test suites (no forced migration)
+- Simple unit tests with minimal setup
+- Quick assertion-based tests
+
+**Test levels:**
+- **Unit** — Tests a single function with dependencies mocked for deterministic results.
+- **Integration** — Validates critical interactions and interfaces, typically at the module level.
+- **Behavioral** — Runs real code paths end-to-end, mocking only at the boundary between our code and external dependencies (Emacs primitives, third-party packages). Mocks are scoped to the function-under-test via `cl-letf` (not global). Tests declare preconditions explicitly rather than building up stateful test infrastructure.
+
+**Snapshot testing:**
+- Capture test output to git-tracked files for regression tracking
+- Default location: `DIR/test-results.txt` for directory-scoped tests
+- Compare changes: `git diff config/foo/test-results.txt`
+- Use for: Monitoring test progress, catching regressions in CI
+
+**Key principles:**
+- Makefile owns Emacs invocation (single source of truth)
+- Scripts are thin wrappers (no coupling)
+- Tests co-located with modules (easy navigation)
+- Automatic discovery (no manual test registration)
+- Dual-framework runs in separate Emacs processes (ERT's `kill-emacs` cannot block Buttercup)
+
+**Bash-parser test organization:** `config/bash-parser/test/`
+- `behavioral/` - User-facing scenarios from specs (WHAT) - 129 tests
+- `unit/{core,semantic,analysis}/` - Module tests by architecture layer (HOW) - 240 tests
+- `integration/` - Multi-module interactions - 51 tests
+- `construct/` - Bash construct-specific tests - 94 tests
+- `corpus/{data,runners}/` - Test data and corpus-driven tests - 34 + 135 tests
+
+**Running bash-parser tests:**
+```bash
+# All tests
+./bin/run-tests.sh -d config/bash-parser
+
+# Specific category
+./bin/run-tests.sh -d config/bash-parser/test/behavioral
+```
+
+**Scope validation test organization:** `config/gptel/scope/test/`
+- `core/` - Config loading, path validation, tool routing, allow-once (4 spec files)
+- `semantic/` - Cloud auth, deny list, error messages, file operations, no-op, parse completeness, path resolution, pipelines, resource limits (9 spec files)
+- `expansion/` - Expansion integration, expansion UI (2 spec files)
+- `helpers-spec.el` - Shared test infrastructure (matchers, mocks, fixtures)
+- `metadata-spec.el` - Metadata extraction tests
+
+**Tool-scope contract tests:** `config/gptel/tools/test/`
+- `filesystem-tools-spec.el` - Filesystem tool contract tests
+- `run-bash-command-spec.el` - Bash command tool contract tests
+- `test-arg-extraction-spec.el` - Argument extraction tests
+- `helpers-spec.el` - Tool test helpers
+
+**Running scope and tool tests:**
+```bash
+# All scope validation tests (359 specs)
+./bin/run-tests.sh -d config/gptel/scope
+
+# Scope tests by layer
+./bin/run-tests.sh -d config/gptel/scope/test/core
+./bin/run-tests.sh -d config/gptel/scope/test/semantic
+./bin/run-tests.sh -d config/gptel/scope/test/expansion
+
+# Tool-scope contract tests (39 specs)
+./bin/run-tests.sh -d config/gptel/tools
+
+# All gptel tests (398 specs)
+./bin/run-tests.sh -d config/gptel
+```
+
 ### GPTEL Architecture
 
 Located in `config/gptel/` (not `major-modes/`), organized by subsystem:
@@ -100,15 +239,44 @@ gptel/
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 ```
 
+### GPTEL Bash Tools and Scope Validation
+
+Controlled bash command execution with semantic validation using bash-parser integration.
+
+**Implementation**: `config/gptel/scope/scope-shell-tools.org`
+**Behavioral spec**: `openspec/specs/gptel/scope.md`
+
+**Validation approach**: Seven-stage operation-first validation pipeline validates commands by semantic operations (file reads/writes) rather than category membership. Uses bash-parser for AST extraction and semantic plugin system.
+
+**Key features**:
+- Operation-specific path scoping (read/write/execute/modify/deny)
+- No-op allowance (zero file operations auto-permitted)
+- Cloud authentication detection and control
+- Minimal deny list for high-risk edge cases
+- Parse completeness enforcement
+
+See implementation and spec files for complete details.
+
 ## Common Commands
 
 ```bash
 # Tangle and validate
 ./bin/tangle-org.sh config/core/defaults.org
 
-# Test configuration
-./bin/emacs-isolated.sh
-./bin/emacs-isolated.sh -nw  # Terminal mode
+# Test configuration (interactive)
+./bin/emacs-isolated.sh              # GUI mode
+./bin/emacs-isolated.sh -nw          # Terminal mode
+./bin/emacs-isolated.sh myfile.txt   # Open file
+
+# Run tests
+./bin/run-tests.sh                           # All tests (both frameworks)
+./bin/run-tests.sh -d config/bash-parser     # Directory-scoped
+./bin/run-tests.sh -f buttercup              # Buttercup only
+make test-directory DIR=config/gptel         # Via make
+./bin/run-tests.sh -d config/foo --snapshot  # With snapshot
+./bin/run-tests.sh --report                  # Concise report (counts + failures)
+make test-report                             # Via make
+make test-report DIR=config/gptel            # Directory-scoped report
 
 # Worktree workflow
 git worktree add ~/emacs-feature-name -b feature-name
@@ -139,22 +307,51 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 For non-trivial changes, use **OpenSpec** to plan before implementing:
 
+**Default schema:** `spec-driven-beads` (proposal → specs → architecture → design → beads)
+
 **When to use:**
 - New features or significant modifications
 - Changes requiring architectural decisions
 - Multi-file refactoring
 - Unclear requirements needing exploration
 
+**Workflow artifacts:**
+1. **proposal.md** - WHY (problem, motivation, capabilities, impact)
+2. **specs/** - WHAT (behavioral requirements with scenarios)
+3. **architecture.md** - HOW to structure and test (components, interfaces, testing approach)
+4. **design.md** - HOW to implement (technical decisions, implementation approach)
+5. **Beads** - Implementation tracking (generated from design and specs)
+
 **Invoke skills:**
 - `/opsx:explore` - Investigate and clarify requirements before planning
-- `/opsx:new` - Start structured change (proposal → design → tasks → implementation)
+- `/opsx:new` - Start structured change with spec-driven-beads schema
 - `/opsx:continue` - Progress to next artifact in workflow
 - `/opsx:ff` - Fast-forward through all artifacts to reach implementation
-- `/opsx:apply` - Implement tasks from change
+- `/opsx:create-beads` - Generate Beads issues from design and specs
+- `/opsx:apply` - Implement Beads (uses `/bead-implementation` workflow)
 - `/opsx:verify` - Validate implementation matches artifacts
 - `/opsx:archive` - Archive completed change
 
 **Skip OpenSpec for:** Single-file edits, bug fixes, documentation updates, trivial changes.
+
+#### Architecture Artifact
+
+The **architecture.md** artifact bridges requirements (specs) and implementation (design):
+
+**Purpose:**
+- Define system structure (components, interfaces, boundaries)
+- Establish testing approach BEFORE writing code
+- Create testability contract for implementation
+
+**Testing Approach section (critical):**
+- **Test Framework**: Which framework and why (ERT for Emacs, Jest for JS, pytest for Python)
+- **Test Organization**: Where test files live (test/, tests/, co-located)
+- **Naming Conventions**: Test file and function naming patterns
+- **Running Tests**: Commands to run tests (all tests, specific tests)
+- **Test Patterns**: Mocking/stubbing approach, test data setup, helpers
+- **Scenario Mapping**: How spec scenarios map to test cases
+
+**Workflow:** Claude will use `AskUserQuestion` during architecture creation to gather your testing preferences. These decisions are documented and guide both test creation and implementation.
 
 #### Spec Philosophy
 
@@ -266,9 +463,12 @@ Use **Beads** for tracking implementation work:
 
 ## Key Locations
 
-**Root:** `early-init.el`, `init.el`, `init.org` (MUST be at root)
+**Root:** `early-init.el`, `init.el`, `init.org` (MUST be at root), `Makefile` (test infrastructure)
 **Config:** `config/core/`, `config/gptel/`, `config/major-modes/`, `config/language-modes/`, `config/local/`
+**Bash Parser:** `config/bash-parser/` (tree-sitter-based bash parser, used by gptel scope validation)
+**Tests:** `config/*/test/` or `config/*-test.el` (co-located with modules)
 **Runtime:** `runtime/straight/`, `runtime/cache/`, `runtime/state/` (gitignored)
+**Bin:** `bin/run-tests.sh` (test CLI), `bin/emacs-isolated.sh` (GUI launcher), `bin/tangle-org.sh` (literate programming)
 
 **Machine roles:** `~/.machine-role` → `config/local/<role>.el` (apploi-mac, personal-mac, personal-mac-air)
 

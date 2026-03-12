@@ -103,7 +103,7 @@ Common artifact patterns:
 - **specs/<capability>/spec.md**: Create one spec per capability listed in the proposal's Capabilities section (use the capability name, not the change name).
 - **design.md**: Document technical decisions, architecture, and implementation approach.
 
-**After design is complete**, suggest using opsx-create-beads to generate self-contained Beads issues for implementation tracking. Beads replace tasks.md in the workflow.
+**After design is complete**, suggest using opsx-create-beads to generate self-contained Beads issues for implementation tracking.
 
 For other schemas, follow the `instruction` field from the CLI output.
 

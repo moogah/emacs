@@ -70,6 +70,6 @@ Context: design.md § [section]
 
 **Self-contained**: Extract design context into beads. Don't reference "see design.md".
 
-**No tasks.md**: Beads replace tasks.md entirely.
+**Bead-first workflow**: Beads are the only implementation tracking mechanism.
 
 **Integration**: Works with `/opsx:apply`, `/opsx:verify`, `/bead-work`.

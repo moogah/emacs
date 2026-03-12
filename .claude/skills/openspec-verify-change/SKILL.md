@@ -1,15 +1,15 @@
 ---
 name: openspec-verify-change
-description: Verify implementation matches change artifacts. Supports both Beads tracking and tasks.md checkboxes. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving.
+description: Verify implementation matches change artifacts using Beads tracking. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving.
 license: MIT
-compatibility: Requires openspec CLI. Optional: Beads (bd) CLI for bead-based tracking.
+compatibility: Requires openspec CLI and Beads (bd) CLI.
 metadata:
   author: openspec
-  version: "2.0"
+  version: "3.0"
   generatedBy: "1.1.1"
 ---
 
-Verify that an implementation matches the change artifacts (specs, beads/tasks, design).
+Verify that an implementation matches the change artifacts (specs, beads, design).
 
 **Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
@@ -19,9 +19,9 @@ Verify that an implementation matches the change artifacts (specs, beads/tasks, 
 
    Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
 
-   Show changes that have implementation tasks (tasks artifact exists).
+   Show changes that have beads for implementation tracking.
    Include the schema used for each change if available.
-   Mark changes with incomplete tasks as "(In Progress)".
+   Mark changes with incomplete beads as "(In Progress)".
 
    **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
 
@@ -33,15 +33,31 @@ Verify that an implementation matches the change artifacts (specs, beads/tasks, 
    - `schemaName`: The workflow being used (e.g., "spec-driven")
    - Which artifacts exist for this change
 
-3. **Detect tracking mode (Beads vs Tasks.md)**
+3. **Check for beads**
 
-   Read `.openspec.yaml` from the change directory to check tracking mode.
-   Check for `metadata.tracking` field - if "beads", use bead-based verification.
+   Read `.openspec.yaml` from the change directory to find beads:
+
+   ```bash
+   cat openspec/changes/<name>/.openspec.yaml
+   ```
+
+   Check for `metadata.beads` field containing bead IDs.
 
 4. **Get the change directory and load artifacts**
 
-   Get context files from OpenSpec CLI.
-   If bead mode, also query beads for completion status.
+   ```bash
+   openspec instructions apply --change "<name>" --json
+   ```
+
+   This returns context file paths (proposal, design, specs).
+
+   **Query beads:**
+   ```bash
+   bd list --label openspec --long --limit 0 --json
+   ```
+
+   Filter results to beads with external_ref matching "opsx:<change-name>".
+   Parse bead data to determine completion status.
 
 5. **Initialize verification report structure**
 
@@ -54,18 +70,17 @@ Verify that an implementation matches the change artifacts (specs, beads/tasks, 
 
 6. **Verify Completeness**
 
-   **Task/Bead Completion** (depends on tracking mode):
-
-   **Bead mode:**
-   - Query beads filtered by external_ref for this change
+   **Bead Completion:**
+   - Query beads from step 4 (filtered by external_ref)
    - Count open vs closed beads
-   - Check if open beads exist (CRITICAL issues)
-   - Verify `.openspec.yaml` metadata matches bead status (WARNING if stale)
-
-   **Task mode:**
-   - Read tasks.md and parse checkboxes
-   - Count complete vs total tasks
-   - Flag incomplete tasks as CRITICAL issues
+   - If open beads exist:
+     - Add CRITICAL issue for each open bead
+     - Include bead ID and title
+     - Recommendation: "Complete bead <bead-id>: <description>" or "Close if already implemented"
+   - Also verify `.openspec.yaml` metadata matches bead status
+   - If metadata is stale (doesn't match actual bead status):
+     - Add WARNING: "Bead metadata out of sync"
+     - Recommendation: "Update .openspec.yaml to reflect current bead status"
 
    **Spec Coverage**:
    - If delta specs exist in `openspec/changes/<name>/specs/`:
@@ -131,13 +146,15 @@ Verify that an implementation matches the change artifacts (specs, beads/tasks, 
    **Issues by Priority**:
 
    1. **CRITICAL** (Must fix before archive):
-      - Incomplete tasks
-      - Missing requirement implementations
+      - Open beads
+      - Metadata sync issues
+      - Missing requirements
       - Each with specific, actionable recommendation
 
    2. **WARNING** (Should fix):
       - Spec/design divergences
       - Missing scenario coverage
+      - Stale metadata in `.openspec.yaml`
       - Each with specific recommendation
 
    3. **SUGGESTION** (Nice to fix):
@@ -160,8 +177,8 @@ Verify that an implementation matches the change artifacts (specs, beads/tasks, 
 
 **Graceful Degradation**
 
-- If only tasks.md exists: verify task completion only, skip spec/design checks
-- If tasks + specs exist: verify completeness and correctness, skip design
+- If only beads exist (no specs/design): verify bead completion only, skip other checks
+- If beads + specs exist: verify completeness and correctness, skip design
 - If full artifacts: verify all three dimensions
 - Always note which checks were skipped and why
 

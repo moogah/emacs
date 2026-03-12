@@ -1,0 +1,10 @@
+# Pattern: process-substitution
+# Description: Process substitution patterns
+# Total commands: 1
+# Coverage range: 80.0% - 80.0%
+# Average coverage: 80.0%
+#
+# Commands sorted by coverage_pct (ascending) to prioritize gaps
+#
+command	parse_status	coverage_pct	missing_count	file_ops_count	command_type	dangerous	missing_tokens	semantic_gap_count	critical_gaps	gap_types
+cat << 'EOF'\nCOMPARISON: Old Script vs New Infrastructure\n=============================================\n\nOLD SCRIPT (test/run-all-tests-snapshot.sh):\n- Loads: 7 test files (manually specified)\n- Runs: 286 tests\n- Results: 262 passed, 24 failed\n- Output: config/experiments/bash-parser/test/test-results.txt\n\nNEW INFRASTRUCTURE (make test-bash-parser-snapshot):\n- Loads: 7 test files (auto-discovered)\n- Runs: 286 tests\n- Results: 262 passed, 24 failed (identical failures)\n- Output: config/experiments/bash-parser/test-results.txt\n\nFAILED TESTS (both identical):\nEOF\ndiff <(tail -15 config/experiments/bash-parser/test/test-results.txt) <(tail -15 config/experiments/bash-parser/test-results.txt) && echo "  ✓ Identical failed test lists"\n	SUCCESS	80.0	2	2	:chain		cat,   ✓ Identical failed test lists	2	1	process-substitution, heredoc

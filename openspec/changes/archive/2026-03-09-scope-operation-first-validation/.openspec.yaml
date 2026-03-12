@@ -1,0 +1,15 @@
+schema: spec-driven-beads
+created: 2026-03-09
+beads:
+  # Phase 1: Core Pipeline Refactoring
+  - emacs-php8  # Extract semantics once in validation pipeline
+  - emacs-69r6  # Add no-op allowance stage to validation pipeline
+  - emacs-nigg  # Remove category validation from pipeline commands
+  # Phase 2: Schema Updates
+  - emacs-b7r4  # Remove categories from scope profile loading
+  - emacs-1oz8  # Update all default scope profiles to remove categories
+  # Phase 3: Test Suite Updates
+  - emacs-47tm  # Add Buttercup tests for no-op allowance scenarios
+  - emacs-ccf4  # Update pipeline validation tests and remove category tests
+  # Phase 4: Documentation
+  - emacs-ju6g  # Update documentation and add migration guide

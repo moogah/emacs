@@ -1,0 +1,89 @@
+
+○ emacs-lmn5 · Eliminate code duplication in bash-parser handler functions   [● P2 · OPEN]
+Owner: Jeff Farr · Type: task
+Created: 2026-03-06 · Updated: 2026-03-06
+
+DESCRIPTION
+Eliminate 200+ lines of duplicated code between handler function pairs.
+
+Files to modify:
+- config/experiments/bash-parser/bash-parser-core.org
+- config/experiments/bash-parser/bash-parser-core.el (after tangling)
+
+Problem:
+Two pairs of nearly-identical functions exist:
+
+1. jf/bash-parse--handle-for-loop (lines 358-454, 97 lines)
+   jf/bash-parse--handle-for-loop-node (lines 477-559, 83 lines)
+   - 95% identical implementation
+   - Only difference: first finds for-node, second receives it
+
+2. jf/bash-parse--handle-conditional (lines 288-356, 69 lines)
+   jf/bash-parse--handle-conditional-node (lines 561-614, 54 lines)
+   - 95% identical implementation
+   - Only difference: first finds if-node, second receives it
+
+Total duplication: ~200 lines of nearly identical code
+
+Implementation steps:
+
+1. For-loop handlers:
+   Simplify jf/bash-parse--handle-for-loop to call the -node variant:
+   
+   (defun jf/bash-parse--handle-for-loop (root-node)
+     "Handle for-loop from ROOT-NODE."
+     (let ((for-node (jf/bash-parse--find-node-by-type root-node "for_statement")))
+       (if for-node
+           (jf/bash-parse--handle-for-loop-node for-node)
+         (list :success nil :error "No for_statement node found"))))
+   
+   Keep jf/bash-parse--handle-for-loop-node with the full implementation.
+   Update docstring to note it works with node directly.
+
+2. Conditional handlers:
+   Same pattern - simplify jf/bash-parse--handle-conditional:
+   
+   (defun jf/bash-parse--handle-conditional (root-node)
+     "Handle conditional from ROOT-NODE."
+     (let ((if-node (jf/bash-parse--find-node-by-type root-node "if_statement")))
+       (if if-node
+           (jf/bash-parse--handle-conditional-node if-node)
+         (list :success nil :error "No if_statement node found"))))
+   
+   Keep jf/bash-parse--handle-conditional-node with the full implementation.
+
+3. Update docstrings:
+   - Root-node handlers: "Find and parse [structure] from ROOT-NODE"
+   - Node handlers: "Parse [structure] from [NODE] directly"
+
+Design rationale:
+The duplication exists because handlers are called in two contexts:
+1. From jf/bash-parse--detect-structure-type (top-level structure)
+2. From jf/bash-parse--parse-single-command-node (structure in chain)
+
+The -node variants handle the actual parsing logic. The root-node variants just need to find the node and delegate. This is a classic extraction pattern that:
+- Eliminates ~200 lines of duplicated code
+- Makes maintenance easier (fix once, not twice)
+- Clarifies the two call contexts
+- Preserves existing API and behavior
+
+Design pattern:
+Follow the delegation pattern:
+  Finder function (thin) -> Worker function (full implementation)
+
+This is already used successfully for:
+- jf/bash-parse -> jf/bash-parse--internal
+- jf/bash-parse--parse-wrapper-command (delegates flag parsing)
+
+Verification:
+1. Run all tests: make test-bash-parser
+2. Verify no test failures
+3. Test for-loops in chains: "A && for x in 1; do echo $x; done"
+4. Test conditionals in chains: "A && if true; then B; fi"
+5. Check code coverage unchanged
+6. Verify tangled .el file has reduced size
+
+Priority: P2 - Improves maintainability but doesn't affect functionality.
+
+LABELS: 26-03-06-review, bash-parser, refactoring
+

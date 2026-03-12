@@ -41,7 +41,7 @@ Continue working on a change by creating the next artifact.
    **If all artifacts are complete (`isComplete: true`)**:
    - Congratulate the user
    - Show final status including the schema used
-   - Suggest: "All artifacts created! Next: create Beads with `/opsx:create-beads`, then implement with `/opsx:apply`, or archive with `/opsx:archive`."
+   - Suggest: "All artifacts created! Next: create Beads with `/opsx:create-beads` to generate implementation work items."
    - STOP
 
    ---
@@ -91,15 +91,48 @@ After each invocation, show:
 
 The artifact types and their purpose depend on the schema. Use the `instruction` field from the instructions output to understand what to create.
 
-Common artifact patterns:
-
-**spec-driven schema** (proposal → specs → design):
+**spec-driven-beads schema** (proposal → specs → architecture → design) - **RECOMMENDED**:
 - **proposal.md**: Ask user about the change if not clear. Fill in Why, What Changes, Capabilities, Impact.
   - The Capabilities section is critical - each capability listed will need a spec file.
 - **specs/<capability>/spec.md**: Create one spec per capability listed in the proposal's Capabilities section (use the capability name, not the change name).
-- **design.md**: Document technical decisions, architecture, and implementation approach.
+  - Include scenarios with clear success criteria.
+  - Use `### Requirement:` and `#### Scenario:` headers for proper parsing.
+- **architecture.md**: Document components, interfaces, boundaries, and testability.
+  - **IMPORTANT**: Engage user in dialog about testing approach:
+    - Test framework (e.g., ERT for Emacs, Jest for JS, pytest for Python)
+    - Test file location (e.g., `test/`, `tests/`, `spec/`)
+    - Naming conventions (files and test functions)
+    - How to run tests (commands)
+    - Mock/stub patterns
+    - Test helpers location
+    - Scenario mapping strategy
+  - Use **AskUserQuestion** to gather testing preferences
+  - Document all decisions in architecture.md Testing Approach section
+- **design.md**: Document technical decisions and implementation approach.
+  - Reference architecture for structure and testing approach
+  - Explain how implementation will map to components and interfaces
+  - Include patterns, integration approach, and any design trade-offs
 
-**After design is complete**, suggest using `/opsx:create-beads` to generate self-contained Beads issues for implementation tracking. Beads replace tasks.md in the workflow.
+**After design is complete**, suggest using `/opsx:create-beads` to generate self-contained Beads issues from design and specs for implementation tracking.
+
+**spec-driven-tdd schema** (proposal → specs → architecture → tests → design):
+- Similar to spec-driven-beads but includes a **tests/** artifact between architecture and design
+- **tests/**: Create actual test files (not documentation).
+  - Location determined by architecture.md
+  - Create test files that map scenarios from specs
+  - Use naming conventions from architecture.md
+  - Tests should be runnable but may fail (TDD red phase)
+  - Use `:expected-result :failed` or `ert-skip` for tests requiring future implementation
+  - Map tests to scenarios via function names and comments
+  - Example comment: `"Scenario: specs/gptel/sessions.md § 'Export to file'"`
+- Design references tests and explains how implementation will make them pass
+
+**spec-driven schema** (proposal → specs → design) - legacy:
+- Old schema without architecture artifact
+- Skip directly from specs to design (loses testing approach documentation)
+- Not recommended for new changes
+
+**IMPORTANT**: Beads are the only supported implementation tracking mechanism. Do NOT create tasks.md - all implementation work is tracked through Beads created with `/opsx:create-beads`.
 
 For other schemas, follow the `instruction` field from the CLI output.
 

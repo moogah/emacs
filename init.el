@@ -104,6 +104,8 @@ Handles both 'dir/name' format and 'name' format."
     ("core/completion"    "Modern completion framework")
     ("core/window-management"    "Save and restore window configs")
     ("core/yasnippet"     "Snippet system for templates")
+    ("core/testing"       "ERT test infrastructure")
+    ("core/buttercup"     "Buttercup BDD testing framework")
 
     ;; Feature modules
     ("look-and-feel/look-and-feel" "UI appearance and behavior")
@@ -123,6 +125,9 @@ Handles both 'dir/name' format and 'name' format."
     ("major-modes/org-roam" "Org-roam knowledge management")
     ("major-modes/dirvish" "Enhanced directory viewer")
     ("major-modes/beads"  "Beads issue tracking")
+
+    ;; Bash Parser - tree-sitter based bash command parser
+    ("bash-parser/bash-parser" "Bash command parser with semantic extraction")
 
     ;; GPTEL - LLM/AI integration (moved from major-modes)
     ("gptel/gptel"        "GPTEL LLM/AI integration")

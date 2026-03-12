@@ -1,0 +1,55 @@
+{
+  "session_id": "orch-1772827486",
+  "baseline_snapshot": ".beads/orchestrator/baseline-1772827486.txt",
+  "baseline_test_count": 599,
+  "baseline_unexpected_count": 0,
+  "current_branch": "gptel-scoped-bash-tools",
+  "max_parallel": 5,
+  "beads": [
+    {
+      "bead_id": "emacs-nlyj",
+      "title": "Improve unhandled operations denial messaging",
+      "worktree_path": ".worktrees/bead-emacs-nlyj-1772827486",
+      "branch_name": "bead-emacs-nlyj-1772827486",
+      "task_id": "1",
+      "status": "setup_complete",
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-bcre",
+      "title": "Add enhanced violation context to security validation",
+      "worktree_path": ".worktrees/bead-emacs-bcre-1772827486",
+      "branch_name": "bead-emacs-bcre-1772827486",
+      "task_id": "2",
+      "status": "setup_complete",
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-ih3i",
+      "title": "Remove stub subcommand handlers",
+      "worktree_path": ".worktrees/bead-emacs-ih3i-1772827486",
+      "branch_name": "bead-emacs-ih3i-1772827486",
+      "task_id": "3",
+      "status": "setup_complete",
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-m71y",
+      "title": "Unify recursion depth limit handling",
+      "worktree_path": ".worktrees/bead-emacs-m71y-1772827486",
+      "branch_name": "bead-emacs-m71y-1772827486",
+      "task_id": "4",
+      "status": "setup_complete",
+      "regression_detected": false
+    },
+    {
+      "bead_id": "emacs-2qdy",
+      "title": "Create test-helper.el",
+      "worktree_path": ".worktrees/bead-emacs-2qdy-1772827486",
+      "branch_name": "bead-emacs-2qdy-1772827486",
+      "task_id": "5",
+      "status": "setup_complete",
+      "regression_detected": false
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+#+title: GPTEL Scope Manager - Metadata Gathering
+#+author: Jeff Farr
+#+property: header-args:elisp :tangle scope-metadata.el :comments both
+#+auto_tangle: y
+
+* Overview
+
+This module provides metadata gathering functions for file context before validation.
+
+** Key Principles
+
+1. *Separation of concerns*: Gathering (I/O) is distinct from validation (logic)
+2. *Flat plist structure*: Simple access pattern consistent with Emacs conventions
+3. *Graceful degradation*: Git metadata gathering handles missing git gracefully
+4. *Future-ready*: Metadata enables git-based policies without changing validation code
+
+* File Header
+
+#+begin_src elisp :comments no
+;;; scope-metadata.el --- GPTEL Scope Metadata Utilities -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Metadata gathering for scope validation in gptel sessions.
+
+;;; Code:
+#+end_src
+
+* Dependencies
+
+#+begin_src elisp
+(require 'cl-lib)
+#+end_src
+
+* Metadata Gathering
+
+** File Metadata Collection
+
+Gather contextual metadata for a filepath before validation. Returns a flat plist with:
+- :path - Absolute expanded path
+- :real-path - Symlink-resolved path
+- :exists - Whether file/directory exists
+- :git-tracked - Whether file is tracked by git (nil if git unavailable)
+- :git-repo - Root of git repository (nil if not in repo)
+- :type - File type (file, directory, or other)
+
+#+begin_src elisp
+(defun jf/gptel-scope--gather-file-metadata (filepath)
+  "Gather contextual metadata for FILEPATH before validation.
+
+Returns flat plist with keys:
+  :path         - Absolute expanded path
+  :real-path    - Symlink-resolved path
+  :exists       - Whether file/directory exists
+  :git-tracked  - Whether tracked by git (nil if git unavailable)
+  :git-repo     - Root of git repository (nil if not in repo)
+  :type         - File type (file, directory, or other)
+
+Gracefully handles missing git by returning nil for git-related fields."
+  (let* ((full-path (expand-file-name filepath))
+         (real-path (condition-case nil
+                        (file-truename full-path)
+                      (error full-path)))
+         (exists (file-exists-p full-path))
+         (git-repo (locate-dominating-file full-path ".git"))
+         (git-tracked (when git-repo
+                        (jf/gptel-scope--file-is-git-tracked-p full-path)))
+         (file-type (cond ((file-directory-p full-path) 'directory)
+                         ((file-regular-p full-path) 'file)
+                         (t 'other))))
+    (list :path full-path
+          :real-path real-path
+          :exists exists
+          :git-tracked git-tracked
+          :git-repo git-repo
+          :type file-type)))
+#+end_src
+
+** Git-Tracked File Check
+
+Check if a file is tracked by git. Reused from scope-filesystem-tools.el.
+Returns nil gracefully if git is not available or file is not in a git repository.
+
+#+begin_src elisp
+(defun jf/gptel-scope--file-is-git-tracked-p (file)
+  "Check if FILE is tracked by git.
+Returns t if file is tracked, nil if untracked or ignored.
+Returns nil if file is not in a git repository or git is not available."
+  (when-let* ((git-dir (locate-dominating-file file ".git")))
+    (let ((default-directory git-dir)
+          (relative-file (file-relative-name file git-dir)))
+      (condition-case nil
+          (= 0 (call-process "git" nil nil nil "ls-files" "--error-unmatch" relative-file))
+        (error nil)))))
+#+end_src
+
+* Provide Feature
+
+#+begin_src elisp
+(provide 'jf-gptel-scope-metadata)
+;;; scope-metadata.el ends here
+#+end_src

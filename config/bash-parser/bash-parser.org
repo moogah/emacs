@@ -1,0 +1,130 @@
+#+title: Bash Command Parser
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle bash-parser.el
+#+auto_tangle: t
+
+* Package Header
+
+#+begin_src emacs-lisp
+;; Author: Jeff Farr
+;; Keywords: bash, parser, loader
+;; Package-Requires: ((emacs "27.1"))
+
+;;; Commentary:
+
+;; Bash command parser using tree-sitter for semantic extraction.
+;; Main loader module that coordinates all bash parser subsystems.
+
+;;; Code:
+#+end_src
+
+* Introduction
+
+Parse bash command strings using tree-sitter to extract semantic structure.
+
+This is the main loader module that coordinates all bash parser subsystems.
+The parser is organized into layers for better maintainability:
+
+**Core Layer** (core/):
+- **bash-parser-core** - Core parsing infrastructure (pipelines, chains, commands)
+- **bash-parser-protocol** - Forward declarations
+- **bash-parser-recursive** - Recursive semantic analysis
+- **bash-parser-variables** - Variable context management
+
+**Analysis Layer** (analysis/):
+- **bash-parser-coverage** - Coverage calculation and visualization
+- **bash-parser-plugins** - Plugin registry and orchestration
+
+**Domain Plugins** (plugins/):
+- **bash-parser-file-ops** - File operations extraction
+- **bash-parser-cloud-auth** - Cloud authentication detection
+- **bash-parser-security** - Security validation with rule matching
+
+**Semantics** (semantics/):
+- **bash-parser-semantics** - Command semantics database
+
+**Utilities** (utils/):
+- **bash-parser-glob** - Glob pattern matching without filesystem access
+- **bash-parser-extensions** - Parser extensions (indirect ops, command injection)
+
+** Capabilities
+
+The parser extracts:
+- Command names and subcommands
+- Flags and positional arguments
+- File operations with security semantics
+- Dangerous pattern detection
+- Command structure analysis (pipelines, chains, simple commands)
+
+The parser handles multi-command constructs (pipelines and chains) by extracting
+all commands and validating each one individually.
+
+* Basic Configuration
+
+Setup lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;;; bash-parser.el --- Parse bash commands with tree-sitter -*- lexical-binding: t; -*-
+#+end_src
+
+* Dependencies
+
+Require tree-sitter support (built into Emacs 29+).
+
+#+begin_src emacs-lisp
+(require 'treesit)
+(require 'cl-lib)
+#+end_src
+
+* Load Sub-Modules
+
+Load all parser subsystems in dependency order.
+
+#+begin_src emacs-lisp
+;; Add current directory and subdirectories to load-path for sub-modules
+(let ((base-dir (file-name-directory (or load-file-name buffer-file-name))))
+  (add-to-list 'load-path base-dir)
+  (add-to-list 'load-path (expand-file-name "core" base-dir))
+  (add-to-list 'load-path (expand-file-name "analysis" base-dir))
+  (add-to-list 'load-path (expand-file-name "plugins" base-dir))
+  (add-to-list 'load-path (expand-file-name "semantics" base-dir))
+  (add-to-list 'load-path (expand-file-name "commands" base-dir))
+  (add-to-list 'load-path (expand-file-name "utils" base-dir)))
+
+;; Protocol module (forward declarations - no dependencies)
+(require 'bash-parser-protocol)
+
+;; Core modules (no dependencies on other parser modules)
+(require 'bash-parser-glob)
+(require 'bash-parser-semantics)
+(require 'bash-parser-variables)
+
+;; Security module (depends on glob)
+(require 'bash-parser-security)
+
+;; Core parsing (depends on security - for dangerous pattern detection)
+(require 'bash-parser-core)
+
+;; Analysis layer (plugin system and coverage)
+(require 'bash-parser-coverage)
+(require 'bash-parser-plugins)
+
+;; File operations (depends on core, semantics, variables)
+(require 'bash-parser-file-ops)
+
+;; Domain plugins
+(require 'bash-parser-cloud-auth)
+
+;; Recursive analysis (depends on file-ops)
+(require 'bash-parser-recursive)
+
+;; Extensions (depends on file-ops)
+(require 'bash-parser-extensions)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'bash-parser)
+;;; bash-parser.el ends here
+#+end_src

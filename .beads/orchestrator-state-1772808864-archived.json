@@ -1,0 +1,42 @@
+{
+  "session_id": "orch-1772805812",
+  "baseline_snapshot": ".beads/orchestrator/baseline-1772805812.txt",
+  "current_branch": "gptel-scoped-bash-tools",
+  "max_parallel": 3,
+  "status": "complete",
+  "beads": [
+    {
+      "bead_id": "emacs-l4rq",
+      "worktree_path": ".worktrees/bead-emacs-l4rq-1772805812",
+      "branch_name": "bead-emacs-l4rq-1772805812",
+      "task_id": "a12f65b",
+      "status": "merged",
+      "regression_detected": false,
+      "bead_closed": true,
+      "worktree_removed": true,
+      "merge_commit": "d527a42"
+    },
+    {
+      "bead_id": "emacs-95io",
+      "worktree_path": ".worktrees/bead-emacs-95io-1772805812",
+      "branch_name": "bead-emacs-95io-1772805812",
+      "task_id": "a9c990f",
+      "status": "merged",
+      "regression_detected": false,
+      "bead_closed": true,
+      "worktree_removed": true,
+      "merge_commit": "08b9bd8"
+    },
+    {
+      "bead_id": "emacs-3jhx",
+      "worktree_path": ".worktrees/bead-emacs-3jhx-1772805812",
+      "branch_name": "bead-emacs-3jhx-1772805812",
+      "task_id": "a2c20f3",
+      "status": "merged",
+      "regression_detected": false,
+      "bead_closed": true,
+      "worktree_removed": true,
+      "merge_commit": "2c5edce"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# Pattern: conditional
+# Description: Conditional (if/test) patterns
+# Total commands: 4
+# Coverage range: 42.9% - 87.5%
+# Average coverage: 65.1%
+#
+# Commands sorted by coverage_pct (ascending) to prioritize gaps
+#
+command	parse_status	coverage_pct	missing_count	file_ops_count	command_type	dangerous	missing_tokens	semantic_gap_count	critical_gaps	gap_types
+if [ -d "openspec/changes/archive/2026-03-03-bash-script-execution" ]; then\n  echo "ERROR: Archive directory already exists"\n  exit 1\nelse\n  echo "Archive path is available"\nfi	SUCCESS	42.9	4	0	:simple		openspec/changes/archive/2026-03-03-bash-script-execution, exit, 1, Archive path is available	1	0	conditional
+if [ -d "openspec/changes/archive/2026-02-08-bootstrap-gptel-scope-spec" ]; then echo "EXISTS"; else echo "AVAILABLE"; fi	SUCCESS	60.0	2	0	:simple		openspec/changes/archive/2026-02-08-bootstrap-gptel-scope-spec, AVAILABLE	1	0	conditional
+if [ -d "openspec/changes/archive/2026-03-03-bash-parser-file-ops" ]; then echo "ERROR: Archive already exists"; exit 1; else mv openspec/changes/bash-parser-file-ops openspec/changes/archive/2026-03-03-bash-parser-file-ops && echo "Archive complete"; fi	SUCCESS	70.0	3	2	:chain		ERROR: Archive already exists, exit, 1	1	0	conditional
+mkdir -p openspec/changes/archive && if [ -d "openspec/changes/archive/2026-02-08-bootstrap-gptel-scope-spec" ]; then echo "EXISTS"; else echo "AVAILABLE"; fi	SUCCESS	87.5	1	1	:chain		openspec/changes/archive/2026-02-08-bootstrap-gptel-scope-spec	1	0	conditional
