@@ -552,11 +552,19 @@ Used for :cloud, :security, and other nested config sections."
                  ((numberp subvalue)
                   (insert (format "  %s: %s\n" subkey-name subvalue)))
 
-                 ;; Empty list (check before symbol, as nil is both null and symbolp)
-                 ((null subvalue)
-                  (insert (format "  %s: []\n" subkey-name)))
+                 ;; Boolean true (elisp t → YAML true)
+                 ((eq subvalue t)
+                  (insert (format "  %s: true\n" subkey-name)))
 
-                 ;; Symbol value (excluding nil, handled above)
+                 ;; Boolean false / empty list (elisp nil → YAML false or [])
+                 ((null subvalue)
+                  ;; Context-dependent: security booleans are false, paths are []
+                  ;; Check if this is a known boolean field
+                  (if (memq subkey '(:enforce-parse-complete :auth-enabled))
+                      (insert (format "  %s: false\n" subkey-name))
+                    (insert (format "  %s: []\n" subkey-name))))
+
+                 ;; Other symbol values (should be rare, preserve as-is)
                  ((symbolp subvalue)
                   (insert (format "  %s: %s\n" subkey-name subvalue)))
 

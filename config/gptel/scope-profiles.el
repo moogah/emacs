@@ -15,8 +15,19 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 
+(defun jf/gptel-scope-profile--normalize-boolean (value)
+  "Normalize YAML boolean keyword VALUE to elisp boolean.
+Converts :true → t, :false/:null → nil.
+Returns VALUE unchanged if it's not a boolean keyword."
+  (cond
+   ((eq value :true) t)
+   ((eq value :false) nil)
+   ((eq value :null) nil)
+   (t value)))
+
 (defun jf/gptel-scope-profile--normalize-keys (parsed)
   "Normalize snake_case keys in PARSED plist to kebab-case.
+Also normalizes YAML boolean keywords (:true, :false, :null) to elisp booleans.
 Recursively processes nested plists.
 
 NOTE: Duplicated in preset-registration.org and scope-shell-tools.org
@@ -26,11 +37,17 @@ due to module loading dependencies."
              do (let* ((key-name (symbol-name key))
                        (normalized-name (replace-regexp-in-string "_" "-" key-name))
                        (normalized-key (intern normalized-name))
-                       (normalized-val (if (and (listp val)
-                                               (not (null val))
-                                               (keywordp (car val)))
-                                          (jf/gptel-scope-profile--normalize-keys val)
-                                        val)))
+                       (normalized-val (cond
+                                        ;; Nested plist: recurse
+                                        ((and (listp val)
+                                              (not (null val))
+                                              (keywordp (car val)))
+                                         (jf/gptel-scope-profile--normalize-keys val))
+                                        ;; Boolean keyword: normalize
+                                        ((keywordp val)
+                                         (jf/gptel-scope-profile--normalize-boolean val))
+                                        ;; Other values: pass through
+                                        (t val))))
                   (setq result (plist-put result normalized-key normalized-val))))
     result))
 
@@ -170,20 +187,35 @@ Handles nested plists and lists of strings."
                    ((and (listp val) (keywordp (car-safe val)))
                     (push (format "%s%s:" prefix yaml-key) lines)
                     (push (jf/gptel-scope-profile--plist-to-yaml val (1+ indent)) lines))
+                   ;; Boolean false / nil (MUST come before list check since nil is also a list)
+                   ((null val)
+                    ;; Context-dependent: security booleans are false, paths are []
+                    ;; Check if this is a known boolean field
+                    (if (memq key '(:enforce-parse-complete :auth-enabled))
+                        (push (format "%s%s: false" prefix yaml-key) lines)
+                      (push (format "%s%s: []" prefix yaml-key) lines)))
                    ;; List of strings - inline YAML array
-                   ((and (listp val) (or (null val) (stringp (car-safe val))))
-                    (if (null val)
-                        (push (format "%s%s: []" prefix yaml-key) lines)
-                      (let ((items (mapconcat (lambda (s) (format "\"%s\"" s)) val ", ")))
-                        (push (format "%s%s: [%s]" prefix yaml-key items) lines))))
+                   ((and (listp val) (stringp (car-safe val)))
+                    (let ((items (mapconcat (lambda (s) (format "\"%s\"" s)) val ", ")))
+                      (push (format "%s%s: [%s]" prefix yaml-key items) lines)))
                    ;; Single string
                    ((stringp val)
                     (push (format "%s%s: \"%s\"" prefix yaml-key val) lines))
-                   ;; Nil
-                   ((null val)
-                    (push (format "%s%s: []" prefix yaml-key) lines))
-                   ;; Anything else
+                   ;; Boolean true (elisp t → YAML true)
+                   ((eq val t)
+                    (push (format "%s%s: true" prefix yaml-key) lines))
+                   ;; Number
+                   ((numberp val)
+                    (push (format "%s%s: %s" prefix yaml-key val) lines))
+                   ;; YAML boolean keywords (defensive: normalize if present)
+                   ((eq val :true)
+                    (push (format "%s%s: true" prefix yaml-key) lines))
+                   ((or (eq val :false) (eq val :null))
+                    (push (format "%s%s: false" prefix yaml-key) lines))
+                   ;; Other symbols (should not occur after normalization)
                    (t
+                    (lwarn 'gptel-scope :warning
+                           "Unexpected symbol value in plist-to-yaml: %S for key %S" val key)
                     (push (format "%s%s: %s" prefix yaml-key val) lines)))))
     (string-join (nreverse lines) "\n")))
 
