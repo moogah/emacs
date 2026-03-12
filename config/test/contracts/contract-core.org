@@ -22,7 +22,7 @@ at module boundaries. They're executable specifications that answer two question
 
 - *Validators return nil on success, a descriptive error string on failure.* This means
   test failures explain /what/ is wrong, not just that something failed.
-- *Contracts live at the boundary, not in either module.* They're in =config/core/contracts/=,
+- *Contracts live at the boundary, not in either module.* They're in =config/test/contracts/=,
   neutral territory that neither bash-parser nor scope owns.
 - *Self-validating mocks.* Mock builders call contract validators on construction.
   A mock with the wrong shape errors immediately — at test authoring time, not in
@@ -32,7 +32,7 @@ at module boundaries. They're executable specifications that answer two question
 
 Contracts enable a three-layer testing approach:
 
-1. *Contract unit tests* (=config/core/contracts/test/=) — validate that contract
+1. *Contract unit tests* (=config/test/contracts/test/=) — validate that contract
    validators themselves correctly accept and reject data shapes.
 
 2. *Self-validating mocks* (=helpers-spec.el=) — mock builders call contracts on
@@ -282,7 +282,7 @@ Data: (:path "/tmp/test.txt" :operation :read :confidence :high)
 Contract core tests live in =test/contract-core-spec.el= (Buttercup):
 
 #+begin_example shell
-./bin/run-tests.sh -d config/core/contracts
+./bin/run-tests.sh -d config/test/contracts
 #+end_example
 
 Tests cover both accept paths (valid data returns nil) and reject paths (invalid

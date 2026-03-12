@@ -29,8 +29,8 @@
 (require 'cl-lib)
 
 ;; Load contract validation for mock self-validation
-;; config/gptel/scope/test/ -> config/core/contracts/ (3 levels up, then core/contracts)
-(let ((contracts-dir (expand-file-name "../../../core/contracts/"
+;; config/gptel/scope/test/ -> config/test/contracts/ (3 levels up, then test/contracts)
+(let ((contracts-dir (expand-file-name "../../../test/contracts/"
                                        (file-name-directory (or load-file-name buffer-file-name)))))
   (add-to-list 'load-path contracts-dir))
 (require 'contract-core)

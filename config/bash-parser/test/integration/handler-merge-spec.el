@@ -9,7 +9,7 @@
 (require 'bash-parser-semantics)
 
 ;; Load contract validation helpers
-(let* ((contracts-dir (expand-file-name "config/core/contracts/" jf/emacs-dir)))
+(let* ((contracts-dir (expand-file-name "config/test/contracts/" jf/emacs-dir)))
   (add-to-list 'load-path contracts-dir))
 (require 'contract-core)
 (require 'contract-bash-parser)

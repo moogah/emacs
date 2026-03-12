@@ -48,7 +48,7 @@ Each scenario follows this exact path through real code:
 ** Relationship to Other Test Layers
 
 #+begin_example
-Layer 1: Contract unit tests (config/core/contracts/test/)
+Layer 1: Contract unit tests (config/test/contracts/test/)
          "Do the validators themselves work correctly?"
               │
 Layer 2: Self-validating mocks (helpers-spec.el)
@@ -65,7 +65,7 @@ Layer 3: Integration tests (THIS FILE)
 |---|---|---|
 | bash-parser core | Producer (parse) | =config/bash-parser/core/bash-parser-core.el= |
 | bash-parser plugins | Producer (semantics) | =config/bash-parser/analysis/bash-parser-plugins.el= |
-| contract validators | Boundary check | =config/core/contracts/contract-bash-parser.el= |
+| contract validators | Boundary check | =config/test/contracts/contract-bash-parser.el= |
 | scope-shell-tools | Consumer (validation) | =config/gptel/scope/scope-shell-tools.el= |
 | helpers-spec | Fixture builders | =config/gptel/scope/test/helpers-spec.el= |
 | tree-sitter bash grammar | Runtime dependency | Must be installed for these tests to run |
@@ -109,7 +109,7 @@ component. This avoids relying on =load-path= state from other test files.
        (scope-dir (expand-file-name ".." scope-test-dir))
        (gptel-dir (expand-file-name ".." scope-dir))
        (config-dir (expand-file-name ".." gptel-dir))
-       (contracts-dir (expand-file-name "core/contracts/" config-dir)))
+       (contracts-dir (expand-file-name "test/contracts/" config-dir)))
   ;; Contract infrastructure
   (add-to-list 'load-path contracts-dir)
   (require 'contract-core)

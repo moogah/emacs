@@ -19,7 +19,7 @@
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        ;; commands/test/ -> commands/ -> bash-parser/ -> config/
        (config-dir (expand-file-name "../../.." test-dir))
-       (contracts-dir (expand-file-name "core/contracts/" config-dir)))
+       (contracts-dir (expand-file-name "test/contracts/" config-dir)))
   (add-to-list 'load-path contracts-dir))
 
 (require 'contract-core)

@@ -484,7 +484,7 @@ Returns nil if valid, error string if invalid."
 Test that validators correctly accept valid data and reject invalid data:
 
 #+begin_example shell
-./bin/run-tests.sh -d config/core/contracts    # 55 specs
+./bin/run-tests.sh -d config/test/contracts    # 55 specs
 #+end_example
 
 ** Integration Tests (Phase 3)

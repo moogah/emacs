@@ -31,7 +31,7 @@
        (scope-dir (expand-file-name ".." scope-test-dir))
        (gptel-dir (expand-file-name ".." scope-dir))
        (config-dir (expand-file-name ".." gptel-dir))
-       (contracts-dir (expand-file-name "core/contracts/" config-dir)))
+       (contracts-dir (expand-file-name "test/contracts/" config-dir)))
   ;; Contract infrastructure
   (add-to-list 'load-path contracts-dir)
   (require 'contract-core)

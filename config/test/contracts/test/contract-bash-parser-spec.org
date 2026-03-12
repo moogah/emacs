@@ -33,7 +33,7 @@ before we rely on it to catch bugs elsewhere.
 
 - *Producer:* =config/bash-parser/= — tree-sitter-based parsing, semantic plugins
 - *Consumer:* =config/gptel/scope/= — 7-stage validation pipeline
-- *Contract:* =config/core/contracts/contract-bash-parser.el= — THIS FILE TESTS THIS
+- *Contract:* =config/test/contracts/contract-bash-parser.el= — THIS FILE TESTS THIS
 
 ** What These Tests Catch
 
