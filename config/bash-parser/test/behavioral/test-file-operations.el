@@ -523,7 +523,7 @@ Test main extraction function with chain."
   "Test extraction of dynamic redirect with simple command substitution.
 
 Tests that echo 'data' > log-$(date +%Y-%m-%d).txt is detected
-as a write operation with {dynamic} placeholder and :dynamic-filename t."
+as a write operation with glob wildcard (*) placeholder and :dynamic-filename t."
   (let* ((parsed (jf/bash-parse "echo 'data' > log-$(date +%Y-%m-%d).txt"))
          (ops (jf/bash-extract-file-operations parsed)))
     (should (>= (length ops) 1))
@@ -535,15 +535,15 @@ as a write operation with {dynamic} placeholder and :dynamic-filename t."
       (should (eq (plist-get write-op :source) :redirection))
       (should (eq (plist-get write-op :dynamic-filename) t))
       (should (eq (plist-get write-op :dynamic) t))
-      ;; Dynamic parts replaced with {dynamic}, known parts preserved
-      (should (string-match-p "{dynamic}" (plist-get write-op :file)))
+      ;; Dynamic parts replaced with *, known parts preserved
+      (should (string-match-p "\\*" (plist-get write-op :file)))
       (should (string-match-p "\\.txt$" (plist-get write-op :file))))))
 
 (ert-deftest test-extraction-dynamic-redirect-multiple-subs ()
   "Test extraction of dynamic redirect with multiple command substitutions.
 
 Tests that cat data.txt > backup-$(whoami)-$(date +%s).txt is detected
-with {dynamic} placeholder collapsing multiple substitutions."
+with glob wildcard (*) placeholder collapsing multiple substitutions."
   (let* ((parsed (jf/bash-parse "cat data.txt > backup-$(whoami)-$(date +%s).txt"))
          (ops (jf/bash-extract-file-operations parsed)))
     ;; Should have read operation for data.txt and write with dynamic filename
@@ -554,15 +554,15 @@ with {dynamic} placeholder collapsing multiple substitutions."
       (should write-op)
       (should (eq (plist-get write-op :source) :redirection))
       (should (eq (plist-get write-op :dynamic-filename) t))
-      ;; Multiple substitutions collapsed to single {dynamic}
-      (should (string-match-p "{dynamic}" (plist-get write-op :file)))
+      ;; Multiple substitutions collapsed to single *
+      (should (string-match-p "\\*" (plist-get write-op :file)))
       (should (string-match-p "\\.txt$" (plist-get write-op :file))))))
 
 (ert-deftest test-extraction-dynamic-redirect-nested ()
   "Test extraction of nested command substitution in redirect.
 
 Tests that grep ERROR log > errors-$(basename $(pwd)).txt is detected
-with {dynamic} placeholder for nested substitution."
+with glob wildcard (*) placeholder for nested substitution."
   (let* ((parsed (jf/bash-parse "grep ERROR log > errors-$(basename $(pwd)).txt"))
          (ops (jf/bash-extract-file-operations parsed)))
     (let ((write-op (cl-find-if (lambda (op)
@@ -572,15 +572,15 @@ with {dynamic} placeholder for nested substitution."
       (should write-op)
       (should (eq (plist-get write-op :source) :redirection))
       (should (eq (plist-get write-op :dynamic-filename) t))
-      ;; Nested substitution replaced with {dynamic}
-      (should (string-match-p "{dynamic}" (plist-get write-op :file)))
+      ;; Nested substitution replaced with *
+      (should (string-match-p "\\*" (plist-get write-op :file)))
       (should (string-match-p "\\.txt$" (plist-get write-op :file))))))
 
 (ert-deftest test-extraction-heredoc-dynamic-redirect ()
   "Test extraction of heredoc with dynamic redirect filename.
 
 Tests that cat <<'EOF' > config-$(date +%Y-%m-%d).yml is detected
-with {dynamic} placeholder and :dynamic-filename t.
+with glob wildcard (*) placeholder and :dynamic-filename t.
 
 Known limitation: parser does not extract file redirect alongside heredoc."
   :expected-result :failed
@@ -593,7 +593,7 @@ Known limitation: parser does not extract file redirect alongside heredoc."
       (should write-op)
       (should (eq (plist-get write-op :source) :redirection))
       (should (eq (plist-get write-op :dynamic-filename) t))
-      (should (string-match-p "{dynamic}" (plist-get write-op :file)))
+      (should (string-match-p "\\*" (plist-get write-op :file)))
       (should (string-match-p "\\.yml$" (plist-get write-op :file))))))
 
 ;;; Self-Execution Detection Tests

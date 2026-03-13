@@ -242,10 +242,11 @@ Handles heredoc + variables and command substitutions in loops.
 Returns updated operations list with normalized paths.
 
 Normalization rules:
-- Heredoc + variable: \\$var -> {dynamic}
-- Command substitution in loop: \\$(cmd) -> {dynamic}
+- Heredoc + variable: \\$var -> *
+- Command substitution in loop: \\$(cmd) -> *
 
-Dynamic operations are marked with :dynamic t."
+Dynamic operations are marked with :dynamic t.
+Uses glob wildcard * so output matches policy file format."
   (mapcar (lambda (op)
             (let ((file (plist-get op :file))
                   (has-heredoc (plist-get op :heredoc-content))
@@ -262,7 +263,7 @@ Dynamic operations are marked with :dynamic t."
                     (plist-put op :dynamic t)
                     (let ((normalized (replace-regexp-in-string
                                       "\\$[a-zA-Z_][a-zA-Z0-9_]*\\|\\${[^}]+}"
-                                      "{dynamic}"
+                                      "*"
                                       file)))
                       (plist-put op :file normalized)))
 
@@ -271,7 +272,7 @@ Dynamic operations are marked with :dynamic t."
                     (plist-put op :dynamic t)
                     (let ((normalized (replace-regexp-in-string
                                       "\\$([^)]+)\\|`[^`]+`"
-                                      "{dynamic}"
+                                      "*"
                                       file)))
                       (plist-put op :file normalized))))))
             op)

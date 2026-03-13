@@ -797,7 +797,7 @@
                    :loop-context t
                    :pattern t)
                   ;; redirect writes with dynamic filename (from basename substitution)
-                  (:file "backup/{dynamic}"
+                  (:file "backup/*"
                    :operation :write
                    :source :redirection
                    :conditional t
@@ -863,7 +863,7 @@
     (:id "integration-004"
      :command "cat <<'EOF' | while read line; do echo \"$line\" > output/$line.txt; done\nfile1\nfile2\nEOF"
      :note "Heredoc piped to while loop with dynamic file writes"
-     :expect-ops ((:file "output/{dynamic}.txt"
+     :expect-ops ((:file "output/*.txt"
                    :operation :write
                    :source :redirection
                    :dynamic t)))

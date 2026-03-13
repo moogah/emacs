@@ -1256,29 +1256,32 @@ Examples:
 *** Helper: Dynamic Path Replacement
 
 When a redirect destination contains command substitutions or unresolvable
-variables, replace the unknowable parts with ={dynamic}= while preserving
-known structure (directory prefixes, file extensions). This gives the scope
-validator maximum information for policy matching.
+variables, replace the unknowable parts with =*= (glob wildcard) while
+preserving known structure (directory prefixes, file extensions). The output
+is a glob pattern in the same language as the scope policy files, so the
+scope validator can match extracted paths against policy globs directly.
 
 #+begin_src emacs-lisp
 (defun jf/bash--dynamicize-path (file-path)
-  "Replace unresolvable dynamic parts in FILE-PATH with {dynamic}.
+  "Replace unresolvable dynamic parts in FILE-PATH with * (glob wildcard).
 
 Replaces command substitutions $(…) and unresolved $VAR references
-with {dynamic}, preserving known directory prefixes and file extensions.
+with *, preserving known directory prefixes and file extensions.
+The result is a glob pattern that the scope validator can match
+directly against policy paths (e.g., ${project_root}/**).
 
 Examples:
   (jf/bash--dynamicize-path \"backup/$(basename \\\"$file\\\")\")
-    => \"backup/{dynamic}\"
+    => \"backup/*\"
 
   (jf/bash--dynamicize-path \"output/$line.txt\")
-    => \"output/{dynamic}.txt\"
+    => \"output/*.txt\"
 
   (jf/bash--dynamicize-path \"log-$(date +%Y-%m-%d).txt\")
-    => \"log-{dynamic}.txt\"
+    => \"log-*.txt\"
 
   (jf/bash--dynamicize-path \"backup-$(whoami)-$(date +%s).txt\")
-    => \"backup-{dynamic}.txt\"
+    => \"backup-*.txt\"
 
   (jf/bash--dynamicize-path \"/static/path.txt\")
     => nil  (no dynamic parts detected)
@@ -1293,17 +1296,17 @@ Returns the dynamicized path string, or nil if the path has no dynamic parts."
       ;; Replace $(…) including nested parens, iteratively from innermost
       (while (string-match-p "\\$([^)]*)" result)
         (setq result (replace-regexp-in-string
-                      "\\$([^)]*)" "{dynamic}" result t)))
+                      "\\$([^)]*)" "*" result t)))
       ;; Replace backtick substitutions `…`
       (setq result (replace-regexp-in-string
-                    "`[^`]+`" "{dynamic}" result t))
-      ;; Replace bare $VAR references (but not already-replaced {dynamic})
+                    "`[^`]+`" "*" result t))
+      ;; Replace bare $VAR references
       (setq result (replace-regexp-in-string
-                    "\\$[A-Za-z_][A-Za-z0-9_]*" "{dynamic}" result t))
-      ;; Collapse adjacent {dynamic} segments (e.g., {dynamic}-{dynamic}.txt → {dynamic}.txt)
-      (while (string-match-p "{dynamic}[^/]*{dynamic}" result)
+                    "\\$[A-Za-z_][A-Za-z0-9_]*" "*" result t))
+      ;; Collapse adjacent * segments (e.g., *-*.txt → *.txt)
+      (while (string-match-p "\\*[^/]*\\*" result)
         (setq result (replace-regexp-in-string
-                      "{dynamic}[^/]*{dynamic}" "{dynamic}" result t)))
+                      "\\*[^/]*\\*" "*" result t)))
       result)))
 #+end_src
 
