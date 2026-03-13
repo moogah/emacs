@@ -225,19 +225,13 @@ for full return value documentation."
       (jf/bash--deduplicate-operations all-ops))))
 
 (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
-  "DEPRECATED: Extract all file operations from PARSED-COMMAND.
+  "Extract all file operations from PARSED-COMMAND.
 
-This function is deprecated. Use `jf/bash-extract-semantics' instead,
-which provides a multi-domain plugin-based extraction system.
-
-For backward compatibility, this function delegates to the internal
-implementation. The filesystem plugin has been updated to call the
-internal implementation directly to avoid circular dependencies.
+Delegates to `jf/bash-extract-semantics' and extracts the :filesystem
+domain operations from the result.
 
 PARSED-COMMAND is the output from `jf/bash-parse'.
-VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
-
-Signals error if PARSED-COMMAND is not a valid plist.
+VAR-CONTEXT is an optional alist mapping variable names to values.
 
 Returns a flat list of operation plists, each containing:
   :file - File path (may contain unresolved variables or patterns)
@@ -245,33 +239,10 @@ Returns a flat list of operation plists, each containing:
                                 :match-pattern, :read-directory, :read-metadata)
   :confidence - Confidence level (:high, :medium, :low)
   :source - Source of operation (:redirection, :positional-arg, :exec-block, etc.)
-  :command - Command name that performs the operation
-
-  Context flags (optional):
-  :from-substitution - t if from command substitution
-  :loop-context - t if in loop body
-  :loop-variable - Loop variable name if in loop
-  :conditional - t if in conditional branch
-  :branch - :then or :else if in conditional
-  :test-condition - t if in conditional test
-  :pattern - t if file path is a glob pattern
-  :pattern-source - Plist identifying pattern producer if applicable
-  :heredoc-content - t if from heredoc with redirect
-  :indirect - t if from nested/indirect execution
-
-Examples:
-  Simple: (jf/bash-extract-file-operations (jf/bash-parse \"cat file.txt\"))
-  => ((:file \"file.txt\" :operation :read :confidence :high :command \"cat\"))
-
-  Nested: (jf/bash-extract-file-operations (jf/bash-parse \"cat $(find . -name '*.log')\"))
-  => ((:file \".\" :operation :read-directory :command \"find\" :from-substitution t)
-      (:file \"*.log\" :operation :match-pattern :command \"find\" :pattern t :from-substitution t)
-      (:file \"*.log\" :operation :read :command \"cat\" :pattern t :pattern-source (...)))
-
-  Loop: (jf/bash-extract-file-operations (jf/bash-parse \"for f in *.txt; do rm $f; done\"))
-  => ((:file \"*.txt\" :operation :delete :command \"rm\" :pattern t :loop-context t))"
-  ;; Delegate to internal implementation
-  (jf/bash--extract-file-operations-impl parsed-command var-context))
+  :command - Command name that performs the operation"
+  (let* ((result (jf/bash-extract-semantics parsed-command var-context))
+         (domains (plist-get result :domains)))
+    (or (alist-get :filesystem domains) '())))
 
 (defun jf/bash--validate-operation-type (operation)
   "Validate that OPERATION plist has valid structure and operation type.

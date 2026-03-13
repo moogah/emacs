@@ -291,18 +291,18 @@
                          fs-ops)
                 :to-be-truthy)))
 
-    (it "Layer 1 only dispatches on top-level command-name for chains"
-      ;; For chains, Layer 1 uses the top-level :command-name (first command).
+    (it "Layer 1 dispatches handlers for all simple commands in chains"
+      ;; Two-layer architecture: Layer 0 decomposes chains into simple commands,
+      ;; Layer 1 dispatches handlers for EACH simple command.
       ;; "cat file.txt && gcloud compute instances list"
-      ;; Layer 1 dispatches on "cat" only, NOT "gcloud".
-      ;; So :authentication and :network from gcloud are NOT present.
+      ;; Layer 1 dispatches on both "cat" AND "gcloud".
       (let* ((parsed (jf/bash-parse "cat file.txt && gcloud compute instances list"))
              (result (jf/bash-extract-semantics parsed))
              (domains (plist-get result :domains)))
-        ;; :filesystem from cat handler (Layer 1, since Layer 0 errors)
+        ;; :filesystem from cat handler
         (expect (alist-get :filesystem domains) :not :to-be nil)
-        ;; :authentication NOT present (gcloud handler not dispatched for chain)
-        (expect (alist-get :authentication domains) :to-be nil))))
+        ;; :authentication from gcloud handler (dispatched for second chain command)
+        (expect (alist-get :authentication domains) :not :to-be nil))))
 
   ;; ─── No Operations ──────────────────────────────────────────────────────
 

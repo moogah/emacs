@@ -186,13 +186,62 @@ so that later commands see the accumulated context."
 *** Conditional Decomposition
 
 #+begin_src emacs-lisp
+(defun jf/bash--extract-test-condition-ops (condition-text var-context metadata)
+  "Extract file test operations from CONDITION-TEXT.
+
+Handles test commands: [ -OP file ], test -OP file, [[ -OP file ]].
+File test operators (-f, -d, -e, -r, -w, -x, -s, -L, -h) produce
+:read-metadata operations.
+
+Returns a list of operation plists or nil."
+  (when (and condition-text (stringp condition-text))
+    (let ((ops nil))
+      ;; Match [ -op file ] or test -op file or [[ -op file ]]
+      (when (string-match
+             "\\(?:\\[\\[?\\|test\\)\\s-+\\(-[fderwxsLh]\\)\\s-+\\(?:\"\\)?\\([^]\" \t]+\\)"
+             condition-text)
+        (let* ((operator (match-string 1 condition-text))
+               (file (match-string 2 condition-text))
+               (resolved-file file))
+          ;; Resolve variables in the file path
+          (when (and var-context
+                     (string-match-p "[$]" file)
+                     (fboundp 'jf/bash--resolve-path-variables))
+            (let ((result (jf/bash--resolve-path-variables file var-context)))
+              (cond
+               ((stringp result) (setq resolved-file result))
+               ((and (listp result) (plist-get result :path))
+                (setq resolved-file (plist-get result :path))))))
+          (push (list :file resolved-file
+                      :operation :read-metadata
+                      :confidence :high
+                      :source :test-condition
+                      :test-condition t
+                      :test-operator operator)
+                ops)))
+      ops)))
+
 (defun jf/bash--decompose-conditional (parsed-command var-context metadata depth)
   "Decompose conditional PARSED-COMMAND into entries from branches.
 
-Processes then and else branches with appropriate metadata."
+Extracts test condition operations from :condition-text, then
+processes then and else branches with appropriate metadata."
   (let ((entries nil)
+        (condition-text (plist-get parsed-command :condition-text))
         (then-text (plist-get parsed-command :then-text))
         (else-text (plist-get parsed-command :else-text)))
+
+    ;; Extract test condition operations (grammar-level)
+    (when condition-text
+      (let ((test-ops (jf/bash--extract-test-condition-ops
+                       condition-text var-context metadata)))
+        (when test-ops
+          ;; Create a synthetic entry for test condition operations
+          (push (list :command (list :command-name "[" :type :simple)
+                      :var-context var-context
+                      :redirection-ops test-ops
+                      :metadata (append (list :test-condition t) metadata))
+                entries))))
 
     ;; Decompose then branch
     (when then-text
@@ -250,18 +299,38 @@ Processes then and else branches with appropriate metadata."
 
 #+begin_src emacs-lisp
 (defun jf/bash--decompose-for-loop (parsed-command var-context metadata depth)
-  "Decompose for-loop PARSED-COMMAND body with loop variable in context."
+  "Decompose for-loop PARSED-COMMAND body with loop variable in context.
+
+For glob sources, emits a :match-pattern operation at the grammar level."
   (let* ((entries nil)
          (loop-var (plist-get parsed-command :loop-variable))
          (loop-source-type (plist-get parsed-command :loop-source-type))
+         (loop-list (plist-get parsed-command :loop-list))
          (loop-body (plist-get parsed-command :loop-body))
-         (loop-var-value nil))
+         (loop-var-value nil)
+         (loop-metadata (append (list :loop-context t)
+                               (when loop-var (list :loop-variable loop-var))
+                               metadata)))
     ;; Determine loop variable value
     (cond
      ((eq loop-source-type :glob)
-      (setq loop-var-value (plist-get parsed-command :loop-list)))
+      (setq loop-var-value loop-list))
      ((eq loop-source-type :literal)
       (setq loop-var-value :literal-list)))
+
+    ;; Emit :match-pattern for glob source (grammar-level operation)
+    (when (and (eq loop-source-type :glob) loop-list)
+      (let ((glob-ops (list (list :file loop-list
+                                  :operation :match-pattern
+                                  :confidence :high
+                                  :source :loop-glob
+                                  :pattern t
+                                  :loop-variable loop-var))))
+        (push (list :command (list :command-name "for" :type :simple)
+                    :var-context var-context
+                    :redirection-ops glob-ops
+                    :metadata loop-metadata)
+              entries)))
 
     ;; Parse and decompose loop body
     (when loop-body
@@ -276,14 +345,52 @@ Processes then and else branches with appropriate metadata."
                                   (append (list (cons (intern loop-var) loop-var-value))
                                           var-context)
                                 var-context))
-                 (loop-metadata (append (list :loop-context t) metadata))
                  (body-entries (when clean-parsed
                                 (jf/bash--decompose-recursive
                                  clean-parsed loop-context
                                  loop-metadata (1+ depth)))))
-            (setq entries body-entries))
+            (setq entries (append entries body-entries)))
         (error nil)))
     entries))
+#+end_src
+
+** Metadata Annotation
+
+#+begin_src emacs-lisp
+(defun jf/bash--annotate-ops-with-metadata (operations metadata)
+  "Add METADATA plist keys to each operation in OPERATIONS.
+
+OPERATIONS is a list of operation plists.
+METADATA is a plist of context flags (e.g., :conditional t :branch :then).
+
+Returns new list with each operation augmented with metadata keys.
+Does not modify the original operations."
+  (if (or (null metadata) (null operations))
+      operations
+    (mapcar (lambda (op)
+              (let ((annotated (copy-sequence op)))
+                (cl-loop for (key val) on metadata by #'cddr
+                         do (plist-put annotated key val))
+                annotated))
+            operations)))
+#+end_src
+
+** Variable Context Normalization
+
+#+begin_src emacs-lisp
+(defun jf/bash--normalize-var-context (var-context)
+  "Ensure all keys in VAR-CONTEXT are symbols.
+
+VAR-CONTEXT is an alist mapping variable names to values.
+Keys may be strings or symbols; this function normalizes string keys
+to symbols so that `jf/bash-resolve-variables' can look them up.
+
+Returns a new alist with all keys as symbols."
+  (mapcar (lambda (pair)
+            (if (stringp (car pair))
+                (cons (intern (car pair)) (cdr pair))
+              pair))
+          var-context))
 #+end_src
 
 ** Token Claiming
@@ -402,25 +509,30 @@ Returns a plist with:
   :parse-complete - Pass-through from input"
   (let* ((tokens (plist-get parsed-command :tokens))
          (parse-complete (plist-get parsed-command :parse-complete))
+         (normalized-context (jf/bash--normalize-var-context var-context))
          (all-claimed-token-ids '())
          (domains-alist '()))
 
     ;; Layer 0: Decompose into simple commands (pure grammar, no handlers)
     (let ((entries (jf/bash--decompose-to-simple-commands
-                    parsed-command var-context)))
+                    parsed-command normalized-context)))
 
       ;; Process each simple command entry
       (dolist (entry entries)
         (let* ((cmd (plist-get entry :command))
                (ctx (plist-get entry :var-context))
-               (redir-ops (plist-get entry :redirection-ops)))
+               (redir-ops (plist-get entry :redirection-ops))
+               (metadata (plist-get entry :metadata)))
 
           ;; Layer 0 contribution: redirection ops → :filesystem domain
+          ;; Annotate with entry metadata (conditional, loop, subshell context)
           (when redir-ops
-            (let ((existing (assq :filesystem domains-alist)))
+            (let ((annotated-ops (jf/bash--annotate-ops-with-metadata
+                                  redir-ops metadata))
+                  (existing (assq :filesystem domains-alist)))
               (if existing
-                  (setcdr existing (append (cdr existing) redir-ops))
-                (push (cons :filesystem redir-ops) domains-alist))))
+                  (setcdr existing (append (cdr existing) annotated-ops))
+                (push (cons :filesystem annotated-ops) domains-alist))))
 
           ;; Layer 1: Call handler exactly once for this simple command
           (condition-case err
@@ -434,15 +546,17 @@ Returns a plist with:
                                    (cdr fs-entry) ctx)))
                     (setcdr fs-entry resolved)))
 
-                ;; Merge all domain results
+                ;; Merge all domain results, annotating with entry metadata
                 (dolist (domain-entry cmd-domains)
                   (let ((domain (car domain-entry))
                         (operations (cdr domain-entry)))
                     (when operations
-                      (let ((existing (assq domain domains-alist)))
+                      (let ((annotated-ops (jf/bash--annotate-ops-with-metadata
+                                            operations metadata))
+                            (existing (assq domain domains-alist)))
                         (if existing
-                            (setcdr existing (append (cdr existing) operations))
-                          (push (cons domain operations) domains-alist))))))
+                            (setcdr existing (append (cdr existing) annotated-ops))
+                          (push (cons domain annotated-ops) domains-alist))))))
 
                 ;; Collect handler claimed token IDs
                 (when cmd-claimed-ids
