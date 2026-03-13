@@ -13,17 +13,28 @@ We verified the implementation against contract tests and fixed many issues. As 
 
 ```
 Branch: gptel-bash-parser-contract-integration-tests
-ERT:       623 ran, 619 passed (4 unexpected failures + 9 expected failures)
-Buttercup: 508 ran, 506 passed (2 failures)
-Total:     1131 ran, 1125 passed (6 failures, of which 9 are expected = -3 net unexpected)
+ERT:       623 ran, 622 passed (1 unexpected failure + 6 expected failures)
+Buttercup: 508 ran, 508 passed
+Total:     1131 ran, 1130 passed (1 unexpected failure)
 ```
 
 **Starting point was**: 1052 passed (79 failures)
-**Progress so far**: 73 tests fixed across 11 commits
+**Progress so far**: 78 tests fixed across 13 commits
 
 ## What Was Done
 
-### Session 5 Changes (this session, 3 commits)
+### Session 6 Changes (this session, 2 commits)
+
+1. **Dynamic redirect glob placeholder** (`config/bash-parser/plugins/bash-parser-file-ops.org`)
+   - Added `jf/bash--dynamicize-path` to replace unresolvable `$(cmd)` and `$VAR` in redirect destinations with `*` (glob wildcard)
+   - Preserves known directory prefixes and file extensions: `backup/$(basename "$file")` → `backup/*`, `output/$line.txt` → `output/*.txt`
+   - Uses glob `*` instead of `{dynamic}` so extracted paths match the policy file format directly (e.g., `${project_root}/**`) — no special-casing needed in the scope validator
+   - Adds `:dynamic t` and `:dynamic-filename t` flags to dynamic operations
+   - Updated `bash-parser-recursive.org` normalization to use `*` as well
+   - Fixed 7 tests: `test-corpus-integration-001`, `test-corpus-integration-004` (ERT + Buttercup), 3 behavioral dynamic redirect tests
+   - Reclassified `test-extraction-heredoc-dynamic-redirect` as expected-failure (parser doesn't extract file redirect alongside heredoc)
+
+### Session 5 Changes (3 commits)
 
 1. **Shell wrapper -c decomposition** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
    - `bash -c 'cmd'`, `sh -c 'cmd'`, etc. now recursively decompose the inner command string
@@ -96,38 +107,26 @@ See commits b4b5672 through 981f509 for the original two-layer implementation, h
 
 ## Remaining Failures: Analysis
 
-### 2 Buttercup Failures (complex integration corpus)
+### 1 ERT Unexpected Failure
 
-| Test | Gap |
-|------|-----|
-| integration-001 | `{dynamic}` placeholder for `$(basename "$file")` in redirects |
-| integration-004 | `{dynamic}` placeholder for `$line` in redirect paths |
-
-### 4 ERT Unexpected Failures
-
-**Complex corpus** (2 tests): `test-corpus-integration-001`, `test-corpus-integration-004`
-- Same as Buttercup integration tests above
-- Both require `{dynamic}` placeholder representation for unresolvable variables/substitutions in redirect destinations
-
-**Nested command substitution evaluation** (1 test): `test-pwd-substitution-nested`
+**Nested command substitution evaluation**: `test-pwd-substitution-nested`
 - `cat $(basename $(pwd))/file.txt` needs recursive static evaluation of `basename`
 - Evaluation chain: `$(pwd)` → PWD value → `$(basename PWD)` → last component → resolve path
+- `jf/bash--resolve-command-substitution` already supports `basename` — the issue is that `jf/bash--resolve-path-variables` calls the simpler `jf/bash--resolve-pwd-substitution` instead of the full `jf/bash--resolve-command-substitution`
 
-### 9 ERT Expected Failures (known limitations, `:expected-result :failed`)
+### 6 ERT Expected Failures (known limitations, `:expected-result :failed`)
 
 - 4 **xargs** tests: No handler for xargs yet
-- 4 **dynamic redirect** tests: `$(cmd)` or `$VAR` in redirect destinations
+- 1 **heredoc + file redirect** test: Parser doesn't extract file redirect alongside heredoc
 - 1 **nested backtick** test: Backtick-style command substitutions
 
 ## Recommended Next Steps (priority order)
 
-1. **Dynamic redirect placeholder** (~3 tests, 2 ERT + 2 Buttercup): Implement `{dynamic}` placeholder for redirect destinations containing unresolvable `$(cmd)` or `$VAR` references. This would fix integration-001, integration-004, and corresponding Buttercup specs.
+1. **Nested command substitution evaluation** (~1 test): Wire `jf/bash--resolve-command-substitution` into `jf/bash--resolve-path-variables` (replacing or augmenting `jf/bash--resolve-pwd-substitution`). The function already handles `basename`, `dirname`, and `pwd` with nested resolution.
 
-2. **Nested command substitution evaluation** (~1 test): `$(basename $(pwd))` needs recursive static evaluation of deterministic commands like `basename`, `dirname`. The `jf/bash--static-dirname` function already exists for `dirname`; needs equivalent `basename` support.
+2. **xargs handler** (~4 expected-failure tests): Create `config/bash-parser/commands/xargs.el` handler. Would convert 4 expected failures to passes.
 
-3. **xargs handler** (~4 expected-failure tests): Create `config/bash-parser/commands/xargs.el` handler. Would convert 4 expected failures to passes.
-
-4. **Dynamic redirect handling** (~4 expected-failure tests): Redirections with `$(cmd)` or `$VAR` in destinations need resolution.
+3. **Heredoc + file redirect** (~1 expected-failure test): Parser-level fix to extract file redirections that co-occur with heredoc redirections.
 
 ## Known Issue: Assignment extractor misidentifies `cd`
 
@@ -144,12 +143,13 @@ This is harmless because the chain decomposer's cd detection runs afterward and 
 - **Handler registry**: `config/bash-parser/semantics/bash-parser-semantics.el`
 - **Command handlers**: `config/bash-parser/commands/*.el`
 - **Old recursive engine**: `config/bash-parser/plugins/bash-parser-file-ops.{org,el}` (contains `jf/bash--extract-file-operations-impl`)
+- **Dynamic path replacement**: `jf/bash--dynamicize-path` in file-ops
 - **Wrapper**: `jf/bash-extract-file-operations` in file-ops — now delegates to orchestrator
 - **Contract tests**: `config/bash-parser/test/integration/two-layer-contracts-spec.el`
 - **Self-execution detection**: `jf/bash--command-executes-self-p` in file-ops
 - **Pattern flow**: `jf/bash--extract-pattern-flow-operations` in `bash-parser-recursive.el`
 - **Deduplication**: `jf/bash--deduplicate-operations` in file-ops
-- **Variable resolution**: `jf/bash-resolve-variables` in `bash-parser-variables.org` (pure), `jf/bash--resolve-path-variables` in file-ops (full pipeline)
+- **Variable resolution**: `jf/bash-resolve-variables` in `bash-parser-variables.org` (pure), `jf/bash--resolve-path-variables` in file-ops (full pipeline), `jf/bash--resolve-command-substitution` in `bash-parser-variables.org` (static eval of basename/dirname/pwd)
 
 ## Important: Literate Programming Workflow
 
