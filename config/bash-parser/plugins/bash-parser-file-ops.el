@@ -881,7 +881,7 @@ Examples:
 
 This function performs three-stage atomic resolution with error handling:
   1. Variable resolution ($VAR, ${VAR}) using `jf/bash-resolve-variables'
-  2. Command substitution ($(pwd), $(basename ...), etc.) using `jf/bash--resolve-command-substitution'
+  2. Command substitution ($(pwd), $(basename ...), $(dirname ...), nested) using `jf/bash--resolve-command-substitution'
   3. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
 
 FILE-PATH is the file path string (may contain variables, substitutions, and/or
@@ -938,30 +938,22 @@ Examples:
                      (plist-get var-resolved :unresolved))))
 
         ;; Stage 2: Resolve command substitutions (pwd, basename, dirname, nested)
-        ;; Use full resolve-command-substitution for nested $() patterns (e.g., $(basename $(pwd)))
-        ;; Use simple resolve-pwd-substitution for non-nested cases to preserve
-        ;; unresolvable substitutions for downstream dynamic path handling
+        ;; Try full resolve-command-substitution first for any $() pattern;
+        ;; fall back to simple resolve-pwd-substitution when it returns :unresolved
         (condition-case err
             (let ((pwd-resolved
                    (if (stringp var-resolved)
-                       (if (string-match-p "\\$(.*\\$(" var-resolved)
-                           ;; Nested command substitution - use full resolver
-                           (let ((resolved (jf/bash--resolve-command-substitution var-resolved var-context)))
-                             (if (eq resolved :unresolved)
-                                 (jf/bash--resolve-pwd-substitution var-resolved var-context)
-                               resolved))
-                         ;; Non-nested - simple pwd substitution (preserves e.g. $(basename "$var") for dynamicize-path)
-                         (jf/bash--resolve-pwd-substitution var-resolved var-context))
+                       (let ((resolved (jf/bash--resolve-command-substitution var-resolved var-context)))
+                         (if (eq resolved :unresolved)
+                             (jf/bash--resolve-pwd-substitution var-resolved var-context)
+                           resolved))
                      ;; Partial variable resolution
                      (let* ((path (plist-get var-resolved :path))
                             (unresolved-vars (plist-get var-resolved :unresolved))
-                            (resolved-path
-                             (if (string-match-p "\\$(.*\\$(" path)
-                                 (let ((resolved (jf/bash--resolve-command-substitution path var-context)))
-                                   (if (eq resolved :unresolved)
-                                       (jf/bash--resolve-pwd-substitution path var-context)
-                                     resolved))
-                               (jf/bash--resolve-pwd-substitution path var-context))))
+                            (resolved (jf/bash--resolve-command-substitution path var-context))
+                            (resolved-path (if (eq resolved :unresolved)
+                                               (jf/bash--resolve-pwd-substitution path var-context)
+                                             resolved)))
                        (list :path resolved-path :unresolved unresolved-vars)))))
               (when debug
                 (if (stringp pwd-resolved)
@@ -1264,46 +1256,6 @@ Examples:
             (push op operations)))))
 
     (nreverse operations)))
-
-(defun jf/bash--infer-operation-type (command-name)
-  "Infer operation type from COMMAND-NAME.
-
-Returns operation type symbol (:read, :write, :delete, :modify) or nil if
-command is not recognized or doesn't operate on files.
-
-This is a simplified heuristic for exec block extraction. For full operation
-extraction, use the command semantics database instead.
-
-Recognized patterns:
-  - Read operations: cat, head, tail, less, more, grep, wc, file, stat
-  - Write operations: touch, tee, dd (of=)
-  - Delete operations: rm, rmdir
-  - Modify operations: chmod, chown, chgrp, sed -i
-
-Unknown commands return nil."
-  (when (and command-name
-             ;; Don't try to intern assignment strings like "DIR=/tmp"
-             (not (string-match-p "=" command-name)))
-    (let ((cmd (intern command-name)))
-      (cond
-       ;; Read operations
-       ((memq cmd '(cat head tail less more grep egrep fgrep wc file stat))
-        :read)
-
-       ;; Write operations
-       ((memq cmd '(touch tee))
-        :write)
-
-       ;; Delete operations
-       ((memq cmd '(rm rmdir))
-        :delete)
-
-       ;; Modify operations
-       ((memq cmd '(chmod chown chgrp))
-        :modify)
-
-       ;; Unknown or non-file-operation command
-       (t nil)))))
 
 (provide 'bash-parser-file-ops)
 ;;; bash-parser-file-ops.el ends here

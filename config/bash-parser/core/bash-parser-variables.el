@@ -553,8 +553,14 @@ like find, ls, or which cannot be statically evaluated and return :unresolved."
                            (t nil))))
 
           (when inner-cmd
-            ;; Parse command and arguments
-            (let* ((parts (split-string inner-cmd))
+            ;; Parse command and arguments, stripping shell quotes from each part
+            (let* ((parts (mapcar (lambda (s)
+                                    (if (and (>= (length s) 2)
+                                             (or (and (string-prefix-p "\"" s) (string-suffix-p "\"" s))
+                                                 (and (string-prefix-p "'" s) (string-suffix-p "'" s))))
+                                        (substring s 1 -1)
+                                      s))
+                                  (split-string inner-cmd)))
                    (cmd (car parts))
                    (args (cdr parts)))
 
@@ -608,40 +614,6 @@ like find, ls, or which cannot be statically evaluated and return :unresolved."
                   (setq changed nil)))))))))
 
     result))
-
-(defun jf/bash--track-assignments (parsed-command &optional initial-context)
-  "Track variable assignments from PARSED-COMMAND, merging with INITIAL-CONTEXT.
-
-Extracts VAR=value assignments and builds a context alist. Assignment values
-are resolved using the current context before being added, enabling variable
-chain tracking:
-
-  BASE=$PWD; DIR=$BASE/sub; cat $DIR/file.txt
-  Step 1: BASE=$PWD with PWD=/base → context: ((BASE . \"/base\") (PWD . \"/base\"))
-  Step 2: DIR=$BASE/sub → resolves $BASE → context: ((DIR . \"/base/sub\") (BASE . \"/base\") ...)
-  Step 3: cat $DIR/file.txt → resolves $DIR to /base/sub/file.txt
-
-This is critical for security validation - assignments must be resolved to
-absolute paths for scope checking."
-  (let ((context (copy-alist initial-context))
-        (command-type (plist-get parsed-command :type))
-        (all-commands (plist-get parsed-command :all-commands)))
-
-    (cond
-     ;; Chain or pipeline: process all commands in order
-     ((or (eq command-type :chain) (eq command-type :pipeline))
-      (dolist (cmd all-commands)
-        ;; Pass current context so assignments can resolve using earlier assignments
-        (when-let ((assignments (jf/bash--extract-assignments-from-command cmd context)))
-          ;; Prepend assignments to maintain left-to-right precedence
-          (setq context (append assignments context)))))
-
-     ;; Simple command: check for assignments
-     ((eq command-type :simple)
-      (when-let ((assignments (jf/bash--extract-assignments-from-command parsed-command context)))
-        (setq context (append assignments context)))))
-
-    context))
 
 (defun jf/bash--resolve-assignment-value (value var-context)
   "Resolve assignment VALUE using VAR-CONTEXT.
