@@ -519,6 +519,26 @@ Returns a plist with:
                   (setcdr existing (append (cdr existing) annotated-ops))
                 (push (cons :filesystem annotated-ops) domains-alist))))
 
+          ;; Self-execution detection: path-based commands (./script.sh, /usr/bin/tool)
+          (when (and (fboundp 'jf/bash--command-executes-self-p)
+                     (plist-get cmd :command-name)
+                     (jf/bash--command-executes-self-p (plist-get cmd :command-name)))
+            (let* ((cmd-name (plist-get cmd :command-name))
+                   (positional-args (plist-get cmd :positional-args))
+                   (args (plist-get cmd :args))
+                   (self-op (list :file cmd-name
+                                  :operation :execute
+                                  :confidence :low
+                                  :source :command-name
+                                  :self-executing t
+                                  :script-args (or args positional-args '())))
+                   (annotated (jf/bash--annotate-ops-with-metadata
+                               (list self-op) metadata))
+                   (existing (assq :filesystem domains-alist)))
+              (if existing
+                  (setcdr existing (append (cdr existing) annotated))
+                (push (cons :filesystem annotated) domains-alist))))
+
           ;; Layer 1: Call handler exactly once for this simple command
           (condition-case err
               (let* ((cmd-result (jf/bash-extract-command-semantics cmd))
