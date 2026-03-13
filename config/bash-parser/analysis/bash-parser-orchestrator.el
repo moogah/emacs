@@ -109,11 +109,24 @@ Each pipeline segment is decomposed independently with the same var-context."
                             cmd var-context metadata (1+ depth)))))
     entries))
 
+(defun jf/bash--alist-remove-key (key alist)
+  "Return a new alist with all entries whose car is `eq' to KEY removed.
+
+Unlike `assq-delete-all', this function is non-destructive and does not
+modify the original ALIST.  This is critical in the chain decomposer where
+earlier entries share list structure with the accumulating context."
+  (cl-remove-if (lambda (pair) (eq (car pair) key)) alist))
+
 (defun jf/bash--decompose-chain (parsed-command var-context metadata depth)
   "Decompose chain PARSED-COMMAND with var-context accumulation.
 
 Tracks variable assignments, cd, pushd, and popd across chain commands
-so that later commands see the accumulated context."
+so that later commands see the accumulated context.
+
+IMPORTANT: Uses non-destructive alist operations to avoid corrupting
+contexts already stored in earlier entries.  Previous use of
+`assq-delete-all' (destructive) caused later cd/pushd/popd commands
+to silently remove PWD from entries created earlier in the same chain."
   (let ((entries nil)
         (chain-context var-context)
         (current-pwd (or (alist-get 'PWD var-context) "/"))
@@ -135,9 +148,9 @@ so that later commands see the accumulated context."
             (let ((old-pwd current-pwd))
               (setq current-pwd new-pwd)
               (setq chain-context (cons (cons 'PWD current-pwd)
-                                       (assq-delete-all 'PWD chain-context)))
+                                       (jf/bash--alist-remove-key 'PWD chain-context)))
               (setq chain-context (cons (cons 'OLDPWD old-pwd)
-                                       (assq-delete-all 'OLDPWD chain-context)))))))
+                                       (jf/bash--alist-remove-key 'OLDPWD chain-context)))))))
 
       ;; Check for pushd command
       (when (and (fboundp 'jf/bash--is-pushd-command-p)
@@ -147,7 +160,7 @@ so that later commands see the accumulated context."
             (push current-pwd dir-stack)
             (setq current-pwd new-pwd)
             (setq chain-context (cons (cons 'PWD current-pwd)
-                                     (assq-delete-all 'PWD chain-context))))))
+                                     (jf/bash--alist-remove-key 'PWD chain-context))))))
 
       ;; Check for popd command
       (when (and (fboundp 'jf/bash--is-popd-command-p)
@@ -156,7 +169,7 @@ so that later commands see the accumulated context."
           (let ((popped-pwd (pop dir-stack)))
             (setq current-pwd popped-pwd)
             (setq chain-context (cons (cons 'PWD current-pwd)
-                                     (assq-delete-all 'PWD chain-context))))))
+                                     (jf/bash--alist-remove-key 'PWD chain-context))))))
 
       ;; Decompose this chain command with accumulated context
       (setq entries (append entries
@@ -181,9 +194,8 @@ Returns a list of operation plists or nil."
         (let* ((operator (match-string 1 condition-text))
                (file (match-string 2 condition-text))
                (resolved-file file))
-          ;; Resolve variables in the file path
+          ;; Resolve variables and relative paths in the file path
           (when (and var-context
-                     (string-match-p "[$]" file)
                      (fboundp 'jf/bash--resolve-path-variables))
             (let ((result (jf/bash--resolve-path-variables file var-context)))
               (cond
@@ -199,15 +211,36 @@ Returns a list of operation plists or nil."
                 ops)))
       ops)))
 
+(defun jf/bash--extract-cd-from-condition (condition-text var-context)
+  "Check if CONDITION-TEXT is a cd command and return updated var-context.
+
+For conditionals like `if cd /dir; then ...', the cd in the condition
+updates PWD for the then-branch (static analysis assumes success path).
+
+Returns updated var-context with new PWD, or nil if not a cd condition."
+  (when (and condition-text (stringp condition-text))
+    (condition-case nil
+        (let* ((parsed-cond (jf/bash-parse condition-text))
+               (cmd-name (plist-get parsed-cond :command-name)))
+          (when (and cmd-name (string= cmd-name "cd"))
+            (let* ((current-pwd (or (alist-get 'PWD var-context) "/"))
+                   (new-pwd (jf/bash--extract-cd-target parsed-cond var-context current-pwd)))
+              (when (and new-pwd (not (eq new-pwd :unresolved)))
+                (cons (cons 'PWD new-pwd)
+                      (jf/bash--alist-remove-key 'PWD var-context))))))
+      (error nil))))
+
 (defun jf/bash--decompose-conditional (parsed-command var-context metadata depth)
   "Decompose conditional PARSED-COMMAND into entries from branches.
 
 Extracts test condition operations from :condition-text, then
-processes then and else branches with appropriate metadata."
+processes then and else branches with appropriate metadata.
+If the condition is a cd command, passes updated PWD to the then-branch."
   (let ((entries nil)
         (condition-text (plist-get parsed-command :condition-text))
         (then-text (plist-get parsed-command :then-text))
-        (else-text (plist-get parsed-command :else-text)))
+        (else-text (plist-get parsed-command :else-text))
+        (then-context var-context))
 
     ;; Extract test condition operations (grammar-level)
     (when condition-text
@@ -219,9 +252,14 @@ processes then and else branches with appropriate metadata."
                       :var-context var-context
                       :redirection-ops test-ops
                       :metadata (append (list :test-condition t) metadata))
-                entries))))
+                entries)))
 
-    ;; Decompose then branch
+      ;; Check if condition is a cd command — update context for then-branch
+      (when-let ((cd-context (jf/bash--extract-cd-from-condition
+                              condition-text var-context)))
+        (setq then-context cd-context)))
+
+    ;; Decompose then branch (uses cd-updated context if condition was cd)
     (when then-text
       (condition-case nil
           (let* ((parsed-then (jf/bash-parse then-text))
@@ -233,7 +271,7 @@ processes then and else branches with appropriate metadata."
                                         metadata))
                  (then-entries (when clean-parsed
                                 (jf/bash--decompose-recursive
-                                 clean-parsed var-context then-metadata (1+ depth)))))
+                                 clean-parsed then-context then-metadata (1+ depth)))))
             (setq entries (append entries then-entries)))
         (error nil)))
 
@@ -324,13 +362,21 @@ variable to the pattern from the substituted command."
                         (jf/bash--extract-find-name-pattern parsed-sub))))))))))
 
     ;; Emit :match-pattern for glob source (grammar-level operation)
+    ;; Resolve relative paths in glob patterns against PWD context
     (when (and (eq loop-source-type :glob) loop-list)
-      (let ((glob-ops (list (list :file loop-list
-                                  :operation :match-pattern
-                                  :confidence :high
-                                  :source :loop-glob
-                                  :pattern t
-                                  :loop-variable loop-var))))
+      (let* ((resolved-glob loop-list)
+             (_ (when (and var-context (fboundp 'jf/bash--resolve-path-variables))
+                  (let ((result (jf/bash--resolve-path-variables loop-list var-context)))
+                    (cond
+                     ((stringp result) (setq resolved-glob result))
+                     ((and (listp result) (plist-get result :path))
+                      (setq resolved-glob (plist-get result :path)))))))
+             (glob-ops (list (list :file resolved-glob
+                                   :operation :match-pattern
+                                   :confidence :high
+                                   :source :loop-glob
+                                   :pattern t
+                                   :loop-variable loop-var))))
         (push (list :command (list :command-name "for" :type :simple)
                     :var-context var-context
                     :redirection-ops glob-ops
@@ -541,7 +587,15 @@ Returns a plist with:
             (let* ((cmd-name (plist-get cmd :command-name))
                    (positional-args (plist-get cmd :positional-args))
                    (args (plist-get cmd :args))
-                   (self-op (list :file cmd-name
+                   ;; Resolve the command path against PWD (e.g., ./script.sh → /base/dir/script.sh)
+                   (resolved-name cmd-name)
+                   (_ (when (and ctx (fboundp 'jf/bash--resolve-path-variables))
+                        (let ((result (jf/bash--resolve-path-variables cmd-name ctx)))
+                          (cond
+                           ((stringp result) (setq resolved-name result))
+                           ((and (listp result) (plist-get result :path))
+                            (setq resolved-name (plist-get result :path)))))))
+                   (self-op (list :file resolved-name
                                   :operation :execute
                                   :confidence :low
                                   :source :command-name

@@ -13,17 +13,38 @@ We verified the implementation against contract tests and fixed many issues. As 
 
 ```
 Branch: gptel-bash-parser-contract-integration-tests
-ERT:       623 ran, 601 passed (13 unexpected failures + 9 expected failures)
+ERT:       623 ran, 611 passed (3 unexpected failures + 9 expected failures)
 Buttercup: 508 ran, 504 passed (4 failures)
-Total:     1131 ran, 1105 passed (26 failures, of which 9 are expected)
+Total:     1131 ran, 1115 passed (16 failures, of which 9 are expected)
 ```
 
 **Starting point was**: 1052 passed (79 failures)
-**Progress so far**: 53 tests fixed across 7 commits
+**Progress so far**: 63 tests fixed across 8 commits
 
 ## What Was Done
 
-### Session 3 Changes (this session, 4 commits)
+### Session 4 Changes (this session, 1 commit)
+
+1. **Non-destructive alist operations in chain decomposer** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - Root cause: `assq-delete-all` destructively mutated shared list structure — when a later cd/pushd/popd in the chain removed PWD, it corrupted the var-context already stored in earlier entries
+   - Added `jf/bash--alist-remove-key` (non-destructive, uses `cl-remove-if`) replacing all `assq-delete-all` calls
+   - Fixed `test-cd-with-operations-between` (4-command chain with interleaved cd + operations)
+
+2. **Self-executing path resolution against PWD** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - Self-execution detection now resolves `./script.sh`, `../bin/runner` against PWD via `jf/bash--resolve-path-variables`
+   - Fixed 5 tests: `test-cd-and-run-script`, `test-deploy-script-pattern`, `test-relative-path-dot-slash-script-execution`, `test-relative-path-dot-slash-with-args`, `test-relative-path-parent-script-execution`
+
+3. **cd in conditional condition flows to then-branch** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - Added `jf/bash--extract-cd-from-condition` to detect cd commands in `if` conditions
+   - Then-branch receives updated var-context with new PWD (static analysis assumes success)
+   - Fixed `test-cd-in-if-statement`
+
+4. **Relative path resolution in for-loop globs and test conditions** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - For-loop glob source now resolves relative paths (e.g., `./src/*.txt` → `/base/dir/src/*.txt`)
+   - Test condition file paths resolve without requiring `$` (was previously gated on variable presence)
+   - Fixed `test-cd-for-loop-files`, `test-nested-for-loop-relative-pattern`, `test-nested-conditional-relative-test`
+
+### Session 3 Changes (4 commits)
 
 1. **Variable resolution metadata propagation** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
    - `jf/bash--resolve-handler-filesystem-ops` now detects unresolved variables even without var-context
@@ -70,27 +91,18 @@ See commits b4b5672 through 981f509 for the original two-layer implementation, h
 | integration-003 | Loop glob + conditional + directory ops (partial) |
 | integration-004 | Heredoc + while loop with dynamic file writes |
 
-### 13 ERT Unexpected Failures (by category)
+### 3 ERT Unexpected Failures (by category)
 
-**PWD/cd directory context** (6 tests): `test-cd-and-run-script`, `test-cd-for-loop-files`, `test-cd-in-if-statement`, `test-cd-with-operations-between`, `test-pwd-assignment-inline`, `test-pwd-substitution-nested`
-- cd context not flowing through conditionals (if-statement), loops (for-loop-files), and between operations
-- PWD from inline assignments and command substitutions
+**PWD edge cases** (2 tests): `test-pwd-assignment-inline`, `test-pwd-substitution-nested`
+- `PWD=/new/path cat file.txt` (inline environment variable not applied to single command)
+- `cat $(basename $(pwd))/file.txt` (nested command substitution static evaluation)
 
-**Self-executing relative paths with PWD** (3 tests): `test-relative-path-dot-slash-script-execution`, `test-relative-path-dot-slash-with-args`, `test-relative-path-parent-script-execution`
-- `./script.sh` should resolve to `/base/dir/script.sh` when PWD context is available
-- Orchestrator creates `:execute` ops with raw path, doesn't resolve against PWD
+**Command-based conditionals** (1 test): `test-conditional-command-based`
+- `if grep -q pattern file.txt; then ...` — non-bracket command-based conditions
 
 **Script execution edge cases** (3 tests): `test-script-execution-nested-python`, `test-script-execution-nested-self-executing`, `test-script-execution-corpus`
 - Nested execution via `bash -c 'python script.py'` (wrapper command parsing)
 - Need to detect that `python`, `bash`, `node` etc. take script files as arguments
-
-**Nested structures** (2 tests): `test-nested-conditional-relative-test`, `test-nested-for-loop-relative-pattern`
-- Relative path resolution in nested conditional and for-loop contexts
-
-**Misc** (3 tests): `test-conditional-command-based`, `test-cmdsub-nested-backticks`, `test-deploy-script-pattern`
-- Command-based conditionals (non-test-bracket): `if grep -q pattern file.txt; then ...`
-- Backtick-style command substitutions
-- Deploy script pattern (complex cd + operations)
 
 **Corpus integration ERT** (4 tests): `test-corpus-integration-001..004`
 - Same as Buttercup integration tests above
@@ -106,15 +118,26 @@ See commits b4b5672 through 981f509 for the original two-layer implementation, h
 
 ## Recommended Next Steps (priority order)
 
-1. **PWD/cd context in nested structures** (~6 tests): The chain decomposer tracks cd correctly for sequential chains, but cd inside conditionals/loops doesn't flow to subsequent commands within the same scope. May need to pass directory context through conditional/loop decomposition.
+1. **Script execution wrapper commands** (~3 tests): Need handler or detection for `python script.py`, `bash -c 'cmd'`, `node app.js` etc. These are commands that take script files as arguments and execute them.
 
-2. **Relative path resolution for self-executing commands** (~3 tests): The orchestrator's self-execution detection creates `:execute` ops but doesn't resolve `./script.sh` against the current PWD context. Add resolution step for `:execute` ops similar to how handler ops get variable resolution.
+2. **Command-based conditionals** (~1 test): `if grep -q pattern file.txt` — condition parser needs to handle non-bracket commands (currently only handles `[ -f file ]` style).
 
-3. **Script execution wrapper commands** (~3 tests): Need handler or detection for `python script.py`, `bash -c 'cmd'`, `node app.js` etc. These are commands that take script files as arguments and execute them.
+3. **PWD inline assignment** (~1 test): `PWD=/new/path cat file.txt` — inline environment variables scoped to single command.
 
-4. **xargs handler** (~4 expected-failure tests): Create `config/bash-parser/commands/xargs.el` handler. Would convert 4 expected failures to passes.
+4. **Nested command substitution evaluation** (~1 test): `$(basename $(pwd))` needs recursive static evaluation of deterministic commands.
 
-5. **Dynamic redirect handling** (~4 expected-failure tests): Redirections with `$(cmd)` or `$VAR` in destinations need resolution.
+5. **xargs handler** (~4 expected-failure tests): Create `config/bash-parser/commands/xargs.el` handler. Would convert 4 expected failures to passes.
+
+6. **Dynamic redirect handling** (~4 expected-failure tests): Redirections with `$(cmd)` or `$VAR` in destinations need resolution.
+
+## Known Issue: Assignment extractor misidentifies `cd`
+
+`jf/bash--extract-assignments-from-command` treats `cd /dir` as a variable assignment `cd=/dir` because:
+- `cd` matches the valid variable name pattern `^[A-Za-z_][A-Za-z0-9_]*$`
+- `cd` doesn't have a registered handler in `jf/bash-command-handlers`
+- The command has exactly one positional arg
+
+This is harmless because the chain decomposer's cd detection runs afterward and correctly sets PWD. The spurious `(cd . "/dir")` entry in the context is inert. However, it could be cleaned up by adding a builtin exclusion list to the split-assignment heuristic.
 
 ## Key Files
 
