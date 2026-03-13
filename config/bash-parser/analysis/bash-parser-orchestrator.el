@@ -2,100 +2,338 @@
 
 (require 'cl-lib)
 
-(defun jf/bash--claim-tokens-for-operations (operations parsed-command)
-  "Claim tokens for file OPERATIONS in PARSED-COMMAND.
+(defun jf/bash--decompose-to-simple-commands (parsed-command &optional var-context)
+  "Decompose PARSED-COMMAND into simple commands with context (Layer 0).
 
-OPERATIONS is a list of operation plists from the recursive engine.
-PARSED-COMMAND is the parse result plist.
+Pure grammar decomposition. Walks compound structures recursively,
+yields simple commands with accumulated var-context and grammar-level
+redirection operations. Does NOT call command handlers.
 
-Returns list of claimed token IDs.
+PARSED-COMMAND is the output from `jf/bash-parse'.
+VAR-CONTEXT is an optional alist mapping variable names to values.
 
-Token claiming strategy:
-  - For redirection operations: claim redirection tokens
-  - For positional-arg operations: claim command-name and matching positional tokens
-  - For exec-block operations: claim command-name and file path tokens
-  - For other sources: claim based on file path only"
-  (let ((tokens (plist-get parsed-command :tokens))
-        (claimed-ids '())
+Returns list of plists, each with:
+  :command     - simple command plist
+  :var-context - accumulated variable context for this command
+  :redirection-ops - operations from redirections
+  :metadata    - context flags (:subshell-context, :conditional, :branch, etc.)"
+  (jf/bash--decompose-recursive parsed-command (or var-context '()) nil 0))
+
+(defun jf/bash--decompose-recursive (parsed-command var-context metadata depth)
+  "Recursively decompose PARSED-COMMAND into simple command entries.
+
+PARSED-COMMAND is a parsed command plist.
+VAR-CONTEXT is the accumulated variable context alist.
+METADATA is a plist of context flags for the current scope.
+DEPTH is the current recursion depth.
+
+Returns a list of entry plists (see `jf/bash--decompose-to-simple-commands')."
+  (when (or (null parsed-command) (not (listp parsed-command)))
+    (cl-return-from jf/bash--decompose-recursive nil))
+  (when (> depth (or jf/bash-recursive-max-depth 10))
+    (message "Warning: Decomposition max depth %d exceeded" depth)
+    (cl-return-from jf/bash--decompose-recursive nil))
+
+  (let ((type (plist-get parsed-command :type))
         (command-name (plist-get parsed-command :command-name)))
+    (cond
+     ;; Pipeline: decompose each segment
+     ((eq type :pipeline)
+      (jf/bash--decompose-pipeline parsed-command var-context metadata depth))
 
-    ;; Claim all redirection tokens
+     ;; Chain: decompose with var-context accumulation
+     ((eq type :chain)
+      (jf/bash--decompose-chain parsed-command var-context metadata depth))
+
+     ;; Conditional: decompose branches
+     ((eq type :conditional)
+      (jf/bash--decompose-conditional parsed-command var-context metadata depth))
+
+     ;; Subshell: decompose body with isolated context
+     ((eq type :subshell)
+      (jf/bash--decompose-subshell parsed-command var-context metadata depth))
+
+     ;; For-loop: decompose body with loop variable context
+     ((and command-name (string= command-name "for"))
+      (jf/bash--decompose-for-loop parsed-command var-context metadata depth))
+
+     ;; Simple command (has command-name or is :simple type)
+     ((or (eq type :simple) command-name (plist-get parsed-command :tokens))
+      (jf/bash--make-entry parsed-command var-context metadata))
+
+     ;; Nothing to decompose
+     (t nil))))
+
+(defun jf/bash--make-entry (simple-command var-context metadata)
+  "Create a decomposition entry for SIMPLE-COMMAND.
+
+SIMPLE-COMMAND is a parsed simple command plist.
+VAR-CONTEXT is the variable context alist.
+METADATA is a plist of context flags.
+
+Returns a list containing one entry plist."
+  (let ((redir-ops (jf/bash-extract-operations-from-redirections
+                    simple-command var-context)))
+    (list (list :command simple-command
+                :var-context var-context
+                :redirection-ops redir-ops
+                :metadata (or metadata '())))))
+
+(defun jf/bash--decompose-pipeline (parsed-command var-context metadata depth)
+  "Decompose pipeline PARSED-COMMAND into simple command entries.
+
+Each pipeline segment is decomposed independently with the same var-context."
+  (let ((entries nil))
+    (dolist (cmd (plist-get parsed-command :all-commands))
+      (setq entries (append entries
+                           (jf/bash--decompose-recursive
+                            cmd var-context metadata (1+ depth)))))
+    entries))
+
+(defun jf/bash--decompose-chain (parsed-command var-context metadata depth)
+  "Decompose chain PARSED-COMMAND with var-context accumulation.
+
+Tracks variable assignments, cd, pushd, and popd across chain commands
+so that later commands see the accumulated context."
+  (let ((entries nil)
+        (chain-context var-context)
+        (current-pwd (or (alist-get 'PWD var-context) "/"))
+        (dir-stack nil))
+    (dolist (cmd (plist-get parsed-command :all-commands))
+      ;; Extract variable assignments from this command
+      (when (fboundp 'jf/bash--extract-assignments-from-command)
+        (let ((assignments (jf/bash--extract-assignments-from-command cmd chain-context)))
+          (when assignments
+            (setq chain-context (append assignments chain-context))
+            (when-let ((new-pwd (alist-get 'PWD assignments)))
+              (setq current-pwd new-pwd)))))
+
+      ;; Check for cd command
+      (when (and (fboundp 'jf/bash--is-cd-command-p)
+                 (jf/bash--is-cd-command-p cmd))
+        (when-let ((new-pwd (jf/bash--extract-cd-target cmd chain-context current-pwd)))
+          (unless (eq new-pwd :unresolved)
+            (let ((old-pwd current-pwd))
+              (setq current-pwd new-pwd)
+              (setq chain-context (cons (cons 'PWD current-pwd)
+                                       (assq-delete-all 'PWD chain-context)))
+              (setq chain-context (cons (cons 'OLDPWD old-pwd)
+                                       (assq-delete-all 'OLDPWD chain-context)))))))
+
+      ;; Check for pushd command
+      (when (and (fboundp 'jf/bash--is-pushd-command-p)
+                 (jf/bash--is-pushd-command-p cmd))
+        (when-let ((new-pwd (jf/bash--extract-pushd-target cmd chain-context current-pwd)))
+          (unless (eq new-pwd :unresolved)
+            (push current-pwd dir-stack)
+            (setq current-pwd new-pwd)
+            (setq chain-context (cons (cons 'PWD current-pwd)
+                                     (assq-delete-all 'PWD chain-context))))))
+
+      ;; Check for popd command
+      (when (and (fboundp 'jf/bash--is-popd-command-p)
+                 (jf/bash--is-popd-command-p cmd))
+        (when dir-stack
+          (let ((popped-pwd (pop dir-stack)))
+            (setq current-pwd popped-pwd)
+            (setq chain-context (cons (cons 'PWD current-pwd)
+                                     (assq-delete-all 'PWD chain-context))))))
+
+      ;; Decompose this chain command with accumulated context
+      (setq entries (append entries
+                           (jf/bash--decompose-recursive
+                            cmd chain-context metadata (1+ depth)))))
+    entries))
+
+(defun jf/bash--decompose-conditional (parsed-command var-context metadata depth)
+  "Decompose conditional PARSED-COMMAND into entries from branches.
+
+Processes then and else branches with appropriate metadata."
+  (let ((entries nil)
+        (then-text (plist-get parsed-command :then-text))
+        (else-text (plist-get parsed-command :else-text)))
+
+    ;; Decompose then branch
+    (when then-text
+      (condition-case nil
+          (let* ((parsed-then (jf/bash-parse then-text))
+                 (clean-parsed (when (plist-get parsed-then :success)
+                                 (let ((cleaned (copy-sequence parsed-then)))
+                                   (plist-put cleaned :ast nil)
+                                   cleaned)))
+                 (then-metadata (append (list :conditional t :branch :then)
+                                        metadata))
+                 (then-entries (when clean-parsed
+                                (jf/bash--decompose-recursive
+                                 clean-parsed var-context then-metadata (1+ depth)))))
+            (setq entries (append entries then-entries)))
+        (error nil)))
+
+    ;; Decompose else branch
+    (when else-text
+      (condition-case nil
+          (let* ((parsed-else (jf/bash-parse else-text))
+                 (clean-parsed (when (plist-get parsed-else :success)
+                                 (let ((cleaned (copy-sequence parsed-else)))
+                                   (plist-put cleaned :ast nil)
+                                   cleaned)))
+                 (else-metadata (append (list :conditional t :branch :else)
+                                        metadata))
+                 (else-entries (when clean-parsed
+                                (jf/bash--decompose-recursive
+                                 clean-parsed var-context else-metadata (1+ depth)))))
+            (setq entries (append entries else-entries)))
+        (error nil)))
+
+    entries))
+
+(defun jf/bash--decompose-subshell (parsed-command var-context metadata depth)
+  "Decompose subshell PARSED-COMMAND with isolated context and metadata."
+  (let ((entries nil))
+    (when-let ((subshell-body (plist-get parsed-command :subshell-body)))
+      (when (plist-get subshell-body :success)
+        (let* ((isolated-context (copy-alist var-context))
+               (subshell-metadata (append (list :subshell-context t) metadata))
+               (body-entries (jf/bash--decompose-recursive
+                              subshell-body isolated-context
+                              subshell-metadata (1+ depth))))
+          (setq entries body-entries))))
+    entries))
+
+(defun jf/bash--decompose-for-loop (parsed-command var-context metadata depth)
+  "Decompose for-loop PARSED-COMMAND body with loop variable in context."
+  (let* ((entries nil)
+         (loop-var (plist-get parsed-command :loop-variable))
+         (loop-source-type (plist-get parsed-command :loop-source-type))
+         (loop-body (plist-get parsed-command :loop-body))
+         (loop-var-value nil))
+    ;; Determine loop variable value
+    (cond
+     ((eq loop-source-type :glob)
+      (setq loop-var-value (plist-get parsed-command :loop-list)))
+     ((eq loop-source-type :literal)
+      (setq loop-var-value :literal-list)))
+
+    ;; Parse and decompose loop body
+    (when loop-body
+      (condition-case nil
+          (let* ((parsed-body (jf/bash-parse loop-body))
+                 (clean-parsed (when (plist-get parsed-body :success)
+                                 (let ((cleaned (copy-sequence parsed-body)))
+                                   (plist-put cleaned :ast nil)
+                                   cleaned)))
+                 (loop-context (if (and loop-var loop-var-value
+                                        (not (keywordp loop-var-value)))
+                                  (append (list (cons (intern loop-var) loop-var-value))
+                                          var-context)
+                                var-context))
+                 (loop-metadata (append (list :loop-context t) metadata))
+                 (body-entries (when clean-parsed
+                                (jf/bash--decompose-recursive
+                                 clean-parsed loop-context
+                                 loop-metadata (1+ depth)))))
+            (setq entries body-entries))
+        (error nil)))
+    entries))
+
+(defun jf/bash--claim-tokens-for-results (all-operations entries parsed-command)
+  "Claim token IDs based on ALL-OPERATIONS and ENTRIES for PARSED-COMMAND.
+
+ALL-OPERATIONS is the flat list of all operations from both layers.
+ENTRIES is the decomposition entries list.
+PARSED-COMMAND is the top-level parse result.
+
+Claims tokens by matching against the top-level :tokens list:
+  - All :redirection type tokens (grammar-level, always understood)
+  - All :operator type tokens (structural, always understood)
+  - :command-name tokens matching processed command names
+  - Tokens whose :value matches an operation :file path
+
+Returns list of claimed token IDs."
+  (let ((claimed-ids '())
+        (tokens (plist-get parsed-command :tokens))
+        (command-names (mapcar (lambda (e)
+                                 (plist-get (plist-get e :command) :command-name))
+                               entries))
+        (op-files (delq nil (mapcar (lambda (op) (plist-get op :file))
+                                     all-operations))))
     (when tokens
       (dolist (token tokens)
-        (when (eq (plist-get token :type) :redirection)
-          (push (plist-get token :id) claimed-ids))))
+        (let ((token-type (plist-get token :type))
+              (token-value (plist-get token :value))
+              (token-id (plist-get token :id)))
+          (when token-id
+            (cond
+             ;; Always claim redirection and operator tokens
+             ((memq token-type '(:redirection :operator))
+              (push token-id claimed-ids))
+             ;; Claim command-name tokens for processed commands
+             ((and (eq token-type :command-name)
+                   token-value
+                   (member token-value command-names))
+              (push token-id claimed-ids))
+             ;; Claim tokens whose value matches an operation file path
+             ((and token-value
+                   (member token-value op-files))
+              (push token-id claimed-ids)))))))
+    (delete-dups claimed-ids)))
 
-    ;; Claim tokens for each operation
+(defun jf/bash--resolve-handler-filesystem-ops (operations var-context)
+  "Resolve variable references in file paths of handler OPERATIONS.
+
+OPERATIONS is a list of operation plists from command handlers.
+VAR-CONTEXT is the variable context alist.
+
+Returns operations with resolved file paths and updated metadata."
+  (let ((resolved nil))
     (dolist (op operations)
-      (let* ((source (plist-get op :source))
-             (file (plist-get op :file))
-             (op-command (plist-get op :command)))
-
-        (pcase source
-          ;; Redirection operations already claimed above
-          (:redirection nil)
-
-          ;; Positional arg operations: claim command-name and file path tokens
-          (:positional-arg
-           ;; Claim command-name token if it matches operation command
-           (when (and command-name op-command (string= command-name op-command))
-             (dolist (token tokens)
-               (when (and (eq (plist-get token :type) :command-name)
-                          (string= (plist-get token :value) command-name))
-                 (push (plist-get token :id) claimed-ids))))
-
-           ;; Claim token for file path
-           (when file
-             (dolist (token tokens)
-               (when (and (null (cl-find (plist-get token :id) claimed-ids))
-                          (plist-get token :value)
-                          (string= file (plist-get token :value)))
-                 (push (plist-get token :id) claimed-ids)
-                 (cl-return)))))
-
-          ;; Exec block operations: claim command-name and file path tokens
-          (:exec-block
-           (when op-command
-             (dolist (token tokens)
-               (when (and (eq (plist-get token :type) :command-name)
-                          (string= (plist-get token :value) op-command))
-                 (push (plist-get token :id) claimed-ids))))
-
-           (when file
-             (dolist (token tokens)
-               (when (and (plist-get token :value)
-                          (string= file (plist-get token :value)))
-                 (push (plist-get token :id) claimed-ids)
-                 (cl-return)))))
-
-          ;; Other sources: claim based on file path only
-          (_
-           (when file
-             (dolist (token tokens)
-               (when (and (plist-get token :value)
-                          (string= file (plist-get token :value)))
-                 (push (plist-get token :id) claimed-ids)
-                 (cl-return))))))))
-
-    ;; Remove duplicates and return
-    (delete-dups (nreverse claimed-ids))))
+      (let* ((file (plist-get op :file))
+             (resolved-file file)
+             (confidence (or (plist-get op :confidence) :high))
+             (has-pattern nil))
+        ;; Resolve variables in file path
+        (when (and file var-context (fboundp 'jf/bash--resolve-path-variables))
+          (let ((result (jf/bash--resolve-path-variables file var-context)))
+            (cond
+             ((stringp result)
+              (setq resolved-file result))
+             ((and (listp result) (plist-get result :path))
+              (setq resolved-file (plist-get result :path))
+              (when (plist-get result :unresolved)
+                (setq confidence :medium))))))
+        ;; Detect glob patterns
+        (when (and resolved-file (fboundp 'jf/bash--has-glob-pattern-p))
+          (setq has-pattern (or (plist-get op :pattern)
+                                (jf/bash--has-glob-pattern-p resolved-file))))
+        ;; Build resolved operation preserving all handler properties
+        (let ((resolved-op (plist-put (copy-sequence op) :file resolved-file)))
+          (plist-put resolved-op :confidence confidence)
+          (when (and (not (plist-get resolved-op :source))
+                     (plist-get op :command))
+            (plist-put resolved-op :source :positional-arg))
+          (when has-pattern
+            (plist-put resolved-op :pattern t))
+          (push resolved-op resolved))))
+    (nreverse resolved)))
 
 (defun jf/bash-extract-semantics (parsed-command &optional var-context)
   "Extract semantic information from PARSED-COMMAND.
 
-Implements a two-layer extraction architecture:
-  Layer 0: Grammar-level extraction (unconditional)
-           Calls the recursive engine to extract file operations from
-           redirections and compound structures.
-  Layer 1: Command handlers
-           Per-command semantic dispatch for all domains.
+Implements a clean two-layer extraction architecture:
+  Layer 0: Grammar decomposition (pure)
+           Walk compound structures into simple commands.
+           Extract redirections per simple command. No handler calls.
+  Layer 1: Command handlers (per simple command)
+           Called exactly once per simple command from Layer 0.
+           Produces all domain operations.
+  Merge: Combine Layer 0 redirection ops + Layer 1 handler ops.
+         Build claimed-token-ids. Calculate coverage.
 
-PARSED-COMMAND is a plist with:
+PARSED-COMMAND is a plist from `jf/bash-parse' with:
   :tokens - List of token plists
   :parse-complete - Boolean indicating if parse was fully understood
 
-VAR-CONTEXT is an optional alist mapping variable names to values,
-threaded to the recursive engine for variable resolution.
+VAR-CONTEXT is an optional alist mapping variable names to values.
 
 Returns a plist with:
   :domains - Alist of (domain . operations) from all extraction layers
@@ -106,51 +344,70 @@ Returns a plist with:
          (all-claimed-token-ids '())
          (domains-alist '()))
 
-    ;; Layer 0: Grammar-level extraction (unconditional)
-    ;; Call the recursive engine directly — no predicate gate
-    (condition-case err
-        (let* ((fs-operations (jf/bash--extract-file-operations-impl
-                               parsed-command var-context))
-               (fs-claimed-ids (jf/bash--claim-tokens-for-operations
-                                fs-operations parsed-command)))
-          ;; Add filesystem domain if operations were found
-          (when fs-operations
-            (push (cons :filesystem fs-operations) domains-alist))
-          ;; Accumulate claimed tokens
-          (when fs-claimed-ids
-            (setq all-claimed-token-ids
-                  (append fs-claimed-ids all-claimed-token-ids))))
-      (error
-       (message "Error in grammar-level extraction: %s"
-                (error-message-string err))))
+    ;; Layer 0: Decompose into simple commands (pure grammar, no handlers)
+    (let ((entries (jf/bash--decompose-to-simple-commands
+                    parsed-command var-context)))
 
-    ;; Layer 1: Command handlers
-    ;; Per-command semantic dispatch for all domains.
-    ;; Known limitation: for compound commands (pipelines, chains), the top-level
-    ;; parsed-command has no :command-name, so jf/bash-extract-command-semantics
-    ;; returns empty results.  Non-filesystem domain ops from subcommands within
-    ;; compounds are not captured here.  The recursive engine (Layer 0) dispatches
-    ;; to handlers per-simple-command internally but currently returns only
-    ;; filesystem ops.  Follow-up: update the recursive engine to surface all
-    ;; domain results from per-subcommand handler dispatch.
-    (let* ((cmd-result (jf/bash-extract-command-semantics parsed-command))
-           (cmd-domains (plist-get cmd-result :domains))
-           (cmd-claimed-ids (plist-get cmd-result :claimed-token-ids)))
-      ;; Merge command handler domains not already provided by Layer 0
-      (dolist (domain-entry cmd-domains)
-        (let ((domain (car domain-entry))
-              (operations (cdr domain-entry)))
-          (when operations
-            (unless (assq domain domains-alist)
-              (push (cons domain operations) domains-alist)))))
-      ;; Include command handler claimed token IDs in coverage
-      (when cmd-claimed-ids
+      ;; Process each simple command entry
+      (dolist (entry entries)
+        (let* ((cmd (plist-get entry :command))
+               (ctx (plist-get entry :var-context))
+               (redir-ops (plist-get entry :redirection-ops)))
+
+          ;; Layer 0 contribution: redirection ops → :filesystem domain
+          (when redir-ops
+            (let ((existing (assq :filesystem domains-alist)))
+              (if existing
+                  (setcdr existing (append (cdr existing) redir-ops))
+                (push (cons :filesystem redir-ops) domains-alist))))
+
+          ;; Layer 1: Call handler exactly once for this simple command
+          (condition-case err
+              (let* ((cmd-result (jf/bash-extract-command-semantics cmd))
+                     (cmd-domains (plist-get cmd-result :domains))
+                     (cmd-claimed-ids (plist-get cmd-result :claimed-token-ids)))
+
+                ;; Resolve variables in filesystem handler ops
+                (when-let ((fs-entry (assq :filesystem cmd-domains)))
+                  (let ((resolved (jf/bash--resolve-handler-filesystem-ops
+                                   (cdr fs-entry) ctx)))
+                    (setcdr fs-entry resolved)))
+
+                ;; Merge all domain results
+                (dolist (domain-entry cmd-domains)
+                  (let ((domain (car domain-entry))
+                        (operations (cdr domain-entry)))
+                    (when operations
+                      (let ((existing (assq domain domains-alist)))
+                        (if existing
+                            (setcdr existing (append (cdr existing) operations))
+                          (push (cons domain operations) domains-alist))))))
+
+                ;; Collect handler claimed token IDs
+                (when cmd-claimed-ids
+                  (setq all-claimed-token-ids
+                        (append cmd-claimed-ids all-claimed-token-ids))))
+            (error
+             (message "Handler error for %s: %s"
+                      (plist-get cmd :command-name)
+                      (error-message-string err))))))
+
+      ;; Token claiming: match operations against top-level tokens
+      (let* ((all-operations
+              (let ((ops nil))
+                (dolist (domain-entry domains-alist)
+                  (setq ops (append ops (cdr domain-entry))))
+                ops))
+             (entry-claimed (jf/bash--claim-tokens-for-results
+                             all-operations entries parsed-command)))
         (setq all-claimed-token-ids
-              (append cmd-claimed-ids all-claimed-token-ids))))
+              (append entry-claimed all-claimed-token-ids))))
+
+    ;; Deduplicate claimed IDs
+    (setq all-claimed-token-ids (delete-dups all-claimed-token-ids))
 
     ;; Calculate coverage
     (let ((coverage (jf/bash-calculate-coverage tokens all-claimed-token-ids)))
-      ;; Return semantic analysis result
       (list :domains domains-alist
             :coverage coverage
             :parse-complete parse-complete))))
