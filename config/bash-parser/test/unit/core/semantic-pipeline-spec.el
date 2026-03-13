@@ -27,7 +27,7 @@
 (require 'test-helper (expand-file-name "../../test-helper.el"
                                         (file-name-directory
                                          (or load-file-name buffer-file-name))))
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 (require 'bash-parser-semantics)
 
 ;; Load contract validation helpers

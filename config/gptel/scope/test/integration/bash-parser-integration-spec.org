@@ -64,7 +64,7 @@ Layer 3: Integration tests (THIS FILE)
 | Component | Role | Location |
 |---|---|---|
 | bash-parser core | Producer (parse) | =config/bash-parser/core/bash-parser-core.el= |
-| bash-parser plugins | Producer (semantics) | =config/bash-parser/analysis/bash-parser-plugins.el= |
+| bash-parser orchestrator | Producer (semantics) | =config/bash-parser/analysis/bash-parser-orchestrator.el= |
 | contract validators | Boundary check | =config/test/contracts/contract-bash-parser.el= |
 | scope-shell-tools | Consumer (validation) | =config/gptel/scope/scope-shell-tools.el= |
 | helpers-spec | Fixture builders | =config/gptel/scope/test/helpers-spec.el= |
@@ -115,7 +115,7 @@ component. This avoids relying on =load-path= state from other test files.
   (require 'contract-core)
   (require 'contract-bash-parser)
   (contract--register-buttercup-matcher)
-  ;; Scope validation (pulls in bash-parser-core, bash-parser-plugins)
+  ;; Scope validation (pulls in bash-parser-core, bash-parser-orchestrator)
   (require 'jf-gptel-scope-shell-tools
            (expand-file-name "scope/scope-shell-tools.el" gptel-dir))
   ;; Helpers for scope config builders

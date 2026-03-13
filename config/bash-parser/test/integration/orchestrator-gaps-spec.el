@@ -7,7 +7,7 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 (require 'bash-parser-semantics)
 
 (describe "Layer 3: orchestrator wiring"

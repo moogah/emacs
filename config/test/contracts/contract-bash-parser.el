@@ -13,7 +13,7 @@
 ;;
 ;; Source of truth references:
 ;; - Parse result: config/bash-parser/core/bash-parser-core.el (jf/bash-parse)
-;; - Semantics: config/bash-parser/analysis/bash-parser-plugins.el (jf/bash-extract-semantics)
+;; - Semantics: config/bash-parser/analysis/bash-parser-orchestrator.el (jf/bash-extract-semantics)
 ;; - File ops: config/bash-parser/plugins/bash-parser-file-ops.el
 ;;
 ;; Contracts:

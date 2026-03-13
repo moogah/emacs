@@ -33,7 +33,7 @@
        (gptel-dir (expand-file-name ".." scope-dir)))
   (require 'jf-gptel-scope-shell-tools (expand-file-name "scope/scope-shell-tools.el" gptel-dir))
   (require 'bash-parser-core)
-  (require 'bash-parser-plugins))
+  (require 'bash-parser-orchestrator))
 
 ;;; ============================================================
 ;;; Bug 2: scope validation must read domains from alist

@@ -4,7 +4,7 @@
 ;; orchestrator's output by jf/bash-extract-semantics.
 
 (require 'cl-lib)
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 (require 'bash-parser-semantics)
 
 ;; Load contract validation helpers

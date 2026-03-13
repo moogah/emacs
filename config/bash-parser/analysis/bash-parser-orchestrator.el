@@ -1,24 +1,4 @@
-#+title: Bash Parser Semantic Orchestrator
-#+property: header-args:emacs-lisp :tangle bash-parser-plugins.el
-#+auto_tangle: y
-
-* Overview
-
-This module provides the semantic extraction orchestrator for the bash parser.
-The orchestrator implements a two-layer architecture:
-
-- Layer 0: Grammar-level extraction (unconditional) — redirections and compound decomposition
-- Layer 1: Command handlers — per-command semantic dispatch
-
-* Semantic Extraction Orchestrator
-
-** Token Claiming from Operations
-
-After the recursive engine returns operations, we build claimed-token-ids by matching
-operation file paths against the token inventory.
-
-#+begin_src emacs-lisp
-;;; bash-parser-plugins.el --- Semantic extraction orchestrator for bash parser -*- lexical-binding: t; -*-
+;;; bash-parser-orchestrator.el --- Semantic extraction orchestrator for bash parser -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
 
@@ -99,11 +79,7 @@ Token claiming strategy:
 
     ;; Remove duplicates and return
     (delete-dups (nreverse claimed-ids))))
-#+end_src
 
-** Orchestrator Function
-
-#+begin_src emacs-lisp
 (defun jf/bash-extract-semantics (parsed-command &optional var-context)
   "Extract semantic information from PARSED-COMMAND.
 
@@ -178,30 +154,15 @@ Returns a plist with:
       (list :domains domains-alist
             :coverage coverage
             :parse-complete parse-complete))))
-#+end_src
 
-** Coverage Integration
-
-The orchestrator requires the coverage calculation function.
-
-#+begin_src emacs-lisp
 (require 'bash-parser-coverage)
-#+end_src
 
-* Dependencies
-
-#+begin_src emacs-lisp
 (require 'bash-parser-file-ops)
 
 ;; Load command handler index (auto-discovers and loads all command handlers)
 (let ((index-path (expand-file-name "config/bash-parser/commands/index.el" jf/emacs-dir)))
   (when (file-exists-p index-path)
     (load index-path nil t)))
-#+end_src
 
-* Provide Module
-
-#+begin_src emacs-lisp
-(provide 'bash-parser-plugins)
-;;; bash-parser-plugins.el ends here
-#+end_src
+(provide 'bash-parser-orchestrator)
+;;; bash-parser-orchestrator.el ends here

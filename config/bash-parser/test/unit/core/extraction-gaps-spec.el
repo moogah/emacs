@@ -8,7 +8,7 @@
 (require 'test-helper (expand-file-name "../../test-helper.el"
                                         (file-name-directory
                                          (or load-file-name buffer-file-name))))
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 
 ;; Load command handlers
 (let ((commands-dir (expand-file-name "config/bash-parser/commands/" jf/emacs-dir)))

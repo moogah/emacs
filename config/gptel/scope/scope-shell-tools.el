@@ -21,7 +21,7 @@
          (expand-file-name "scope-expansion.el"
                           (file-name-directory (or load-file-name buffer-file-name))))
 (require 'bash-parser-core)  ; For jf/bash-parse
-(require 'bash-parser-plugins)  ; For jf/bash-extract-semantics
+(require 'bash-parser-orchestrator)  ; For jf/bash-extract-semantics
 ;; Dependencies:1 ends here
 
 ;; Constants

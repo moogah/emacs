@@ -114,7 +114,7 @@ assumptions.
   (require 'contract-core)
   (require 'contract-bash-parser)
   (contract--register-buttercup-matcher)
-  ;; Scope validation (pulls in bash-parser-core, bash-parser-plugins)
+  ;; Scope validation (pulls in bash-parser-core, bash-parser-orchestrator)
   (require 'jf-gptel-scope-shell-tools
            (expand-file-name "scope/scope-shell-tools.el" gptel-dir))
   ;; Helpers for scope config builders

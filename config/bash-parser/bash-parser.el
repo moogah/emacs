@@ -40,7 +40,7 @@
 
 ;; Analysis layer (orchestrator and coverage)
 (require 'bash-parser-coverage)
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)

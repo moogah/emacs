@@ -33,7 +33,7 @@ The parser is organized into layers for better maintainability:
 
 **Analysis Layer** (analysis/):
 - **bash-parser-coverage** - Coverage calculation and visualization
-- **bash-parser-plugins** - Semantic extraction orchestrator
+- **bash-parser-orchestrator** - Semantic extraction orchestrator
 
 **Domain Modules** (plugins/):
 - **bash-parser-file-ops** - File operations extraction
@@ -106,7 +106,7 @@ Load all parser subsystems in dependency order.
 
 ;; Analysis layer (orchestrator and coverage)
 (require 'bash-parser-coverage)
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
