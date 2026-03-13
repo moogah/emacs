@@ -18,6 +18,8 @@ Buttercup: 508 ran, 501 passed (7 failures)
 Total:     1131 ran, 1052 passed (79 failures)
 ```
 
+**Baseline snapshot**: `config/bash-parser/test-results.txt` — use `git diff config/bash-parser/test-results.txt` to track progress as gaps are closed.
+
 ## What Was Done This Session
 
 ### Implementation Changes
