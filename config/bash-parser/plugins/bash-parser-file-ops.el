@@ -881,7 +881,7 @@ Examples:
 
 This function performs three-stage atomic resolution with error handling:
   1. Variable resolution ($VAR, ${VAR}) using `jf/bash-resolve-variables'
-  2. Command substitution ($(pwd), `pwd`) using `jf/bash--resolve-pwd-substitution'
+  2. Command substitution ($(pwd), $(basename ...), etc.) using `jf/bash--resolve-command-substitution'
   3. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
 
 FILE-PATH is the file path string (may contain variables, substitutions, and/or
@@ -937,16 +937,31 @@ Examples:
                      (plist-get var-resolved :path)
                      (plist-get var-resolved :unresolved))))
 
-        ;; Stage 2: Resolve command substitutions (pwd)
+        ;; Stage 2: Resolve command substitutions (pwd, basename, dirname, nested)
+        ;; Use full resolve-command-substitution for nested $() patterns (e.g., $(basename $(pwd)))
+        ;; Use simple resolve-pwd-substitution for non-nested cases to preserve
+        ;; unresolvable substitutions for downstream dynamic path handling
         (condition-case err
             (let ((pwd-resolved
                    (if (stringp var-resolved)
-                       ;; All variables resolved - apply pwd substitution
-                       (jf/bash--resolve-pwd-substitution var-resolved var-context)
-                     ;; Partial variable resolution - still apply pwd substitution to :path
+                       (if (string-match-p "\\$(.*\\$(" var-resolved)
+                           ;; Nested command substitution - use full resolver
+                           (let ((resolved (jf/bash--resolve-command-substitution var-resolved var-context)))
+                             (if (eq resolved :unresolved)
+                                 (jf/bash--resolve-pwd-substitution var-resolved var-context)
+                               resolved))
+                         ;; Non-nested - simple pwd substitution (preserves e.g. $(basename "$var") for dynamicize-path)
+                         (jf/bash--resolve-pwd-substitution var-resolved var-context))
+                     ;; Partial variable resolution
                      (let* ((path (plist-get var-resolved :path))
                             (unresolved-vars (plist-get var-resolved :unresolved))
-                            (resolved-path (jf/bash--resolve-pwd-substitution path var-context)))
+                            (resolved-path
+                             (if (string-match-p "\\$(.*\\$(" path)
+                                 (let ((resolved (jf/bash--resolve-command-substitution path var-context)))
+                                   (if (eq resolved :unresolved)
+                                       (jf/bash--resolve-pwd-substitution path var-context)
+                                     resolved))
+                               (jf/bash--resolve-pwd-substitution path var-context))))
                        (list :path resolved-path :unresolved unresolved-vars)))))
               (when debug
                 (if (stringp pwd-resolved)
