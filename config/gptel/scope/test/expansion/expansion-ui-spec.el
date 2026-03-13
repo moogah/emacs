@@ -692,5 +692,234 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
         ;; Cleanup
         (delete-file scope-yml)))))
 
+;;; ============================================================
+;;; Tests for wildcard helper and new expansion suffixes
+;;; ============================================================
+
+(describe "jf/gptel-scope--parent-wildcard-for"
+
+  (it "returns parent dir with /** for a file path"
+    (expect (jf/gptel-scope--parent-wildcard-for "~/foo/bar.txt")
+            :to-equal "~/foo/**"))
+
+  (it "handles deeply nested file paths"
+    (expect (jf/gptel-scope--parent-wildcard-for "/a/b/src/init.el")
+            :to-equal "/a/b/src/**"))
+
+  (it "normalizes trailing slash in parent dir"
+    ;; file-name-directory adds trailing slash; string-remove-suffix strips it
+    (expect (jf/gptel-scope--parent-wildcard-for "/home/user/projects/foo.txt")
+            :to-equal "/home/user/projects/**")))
+
+(describe "Transient action handlers — wildcard add-to-scope"
+
+  (it "wildcard option available when resource is a file"
+    ;; The :if predicate returns t when resource is not a directory
+    (spy-on 'transient-scope
+            :and-return-value (list :violation (list :resource "/home/user/data.txt")
+                                    :callback nil))
+    (spy-on 'file-directory-p :and-return-value nil)
+    (expect (not (file-directory-p
+                  (plist-get (plist-get (transient-scope) :violation) :resource)))
+            :to-be t))
+
+  (it "wildcard option not available when resource is a directory"
+    ;; The :if predicate returns nil when resource is a directory
+    (spy-on 'transient-scope
+            :and-return-value (list :violation (list :resource "/home/user/projects/")
+                                    :callback nil))
+    (spy-on 'file-directory-p :and-return-value t)
+    (expect (not (file-directory-p
+                  (plist-get (plist-get (transient-scope) :violation) :resource)))
+            :to-be nil))
+
+  (it "derives parent directory wildcard from file path"
+    ;; jf/gptel-scope--add-wildcard-to-scope writes parent/** not the original resource
+    (let* ((scope-yml (helpers-spec-make-minimal-scope))
+           (resource "/home/user/data.txt")
+           (mock-callback (lambda (result) nil)))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read
+                                                       :validation-type 'bash
+                                                       :reason "test")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'jf/gptel-scope--write-pattern-to-scope :and-return-value t)
+      (spy-on 'transient-quit-one)
+
+      (jf/gptel-scope--add-wildcard-to-scope)
+
+      ;; Assert: write-pattern-to-scope was called with the wildcard, not the original resource
+      (expect 'jf/gptel-scope--write-pattern-to-scope
+              :to-have-been-called-with "/home/user/**" 'bash "run_bash_command" scope-yml)
+
+      (delete-file scope-yml)))
+
+  (it "callback receives derived wildcard pattern in patterns_added"
+    (let* ((scope-yml (helpers-spec-make-minimal-scope))
+           (resource "/home/user/data.txt")
+           (callback-result nil)
+           (mock-callback (lambda (result) (setq callback-result result))))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read
+                                                       :validation-type 'bash
+                                                       :reason "test")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'jf/gptel-scope--write-pattern-to-scope :and-return-value t)
+      (spy-on 'transient-quit-one)
+
+      (jf/gptel-scope--add-wildcard-to-scope)
+
+      ;; Assert: callback received wildcard pattern, not original resource
+      (let* ((parsed (json-parse-string callback-result :object-type 'plist))
+             (patterns-added (plist-get parsed :patterns_added)))
+        (expect (plist-get parsed :success) :to-be t)
+        (expect (aref patterns-added 0) :to-equal "/home/user/**"))
+
+      (delete-file scope-yml)))
+
+  (it "routes through validation-type for wildcard pattern"
+    ;; validation-type 'path routes write-pattern-to-scope to add-path-to-scope
+    (let* ((scope-yml (helpers-spec-make-minimal-scope))
+           (resource "/home/user/data.txt")
+           (mock-callback (lambda (result) nil)))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "read_file"
+                                                       :resource resource
+                                                       :operation :read
+                                                       :validation-type 'path
+                                                       :reason "test")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "read_file"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'jf/gptel-scope--write-pattern-to-scope :and-return-value t)
+      (spy-on 'transient-quit-one)
+
+      (jf/gptel-scope--add-wildcard-to-scope)
+
+      ;; Assert: write-pattern-to-scope was called with 'path validation type
+      (expect 'jf/gptel-scope--write-pattern-to-scope
+              :to-have-been-called-with "/home/user/**" 'path "read_file" scope-yml)
+
+      (delete-file scope-yml))))
+
+(describe "Transient action handlers — custom pattern add-to-scope"
+
+  (it "pre-populates read-string prompt with denied resource"
+    ;; read-string should receive resource as the initial input value
+    (let* ((scope-yml (helpers-spec-make-minimal-scope))
+           (resource "/home/user/data.txt")
+           (read-string-initial nil)
+           (mock-callback (lambda (result) nil)))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read
+                                                       :validation-type 'bash
+                                                       :reason "test")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'jf/gptel-scope--write-pattern-to-scope :and-return-value t)
+      (spy-on 'transient-quit-one)
+
+      ;; Stub read-string: capture initial value and return it
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (prompt &optional initial &rest args)
+                   (setq read-string-initial initial)
+                   initial)))
+        (jf/gptel-scope--add-custom-to-scope))
+
+      ;; Assert: read-string was called with resource as initial input
+      (expect read-string-initial :to-equal resource)
+
+      (delete-file scope-yml)))
+
+  (it "writes edited custom pattern to scope when confirmed"
+    ;; When read-string returns an edited value, that value is written to scope
+    (let* ((scope-yml (helpers-spec-make-minimal-scope))
+           (resource "/home/user/data.txt")
+           (custom-pattern "/home/user/**")
+           (callback-result nil)
+           (mock-callback (lambda (result) (setq callback-result result))))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read
+                                                       :validation-type 'bash
+                                                       :reason "test")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'jf/gptel-scope--write-pattern-to-scope :and-return-value t)
+      (spy-on 'transient-quit-one)
+
+      ;; Stub read-string to return the edited custom pattern
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (prompt &optional initial &rest args) custom-pattern)))
+        (jf/gptel-scope--add-custom-to-scope))
+
+      ;; Assert: write-pattern-to-scope was called with the custom pattern
+      (expect 'jf/gptel-scope--write-pattern-to-scope
+              :to-have-been-called-with custom-pattern 'bash "run_bash_command" scope-yml)
+
+      ;; Assert: callback received success with custom pattern in patterns_added
+      (let* ((parsed (json-parse-string callback-result :object-type 'plist))
+             (patterns-added (plist-get parsed :patterns_added)))
+        (expect (plist-get parsed :success) :to-be t)
+        (expect (aref patterns-added 0) :to-equal custom-pattern))
+
+      (delete-file scope-yml)))
+
+  (it "invokes callback with user_denied when prompt cancelled"
+    ;; When user presses C-g (signals quit), callback gets :user_denied t
+    (let* ((scope-yml (helpers-spec-make-minimal-scope))
+           (resource "/home/user/data.txt")
+           (callback-result nil)
+           (mock-callback (lambda (result) (setq callback-result result))))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read
+                                                       :validation-type 'bash
+                                                       :reason "test")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'transient-quit-one)
+
+      ;; Stub read-string to signal quit (simulating C-g)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (prompt &optional initial &rest args)
+                   (signal 'quit nil))))
+        (jf/gptel-scope--add-custom-to-scope))
+
+      ;; Assert: callback received denial
+      (let ((parsed (json-parse-string callback-result :object-type 'plist)))
+        (expect (or (eq (plist-get parsed :success) :json-false)
+                    (eq (plist-get parsed :success) nil)) :to-be t)
+        (expect (plist-get parsed :user_denied) :to-be t))
+
+      (delete-file scope-yml))))
+
 (provide 'expansion-ui-spec)
 ;;; expansion-ui-spec.el ends here
