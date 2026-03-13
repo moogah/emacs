@@ -35,5 +35,10 @@
 (declare-function jf/bash-extract-command-semantics "bash-parser-semantics"
                   (parsed-command))
 
+(defvar jf/bash-recursive-max-depth 10
+  "Maximum recursion depth for semantic analysis and nested command parsing.
+Prevents infinite recursion in pathological cases.
+Shared by bash-parser-orchestrator and bash-parser-extensions modules.")
+
 (provide 'bash-parser-protocol)
 ;;; bash-parser-protocol.el ends here

@@ -66,15 +66,11 @@
 
   (describe "orchestrator reports non-zero coverage from handlers"
 
-    ;; When Layer 0 is the sole contributor (no cl-return bug), coverage
-    ;; comes from Layer 0's token claiming. But when handlers are the
-    ;; sole contributor (Layer 0 discarded, or for non-filesystem domains),
-    ;; coverage must come from handlers.
+    ;; Coverage comes from Layer 0's token claiming and/or Layer 1 handlers.
+    ;; For non-filesystem domains, handlers are the sole contributor.
 
     (it "gcloud produces non-zero coverage for :authentication domain"
-      ;; gcloud has no filesystem handler, so Layer 0 provides no
-      ;; positional-arg operations (no cl-return bug triggered).
-      ;; But the authentication handler must claim its tokens.
+      ;; gcloud has no filesystem handler; the authentication handler claims tokens.
       (let* ((parsed (jf/bash-parse "gcloud compute instances list"))
              (result (jf/bash-extract-semantics parsed))
              (coverage (plist-get result :coverage)))

@@ -1,7 +1,6 @@
-;;; extraction-gaps-spec.el --- Layer 2: Direct extraction verification -*- lexical-binding: t; -*-
+;;; extraction-gaps-spec.el --- Direct extraction verification -*- lexical-binding: t; -*-
 
-;; Tests extraction functions directly to isolate orchestrator wiring issues.
-;; Calls handlers and the recursive engine without going through the orchestrator.
+;; Tests extraction functions to verify orchestrator handles all cases.
 
 ;;; Code:
 
@@ -14,7 +13,12 @@
 (let ((commands-dir (expand-file-name "config/bash-parser/commands/" jf/emacs-dir)))
   (load-file (expand-file-name "ls.el" commands-dir)))
 
-(describe "Layer 2: direct extraction"
+(defun extraction-gaps-test--get-filesystem-ops (result)
+  "Extract :filesystem operations from orchestrator RESULT."
+  (let ((domains (plist-get result :domains)))
+    (cdr (assq :filesystem domains))))
+
+(describe "Direct extraction"
 
   (describe "ls command handler"
     (it "produces :read-directory for plain path /tmp"
@@ -27,25 +31,27 @@
           (expect (plist-get (car ops) :operation) :to-equal :read-directory)
           (expect (plist-get (car ops) :file) :to-equal "/tmp")))))
 
-  (describe "recursive engine (direct call)"
+  (describe "orchestrator extraction"
     (it "extracts :write for echo hello > /tmp/out.txt"
       (let* ((parsed (jf/bash-parse "echo hello > /tmp/out.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (extraction-gaps-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         (expect (cl-some (lambda (op)
                            (and (eq (plist-get op :operation) :write)
                                 (equal (plist-get op :file) "/tmp/out.txt")))
-                         ops)
+                         fs-ops)
                 :to-be-truthy)))
 
     (it "extracts :append for echo data >> /tmp/log.txt"
       (let* ((parsed (jf/bash-parse "echo data >> /tmp/log.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (extraction-gaps-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         (expect (cl-some (lambda (op)
                            (and (eq (plist-get op :operation) :append)
                                 (equal (plist-get op :file) "/tmp/log.txt")))
-                         ops)
+                         fs-ops)
                 :to-be-truthy)))))
 
 (provide 'extraction-gaps-spec)

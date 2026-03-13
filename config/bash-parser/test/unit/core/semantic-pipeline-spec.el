@@ -3,21 +3,13 @@
 ;;; Commentary:
 
 ;; Verifies the full two-layer semantic pipeline end-to-end:
-;;   Layer 0: Grammar-level extraction (redirections, recursive engine)
+;;   Layer 0: Grammar-level extraction (redirections, compound decomposition)
 ;;   Layer 1: Command handlers (per-command domain dispatch)
 ;;   Merge: Layer 0 takes priority per domain; Layer 1 contributes new domains only
 ;;
 ;; Key invariant: If Layer 0 claims :filesystem with operations,
 ;; Layer 1 command handler :filesystem results are SKIPPED
 ;; (the `unless (assq domain domains-alist)` check in the orchestrator).
-;;
-;; Known issue: Layer 0 grammar extraction wraps both extraction AND
-;; token claiming in a single condition-case.  The token-claiming
-;; function (jf/bash--claim-tokens-for-operations) uses cl-return
-;; inside dolist without a cl-block, which throws for commands that
-;; produce positional-arg operations.  When this happens, the entire
-;; Layer 0 result is discarded (even though extraction succeeded),
-;; and Layer 1 becomes the sole contributor for :filesystem.
 ;; Commands WITHOUT handlers (echo, sort, etc.) are unaffected
 ;; since they produce no positional-arg operations.
 
@@ -148,12 +140,9 @@
                          fs-ops)
                 :to-be-truthy)))
 
-    (it "provides :filesystem via Layer 1 handler when Layer 0 errors on token claiming"
-      ;; "cat input.txt > output.txt" - Layer 0 extraction succeeds BUT
-      ;; token claiming throws (cl-return bug), so entire Layer 0 is discarded.
-      ;; Layer 1 cat handler then contributes :filesystem with :read for input.txt.
-      ;; The :write for output.txt (from redirection) is lost because redirections
-      ;; are only extracted by Layer 0.
+    (it "provides :filesystem ops from both Layer 0 and Layer 1 for cat with redirect"
+      ;; "cat input.txt > output.txt" - Layer 0 extracts redirection :write,
+      ;; Layer 1 cat handler extracts :read for input.txt.
       (let* ((parsed (jf/bash-parse "cat input.txt > output.txt"))
              (result (jf/bash-extract-semantics parsed))
              (domains (plist-get result :domains))
@@ -168,8 +157,7 @@
 
     (it "extracts both redirection and positional ops for commands without handlers"
       ;; "sort input.txt > output.txt" - sort has no registered handler,
-      ;; so Layer 0 succeeds fully (no positional-arg ops to trigger cl-return bug).
-      ;; Redirections produce :write for output.txt.
+      ;; so only Layer 0 contributes. Redirections produce :write for output.txt.
       (let* ((parsed (jf/bash-parse "sort input.txt > output.txt"))
              (result (jf/bash-extract-semantics parsed))
              (domains (plist-get result :domains))
@@ -251,11 +239,9 @@
   (describe "compound commands"
 
     (it "collects operations from chained commands without handlers via &&"
-      ;; Use commands without registered handlers to avoid cl-return bug.
       ;; "sort input.txt > sorted.txt && echo done > log.txt"
       ;; sort: no handler, Layer 0 extracts :write for sorted.txt (redirection)
       ;; echo: no handler, Layer 0 extracts :write for log.txt (redirection)
-      ;; All collected in single :filesystem domain
       (let* ((parsed (jf/bash-parse "sort input.txt > sorted.txt && echo done > log.txt"))
              (result (jf/bash-extract-semantics parsed))
              (domains (plist-get result :domains))
@@ -334,8 +320,6 @@
         (expect (plist-member coverage :coverage-ratio) :not :to-be nil)))
 
     (it "calculates non-zero coverage for command with file operations"
-      ;; Use command without handler to avoid cl-return bug that would
-      ;; discard all Layer 0 claimed tokens
       (let* ((parsed (jf/bash-parse "echo hello > output.txt"))
              (result (jf/bash-extract-semantics parsed))
              (coverage (plist-get result :coverage)))

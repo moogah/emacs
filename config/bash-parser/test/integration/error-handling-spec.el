@@ -72,38 +72,24 @@
         ;; was wrong. Verify it passes through.
         (expect (plist-get result :parse-complete) :to-be nil))))
 
-  (describe "Layer 0 errors do not discard valid extraction results"
+  (describe "extraction preserves results across layers"
 
-    ;; The condition-case wraps both extraction AND token claiming.
-    ;; If token claiming fails, the extraction results (which succeeded)
-    ;; should not be discarded.
-
-    (it "cat file.txt extraction results survive even if token claiming fails"
-      ;; cat has a handler, so its positional-arg operations trigger
-      ;; the cl-return bug in token claiming. But the recursive engine
-      ;; successfully extracted the operations before token claiming ran.
-      ;; Those operations should not be discarded.
+    (it "cat file.txt produces operations with coverage"
       (let* ((parsed (jf/bash-parse "cat file.txt"))
              (result (jf/bash-extract-semantics parsed))
              (fs-ops (alist-get :filesystem (plist-get result :domains)))
              (coverage (plist-get result :coverage)))
-        ;; Operations must be present (extraction succeeded)
         (expect fs-ops :not :to-be nil)
-        ;; Coverage must reflect the operations
         (expect (plist-get coverage :claimed-tokens) :to-be-greater-than 0)))
 
-    (it "cat input.txt > output.txt preserves both extraction results"
-      ;; Both the :read (from positional-arg) and :write (from redirection)
-      ;; were extracted by the recursive engine. Token claiming failure
-      ;; should not cause either to be lost.
+    (it "cat input.txt > output.txt preserves both handler and redirection ops"
+      ;; :read from Layer 1 cat handler, :write from Layer 0 redirection
       (let* ((parsed (jf/bash-parse "cat input.txt > output.txt"))
              (result (jf/bash-extract-semantics parsed))
              (fs-ops (alist-get :filesystem (plist-get result :domains))))
         (expect (length fs-ops) :to-be-greater-than 1)))
 
     (it "rm a.txt && touch b.txt preserves operations from both subcommands"
-      ;; The recursive engine extracts operations from both chain commands.
-      ;; Token claiming failure should not discard those results.
       (let* ((parsed (jf/bash-parse "rm a.txt && touch b.txt"))
              (result (jf/bash-extract-semantics parsed))
              (fs-ops (alist-get :filesystem (plist-get result :domains))))

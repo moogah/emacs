@@ -27,8 +27,7 @@ The parser is organized into layers for better maintainability:
 
 **Core Layer** (core/):
 - **bash-parser-core** - Core parsing infrastructure (pipelines, chains, commands)
-- **bash-parser-protocol** - Forward declarations
-- **bash-parser-recursive** - Recursive semantic analysis
+- **bash-parser-protocol** - Forward declarations and shared configuration
 - **bash-parser-variables** - Variable context management
 
 **Analysis Layer** (analysis/):
@@ -110,9 +109,6 @@ Load all parser subsystems in dependency order.
 
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
-
-;; Recursive analysis (depends on file-ops)
-(require 'bash-parser-recursive)
 
 ;; Extensions (depends on file-ops)
 (require 'bash-parser-extensions)

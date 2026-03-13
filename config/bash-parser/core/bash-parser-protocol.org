@@ -76,6 +76,17 @@ bash-parser-file-ops and bash-parser-variables.
                   (parsed-command))
 #+end_src
 
+* Shared Configuration
+
+** Maximum Recursion Depth
+
+#+begin_src emacs-lisp
+(defvar jf/bash-recursive-max-depth 10
+  "Maximum recursion depth for semantic analysis and nested command parsing.
+Prevents infinite recursion in pathological cases.
+Shared by bash-parser-orchestrator and bash-parser-extensions modules.")
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp

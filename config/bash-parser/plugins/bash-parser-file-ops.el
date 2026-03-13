@@ -193,37 +193,6 @@ Examples:
       (t nil)))
    flags-list))
 
-(defun jf/bash--extract-file-operations-impl (parsed-command &optional var-context)
-  "Internal implementation: Extract all file operations from PARSED-COMMAND.
-
-PARSED-COMMAND is the output from `jf/bash-parse'.
-VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
-
-Signals error if PARSED-COMMAND is not a valid plist or if VAR-CONTEXT has invalid structure.
-
-Returns a flat list of operation plists. See `jf/bash-extract-file-operations'
-for full return value documentation."
-  ;; Validate inputs
-  (unless (listp parsed-command)
-    (error "jf/bash--extract-file-operations-impl: parsed-command must be a plist, got %S"
-           (type-of parsed-command)))
-  (when var-context
-    (unless (jf/bash--valid-var-context-p var-context)
-      (error "jf/bash--extract-file-operations-impl: var-context must be an alist of (VAR . VALUE) pairs where VAR is symbol/string and VALUE is string, got %S"
-             var-context)))
-
-  ;; Normalize var-context
-  (let ((context (jf/bash--normalize-var-context var-context)))
-    ;; Use recursive analyzer (requires bash-parser-recursive)
-    (require 'bash-parser-recursive)
-    (let ((all-ops (jf/bash-analyze-file-operations-recursive
-                   parsed-command context 0)))
-      ;; Validate all operations before returning
-      (dolist (op all-ops)
-        (jf/bash--validate-operation-type op))
-      ;; Deduplicate and return
-      (jf/bash--deduplicate-operations all-ops))))
-
 (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
   "Extract all file operations from PARSED-COMMAND.
 
@@ -316,16 +285,14 @@ Examples:
   "Check if bash-parser has FEATURE enabled.
 
 Features:
-  :recursive-analysis - Recursive semantic analysis
-  :pattern-flow - Pattern flow tracking through substitutions (in recursive module)
+  :semantic-extraction - Two-layer semantic extraction (orchestrator)
   :loop-context - Loop variable binding and context tracking
   :conditional-context - Conditional branch context tracking
   :heredoc-context - Heredoc context disambiguation
 
 Returns t if feature is available, nil otherwise."
   (pcase feature
-    (:recursive-analysis (fboundp 'jf/bash-analyze-file-operations-recursive))
-    (:pattern-flow (fboundp 'jf/bash-analyze-file-operations-recursive))
+    (:semantic-extraction (fboundp 'jf/bash-extract-semantics))
     (:loop-context (fboundp 'jf/bash--resolve-loop-variable))
     (:conditional-context (fboundp 'jf/bash--extract-file-test-operations))
     (:heredoc-context (fboundp 'jf/bash--determine-heredoc-context))

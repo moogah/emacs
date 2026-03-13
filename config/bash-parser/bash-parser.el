@@ -45,9 +45,6 @@
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
 
-;; Recursive analysis (depends on file-ops)
-(require 'bash-parser-recursive)
-
 ;; Extensions (depends on file-ops)
 (require 'bash-parser-extensions)
 

@@ -5,7 +5,7 @@
 
 ;;; Commentary:
 
-;; Tests for conditional context tracking in bash-parser-recursive.el
+;; Tests for conditional context tracking in the orchestrator
 ;; Verifies that file operations in conditionals are properly marked:
 ;; - Test operations ([ -f file ]) marked with :test-condition t
 ;; - Then branch operations marked with :conditional t :branch :then

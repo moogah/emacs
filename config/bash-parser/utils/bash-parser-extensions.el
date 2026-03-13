@@ -1,7 +1,7 @@
 ;;; bash-parser-extensions.el --- Parser extensions -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
-(require 'bash-parser-recursive)  ; Provides jf/bash-recursive-max-depth
+(require 'bash-parser-protocol)  ; Provides jf/bash-recursive-max-depth
 
 (defun jf/bash-mark-indirect-operations (operations)
   "Mark OPERATIONS as indirect if they should have stricter security policies.

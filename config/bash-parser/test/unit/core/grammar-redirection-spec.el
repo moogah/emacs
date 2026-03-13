@@ -4,11 +4,8 @@
 ;; Redirections are unconditional grammar constructs -- they are extracted
 ;; regardless of whether the command has a registered handler.
 ;;
-;; Uses two approaches:
-;; 1. Full orchestrator (jf/bash-extract-semantics) for simple commands
-;; 2. Direct redirection extraction (jf/bash-extract-operations-from-redirections)
-;;    and recursive engine (jf/bash--extract-file-operations-impl) for compound
-;;    commands to avoid the cl-return token claiming issue
+;; All tests use the orchestrator (jf/bash-extract-semantics) as the
+;; canonical extraction path.
 
 ;;; Code:
 
@@ -128,12 +125,12 @@ CRITERIA is a plist of field-value pairs to match."
   (describe "compound context with redirections"
 
     (it "extracts redirections from pipeline stages"
-      ;; Use recursive engine directly for compound + handler commands
       (let* ((parsed (jf/bash-parse "cat input.txt | sort > sorted.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-redirection-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         ;; Redirection on sort stage
-        (expect (grammar-redirection-test--find-op ops
+        (expect (grammar-redirection-test--find-op fs-ops
                   :file "sorted.txt" :operation :write :source :redirection)
                 :not :to-be nil)))
 
@@ -153,16 +150,16 @@ CRITERIA is a plist of field-value pairs to match."
                 :not :to-be nil)))
 
     (it "extracts redirections from both pipeline and chain combined"
-      ;; Use recursive engine for compound commands
       (let* ((parsed (jf/bash-parse "cat data.txt | sort > sorted.txt && echo done > status.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-redirection-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         ;; Pipeline redirection
-        (expect (grammar-redirection-test--find-op ops
+        (expect (grammar-redirection-test--find-op fs-ops
                   :file "sorted.txt" :operation :write :source :redirection)
                 :not :to-be nil)
         ;; Chain redirection
-        (expect (grammar-redirection-test--find-op ops
+        (expect (grammar-redirection-test--find-op fs-ops
                   :file "status.txt" :operation :write :source :redirection)
                 :not :to-be nil)))
 

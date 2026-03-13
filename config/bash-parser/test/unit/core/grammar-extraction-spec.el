@@ -7,12 +7,8 @@
 ;; Strategy: Verify behavior (output operations) rather than implementation
 ;; path (spy on internal calls).
 ;;
-;; Two approaches are used:
-;; 1. Full orchestrator (jf/bash-extract-semantics) for simple commands,
-;;    conditionals, loops, and handler-less compound commands
-;; 2. Direct recursive engine (jf/bash--extract-file-operations-impl) for
-;;    compound commands with registered handlers, avoiding a known cl-return
-;;    issue in the token claiming code path
+;; All tests use the orchestrator (jf/bash-extract-semantics) as the
+;; canonical extraction path.
 
 ;;; Code:
 
@@ -104,38 +100,38 @@ CRITERIA is a plist of field-value pairs to match."
     (setq jf/bash-command-handlers grammar-extraction-test--saved-handlers))
 
   ;; --- Pipeline decomposition ---
-  ;; Uses recursive engine directly because compound commands with handlers
-  ;; trigger a known cl-return issue in the token claiming path.
 
   (describe "pipeline decomposition"
 
-    (it "recursive engine extracts operations from both pipeline stages"
+    (it "extracts operations from both pipeline stages"
       (let* ((parsed (jf/bash-parse "cat f1.txt | grep foo f2.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
         ;; Both pipeline stages should produce operations
-        (expect ops :not :to-be nil)
-        (expect (grammar-extraction-test--find-op ops
+        (expect fs-ops :not :to-be nil)
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "f1.txt" :operation :read :command "cat")
                 :not :to-be nil)
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "f2.txt" :operation :read :command "grep")
                 :not :to-be nil)))
 
-    (it "recursive engine extracts redirection from pipeline with output redirect"
+    (it "extracts redirection from pipeline with output redirect"
       (let* ((parsed (jf/bash-parse "cat f1.txt | grep foo > out.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         ;; Redirection on grep's output produces :write for out.txt
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "out.txt" :operation :write :source :redirection)
                 :not :to-be nil)
         ;; cat's positional arg produces :read for f1.txt
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "f1.txt" :operation :read)
                 :not :to-be nil)))
 
     (it "orchestrator extracts redirections from pipeline with unknown commands"
-      ;; Unknown commands bypass the cl-return issue since no handlers are registered
+      ;; Unknown commands have no handlers so only Layer 0 redirections are extracted
       (let* ((parsed (jf/bash-parse "mycommand input.dat | othercommand > result.txt"))
              (result (jf/bash-extract-semantics parsed))
              (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
@@ -149,32 +145,34 @@ CRITERIA is a plist of field-value pairs to match."
 
   (describe "chain decomposition"
 
-    (it "recursive engine extracts operations from both commands in && chain"
+    (it "extracts operations from both commands in && chain"
       (let* ((parsed (jf/bash-parse "cat f1.txt && rm f2.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         ;; Both chain commands should have their operations extracted
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "f1.txt" :operation :read :command "cat")
                 :not :to-be nil)
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "f2.txt" :operation :delete :command "rm")
                 :not :to-be nil)))
 
-    (it "recursive engine extracts operations from || chain"
+    (it "extracts operations from || chain"
       (let* ((parsed (jf/bash-parse "cat missing.txt || cat backup.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         ;; Both sides of || should be extracted
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "missing.txt" :operation :read)
                 :not :to-be nil)
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "backup.txt" :operation :read)
                 :not :to-be nil)))
 
     (it "tracks variable context across chain commands via orchestrator"
-      ;; cd /tmp && rm file.txt -- cd has no handler, so no cl-return issue
+      ;; cd /tmp && rm file.txt -- cd updates PWD context for subsequent commands
       (let* ((parsed (jf/bash-parse "cd /tmp && rm file.txt"))
              (result (jf/bash-extract-semantics parsed))
              (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
@@ -184,22 +182,23 @@ CRITERIA is a plist of field-value pairs to match."
                   :file "/tmp/file.txt" :operation :delete)
                 :not :to-be nil)))
 
-    (it "recursive engine handles three-command chain"
+    (it "handles three-command chain"
       (let* ((parsed (jf/bash-parse "cat a.txt && cat b.txt && rm c.txt"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
-        (expect (grammar-extraction-test--find-op ops
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "a.txt" :operation :read)
                 :not :to-be nil)
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "b.txt" :operation :read)
                 :not :to-be nil)
-        (expect (grammar-extraction-test--find-op ops
+        (expect (grammar-extraction-test--find-op fs-ops
                   :file "c.txt" :operation :delete)
                 :not :to-be nil)))
 
     (it "orchestrator extracts redirections from chain with unknown commands"
-      ;; Unknown commands in chain avoid the cl-return issue
+      ;; Unknown commands in chain: only Layer 0 redirections extracted
       (let* ((parsed (jf/bash-parse "echo hello > output.txt && echo done > status.txt"))
              (result (jf/bash-extract-semantics parsed))
              (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
@@ -312,13 +311,13 @@ CRITERIA is a plist of field-value pairs to match."
 
   (describe "command substitution decomposition"
 
-    (it "recursive engine extracts operations from command inside substitution"
-      ;; Use recursive engine directly to avoid cl-return issue in orchestrator
+    (it "extracts operations from command inside substitution"
       (let* ((parsed (jf/bash-parse "cat $(cat inner.txt)"))
-             (ops (jf/bash--extract-file-operations-impl parsed nil)))
-        (expect ops :not :to-be nil)
+             (result (jf/bash-extract-semantics parsed))
+             (fs-ops (grammar-extraction-test--get-filesystem-ops result)))
+        (expect fs-ops :not :to-be nil)
         ;; The inner cat should produce a :read with :from-substitution
-        (let ((subst-op (grammar-extraction-test--find-op ops
+        (let ((subst-op (grammar-extraction-test--find-op fs-ops
                           :file "inner.txt" :operation :read
                           :from-substitution t)))
           (expect subst-op :not :to-be nil)))))

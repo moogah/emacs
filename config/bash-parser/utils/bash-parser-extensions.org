@@ -23,12 +23,12 @@ These extensions enable defense-in-depth security analysis by identifying operat
 
 #+begin_src emacs-lisp
 (require 'cl-lib)
-(require 'bash-parser-recursive)  ; Provides jf/bash-recursive-max-depth
+(require 'bash-parser-protocol)  ; Provides jf/bash-recursive-max-depth
 #+end_src
 
 * Configuration
 
-Maximum recursion depth is provided by bash-parser-recursive module.
+Maximum recursion depth is provided by bash-parser-protocol module.
 
 * Parser Extensions
 
