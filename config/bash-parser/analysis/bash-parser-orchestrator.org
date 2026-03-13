@@ -656,6 +656,66 @@ Returns a plist with:
                       (plist-get cmd :command-name)
                       (error-message-string err))))))
 
+      ;; Post-merge: Pattern flow tracking
+      ;; Link outer commands to match-pattern ops from their command substitutions
+      (when (fboundp 'jf/bash--infer-operation-from-command)
+        (let ((sub-patterns nil))
+          ;; Collect match-pattern ops produced by substitution entries
+          (when-let ((fs-ops (cdr (assq :filesystem domains-alist))))
+            (dolist (op fs-ops)
+              (when (and (eq (plist-get op :operation) :match-pattern)
+                         (plist-get op :from-substitution))
+                (push op sub-patterns))))
+          ;; For each non-substitution entry with $(…) in positional args
+          (when sub-patterns
+            (dolist (entry entries)
+              (let* ((cmd (plist-get entry :command))
+                     (metadata (plist-get entry :metadata))
+                     (cmd-name (plist-get cmd :command-name))
+                     (positional-args (plist-get cmd :positional-args)))
+                (when (and cmd-name
+                           (not (plist-get metadata :from-substitution))
+                           positional-args
+                           (seq-find (lambda (a) (and a (string-prefix-p "$(" a)))
+                                     positional-args))
+                  ;; Create pattern flow ops for each substitution pattern
+                  (dolist (pat-op sub-patterns)
+                    (let* ((pattern (plist-get pat-op :file))
+                           (operation (jf/bash--infer-operation-from-command
+                                      cmd-name pattern)))
+                      (when (and pattern operation)
+                        (let* ((pat-cmd (plist-get pat-op :command))
+                               (search-scope
+                                (when (string= pat-cmd "find")
+                                  (let ((scope-op (seq-find
+                                                   (lambda (o)
+                                                     (and (eq (plist-get o :operation)
+                                                              :read-directory)
+                                                          (string= (plist-get o :command)
+                                                                   "find")
+                                                          (plist-get o :from-substitution)))
+                                                   (cdr (assq :filesystem domains-alist)))))
+                                    (when scope-op (plist-get scope-op :file)))))
+                               (flow-op (list :file pattern
+                                              :operation operation
+                                              :confidence :high
+                                              :source :positional-arg
+                                              :command cmd-name
+                                              :pattern t
+                                              :from-substitution t
+                                              :pattern-source
+                                              (append
+                                               (list :command pat-cmd
+                                                     :from-substitution t)
+                                               (when search-scope
+                                                 (list :search-scope search-scope)))))
+                               (annotated (jf/bash--annotate-ops-with-metadata
+                                           (list flow-op) metadata))
+                               (existing (assq :filesystem domains-alist)))
+                          (if existing
+                              (setcdr existing (append (cdr existing) annotated))
+                            (push (cons :filesystem annotated) domains-alist))))))))))))
+
       ;; Token claiming: match operations against top-level tokens
       (let* ((all-operations
               (let ((ops nil))
