@@ -25,18 +25,19 @@
   "Extract filesystem operations from find PARSED-COMMAND.
 First positional arg is search directory (:read-directory).
 The -name flag argument is a match pattern (:match-pattern).
--exec blocks extract operations based on the executed command.
+-exec blocks (from parser's :exec-blocks key) extract operations based on
+the executed command.
 Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
   (let* ((positional-args (plist-get parsed-command :positional-args))
          (flags (plist-get parsed-command :flags))
          (tokens (plist-get parsed-command :tokens))
+         (exec-blocks (plist-get parsed-command :exec-blocks))
          (command "find")
          (operations nil)
          (claimed-ids nil)
          (search-dir (car positional-args))
-         (name-pattern nil)
-         (exec-blocks nil))
-    ;; Find -name argument and -exec blocks: walk flags and positional args
+         (name-pattern nil))
+    ;; Find -name argument: walk flags to find it, use corresponding positional arg
     (let ((arg-consuming-flags '("-name" "-type" "-path" "-iname" "-ipath" "-regex"
                                  "-iregex" "-size" "-user" "-group" "-perm" "-mtime"
                                  "-atime" "-ctime" "-newer"))
@@ -46,17 +47,7 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
           (if (string= flag "-name")
               (when (< arg-index (length positional-args))
                 (setq name-pattern (nth arg-index positional-args)))
-            (setq arg-index (1+ arg-index)))))
-      ;; Extract -exec blocks from flags
-      (let ((i 0))
-        (while (< i (length flags))
-          (when (string= (nth i flags) "-exec")
-            ;; Next positional arg after current index is the exec command
-            (let ((exec-cmd-index (1+ arg-index)))
-              (when (< exec-cmd-index (length positional-args))
-                (push (nth exec-cmd-index positional-args) exec-blocks))
-              (setq arg-index (1+ exec-cmd-index))))
-          (setq i (1+ i)))))
+            (setq arg-index (1+ arg-index))))))
     ;; Add :read-directory for search path
     (when search-dir
       (push (list :file search-dir
@@ -75,10 +66,13 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
                   :search-scope search-dir
                   :command command)
             operations))
-    ;; Add operations for -exec blocks
-    (dolist (exec-cmd exec-blocks)
-      (let ((op-type (alist-get exec-cmd jf/bash-find-exec-command-ops
-                                nil nil #'string=)))
+    ;; Add operations from parser's :exec-blocks
+    ;; Each block has :type, :command-name, :positional-args, :args, :terminator
+    (dolist (exec-block exec-blocks)
+      (let* ((exec-cmd (plist-get exec-block :command-name))
+             (op-type (when exec-cmd
+                        (alist-get exec-cmd jf/bash-find-exec-command-ops
+                                   nil nil #'string=))))
         (when op-type
           (push (list :file "{}"
                       :operation op-type
@@ -86,7 +80,7 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
                       :source :exec-block
                       :command exec-cmd)
                 operations))))
-    ;; Claim token IDs: command-name + all positional-arg tokens
+    ;; Claim token IDs: command-name + all positional-arg tokens + flags
     (when (and operations tokens)
       (dolist (token tokens)
         (when (memq (plist-get token :type) '(:command-name :positional-arg :flag))

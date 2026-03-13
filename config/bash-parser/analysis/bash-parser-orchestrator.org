@@ -84,7 +84,7 @@ Returns a list of entry plists (see `jf/bash--decompose-to-simple-commands')."
 
      ;; Simple command (has command-name or is :simple type)
      ((or (eq type :simple) command-name (plist-get parsed-command :tokens))
-      (jf/bash--make-entry parsed-command var-context metadata))
+      (jf/bash--make-entry parsed-command var-context metadata depth))
 
      ;; Nothing to decompose
      (t nil))))
@@ -93,20 +93,39 @@ Returns a list of entry plists (see `jf/bash--decompose-to-simple-commands')."
 *** Entry Builder
 
 #+begin_src emacs-lisp
-(defun jf/bash--make-entry (simple-command var-context metadata)
+(defun jf/bash--make-entry (simple-command var-context metadata &optional depth)
   "Create a decomposition entry for SIMPLE-COMMAND.
 
 SIMPLE-COMMAND is a parsed simple command plist.
 VAR-CONTEXT is the variable context alist.
 METADATA is a plist of context flags.
+DEPTH is the current recursion depth (for processing command substitutions).
 
-Returns a list containing one entry plist."
+Returns a list of entry plists — one for the command itself, plus entries
+for any command substitutions found in the command."
   (let ((redir-ops (jf/bash-extract-operations-from-redirections
-                    simple-command var-context)))
-    (list (list :command simple-command
+                    simple-command var-context))
+        (entries nil))
+    ;; Primary entry for this simple command
+    (push (list :command simple-command
                 :var-context var-context
                 :redirection-ops redir-ops
-                :metadata (or metadata '())))))
+                :metadata (or metadata '()))
+          entries)
+    ;; Process command substitutions: recursively decompose each
+    ;; substitution's :parsed content with :from-substitution metadata
+    (when-let ((substitutions (plist-get simple-command :command-substitutions)))
+      (let ((sub-metadata (append (list :from-substitution t) (or metadata '()))))
+        (dolist (sub substitutions)
+          (when-let ((parsed-sub (plist-get sub :parsed)))
+            (when (plist-get parsed-sub :success)
+              (let* ((cleaned (copy-sequence parsed-sub))
+                     (_ (plist-put cleaned :ast nil))
+                     (sub-entries (jf/bash--decompose-recursive
+                                   cleaned var-context sub-metadata
+                                   (1+ (or depth 0)))))
+                (setq entries (append entries sub-entries))))))))
+    entries))
 #+end_src
 
 *** Pipeline Decomposition
@@ -298,10 +317,26 @@ processes then and else branches with appropriate metadata."
 *** For-Loop Decomposition
 
 #+begin_src emacs-lisp
+(defun jf/bash--extract-find-name-pattern (parsed-sub)
+  "Extract the -name pattern from a parsed find command PARSED-SUB.
+Returns the pattern string or nil."
+  (let ((flags (plist-get parsed-sub :flags))
+        (args (plist-get parsed-sub :positional-args))
+        (result nil))
+    (when (and flags args (>= (length args) 2))
+      (let ((arg-idx 1))  ; skip directory (first positional)
+        (dolist (flag flags)
+          (when (and (string= flag "-name")
+                     (< arg-idx (length args)))
+            (setq result (nth arg-idx args))))))
+    result))
+
 (defun jf/bash--decompose-for-loop (parsed-command var-context metadata depth)
   "Decompose for-loop PARSED-COMMAND body with loop variable in context.
 
-For glob sources, emits a :match-pattern operation at the grammar level."
+For glob sources, emits a :match-pattern operation at the grammar level.
+For substitution sources, decomposes the substitution and binds the loop
+variable to the pattern from the substituted command."
   (let* ((entries nil)
          (loop-var (plist-get parsed-command :loop-variable))
          (loop-source-type (plist-get parsed-command :loop-source-type))
@@ -316,7 +351,26 @@ For glob sources, emits a :match-pattern operation at the grammar level."
      ((eq loop-source-type :glob)
       (setq loop-var-value loop-list))
      ((eq loop-source-type :literal)
-      (setq loop-var-value :literal-list)))
+      (setq loop-var-value :literal-list))
+     ((eq loop-source-type :substitution)
+      ;; Decompose command substitutions in the loop source
+      (let ((substitutions (plist-get parsed-command :command-substitutions))
+            (sub-metadata (append (list :from-substitution t) loop-metadata)))
+        (dolist (sub substitutions)
+          (let ((parsed-sub (plist-get sub :parsed)))
+            (when (and parsed-sub (plist-get parsed-sub :success))
+              (let* ((cleaned (copy-sequence parsed-sub))
+                     (_ (plist-put cleaned :ast nil))
+                     (sub-entries (jf/bash--decompose-recursive
+                                   cleaned var-context sub-metadata
+                                   (1+ depth))))
+                (setq entries (append entries sub-entries)))
+              ;; Bind loop variable from substitution's -name pattern
+              (unless loop-var-value
+                (when (and (plist-get parsed-sub :command-name)
+                           (string= (plist-get parsed-sub :command-name) "find"))
+                  (setq loop-var-value
+                        (jf/bash--extract-find-name-pattern parsed-sub))))))))))
 
     ;; Emit :match-pattern for glob source (grammar-level operation)
     (when (and (eq loop-source-type :glob) loop-list)
