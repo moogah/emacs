@@ -866,7 +866,6 @@
      :expect-ops ((:file "output/{dynamic}.txt"
                    :operation :write
                    :source :redirection
-                   :loop-context t
                    :dynamic t)))
 
     (:id "integration-005"

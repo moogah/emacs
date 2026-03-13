@@ -1253,6 +1253,60 @@ Examples:
     operations))
 #+end_src
 
+*** Helper: Dynamic Path Replacement
+
+When a redirect destination contains command substitutions or unresolvable
+variables, replace the unknowable parts with ={dynamic}= while preserving
+known structure (directory prefixes, file extensions). This gives the scope
+validator maximum information for policy matching.
+
+#+begin_src emacs-lisp
+(defun jf/bash--dynamicize-path (file-path)
+  "Replace unresolvable dynamic parts in FILE-PATH with {dynamic}.
+
+Replaces command substitutions $(…) and unresolved $VAR references
+with {dynamic}, preserving known directory prefixes and file extensions.
+
+Examples:
+  (jf/bash--dynamicize-path \"backup/$(basename \\\"$file\\\")\")
+    => \"backup/{dynamic}\"
+
+  (jf/bash--dynamicize-path \"output/$line.txt\")
+    => \"output/{dynamic}.txt\"
+
+  (jf/bash--dynamicize-path \"log-$(date +%Y-%m-%d).txt\")
+    => \"log-{dynamic}.txt\"
+
+  (jf/bash--dynamicize-path \"backup-$(whoami)-$(date +%s).txt\")
+    => \"backup-{dynamic}.txt\"
+
+  (jf/bash--dynamicize-path \"/static/path.txt\")
+    => nil  (no dynamic parts detected)
+
+Returns the dynamicized path string, or nil if the path has no dynamic parts."
+  (when (and (stringp file-path)
+             (or (string-match-p "\\$(" file-path)
+                 (string-match-p "\\$[A-Za-z_]" file-path)
+                 (string-match-p "`[^`]+`" file-path)))
+    ;; Replace command substitutions $(…) — handle nested parens
+    (let ((result file-path))
+      ;; Replace $(…) including nested parens, iteratively from innermost
+      (while (string-match-p "\\$([^)]*)" result)
+        (setq result (replace-regexp-in-string
+                      "\\$([^)]*)" "{dynamic}" result t)))
+      ;; Replace backtick substitutions `…`
+      (setq result (replace-regexp-in-string
+                    "`[^`]+`" "{dynamic}" result t))
+      ;; Replace bare $VAR references (but not already-replaced {dynamic})
+      (setq result (replace-regexp-in-string
+                    "\\$[A-Za-z_][A-Za-z0-9_]*" "{dynamic}" result t))
+      ;; Collapse adjacent {dynamic} segments (e.g., {dynamic}-{dynamic}.txt → {dynamic}.txt)
+      (while (string-match-p "{dynamic}[^/]*{dynamic}" result)
+        (setq result (replace-regexp-in-string
+                      "{dynamic}[^/]*{dynamic}" "{dynamic}" result t)))
+      result)))
+#+end_src
+
 *** Helper: Process Redirection List
 
 #+begin_src emacs-lisp
@@ -1290,18 +1344,22 @@ Returns list of operation plists with resolved file paths."
                                  (plist-get resolved-path :path)))
                      (unresolved-vars (when (listp resolved-path)
                                        (plist-get resolved-path :unresolved))))
-                ;; Build operation plist
-                (push (append (list :file file-path
-                                   :operation operation-type
-                                   :confidence :high
-                                   :source :redirection
-                                   :command command-name
-                                   :metadata redir)
-                             (when unresolved-vars
-                               (list :unresolved t :unresolved-vars unresolved-vars))
-                             (when has-heredoc
-                               (list :heredoc-content t)))
-                      operations)))))))
+                ;; Detect dynamic paths (unresolvable $(cmd) or $VAR)
+                (let ((dynamic-path (jf/bash--dynamicize-path file-path)))
+                  ;; Build operation plist
+                  (push (append (list :file (or dynamic-path file-path)
+                                     :operation operation-type
+                                     :confidence :high
+                                     :source :redirection
+                                     :command command-name
+                                     :metadata redir)
+                               (when dynamic-path
+                                 (list :dynamic t :dynamic-filename t))
+                               (when unresolved-vars
+                                 (list :unresolved t :unresolved-vars unresolved-vars))
+                               (when has-heredoc
+                                 (list :heredoc-content t)))
+                        operations))))))))
     (nreverse operations)))
 #+end_src
 
