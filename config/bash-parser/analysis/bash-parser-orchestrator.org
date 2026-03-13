@@ -606,9 +606,11 @@ Returns operations with resolved file paths and updated metadata."
              (confidence (or (plist-get op :confidence) :high))
              (has-pattern nil)
              (unresolved-vars nil))
-        ;; Skip operations with raw command substitutions as file paths
-        ;; These are unresolved $(cmd) args; pattern-flow provides resolved versions
-        (unless (and file (string-match-p "^\\$(" file))
+        ;; Skip operations where the entire file path is a raw command substitution
+        ;; e.g., $(find . -name '*.txt') — pattern-flow provides resolved versions
+        ;; Keep paths like $(pwd)/file.txt that have content after the closing paren
+        (unless (and file (string-match-p "^\\$(.*)" file)
+                    (string-suffix-p ")" file))
         ;; Full path resolution with context (variables + pwd + relative paths)
         (when (and file var-context (fboundp 'jf/bash--resolve-path-variables))
           (let ((result (jf/bash--resolve-path-variables file var-context)))
