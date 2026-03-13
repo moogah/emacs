@@ -1,0 +1,13 @@
+Test Report
+===========
+
+ERT: 2 ran, 2 passed
+
+Buttercup: 585 ran, 578 passed (1 pending)
+
+Buttercup failures:
+  jf/gptel-scope--build-violation-info using :reason field instead of :error handles validation errors with :reason field
+  Simple Async Tool Test calls UI when validation fails
+
+===========
+Total: 587 ran, 580 passed
