@@ -13,17 +13,50 @@ We verified the implementation against contract tests and fixed many issues. As 
 
 ```
 Branch: gptel-bash-parser-contract-integration-tests
-ERT:       623 ran, 611 passed (3 unexpected failures + 9 expected failures)
-Buttercup: 508 ran, 504 passed (4 failures)
-Total:     1131 ran, 1115 passed (16 failures, of which 9 are expected)
+ERT:       623 ran, 619 passed (4 unexpected failures + 9 expected failures)
+Buttercup: 508 ran, 506 passed (2 failures)
+Total:     1131 ran, 1125 passed (6 failures, of which 9 are expected = -3 net unexpected)
 ```
 
 **Starting point was**: 1052 passed (79 failures)
-**Progress so far**: 63 tests fixed across 8 commits
+**Progress so far**: 73 tests fixed across 11 commits
 
 ## What Was Done
 
-### Session 4 Changes (this session, 1 commit)
+### Session 5 Changes (this session, 3 commits)
+
+1. **Shell wrapper -c decomposition** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - `bash -c 'cmd'`, `sh -c 'cmd'`, etc. now recursively decompose the inner command string
+   - Metadata tracks `:indirect t` and `:nesting-depth` (supports nested wrappers like `bash -c 'sh -c "rm file"'`)
+   - Uses key-deduplicating metadata build to prevent stale values in nested wrappers
+   - Fixed 3 tests: `test-script-execution-nested-python`, `test-script-execution-nested-self-executing`, `test-script-execution-corpus`
+
+2. **Command-based conditional fallback** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - Conditions like `if grep -q pattern file.txt` are parsed as regular commands with `:test-condition t` metadata
+   - Falls back to this when bracket-style test extraction (`[ -f file ]`) finds nothing
+   - Fixed 1 test: `test-conditional-command-based`
+
+3. **Parser extension nesting depth** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - Double-nested wrappers correctly propagate `:nesting-depth 2`
+   - Fixed 2 tests: `test-parser-extension-single-nesting-depth`, `test-parser-extension-double-nesting-depth`
+
+4. **Self-execution unresolved variable metadata** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - `./$SCRIPT_NAME` commands now get `:unresolved t` and `:unresolved-vars` when var-context is nil
+   - Fixed 1 corpus case: `exec-variable-003`
+
+5. **Inline environment variable support** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - `PWD=/new/path cat file.txt` now applies inline `:env-vars` to command context
+   - Parser already extracted env-vars; orchestrator now merges them per-command
+   - Fixed 1 test: `test-pwd-assignment-inline`
+
+6. **Glob resolution and pattern-source enrichment** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - For-loop globs without var-context get `/` prefix (e.g., `*/` → `/*/`)
+   - Raw `$(cmd)` file paths filtered from handler results (pattern-flow provides resolved versions)
+   - Test condition ops now get `:pattern t` when file path contains glob characters
+   - Pattern-source enriched with `:substitution-content` and `:pattern` for traceability
+   - Fixed 3 tests: `test-corpus-integration-002`, `test-corpus-integration-003`, corresponding Buttercup specs
+
+### Session 4 Changes (1 commit)
 
 1. **Non-destructive alist operations in chain decomposer** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
    - Root cause: `assq-delete-all` destructively mutated shared list structure — when a later cd/pushd/popd in the chain removed PWD, it corrupted the var-context already stored in earlier entries
@@ -46,35 +79,16 @@ Total:     1131 ran, 1115 passed (16 failures, of which 9 are expected)
 
 ### Session 3 Changes (4 commits)
 
-1. **Variable resolution metadata propagation** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
-   - `jf/bash--resolve-handler-filesystem-ops` now detects unresolved variables even without var-context
-   - Propagates `:unresolved t` and `:unresolved-vars` to output operations
-   - Preserves `:high` confidence for redirections (source-aware degradation)
-   - Uses `jf/bash-resolve-variables` (pure variable detection) for nil-context case,
-     `jf/bash--resolve-path-variables` (full path resolution) for with-context case
-   - Fixed 9 tests
-
-2. **Pattern flow tracking** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
-   - Post-merge step links outer commands to `:match-pattern` ops from substitution entries
-   - Uses `jf/bash--infer-operation-from-command` to determine consumer operation type
-   - Attaches `:pattern-source` metadata with producer command info and search-scope
-   - Fixed 9 tests (7 pattern-flow + 2 recursive substitution tests)
-
-3. **Deduplication and exec-block metadata** (`config/bash-parser/analysis/bash-parser-orchestrator.org`, `config/bash-parser/commands/find.el`)
-   - Orchestrator calls `jf/bash--deduplicate-operations` on filesystem domain after merge
-   - Scoped to `:filesystem` domain only (avoids deduping auth/network ops)
-   - Find handler marks exec-block ops with `:indirect t`
-   - Fixed 4 tests
-
-4. **Find exec-type metadata** (`config/bash-parser/commands/find.el`)
-   - Find handler propagates `:type` from parser exec-blocks as `:exec-type`
-   - Fixed 1 test
+1. **Variable resolution metadata propagation** — Fixed 9 tests
+2. **Pattern flow tracking** — Fixed 9 tests (7 pattern-flow + 2 recursive substitution)
+3. **Deduplication and exec-block metadata** — Fixed 4 tests
+4. **Find exec-type metadata** — Fixed 1 test
 
 ### Session 2 Changes (3 commits)
 
-1. **Fix find handler exec-blocks** — Handler reads `:exec-blocks` from parser output (7 tests)
-2. **Command substitution processing** — Recursive decomposition with `:from-substitution t` (15 tests)
-3. **Self-execution detection** — Path-based commands detected as `:execute` operations (8 tests)
+1. **Fix find handler exec-blocks** — 7 tests
+2. **Command substitution processing** — 15 tests
+3. **Self-execution detection** — 8 tests
 
 ### Session 1 Changes (see git log)
 
@@ -82,33 +96,22 @@ See commits b4b5672 through 981f509 for the original two-layer implementation, h
 
 ## Remaining Failures: Analysis
 
-### 4 Buttercup Failures (complex integration corpus)
+### 2 Buttercup Failures (complex integration corpus)
 
 | Test | Gap |
 |------|-----|
-| integration-001 | Command substitutions in loop sources + nested conditionals |
-| integration-002 | Command substitutions in positional args (`cat $(find ...)`) |
-| integration-003 | Loop glob + conditional + directory ops (partial) |
-| integration-004 | Heredoc + while loop with dynamic file writes |
+| integration-001 | `{dynamic}` placeholder for `$(basename "$file")` in redirects |
+| integration-004 | `{dynamic}` placeholder for `$line` in redirect paths |
 
-### 3 ERT Unexpected Failures (by category)
+### 4 ERT Unexpected Failures
 
-**PWD edge cases** (2 tests): `test-pwd-assignment-inline`, `test-pwd-substitution-nested`
-- `PWD=/new/path cat file.txt` (inline environment variable not applied to single command)
-- `cat $(basename $(pwd))/file.txt` (nested command substitution static evaluation)
-
-**Command-based conditionals** (1 test): `test-conditional-command-based`
-- `if grep -q pattern file.txt; then ...` — non-bracket command-based conditions
-
-**Script execution edge cases** (3 tests): `test-script-execution-nested-python`, `test-script-execution-nested-self-executing`, `test-script-execution-corpus`
-- Nested execution via `bash -c 'python script.py'` (wrapper command parsing)
-- Need to detect that `python`, `bash`, `node` etc. take script files as arguments
-
-**Corpus integration ERT** (4 tests): `test-corpus-integration-001..004`
+**Complex corpus** (2 tests): `test-corpus-integration-001`, `test-corpus-integration-004`
 - Same as Buttercup integration tests above
+- Both require `{dynamic}` placeholder representation for unresolvable variables/substitutions in redirect destinations
 
-**Parser extensions** (2 tests): `test-parser-extension-single-nesting-depth`, `test-parser-extension-double-nesting-depth`
-- Nesting depth analysis for parser extensions
+**Nested command substitution evaluation** (1 test): `test-pwd-substitution-nested`
+- `cat $(basename $(pwd))/file.txt` needs recursive static evaluation of `basename`
+- Evaluation chain: `$(pwd)` → PWD value → `$(basename PWD)` → last component → resolve path
 
 ### 9 ERT Expected Failures (known limitations, `:expected-result :failed`)
 
@@ -118,17 +121,13 @@ See commits b4b5672 through 981f509 for the original two-layer implementation, h
 
 ## Recommended Next Steps (priority order)
 
-1. **Script execution wrapper commands** (~3 tests): Need handler or detection for `python script.py`, `bash -c 'cmd'`, `node app.js` etc. These are commands that take script files as arguments and execute them.
+1. **Dynamic redirect placeholder** (~3 tests, 2 ERT + 2 Buttercup): Implement `{dynamic}` placeholder for redirect destinations containing unresolvable `$(cmd)` or `$VAR` references. This would fix integration-001, integration-004, and corresponding Buttercup specs.
 
-2. **Command-based conditionals** (~1 test): `if grep -q pattern file.txt` — condition parser needs to handle non-bracket commands (currently only handles `[ -f file ]` style).
+2. **Nested command substitution evaluation** (~1 test): `$(basename $(pwd))` needs recursive static evaluation of deterministic commands like `basename`, `dirname`. The `jf/bash--static-dirname` function already exists for `dirname`; needs equivalent `basename` support.
 
-3. **PWD inline assignment** (~1 test): `PWD=/new/path cat file.txt` — inline environment variables scoped to single command.
+3. **xargs handler** (~4 expected-failure tests): Create `config/bash-parser/commands/xargs.el` handler. Would convert 4 expected failures to passes.
 
-4. **Nested command substitution evaluation** (~1 test): `$(basename $(pwd))` needs recursive static evaluation of deterministic commands.
-
-5. **xargs handler** (~4 expected-failure tests): Create `config/bash-parser/commands/xargs.el` handler. Would convert 4 expected failures to passes.
-
-6. **Dynamic redirect handling** (~4 expected-failure tests): Redirections with `$(cmd)` or `$VAR` in destinations need resolution.
+4. **Dynamic redirect handling** (~4 expected-failure tests): Redirections with `$(cmd)` or `$VAR` in destinations need resolution.
 
 ## Known Issue: Assignment extractor misidentifies `cd`
 
