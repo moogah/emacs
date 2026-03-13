@@ -1,4 +1,4 @@
-;;; filesystem-tools-spec.el --- Spy-based tests for filesystem tool-scope contract -*- lexical-binding: t; -*-
+;;; filesystem-tools-spec.el --- Behavioral tests for filesystem tools -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,24 +7,26 @@
 
 ;;; Commentary:
 
-;; TOOL-SCOPE CONTRACT TESTS: filesystem tools (read_file, write_file_in_scope,
-;; edit_file_in_scope, list_directory, create_file)
+;; BEHAVIORAL TESTS: filesystem tools (read_file, write_file_in_scope,
+;; edit_file_in_scope, list_directory)
 ;;
-;; These tests verify the contract between filesystem tools and the scope system.
-;; They do NOT re-test path validation logic (that is scope/test/'s job).
+;; Tests verify the actual tool function behavior by calling the registered
+;; tool functions and checking what happens.
 ;;
-;; Strategy: Spy on scope entry points and verify:
-;; 1. read_file calls jf/gptel-scope--validate-path-tool with ("read", filepath)
-;; 2. write_file_in_scope calls jf/gptel-scope--validate-path-tool with ("write", filepath)
-;; 3. On validation success, tool executes its file operation
-;; 4. On validation failure, returns error without touching filesystem
-;; 5. On validation failure with expansion, triggers expansion UI
+;; Key behaviors under test:
+;; - On scope validation success: tool executes its file operation
+;; - On scope validation failure: tool triggers expansion UI (not just returns error)
+;; - After user approves: tool retries and executes on success
+;; - After user denies: tool returns error without touching filesystem
 ;;
-;; Spied functions:
-;; - jf/gptel-scope--check-tool-permission: Routes to validate-path-tool
-;; - jf/gptel-scope--validate-path-tool: Path validation
-;; - jf/gptel-scope--trigger-inline-expansion: Expansion UI
-;; - File I/O functions: file-exists-p, insert-file-contents, write-file
+;; Mocked at system boundaries:
+;; - jf/gptel-scope--load-config: scope.yml loading
+;; - jf/gptel-scope--check-tool-permission: path validation dispatch
+;; - jf/gptel-scope--gather-file-metadata: git/fs metadata
+;; - jf/gptel-scope--check-allow-once: pre-existing allow-once grants
+;; - jf/gptel-scope--trigger-inline-expansion: simulates user choice
+;;
+;; Real filesystem operations (temp files) used for success path tests.
 
 ;;; Code:
 
@@ -33,187 +35,374 @@
 
 ;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (tools-dir (expand-file-name ".." test-dir)))
+       (tools-dir (expand-file-name ".." test-dir))
+       (scope-dir (expand-file-name "../scope" tools-dir)))
   (add-to-list 'load-path test-dir)
   (require 'tool-test-helpers-spec (expand-file-name "helpers-spec.el" test-dir))
-  ;; Load scope-core for permission checking
-  (require 'jf-gptel-scope-core (expand-file-name "../scope/scope-core.el" tools-dir)))
+  (require 'jf-gptel-scope-core (expand-file-name "scope-core.el" scope-dir))
+  (require 'jf-gptel-scope-expansion (expand-file-name "scope-expansion.el" scope-dir))
+  (require 'jf-gptel-scope-filesystem-tools (expand-file-name "scope-filesystem-tools.el" scope-dir)))
 
+;;; Test Helpers
 
-;;; Test Suite: read_file tool-scope contract
+(defun fs-tools-spec--get-tool-fn (name)
+  "Get registered tool function for NAME from the 'filesystem' category."
+  (when-let* ((fs-tools (alist-get "filesystem" gptel--known-tools nil nil #'equal))
+              (tool (alist-get name fs-tools nil nil #'equal)))
+    (gptel-tool-function tool)))
 
-(describe "read_file: tool-scope contract"
+(defun fs-tools-spec--write-temp-file (content)
+  "Create a temp file with CONTENT, return its path."
+  (let ((temp-file (make-temp-file "fs-spec-" nil ".txt")))
+    (with-temp-file temp-file (insert content))
+    temp-file))
 
-  (describe "calls jf/gptel-scope--check-tool-permission with correct args"
+(defmacro fs-tools-spec--with-temp-file (var content &rest body)
+  "Bind VAR to a temp file containing CONTENT, run BODY, then delete it."
+  (declare (indent 2))
+  `(let ((,var (fs-tools-spec--write-temp-file ,content)))
+     (unwind-protect
+         (progn ,@body)
+       (when (file-exists-p ,var) (delete-file ,var)))))
 
-    (it "passes tool name 'read_file' to permission check"
-      (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (let ((config (tool-test--scope-config-minimal))
-            (args '("/workspace/file.txt")))
-        (jf/gptel-scope--check-tool-permission config "read_file" args nil)
-        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--check-tool-permission 0)))
-          (expect (nth 1 call-args) :to-equal "read_file"))))
+(defmacro fs-tools-spec--with-temp-dir (var &rest body)
+  "Bind VAR to a new temp directory, run BODY, then delete it."
+  (declare (indent 1))
+  `(let ((,var (make-temp-file "fs-spec-dir-" t)))
+     (unwind-protect
+         (progn ,@body)
+       (when (file-exists-p ,var) (delete-directory ,var t)))))
 
-    (it "passes filepath as first arg"
-      (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (let ((config (tool-test--scope-config-minimal))
-            (args '("/workspace/src/main.el")))
-        (jf/gptel-scope--check-tool-permission config "read_file" args nil)
-        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--check-tool-permission 0)))
-          (expect (car (nth 2 call-args)) :to-equal "/workspace/src/main.el"))))
+;;; Shared mock setup
 
-    (it "routes to path validation for read operation"
-      ;; Verify tool category maps read_file to path validation with read operation
+(defun fs-tools-spec--setup-common-mocks ()
+  "Set up mocks common to all filesystem tool tests."
+  (spy-on 'jf/gptel-scope--load-config
+          :and-return-value (tool-test--scope-config-minimal))
+  (spy-on 'jf/gptel-scope--gather-file-metadata :and-return-value nil)
+  (spy-on 'jf/gptel-scope--check-allow-once :and-return-value nil))
+
+;;; Test Suite: read_file
+
+(describe "read_file: behavioral contract"
+
+  (describe "tool is registered"
+
+    (it "is registered in gptel--known-tools under 'filesystem' category"
+      (let* ((fs-tools (alist-get "filesystem" gptel--known-tools nil nil #'equal))
+             (tool (alist-get "read_file" fs-tools nil nil #'equal)))
+        (expect tool :not :to-be nil)
+        (expect (gptel-tool-async tool) :to-be t)))
+
+    (it "has path validation with read operation in tool categories"
       (let ((category (cdr (assoc "read_file" jf/gptel-scope--tool-categories))))
         (expect (plist-get category :validation) :to-equal 'path)
         (expect (plist-get category :operation) :to-equal 'read))))
 
-  (describe "on validation success, reads file"
+  (describe "on validation success"
 
-    (it "returns file content when file exists"
-      (let* ((temp-file (make-temp-file "tool-test-read-" nil ".txt")))
-        (unwind-protect
-            (progn
-              (with-temp-file temp-file
-                (insert "test content here"))
-              (let ((full-path (expand-file-name temp-file)))
-                (expect (file-exists-p full-path) :to-be t)
-                (let ((content (with-temp-buffer
-                                 (insert-file-contents full-path)
-                                 (buffer-string))))
-                  (expect content :to-equal "test content here"))))
-          (when (file-exists-p temp-file)
-            (delete-file temp-file)))))
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-allowed)))
 
-    (it "returns file_not_found error when file missing"
-      (let ((missing-path "/nonexistent/path/file.txt"))
-        (expect (file-exists-p missing-path) :to-be nil))))
+    (it "reads and returns file content"
+      (fs-tools-spec--with-temp-file temp-file "hello world"
+        (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+               (received nil)
+               (callback (lambda (json)
+                           (setq received (json-parse-string json :object-type 'plist)))))
+          (funcall tool-fn callback temp-file)
+          (expect (plist-get received :success) :to-be t)
+          (expect (plist-get received :content) :to-equal "hello world"))))
 
-  (describe "on validation failure, returns error without reading"
+    (it "returns file_not_found error when file does not exist"
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+             (received nil)
+             (callback (lambda (json)
+                         (setq received (json-parse-string json :object-type 'plist)))))
+        (funcall tool-fn callback "/nonexistent/path/does-not-exist.txt")
+        (expect (plist-get received :success) :to-be nil)
+        (expect (plist-get received :error) :to-equal "file_not_found")))
 
-    (it "returns structured scope violation error"
-      (let* ((denied-result (tool-test--scope-denied "path_out_of_scope" "/etc/passwd" "read_file"))
-             (formatted (jf/gptel-scope--format-tool-error "read_file" "/etc/passwd" denied-result)))
-        (expect (plist-get formatted :success) :to-be nil)
-        (expect (plist-get formatted :error) :to-equal "path_out_of_scope")
-        (expect (plist-get formatted :tool) :to-equal "read_file")
-        (expect (plist-get formatted :resource) :to-equal "/etc/passwd")))
+    (it "does not call trigger-inline-expansion"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (fs-tools-spec--with-temp-file temp-file "data"
+        (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+               (callback (lambda (_json) nil)))
+          (funcall tool-fn callback temp-file)
+          (expect 'jf/gptel-scope--trigger-inline-expansion :not :to-have-been-called)))))
 
-    (it "does not read file when permission denied"
+  (describe "on validation failure"
+
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-denied
+                                 "path_out_of_scope" "/outside/file.txt" "read_file")))
+
+    (it "triggers inline expansion"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+             (callback (lambda (_json) nil)))
+        (funcall tool-fn callback "/outside/file.txt")
+        (expect 'jf/gptel-scope--trigger-inline-expansion :to-have-been-called)))
+
+    (it "passes tool name 'read_file' to expansion"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+             (callback (lambda (_json) nil)))
+        (funcall tool-fn callback "/outside/file.txt")
+        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
+          (expect (nth 1 call-args) :to-equal "read_file"))))
+
+    (it "does not read file before user decision"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
       (spy-on 'insert-file-contents)
-      ;; Simulate the macro behavior: check permission, skip I/O if denied
-      (let ((check-result (tool-test--scope-denied "path_out_of_scope" "/etc/shadow" "read_file")))
-        (unless (plist-get check-result :allowed)
-          (jf/gptel-scope--format-tool-error "read_file" "/etc/shadow" check-result))
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+             (callback (lambda (_json) nil)))
+        (funcall tool-fn callback "/outside/file.txt")
+        (expect 'insert-file-contents :not :to-have-been-called))))
+
+  (describe "after user approves via expansion UI"
+
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion
+              :and-call-fake
+              (lambda (_violation _tool wrapper-callback)
+                (funcall wrapper-callback (list :approved t)))))
+
+    (it "reads file after approval when retry passes"
+      (let* ((call-count 0))
+        (spy-on 'jf/gptel-scope--check-tool-permission
+                :and-call-fake
+                (lambda (&rest _)
+                  (setq call-count (1+ call-count))
+                  (if (= call-count 1) (tool-test--scope-denied) (tool-test--scope-allowed))))
+        (fs-tools-spec--with-temp-file temp-file "approved content"
+          (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+                 (received nil)
+                 (callback (lambda (json)
+                             (setq received (json-parse-string json :object-type 'plist)))))
+            (funcall tool-fn callback temp-file)
+            (expect (plist-get received :success) :to-be t)
+            (expect (plist-get received :content) :to-equal "approved content"))))))
+
+  (describe "after user denies via expansion UI"
+
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-denied
+                                 "path_out_of_scope" "/outside.txt" "read_file"))
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion
+              :and-call-fake
+              (lambda (_violation _tool wrapper-callback)
+                (funcall wrapper-callback (list :approved nil)))))
+
+    (it "invokes callback with error response after denial"
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+             (received nil)
+             (callback (lambda (json)
+                         (setq received (json-parse-string json :object-type 'plist)))))
+        (funcall tool-fn callback "/outside.txt")
+        (expect (plist-get received :success) :to-be nil)))
+
+    (it "does not read file after denial"
+      (spy-on 'insert-file-contents)
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "read_file"))
+             (callback (lambda (_json) nil)))
+        (funcall tool-fn callback "/outside.txt")
         (expect 'insert-file-contents :not :to-have-been-called)))))
 
 
-;;; Test Suite: write_file_in_scope tool-scope contract
+;;; Test Suite: write_file_in_scope
 
-(describe "write_file_in_scope: tool-scope contract"
+(describe "write_file_in_scope: behavioral contract"
 
-  (describe "calls permission check with write operation"
+  (describe "tool is registered"
 
-    (it "passes tool name 'write_file_in_scope'"
-      (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (let ((config (tool-test--scope-config-minimal))
-            (args '("/workspace/new-file.el" "content")))
-        (jf/gptel-scope--check-tool-permission config "write_file_in_scope" args nil)
-        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--check-tool-permission 0)))
-          (expect (nth 1 call-args) :to-equal "write_file_in_scope"))))
-
-    (it "routes to path validation with write operation"
+    (it "is registered with write operation"
       (let ((category (cdr (assoc "write_file_in_scope" jf/gptel-scope--tool-categories))))
         (expect (plist-get category :validation) :to-equal 'path)
         (expect (plist-get category :operation) :to-equal 'write))))
 
-  (describe "on validation success, writes file"
+  (describe "on validation success"
 
-    (it "creates file with content when allowed"
-      (let ((temp-file (make-temp-file "tool-test-write-" nil ".txt")))
-        (unwind-protect
-            (progn
-              (with-temp-file temp-file
-                (insert "written content"))
-              (expect (with-temp-buffer
-                        (insert-file-contents temp-file)
-                        (buffer-string))
-                      :to-equal "written content"))
-          (when (file-exists-p temp-file)
-            (delete-file temp-file))))))
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-allowed)))
 
-  (describe "on validation failure, returns error without writing"
+    (it "creates file with specified content"
+      (fs-tools-spec--with-temp-dir temp-dir
+        (let* ((target-file (expand-file-name "newfile.txt" temp-dir))
+               (tool-fn (fs-tools-spec--get-tool-fn "write_file_in_scope"))
+               (received nil)
+               (callback (lambda (json)
+                           (setq received (json-parse-string json :object-type 'plist)))))
+          (funcall tool-fn callback target-file "written content")
+          (expect (plist-get received :success) :to-be t)
+          (expect (file-exists-p target-file) :to-be t)
+          (expect (with-temp-buffer
+                    (insert-file-contents target-file)
+                    (buffer-string))
+                  :to-equal "written content"))))
 
-    (it "does not write file when permission denied"
-      (spy-on 'write-file)
-      (spy-on 'with-temp-file)
-      (let ((check-result (tool-test--scope-denied "path_out_of_scope" "/etc/config" "write_file_in_scope")))
-        (unless (plist-get check-result :allowed)
-          (jf/gptel-scope--format-tool-error "write_file_in_scope" "/etc/config" check-result))
-        (expect 'write-file :not :to-have-been-called)))
+    (it "does not call trigger-inline-expansion"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (fs-tools-spec--with-temp-dir temp-dir
+        (let* ((target-file (expand-file-name "newfile.txt" temp-dir))
+               (tool-fn (fs-tools-spec--get-tool-fn "write_file_in_scope"))
+               (callback (lambda (_json) nil)))
+          (funcall tool-fn callback target-file "content")
+          (expect 'jf/gptel-scope--trigger-inline-expansion :not :to-have-been-called)))))
 
-    (it "returns error with allowed-patterns for guidance"
-      (let* ((denied (tool-test--scope-denied "path_out_of_scope" "/tmp/file.txt" "write_file_in_scope"))
-             (formatted (jf/gptel-scope--format-tool-error "write_file_in_scope" "/tmp/file.txt" denied)))
-        (expect (plist-get formatted :allowed-patterns) :to-equal '("/workspace/**"))))))
+  (describe "on validation failure"
+
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-denied
+                                 "path_out_of_scope" "/outside/file.txt" "write_file_in_scope")))
+
+    (it "triggers inline expansion"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "write_file_in_scope"))
+             (callback (lambda (_json) nil)))
+        (funcall tool-fn callback "/outside/file.txt" "content")
+        (expect 'jf/gptel-scope--trigger-inline-expansion :to-have-been-called)))
+
+    (it "does not write file before user decision"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (spy-on 'write-region)
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "write_file_in_scope"))
+             (callback (lambda (_json) nil)))
+        (funcall tool-fn callback "/outside/file.txt" "content")
+        (expect 'write-region :not :to-have-been-called))))
+
+  (describe "after user denies"
+
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-denied
+                                 "path_out_of_scope" "/outside.txt" "write_file_in_scope"))
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion
+              :and-call-fake
+              (lambda (_violation _tool wrapper-callback)
+                (funcall wrapper-callback (list :approved nil)))))
+
+    (it "returns error without writing"
+      (spy-on 'write-region)
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "write_file_in_scope"))
+             (received nil)
+             (callback (lambda (json)
+                         (setq received (json-parse-string json :object-type 'plist)))))
+        (funcall tool-fn callback "/outside.txt" "content")
+        (expect (plist-get received :success) :to-be nil)
+        (expect 'write-region :not :to-have-been-called)))))
 
 
-;;; Test Suite: edit_file_in_scope tool-scope contract
+;;; Test Suite: edit_file_in_scope
 
-(describe "edit_file_in_scope: tool-scope contract"
+(describe "edit_file_in_scope: behavioral contract"
 
-  (it "routes to path validation with write operation"
-    (let ((category (cdr (assoc "edit_file_in_scope" jf/gptel-scope--tool-categories))))
-      (expect (plist-get category :validation) :to-equal 'path)
-      (expect (plist-get category :operation) :to-equal 'write)))
+  (describe "tool is registered"
 
-  (it "returns error without modifying when permission denied"
-    (let* ((denied (tool-test--scope-denied "path_out_of_scope" "/etc/config" "edit_file_in_scope"))
-           (formatted (jf/gptel-scope--format-tool-error "edit_file_in_scope" "/etc/config" denied)))
-      (expect (plist-get formatted :success) :to-be nil)
-      (expect (plist-get formatted :tool) :to-equal "edit_file_in_scope"))))
+    (it "is registered with write operation"
+      (let ((category (cdr (assoc "edit_file_in_scope" jf/gptel-scope--tool-categories))))
+        (expect (plist-get category :validation) :to-equal 'path)
+        (expect (plist-get category :operation) :to-equal 'write))))
+
+  (describe "on validation success"
+
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-allowed)))
+
+    (it "replaces old_string with new_string in file"
+      (fs-tools-spec--with-temp-file temp-file "hello old world"
+        (let* ((tool-fn (fs-tools-spec--get-tool-fn "edit_file_in_scope"))
+               (received nil)
+               (callback (lambda (json)
+                           (setq received (json-parse-string json :object-type 'plist)))))
+          (funcall tool-fn callback temp-file "old" "new")
+          (expect (plist-get received :success) :to-be t)
+          (expect (with-temp-buffer
+                    (insert-file-contents temp-file)
+                    (buffer-string))
+                  :to-equal "hello new world"))))
+
+    (it "returns file_not_found when file does not exist"
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "edit_file_in_scope"))
+             (received nil)
+             (callback (lambda (json)
+                         (setq received (json-parse-string json :object-type 'plist)))))
+        (funcall tool-fn callback "/nonexistent/path/file.txt" "old" "new")
+        (expect (plist-get received :success) :to-be nil)
+        (expect (plist-get received :error) :to-equal "file_not_found")))
+
+    (it "returns string_not_found when old_string is not in file"
+      (fs-tools-spec--with-temp-file temp-file "actual content"
+        (let* ((tool-fn (fs-tools-spec--get-tool-fn "edit_file_in_scope"))
+               (received nil)
+               (callback (lambda (json)
+                           (setq received (json-parse-string json :object-type 'plist)))))
+          (funcall tool-fn callback temp-file "not present" "replacement")
+          (expect (plist-get received :success) :to-be nil)
+          (expect (plist-get received :error) :to-equal "string_not_found")))))
+
+  (describe "on validation failure"
+
+    (before-each
+      (fs-tools-spec--setup-common-mocks)
+      (spy-on 'jf/gptel-scope--check-tool-permission
+              :and-return-value (tool-test--scope-denied
+                                 "path_out_of_scope" "/outside/file.txt" "edit_file_in_scope")))
+
+    (it "triggers inline expansion"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (let* ((tool-fn (fs-tools-spec--get-tool-fn "edit_file_in_scope"))
+             (callback (lambda (_json) nil)))
+        (funcall tool-fn callback "/outside/file.txt" "old" "new")
+        (expect 'jf/gptel-scope--trigger-inline-expansion :to-have-been-called)))
+
+    (it "does not modify file before user decision"
+      (spy-on 'jf/gptel-scope--trigger-inline-expansion)
+      (fs-tools-spec--with-temp-file temp-file "original content"
+        (let* ((tool-fn (fs-tools-spec--get-tool-fn "edit_file_in_scope"))
+               (callback (lambda (_json) nil)))
+          (funcall tool-fn callback temp-file "original" "modified")
+          (expect (with-temp-buffer
+                    (insert-file-contents temp-file)
+                    (buffer-string))
+                  :to-equal "original content"))))))
 
 
-;;; Test Suite: list_directory tool-scope contract (non-scoped, basic tool)
+;;; Test Suite: list_directory (non-scoped sync tool)
 
-(describe "list_directory: basic tool behavior"
+(describe "list_directory: behavioral contract"
 
-  (it "lists files when directory exists"
-    (let ((temp-dir (make-temp-file "tool-test-listdir-" t)))
-      (unwind-protect
-          (progn
-            ;; Create some test files
-            (with-temp-file (expand-file-name "test.txt" temp-dir)
-              (insert "test"))
-            (let ((files (directory-files temp-dir nil "^[^.]")))
-              (expect files :to-contain "test.txt")))
-        (when (file-exists-p temp-dir)
-          (delete-directory temp-dir t)))))
+  (it "lists files in an existing directory"
+    (fs-tools-spec--with-temp-dir temp-dir
+      (with-temp-file (expand-file-name "alpha.txt" temp-dir) (insert "a"))
+      (with-temp-file (expand-file-name "beta.txt" temp-dir) (insert "b"))
+      (let* ((fs-tools (alist-get "filesystem" gptel--known-tools nil nil #'equal))
+             (tool (alist-get "list_directory" fs-tools nil nil #'equal))
+             (tool-fn (gptel-tool-function tool))
+             (result (funcall tool-fn temp-dir)))
+        (expect result :to-match "alpha.txt")
+        (expect result :to-match "beta.txt"))))
 
-  (it "handles non-existent directory gracefully"
-    (expect (file-directory-p "/nonexistent/directory") :to-be nil)))
-
-
-;;; Test Suite: Expansion UI trigger
-
-(describe "filesystem tools: expansion trigger"
-
-  (it "triggers inline expansion when async tool is denied"
-    (spy-on 'jf/gptel-scope--trigger-inline-expansion)
-    (let ((validation-error (tool-test--scope-denied "path_out_of_scope" "/outside/scope" "read_file"))
-          (callback (lambda (_result) nil)))
-      (jf/gptel-scope--trigger-inline-expansion validation-error "read_file" callback)
-      (expect 'jf/gptel-scope--trigger-inline-expansion :to-have-been-called)
-      (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
-        (expect (nth 1 call-args) :to-equal "read_file"))))
-
-  (it "passes denied resource to expansion for pattern inference"
-    (spy-on 'jf/gptel-scope--trigger-inline-expansion)
-    (let ((validation-error (tool-test--scope-denied "path_out_of_scope" "/new/project/file.el" "write_file_in_scope"))
-          (callback (lambda (_result) nil)))
-      (jf/gptel-scope--trigger-inline-expansion validation-error "write_file_in_scope" callback)
-      (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
-        (expect (plist-get (nth 0 call-args) :resource) :to-equal "/new/project/file.el")))))
+  (it "returns error message for non-existent directory"
+    (let* ((fs-tools (alist-get "filesystem" gptel--known-tools nil nil #'equal))
+           (tool (alist-get "list_directory" fs-tools nil nil #'equal))
+           (tool-fn (gptel-tool-function tool))
+           (result (funcall tool-fn "/nonexistent/directory/path")))
+      (expect result :to-match "Error"))))
 
 (provide 'filesystem-tools-spec)
 

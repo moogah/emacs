@@ -550,72 +550,85 @@ Example SECURITY-CONFIG:
 
 ;; Tool Implementation
 
+;; Uses =gptel-make-tool :async t= directly (not =gptel-make-scoped-tool=) because
+;; the bash semantic validation pipeline is custom and needs to trigger inline
+;; expansion on failure rather than returning an error value to the macro wrapper.
+
 
 ;; [[file:scope-shell-tools.org::*Tool Implementation][Tool Implementation:1]]
-(gptel-make-scoped-tool
- "run_bash_command"
- "Execute shell command in specified directory with scope validation.
+(gptel-make-tool
+ :name "run_bash_command"
+ :async t
+ :description "Execute shell command with semantic scope validation.
 
-Commands are categorized:
-- read_only: ls, grep, find, cat, head, tail, wc, file, git log, git show, git diff
-- safe_write: mkdir, touch, echo, git add, git commit
-- dangerous: (empty by default, requires explicit approval)
+Validates commands by the file paths they actually access (read/write/execute),
+extracted by bash-parser. Commands with no file operations are allowed automatically.
 
-Directory must be in scope for command category:
-- read_only commands: directory must match paths.read OR paths.write
-- safe_write commands: directory must match paths.write
-
-Shell composition allowed (pipes, redirects, command substitution), but only base command is validated.
+Relative paths in the command are resolved from the session's current working
+directory. Scope is checked on the actual file paths in the command.
 
 Security features:
 - 30-second timeout
 - Output truncation at 10,000 chars
-- Warnings for absolute paths in arguments
-- Deny list blocks dangerous commands (rm, rmdir, mv, cp, ln, scp, rsync, chmod, sudo, crontab, iptables, systemctl, useradd, shutdown, reboot, halt, poweroff, etc.)
+- Deny list blocks dangerous commands (sudo, dd, chmod, chown)
+- Scope violations show interactive approval UI
 
 Examples:
-  run_bash_command('ls -la', '/Users/jefffarr/emacs')
-  run_bash_command('grep -r TODO . | head -20', '/Users/jefffarr/projects/myapp')
-  run_bash_command('git log --oneline -10', '/Users/jefffarr/emacs')
-  run_bash_command('mkdir scratch', '/tmp')"
-
- (list '(:name "command"
-         :type string
-         :description "Shell command to execute (pipes and redirects allowed)")
-       '(:name "directory"
-         :type string
-         :description "Working directory (must be in scope for command category)"))
-
- "bash"
-
- :async  ; Enable inline expansion for scope violations
-
- ;; Tool body - semantic validation happens here
- (let* ((config (jf/gptel-scope--load-config))
-        (validation-error (when config
-                           (jf/gptel-scope--validate-command-semantics command directory config))))
-
-   (if validation-error
-       ;; Validation failed - return error response
-       (list :success nil
-             :error (or (plist-get validation-error :error) "validation-failed")
-             :message (or (plist-get validation-error :message)
-                         (format "Command validation failed: %s" (plist-get validation-error :error)))
-             :command command
-             :directory directory)
-
-     ;; Validation passed - execute command
-     (let* ((result (jf/gptel-bash--execute-command command directory))
-            (exit-code (plist-get result :exit_code))
-            (output (plist-get result :output))
-            (truncated (plist-get result :truncated))
-            (warnings (plist-get result :warnings))
-            (success (zerop exit-code)))
-       (list :success success
-             :output output
-             :exit_code exit-code
-             :truncated truncated
-             :warnings warnings)))))
+  run_bash_command('python3 --version')
+  run_bash_command('cat ~/.machine-role')
+  run_bash_command('grep -r TODO . | head -20')
+  run_bash_command('git log --oneline -10')"
+ :args (list '(:name "command"
+               :type string
+               :description "Shell command to execute (pipes and redirects allowed)"))
+ :category "bash"
+ :function
+ (lambda (callback command)
+   (condition-case err
+       (let* ((config (jf/gptel-scope--load-config))
+              (validation-error (when config
+                                  (jf/gptel-scope--validate-command-semantics
+                                   command default-directory config)))
+              (exec-fn
+               (lambda ()
+                 (let* ((result (jf/gptel-bash--execute-command command default-directory))
+                        (exit-code (plist-get result :exit_code))
+                        (output (plist-get result :output))
+                        (truncated (plist-get result :truncated))
+                        (warnings (plist-get result :warnings))
+                        (success (zerop exit-code)))
+                   (funcall callback
+                            (json-serialize
+                             (list :success success
+                                   :output output
+                                   :exit_code exit-code
+                                   :truncated truncated
+                                   :warnings warnings)))))))
+         (if validation-error
+             ;; Scope violation - show interactive expansion UI
+             (jf/gptel-scope--trigger-inline-expansion
+              validation-error "run_bash_command"
+              (lambda (expansion-result)
+                (if (plist-get expansion-result :approved)
+                    ;; User approved (allow-once or add-to-scope) - execute
+                    (funcall exec-fn)
+                  ;; User denied - return original error
+                  (funcall callback
+                           (json-serialize
+                            (list :success nil
+                                  :error (or (plist-get validation-error :error)
+                                             "validation-failed")
+                                  :message (or (plist-get validation-error :message)
+                                               "Command validation failed")
+                                  :command command))))))
+           ;; Validation passed - execute command
+           (funcall exec-fn)))
+     (error
+      (funcall callback
+               (json-serialize
+                (list :success nil
+                      :error "tool_exception"
+                      :message (format "Tool error: %s" (error-message-string err)))))))))
 ;; Tool Implementation:1 ends here
 
 ;; Request Scope Expansion Tool (Meta Tool, v3.0 Async)

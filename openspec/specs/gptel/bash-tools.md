@@ -6,21 +6,6 @@ This integrates with bash-parser (`config/bash-parser/`) for tree-sitter parsing
 
 # Requirements
 
-## Explicit directory required for all commands
-The bash tools system SHALL require an explicit directory argument for every command execution.
-
-### Scenario: Command with explicit directory
-- **WHEN** run_bash_command is called with both command and directory arguments
-- **THEN** the system resolves the directory to absolute path and validates it
-
-### Scenario: Relative directory path resolved
-- **WHEN** a relative directory path is provided
-- **THEN** the system expands it to an absolute path using expand-file-name
-
-### Scenario: Symlink directory resolved
-- **WHEN** a directory contains symlinks
-- **THEN** the system resolves to real path using file-truename before validation
-
 ## Shell composition features with full validation
 The bash tools system SHALL parse shell composition features (pipes, redirects, command substitution) using bash-parser and validate all commands in pipelines.
 
@@ -49,7 +34,7 @@ The bash tools system SHALL parse shell composition features (pipes, redirects, 
 The bash tools system SHALL execute a multi-step validation pipeline for each command using bash-parser for semantic extraction, replacing category-based validation with operation-first validation and no-op allowance.
 
 ### Scenario: Validation pipeline for command execution
-- **WHEN** run_bash_command is called with command and directory
+- **WHEN** run_bash_command is called with a command
 - **THEN** the system executes these steps in order:
   1. Parse command using bash-parser (jf/bash-parse) to get AST with tokens
   2. Check parse completeness (:parse-complete flag)
@@ -57,7 +42,7 @@ The bash tools system SHALL execute a multi-step validation pipeline for each co
   4. Extract semantics using plugin system (jf/bash-extract-semantics)
   5. Check if no file operations extracted (no-op allowance)
   6. If file operations exist, validate each operation against paths configuration
-  7. Extract file paths and resolve to absolute paths relative to working directory
+  7. Extract file paths and resolve to absolute paths relative to default-directory
   8. Validate each file path against operation-specific scope patterns
   9. Check cloud authentication detection (using cloud-auth plugin)
   10. Enforce cloud authentication policy
@@ -89,15 +74,10 @@ The bash tools system SHALL execute a multi-step validation pipeline for each co
 - **AND** security.enforce_parse_complete is false
 - **THEN** system proceeds with validation but includes warning
 
-### Scenario: Directory resolution with symlinks
-- **WHEN** validating a directory path containing symlinks
+### Scenario: Working directory symlink resolution
+- **WHEN** default-directory contains symlinks
 - **THEN** the system resolves symlinks to the real path before pattern matching
 - **AND** pattern matching occurs against the fully resolved path
-
-### Scenario: Relative directory resolution
-- **WHEN** a relative directory path is provided
-- **THEN** the system expands it to absolute path relative to buffer's default-directory
-- **AND** then resolves any symlinks to real path
 
 ## No-op commands allowed by default
 The bash tools system SHALL allow commands that extract no file operations to execute without requiring command name in any allowlist.
