@@ -613,6 +613,11 @@ Returns a plist with:
                (redir-ops (plist-get entry :redirection-ops))
                (metadata (plist-get entry :metadata)))
 
+          ;; Apply inline environment variables (e.g., PWD=/new/path cat file.txt)
+          ;; These override var-context for this command only
+          (when-let ((env-vars (plist-get cmd :env-vars)))
+            (setq ctx (append env-vars ctx)))
+
           ;; Layer 0 contribution: redirection ops → :filesystem domain
           ;; Annotate with entry metadata (conditional, loop, subshell context)
           (when redir-ops
