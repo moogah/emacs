@@ -508,8 +508,9 @@ Returns operations with resolved file paths and updated metadata."
       (let* ((file (plist-get op :file))
              (resolved-file file)
              (confidence (or (plist-get op :confidence) :high))
-             (has-pattern nil))
-        ;; Resolve variables in file path
+             (has-pattern nil)
+             (unresolved-vars nil))
+        ;; Full path resolution with context (variables + pwd + relative paths)
         (when (and file var-context (fboundp 'jf/bash--resolve-path-variables))
           (let ((result (jf/bash--resolve-path-variables file var-context)))
             (cond
@@ -518,7 +519,17 @@ Returns operations with resolved file paths and updated metadata."
              ((and (listp result) (plist-get result :path))
               (setq resolved-file (plist-get result :path))
               (when (plist-get result :unresolved)
-                (setq confidence :medium))))))
+                (setq unresolved-vars (plist-get result :unresolved))
+                (unless (eq (plist-get op :source) :redirection)
+                  (setq confidence :medium)))))))
+        ;; Without context: detect unresolved variables (no path transforms)
+        (when (and file (not var-context) (string-match-p "\\$" file)
+                   (fboundp 'jf/bash-resolve-variables))
+          (let ((result (jf/bash-resolve-variables file nil)))
+            (when (and (listp result) (plist-get result :unresolved))
+              (setq unresolved-vars (plist-get result :unresolved))
+              (unless (eq (plist-get op :source) :redirection)
+                (setq confidence :medium)))))
         ;; Detect glob patterns
         (when (and resolved-file (fboundp 'jf/bash--has-glob-pattern-p))
           (setq has-pattern (or (plist-get op :pattern)
@@ -531,6 +542,10 @@ Returns operations with resolved file paths and updated metadata."
             (plist-put resolved-op :source :positional-arg))
           (when has-pattern
             (plist-put resolved-op :pattern t))
+          ;; Propagate unresolved variable metadata
+          (when unresolved-vars
+            (plist-put resolved-op :unresolved t)
+            (plist-put resolved-op :unresolved-vars unresolved-vars))
           (push resolved-op resolved))))
     (nreverse resolved)))
 #+end_src
