@@ -230,13 +230,17 @@ Returns a list of operation plists or nil."
                ((stringp result) (setq resolved-file result))
                ((and (listp result) (plist-get result :path))
                 (setq resolved-file (plist-get result :path))))))
-          (push (list :file resolved-file
-                      :operation :read-metadata
-                      :confidence :high
-                      :source :test-condition
-                      :test-condition t
-                      :test-operator operator)
-                ops)))
+          (let ((op (list :file resolved-file
+                          :operation :read-metadata
+                          :confidence :high
+                          :source :test-condition
+                          :test-condition t
+                          :test-operator operator)))
+            ;; Add :pattern t if file path contains glob characters
+            (when (and (fboundp 'jf/bash--has-glob-pattern-p)
+                       (jf/bash--has-glob-pattern-p resolved-file))
+              (setq op (plist-put op :pattern t)))
+            (push op ops))))
       ops)))
 
 (defun jf/bash--extract-cd-from-condition (condition-text var-context)
@@ -405,15 +409,18 @@ variable to the pattern from the substituted command."
                         (jf/bash--extract-find-name-pattern parsed-sub))))))))))
 
     ;; Emit :match-pattern for glob source (grammar-level operation)
-    ;; Resolve relative paths in glob patterns against PWD context
+    ;; Resolve relative paths in glob patterns against PWD context (default: /)
     (when (and (eq loop-source-type :glob) loop-list)
       (let* ((resolved-glob loop-list)
-             (_ (when (and var-context (fboundp 'jf/bash--resolve-path-variables))
-                  (let ((result (jf/bash--resolve-path-variables loop-list var-context)))
-                    (cond
-                     ((stringp result) (setq resolved-glob result))
-                     ((and (listp result) (plist-get result :path))
-                      (setq resolved-glob (plist-get result :path)))))))
+             (_ (if (and var-context (fboundp 'jf/bash--resolve-path-variables))
+                    (let ((result (jf/bash--resolve-path-variables loop-list var-context)))
+                      (cond
+                       ((stringp result) (setq resolved-glob result))
+                       ((and (listp result) (plist-get result :path))
+                        (setq resolved-glob (plist-get result :path)))))
+                  ;; No var-context: make relative globs absolute with / prefix
+                  (unless (string-prefix-p "/" loop-list)
+                    (setq resolved-glob (concat "/" loop-list)))))
              (glob-ops (list (list :file resolved-glob
                                    :operation :match-pattern
                                    :confidence :high
@@ -534,6 +541,9 @@ Returns operations with resolved file paths and updated metadata."
              (confidence (or (plist-get op :confidence) :high))
              (has-pattern nil)
              (unresolved-vars nil))
+        ;; Skip operations with raw command substitutions as file paths
+        ;; These are unresolved $(cmd) args; pattern-flow provides resolved versions
+        (unless (and file (string-match-p "^\\$(" file))
         ;; Full path resolution with context (variables + pwd + relative paths)
         (when (and file var-context (fboundp 'jf/bash--resolve-path-variables))
           (let ((result (jf/bash--resolve-path-variables file var-context)))
@@ -570,7 +580,7 @@ Returns operations with resolved file paths and updated metadata."
           (when unresolved-vars
             (plist-put resolved-op :unresolved t)
             (plist-put resolved-op :unresolved-vars unresolved-vars))
-          (push resolved-op resolved))))
+          (push resolved-op resolved)))))
     (nreverse resolved)))
 
 (defun jf/bash-extract-semantics (parsed-command &optional var-context)
@@ -744,6 +754,11 @@ Returns a plist with:
                                                           (plist-get o :from-substitution)))
                                                    (cdr (assq :filesystem domains-alist)))))
                                     (when scope-op (plist-get scope-op :file)))))
+                               ;; Find the substitution content text from positional args
+                               (sub-content
+                                (seq-find (lambda (a)
+                                            (and a (string-prefix-p "$(" a)))
+                                          positional-args))
                                (flow-op (list :file pattern
                                               :operation operation
                                               :confidence :high
@@ -753,10 +768,17 @@ Returns a plist with:
                                               :from-substitution t
                                               :pattern-source
                                               (append
-                                               (list :command pat-cmd
-                                                     :from-substitution t)
-                                               (when search-scope
-                                                 (list :search-scope search-scope)))))
+                                               (when sub-content
+                                                 (list :substitution-content
+                                                       ;; Strip $( and ) wrapper
+                                                       (let ((raw (substring sub-content 2)))
+                                                         (if (string-suffix-p ")" raw)
+                                                             (substring raw 0 -1)
+                                                           raw))
+                                                       :pattern pattern))
+                                               (list :search-scope (or search-scope ".")
+                                                     :command pat-cmd
+                                                     :from-substitution t))))
                                (annotated (jf/bash--annotate-ops-with-metadata
                                            (list flow-op) metadata))
                                (existing (assq :filesystem domains-alist)))
