@@ -13,42 +13,55 @@ We verified the implementation against contract tests and fixed many issues. As 
 
 ```
 Branch: gptel-bash-parser-contract-integration-tests
-ERT:       623 ran, 578 passed (45 failures + 9 expected failures)
+ERT:       623 ran, 601 passed (13 unexpected failures + 9 expected failures)
 Buttercup: 508 ran, 504 passed (4 failures)
-Total:     1131 ran, 1082 passed (49 failures)
+Total:     1131 ran, 1105 passed (26 failures, of which 9 are expected)
 ```
 
 **Starting point was**: 1052 passed (79 failures)
-**Progress so far**: 30 tests fixed across 3 commits
+**Progress so far**: 53 tests fixed across 7 commits
 
-## What Was Done This Session
+## What Was Done
 
-### Session 2 Changes (this session, 3 commits)
+### Session 3 Changes (this session, 4 commits)
 
-1. **Fix find handler exec-blocks** (`config/bash-parser/commands/find.el`)
-   - Handler now reads `:exec-blocks` from parser output instead of reconstructing from positional-args
-   - Fixed 7 tests (3 Buttercup find corpus + 4 ERT find/exec tests)
+1. **Variable resolution metadata propagation** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - `jf/bash--resolve-handler-filesystem-ops` now detects unresolved variables even without var-context
+   - Propagates `:unresolved t` and `:unresolved-vars` to output operations
+   - Preserves `:high` confidence for redirections (source-aware degradation)
+   - Uses `jf/bash-resolve-variables` (pure variable detection) for nil-context case,
+     `jf/bash--resolve-path-variables` (full path resolution) for with-context case
+   - Fixed 9 tests
 
-2. **Command substitution processing** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
-   - `jf/bash--make-entry` now recursively decomposes `:command-substitutions` with `:from-substitution t` metadata
-   - For-loop substitution source handling: decomposes substituted commands and binds loop variable from find's `-name` pattern
-   - Added `jf/bash--extract-find-name-pattern` helper
-   - Fixed 15 tests
+2. **Pattern flow tracking** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
+   - Post-merge step links outer commands to `:match-pattern` ops from substitution entries
+   - Uses `jf/bash--infer-operation-from-command` to determine consumer operation type
+   - Attaches `:pattern-source` metadata with producer command info and search-scope
+   - Fixed 9 tests (7 pattern-flow + 2 recursive substitution tests)
 
-3. **Self-execution detection** (`config/bash-parser/analysis/bash-parser-orchestrator.org`)
-   - Orchestrator now detects path-based commands (`./script.sh`, `/path/to/tool`, `../bin/runner`) as `:execute` operations
-   - Uses existing `jf/bash--command-executes-self-p` from file-ops module
-   - Fixed 8 tests
+3. **Deduplication and exec-block metadata** (`config/bash-parser/analysis/bash-parser-orchestrator.org`, `config/bash-parser/commands/find.el`)
+   - Orchestrator calls `jf/bash--deduplicate-operations` on filesystem domain after merge
+   - Scoped to `:filesystem` domain only (avoids deduping auth/network ops)
+   - Find handler marks exec-block ops with `:indirect t`
+   - Fixed 4 tests
 
-### Session 1 Changes (prior session, see git log)
+4. **Find exec-type metadata** (`config/bash-parser/commands/find.el`)
+   - Find handler propagates `:type` from parser exec-blocks as `:exec-type`
+   - Fixed 1 test
+
+### Session 2 Changes (3 commits)
+
+1. **Fix find handler exec-blocks** — Handler reads `:exec-blocks` from parser output (7 tests)
+2. **Command substitution processing** — Recursive decomposition with `:from-substitution t` (15 tests)
+3. **Self-execution detection** — Path-based commands detected as `:execute` operations (8 tests)
+
+### Session 1 Changes (see git log)
 
 See commits b4b5672 through 981f509 for the original two-layer implementation, handler fixes, metadata propagation, and legacy wrapper deprecation.
 
-## Remaining Failures: Analysis and Gap Categories
+## Remaining Failures: Analysis
 
-### 4 Buttercup Failures
-
-All are complex integration corpus tests via `jf/bash-extract-semantics`:
+### 4 Buttercup Failures (complex integration corpus)
 
 | Test | Gap |
 |------|-----|
@@ -57,79 +70,51 @@ All are complex integration corpus tests via `jf/bash-extract-semantics`:
 | integration-003 | Loop glob + conditional + directory ops (partial) |
 | integration-004 | Heredoc + while loop with dynamic file writes |
 
-### 45 ERT Failures (by category)
+### 13 ERT Unexpected Failures (by category)
 
-**Pattern flow** (7 tests): `test-pattern-flow-*`
-- When `cat $(find . -name '*.txt')` resolves, the old engine attached `:pattern-source` metadata linking the cat read to the find match-pattern
-- Pattern flow function exists (`jf/bash--extract-pattern-flow-operations`) but isn't called from the orchestrator
+**PWD/cd directory context** (6 tests): `test-cd-and-run-script`, `test-cd-for-loop-files`, `test-cd-in-if-statement`, `test-cd-with-operations-between`, `test-pwd-assignment-inline`, `test-pwd-substitution-nested`
+- cd context not flowing through conditionals (if-statement), loops (for-loop-files), and between operations
+- PWD from inline assignments and command substitutions
 
-**Variable resolution** (7 tests): `test-variable-*`, `test-corpus-variable-*`, `test-confidence-degradation-*`
-- Unresolved variable handling differences: the orchestrator's variable resolution for handler ops doesn't produce `:unresolved t` / `:unresolved-vars` on operations when variables can't be resolved
-- Empty variable context behavior differences
+**Self-executing relative paths with PWD** (3 tests): `test-relative-path-dot-slash-script-execution`, `test-relative-path-dot-slash-with-args`, `test-relative-path-parent-script-execution`
+- `./script.sh` should resolve to `/base/dir/script.sh` when PWD context is available
+- Orchestrator creates `:execute` ops with raw path, doesn't resolve against PWD
 
-**PWD/cd directory context** (6 tests): `test-cd-*`, `test-pwd-*`, `test-deploy-script-pattern`
-- cd context tracking in conditionals, loops, complex chains
-- PWD from variable assignments and substitutions
-
-**Recursive engine features** (5 tests): `test-recursive-*`
-- `test-recursive-single-substitution`, `test-recursive-substitution-grep` — command substitution ops expected with specific metadata (partially working, may need `:command` field on sub ops)
-- `test-recursive-deduplication` — orchestrator doesn't deduplicate operations
-- `test-recursive-with-exec-blocks` — find exec-blocks via old recursive path
-
-**Self-executing relative paths** (3 tests): `test-relative-path-*`
-- PWD resolution for self-executing relative paths (need to resolve `./script.sh` to `/project/bin/script.sh` when PWD is set)
-
-**xargs handling** (4 tests): `test-extraction-xargs-*`
-- No handler for xargs patterns
-
-**Dynamic redirects** (4 tests): `test-extraction-dynamic-redirect-*`, `test-extraction-heredoc-dynamic-redirect`
-- Redirections with `$(cmd)` or `$VAR` in destinations need variable/substitution resolution
-
-**find exec integration** (2 tests): `test-find-exec-rm-pattern`, `test-find-multiple-exec-blocks`
-- These test `jf/bash-extract-file-operations` path with older expectations — may need count/metadata adjustments
-
-**Conditional** (1 test): `test-conditional-command-based`
-- Command-based conditionals (non-test-bracket) — e.g., `if grep -q pattern file.txt; then ...`
-
-**Nested backtick substitution** (1 test): `test-cmdsub-nested-backticks`
-- Backtick-style command substitutions
-
-**Script execution edge cases** (3 tests): `test-script-execution-nested-*`, `test-script-execution-variable-unresolved`
+**Script execution edge cases** (3 tests): `test-script-execution-nested-python`, `test-script-execution-nested-self-executing`, `test-script-execution-corpus`
 - Nested execution via `bash -c 'python script.py'` (wrapper command parsing)
-- Variable in script path
+- Need to detect that `python`, `bash`, `node` etc. take script files as arguments
 
-**Parser extension** (2 tests): `test-parser-extension-*`
-- Nesting depth analysis for extensions
+**Nested structures** (2 tests): `test-nested-conditional-relative-test`, `test-nested-for-loop-relative-pattern`
+- Relative path resolution in nested conditional and for-loop contexts
 
-### Gap Categories Summarized (priority order)
+**Misc** (3 tests): `test-conditional-command-based`, `test-cmdsub-nested-backticks`, `test-deploy-script-pattern`
+- Command-based conditionals (non-test-bracket): `if grep -q pattern file.txt; then ...`
+- Backtick-style command substitutions
+- Deploy script pattern (complex cd + operations)
 
-1. **Variable resolution for handler ops** (~7 tests): The orchestrator's `jf/bash--resolve-handler-filesystem-ops` needs to set `:unresolved t` and `:unresolved-vars` when variables can't be resolved, and handle `:confidence :medium` degradation.
+**Corpus integration ERT** (4 tests): `test-corpus-integration-001..004`
+- Same as Buttercup integration tests above
 
-2. **Pattern flow tracking** (~7 tests): When command substitutions produce `:match-pattern` ops, the outer command's ops should get `:pattern-source` metadata. The function `jf/bash--extract-pattern-flow-operations` exists in `bash-parser-recursive.el` and needs to be integrated into the orchestrator.
+**Parser extensions** (2 tests): `test-parser-extension-single-nesting-depth`, `test-parser-extension-double-nesting-depth`
+- Nesting depth analysis for parser extensions
 
-3. **PWD/directory context** (~6 tests): The orchestrator's chain decomposer already tracks cd/pushd/popd. Failures may be about context not flowing correctly through nested structures or variable assignments.
+### 9 ERT Expected Failures (known limitations, `:expected-result :failed`)
 
-4. **xargs handler** (~4 tests): Register handler for `xargs` that produces operations based on piped input patterns.
+- 4 **xargs** tests: No handler for xargs yet
+- 4 **dynamic redirect** tests: `$(cmd)` or `$VAR` in redirect destinations
+- 1 **nested backtick** test: Backtick-style command substitutions
 
-5. **Dynamic redirect handling** (~4 tests): Redirections with `$(cmd)` or `$VAR` in destinations.
+## Recommended Next Steps (priority order)
 
-6. **Deduplication** (~1 test): The orchestrator's merge step should deduplicate operations.
+1. **PWD/cd context in nested structures** (~6 tests): The chain decomposer tracks cd correctly for sequential chains, but cd inside conditionals/loops doesn't flow to subsequent commands within the same scope. May need to pass directory context through conditional/loop decomposition.
 
-7. **Script execution edge cases** (~3 tests): Wrapper command handling (`bash -c`), variable in script path.
+2. **Relative path resolution for self-executing commands** (~3 tests): The orchestrator's self-execution detection creates `:execute` ops but doesn't resolve `./script.sh` against the current PWD context. Add resolution step for `:execute` ops similar to how handler ops get variable resolution.
 
-8. **Remaining integration/misc** (~6 tests): find exec metadata, conditionals, parser extensions, nested backticks.
+3. **Script execution wrapper commands** (~3 tests): Need handler or detection for `python script.py`, `bash -c 'cmd'`, `node app.js` etc. These are commands that take script files as arguments and execute them.
 
-## Recommended Next Steps
+4. **xargs handler** (~4 expected-failure tests): Create `config/bash-parser/commands/xargs.el` handler. Would convert 4 expected failures to passes.
 
-1. **Variable resolution** — Fix `jf/bash--resolve-handler-filesystem-ops` to propagate `:unresolved` metadata. High-impact, localized fix.
-
-2. **Pattern flow** — Integrate `jf/bash--extract-pattern-flow-operations` from the recursive module into the orchestrator's post-merge step.
-
-3. **xargs handler** — Create `config/bash-parser/commands/xargs.el` handler.
-
-4. **Deduplication** — Add dedup in the orchestrator's merge step (function `jf/bash--deduplicate-operations` exists in file-ops).
-
-5. **Dynamic redirects** — Extend `jf/bash-extract-operations-from-redirections` to handle variable/substitution destinations.
+5. **Dynamic redirect handling** (~4 expected-failure tests): Redirections with `$(cmd)` or `$VAR` in destinations need resolution.
 
 ## Key Files
 
@@ -142,6 +127,7 @@ All are complex integration corpus tests via `jf/bash-extract-semantics`:
 - **Self-execution detection**: `jf/bash--command-executes-self-p` in file-ops
 - **Pattern flow**: `jf/bash--extract-pattern-flow-operations` in `bash-parser-recursive.el`
 - **Deduplication**: `jf/bash--deduplicate-operations` in file-ops
+- **Variable resolution**: `jf/bash-resolve-variables` in `bash-parser-variables.org` (pure), `jf/bash--resolve-path-variables` in file-ops (full pipeline)
 
 ## Important: Literate Programming Workflow
 
