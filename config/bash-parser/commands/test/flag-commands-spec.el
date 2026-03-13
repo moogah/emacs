@@ -17,6 +17,10 @@
   (load-file (expand-file-name "interpreters.el" commands-dir))
   (load-file (expand-file-name "dd.el" commands-dir)))
 
+;; Save the handler table after loading so registry-spec resets don't affect us
+(defvar flag-cmd-test--saved-handlers jf/bash-command-handlers
+  "Saved reference to handler table with all command handlers registered.")
+
 ;;; Helper
 
 (defun flag-test--ops (result)
@@ -124,13 +128,16 @@ Validates each operation against the file-op contract."
   (describe "alias registration"
 
     (it "registers handler for grep"
-      (expect (jf/bash-lookup-command-handlers "grep") :not :to-be nil))
+      (let ((jf/bash-command-handlers flag-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "grep") :not :to-be nil)))
 
     (it "registers handler for egrep"
-      (expect (jf/bash-lookup-command-handlers "egrep") :not :to-be nil))
+      (let ((jf/bash-command-handlers flag-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "egrep") :not :to-be nil)))
 
     (it "registers handler for fgrep"
-      (expect (jf/bash-lookup-command-handlers "fgrep") :not :to-be nil)))
+      (let ((jf/bash-command-handlers flag-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "fgrep") :not :to-be nil))))
 
   (describe "preserves command name"
 
@@ -337,8 +344,9 @@ Validates each operation against the file-op contract."
   (describe "registration"
 
     (it "registers all interpreter commands"
-      (dolist (cmd '("python" "python3" "node" "bash" "sh" "zsh" "ruby" "perl" "php"))
-        (expect (jf/bash-lookup-command-handlers cmd) :not :to-be nil))))
+      (let ((jf/bash-command-handlers flag-cmd-test--saved-handlers))
+        (dolist (cmd '("python" "python3" "node" "bash" "sh" "zsh" "ruby" "perl" "php"))
+          (expect (jf/bash-lookup-command-handlers cmd) :not :to-be nil)))))
 
   (describe "preserves command name"
 
@@ -417,6 +425,7 @@ Validates each operation against the file-op contract."
         (expect (plist-get (flag-test--first-op result) :confidence) :to-equal :high)))
 
     (it "registers handler for dd"
-      (expect (jf/bash-lookup-command-handlers "dd") :not :to-be nil))))
+      (let ((jf/bash-command-handlers flag-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "dd") :not :to-be nil)))))
 
 ;;; flag-commands-spec.el ends here

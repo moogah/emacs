@@ -12,6 +12,10 @@
   (dolist (file '("git.el" "tar.el" "find.el" "ls.el" "docker.el" "go.el"))
     (load-file (expand-file-name file commands-dir))))
 
+;; Save the handler table after loading so registry-spec resets don't affect us
+(defvar complex-cmd-test--saved-handlers jf/bash-command-handlers
+  "Saved reference to handler table with all command handlers registered.")
+
 ;;; Helper functions
 
 (defun complex-test--get-ops (result)
@@ -39,7 +43,8 @@ Validates each operation against the file-op contract."
 
   (describe "registration"
     (it "is registered in the handler registry"
-      (expect (jf/bash-lookup-command-handlers "git") :not :to-be nil)))
+      (let ((jf/bash-command-handlers complex-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "git") :not :to-be nil))))
 
   (describe "simple subcommands"
     (it "classifies git add files as :read"
@@ -180,7 +185,8 @@ Validates each operation against the file-op contract."
 
   (describe "registration"
     (it "is registered in the handler registry"
-      (expect (jf/bash-lookup-command-handlers "tar") :not :to-be nil)))
+      (let ((jf/bash-command-handlers complex-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "tar") :not :to-be nil))))
 
   (describe "create mode (-c)"
     (it "classifies archive as :write and sources as :read"
@@ -246,7 +252,8 @@ Validates each operation against the file-op contract."
 
   (describe "registration"
     (it "is registered in the handler registry"
-      (expect (jf/bash-lookup-command-handlers "find") :not :to-be nil)))
+      (let ((jf/bash-command-handlers complex-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "find") :not :to-be nil))))
 
   (describe "search directory"
     (it "classifies first positional arg as :read-directory"
@@ -293,7 +300,8 @@ Validates each operation against the file-op contract."
 
   (describe "registration"
     (it "is registered in the handler registry"
-      (expect (jf/bash-lookup-command-handlers "ls") :not :to-be nil)))
+      (let ((jf/bash-command-handlers complex-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "ls") :not :to-be nil))))
 
   (describe "no args"
     (it "returns nil when no positional args"
@@ -342,7 +350,8 @@ Validates each operation against the file-op contract."
 
   (describe "registration"
     (it "is registered in the handler registry"
-      (expect (jf/bash-lookup-command-handlers "docker") :not :to-be nil)))
+      (let ((jf/bash-command-handlers complex-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "docker") :not :to-be nil))))
 
   (describe "docker cp"
     (it "classifies source as :read and dest as :write"
@@ -379,7 +388,8 @@ Validates each operation against the file-op contract."
 
   (describe "registration"
     (it "is registered in the handler registry"
-      (expect (jf/bash-lookup-command-handlers "go") :not :to-be nil)))
+      (let ((jf/bash-command-handlers complex-cmd-test--saved-handlers))
+        (expect (jf/bash-lookup-command-handlers "go") :not :to-be nil))))
 
   (describe "go run"
     (it "classifies target as :execute"
@@ -420,8 +430,9 @@ Validates each operation against the file-op contract."
 
   (describe "extract-command-semantics"
     (it "extracts git operations through the registry"
-      (let ((result (jf/bash-extract-command-semantics
-                     '(:command-name "git" :positional-args ("add" "test.txt")))))
+      (let* ((jf/bash-command-handlers complex-cmd-test--saved-handlers)
+             (result (jf/bash-extract-command-semantics
+                      '(:command-name "git" :positional-args ("add" "test.txt")))))
         (let ((fs-ops (alist-get :filesystem (plist-get result :domains))))
           (expect fs-ops :not :to-be nil)
           (expect (length fs-ops) :to-equal 1)
@@ -429,8 +440,9 @@ Validates each operation against the file-op contract."
           (expect (plist-get (car fs-ops) :operation) :to-equal :read))))
 
     (it "extracts docker operations through the registry"
-      (let ((result (jf/bash-extract-command-semantics
-                     '(:command-name "docker" :positional-args ("cp" "a.txt" "b.txt")))))
+      (let* ((jf/bash-command-handlers complex-cmd-test--saved-handlers)
+             (result (jf/bash-extract-command-semantics
+                      '(:command-name "docker" :positional-args ("cp" "a.txt" "b.txt")))))
         (let ((fs-ops (alist-get :filesystem (plist-get result :domains))))
           (expect fs-ops :not :to-be nil)
           (expect (length fs-ops) :to-equal 2))))))

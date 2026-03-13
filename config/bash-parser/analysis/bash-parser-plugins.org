@@ -149,7 +149,14 @@ Returns a plist with:
                 (error-message-string err))))
 
     ;; Layer 1: Command handlers
-    ;; Per-command semantic dispatch for all domains
+    ;; Per-command semantic dispatch for all domains.
+    ;; Known limitation: for compound commands (pipelines, chains), the top-level
+    ;; parsed-command has no :command-name, so jf/bash-extract-command-semantics
+    ;; returns empty results.  Non-filesystem domain ops from subcommands within
+    ;; compounds are not captured here.  The recursive engine (Layer 0) dispatches
+    ;; to handlers per-simple-command internally but currently returns only
+    ;; filesystem ops.  Follow-up: update the recursive engine to surface all
+    ;; domain results from per-subcommand handler dispatch.
     (let* ((cmd-result (jf/bash-extract-command-semantics parsed-command))
            (cmd-domains (plist-get cmd-result :domains))
            (cmd-claimed-ids (plist-get cmd-result :claimed-token-ids)))
