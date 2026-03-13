@@ -70,6 +70,7 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
     ;; Each block has :type, :command-name, :positional-args, :args, :terminator
     (dolist (exec-block exec-blocks)
       (let* ((exec-cmd (plist-get exec-block :command-name))
+             (exec-type (plist-get exec-block :type))
              (op-type (when exec-cmd
                         (alist-get exec-cmd jf/bash-find-exec-command-ops
                                    nil nil #'string=))))
@@ -79,6 +80,7 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
                       :confidence :high
                       :source :exec-block
                       :indirect t
+                      :exec-type exec-type
                       :command exec-cmd)
                 operations))))
     ;; Claim token IDs: command-name + all positional-arg tokens + flags
