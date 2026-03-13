@@ -96,6 +96,34 @@ for any command substitutions found in the command."
                                    cleaned var-context sub-metadata
                                    (1+ (or depth 0)))))
                 (setq entries (append entries sub-entries))))))))
+    ;; Shell wrapper -c processing: parse and decompose inner command string
+    ;; e.g., `bash -c 'rm file.txt'` → decompose `rm file.txt` as indirect
+    (let ((cmd-name (plist-get simple-command :command-name)))
+      (when (and cmd-name
+                 (member cmd-name '("bash" "sh" "dash" "zsh" "ksh"))
+                 (member "-c" (plist-get simple-command :flags)))
+        (when-let ((inner-cmd-string (car (plist-get simple-command :positional-args))))
+          (condition-case nil
+              (let* ((parsed-inner (jf/bash-parse inner-cmd-string))
+                     (current-depth (or (plist-get metadata :nesting-depth) 0))
+                     ;; Build metadata removing old :indirect/:nesting-depth keys
+                     ;; to avoid duplicates (annotate-ops iterates all pairs)
+                     (base-metadata
+                      (cl-loop for (k v) on (or metadata '()) by #'cddr
+                               unless (memq k '(:indirect :nesting-depth))
+                               append (list k v)))
+                     (wrapper-metadata (append
+                                        (list :indirect t
+                                              :nesting-depth (1+ current-depth))
+                                        base-metadata)))
+                (when (plist-get parsed-inner :success)
+                  (let* ((cleaned (copy-sequence parsed-inner))
+                         (_ (plist-put cleaned :ast nil))
+                         (inner-entries (jf/bash--decompose-recursive
+                                        cleaned var-context wrapper-metadata
+                                        (1+ (or depth 0)))))
+                    (setq entries (append entries inner-entries)))))
+            (error nil)))))
     entries))
 
 (defun jf/bash--decompose-pipeline (parsed-command var-context metadata depth)
@@ -246,13 +274,28 @@ If the condition is a cd command, passes updated PWD to the then-branch."
     (when condition-text
       (let ((test-ops (jf/bash--extract-test-condition-ops
                        condition-text var-context metadata)))
-        (when test-ops
-          ;; Create a synthetic entry for test condition operations
-          (push (list :command (list :command-name "[" :type :simple)
-                      :var-context var-context
-                      :redirection-ops test-ops
-                      :metadata (append (list :test-condition t) metadata))
-                entries)))
+        (if test-ops
+            ;; Bracket-style test: create synthetic entry
+            (push (list :command (list :command-name "[" :type :simple)
+                        :var-context var-context
+                        :redirection-ops test-ops
+                        :metadata (append (list :test-condition t) metadata))
+                  entries)
+          ;; Command-based condition (e.g., `grep -q pattern file.txt`):
+          ;; parse and decompose as a regular command with :test-condition metadata
+          (condition-case nil
+              (let* ((parsed-cond (jf/bash-parse condition-text))
+                     (clean-cond (when (plist-get parsed-cond :success)
+                                   (let ((cleaned (copy-sequence parsed-cond)))
+                                     (plist-put cleaned :ast nil)
+                                     cleaned)))
+                     (cond-metadata (append (list :test-condition t :conditional t)
+                                           metadata))
+                     (cond-entries (when clean-cond
+                                    (jf/bash--decompose-recursive
+                                     clean-cond var-context cond-metadata (1+ depth)))))
+                (setq entries (append entries cond-entries)))
+            (error nil))))
 
       ;; Check if condition is a cd command — update context for then-branch
       (when-let ((cd-context (jf/bash--extract-cd-from-condition
@@ -595,12 +638,27 @@ Returns a plist with:
                            ((stringp result) (setq resolved-name result))
                            ((and (listp result) (plist-get result :path))
                             (setq resolved-name (plist-get result :path)))))))
-                   (self-op (list :file resolved-name
-                                  :operation :execute
-                                  :confidence :low
-                                  :source :command-name
-                                  :self-executing t
-                                  :script-args (or args positional-args '())))
+                   ;; Detect unresolved variables in the command name
+                   (unresolved-vars
+                    (when (string-match-p "\\$" resolved-name)
+                      (if (and ctx (fboundp 'jf/bash--resolve-path-variables))
+                          (let ((result (jf/bash--resolve-path-variables resolved-name ctx)))
+                            (when (and (listp result) (plist-get result :unresolved))
+                              (plist-get result :unresolved)))
+                        (when (fboundp 'jf/bash-resolve-variables)
+                          (let ((result (jf/bash-resolve-variables resolved-name nil)))
+                            (when (and (listp result) (plist-get result :unresolved))
+                              (plist-get result :unresolved)))))))
+                   (self-op (append
+                             (list :file resolved-name
+                                   :operation :execute
+                                   :confidence :low
+                                   :source :command-name
+                                   :self-executing t
+                                   :script-args (or args positional-args '()))
+                             (when unresolved-vars
+                               (list :unresolved t
+                                     :unresolved-vars unresolved-vars))))
                    (annotated (jf/bash--annotate-ops-with-metadata
                                (list self-op) metadata))
                    (existing (assq :filesystem domains-alist)))
