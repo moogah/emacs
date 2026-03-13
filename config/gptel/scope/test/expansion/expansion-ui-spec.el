@@ -693,6 +693,162 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
         (delete-file scope-yml)))))
 
 ;;; ============================================================
+;;; Regression: read-like bash violations must write to paths.read
+;;; ============================================================
+;;;
+;;; Bug: run_bash_command is categorized as :operation write in tool-categories,
+;;; so add-path-to-scope always routes bash violations to paths.write.
+;;; But read-like violations (:read-metadata, :read-directory, :read) should
+;;; write to paths.read.
+
+(describe "Scope file routing: read vs write paths"
+
+  (it "routes read-metadata bash violation to paths.read, not paths.write"
+    ;; Scenario: 'which python3' generates a :read-metadata violation.
+    ;; User approves via wildcard expansion.
+    ;; Expected: pattern written to paths.read, not paths.write.
+    (let* ((scope-yml (expansion-ui-spec--make-scope-with-paths
+                       '("/workspace/**") '("/workspace/**")))
+           (resource "/usr/local/bin/python3")
+           (callback-result nil)
+           (mock-callback (lambda (result) (setq callback-result result))))
+
+      ;; Simulate the transient scope for a read-metadata bash violation
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read-metadata
+                                                       :validation-type 'bash
+                                                       :reason "path_out_of_scope")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'transient-quit-one)
+
+      ;; Call the real write chain — do NOT stub write-pattern-to-scope
+      (jf/gptel-scope--add-wildcard-to-scope)
+
+      ;; Read back the scope.yml and verify routing
+      (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
+             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (paths (plist-get normalized :paths))
+             (read-paths (plist-get paths :read))
+             (write-paths (plist-get paths :write)))
+
+        ;; The wildcard /usr/local/bin/** should be in read, not write
+        (expect (member "/usr/local/bin/**" read-paths) :not :to-be nil)
+        (expect (member "/usr/local/bin/**" write-paths) :to-be nil))
+
+      (delete-file scope-yml)))
+
+  (it "routes read-directory bash violation to paths.read, not paths.write"
+    ;; Scenario: 'find /usr/bin -name python*' generates a :read-directory violation.
+    ;; User approves via add-to-scope.
+    ;; Expected: resource written to paths.read, not paths.write.
+    (let* ((scope-yml (expansion-ui-spec--make-scope-with-paths
+                       '("/workspace/**") '("/workspace/**")))
+           (resource "/usr/bin/python3")
+           (callback-result nil)
+           (mock-callback (lambda (result) (setq callback-result result))))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read-directory
+                                                       :validation-type 'bash
+                                                       :reason "path_out_of_scope")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'transient-quit-one)
+
+      (jf/gptel-scope--add-to-scope)
+
+      (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
+             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (paths (plist-get normalized :paths))
+             (read-paths (plist-get paths :read))
+             (write-paths (plist-get paths :write)))
+
+        (expect (member "/usr/bin/python3" read-paths) :not :to-be nil)
+        (expect (member "/usr/bin/python3" write-paths) :to-be nil))
+
+      (delete-file scope-yml))))
+
+;;; ============================================================
+;;; Feature (not yet implemented): paths.read-metadata section
+;;; ============================================================
+;;;
+;;; Desired behavior: read-metadata violations should be addable to a
+;;; distinct paths.read-metadata section in scope.yml (more restrictive
+;;; than paths.read — allows metadata checks without content access).
+;;; Validation should check read-metadata OR read OR write.
+
+(describe "paths.read-metadata scope section (not yet implemented)"
+
+  (it "add-to-scope for read-metadata violation writes to paths.read-metadata"
+    ;; Desired: user approves a read-metadata violation → path goes to
+    ;; paths.read-metadata, not paths.read or paths.write.
+    (let* ((scope-yml (expansion-ui-spec--make-scope-with-paths
+                       '("/workspace/**") '("/workspace/**")))
+           (resource "/usr/local/bin/python3")
+           (mock-callback (lambda (result) nil)))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :read-metadata
+                                                       :validation-type 'bash
+                                                       :reason "path_out_of_scope")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'transient-quit-one)
+
+      (jf/gptel-scope--add-to-scope)
+
+      (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
+             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (paths (plist-get normalized :paths)))
+
+        ;; Should appear in read-metadata section
+        (expect (member resource (plist-get paths :read-metadata)) :not :to-be nil)
+        ;; Should NOT appear in read or write
+        (expect (member resource (plist-get paths :read)) :to-be nil)
+        (expect (member resource (plist-get paths :write)) :to-be nil))
+
+      (delete-file scope-yml)))
+
+  (it "validation passes for read-metadata op when path is in paths.read-metadata"
+    ;; Desired: a path in paths.read-metadata satisfies :read-metadata validation
+    ;; even if it is NOT in paths.read or paths.write.
+    (let* ((scope-yml (helpers-spec-make-scope-yml
+                       (append (helpers-spec--scope-with-paths
+                                '("/workspace/**") '("/workspace/**") '() '() '())
+                               ;; The new read-metadata section (not yet in schema)
+                               (list :read-metadata '("/usr/local/bin/**")))))
+           (scope-config (helpers-spec-load-scope-config scope-yml))
+           (command "which python3")
+           (directory "/usr/local/bin"))
+
+      (helpers-spec-mock-bash-parse command '("which") t)
+      (helpers-spec-mock-bash-semantics
+       (list (helpers-spec--make-file-op :read-metadata "/usr/local/bin/python3"
+                                         :command-name "which"))
+       nil
+       '(:ratio 1.0))
+
+      ;; Validation should succeed (path is in read-metadata scope)
+      (let ((result (jf/gptel-scope--validate-command-semantics
+                     command directory scope-config)))
+        (expect result :to-be nil))
+
+      (delete-file scope-yml))))
+
+;;; ============================================================
 ;;; Tests for wildcard helper and new expansion suffixes
 ;;; ============================================================
 
