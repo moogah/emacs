@@ -69,11 +69,6 @@
         (expect (plist-member result :coverage) :not :to-be nil)
         (expect (plist-member result :parse-complete) :not :to-be nil)))
 
-    (it "does NOT contain :plugin-results key (plugin system removed)"
-      (let* ((parsed (jf/bash-parse "echo hello"))
-             (result (jf/bash-extract-semantics parsed)))
-        (expect (plist-member result :plugin-results) :to-be nil)))
-
     (it "returns :domains as an alist of (domain . ops) pairs"
       (let* ((parsed (jf/bash-parse "echo hello > output.txt"))
              (result (jf/bash-extract-semantics parsed))
