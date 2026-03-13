@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Calculate semantic coverage by comparing total tokens to claimed tokens, identifying blindspots where no plugin understands the syntax, and providing visualization for debugging and analysis.
+Calculate semantic coverage by comparing total tokens to claimed tokens, identifying blindspots where no extraction layer claims the syntax, and providing visualization for debugging and analysis.
 
 ## Responsibilities
 
@@ -18,7 +18,7 @@ Calculate semantic coverage by comparing total tokens to claimed tokens, identif
 
 - Coverage ratio is always between 0.0 and 1.0 (even with shared claiming)
 - Empty command (zero tokens) has coverage ratio of 1.0 (perfect coverage of nothing)
-- Token is counted as claimed if at least one plugin claimed it
+- Token is counted as claimed if at least one extraction source claimed it
 - Unclaimed token list is empty if and only if coverage ratio is 1.0
 
 ## Requirements
@@ -27,7 +27,7 @@ Calculate semantic coverage by comparing total tokens to claimed tokens, identif
 The system SHALL calculate semantic coverage by comparing total tokens to claimed tokens.
 
 #### Scenario: Full coverage
-- **WHEN** all tokens are claimed by at least one plugin
+- **WHEN** all tokens are claimed by at least one extraction source
 - **THEN** coverage ratio is 1.0 (100%)
 
 #### Scenario: Partial coverage
@@ -35,11 +35,11 @@ The system SHALL calculate semantic coverage by comparing total tokens to claime
 - **THEN** coverage ratio is 0.7 (70%)
 
 #### Scenario: No coverage
-- **WHEN** no tokens are claimed by any plugin
+- **WHEN** no tokens are claimed by any extraction source
 - **THEN** coverage ratio is 0.0 (0%)
 
 #### Scenario: Over 100% with shared claiming
-- **WHEN** multiple plugins claim same tokens (shared claiming)
+- **WHEN** multiple sources claim same tokens (shared claiming)
 - **THEN** coverage ratio is still between 0.0 and 1.0 (not > 1.0)
 
 ### Requirement: Coverage by token type
@@ -58,7 +58,7 @@ The system SHALL provide coverage breakdown by token type for diagnostic analysi
 - **THEN** result includes coverage ratio for each token type present in command
 
 ### Requirement: Unclaimed token identification
-The system SHALL identify and list all tokens not claimed by any plugin (blindspots).
+The system SHALL identify and list all tokens not claimed by any extraction source (blindspots).
 
 #### Scenario: List unclaimed tokens
 - **WHEN** calculating coverage with unclaimed tokens
@@ -124,9 +124,9 @@ The system SHALL integrate coverage calculation into semantic extraction workflo
 - **WHEN** jf/bash-extract-semantics completes
 - **THEN** result includes :coverage plist with metrics
 
-#### Scenario: Coverage uses claimed tokens from plugins
-- **WHEN** calculating coverage after plugin execution
-- **THEN** coverage uses aggregated claimed-token-ids from all plugin results
+#### Scenario: Coverage uses claimed tokens from all sources
+- **WHEN** calculating coverage after extraction completes
+- **THEN** coverage uses aggregated claimed-token-ids from orchestrator and command handlers
 
 ## Coverage Metrics Structure
 
@@ -145,9 +145,9 @@ The system SHALL integrate coverage calculation into semantic extraction workflo
 
 ## Integration Points
 
-- **Plugin System**: Uses claimed-token-ids from plugin results
+- **Orchestrator**: Receives claimed-token-ids from post-hoc token claiming and handler results
 - **Core Parser**: Uses token inventory from parsed command
-- **Semantic Extraction**: Coverage included in jf/bash-extract-semantics result
+- **Semantic Extraction**: Coverage included in `jf/bash-extract-semantics` result
 
 ## Example Usage
 
@@ -155,7 +155,7 @@ The system SHALL integrate coverage calculation into semantic extraction workflo
 ;; Calculate coverage
 (jf/bash-calculate-coverage
   tokens                          ; Token inventory from parser
-  '(0 1 2 5 6 8 9))              ; Claimed token IDs from plugins
+  '(0 1 2 5 6 8 9))              ; Claimed token IDs from extraction
 ;; => (:total-tokens 10
 ;;     :claimed-tokens 7
 ;;     :coverage-ratio 0.7

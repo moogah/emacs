@@ -1,4 +1,4 @@
-# Bash Parser Cloud Authentication Plugin
+# Cloud Authentication Detection
 
 ## Purpose
 
@@ -6,195 +6,104 @@ Extract cloud authentication scope from bash commands using AWS, GCP, and Azure 
 
 ## Responsibilities
 
-- Maintain pattern database for cloud CLI authentication patterns (AWS, GCP, Azure)
-- Extract authentication scope including provider and account/profile/project identifier
-- Claim tokens representing authentication commands, subcommands, flags, and identifiers
-- Use plugin predicates to run only for cloud CLI commands
-- Handle multiple authentication contexts (e.g., aws-vault wrapping aws)
-- Extract region and other authentication context when specified
+- Extract authentication context (provider, profile/project/subscription) from cloud CLI commands
+- Extract implicit network access from cloud CLI commands
+- Support multi-domain extraction: `:authentication` and `:network` (and `:filesystem` for AWS S3)
+- Use the command handler registry for dispatch — no plugin system, no predicates
 
 ## Key Invariants
 
-- Plugin domain is always :cloud-auth
-- Operations have type :authenticate
-- Plugin only runs when command-name matches cloud CLI tools (aws, aws-vault, gcloud, az)
-- Each authentication operation includes provider keyword (:aws, :gcp, :azure)
+- Cloud auth detection is implemented as command handlers, not plugins
+- Authentication domain key is `:authentication` (not `:cloud-auth`)
+- Network domain key is `:network`
+- Each provider's handlers are self-contained in their command file
+- Handlers execute per-simple-command — compound structures are decomposed by the orchestrator's grammar layer before handler dispatch
 
 ## Requirements
 
-### Requirement: Cloud authentication pattern database
-The system SHALL maintain a database of cloud CLI authentication patterns for AWS, GCP, and Azure.
+### Requirement: AWS authentication detection
+The system SHALL detect AWS authentication context from `aws` and `aws-vault` commands via command handlers.
 
-#### Scenario: AWS Vault pattern
-- **WHEN** database includes aws-vault pattern
-- **THEN** pattern specifies subcommand "exec" and account from first positional arg
-
-#### Scenario: AWS CLI pattern
-- **WHEN** database includes aws pattern
-- **THEN** pattern specifies profile from --profile flag
-
-#### Scenario: GCloud pattern
-- **WHEN** database includes gcloud pattern
-- **THEN** pattern specifies project from --project flag
-
-#### Scenario: Azure CLI pattern
-- **WHEN** database includes az pattern
-- **THEN** pattern specifies subscription from --subscription flag
-
-### Requirement: Extract authentication scope
-The system SHALL extract authentication scope including provider and account/profile/project identifier.
-
-#### Scenario: AWS Vault authentication
-- **WHEN** extracting from "aws-vault exec oncall-production -- aws s3 ls"
-- **THEN** operation is :authenticate with provider :aws and account "oncall-production"
-
-#### Scenario: AWS profile authentication
+#### Scenario: AWS profile detection
 - **WHEN** extracting from "aws --profile prod s3 ls"
-- **THEN** operation is :authenticate with provider :aws and profile "prod"
+- **THEN** `:authentication` domain contains operation with `:provider :aws` and `:context ((:profile . "prod"))`
 
-#### Scenario: GCP project authentication
-- **WHEN** extracting from "gcloud --project my-project compute instances list"
-- **THEN** operation is :authenticate with provider :gcp and project "my-project"
-
-#### Scenario: Azure subscription authentication
-- **WHEN** extracting from "az --subscription my-sub vm list"
-- **THEN** operation is :authenticate with provider :azure and subscription "my-sub"
-
-### Requirement: Token claiming for auth operations
-The system SHALL claim tokens representing authentication commands, subcommands, flags, and account identifiers.
-
-#### Scenario: Claim command name
-- **WHEN** detecting aws-vault command
-- **THEN** plugin claims command-name token
-
-#### Scenario: Claim subcommand
-- **WHEN** detecting "exec" subcommand in aws-vault
-- **THEN** plugin claims subcommand positional-arg token
-
-#### Scenario: Claim account identifier
-- **WHEN** detecting account name "oncall-production"
-- **THEN** plugin claims account positional-arg token
-
-#### Scenario: Claim profile flag and value
-- **WHEN** detecting "--profile prod" in aws command
-- **THEN** plugin claims both flag and flag-arg tokens
-
-### Requirement: Plugin predicate for applicability
-The system SHALL use predicates to determine when cloud-auth plugin applies.
-
-#### Scenario: Predicate matches cloud CLI
-- **WHEN** command-name is "aws", "aws-vault", "gcloud", or "az"
-- **THEN** plugin predicate returns true
-
-#### Scenario: Predicate rejects non-cloud commands
-- **WHEN** command-name is "cat" or other non-cloud command
-- **THEN** plugin predicate returns false
-
-### Requirement: Cloud auth plugin result
-The system SHALL return plugin result with domain :cloud-auth and authentication operations.
-
-#### Scenario: Plugin result domain
-- **WHEN** cloud-auth plugin extracts operations
-- **THEN** result domain is :cloud-auth
-
-#### Scenario: Plugin result operations
-- **WHEN** cloud-auth plugin extracts operations
-- **THEN** result operations include :operation :authenticate with provider and identifier
-
-#### Scenario: Plugin result metadata
-- **WHEN** cloud-auth plugin extracts operations
-- **THEN** result metadata includes :provider keyword
-
-### Requirement: Multiple authentication contexts
-The system SHALL handle commands with multiple authentication contexts (e.g., aws-vault wrapping aws).
-
-#### Scenario: Nested authentication
-- **WHEN** extracting from "aws-vault exec prod -- aws --profile staging s3 ls"
-- **THEN** plugin extracts both aws-vault account and aws profile as separate operations
-
-#### Scenario: Token claiming for both contexts
-- **WHEN** handling nested authentication
-- **THEN** plugin claims tokens for both authentication mechanisms
-
-### Requirement: Region and additional context
-The system SHALL extract region and other authentication context when specified.
-
-#### Scenario: AWS region flag
+#### Scenario: AWS region detection
 - **WHEN** extracting from "aws --region us-west-2 s3 ls"
-- **THEN** operation includes :region "us-west-2"
+- **THEN** `:authentication` domain contains operation with `:provider :aws` and `:context ((:region . "us-west-2"))`
 
-#### Scenario: GCP zone flag
-- **WHEN** extracting from "gcloud --zone us-central1-a compute instances list"
-- **THEN** operation includes :zone "us-central1-a"
+#### Scenario: AWS Vault profile detection
+- **WHEN** extracting from "aws-vault exec oncall-production -- aws s3 ls"
+- **THEN** `:authentication` domain contains operation with `:provider :aws-vault` and `:context ((:profile . "oncall-production"))`
 
-## Plugin Protocol Compliance
+#### Scenario: AWS implicit network access
+- **WHEN** extracting from any `aws` command
+- **THEN** `:network` domain contains operation with `:protocol :https` and `:endpoint "amazonaws.com"`
+
+### Requirement: GCP authentication detection
+The system SHALL detect GCP authentication context from `gcloud` commands via command handlers.
+
+#### Scenario: GCP project detection
+- **WHEN** extracting from "gcloud --project my-project compute instances list"
+- **THEN** `:authentication` domain contains operation with `:provider :gcloud` and `:context ((:project . "my-project"))`
+
+#### Scenario: GCP account detection
+- **WHEN** extracting from "gcloud --account me@example.com compute instances list"
+- **THEN** `:authentication` domain contains operation with `:provider :gcloud` and `:context ((:account . "me@example.com"))`
+
+#### Scenario: GCP implicit network access
+- **WHEN** extracting from any `gcloud` command
+- **THEN** `:network` domain contains operation with `:protocol :https` and `:endpoint "googleapis.com"`
+
+### Requirement: Azure authentication detection
+The system SHALL detect Azure authentication context from `az` commands via command handlers.
+
+#### Scenario: Azure subscription detection
+- **WHEN** extracting from "az --subscription my-sub vm list"
+- **THEN** `:authentication` domain contains operation with `:provider :azure` and `:context ((:subscription . "my-sub"))`
+
+#### Scenario: Azure resource group detection
+- **WHEN** extracting from "az -g my-rg vm list"
+- **THEN** `:authentication` domain contains operation with `:provider :azure` and `:context ((:resource-group . "my-rg"))`
+
+#### Scenario: Azure implicit network access
+- **WHEN** extracting from any `az` command
+- **THEN** `:network` domain contains operation with `:protocol :https` and `:endpoint "azure.com"`
+
+### Requirement: Cloud auth in compound structures
+The system SHALL detect cloud authentication in compound structures because the orchestrator decomposes compounds before dispatching to handlers.
+
+#### Scenario: Cloud auth in chain
+- **WHEN** extracting from "aws-vault exec prod -- aws s3 ls && gcloud compute instances list"
+- **THEN** `:authentication` domain contains operations from both `aws-vault` and `gcloud`
+- **AND** each handler receives its simple command independently
+
+### Requirement: AWS S3 filesystem operations
+The `aws` command handler SHALL also detect local filesystem operations from S3 commands.
+
+#### Scenario: S3 copy with local source
+- **WHEN** extracting from "aws s3 cp local.txt s3://bucket/key"
+- **THEN** `:filesystem` domain contains operation with `:file "local.txt"` and `:operation :read`
+
+#### Scenario: S3 copy with local destination
+- **WHEN** extracting from "aws s3 cp s3://bucket/key local.txt"
+- **THEN** `:filesystem` domain contains operation with `:file "local.txt"` and `:operation :write`
+
+## Handler Implementation
 
 ```elisp
-;; Plugin registration
-(jf/bash-register-plugin
-  :name 'cloud-auth
-  :priority 100
-  :extractor #'jf/bash-plugin-cloud-auth
-  :predicates (list #'jf/bash--cloud-auth-predicate))
-
-;; Predicate function
-(defun jf/bash--cloud-auth-predicate (parsed-command)
-  "Return t if command is cloud CLI."
-  (member (plist-get parsed-command :command-name)
-          '("aws" "aws-vault" "gcloud" "az")))
-
-;; Plugin function
-(defun jf/bash-plugin-cloud-auth (parsed-command)
-  "Extract cloud authentication from PARSED-COMMAND."
-  (make-jf/bash-plugin-result
-    :domain :cloud-auth
-    :operations operations-list
-    :claimed-token-ids claimed-ids
-    :metadata (list :provider provider-keyword)))
-```
-
-## Pattern Database Structure
-
-```elisp
-(defconst jf/bash-cloud-auth-patterns
-  '((:command "aws-vault"
-     :subcommand "exec"
-     :account-source :positional-arg
-     :account-index 0
-     :provider :aws)
-    (:command "aws"
-     :profile-flag "--profile"
-     :region-flag "--region"
-     :provider :aws)
-    (:command "gcloud"
-     :project-flag "--project"
-     :zone-flag "--zone"
-     :provider :gcp)
-    (:command "az"
-     :subscription-flag "--subscription"
-     :provider :azure)))
+;; Each cloud CLI has its own handler file in commands/
+;; Registration via standard command handler API:
+(jf/bash-register-command-handler
+ :command "aws" :domain :authentication :handler #'jf/bash-command-aws--auth-handler)
+(jf/bash-register-command-handler
+ :command "aws" :domain :network :handler #'jf/bash-command-aws--network-handler)
+(jf/bash-register-command-handler
+ :command "aws" :domain :filesystem :handler #'jf/bash-command-aws--filesystem-handler)
 ```
 
 ## Integration Points
 
-- **Plugin System**: Registered with predicate for cloud CLI commands only
-- **Core Parser**: Uses token inventory to claim relevant tokens
-- **gptel Scope System**: Consumer of cloud authentication scope
-
-## Example Usage
-
-```elisp
-;; AWS Vault
-(jf/bash-extract-semantics (jf/bash-parse "aws-vault exec prod -- aws s3 ls"))
-;; => (:domains ((:cloud-auth . ((operation :authenticate
-;;                                 provider :aws
-;;                                 account "prod"
-;;                                 confidence :high)))) ...)
-
-;; GCP
-(jf/bash-extract-semantics (jf/bash-parse "gcloud --project my-proj compute instances list"))
-;; => (:domains ((:cloud-auth . ((operation :authenticate
-;;                                 provider :gcp
-;;                                 project "my-proj"
-;;                                 confidence :high)))) ...)
-```
+- **Command Handler Registry**: Registered via `jf/bash-register-command-handler`
+- **Orchestrator**: Dispatched per-simple-command by Layer 1
+- **gptel Scope System**: Consumer of `:authentication` and `:network` domain results

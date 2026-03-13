@@ -90,7 +90,7 @@ The system SHALL classify tokens into syntactic categories for coverage analysis
 - **THEN** token type is :pipe
 
 ### Requirement: Token unique identifiers
-The system SHALL assign unique integer IDs to each token for tracking and claiming by plugins.
+The system SHALL assign unique integer IDs to each token for tracking and claiming by extraction layers.
 
 #### Scenario: Token has unique ID
 - **WHEN** parser creates tokens
@@ -184,9 +184,9 @@ The system SHALL track whether nested structures (command substitutions, subshel
 
 ## Integration Points
 
-- **Plugin System**: Plugins consume parsed commands with token inventory and :parse-complete flag
+- **Orchestrator**: Consumes parsed commands with token inventory and :parse-complete flag
 - **Coverage System**: Uses token inventory and :parse-complete to calculate semantic coverage
-- **Semantic Extraction**: Semantic plugins claim tokens to indicate understanding
+- **Command Handlers**: Receive parsed commands and claim tokens to indicate understanding
 
 ## Example Usage
 

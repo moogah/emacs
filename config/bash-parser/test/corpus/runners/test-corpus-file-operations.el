@@ -796,14 +796,13 @@
                    :branch :then
                    :loop-context t
                    :pattern t)
-                  ;; redirect writes with dynamic filename (from basename substitution)
-                  (:file "backup/*"
+                  ;; redirect writes with resolved basename (*.log preserved through basename)
+                  (:file "backup/*.log"
                    :operation :write
                    :source :redirection
                    :conditional t
                    :branch :then
-                   :loop-context t
-                   :dynamic t)))
+                   :loop-context t)))
 
     (:id "integration-002"
      :command "cat $(find . -name '*.txt') | grep -E '^ERROR' > errors.log"
