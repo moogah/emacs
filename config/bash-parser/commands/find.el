@@ -78,6 +78,7 @@ Returns plist with :domain, :operations, :claimed-token-ids, :metadata or nil."
                       :operation op-type
                       :confidence :high
                       :source :exec-block
+                      :indirect t
                       :command exec-cmd)
                 operations))))
     ;; Claim token IDs: command-name + all positional-arg tokens + flags

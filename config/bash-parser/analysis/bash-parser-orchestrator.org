@@ -727,6 +727,12 @@ Returns a plist with:
         (setq all-claimed-token-ids
               (append entry-claimed all-claimed-token-ids))))
 
+    ;; Deduplicate filesystem operations (same file + operation type)
+    (when (fboundp 'jf/bash--deduplicate-operations)
+      (when-let ((fs-entry (assq :filesystem domains-alist)))
+        (setcdr fs-entry
+                (jf/bash--deduplicate-operations (cdr fs-entry)))))
+
     ;; Deduplicate claimed IDs
     (setq all-claimed-token-ids (delete-dups all-claimed-token-ids))
 
