@@ -698,8 +698,8 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 ;;;
 ;;; Bug: run_bash_command is categorized as :operation write in tool-categories,
 ;;; so add-path-to-scope always routes bash violations to paths.write.
-;;; But read-like violations (:read-metadata, :read-directory, :read) should
-;;; write to paths.read.
+;;; But read-like violations (:read-metadata, :read-directory, :read, :match-pattern)
+;;; should write to paths.read.
 
 (describe "Scope file routing: read vs write paths"
 
@@ -775,31 +775,20 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
         (expect (member "/usr/bin/python3" read-paths) :not :to-be nil)
         (expect (member "/usr/bin/python3" write-paths) :to-be nil))
 
-      (delete-file scope-yml))))
+      (delete-file scope-yml)))
 
-;;; ============================================================
-;;; Feature (not yet implemented): paths.read-metadata section
-;;; ============================================================
-;;;
-;;; Desired behavior: read-metadata violations should be addable to a
-;;; distinct paths.read-metadata section in scope.yml (more restrictive
-;;; than paths.read — allows metadata checks without content access).
-;;; Validation should check read-metadata OR read OR write.
-
-(describe "paths.read-metadata scope section (not yet implemented)"
-
-  (it "add-to-scope for read-metadata violation writes to paths.read-metadata"
-    ;; Desired: user approves a read-metadata violation → path goes to
-    ;; paths.read-metadata, not paths.read or paths.write.
+  (it "routes read bash violation to paths.read, not paths.write"
+    ;; Scenario: 'cat /etc/hosts' generates a :read violation.
+    ;; Expected: resource written to paths.read.
     (let* ((scope-yml (expansion-ui-spec--make-scope-with-paths
                        '("/workspace/**") '("/workspace/**")))
-           (resource "/usr/local/bin/python3")
+           (resource "/etc/hosts")
            (mock-callback (lambda (result) nil)))
 
       (spy-on 'transient-scope
               :and-return-value (list :violation (list :tool "run_bash_command"
                                                        :resource resource
-                                                       :operation :read-metadata
+                                                       :operation :read
                                                        :validation-type 'bash
                                                        :reason "path_out_of_scope")
                                       :callback mock-callback
@@ -812,39 +801,78 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
       (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
              (normalized (jf/gptel-scope--normalize-plist-keys parsed))
-             (paths (plist-get normalized :paths)))
+             (paths (plist-get normalized :paths))
+             (read-paths (plist-get paths :read))
+             (write-paths (plist-get paths :write)))
 
-        ;; Should appear in read-metadata section
-        (expect (member resource (plist-get paths :read-metadata)) :not :to-be nil)
-        ;; Should NOT appear in read or write
-        (expect (member resource (plist-get paths :read)) :to-be nil)
-        (expect (member resource (plist-get paths :write)) :to-be nil))
+        (expect (member "/etc/hosts" read-paths) :not :to-be nil)
+        (expect (member "/etc/hosts" write-paths) :to-be nil))
 
       (delete-file scope-yml)))
 
-  (it "validation passes for read-metadata op when path is in paths.read-metadata"
-    ;; Desired: a path in paths.read-metadata satisfies :read-metadata validation
-    ;; even if it is NOT in paths.read or paths.write.
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       (append (helpers-spec--scope-with-paths
-                                '("/workspace/**") '("/workspace/**") '() '() '())
-                               ;; The new read-metadata section (not yet in schema)
-                               (list :read-metadata '("/usr/local/bin/**")))))
-           (scope-config (helpers-spec-load-scope-config scope-yml))
-           (command "which python3")
-           (directory "/usr/local/bin"))
+  (it "routes match-pattern bash violation to paths.read, not paths.write"
+    ;; Scenario: 'find /usr/share -name "*.txt"' generates a :match-pattern violation
+    ;; where the resource is the glob pattern string, not a concrete path.
+    ;; Expected: pattern string written to paths.read.
+    (let* ((scope-yml (expansion-ui-spec--make-scope-with-paths
+                       '("/workspace/**") '("/workspace/**")))
+           (resource "*.txt")
+           (mock-callback (lambda (result) nil)))
 
-      (helpers-spec-mock-bash-parse command '("which") t)
-      (helpers-spec-mock-bash-semantics
-       (list (helpers-spec--make-file-op :read-metadata "/usr/local/bin/python3"
-                                         :command-name "which"))
-       nil
-       '(:ratio 1.0))
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :match-pattern
+                                                       :validation-type 'bash
+                                                       :reason "path_out_of_scope")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'transient-quit-one)
 
-      ;; Validation should succeed (path is in read-metadata scope)
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     command directory scope-config)))
-        (expect result :to-be nil))
+      (jf/gptel-scope--add-to-scope)
+
+      (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
+             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (paths (plist-get normalized :paths))
+             (read-paths (plist-get paths :read))
+             (write-paths (plist-get paths :write)))
+
+        (expect (member "*.txt" read-paths) :not :to-be nil)
+        (expect (member "*.txt" write-paths) :to-be nil))
+
+      (delete-file scope-yml)))
+
+  (it "routes write bash violation to paths.write"
+    ;; Sanity check: write-like operations still route to paths.write.
+    (let* ((scope-yml (expansion-ui-spec--make-scope-with-paths
+                       '("/workspace/**") '("/workspace/**")))
+           (resource "/tmp/output.txt")
+           (mock-callback (lambda (result) nil)))
+
+      (spy-on 'transient-scope
+              :and-return-value (list :violation (list :tool "run_bash_command"
+                                                       :resource resource
+                                                       :operation :write
+                                                       :validation-type 'bash
+                                                       :reason "path_out_of_scope")
+                                      :callback mock-callback
+                                      :patterns (list resource)
+                                      :tool-name "run_bash_command"))
+      (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
+      (spy-on 'transient-quit-one)
+
+      (jf/gptel-scope--add-to-scope)
+
+      (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
+             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (paths (plist-get normalized :paths))
+             (read-paths (plist-get paths :read))
+             (write-paths (plist-get paths :write)))
+
+        (expect (member "/tmp/output.txt" write-paths) :not :to-be nil)
+        (expect (member "/tmp/output.txt" read-paths) :to-be nil))
 
       (delete-file scope-yml))))
 
