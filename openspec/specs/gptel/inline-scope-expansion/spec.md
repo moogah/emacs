@@ -42,9 +42,14 @@ The scope validation system SHALL automatically trigger the expansion UI when a 
 
 ### Scenario: Inline expansion preserves violation context
 - **WHEN** validation fails and triggers inline expansion UI
-- **THEN** violation info includes tool name, resource, operation, and validation type
+- **THEN** violation info includes tool name, resource, reason (human-readable), and validation type
 - **AND** transient menu displays full context to user
 - **AND** context is sufficient for user to make informed decision
+
+### Scenario: Expansion UI receives human-readable reason from all validator types
+- **WHEN** path, pattern, or bash validator triggers expansion UI
+- **THEN** the `:reason` field in violation-info contains human-readable text (from validator's `:message` field)
+- **AND** the UI never displays machine codes like "denied-pattern" or "command-not-allowed" as the reason
 
 ## Async-capable scope validation wrapper
 
