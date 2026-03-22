@@ -119,18 +119,11 @@
         (expect (plist-get result :reason) :to-equal "Unknown error")
         (expect (plist-get result :validation-type) :to-equal 'path))))
 
-  (describe "using :reason field instead of :error"
-    (it "handles validation errors with :reason field"
-      (let* ((validation-error '(:reason "directory-not-in-scope"
-                                 :resource "/tmp/dir"
-                                 :operation write
-                                 :message "Directory not in scope"))
-             (result (jf/gptel-scope--build-violation-info validation-error "run_bash_command")))
-        (expect (plist-get result :tool) :to-equal "run_bash_command")
-        (expect (plist-get result :resource) :to-equal "/tmp/dir")
-        (expect (plist-get result :operation) :to-equal 'write)
-        (expect (plist-get result :reason) :to-equal "Directory not in scope")
-        (expect (plist-get result :validation-type) :to-equal 'bash))))
+  ;; NOTE: Removed "using :reason field instead of :error" test.
+  ;; It tested a format (:reason + :message) that no real validator produces.
+  ;; Real bash validators use :error + :message; real path/pattern validators
+  ;; use :reason without :message. The real-validator integration tests in
+  ;; expansion-integration-spec.el now cover all actual formats.
 
   (describe "all fields populated correctly"
     (it "returns plist with all required fields"

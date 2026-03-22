@@ -122,28 +122,50 @@ Returns check-result from validator."
         (expect (plist-get violation-info :reason) :not :to-be nil)
         (expect (plist-get violation-info :validation-type) :to-equal 'pattern))))
 
-  (describe "Bash validator integration (legacy :message format)"
+  (describe "Bash validator integration — real validator output"
 
-    (it "handles legacy validation-error format with :message field"
-      ;; This is the format used by bash validator and in existing tests
-      (let* ((validation-error '(:error "command_denied"
-                                 :command "rm -rf /tmp/file"
-                                 :operation write
-                                 :message "Command denied"))
-             (violation-info (jf/gptel-scope--build-violation-info validation-error "run_bash_command")))
-        ;; Should still work (backwards compatibility)
+    (it "path_denied from real validate-operation flows through correctly"
+      ;; Call real bash-side validator: deny path
+      (let* ((paths-config '(:read ("/workspace/**") :write () :execute ()
+                             :modify () :deny ("/etc/**")))
+             (validation-error (jf/gptel-scope--validate-operation
+                                :read "/etc/passwd" paths-config))
+             (violation-info (jf/gptel-scope--build-violation-info
+                              validation-error "run_bash_command")))
+        ;; Real validator returns (:error "path_denied" :path ... :message ...)
+        (expect (plist-get validation-error :error) :to-equal "path_denied")
+        ;; build-violation-info must produce usable violation-info
         (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
-        (expect (plist-get violation-info :resource) :to-equal "rm -rf /tmp/file")
-        (expect (plist-get violation-info :reason) :to-equal "Command denied")
+        (expect (plist-get violation-info :resource) :to-equal "/etc/passwd")
+        (expect (plist-get violation-info :reason) :to-be-truthy)
         (expect (plist-get violation-info :validation-type) :to-equal 'bash)))
 
-    (it "handles cloud auth denial with :message field"
-      (let* ((validation-error '(:error "cloud_auth_denied"
-                                 :provider "aws"
-                                 :operation write
-                                 :message "Cloud authentication denied"))
-             (violation-info (jf/gptel-scope--build-violation-info validation-error "run_bash_command")))
-        (expect (plist-get violation-info :reason) :to-equal "Cloud authentication denied"))))
+    (it "path_out_of_scope from real validate-operation flows through correctly"
+      ;; Call real bash-side validator: path not in any scope
+      (let* ((paths-config '(:read ("/workspace/**") :write () :execute ()
+                             :modify () :deny ()))
+             (validation-error (jf/gptel-scope--validate-operation
+                                :read "/tmp/file.txt" paths-config))
+             (violation-info (jf/gptel-scope--build-violation-info
+                              validation-error "run_bash_command")))
+        (expect (plist-get validation-error :error) :to-equal "path_out_of_scope")
+        (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
+        (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")
+        (expect (plist-get violation-info :reason) :to-be-truthy)
+        (expect (plist-get violation-info :validation-type) :to-equal 'bash)))
+
+    (it "command_denied from real validate-pipeline-commands flows through correctly"
+      ;; Call real bash-side validator: denied command
+      (let* ((bash-tools '(:deny ("rm" "sudo")))
+             (validation-error (jf/gptel-scope--validate-pipeline-commands
+                                '("ls" "rm") bash-tools))
+             (violation-info (jf/gptel-scope--build-violation-info
+                              validation-error "run_bash_command")))
+        (expect (plist-get validation-error :error) :to-equal "command_denied")
+        (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
+        (expect (plist-get violation-info :resource) :to-equal "rm")
+        (expect (plist-get violation-info :reason) :to-be-truthy)
+        (expect (plist-get violation-info :validation-type) :to-equal 'bash))))
 
   (describe "Format priority: :reason over :message"
 
@@ -345,24 +367,20 @@ Returns check-result from validator."
 
   (describe "Cross-validator violation-info format consistency"
 
-    (it "all validator types produce compatible violation-info for expansion UI"
-      ;; Verify that path, pattern, and bash validators all produce
-      ;; violation-info with the fields expansion UI expects
-      (let ((path-check '(:allowed nil
-                          :reason "not-in-scope"
-                          :resource "/tmp/file.txt"
-                          :tool "read_file"))
-            (bash-check '(:error "path_out_of_scope"
-                          :command "cat /tmp/file.txt"
-                          :path "/tmp/file.txt"
-                          :operation :read
-                          :message "Path out of scope"))
-            (pattern-check '(:allowed nil
-                             :reason "pattern-not-matched"
-                             :resource "invalid/path"
-                             :tool "create_roam_node_in_scope")))
+    (it "all real validator types produce compatible violation-info for expansion UI"
+      ;; Call real validators and verify their output flows through build-violation-info
+      ;; with all fields the expansion UI expects
+      (let* (;; Real path validator
+             (path-check (expansion-integration--call-path-validator "/tmp/outside.txt" 'read))
+             ;; Real bash-side validator (path out of scope)
+             (bash-check (jf/gptel-scope--validate-operation
+                          :read "/tmp/file.txt"
+                          '(:read ("/workspace/**") :write () :execute ()
+                            :modify () :deny ())))
+             ;; Real pattern validator
+             (pattern-check (expansion-integration--call-pattern-validator "invalid/node/path")))
 
-        ;; Build violation-info from each
+        ;; Build violation-info from each real result
         (let ((path-vi (jf/gptel-scope--build-violation-info path-check "read_file"))
               (bash-vi (jf/gptel-scope--build-violation-info bash-check "run_bash_command"))
               (pattern-vi (jf/gptel-scope--build-violation-info pattern-check "create_roam_node_in_scope")))
