@@ -456,7 +456,8 @@ METADATA is the file metadata plist (from scope-metadata module).
 
 Returns plist with:
   :allowed t/nil
-  :reason STRING (if denied)
+  :error STRING (machine-readable code, if denied)
+  :message STRING (human-readable text, if denied)
   :resource STRING (the filepath, if denied)
   :tool STRING (tool name, if denied)
   :allowed-patterns LIST (if denied for not matching)."
@@ -474,18 +475,20 @@ Returns plist with:
       (when (jf/gptel-scope--matches-any-pattern full-path deny-paths)
         (cl-return-from jf/gptel-scope--validate-path-tool
           (list :allowed nil
-                :reason "denied-pattern"
+                :error "denied-pattern"
                 :resource full-path
-                :tool tool-name)))
+                :tool tool-name
+                :message (format "Path denied by scope: %s" full-path))))
 
       ;; Check allow patterns
       (unless (jf/gptel-scope--matches-any-pattern full-path target-paths)
         (cl-return-from jf/gptel-scope--validate-path-tool
           (list :allowed nil
-                :reason "not-in-scope"
+                :error "not-in-scope"
                 :resource full-path
                 :tool tool-name
-                :allowed-patterns target-paths)))
+                :allowed-patterns target-paths
+                :message (format "Path not in %s scope: %s" operation full-path))))
 
       ;; Passed
       (list :allowed t))))
@@ -506,7 +509,8 @@ METADATA is the metadata plist (nil for pattern tools).
 
 Returns plist with:
   :allowed t/nil
-  :reason STRING (if denied)
+  :error STRING (machine-readable code, if denied)
+  :message STRING (human-readable text, if denied)
   :resource STRING (description of what was denied)
   :tool STRING (tool name, if denied)."
   (let ((org-roam-config (plist-get config :org-roam-patterns)))
@@ -534,11 +538,14 @@ Returns plist with:
          (if allowed
              (list :allowed t)
            (list :allowed nil
-                 :reason "not-in-org-roam-patterns"
+                 :error "not-in-org-roam-patterns"
                  :resource (format "subdirectory:%s tags:%s"
                                  (or subdirectory "none")
                                  (or (mapconcat #'identity tags ",") "none"))
-                 :tool tool-name))))
+                 :tool tool-name
+                 :message (format "Pattern not in org-roam configuration: subdirectory:%s tags:%s"
+                                (or subdirectory "none")
+                                (or (mapconcat #'identity tags ",") "none"))))))
 
       ("add_roam_tags_in_scope"
        (let ((tags (nth 1 args))  ; 2nd arg
@@ -554,10 +561,12 @@ Returns plist with:
          (if allowed
              (list :allowed t)
            (list :allowed nil
-                 :reason "not-in-org-roam-patterns"
+                 :error "not-in-org-roam-patterns"
                  :resource (format "tags:%s"
                                  (mapconcat #'identity tags ","))
-                 :tool tool-name))))
+                 :tool tool-name
+                 :message (format "Tags not in org-roam configuration: %s"
+                                (mapconcat #'identity tags ","))))))
 
       ("link_roam_nodes_in_scope"
        (let ((node-ids (plist-get org-roam-config :node-ids)))
@@ -566,16 +575,18 @@ Returns plist with:
              (list :allowed t)
            ;; Could extend to check specific node IDs here
            (list :allowed nil
-                 :reason "not-in-org-roam-patterns"
+                 :error "not-in-org-roam-patterns"
                  :resource "node linking"
-                 :tool tool-name))))
+                 :tool tool-name
+                 :message "Node linking not permitted by org-roam configuration"))))
 
       (_
        ;; Unknown org-roam tool
        (list :allowed nil
-             :reason "unknown-org-roam-tool"
+             :error "unknown-org-roam-tool"
              :resource tool-name
-             :tool tool-name)))))
+             :tool tool-name
+             :message (format "Unknown org-roam tool: %s" tool-name))))))
 ;; Pattern-Based Validator:1 ends here
 
 ;; Bash Tool Validator (Semantic Validation)
@@ -612,7 +623,7 @@ Tool body calls jf/gptel-scope--validate-command-semantics for validation."
       (unless bash-config
         (cl-return-from jf/gptel-scope--validate-bash-tool
           (list :allowed nil
-                :reason "command-not-allowed"
+                :error "command-not-allowed"
                 :tool tool-name
                 :resource command-full
                 :command command-full
@@ -622,7 +633,7 @@ Tool body calls jf/gptel-scope--validate-command-semantics for validation."
       (when categories
         (cl-return-from jf/gptel-scope--validate-bash-tool
           (list :allowed nil
-                :reason "malformed-config"
+                :error "malformed-config"
                 :tool tool-name
                 :resource command-full
                 :command command-full
@@ -649,7 +660,8 @@ METADATA is the metadata plist for context-aware validation.
 
 Returns plist with:
   :allowed t/nil
-  :reason STRING (if denied)
+  :error STRING (machine-readable code, if denied)
+  :message STRING (human-readable text, if denied)
   :resource STRING (what was denied, if applicable)
   :tool STRING (tool name, if denied)
   :allowed-patterns LIST (if denied for not matching)."
@@ -657,7 +669,7 @@ Returns plist with:
     ;; Check allow-once first (highest priority)
     (when (jf/gptel-scope--check-allow-once tool-name args config)
       (cl-return-from jf/gptel-scope--check-tool-permission
-        (list :allowed t :reason "allow-once")))
+        (list :allowed t :error "allow-once")))
 
     ;; Lookup tool category
     (let* ((category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
@@ -676,9 +688,10 @@ Returns plist with:
         (_
          ;; Unknown tool - deny by default
          (list :allowed nil
-               :reason "unknown-tool"
+               :error "unknown-tool"
                :resource tool-name
-               :tool tool-name))))))
+               :tool tool-name
+               :message (format "Unknown tool: %s" tool-name)))))))
 ;; Tool Permission Dispatch:1 ends here
 
 ;; Validation Type Inference
@@ -714,19 +727,17 @@ Returns plist with:
   :metadata - File metadata plist (git-tracked, exists, etc.)
 
 This is a pure transformation function with no side effects."
-  (let* ((error-type (or (plist-get validation-error :error)
-                         (plist-get validation-error :reason)
-                         "unknown"))
+  (let* ((error-type (or (plist-get validation-error :error) "unknown"))
          (resource (pcase error-type
                      ("path_out_of_scope" (plist-get validation-error :path))
+                     ("path_denied" (plist-get validation-error :path))
                      ("command_denied" (plist-get validation-error :command))
                      ("cloud_auth_denied" (plist-get validation-error :provider))
                      ("incomplete_parse" (plist-get validation-error :command))
                      (_ (or (plist-get validation-error :resource)
                            (plist-get validation-error :path)))))
          (operation (plist-get validation-error :operation))
-         (reason (or (plist-get validation-error :reason)   ; Check-result format (current)
-                     (plist-get validation-error :message))) ; Validation-error format (legacy/bash)
+         (reason (plist-get validation-error :message))
          (validation-type (jf/gptel-scope--infer-validation-type tool-name))
          (metadata (plist-get validation-error :metadata)))
     (list :tool tool-name
@@ -838,13 +849,11 @@ Expands relative paths to absolute, resolves symlinks."
   "Format tool permission error for LLM.
 TOOL-NAME: Name of the tool that was denied
 RESOURCE: The resource that was denied (path, node-id, command, etc.)
-CHECK-RESULT: Plist from validator with :allowed, :patterns/:allowed-patterns, :deny-patterns, :reason/:error"
-  (let ((patterns (or (plist-get check-result :allowed-patterns)  ; Bash validator uses :allowed-patterns
-                      (plist-get check-result :patterns)))        ; Other validators use :patterns
+CHECK-RESULT: Plist from validator with :allowed, :error, :message, :allowed-patterns, :deny-patterns"
+  (let ((patterns (or (plist-get check-result :allowed-patterns)
+                      (plist-get check-result :patterns)))
         (deny-patterns (plist-get check-result :deny-patterns))
-        (error-type (or (plist-get check-result :reason)          ; Bash validator uses :reason
-                        (plist-get check-result :error)           ; Other validators use :error
-                        "scope-violation"))
+        (error-type (or (plist-get check-result :error) "scope-violation"))
         (custom-message (plist-get check-result :message))
         ;; Extract bash-specific fields (will be nil for non-bash tools)
         (command (plist-get check-result :command))

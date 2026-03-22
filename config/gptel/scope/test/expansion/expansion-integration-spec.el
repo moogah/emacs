@@ -90,7 +90,7 @@ Returns check-result from validator."
              (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
         ;; Verify check-result has expected format
         (expect (plist-get check-result :allowed) :to-be nil)
-        (expect (plist-get check-result :reason) :to-equal "not-in-scope")
+        (expect (plist-get check-result :error) :to-equal "not-in-scope")
         (expect (plist-get check-result :resource) :to-be-truthy)
 
         ;; Verify violation-info transformation
@@ -100,13 +100,14 @@ Returns check-result from validator."
         (expect (plist-get violation-info :reason) :not :to-be nil)
         (expect (plist-get violation-info :validation-type) :to-equal 'path)))
 
-    (it "handles denied-pattern reason from path validator"
+    (it "handles denied-pattern from path validator"
       (let* ((check-result '(:allowed nil
-                             :reason "denied-pattern"
+                             :error "denied-pattern"
                              :resource "/workspace/denied/file.txt"
-                             :tool "read_file"))
+                             :tool "read_file"
+                             :message "Path denied by scope: /workspace/denied/file.txt"))
              (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
-        (expect (plist-get violation-info :reason) :to-equal "denied-pattern"))))
+        (expect (plist-get violation-info :reason) :to-equal "Path denied by scope: /workspace/denied/file.txt"))))
 
   (describe "Pattern validator integration"
 
@@ -115,7 +116,7 @@ Returns check-result from validator."
              (violation-info (jf/gptel-scope--build-violation-info check-result "create_roam_node_in_scope")))
         ;; Verify check-result format
         (expect (plist-get check-result :allowed) :to-be nil)
-        (expect (plist-get check-result :reason) :to-be-truthy)
+        (expect (plist-get check-result :error) :to-be-truthy)
 
         ;; Verify violation-info transformation
         (expect (plist-get violation-info :tool) :to-equal "create_roam_node_in_scope")
@@ -167,27 +168,25 @@ Returns check-result from validator."
         (expect (plist-get violation-info :reason) :to-be-truthy)
         (expect (plist-get violation-info :validation-type) :to-equal 'bash))))
 
-  (describe "Format priority: :reason over :message"
+  (describe "Reason extracted from :message field"
 
-    (it "prioritizes :reason when both fields present"
-      ;; Edge case: if both fields exist, :reason should win (current format)
-      (let* ((mixed-format '(:allowed nil
-                             :reason "current-format-reason"
-                             :message "legacy-format-message"
+    (it "reads :message for violation-info :reason"
+      (let* ((check-result '(:allowed nil
+                             :error "not-in-scope"
+                             :message "Path not in read scope: /tmp/file.txt"
                              :resource "/tmp/file.txt"
                              :tool "read_file"))
-             (violation-info (jf/gptel-scope--build-violation-info mixed-format "read_file")))
-        (expect (plist-get violation-info :reason) :to-equal "current-format-reason"))))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
+        (expect (plist-get violation-info :reason) :to-equal "Path not in read scope: /tmp/file.txt"))))
 
   (describe "Transformation robustness"
 
-    (it "returns nil for :reason when neither :reason nor :message present"
-      ;; Edge case: malformed check-result missing both fields
+    (it "returns nil for :reason when :message not present"
       (let* ((malformed '(:allowed nil
+                         :error "some-error"
                          :resource "/tmp/file.txt"
                          :tool "read_file"))
              (violation-info (jf/gptel-scope--build-violation-info malformed "read_file")))
-        ;; Should not crash, but reason will be nil
         (expect (plist-get violation-info :reason) :to-be nil)
         (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")))))
 
