@@ -148,7 +148,7 @@
             (callback (lambda (_result) nil)))
         (jf/gptel-scope--trigger-inline-expansion validation-error "run_bash_command" callback)
         (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
-          (expect (plist-get (nth 0 call-args) :reason) :to-equal "denied-command")))))
+          (expect (plist-get (nth 0 call-args) :error) :to-equal "denied-command")))))
 
   (describe "execution results: timeout and output limits"
 

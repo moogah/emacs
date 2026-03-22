@@ -28,14 +28,16 @@
 Matches the plist format returned by `jf/gptel-scope--check-tool-permission'."
   (list :allowed t))
 
-(defun tool-test--scope-denied (&optional reason resource tool)
+(defun tool-test--scope-denied (&optional error-type resource tool)
   "Build a scope validation failure response.
-REASON defaults to \"path_out_of_scope\".
+ERROR-TYPE defaults to \"path_out_of_scope\".
 RESOURCE is the denied resource path.
 TOOL is the tool name.
-Matches the plist format returned by `jf/gptel-scope--check-tool-permission'."
+Matches the plist format returned by `jf/gptel-scope--check-tool-permission'
+after the unify-scope-validation-formats change (uses :error + :message)."
   (list :allowed nil
-        :reason (or reason "path_out_of_scope")
+        :error (or error-type "path_out_of_scope")
+        :message (format "Denied: %s" (or error-type "path_out_of_scope"))
         :resource (or resource "/denied/path")
         :tool (or tool "unknown_tool")
         :allowed-patterns '("/workspace/**")))

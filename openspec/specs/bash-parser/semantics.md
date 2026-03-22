@@ -25,6 +25,8 @@ Command handlers are organized as individual `.el` files in `config/bash-parser/
 
 The handler registry (`jf/bash-command-handlers`) is a nested hash table: `{command-name => {domain => [handler-fn, ...]}}`, providing O(1) command lookup.
 
+Command handlers are invoked by the grammar extraction layer (Layer 0) for each simple command encountered during compound decomposition. Handlers receive only simple commands, never compound structures.
+
 ## Key Invariants
 
 - Each command has defined operation types (read, write, delete, modify, create, append, execute)
