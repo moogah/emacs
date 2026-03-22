@@ -71,7 +71,7 @@ this test will fail with 'void-variable wrapper-callback'."
 
          (violation-info (list :tool "read_file"
                               :resource "/tmp/test.txt"
-                              :reason "not-in-scope"
+                              :reason "Path not in read scope: /tmp/test.txt"
                               :validation-type 'path))
          (patterns '("/tmp/test.txt"))
          (tool-name "read_file"))

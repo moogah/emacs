@@ -539,6 +539,81 @@ Result should have :error :path_out_of_scope."
         t
       (cons nil (format "Expected :path_out_of_scope but got error: %S" error-type)))))
 
+;;; Violation-Info Fixture Factory
+
+(defun helpers-spec--make-violation-info (tool error-code &rest props)
+  "Build a realistic violation-info plist via the real build-violation-info.
+TOOL is the tool name string (e.g., \"read_file\", \"run_bash_command\").
+ERROR-CODE is the machine-readable error string (e.g., \"not-in-scope\",
+\"path_out_of_scope\", \"command_denied\").
+PROPS are keyword arguments:
+  :path       - File path (for path-based errors)
+  :command    - Command string (for command errors)
+  :provider   - Cloud provider (for cloud auth errors)
+  :resource   - Explicit resource override
+  :operation  - Operation keyword (:read, :write, etc.)
+  :metadata   - File metadata plist
+  :message    - Explicit human-readable message override
+
+Constructs a validator-format plist and passes it through the real
+jf/gptel-scope--build-violation-info, so the output always matches
+what production code produces.  The only logic owned by this factory
+is generating a realistic :message when one is not provided."
+  (let* ((path (plist-get props :path))
+         (command (plist-get props :command))
+         (provider (plist-get props :provider))
+         (operation (plist-get props :operation))
+         (metadata (plist-get props :metadata))
+         (explicit-resource (plist-get props :resource))
+         (explicit-message (plist-get props :message))
+         ;; Generate a human-readable message if not provided
+         (message (or explicit-message
+                      (helpers-spec--generate-violation-message
+                       error-code path command provider operation)))
+         ;; Real validators always include :resource as a fallback.
+         ;; build-violation-info's default case uses (or :resource :path),
+         ;; so we derive :resource from contextual fields when not explicit.
+         (resource (or explicit-resource command path provider))
+         ;; Build validator-format input plist
+         (validator-plist
+          (append
+           (list :error error-code
+                 :message message
+                 :operation operation
+                 :metadata metadata
+                 :resource resource)
+           (when path (list :path path))
+           (when command (list :command command))
+           (when provider (list :provider provider)))))
+    (jf/gptel-scope--build-violation-info validator-plist tool)))
+
+(defun helpers-spec--generate-violation-message (error-code path command provider operation)
+  "Generate a realistic human-readable message for ERROR-CODE.
+PATH, COMMAND, PROVIDER, OPERATION provide context for the message."
+  (pcase error-code
+    ("path_out_of_scope"
+     (format "Path not in %s scope: %s" (or operation "read") (or path "unknown")))
+    ("path_denied"
+     (format "Path denied by scope: %s" (or path "unknown")))
+    ("not-in-scope"
+     (format "Path not in %s scope: %s" (or operation "read") (or path "unknown")))
+    ("denied-pattern"
+     (format "Path denied by scope: %s" (or path "unknown")))
+    ("command_denied"
+     (format "Command '%s' is in deny list" (or command "unknown")))
+    ("command-not-allowed"
+     (format "No bash_tools configuration found. Command denied: %s"
+             (or command "unknown")))
+    ("cloud_auth_denied"
+     (format "Cloud authentication denied: %s (%s provider)"
+             (or command "unknown") (or provider "unknown")))
+    ("not-in-org-roam-patterns"
+     (format "Pattern not in org-roam configuration: %s"
+             (or path command "unknown")))
+    ("unknown-org-roam-tool"
+     (format "Unknown org-roam tool: %s" (or command "unknown")))
+    (_ (format "Validation failed: %s" error-code))))
+
 ;;; Provide
 
 (provide 'helpers-spec)

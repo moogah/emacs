@@ -106,10 +106,10 @@ bash_tools:
              (test-callback (lambda (json)
                              (setq callback-invoked t)
                              (setq callback-result json)))
-             (violation-info (list :tool "read_file"
-                                  :resource "/tmp/outside.txt"
-                                  :reason "not-in-scope"
-                                  :validation-type 'path)))
+             (violation-info (helpers-spec--make-violation-info
+                             "read_file" "not-in-scope"
+                             :path "/tmp/outside.txt"
+                             :operation :read)))
 
         ;; Setup transient scope manually
         (test-setup-transient-scope violation-info test-callback
@@ -155,10 +155,10 @@ bash_tools:
     (it "adds path to scope and invokes callback with success JSON"
       (let* ((callback-result nil)
              (test-callback (lambda (json) (setq callback-result json)))
-             (violation-info (list :tool "write_file_in_scope"
-                                  :resource "/workspace/newfile.txt"
-                                  :reason "not-in-scope"
-                                  :validation-type 'path)))
+             (violation-info (helpers-spec--make-violation-info
+                             "write_file_in_scope" "not-in-scope"
+                             :path "/workspace/newfile.txt"
+                             :operation :write)))
 
         (test-setup-transient-scope violation-info test-callback
                                    '("/workspace/newfile.txt") "write_file_in_scope")
@@ -184,10 +184,9 @@ bash_tools:
     (it "handles pattern validation type (org-roam)"
       (let* ((callback-result nil)
              (test-callback (lambda (json) (setq callback-result json)))
-             (violation-info (list :tool "create_roam_node_in_scope"
-                                  :resource "subdirectory:personal/notes"
-                                  :reason "not-in-org-roam-patterns"
-                                  :validation-type 'pattern)))
+             (violation-info (helpers-spec--make-violation-info
+                             "create_roam_node_in_scope" "not-in-org-roam-patterns"
+                             :resource "subdirectory:personal/notes")))
 
         (test-setup-transient-scope violation-info test-callback
                                    '("subdirectory:personal/notes") "create_roam_node_in_scope")
@@ -202,10 +201,9 @@ bash_tools:
     (it "handles bash validation type"
       (let* ((callback-result nil)
              (test-callback (lambda (json) (setq callback-result json)))
-             (violation-info (list :tool "run_bash_command"
-                                  :resource "grep"
-                                  :reason "command-not-allowed"
-                                  :validation-type 'bash)))
+             (violation-info (helpers-spec--make-violation-info
+                             "run_bash_command" "command-not-allowed"
+                             :command "grep")))
 
         (test-setup-transient-scope violation-info test-callback
                                    '("grep") "run_bash_command")
@@ -264,10 +262,10 @@ bash_tools:
     (it "adds to allow-once list and invokes callback with allowed_once flag"
       (let* ((callback-result nil)
              (test-callback (lambda (json) (setq callback-result json)))
-             (violation-info (list :tool "read_file"
-                                  :resource "/tmp/temp.txt"
-                                  :reason "not-in-scope"
-                                  :validation-type 'path)))
+             (violation-info (helpers-spec--make-violation-info
+                             "read_file" "not-in-scope"
+                             :path "/tmp/temp.txt"
+                             :operation :read)))
 
         ;; Clear allow-once list
         (setq-local jf/gptel-scope--allow-once-list nil)
@@ -309,10 +307,10 @@ bash_tools:
 
     (it "creates transient scope with correct structure"
       (let* ((test-callback (lambda (json) json))
-             (violation-info (list :tool "read_file"
-                                  :resource "/tmp/test.txt"
-                                  :reason "not-in-scope"
-                                  :validation-type 'path))
+             (violation-info (helpers-spec--make-violation-info
+                             "read_file" "not-in-scope"
+                             :path "/tmp/test.txt"
+                             :operation :read))
              (patterns '("/tmp/test.txt"))
              (tool-name "read_file"))
 

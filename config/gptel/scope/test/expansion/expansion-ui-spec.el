@@ -317,11 +317,10 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
         ;; Mock transient scope with path-based violation
         (spy-on 'transient-scope
-                :and-return-value (list :violation (list :tool "run_bash_command"
-                                                         :resource "/tmp/test.txt"
-                                                         :operation :read
-                                                         :validation-type 'bash
-                                                         :reason "test")
+                :and-return-value (list :violation (helpers-spec--make-violation-info
+                                                      "run_bash_command" "command-not-allowed"
+                                                      :command "/tmp/test.txt"
+                                                      :operation :read)
                                         :callback mock-callback
                                         :patterns '("/tmp/**")
                                         :tool-name "run_bash_command"))
@@ -358,9 +357,9 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
         ;; Mock transient scope
         (spy-on 'transient-scope
-                :and-return-value (list :violation (list :tool "run_bash_command"
-                                                         :resource "/tmp/file.txt"
-                                                         :reason "test")
+                :and-return-value (list :violation (helpers-spec--make-violation-info
+                                                      "run_bash_command" "command-not-allowed"
+                                                      :command "/tmp/file.txt")
                                         :callback mock-callback
                                         :patterns '("/tmp/**")
                                         :tool-name "run_bash_command"))
@@ -394,9 +393,9 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
         ;; Mock transient scope
         (spy-on 'transient-scope
-                :and-return-value (list :violation (list :tool "run_bash_command"
-                                                         :resource "cat /tmp/file.txt:/workspace"
-                                                         :reason "test")
+                :and-return-value (list :violation (helpers-spec--make-violation-info
+                                                      "run_bash_command" "command-not-allowed"
+                                                      :command "cat /tmp/file.txt:/workspace")
                                         :callback mock-callback
                                         :patterns '("cat /tmp/file.txt:/workspace")
                                         :tool-name "run_bash_command"))
@@ -497,11 +496,11 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "Added to read scope")))))
 
         ;; Trigger expansion with read operation
-        (let ((violation-info (list :tool "read_file"
-                                    :resource filepath
-                                    :operation :read
-                                    :reason "path_out_of_scope"
-                                    :metadata (list :exists t :git-tracked t))))
+        (let ((violation-info (helpers-spec--make-violation-info
+                              "read_file" "path_out_of_scope"
+                              :path filepath
+                              :operation :read
+                              :metadata (list :exists t :git-tracked t))))
           (jf/gptel-scope-prompt-expansion
            violation-info
            (lambda (result) nil)
@@ -538,11 +537,11 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "Added to write scope")))))
 
         ;; Trigger expansion with write operation
-        (let ((violation-info (list :tool "write_file_in_scope"
-                                    :resource filepath
-                                    :operation :write
-                                    :reason "path_out_of_scope"
-                                    :metadata (list :exists nil :git-tracked nil))))
+        (let ((violation-info (helpers-spec--make-violation-info
+                              "write_file_in_scope" "path_out_of_scope"
+                              :path filepath
+                              :operation :write
+                              :metadata (list :exists nil :git-tracked nil))))
           (jf/gptel-scope-prompt-expansion
            violation-info
            (lambda (result) nil)
@@ -579,11 +578,11 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "Added to write scope")))))
 
         ;; Trigger expansion with write operation (edit_file uses write validation)
-        (let ((violation-info (list :tool "edit_file_in_scope"
-                                    :resource filepath
-                                    :operation :write
-                                    :reason "path_out_of_scope"
-                                    :metadata (list :exists t :git-tracked t))))
+        (let ((violation-info (helpers-spec--make-violation-info
+                              "edit_file_in_scope" "path_out_of_scope"
+                              :path filepath
+                              :operation :write
+                              :metadata (list :exists t :git-tracked t))))
           (jf/gptel-scope-prompt-expansion
            violation-info
            (lambda (result) nil)
@@ -619,11 +618,11 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "User denied request")))))
 
         ;; Trigger expansion
-        (let ((violation-info (list :tool "read_file"
-                                    :resource filepath
-                                    :operation :read
-                                    :reason "path_out_of_scope"
-                                    :metadata (list :exists t :git-tracked nil))))
+        (let ((violation-info (helpers-spec--make-violation-info
+                              "read_file" "path_out_of_scope"
+                              :path filepath
+                              :operation :read
+                              :metadata (list :exists t :git-tracked nil))))
           (jf/gptel-scope-prompt-expansion
            violation-info
            (lambda (result)
@@ -666,11 +665,11 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "Allowed for this turn only")))))
 
         ;; Trigger expansion
-        (let ((violation-info (list :tool "read_file"
-                                    :resource filepath
-                                    :operation :read
-                                    :reason "path_out_of_scope"
-                                    :metadata (list :exists t :git-tracked nil))))
+        (let ((violation-info (helpers-spec--make-violation-info
+                              "read_file" "path_out_of_scope"
+                              :path filepath
+                              :operation :read
+                              :metadata (list :exists t :git-tracked nil))))
           (jf/gptel-scope-prompt-expansion
            violation-info
            (lambda (result)
