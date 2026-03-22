@@ -93,11 +93,7 @@ security:
       ;; Mock semantics: Read operation on relative path
       ;; Note: Path stays relative; validation function will resolve it
       (helpers-spec-mock-bash-semantics
-       (list (list :file "./README.md"
-                   :operation :read
-                   :command "cat"
-                   :confidence :high
-                   :source :positional-arg))
+       (list (helpers-spec--make-file-op :read "./README.md" :command "cat"))
        nil
        '(:ratio 1.0))
 
@@ -148,11 +144,7 @@ security:
 
       ;; Mock semantics: Read operation with parent directory navigation
       (helpers-spec-mock-bash-semantics
-       (list (list :file "../other/file.txt"
-                   :operation :read
-                   :command "cat"
-                   :confidence :high
-                   :source :positional-arg))
+       (list (helpers-spec--make-file-op :read "../other/file.txt" :command "cat"))
        nil
        '(:ratio 1.0))
 
@@ -204,11 +196,7 @@ security:
 
       ;; Mock semantics: Read operation that traverses to /etc
       (helpers-spec-mock-bash-semantics
-       (list (list :file "../../etc/passwd"
-                   :operation :read
-                   :command "cat"
-                   :confidence :high
-                   :source :positional-arg))
+       (list (helpers-spec--make-file-op :read "../../etc/passwd" :command "cat"))
        nil
        '(:ratio 1.0))
 
@@ -260,11 +248,7 @@ security:
 
       ;; Mock semantics: Read operation on current directory
       (helpers-spec-mock-bash-semantics
-       (list (list :file "."
-                   :operation :read
-                   :command "ls"
-                   :confidence :high
-                   :source :positional-arg))
+       (list (helpers-spec--make-file-op :read "." :command "ls"))
        nil
        '(:ratio 1.0))
 
@@ -317,11 +301,7 @@ security:
 
       ;; Mock semantics: Read operation on current directory (which is /etc)
       (helpers-spec-mock-bash-semantics
-       (list (list :file "."
-                   :operation :read
-                   :command "ls"
-                   :confidence :high
-                   :source :positional-arg))
+       (list (helpers-spec--make-file-op :read "." :command "ls"))
        nil
        '(:ratio 1.0))
 
@@ -383,10 +363,7 @@ security:
 
             ;; Mock semantics: Read operation on file.txt
             (helpers-spec-mock-bash-semantics
-             (list (list :file "file.txt"
-                         :operation :read
-                         :command "cat"
-                         :confidence :high))
+             (list (helpers-spec--make-file-op :read "file.txt" :command "cat"))
              nil
              '(:ratio 1.0))
 
@@ -441,11 +418,7 @@ security:
 
       ;; Mock semantics: Read operation on absolute path
       (helpers-spec-mock-bash-semantics
-       (list (list :file "/etc/passwd"
-                   :operation :read
-                   :command "cat"
-                   :confidence :high
-                   :source :positional-arg))
+       (list (helpers-spec--make-file-op :read "/etc/passwd" :command "cat"))
        nil
        '(:ratio 1.0))
 
@@ -502,16 +475,8 @@ security:
 
       ;; Mock semantics: Read and write operations
       (helpers-spec-mock-bash-semantics
-       (list (list :file "./src/file.txt"
-                   :operation :read
-                   :command "cp"
-                   :confidence :high
-                   :source :positional-arg)
-             (list :file "./dst/file.txt"
-                   :operation :write
-                   :command "cp"
-                   :confidence :high
-                   :source :positional-arg))
+       (list (helpers-spec--make-file-op :read "./src/file.txt" :command "cp")
+             (helpers-spec--make-file-op :write "./dst/file.txt" :command "cp"))
        nil
        '(:ratio 1.0))
 

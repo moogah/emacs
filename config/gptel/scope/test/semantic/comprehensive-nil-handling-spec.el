@@ -30,6 +30,7 @@
        (scope-test-dir (expand-file-name ".." semantic-dir))
        (scope-dir (expand-file-name ".." scope-test-dir))
        (gptel-dir (expand-file-name ".." scope-dir)))
+  (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
   (require 'jf-gptel-scope-shell-tools (expand-file-name "scope/scope-shell-tools.el" gptel-dir)))
 
 (describe "Comprehensive nil handling in bash scope validation"
@@ -125,7 +126,9 @@
         (expect result :to-be nil)))
 
     (it "continues validation when filesystem has operations"
-      (let* ((semantics '(:domains ((:filesystem . ((:file "/tmp" :operation :read :command "cat" :confidence :high :source :positional-arg))))))
+      (let* ((semantics (list :domains
+                              (list (cons :filesystem
+                                          (list (helpers-spec--make-file-op :read "/tmp" :command "cat"))))))
              (result (jf/gptel-scope--check-no-op semantics)))
         ;; Has file ops → return t to continue validation
         (expect result :to-be t))))
@@ -148,7 +151,7 @@
         (expect result :to-be nil)))
 
     (it "handles paths-config with nil lists"
-      (let* ((file-ops '((:file "/tmp/file.txt" :operation :read :command "cat" :confidence :high :source :positional-arg)))
+      (let* ((file-ops (list (helpers-spec--make-file-op :read "/tmp/file.txt" :command "cat")))
              (directory "/tmp")
              (scope-config '(:paths (:read nil :write nil :deny nil)))
              (result (jf/gptel-scope--validate-file-operations file-ops directory scope-config)))

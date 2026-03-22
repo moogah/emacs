@@ -49,12 +49,10 @@ Accepts :read, :write, :execute, :modify, :deny keywords."
   "Create file operation plist for testing in bash-parser format.
 OPERATION is keyword like :read, :write, :execute, :modify.
 PATH is the file path.
-COMMAND-NAME is optional command that performs operation."
-  (list :file path
-        :operation operation
-        :confidence :high
-        :source :positional-arg
-        :command (or command-name "test")))
+COMMAND-NAME is optional command that performs operation.
+Delegates to `helpers-spec--make-file-op' for contract validation."
+  (helpers-spec--make-file-op operation path
+                              :command (or command-name "test")))
 
 ;;; Test Suite
 
