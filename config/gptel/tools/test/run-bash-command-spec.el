@@ -137,7 +137,7 @@
       (spy-on 'jf/gptel-scope--trigger-inline-expansion)
       (let ((validation-error (tool-test--scope-denied "command-not-allowed" "npm install" "run_bash_command"))
             (callback (lambda (_result) nil)))
-        (jf/gptel-scope--trigger-inline-expansion validation-error "run_bash_command" callback)
+        (jf/gptel-scope--trigger-inline-expansion validation-error "run_bash_command" '("npm install" "/workspace") callback)
         (expect 'jf/gptel-scope--trigger-inline-expansion :to-have-been-called)
         (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
           (expect (nth 1 call-args) :to-equal "run_bash_command"))))
@@ -146,7 +146,7 @@
       (spy-on 'jf/gptel-scope--trigger-inline-expansion)
       (let ((validation-error (tool-test--scope-denied "denied-command" "rm" "run_bash_command"))
             (callback (lambda (_result) nil)))
-        (jf/gptel-scope--trigger-inline-expansion validation-error "run_bash_command" callback)
+        (jf/gptel-scope--trigger-inline-expansion validation-error "run_bash_command" '("rm -rf /tmp" "/workspace") callback)
         (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
           (expect (plist-get (nth 0 call-args) :error) :to-equal "denied-command")))))
 

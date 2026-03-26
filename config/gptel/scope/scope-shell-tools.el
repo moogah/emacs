@@ -590,32 +590,18 @@ Examples:
 
  :async  ; Enable inline expansion for scope violations
 
- ;; Tool body - semantic validation happens here
- (let* ((config (jf/gptel-scope--load-config))
-        (validation-error (when config
-                           (jf/gptel-scope--validate-command-semantics command directory config))))
-
-   (if validation-error
-       ;; Validation failed - return error response
-       (list :success nil
-             :error (or (plist-get validation-error :error) "validation-failed")
-             :message (or (plist-get validation-error :message)
-                         (format "Command validation failed: %s" (plist-get validation-error :error)))
-             :command command
-             :directory directory)
-
-     ;; Validation passed - execute command
-     (let* ((result (jf/gptel-bash--execute-command command directory))
-            (exit-code (plist-get result :exit_code))
-            (output (plist-get result :output))
-            (truncated (plist-get result :truncated))
-            (warnings (plist-get result :warnings))
-            (success (zerop exit-code)))
-       (list :success success
-             :output output
-             :exit_code exit-code
-             :truncated truncated
-             :warnings warnings)))))
+ ;; Tool body - validation already passed at macro level
+ (let* ((result (jf/gptel-bash--execute-command command directory))
+        (exit-code (plist-get result :exit_code))
+        (output (plist-get result :output))
+        (truncated (plist-get result :truncated))
+        (warnings (plist-get result :warnings))
+        (success (zerop exit-code)))
+   (list :success success
+         :output output
+         :exit_code exit-code
+         :truncated truncated
+         :warnings warnings)))
 ;; Tool Implementation:1 ends here
 
 ;; Request Scope Expansion Tool (Meta Tool, v3.0 Async)

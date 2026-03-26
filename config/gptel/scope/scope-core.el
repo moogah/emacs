@@ -195,6 +195,7 @@ failures return errors immediately (sync behavior)."
                           (jf/gptel-scope--trigger-inline-expansion
                            check-result
                            ,name
+                           normalized-args
                            (lambda (expansion-result)
                              (if (plist-get expansion-result :approved)
                                  ;; User approved - reload config before retry
@@ -600,19 +601,20 @@ Returns plist with:
 
 ;; [[file:scope-core.org::*Bash Tool Validator (Semantic Validation)][Bash Tool Validator (Semantic Validation):1]]
 (defun jf/gptel-scope--validate-bash-tool (tool-name args config metadata)
-  "Validate bash command using NEW semantic validation.
+  "Validate bash command using seven-stage semantic validation pipeline.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (command and directory).
 CONFIG is the scope configuration plist.
 METADATA is the metadata plist (nil for bash tools).
 
 Returns plist with:
-  :allowed t - Always returns t to defer to tool body semantic validation
-  :validation 'semantic - Indicates NEW semantic validation should be used
+  :allowed t - Validation passed (command is safe to execute)
+  :allowed nil - Validation failed, with error fields for expansion UI
 
-Migration Note: bash_tools.categories is no longer supported.
-Use semantic validation with bash_tools.deny list only.
-Tool body calls jf/gptel-scope--validate-command-semantics for validation."
+Calls `jf/gptel-scope--validate-command-semantics' (defined in
+scope-shell-tools.el, available at runtime) to run the full pipeline.
+Error fields are propagated so `build-violation-info' can construct
+violation-info for the expansion UI."
   (cl-block jf/gptel-scope--validate-bash-tool
     (let* ((command-full (car args))
            (directory (cadr args))
@@ -639,10 +641,21 @@ Tool body calls jf/gptel-scope--validate-command-semantics for validation."
                 :command command-full
                 :message "bash_tools.categories section no longer supported. Migration: Remove categories section, keep only deny list. See CLAUDE.md for migration guide.")))
 
-      ;; NEW validation format detected (bash_tools with no categories)
-      ;; Pass validation here and let tool body handle semantic validation
-      (cl-return-from jf/gptel-scope--validate-bash-tool
-        (list :allowed t :validation 'semantic)))))
+      ;; Run semantic validation pipeline (7 stages)
+      ;; validate-command-semantics returns nil on success, error plist on failure
+      (let ((validation-error (jf/gptel-scope--validate-command-semantics
+                               command-full directory config)))
+        (if validation-error
+            ;; Propagate all error fields for build-violation-info consumption
+            (cl-return-from jf/gptel-scope--validate-bash-tool
+              (append (list :allowed nil
+                            :tool tool-name
+                            :resource command-full
+                            :command command-full)
+                      validation-error))
+          ;; All stages passed
+          (cl-return-from jf/gptel-scope--validate-bash-tool
+            (list :allowed t)))))))
 ;; Bash Tool Validator (Semantic Validation):1 ends here
 
 ;; Tool Permission Dispatch
@@ -754,15 +767,16 @@ This is a pure transformation function with no side effects."
 
 
 ;; [[file:scope-core.org::*Trigger Inline Expansion][Trigger Inline Expansion:1]]
-(defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name wrapper-callback)
+(defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name tool-args wrapper-callback)
   "Trigger inline expansion UI for VALIDATION-ERROR.
 VALIDATION-ERROR is the error plist returned by validators.
 TOOL-NAME is the tool that was denied.
+TOOL-ARGS is the normalized args list (used to construct allow-once resource).
 WRAPPER-CALLBACK is the wrapper's callback function to invoke with approval result.
 
 This function:
 1. Builds violation-info from validation-error
-2. Extracts resource for patterns list
+2. Computes the allow-once resource in the same format check-allow-once expects
 3. Creates expansion-callback that parses JSON and invokes wrapper callback
 4. Calls jf/gptel-scope-prompt-expansion to show UI
 
@@ -774,6 +788,19 @@ transient menu actions when the user makes a choice.
 
 Returns nil (no return value needed - async coordination via callbacks)."
   (let* ((violation-info (jf/gptel-scope--build-violation-info validation-error tool-name))
+         ;; Compute allow-once resource using same format as check-allow-once
+         ;; so the allow-once action stores a value that check-allow-once can find.
+         (category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
+         (validation-type (plist-get category :validation))
+         (allow-once-resource
+          (pcase validation-type
+            ('path (expand-file-name (car tool-args)))
+            ('pattern (format "%s:%s" tool-name (car tool-args)))
+            ('command (car tool-args))
+            ('bash (format "%s:%s" (car tool-args) (expand-file-name (cadr tool-args))))
+            (_ (plist-get violation-info :resource))))
+         ;; Use allow-once-resource in violation-info so the expansion action stores it
+         (violation-info (plist-put violation-info :resource allow-once-resource))
          (resource (plist-get violation-info :resource))
          (patterns (list resource))  ; Single resource for inline expansion
          (expansion-callback

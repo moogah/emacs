@@ -239,12 +239,13 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
   (describe "async tool with validation denial"
 
     (it "triggers expansion UI when check-tool-permission returns :allowed nil"
-      ;; Create a minimal async tool
+      ;; Create a minimal async tool with 2 args (bash tools need command + directory)
       (eval
        '(gptel-make-scoped-tool
          "test_expansion_trigger"
          "Test expansion trigger"
-         (list '(:name "arg" :type string :description "Arg"))
+         (list '(:name "command" :type string :description "Command")
+               '(:name "directory" :type string :description "Dir"))
          "bash"
          :async
          (progn
@@ -268,9 +269,9 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
         ;; Spy on expansion UI (don't invoke callback — just verify it's called)
         (spy-on 'jf/gptel-scope-prompt-expansion)
 
-        ;; Invoke tool
+        ;; Invoke tool with command + directory
         (funcall (gptel-tool-function tool)
-                 #'macro-contract--gptel-callback "test-arg")
+                 #'macro-contract--gptel-callback "ls /etc" "/workspace")
 
         ;; THE KEY ASSERTION: expansion UI should be triggered
         (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
@@ -283,7 +284,8 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
        '(gptel-make-scoped-tool
          "test_expansion_approve"
          "Test expansion approve"
-         (list '(:name "arg" :type string :description "Arg"))
+         (list '(:name "command" :type string :description "Command")
+               '(:name "directory" :type string :description "Dir"))
          "bash"
          :async
          (progn
@@ -319,9 +321,9 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
                   (funcall callback
                            (json-serialize '(:success t :allowed_once t)))))
 
-        ;; Invoke tool
+        ;; Invoke tool with command + directory
         (funcall (gptel-tool-function tool)
-                 #'macro-contract--gptel-callback "test-arg")
+                 #'macro-contract--gptel-callback "ls /etc" "/workspace")
 
         ;; Expansion was triggered
         (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
@@ -337,7 +339,8 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
        '(gptel-make-scoped-tool
          "test_expansion_deny"
          "Test expansion deny"
-         (list '(:name "arg" :type string :description "Arg"))
+         (list '(:name "command" :type string :description "Command")
+               '(:name "directory" :type string :description "Dir"))
          "bash"
          :async
          (progn
@@ -365,9 +368,9 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
                   (funcall callback
                            (json-serialize '(:success :false :user_denied t)))))
 
-        ;; Invoke tool
+        ;; Invoke tool with command + directory
         (funcall (gptel-tool-function tool)
-                 #'macro-contract--gptel-callback "test-arg")
+                 #'macro-contract--gptel-callback "ls /etc" "/workspace")
 
         ;; Expansion was triggered
         (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
@@ -605,6 +608,184 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
 
       ;; Tool body should NOT have run (validation failed, waiting for expansion)
       (expect macro-contract--body-executed :to-be nil))))
+
+;; ============================================================
+;; ALLOW-ONCE ROUND-TRIP: Resource Format Consistency
+;; Verify that the resource stored by expansion UI "allow once"
+;; matches what check-allow-once looks up on retry.
+;; This caught a format mismatch where the UI stored a file path
+;; but check-allow-once expected "command:directory" composite format.
+;; ============================================================
+
+(describe "Allow-once round-trip: resource format consistency"
+
+  (before-each
+    (setq macro-contract--callback-result nil)
+    (setq macro-contract--body-executed nil)
+    (helpers-spec-setup-bash-mocks)
+    (when (boundp 'jf/gptel-scope--allow-once-list)
+      (setq jf/gptel-scope--allow-once-list nil))
+
+    ;; Register test tool names
+    (push '("test_allowonce_bash" . (:validation bash :operation write))
+          jf/gptel-scope--tool-categories)
+    (push '("test_allowonce_path" . (:validation path :operation read))
+          jf/gptel-scope--tool-categories))
+
+  (after-each
+    (helpers-spec-teardown-bash-mocks)
+    (when (boundp 'jf/gptel-scope--allow-once-list)
+      (setq jf/gptel-scope--allow-once-list nil))
+    (setq jf/gptel-scope--tool-categories
+          (cl-remove-if (lambda (entry)
+                          (string-prefix-p "test_" (car entry)))
+                        jf/gptel-scope--tool-categories)))
+
+  (it "bash tool: allow-once stores resource in format check-allow-once expects"
+    ;; The resource format stored by the expansion UI must match
+    ;; what check-allow-once constructs from args.
+    ;; For bash: "command:directory" composite format.
+    (let* ((validation-error '(:allowed nil
+                               :error "path_out_of_scope"
+                               :message "Path not in scope: /etc/passwd"
+                               :path "/etc/passwd"
+                               :command "cat /etc/passwd"))
+           (tool-args '("cat /etc/passwd" "/workspace")))
+
+      ;; Mock expansion UI to simulate "allow once" action
+      (spy-on 'jf/gptel-scope-prompt-expansion
+              :and-call-fake
+              (lambda (violation-info callback _patterns _tool-name)
+                ;; This is what the real allow-once action does:
+                ;; stores (tool-name . resource) from violation-info
+                (jf/gptel-scope-add-to-allow-once-list
+                 (plist-get violation-info :tool)
+                 (plist-get violation-info :resource))
+                (funcall callback
+                         (json-serialize '(:success t :allowed_once t)))))
+
+      ;; Call trigger-inline-expansion with real function
+      ;; (not spied — we want to test the resource format it produces)
+      (jf/gptel-scope--trigger-inline-expansion
+       validation-error
+       "test_allowonce_bash"
+       tool-args
+       (lambda (_result) nil))
+
+      ;; Now verify the stored resource matches what check-allow-once expects
+      (expect jf/gptel-scope--allow-once-list :not :to-be nil)
+
+      ;; check-allow-once constructs: (format "%s:%s" (car args) (expand-file-name (cadr args)))
+      (let* ((expected-resource (format "%s:%s" (car tool-args)
+                                       (expand-file-name (cadr tool-args))))
+             (stored-entry (car jf/gptel-scope--allow-once-list)))
+        (expect (car stored-entry) :to-equal "test_allowonce_bash")
+        (expect (cdr stored-entry) :to-equal expected-resource))
+
+      ;; Verify check-allow-once actually finds it
+      (let ((found (jf/gptel-scope--check-allow-once
+                    "test_allowonce_bash" tool-args nil)))
+        (expect found :to-be t))))
+
+  (it "path tool: allow-once stores resource in format check-allow-once expects"
+    (let* ((validation-error '(:allowed nil
+                               :error "not-in-scope"
+                               :message "Path not in read scope"
+                               :path "/outside/scope/file.txt"))
+           (tool-args '("/outside/scope/file.txt")))
+
+      ;; Mock expansion UI to simulate "allow once"
+      (spy-on 'jf/gptel-scope-prompt-expansion
+              :and-call-fake
+              (lambda (violation-info callback _patterns _tool-name)
+                (jf/gptel-scope-add-to-allow-once-list
+                 (plist-get violation-info :tool)
+                 (plist-get violation-info :resource))
+                (funcall callback
+                         (json-serialize '(:success t :allowed_once t)))))
+
+      ;; Call trigger-inline-expansion with real function
+      (jf/gptel-scope--trigger-inline-expansion
+       validation-error
+       "test_allowonce_path"
+       tool-args
+       (lambda (_result) nil))
+
+      ;; check-allow-once for path tools: (expand-file-name (car args))
+      (let* ((expected-resource (expand-file-name (car tool-args)))
+             (stored-entry (car jf/gptel-scope--allow-once-list)))
+        (expect (car stored-entry) :to-equal "test_allowonce_path")
+        (expect (cdr stored-entry) :to-equal expected-resource))
+
+      ;; Verify check-allow-once actually finds it
+      (let ((found (jf/gptel-scope--check-allow-once
+                    "test_allowonce_path" tool-args nil)))
+        (expect found :to-be t))))
+
+  (it "bash tool: full macro round-trip with allow-once approval executes body"
+    ;; End-to-end: tool invoked → denied → expansion → allow-once → retry → body runs
+    (eval
+     '(gptel-make-scoped-tool
+       "test_allowonce_bash"
+       "Test allow-once round-trip"
+       (list '(:name "command" :type string :description "Command")
+             '(:name "directory" :type string :description "Dir"))
+       "bash"
+       :async
+       (progn
+         (setq macro-contract--body-executed t)
+         (list :success t :output "command output"))))
+
+    (let ((tool (macro-contract--find-tool "test_allowonce_bash")))
+      (expect tool :to-be-truthy)
+
+      ;; Config: /workspace readable, nothing else
+      (spy-on 'jf/gptel-scope--load-config
+              :and-return-value
+              '(:paths (:read ("/workspace/**") :write ()
+                        :execute () :modify () :deny ())
+                :bash-tools (:deny ())
+                :cloud (:auth-detection "warn")
+                :security (:enforce-parse-complete t
+                           :max-coverage-threshold 0.8)))
+
+      ;; Mock bash-parser: ls /etc reads /etc (out of scope)
+      (helpers-spec-mock-bash-parse "ls /etc" '("ls") t)
+      (helpers-spec-mock-bash-semantics
+       (list (helpers-spec--make-file-op :read "/etc" :command "ls"))
+       nil
+       '(:ratio 1.0))
+
+      ;; Mock expansion UI: simulate "allow once" by adding to allow-once list
+      ;; using the resource from violation-info (which trigger-inline-expansion
+      ;; has already formatted to match check-allow-once)
+      (spy-on 'jf/gptel-scope-prompt-expansion
+              :and-call-fake
+              (lambda (violation-info callback _patterns _tool-name)
+                (jf/gptel-scope-add-to-allow-once-list
+                 (plist-get violation-info :tool)
+                 (plist-get violation-info :resource))
+                (funcall callback
+                         (json-serialize '(:success t :allowed_once t)))))
+
+      ;; Mock command execution (avoid real shell)
+      (spy-on 'jf/gptel-bash--execute-command
+              :and-return-value '(:exit_code 0 :output "etc contents"
+                                  :truncated nil :warnings nil))
+
+      ;; Invoke tool through macro
+      (funcall (gptel-tool-function tool)
+               #'macro-contract--gptel-callback
+               "ls /etc" "/workspace")
+
+      ;; Expansion UI was triggered
+      (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
+
+      ;; Tool body executed after allow-once approval and retry
+      (expect macro-contract--body-executed :to-be t)
+
+      ;; Callback received success
+      (expect (plist-get macro-contract--callback-result :success) :to-be t))))
 
 (provide 'macro-expansion-contract-spec)
 

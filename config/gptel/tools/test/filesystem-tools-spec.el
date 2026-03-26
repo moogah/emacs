@@ -202,7 +202,7 @@
     (spy-on 'jf/gptel-scope--trigger-inline-expansion)
     (let ((validation-error (tool-test--scope-denied "path_out_of_scope" "/outside/scope" "read_file"))
           (callback (lambda (_result) nil)))
-      (jf/gptel-scope--trigger-inline-expansion validation-error "read_file" callback)
+      (jf/gptel-scope--trigger-inline-expansion validation-error "read_file" '("/outside/scope") callback)
       (expect 'jf/gptel-scope--trigger-inline-expansion :to-have-been-called)
       (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
         (expect (nth 1 call-args) :to-equal "read_file"))))
@@ -211,7 +211,7 @@
     (spy-on 'jf/gptel-scope--trigger-inline-expansion)
     (let ((validation-error (tool-test--scope-denied "path_out_of_scope" "/new/project/file.el" "write_file_in_scope"))
           (callback (lambda (_result) nil)))
-      (jf/gptel-scope--trigger-inline-expansion validation-error "write_file_in_scope" callback)
+      (jf/gptel-scope--trigger-inline-expansion validation-error "write_file_in_scope" '("/new/project/file.el") callback)
       (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
         (expect (plist-get (nth 0 call-args) :resource) :to-equal "/new/project/file.el")))))
 

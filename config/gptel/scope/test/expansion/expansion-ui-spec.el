@@ -182,6 +182,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
           (jf/gptel-scope--trigger-inline-expansion
            validation-error
            "run_bash_command"
+           '("cat /tmp/data.txt" "/workspace")
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
@@ -238,6 +239,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
           (jf/gptel-scope--trigger-inline-expansion
            validation-error
            "run_bash_command"
+           '("cat /tmp/data.txt" "/workspace")
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
@@ -290,6 +292,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
           (jf/gptel-scope--trigger-inline-expansion
            validation-error
            "run_bash_command"
+           '("cat /tmp/data.txt" "/workspace")
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
