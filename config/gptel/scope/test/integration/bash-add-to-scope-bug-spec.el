@@ -295,7 +295,8 @@ security:
     ;; When bash validation fails because a path is out of read scope,
     ;; "Add to scope" should add that path to paths.read
     ;; (The denied operation was :read-metadata → read-like)
-    (jf/gptel-scope--add-bash-to-scope bug--scope-file "/brew" "run_bash_command")
+    ;; Pass denied-operation :read-metadata so add-path-to-scope targets paths.read
+    (jf/gptel-scope--add-bash-to-scope bug--scope-file "/brew" "run_bash_command" :read-metadata)
 
     (let* ((scope (bug--parse-scope-yml))
            (paths (plist-get scope :paths))

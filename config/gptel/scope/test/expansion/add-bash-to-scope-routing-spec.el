@@ -114,9 +114,8 @@ security:
 
     (it "should add '/etc/passwd' to paths.read for a read operation"
       ;; The denied operation was :read, so the path should go to paths.read
-      ;; Currently add-bash-to-scope delegates to add-path-to-scope which
-      ;; uses the tool category (:operation write) — wrong section
-      (jf/gptel-scope--add-bash-to-scope routing--scope-file "/etc/passwd" "run_bash_command")
+      ;; Pass denied-operation so add-path-to-scope targets the correct section
+      (jf/gptel-scope--add-bash-to-scope routing--scope-file "/etc/passwd" "run_bash_command" :read)
 
       (let* ((scope (routing--parse-scope-yml))
              (paths (plist-get scope :paths))

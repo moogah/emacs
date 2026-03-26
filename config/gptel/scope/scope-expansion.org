@@ -210,18 +210,20 @@ Functions called by the transient menu choices.
          (validation-type (plist-get violation :validation-type))
          (resource (plist-get violation :resource))
          (tool (plist-get violation :tool))
+         (denied-operation (plist-get violation :operation))
          (scope-file (jf/gptel-scope--get-scope-file-path)))
 
     (jf/gptel-scope--validate-scope-file-writable scope-file)
 
     ;; Route to appropriate updater based on validation type
+    ;; Pass denied-operation so add-path-to-scope targets the correct section
     (pcase validation-type
       ('path
-       (jf/gptel-scope--add-path-to-scope scope-file resource tool))
+       (jf/gptel-scope--add-path-to-scope scope-file resource tool denied-operation))
       ('pattern
        (jf/gptel-scope--add-pattern-to-scope scope-file resource tool))
       ('bash
-       (jf/gptel-scope--add-bash-to-scope scope-file resource tool))
+       (jf/gptel-scope--add-bash-to-scope scope-file resource tool denied-operation))
       (_
        (user-error "Unknown validation type: %s" validation-type)))
 
@@ -306,16 +308,30 @@ so that YAML files remain consistent and human-readable.
 ** Add Path to Scope
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope--add-path-to-scope (scope-file path tool)
-  "Add PATH to scope.yml under appropriate section based on TOOL operation.
+(defun jf/gptel-scope--add-path-to-scope (scope-file path tool &optional denied-operation)
+  "Add PATH to scope.yml under appropriate section.
 SCOPE-FILE is the path to scope.yml.
 PATH is the file/directory path to add.
-TOOL is the tool name (used to determine read vs write)."
+TOOL is the tool name (used to determine read vs write if DENIED-OPERATION not given).
+DENIED-OPERATION, when non-nil, is the operation keyword from the validation error
+\(e.g., :read, :read-metadata, :write). Used to target the correct paths section
+instead of relying on the tool category. This is important for tools like
+run_bash_command which are categorized as :write but may be denied for a :read operation."
   (jf/gptel-scope--validate-scope-file-writable scope-file)
-  (let* (;; Determine if this is a read or write operation
-         (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
-         (operation (plist-get category :operation))
-         (target-section (if (eq operation 'read) :read :write))
+  (let* (;; Determine target section from denied-operation or fall back to tool category
+         (target-section
+          (if denied-operation
+              ;; Use the actual denied operation to pick the right section
+              (pcase denied-operation
+                ((or :read :read-directory :read-metadata :match-pattern) :read)
+                ((or :write :create :create-or-modify :append :delete) :write)
+                (:modify :write)
+                (:execute :execute)
+                (_ :read))  ; Default to read for unknown operations
+            ;; Fall back to tool category
+            (let* ((category (cdr (assoc tool jf/gptel-scope--tool-categories)))
+                   (operation (plist-get category :operation)))
+              (if (eq operation 'read) :read :write))))
          ;; Parse YAML file
          (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
          (normalized (jf/gptel-scope--normalize-plist-keys parsed))
@@ -421,18 +437,23 @@ The function uses heuristics to distinguish command patterns from directory path
 This allows the LLM to request either command expansion (="tree"=) or directory expansion (="/tmp"=) using the same tool.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope--add-bash-to-scope (scope-file resource tool)
-  "Add bash command to bash_tools section in SCOPE-FILE.
-RESOURCE is the command pattern or directory path.
-TOOL is the tool name (used to determine read vs write operation)."
+(defun jf/gptel-scope--add-bash-to-scope (scope-file resource tool &optional denied-operation)
+  "Add bash command resource to scope.yml.
+RESOURCE is a file path (for path_out_of_scope errors) or command name
+\(for command_denied errors).
+TOOL is the tool name.
+DENIED-OPERATION, when non-nil, is the denied operation keyword (e.g., :read-metadata)
+passed through to `add-path-to-scope' for correct section targeting."
   (jf/gptel-scope--validate-scope-file-writable scope-file)
 
-  ;; Check if resource is a directory path or command pattern
+  ;; Check if resource is a file path or command pattern
+  ;; File paths start with / or ~ (absolute) or contain / (relative)
+  ;; Command patterns are bare names like "brew" or "tree"
   (if (or (file-directory-p resource)
-          (string-suffix-p "/" resource)
-          (string-match-p "/" resource))
-      ;; Directory path - delegate to path expansion
-      (jf/gptel-scope--add-path-to-scope scope-file resource tool)
+          (string-prefix-p "/" resource)
+          (string-prefix-p "~" resource))
+      ;; File path - delegate to path expansion with denied-operation
+      (jf/gptel-scope--add-path-to-scope scope-file resource tool denied-operation)
 
     ;; Command pattern - add to bash_tools
     (let* (;; Extract base command name

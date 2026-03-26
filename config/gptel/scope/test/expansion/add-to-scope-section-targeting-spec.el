@@ -113,8 +113,9 @@ security:
     (it "read-denied path should go to paths.read, not paths.write"
       ;; When "which brew" is denied because /brew is not in paths.read,
       ;; "Add to scope" should expand paths.read, not paths.write
+      ;; Pass denied-operation :read-metadata to target the correct section
       (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/brew" "run_bash_command")
+       section--scope-file "/brew" "run_bash_command" :read-metadata)
 
       (let* ((scope (section--parse-scope-yml))
              (paths (plist-get scope :paths))
