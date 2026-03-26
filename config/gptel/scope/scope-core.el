@@ -799,8 +799,9 @@ Returns nil (no return value needed - async coordination via callbacks)."
             ('command (car tool-args))
             ('bash (format "%s:%s" (car tool-args) (expand-file-name (cadr tool-args))))
             (_ (plist-get violation-info :resource))))
-         ;; Use allow-once-resource in violation-info so the expansion action stores it
-         (violation-info (plist-put violation-info :resource allow-once-resource))
+         ;; Store allow-once key separately — :resource keeps the denied path
+         ;; for add-to-scope, :allow-once-resource has the composite key for allow-once
+         (violation-info (plist-put violation-info :allow-once-resource allow-once-resource))
          (resource (plist-get violation-info :resource))
          (patterns (list resource))  ; Single resource for inline expansion
          (expansion-callback

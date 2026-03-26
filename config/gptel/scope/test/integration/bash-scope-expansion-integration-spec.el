@@ -417,7 +417,8 @@ security:
               (lambda (violation-info callback _patterns _tool-name)
                 (jf/gptel-scope-add-to-allow-once-list
                  (plist-get violation-info :tool)
-                 (plist-get violation-info :resource))
+                 (or (plist-get violation-info :allow-once-resource)
+                     (plist-get violation-info :resource)))
                 (funcall callback
                          (json-serialize '(:success t :allowed_once t)))))
 

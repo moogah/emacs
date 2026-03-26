@@ -171,10 +171,11 @@
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
                 (lambda (violation-info callback _patterns _tool-name)
-                  ;; Store allow-once using whatever resource the UI provides
+                  ;; Store allow-once using the allow-once-resource key
                   (jf/gptel-scope-add-to-allow-once-list
                    (plist-get violation-info :tool)
-                   (plist-get violation-info :resource))
+                   (or (plist-get violation-info :allow-once-resource)
+                       (plist-get violation-info :resource)))
                   (funcall callback
                            (json-serialize '(:success t :allowed_once t)))))
 

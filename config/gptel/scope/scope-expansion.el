@@ -183,7 +183,10 @@ Delegates to scope-yaml module. Returns parsed plist."
          (violation (plist-get scope :violation))
          (callback (plist-get scope :callback))
          (tool (plist-get violation :tool))
-         (resource (plist-get violation :resource)))
+         ;; Use allow-once-resource (composite key matching check-allow-once format)
+         ;; Falls back to :resource for backwards compatibility
+         (resource (or (plist-get violation :allow-once-resource)
+                       (plist-get violation :resource))))
 
     ;; Add to allow-once list for this buffer
     (jf/gptel-scope-add-to-allow-once-list tool resource)

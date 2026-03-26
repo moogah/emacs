@@ -657,10 +657,11 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
               :and-call-fake
               (lambda (violation-info callback _patterns _tool-name)
                 ;; This is what the real allow-once action does:
-                ;; stores (tool-name . resource) from violation-info
+                ;; stores (tool-name . allow-once-resource) from violation-info
                 (jf/gptel-scope-add-to-allow-once-list
                  (plist-get violation-info :tool)
-                 (plist-get violation-info :resource))
+                 (or (plist-get violation-info :allow-once-resource)
+                     (plist-get violation-info :resource)))
                 (funcall callback
                          (json-serialize '(:success t :allowed_once t)))))
 
@@ -764,7 +765,8 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
               (lambda (violation-info callback _patterns _tool-name)
                 (jf/gptel-scope-add-to-allow-once-list
                  (plist-get violation-info :tool)
-                 (plist-get violation-info :resource))
+                 (or (plist-get violation-info :allow-once-resource)
+                     (plist-get violation-info :resource)))
                 (funcall callback
                          (json-serialize '(:success t :allowed_once t)))))
 
