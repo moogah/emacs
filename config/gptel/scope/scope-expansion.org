@@ -36,7 +36,47 @@ presented with three options via a transient menu:
 Transient scope mechanism is used to pass violation info and callbacks to suffix commands.
 See transient-tools.org for detailed architecture documentation.
 
-No buffer-local variables needed - data is passed via transient's :scope mechanism.
+** Expansion Queue
+
+When gptel fires multiple async tools via =mapc=, more than one may trigger the expansion UI.
+Since transient is single-instance (=transient-setup= replaces any active transient's scope),
+calling it twice would lose the first callback. The queue serializes prompts:
+
+1. First call → no active expansion → show transient, set active flag
+2. Second call → active expansion → push to queue
+3. User responds to first → invoke callback → pop queue → show next transient
+4. User responds to second → invoke callback → queue empty → clear active flag
+
+#+begin_src emacs-lisp
+(defvar-local jf/gptel-scope--expansion-queue nil
+  "Queue of pending expansion prompts waiting to be shown.
+Each entry is a plist with :violation, :callback, :patterns, :tool-name.
+Buffer-local so concurrent gptel sessions don't interfere.")
+
+(defvar-local jf/gptel-scope--expansion-active nil
+  "Non-nil when an expansion transient menu is currently displayed.
+Used to decide whether to show transient immediately or queue.")
+
+(defun jf/gptel-scope--process-expansion-queue ()
+  "Process the next queued expansion prompt, or clear the active flag.
+Called after each transient suffix action (deny, allow-once, add-to-scope).
+If queue has items, pops the next and shows its transient.
+If queue is empty, clears the active flag."
+  (if jf/gptel-scope--expansion-queue
+      ;; Pop next item and show transient
+      (let* ((next (pop jf/gptel-scope--expansion-queue))
+             (violation (plist-get next :violation))
+             (callback (plist-get next :callback))
+             (patterns (plist-get next :patterns))
+             (tool-name (plist-get next :tool-name)))
+        (transient-setup 'jf/gptel-scope-expansion-menu nil nil
+                         :scope (list :violation violation
+                                      :callback callback
+                                      :patterns patterns
+                                      :tool-name tool-name)))
+    ;; Queue empty — clear active flag
+    (setq jf/gptel-scope--expansion-active nil)))
+#+end_src
 
 * Helper Functions
 
@@ -150,10 +190,12 @@ Functions called by the transient menu choices.
               (error
                (message "Error invoking callback: %s" (error-message-string callback-err))))
           (message "Warning: No callback provided for scope expansion"))
-        (transient-quit-one))
+        (transient-quit-one)
+        (jf/gptel-scope--process-expansion-queue))
     (error
      (message "Error in deny-expansion: %s" (error-message-string err))
-     (transient-quit-one))))
+     (transient-quit-one)
+     (jf/gptel-scope--process-expansion-queue))))
 #+end_src
 
 ** Add to Scope
@@ -199,7 +241,8 @@ Functions called by the transient menu choices.
        (message "Error invoking callback: %s" (error-message-string err))))
 
     (message "Added %s to scope" resource)
-    (transient-quit-one)))
+    (transient-quit-one)
+    (jf/gptel-scope--process-expansion-queue)))
 #+end_src
 
 ** Allow Once Action
@@ -230,7 +273,8 @@ Functions called by the transient menu choices.
        (message "Error invoking callback: %s" (error-message-string err))))
 
     (message "Allowed %s once for this LLM turn" resource)
-    (transient-quit-one)))
+    (transient-quit-one)
+    (jf/gptel-scope--process-expansion-queue)))
 #+end_src
 
 ** Edit Scope Manually
@@ -643,18 +687,33 @@ Main function to trigger the expansion UI. Public API used by scope-shell-tools.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope-prompt-expansion (violation-info callback patterns tool-name)
-  "Show expansion UI for VIOLATION-INFO.
+  "Show expansion UI for VIOLATION-INFO, or queue if one is already active.
 CALLBACK is the gptel async callback to invoke with JSON result.
 PATTERNS is the list of patterns to add if approved.
 TOOL-NAME is the tool requesting expansion.
 VIOLATION-INFO is a plist with :tool, :resource, :reason, :validation-type.
 
+When multiple async tools trigger expansion simultaneously (via gptel's mapc),
+the first call shows the transient immediately and subsequent calls are queued.
+After the user responds to each prompt, `jf/gptel-scope--process-expansion-queue'
+shows the next queued prompt or clears the active flag.
+
 This is a public API function used by scope-shell-tools and other modules."
-  (transient-setup 'jf/gptel-scope-expansion-menu nil nil
-                   :scope (list :violation violation-info
-                               :callback callback
-                               :patterns patterns
-                               :tool-name tool-name)))
+  (if jf/gptel-scope--expansion-active
+      ;; Queue this prompt — a transient is already showing
+      (setq jf/gptel-scope--expansion-queue
+            (append jf/gptel-scope--expansion-queue
+                    (list (list :violation violation-info
+                                :callback callback
+                                :patterns patterns
+                                :tool-name tool-name))))
+    ;; No active expansion — show transient immediately
+    (setq jf/gptel-scope--expansion-active t)
+    (transient-setup 'jf/gptel-scope-expansion-menu nil nil
+                     :scope (list :violation violation-info
+                                  :callback callback
+                                  :patterns patterns
+                                  :tool-name tool-name))))
 #+end_src
 
 * Provide Feature

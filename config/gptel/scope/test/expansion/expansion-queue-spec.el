@@ -291,7 +291,8 @@ Returns the captured calls list (same reference as queue-test--transient-calls).
       (expect (length queue-test--transient-calls) :to-equal 2)
 
       ;; Simulate user denying tool #2
-      (let* ((scope-2 (nth 1 queue-test--transient-calls))
+      ;; (car because push adds to front — latest call is first)
+      (let* ((scope-2 (car queue-test--transient-calls))
              (cb-2 (plist-get scope-2 :callback)))
         (funcall cb-2
                  (json-serialize (list :success :false :user_denied t))))
