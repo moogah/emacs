@@ -271,23 +271,28 @@ security:
       ;; tool-1's result is LOST
       (expect (assoc :tool-1 parallel--tool-results) :to-be nil)))
 
-  (it "CORRECT: both callbacks should fire even with parallel invocation"
-    ;; RED TEST: Asserts the behavior we WANT, which fails with the
-    ;; transient collision. The fix must ensure both callbacks fire.
+  (it "CORRECT: both callbacks fire via queue when user responds to each prompt"
+    ;; Uses the REAL queue-aware prompt-expansion. Mocks transient-setup
+    ;; to capture scopes, then simulates user responding to each sequentially.
     (let* ((config (parallel--make-empty-scope-config))
            (tool (parallel--find-tool "run_bash_command"))
            (ntools 2)
-           (last-callback nil))
+           (transient-scopes nil))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
 
-      ;; Simulate transient collision (same as above)
-      (spy-on 'jf/gptel-scope-prompt-expansion
+      ;; Let prompt-expansion run (queue-aware), but capture transient-setup calls
+      (spy-on 'transient-setup
               :and-call-fake
-              (lambda (_violation-info callback _patterns _tool-name)
-                (setq last-callback callback)))
+              (lambda (_prefix &rest args)
+                (let ((scope (plist-get (cddr args) :scope)))
+                  (push scope transient-scopes))))
 
-      ;; Fire both tools
+      ;; Reset queue state
+      (setq jf/gptel-scope--expansion-active nil)
+      (setq jf/gptel-scope--expansion-queue nil)
+
+      ;; Fire both tools (simulating mapc)
       (funcall (gptel-tool-function tool)
                (parallel--make-process-tool-result :tool-1)
                "which brew" "/")
@@ -296,30 +301,49 @@ security:
                (parallel--make-process-tool-result :tool-2)
                "ls -la /usr/local/bin/brew" "/")
 
-      ;; User responds once
-      (when last-callback
-        (funcall last-callback
-                 (json-serialize (list :success :false :user_denied t))))
+      ;; First transient shown, second queued
+      (expect (length transient-scopes) :to-equal 1)
+      (expect (length jf/gptel-scope--expansion-queue) :to-equal 1)
 
-      ;; RED: Both callbacks SHOULD fire (but only 1 does)
-      (expect parallel--callback-count :to-equal ntools)))
+      ;; User responds to first prompt (deny)
+      (let ((cb-1 (plist-get (car transient-scopes) :callback)))
+        (funcall cb-1 (json-serialize (list :success :false :user_denied t))))
+      ;; Process queue — shows second prompt
+      (jf/gptel-scope--process-expansion-queue)
+
+      ;; Second transient now shown
+      (expect (length transient-scopes) :to-equal 2)
+
+      ;; User responds to second prompt (deny)
+      (let ((cb-2 (plist-get (car transient-scopes) :callback)))
+        (funcall cb-2 (json-serialize (list :success :false :user_denied t))))
+      (jf/gptel-scope--process-expansion-queue)
+
+      ;; Both callbacks fired
+      (expect parallel--callback-count :to-equal ntools)
+      (expect (assoc :tool-1 parallel--tool-results) :to-be-truthy)
+      (expect (assoc :tool-2 parallel--tool-results) :to-be-truthy)))
 
 
-  (it "CORRECT: FSM counter should reach ntools for session to advance"
+  (it "CORRECT: FSM counter reaches ntools via queue for session to advance"
     ;; Simulates the exact FSM counter logic from gptel-request.el:1710-1718
     (let* ((config (parallel--make-empty-scope-config))
            (tool (parallel--find-tool "run_bash_command"))
            (ntools 2)
            (tool-idx 0)
            (fsm-advanced nil)
-           (last-callback nil))
+           (transient-scopes nil))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
 
-      (spy-on 'jf/gptel-scope-prompt-expansion
+      (spy-on 'transient-setup
               :and-call-fake
-              (lambda (_violation-info callback _patterns _tool-name)
-                (setq last-callback callback)))
+              (lambda (_prefix &rest args)
+                (let ((scope (plist-get (cddr args) :scope)))
+                  (push scope transient-scopes))))
+
+      (setq jf/gptel-scope--expansion-active nil)
+      (setq jf/gptel-scope--expansion-queue nil)
 
       ;; Create process-tool-result callbacks like gptel does
       (let ((make-callback
@@ -339,12 +363,16 @@ security:
                  (funcall make-callback :tool-2)
                  "ls -la /usr/local/bin/brew" "/")
 
-        ;; User responds once
-        (when last-callback
-          (funcall last-callback
-                   (json-serialize (list :success :false :user_denied t))))
+        ;; Respond to both prompts sequentially via queue
+        (let ((cb-1 (plist-get (car transient-scopes) :callback)))
+          (funcall cb-1 (json-serialize (list :success :false :user_denied t))))
+        (jf/gptel-scope--process-expansion-queue)
 
-        ;; RED: FSM should advance (but doesn't because tool-idx only reaches 1)
+        (let ((cb-2 (plist-get (car transient-scopes) :callback)))
+          (funcall cb-2 (json-serialize (list :success :false :user_denied t))))
+        (jf/gptel-scope--process-expansion-queue)
+
+        ;; FSM advances — both callbacks fired
         (expect fsm-advanced :to-be t)))))
 
 
