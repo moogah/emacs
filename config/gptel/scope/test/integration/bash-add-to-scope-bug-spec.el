@@ -1,4 +1,4 @@
-;;; bash-add-to-scope-bug-spec.el --- Bug reproduction: "which brew" add-to-scope writes garbage to scope.yml -*- lexical-binding: t; -*-
+;;; bash-add-to-scope-bug-spec.el --- RED PHASE: "which brew" add-to-scope should write correct path to scope.yml -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,33 +7,39 @@
 
 ;;; Commentary:
 
-;; BUG REPRODUCTION: When user runs "which brew" and the expansion UI shows
-;; (because "brew" resolves to "/brew" which is out of scope), choosing
-;; "Add to scope" writes "which brew:/**" into paths.write in scope.yml.
+;; RED PHASE TESTS: Assert CORRECT behavior for the "which brew" add-to-scope
+;; flow. These tests FAIL against the current implementation, documenting the
+;; bugs that need to be fixed.
 ;;
 ;; Observed in session: /Users/jefffarr/emacs-activities/test-2-2026-03-26/
 ;; The session also appears stuck after the expansion UI closes.
 ;;
-;; Root cause chain (3 bugs):
+;; CORRECT behavior:
+;; 1. "which brew" with empty read scope is denied because "/brew" is not in
+;;    paths.read. The expansion UI should show "/brew" as the denied resource.
+;; 2. "Add to scope" should add the denied path to paths.read (not paths.write),
+;;    since the denied operation was :read-metadata.
+;; 3. After scope expansion, retry should succeed and tool body should execute.
+;; 4. The gptel callback should receive a success result.
+;;
+;; Root cause chain:
 ;;
 ;; BUG 1: trigger-inline-expansion overwrites violation-info :resource with
-;;   the allow-once composite format ("command:directory") for ALL use cases.
-;;   add-to-scope receives "which brew:/" instead of the actual denied path "/brew".
+;;   the allow-once composite format ("which brew:/") for ALL downstream
+;;   consumers. The expansion UI and add-to-scope should see the denied path
+;;   "/brew", not the allow-once key.
 ;;
 ;; BUG 2: add-bash-to-scope checks (string-match-p "/" resource) to decide if
 ;;   the resource is a directory path vs a command pattern. The composite format
-;;   "which brew:/" contains "/", so it falls into the directory-path branch and
-;;   delegates to add-path-to-scope, which appends "/**" and writes to paths.write.
+;;   contains "/", causing misrouting to add-path-to-scope.
 ;;
-;; BUG 3: add-path-to-scope uses run_bash_command's tool category (:operation write)
-;;   to decide the target section. Even though the actual denied operation was
-;;   :read-metadata, the resource gets written to paths.write because run_bash_command
-;;   is categorized as a write tool.
+;; BUG 3: For bash tool path_out_of_scope denials, add-to-scope should add the
+;;   denied FILE PATH to the section matching the denied OPERATION (read for
+;;   :read-metadata), not the tool's category operation (write for run_bash_command).
 ;;
-;; Session stuck (BUG 4 — separate): After add-to-scope modifies scope.yml, the
-;;   macro retries validation. The retry may fail (garbage path doesn't help) or
-;;   succeed (if the write pattern accidentally matches). Either way, the gptel
-;;   callback should fire. This test checks whether the callback actually fires.
+;; BUG 4: After add-to-scope writes garbage, the retry fails and the gptel
+;;   callback receives an error. With correct behavior, the retry should succeed
+;;   and the callback should receive success.
 
 ;;; Code:
 
@@ -130,15 +136,21 @@ security:
     (insert-file-contents bug--scope-file)
     (buffer-string)))
 
+(defun bug--parse-scope-yml ()
+  "Parse the test scope.yml into a normalized plist."
+  (let* ((parsed (jf/gptel-scope-yaml--parse-string (bug--read-scope-yml))))
+    (jf/gptel-scope--normalize-plist-keys parsed)))
+
 
 ;;; Test Suites
 
 ;; ============================================================
-;; SUITE 1: Reproduce the exact denial path
-;; "which brew" with empty read scope → denied at stage 5
+;; SUITE 1: Characterization — confirm the denial path
+;; These tests PASS (they characterize existing correct behavior
+;; in the parser and pipeline, not the bugs).
 ;; ============================================================
 
-(describe "Bug reproduction: 'which brew' denial path"
+(describe "Characterization: 'which brew' denial path"
 
   (before-each
     (setq bug--temp-dir (make-temp-file "bug-scope-" t))
@@ -159,7 +171,6 @@ security:
     (let* ((parsed (jf/bash-parse "which brew"))
            (semantics (jf/bash-extract-semantics parsed))
            (file-ops (alist-get :filesystem (plist-get semantics :domains))))
-      ;; "which" handler extracts read-metadata for its argument
       (expect file-ops :not :to-be nil)
       (let ((op (car file-ops)))
         (expect (plist-get op :operation) :to-equal :read-metadata)
@@ -167,7 +178,6 @@ security:
         (expect (plist-get op :command) :to-equal "which"))))
 
   (it "'brew' resolves to '/brew' when directory is '/'"
-    ;; This is why the command gets denied — "brew" relative to "/" = "/brew"
     (expect (expand-file-name "brew" "/") :to-equal "/brew"))
 
   (it "7-stage pipeline denies 'which brew' with empty read scope"
@@ -175,35 +185,30 @@ security:
     (let ((config (helpers-spec-load-scope-config bug--scope-file)))
       (let ((result (jf/gptel-scope--validate-command-semantics
                      "which brew" "/" config)))
-        ;; Stage 5 denies: /brew not in empty read paths
         (expect result :not :to-be nil)
         (expect (plist-get result :error) :to-equal "path_out_of_scope")
-        ;; The denied path is /brew (brew resolved relative to /)
         (expect (plist-get result :path) :to-equal "/brew")))))
 
 
 ;; ============================================================
-;; SUITE 2: BUG 1 — trigger-inline-expansion overwrites :resource
-;; with allow-once composite format
+;; SUITE 2: BUG 1 — expansion UI should receive denied path as :resource
+;; RED: FAILS because trigger-inline-expansion overwrites :resource
+;;      with the allow-once composite "which brew:/"
 ;; ============================================================
 
-(describe "Bug 1: trigger-inline-expansion overwrites :resource with allow-once format"
+(describe "Bug 1: expansion UI should receive denied path as :resource"
 
   (before-each
-    (setq bug--temp-dir (make-temp-file "bug-scope-" t))
-    (setq bug--scope-file (expand-file-name "scope.yml" bug--temp-dir))
     (when (boundp 'jf/gptel-scope--allow-once-list)
       (setq jf/gptel-scope--allow-once-list nil)))
 
   (after-each
-    (when (and bug--temp-dir (file-exists-p bug--temp-dir))
-      (delete-directory bug--temp-dir t))
     (when (boundp 'jf/gptel-scope--allow-once-list)
       (setq jf/gptel-scope--allow-once-list nil)))
 
-  (it "expansion UI receives composite 'command:directory' as :resource instead of denied path"
+  (it "expansion UI :resource should be the denied path '/brew', not allow-once composite"
     (let* ((captured-violation nil)
-           ;; Validation error from the pipeline — note :path is "/brew"
+           ;; Validation error from the pipeline — :path is "/brew"
            (validation-error (list :allowed nil
                                    :error "path_out_of_scope"
                                    :path "/brew"
@@ -224,24 +229,18 @@ security:
        validation-error "run_bash_command" tool-args
        (lambda (_result) nil))
 
-      ;; BUG: :resource should be "/brew" (the denied path) but instead
-      ;; it's the allow-once composite "which brew:/"
       (expect captured-violation :to-be-truthy)
-      (let ((resource (plist-get captured-violation :resource)))
-        ;; This documents the CURRENT (broken) behavior:
-        ;; The resource is the allow-once composite, NOT the denied path
-        (expect resource :to-equal "which brew:/")
-        ;; What it SHOULD be (for add-to-scope to work correctly):
-        ;; (expect resource :to-equal "/brew")
-        ))))
+      ;; CORRECT: :resource should be the denied path for add-to-scope to use
+      (expect (plist-get captured-violation :resource) :to-equal "/brew"))))
 
 
 ;; ============================================================
-;; SUITE 3: BUG 2 — add-bash-to-scope misroutes composite resource
-;; to add-path-to-scope because it contains "/"
+;; SUITE 3: BUG 2 — add-bash-to-scope should not misroute
+;; RED: FAILS because composite resource "which brew:/" contains "/"
+;;      and falls into the directory-path branch
 ;; ============================================================
 
-(describe "Bug 2: add-bash-to-scope misroutes composite resource as directory path"
+(describe "Bug 2: add-bash-to-scope should add denied path to correct section"
 
   (before-each
     (setq bug--temp-dir (make-temp-file "bug-scope-" t))
@@ -252,33 +251,28 @@ security:
     (when (and bug--temp-dir (file-exists-p bug--temp-dir))
       (delete-directory bug--temp-dir t)))
 
-  (it "composite resource 'which brew:/' contains '/' so falls into path branch"
-    ;; This is the routing check in add-bash-to-scope
-    (let ((resource "which brew:/"))
-      ;; The function checks: (string-match-p "/" resource)
-      ;; "which brew:/" obviously contains "/"
-      (expect (string-match-p "/" resource) :to-be-truthy)))
-
-  (it "add-bash-to-scope delegates to add-path-to-scope for composite resource"
-    (spy-on 'jf/gptel-scope--add-path-to-scope)
+  (it "should NOT delegate to add-path-to-scope with a composite resource"
+    (spy-on 'jf/gptel-scope--add-path-to-scope :and-call-through)
 
     ;; Call with the composite resource (what trigger-inline-expansion produces)
     (jf/gptel-scope--add-bash-to-scope bug--scope-file "which brew:/" "run_bash_command")
 
-    ;; BUG: Falls into path branch instead of command branch
-    (expect 'jf/gptel-scope--add-path-to-scope :to-have-been-called)
-
-    ;; Verify what was passed to add-path-to-scope
-    (let ((call-args (spy-calls-args-for 'jf/gptel-scope--add-path-to-scope 0)))
-      ;; First arg: scope-file, second: the composite resource, third: tool
-      (expect (nth 1 call-args) :to-equal "which brew:/"))))
+    ;; CORRECT: should NOT have called add-path-to-scope with the raw composite
+    ;; (It may call add-path-to-scope with a CLEAN path, but not with "which brew:/")
+    (if (spy-calls-count 'jf/gptel-scope--add-path-to-scope)
+        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--add-path-to-scope 0)))
+          ;; If add-path-to-scope was called, it should NOT receive the composite
+          (expect (nth 1 call-args) :not :to-equal "which brew:/"))
+      ;; Or it wasn't called at all (also acceptable)
+      t)))
 
 
 ;; ============================================================
-;; SUITE 4: BUG 3 — add-path-to-scope writes garbage to paths.write
+;; SUITE 4: BUG 3 — scope.yml should not contain garbage patterns
+;; RED: FAILS because "which brew:/**" is written to paths.write
 ;; ============================================================
 
-(describe "Bug 3: add-path-to-scope writes 'which brew:/**' to paths.write"
+(describe "Bug 3: scope.yml should not contain garbage after add-to-scope"
 
   (before-each
     (setq bug--temp-dir (make-temp-file "bug-scope-" t))
@@ -289,45 +283,39 @@ security:
     (when (and bug--temp-dir (file-exists-p bug--temp-dir))
       (delete-directory bug--temp-dir t)))
 
-  (it "writes composite resource to paths.write (run_bash_command is write tool)"
-    ;; run_bash_command has :operation write in tool categories
-    (let ((category (cdr (assoc "run_bash_command" jf/gptel-scope--tool-categories))))
-      (expect (plist-get category :operation) :to-equal 'write))
+  (it "scope.yml should not contain 'which brew:' after add-to-scope"
+    ;; Simulate what happens: add-bash-to-scope with the composite resource
+    (jf/gptel-scope--add-bash-to-scope bug--scope-file "which brew:/" "run_bash_command")
 
-    ;; Call add-path-to-scope as add-bash-to-scope would
-    (jf/gptel-scope--add-path-to-scope bug--scope-file "which brew:/" "run_bash_command")
-
-    ;; Read scope.yml to see what was written
+    ;; CORRECT: scope.yml should NOT have the composite key as a path pattern
     (let ((contents (bug--read-scope-yml)))
-      ;; BUG: "which brew:/**" appears in paths.write
-      ;; (the trailing "/" gets "/**" appended by add-path-to-scope)
-      (expect contents :to-match "which brew:")
-      ;; Parse the YAML to verify it's specifically in paths.write
-      (let* ((parsed (jf/gptel-scope-yaml--parse-string contents))
-             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
-             (paths (plist-get normalized :paths))
-             (write-paths (plist-get paths :write)))
-        (expect (cl-some (lambda (p) (string-match-p "which brew:" p))
-                         write-paths)
-                :to-be-truthy))))
+      (expect contents :not :to-match "which brew:")))
 
-  (it "the written pattern 'which brew:/**' is not a valid glob path"
-    ;; This pattern will never match any real file path
-    ;; It would need to be a real path like "/brew" or "/usr/local/bin/brew"
-    (let ((garbage-pattern "which brew:/**"))
-      ;; No real path starts with "which brew:"
-      (expect (jf/gptel-scope--matches-pattern "/brew" garbage-pattern) :to-be nil)
-      (expect (jf/gptel-scope--matches-pattern "/usr/local/bin/brew" garbage-pattern) :to-be nil))))
+  (it "for path_out_of_scope on :read-metadata, denied path should go to paths.read"
+    ;; When bash validation fails because a path is out of read scope,
+    ;; "Add to scope" should add that path to paths.read
+    ;; (The denied operation was :read-metadata → read-like)
+    (jf/gptel-scope--add-bash-to-scope bug--scope-file "/brew" "run_bash_command")
+
+    (let* ((scope (bug--parse-scope-yml))
+           (paths (plist-get scope :paths))
+           (read-paths (plist-get paths :read))
+           (write-paths (plist-get paths :write)))
+      ;; CORRECT: the path should appear in paths.read, not paths.write
+      ;; (The denied operation was :read-metadata, not write)
+      (expect (cl-some (lambda (p) (string-match-p "brew" p)) read-paths)
+              :to-be-truthy)
+      (expect (cl-some (lambda (p) (string-match-p "brew" p)) write-paths)
+              :to-be nil))))
 
 
 ;; ============================================================
-;; SUITE 5: Session stuck — does the gptel callback fire?
-;; Full end-to-end: tool invoked → denied → add-to-scope →
-;; scope.yml updated with garbage → macro retries → retry fails →
-;; callback should still fire
+;; SUITE 5: BUG 4 — end-to-end: add-to-scope should enable retry success
+;; RED: FAILS because garbage path written, retry fails, callback
+;;      receives error instead of success
 ;; ============================================================
 
-(describe "Bug 4: session stuck — gptel callback after add-to-scope"
+(describe "Bug 4: end-to-end add-to-scope should enable retry success"
 
   (before-each
     (setq bug--temp-dir (make-temp-file "bug-scope-" t))
@@ -345,65 +333,17 @@ security:
     (when (boundp 'jf/gptel-scope--allow-once-list)
       (setq jf/gptel-scope--allow-once-list nil)))
 
-  (it "gptel callback fires after add-to-scope with garbage path (retry fails)"
-    (let* ((config (helpers-spec-load-scope-config bug--scope-file))
-           (tool (bug--find-tool "run_bash_command"))
-           (load-count 0))
-
-      ;; Mock config loading: returns same config each time
-      ;; (In real life, the second load would include the garbage pattern,
-      ;; but it won't help validate "/brew" anyway)
-      (spy-on 'jf/gptel-scope--load-config
-              :and-call-fake
-              (lambda ()
-                (cl-incf load-count)
-                config))
-
-      ;; Simulate "Add to scope" — the expansion callback fires but
-      ;; we skip actually writing scope.yml (would need writable scope-file
-      ;; context which requires buffer-local jf/gptel--branch-dir)
-      ;; Instead, directly invoke callback with success JSON
-      (spy-on 'jf/gptel-scope-prompt-expansion
-              :and-call-fake
-              (lambda (_violation-info callback _patterns _tool-name)
-                (funcall callback
-                         (json-serialize
-                          (list :success t
-                                :patterns_added (vector "which brew:/**"))))))
-
-      ;; Invoke the real tool through the macro
-      (funcall (gptel-tool-function tool)
-               #'bug--gptel-callback
-               "which brew"
-               "/")
-
-      ;; KEY CHECK: did the gptel callback fire at all?
-      (expect bug--callback-invoked :to-be t)
-
-      ;; Config was loaded twice: initial + retry after expansion
-      (expect load-count :to-equal 2)
-
-      ;; The retry should FAIL because the garbage pattern doesn't help
-      ;; So the callback should receive an error (not success)
-      (expect bug--callback-result :to-be-truthy)
-      (expect (plist-get bug--callback-result :success) :not :to-be t)))
-
-  (it "gptel callback fires after add-to-scope when scope.yml is actually updated"
-    ;; This test writes to the real scope.yml and verifies the full round-trip
-    ;; including reading the updated (garbage) config on retry
+  (it "gptel callback receives success after add-to-scope correctly expands scope"
     (let* ((tool (bug--find-tool "run_bash_command")))
 
-      ;; Use the real config loading but point it at our test scope.yml
-      ;; by setting the buffer-local branch-dir
+      ;; Use real config loading pointed at our test scope.yml
       (with-temp-buffer
         (setq-local jf/gptel--branch-dir bug--temp-dir)
 
-        ;; Simulate "Add to scope" using Pattern A: direct suffix invocation
-        ;; This calls the REAL add-to-scope code path
+        ;; Simulate "Add to scope" using the real add-to-scope code path
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
                 (lambda (violation-info callback patterns tool-name)
-                  ;; Simulate what the real transient suffix does
                   (let* ((validation-type (plist-get violation-info :validation-type))
                          (resource (plist-get violation-info :resource))
                          (tool (plist-get violation-info :tool)))
@@ -415,11 +355,17 @@ security:
                       ('path
                        (jf/gptel-scope--add-path-to-scope
                         bug--scope-file resource tool)))
-                    ;; Then invoke callback (as the real suffix does)
+                    ;; Then invoke callback
                     (funcall callback
                              (json-serialize
                               (list :success t
                                     :patterns_added (vconcat patterns)))))))
+
+        ;; Mock command execution (tool body)
+        (spy-on 'jf/gptel-bash--execute-command
+                :and-return-value '(:output "/opt/homebrew/bin/brew"
+                                    :exit_code 0
+                                    :truncated nil :warnings nil :error nil))
 
         ;; Invoke the real tool through the macro
         (funcall (gptel-tool-function tool)
@@ -427,17 +373,65 @@ security:
                  "which brew"
                  "/")
 
-        ;; Callback MUST fire for gptel FSM to advance
+        ;; Callback MUST fire
         (expect bug--callback-invoked :to-be t)
+        (expect bug--callback-result :to-be-truthy)
 
-        ;; Verify scope.yml was actually modified with the garbage
+        ;; CORRECT: After proper scope expansion, retry should succeed
+        ;; and the tool body should execute, returning a success result
+        (expect (plist-get bug--callback-result :success) :to-be t)
+        (expect (plist-get bug--callback-result :output)
+                :to-equal "/opt/homebrew/bin/brew"))))
+
+  (it "scope.yml contains valid path pattern after add-to-scope (not garbage)"
+    (let* ((tool (bug--find-tool "run_bash_command")))
+
+      (with-temp-buffer
+        (setq-local jf/gptel--branch-dir bug--temp-dir)
+
+        ;; Simulate "Add to scope" with real updater
+        (spy-on 'jf/gptel-scope-prompt-expansion
+                :and-call-fake
+                (lambda (violation-info callback patterns tool-name)
+                  (let* ((validation-type (plist-get violation-info :validation-type))
+                         (resource (plist-get violation-info :resource))
+                         (tool (plist-get violation-info :tool)))
+                    (pcase validation-type
+                      ('bash
+                       (jf/gptel-scope--add-bash-to-scope
+                        bug--scope-file resource tool))
+                      ('path
+                       (jf/gptel-scope--add-path-to-scope
+                        bug--scope-file resource tool)))
+                    (funcall callback
+                             (json-serialize
+                              (list :success t
+                                    :patterns_added (vconcat patterns)))))))
+
+        (spy-on 'jf/gptel-bash--execute-command
+                :and-return-value '(:output "" :exit_code 0
+                                    :truncated nil :warnings nil :error nil))
+
+        (funcall (gptel-tool-function tool)
+                 #'bug--gptel-callback
+                 "which brew"
+                 "/")
+
+        ;; CORRECT: scope.yml should not contain the composite key
         (let ((contents (bug--read-scope-yml)))
-          (expect contents :to-match "which brew:"))
+          (expect contents :not :to-match "which brew:"))
 
-        ;; The callback result — should be an error since retry fails
-        ;; OR success if the garbage pattern accidentally matches
-        ;; Either way, the callback MUST have fired
-        (expect bug--callback-result :to-be-truthy)))))
+        ;; CORRECT: scope.yml should contain a valid path pattern
+        ;; that includes "/brew" or a parent glob like "/**"
+        (let* ((scope (bug--parse-scope-yml))
+               (paths (plist-get scope :paths))
+               (all-patterns (append (plist-get paths :read)
+                                     (plist-get paths :write))))
+          ;; At least one pattern should match /brew
+          (expect (cl-some (lambda (p)
+                             (jf/gptel-scope--matches-pattern "/brew" p))
+                           all-patterns)
+                  :to-be-truthy))))))
 
 (provide 'bash-add-to-scope-bug-spec)
 
