@@ -46,90 +46,12 @@
   (contract--register-buttercup-matcher)
   ;; Scope helpers
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
+  ;; Interface contracts (source of truth for error codes)
+  (require 'scope-interfaces (expand-file-name "scope/interfaces.el" gptel-dir))
   ;; Production scope modules
   (require 'jf-gptel-scope-core (expand-file-name "scope/scope-core.el" gptel-dir))
   (require 'jf-gptel-scope-shell-tools
            (expand-file-name "scope/scope-shell-tools.el" gptel-dir)))
-
-
-;;; Error Code Vocabulary
-;;
-;; This is the shared contract between validators (producers) and
-;; build-violation-info (consumer).  Each entry documents:
-;;   - The error code string
-;;   - Which validator produces it
-;;   - Which field carries the primary resource identifier
-
-(defconst error-contract--vocabulary
-  '(;; Path validator (scope-core.el: validate-path-tool)
-    (:code "denied-pattern"
-     :producer "validate-path-tool"
-     :resource-field :resource  ;; uses :resource directly
-     :resource-type path)
-
-    (:code "not-in-scope"
-     :producer "validate-path-tool"
-     :resource-field :resource
-     :resource-type path)
-
-    ;; File operation validator (scope-shell-tools.el: validate-operation)
-    (:code "path_out_of_scope"
-     :producer "validate-operation"
-     :resource-field :path
-     :resource-type path)
-
-    (:code "path_denied"
-     :producer "validate-operation"
-     :resource-field :path
-     :resource-type path)
-
-    ;; Pipeline command validator (scope-shell-tools.el: validate-pipeline-commands)
-    (:code "command_denied"
-     :producer "validate-pipeline-commands"
-     :resource-field :command
-     :resource-type command)
-
-    ;; Cloud auth validator (scope-shell-tools.el: validate-cloud-auth)
-    (:code "cloud_auth_denied"
-     :producer "validate-cloud-auth"
-     :resource-field :provider
-     :resource-type provider)
-
-    (:code "cloud_provider_denied"
-     :producer "validate-cloud-auth"
-     :resource-field :provider
-     :resource-type provider)
-
-    ;; Parse completeness (scope-shell-tools.el: validate-parse-completeness)
-    (:code "parse_incomplete"
-     :producer "validate-parse-completeness"
-     :resource-field :command  ;; command that failed to parse
-     :resource-type command)
-
-    ;; Config errors (scope-core.el: validate-bash-tool)
-    (:code "command-not-allowed"
-     :producer "validate-bash-tool"
-     :resource-field :resource
-     :resource-type command)
-
-    (:code "malformed-config"
-     :producer "validate-bash-tool"
-     :resource-field :resource
-     :resource-type command))
-  "Error code vocabulary: the contract between validators and build-violation-info.
-Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
-
-(defun error-contract--all-codes ()
-  "Extract all error code strings from the vocabulary."
-  (mapcar (lambda (entry) (plist-get entry :code))
-          error-contract--vocabulary))
-
-(defun error-contract--codes-for-producer (producer)
-  "Extract error codes produced by PRODUCER."
-  (mapcar (lambda (entry) (plist-get entry :code))
-          (cl-remove-if-not
-           (lambda (entry) (equal (plist-get entry :producer) producer))
-           error-contract--vocabulary)))
 
 
 ;;; Producer-side tests: validators only produce known error codes
@@ -149,7 +71,7 @@ Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
                       config nil)))
         (expect (plist-get result :allowed) :to-be nil)
         (expect (plist-get result :error) :to-equal "denied-pattern")
-        (expect (member "denied-pattern" (error-contract--all-codes)) :to-be-truthy)))
+        (expect (member "denied-pattern" scope/interface--error-codes) :to-be-truthy)))
 
     (it "not-in-scope when path not matched"
       (let* ((config '(:paths (:read ("/workspace/**") :write ()
@@ -161,7 +83,7 @@ Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
                       config nil)))
         (expect (plist-get result :allowed) :to-be nil)
         (expect (plist-get result :error) :to-equal "not-in-scope")
-        (expect (member "not-in-scope" (error-contract--all-codes)) :to-be-truthy))))
+        (expect (member "not-in-scope" scope/interface--error-codes) :to-be-truthy))))
 
   (describe "validate-pipeline-commands produces only known codes"
 
@@ -170,28 +92,31 @@ Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
                      '("ls" "rm") '(:deny ("rm" "sudo")))))
         (expect result :not :to-be nil)
         (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (member "command_denied" (error-contract--all-codes)) :to-be-truthy))))
+        (expect (member "command_denied" scope/interface--error-codes) :to-be-truthy))))
 
-  (describe "validate-operation produces only known codes"
+  (describe "validate-operation should produce canonical codes"
 
-    (it "path_out_of_scope when path not in allowed patterns"
+    ;; RED: validate-operation uses "path_out_of_scope" and "path_denied"
+    ;; but the canonical codes are "not-in-scope" and "denied-pattern"
+
+    (it "should use canonical code for out-of-scope paths"
       (let* ((paths-config '(:read ("/workspace/**") :write ()
                              :execute () :modify () :deny ()))
              (result (jf/gptel-scope--validate-operation
                       :read "/outside/file.txt" paths-config)))
         (expect result :not :to-be nil)
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")
-        (expect (member "path_out_of_scope" (error-contract--all-codes)) :to-be-truthy)))
+        (expect (member (plist-get result :error) scope/interface--error-codes)
+                :to-be-truthy)))
 
-    (it "path_denied when path matches deny pattern"
+    (it "should use canonical code for deny-matched paths"
       (let* ((paths-config '(:read ("/workspace/**") :write ()
                              :execute () :modify ()
                              :deny ("/workspace/.git/**")))
              (result (jf/gptel-scope--validate-operation
                       :read "/workspace/.git/config" paths-config)))
         (expect result :not :to-be nil)
-        (expect (plist-get result :error) :to-equal "path_denied")
-        (expect (member "path_denied" (error-contract--all-codes)) :to-be-truthy))))
+        (expect (member (plist-get result :error) scope/interface--error-codes)
+                :to-be-truthy))))
 
   (describe "validate-cloud-auth produces only known codes"
 
@@ -201,7 +126,7 @@ Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
                      '(:auth-detection "deny"))))
         (expect result :not :to-be nil)
         (expect (plist-get result :error) :to-equal "cloud_auth_denied")
-        (expect (member "cloud_auth_denied" (error-contract--all-codes)) :to-be-truthy)))
+        (expect (member "cloud_auth_denied" scope/interface--error-codes) :to-be-truthy)))
 
     (it "cloud_provider_denied when provider not in allowed list"
       (let ((result (jf/gptel-scope--validate-cloud-auth
@@ -209,7 +134,7 @@ Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
                      '(:auth-detection "warn" :allowed-providers ("aws" "gcp")))))
         (expect result :not :to-be nil)
         (expect (plist-get result :error) :to-equal "cloud_provider_denied")
-        (expect (member "cloud_provider_denied" (error-contract--all-codes)) :to-be-truthy))))
+        (expect (member "cloud_provider_denied" scope/interface--error-codes) :to-be-truthy))))
 
   (describe "validate-parse-completeness produces only known codes"
 
@@ -219,7 +144,7 @@ Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
                      '(:enforce-parse-complete t))))
         (expect result :not :to-be nil)
         (expect (plist-get result :error) :to-equal "parse_incomplete")
-        (expect (member "parse_incomplete" (error-contract--all-codes)) :to-be-truthy)))))
+        (expect (member "parse_incomplete" scope/interface--error-codes) :to-be-truthy)))))
 
 
 ;;; Consumer-side tests: build-violation-info handles all known codes
@@ -308,23 +233,19 @@ Each entry is a plist with :code, :producer, :resource-field, :resource-type.")
 
   (describe "build-violation-info always populates required fields"
 
-    (dolist (entry error-contract--vocabulary)
-      (let ((code (plist-get entry :code))
-            (resource-field (plist-get entry :resource-field)))
-        (it (format "populates :tool, :reason, :validation-type for %s" code)
-          (let* ((error-plist (append
-                               (list :error code
-                                     :message (format "Test message for %s" code)
-                                     :resource "fallback-resource"
-                                     :path "/test/path"
-                                     :command "test-cmd"
-                                     :provider "aws")
-                               nil))
-                 (result (jf/gptel-scope--build-violation-info
-                          error-plist "read_file")))
-            (expect (plist-get result :tool) :to-equal "read_file")
-            (expect (plist-get result :reason) :not :to-be nil)
-            (expect (plist-get result :resource) :not :to-be nil)))))))
+    (dolist (code scope/interface--error-codes)
+      (it (format "populates :tool, :reason, :validation-type for %s" code)
+        (let* ((error-plist (list :error code
+                                  :message (format "Test message for %s" code)
+                                  :resource "fallback-resource"
+                                  :path "/test/path"
+                                  :command "test-cmd"
+                                  :provider "aws"))
+               (result (jf/gptel-scope--build-violation-info
+                        error-plist "read_file")))
+          (expect (plist-get result :tool) :to-equal "read_file")
+          (expect (plist-get result :reason) :not :to-be nil)
+          (expect (plist-get result :resource) :not :to-be nil))))))
 
 
 ;;; Cross-cutting: path validators should use the same error codes

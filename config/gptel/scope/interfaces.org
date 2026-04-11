@@ -1,0 +1,302 @@
+#+title: Scope System Interfaces
+#+property: header-args:emacs-lisp :tangle interfaces.el
+#+auto_tangle: y
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; interfaces.el --- Scope system interface contracts -*- lexical-binding: t; -*-
+#+end_src
+
+* Purpose
+
+This document defines the interfaces between components of the scope validation system.  Each interface is an executable contract: a =defconst= or validator function that is imported by tests to verify producers and consumers agree.
+
+The scope system validates tool invocations against a =scope.yml= configuration.  The flow is:
+
+1. A tool is invoked (e.g., =run_bash_command=)
+2. The macro loads scope config and routes to a validator
+3. The validator returns a result (allowed or denied with error details)
+4. If denied, the error is transformed into a violation-info for the expansion UI
+5. The expansion UI presents choices; the chosen action may modify =scope.yml=
+
+Each numbered step crosses a component boundary.  This document defines what data looks like at each crossing.
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+#+end_src
+
+* Error Code Vocabulary
+:PROPERTIES:
+:CUSTOM_ID: error-codes
+:END:
+
+Validators produce error code strings.  =build-violation-info= consumes them to extract the right resource identifier.  The expansion UI routes actions based on validation type.  All three must agree on the vocabulary.
+
+Two kinds of path denial exist because two validators check paths:
+- =validate-path-tool= checks filesystem tools (=read_file=, =write_file_in_scope=)
+- =validate-operation= checks file operations extracted from bash commands
+
+These should use the same error codes but currently diverge (see [[#known-divergences][Known Divergences]]).
+
+#+begin_src emacs-lisp
+(defconst scope/interface--error-codes
+  '(;; --- Path access denied ---
+    ;; Produced when a path matches a deny pattern.
+    ;; Producers: validate-path-tool, validate-operation
+    "denied-pattern"
+
+    ;; Produced when a path is not covered by any allow pattern.
+    ;; Producers: validate-path-tool, validate-operation
+    "not-in-scope"
+
+    ;; --- Bash command denied ---
+    ;; Produced when a command appears in bash_tools.deny list.
+    ;; Producer: validate-pipeline-commands
+    "command_denied"
+
+    ;; Produced when no bash_tools section exists in scope config.
+    ;; Producer: validate-bash-tool
+    "command-not-allowed"
+
+    ;; --- Parse errors ---
+    ;; Produced when bash-parser cannot fully parse the command.
+    ;; Producer: validate-parse-completeness
+    "parse_incomplete"
+
+    ;; --- Cloud authentication ---
+    ;; Produced when cloud auth detected and policy is "deny".
+    ;; Producer: validate-cloud-auth
+    "cloud_auth_denied"
+
+    ;; Produced when cloud provider not in allowed_providers list.
+    ;; Producer: validate-cloud-auth
+    "cloud_provider_denied"
+
+    ;; --- Configuration errors ---
+    ;; Produced when scope config has invalid structure.
+    ;; Producer: validate-bash-tool
+    "malformed-config")
+  "Canonical error codes for scope validation.
+
+Every validator MUST produce only codes from this list.
+Every consumer (build-violation-info, format-tool-error) MUST handle
+every code in this list.
+
+Codes not in this list:
+- \"unknown-tool\" (from check-tool-permission, not a validation error)
+- \"no_scope_config\" (from the macro, before validation runs)
+- \"tool_exception\" (from the macro, unexpected errors)
+- \"allow-once\" (from check-tool-permission, signals success not error)")
+#+end_src
+
+** Error Code to Resource Field Mapping
+
+When a validator returns an error, the resource identifier lives in different fields depending on the error type.  =build-violation-info= must know which field to read.
+
+#+begin_src emacs-lisp
+(defconst scope/interface--error-resource-fields
+  '(("denied-pattern"       . :resource)
+    ("not-in-scope"         . :resource)
+    ("command_denied"       . :command)
+    ("command-not-allowed"  . :resource)
+    ("parse_incomplete"     . :command)
+    ("cloud_auth_denied"    . :provider)
+    ("cloud_provider_denied" . :provider)
+    ("malformed-config"     . :resource))
+  "Maps each error code to the plist key holding the resource identifier.
+
+build-violation-info uses this to extract :resource for the expansion UI.
+If a validator returns an error code not in this alist, the resource
+will be nil and the expansion UI cannot show what was denied.")
+#+end_src
+
+* Validation Result Shape
+:PROPERTIES:
+:CUSTOM_ID: validation-result
+:END:
+
+All validators return plists with =:allowed= as the discriminator.  On denial, the plist carries error details that flow downstream to =build-violation-info= and =format-tool-error=.
+
+#+begin_src emacs-lisp
+(defun scope/interface--validate-validation-result (result)
+  "Validate that RESULT is a well-formed validation result plist.
+Returns nil if valid, error string if invalid."
+  (cl-block validate
+    (unless (listp result)
+      (cl-return-from validate
+        (format "Expected plist, got %s" (type-of result))))
+
+    ;; :allowed is required
+    (unless (plist-member result :allowed)
+      (cl-return-from validate "Missing required key :allowed"))
+
+    (if (plist-get result :allowed)
+        ;; Success case: no other keys required
+        nil
+
+      ;; Denial case: check required error fields
+      (let ((errors nil))
+        (unless (plist-member result :error)
+          (push "Denied result missing :error" errors))
+        (unless (plist-member result :message)
+          (push "Denied result missing :message" errors))
+
+        ;; :error must be a known code
+        (when (plist-member result :error)
+          (let ((code (plist-get result :error)))
+            (unless (member code scope/interface--error-codes)
+              (push (format ":error %S not in canonical error codes" code) errors))))
+
+        (when errors
+          (mapconcat #'identity (nreverse errors) "; "))))))
+#+end_src
+
+* Violation-Info Shape
+:PROPERTIES:
+:CUSTOM_ID: violation-info
+:END:
+
+=build-violation-info= transforms a validation result into the format the expansion UI needs.  The expansion UI reads =:tool=, =:resource=, =:reason=, and =:validation-type= to display the transient menu.  The =:allow-once-resource= is used by the allow-once action to store a key that =check-allow-once= can find later.
+
+#+begin_src emacs-lisp
+(defun scope/interface--validate-violation-info (info)
+  "Validate that INFO is a well-formed violation-info plist.
+Returns nil if valid, error string if invalid."
+  (cl-block validate
+    (unless (listp info)
+      (cl-return-from validate
+        (format "Expected plist, got %s" (type-of info))))
+
+    (let ((errors nil))
+      ;; Required fields
+      (dolist (key '(:tool :resource :reason :validation-type))
+        (unless (plist-member info key)
+          (push (format "Missing required key %S" key) errors))
+        (when (and (plist-member info key)
+                   (null (plist-get info key)))
+          (push (format "Required key %S is nil" key) errors)))
+
+      ;; :validation-type must be a known symbol
+      (when (plist-member info :validation-type)
+        (let ((vtype (plist-get info :validation-type)))
+          (unless (memq vtype '(path pattern bash meta))
+            (push (format ":validation-type %S not in (path pattern bash meta)" vtype)
+                  errors))))
+
+      (when errors
+        (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+* Allow-Once Resource Formats
+:PROPERTIES:
+:CUSTOM_ID: allow-once
+:END:
+
+Allow-once permissions are stored as =(tool-name . resource)= cons cells in a buffer-local list.  The =resource= format varies by validation type.  =trigger-inline-expansion= computes the resource when granting permission; =check-allow-once= computes it when checking.  They must agree.
+
+| Validation Type | Resource Format              | Example                              |
+|-----------------+------------------------------+--------------------------------------|
+| =path=          | Expanded absolute filepath   | =/Users/jeff/workspace/file.txt=     |
+| =pattern=       | =tool-name:first-arg=        | =create_roam_node_in_scope:node-id=  |
+| =bash=          | =command:expanded-directory=  | =which brew:/Users/jeff/workspace=   |
+
+#+begin_src emacs-lisp
+(defun scope/interface--compute-allow-once-resource (validation-type tool-name args)
+  "Compute the allow-once resource key for VALIDATION-TYPE.
+TOOL-NAME and ARGS are the tool invocation parameters.
+
+This is the canonical implementation.  Both trigger-inline-expansion
+and check-allow-once should produce the same value for the same inputs."
+  (pcase validation-type
+    ('path (expand-file-name (car args)))
+    ('pattern (format "%s:%s" tool-name (car args)))
+    ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
+    (_ nil)))
+#+end_src
+
+* Path Matching
+:PROPERTIES:
+:CUSTOM_ID: path-matching
+:END:
+
+Path matching converts glob patterns from =scope.yml= to regexes and tests paths against them.  This is used by both =validate-path-tool= (for filesystem tools) and =validate-operation= (for bash file-ops).
+
+There should be exactly one glob-to-regex implementation and one path-matches-any-pattern function.  Currently there are two of each (see [[#known-divergences][Known Divergences]]).
+
+The contract for glob matching:
+
+| Pattern   | Matches                              | Does not match          |
+|-----------+--------------------------------------+-------------------------|
+| =*=       | Any characters except =/=            | Paths with =/=          |
+| =**=      | Any characters including =/=         |                         |
+| =?=       | Exactly one character                |                         |
+| =/**/=    | Zero or more directory components    |                         |
+
+#+begin_src emacs-lisp
+(defconst scope/interface--glob-test-cases
+  '(;; Pattern          Path                          Expected
+    ("/workspace/**"    "/workspace/file.txt"         t)
+    ("/workspace/**"    "/workspace/sub/file.txt"     t)
+    ("/workspace/**"    "/other/file.txt"             nil)
+    ("/workspace/*.el"  "/workspace/init.el"          t)
+    ("/workspace/*.el"  "/workspace/sub/init.el"      nil)
+    ("**/.git/**"       "/workspace/.git/config"      t)
+    ("**/.git/**"       "/workspace/sub/.git/HEAD"    t)
+    ("/tmp/*"           "/tmp/file"                   t)
+    ("/tmp/*"           "/tmp/sub/file"               nil))
+  "Test cases for glob pattern matching.
+Each entry is (PATTERN PATH EXPECTED-RESULT).
+
+Any function claiming to implement glob matching for scope validation
+must pass all of these cases.  Tests import this constant to verify
+both the path-tool matcher and the file-ops matcher agree.")
+#+end_src
+
+* Known Divergences
+:PROPERTIES:
+:CUSTOM_ID: known-divergences
+:END:
+
+This section documents known violations of the interfaces defined above.  Each entry references the red-phase test that exposes it.
+
+** Two error code schemes for path denial
+
+=validate-path-tool= (scope-core.el) uses =denied-pattern= and =not-in-scope=.
+=validate-operation= (scope-shell-tools.el) uses =path_denied= and =path_out_of_scope=.
+
+The canonical codes are =denied-pattern= and =not-in-scope= (defined in [[#error-codes][Error Code Vocabulary]] above).
+
+Red phase tests: =error-code-contract-spec.el=, "error code consistency: path validators should agree"
+
+** build-violation-info missing error codes
+
+=build-violation-info= has no pcase branch for =cloud_provider_denied= and checks =incomplete_parse= instead of =parse_incomplete=.
+
+Red phase tests: =error-code-contract-spec.el=, "extracts provider for cloud_provider_denied", "extracts command for parse_incomplete"
+
+** Duplicate glob-to-regex implementations
+
+=scope-core.el:835= defines a simple regex-replacement version.
+=scope-shell-tools.el:777= defines a character-by-character parser version.
+
+The second definition shadows the first at load time.  Both are used via different wrapper functions (=matches-pattern= vs =glob-match-p=).
+
+** add-bash-to-scope writes invalid categories
+
+=scope-expansion.el:add-bash-to-scope= writes to =bash_tools.categories= for non-path resources.  =load-schema= rejects configs with a =categories= section.
+
+Red phase tests: =expansion-roundtrip-spec.el=, "adding a command name resource produces valid config"
+
+** Allow-once checked at two layers
+
+The =gptel-make-scoped-tool= macro checks =check-allow-once= before calling =check-tool-permission=, which also checks =check-allow-once=.
+
+Red phase test: =allow-once-consumption-spec.el=, "check-tool-permission should grant access for allow-once path without macro pre-check"
+
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'scope-interfaces)
+;;; interfaces.el ends here
+#+end_src
