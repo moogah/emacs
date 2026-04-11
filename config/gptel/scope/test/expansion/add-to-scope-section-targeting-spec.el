@@ -70,7 +70,7 @@ security:
 
 (defun section--parse-scope-yml ()
   "Parse the test scope.yml into a normalized plist."
-  (jf/gptel-scope--normalize-plist-keys
+  (jf/gptel-scope-yaml--normalize-keys
    (jf/gptel-scope-yaml--parse-string
     (with-temp-buffer
       (insert-file-contents section--scope-file)

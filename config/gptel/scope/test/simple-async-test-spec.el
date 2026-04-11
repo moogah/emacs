@@ -84,10 +84,10 @@
     ;; Create simple test tool using REAL tool name from categories
     (let* ((test-tool
             (gptel-make-scoped-tool
-             "write_file_in_scope"  ; Use real tool name from jf/gptel-scope--tool-categories
+             "write_file_in_scope"  ; Use real tool name
              "Test"
              (list '(:name "filepath" :type string))
-             "filesystem"
+             :operation write
              :async
              (progn
                (message "DEBUG: Tool body executing for %s" filepath)

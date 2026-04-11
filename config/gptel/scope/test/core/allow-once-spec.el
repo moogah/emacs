@@ -117,7 +117,7 @@
          "test_async_flag"
          "Test async flag propagation"
          (list '(:name "arg1" :type string :description "Arg"))
-         "test"
+         :operation read
          :async
          (list :success t :value arg1)))
       (let ((tool-found (test-allow-once--find-tool-in-registry "test_async_flag")))
@@ -130,7 +130,7 @@
          "test_callback_sig"
          "Test callback signature"
          (list '(:name "filepath" :type string :description "Path"))
-         "test"
+         :operation read
          :async
          (list :success t :content filepath)))
       (let ((tool-found (test-allow-once--find-tool-in-registry "test_callback_sig")))
@@ -148,7 +148,7 @@
          "test_sync_flag"
          "Test sync flag"
          (list '(:name "arg1" :type string :description "Arg"))
-         "test"
+         :operation read
          ;; No :async keyword
          (list :success t :value arg1)))
       (let ((tool-found (test-allow-once--find-tool-in-registry "test_sync_flag")))

@@ -97,7 +97,7 @@ tools:
 
               ;; Read and parse
               (setq parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-              (setq normalized (jf/gptel-scope--normalize-plist-keys parsed))
+              (setq normalized (jf/gptel-scope-yaml--normalize-keys parsed))
 
               ;; Verify all sections present
               (expect (plist-get normalized :paths) :not :to-be nil)
@@ -123,7 +123,7 @@ tools:
 
               ;; Read again and verify structure preserved
               (let* ((parsed2 (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                     (normalized2 (jf/gptel-scope--normalize-plist-keys parsed2)))
+                     (normalized2 (jf/gptel-scope-yaml--normalize-keys parsed2)))
                 (expect (plist-get normalized2 :cloud) :not :to-be nil)
                 (expect (plist-get normalized2 :security) :not :to-be nil)
                 (let ((cloud2 (plist-get normalized2 :cloud)))
@@ -144,13 +144,13 @@ tools:
               (with-temp-file temp-file
                 (insert test-yaml))
               (let* ((parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                     (normalized (jf/gptel-scope--normalize-plist-keys parsed)))
+                     (normalized (jf/gptel-scope-yaml--normalize-keys parsed)))
                 (with-temp-buffer
                   (jf/gptel-scope--write-yaml-plist normalized)
                   (write-region (point-min) (point-max) temp-file nil 'silent))
                 ;; Verify round-trip
                 (let* ((parsed2 (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                       (normalized2 (jf/gptel-scope--normalize-plist-keys parsed2))
+                       (normalized2 (jf/gptel-scope-yaml--normalize-keys parsed2))
                        (cloud (plist-get normalized2 :cloud)))
                   (expect (plist-get cloud :auth-detection) :to-equal "allow")
                   (expect (plist-get cloud :allowed-providers) :to-equal '()))))
@@ -172,7 +172,7 @@ tools:
 
               ;; Read back and verify ALL sections still present
               (let* ((parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                     (normalized (jf/gptel-scope--normalize-plist-keys parsed)))
+                     (normalized (jf/gptel-scope-yaml--normalize-keys parsed)))
 
                 ;; Verify new path added
                 (let* ((paths (plist-get normalized :paths))
@@ -210,7 +210,7 @@ tools:
 
               ;; Read back and verify sections preserved
               (let* ((parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                     (normalized (jf/gptel-scope--normalize-plist-keys parsed)))
+                     (normalized (jf/gptel-scope-yaml--normalize-keys parsed)))
 
                 ;; Verify command added (run_bash_command has :operation write, so adds to safe-write)
                 (let* ((bash-tools (plist-get normalized :bash-tools))
@@ -238,7 +238,7 @@ tools:
 
               ;; Read back and verify sections preserved
               (let* ((parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                     (normalized (jf/gptel-scope--normalize-plist-keys parsed)))
+                     (normalized (jf/gptel-scope-yaml--normalize-keys parsed)))
 
                 ;; Verify pattern added
                 (let* ((org-roam (plist-get normalized :org-roam-patterns))

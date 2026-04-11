@@ -131,7 +131,7 @@ security:
                        (funcall format-paths deny-paths)
                        (funcall format-deny (or bash-deny '()))
                        (or cloud-auth "warn"))))
-    (jf/gptel-scope--load-schema
+    (jf/gptel-scope-yaml--load-schema
      (jf/gptel-scope-yaml--parse-string yaml))))
 
 ;;; Test Suites
@@ -538,7 +538,7 @@ security:
 
   (it "missing bash_tools config returns error through callback"
     ;; Config without bash_tools section
-    (let* ((config (jf/gptel-scope--load-schema
+    (let* ((config (jf/gptel-scope-yaml--load-schema
                     (jf/gptel-scope-yaml--parse-string
                      "paths:\n  read:\n    - \"/workspace/**\"\n")))
            (tool (bash-integ--find-tool "run_bash_command")))

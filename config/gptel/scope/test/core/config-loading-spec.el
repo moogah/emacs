@@ -61,17 +61,17 @@
   "Parse YML-CONTENT string using production code path.
 Returns normalized plist with vectors converted to lists."
   (let* ((parsed (yaml-parse-string yml-content :object-type 'plist))
-         (loaded (jf/gptel-scope--load-schema parsed))
+         (loaded (jf/gptel-scope-yaml--load-schema parsed))
          (vectors-fixed (test-config--normalize-vectors loaded)))
     vectors-fixed))
 
 ;;; Schema Loading Unit Tests (from config-spec.el)
 
-(describe "jf/gptel-scope--load-schema"
+(describe "jf/gptel-scope-yaml--load-schema"
 
   (it "merges provided paths with defaults"
     (let* ((schema-plist '(:paths (:read ("/workspace/**"))))
-           (result (jf/gptel-scope--load-schema schema-plist))
+           (result (jf/gptel-scope-yaml--load-schema schema-plist))
            (paths (plist-get result :paths)))
       (expect (plist-get paths :read) :to-equal '("/workspace/**"))
       (expect (plist-get paths :write) :to-equal '())
@@ -79,7 +79,7 @@ Returns normalized plist with vectors converted to lists."
 
   (it "uses defaults when sections missing"
     (let* ((schema-plist '(:paths nil))
-           (result (jf/gptel-scope--load-schema schema-plist))
+           (result (jf/gptel-scope-yaml--load-schema schema-plist))
            (cloud (plist-get result :cloud))
            (security (plist-get result :security)))
       (expect (plist-get cloud :auth-detection) :to-equal "warn")
@@ -89,7 +89,7 @@ Returns normalized plist with vectors converted to lists."
   (it "preserves bash-tools deny list with normalized keys"
     (let* ((bash-tools '(:deny ("rm" "sudo")))
            (schema-plist (list :bash-tools bash-tools))
-           (result (jf/gptel-scope--load-schema schema-plist))
+           (result (jf/gptel-scope-yaml--load-schema schema-plist))
            (result-bash-tools (plist-get result :bash-tools)))
       (expect (plist-get result-bash-tools :deny) :to-equal '("rm" "sudo")))))
 

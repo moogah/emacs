@@ -139,7 +139,7 @@ security:
 (defun bug--parse-scope-yml ()
   "Parse the test scope.yml into a normalized plist."
   (let* ((parsed (jf/gptel-scope-yaml--parse-string (bug--read-scope-yml))))
-    (jf/gptel-scope--normalize-plist-keys parsed)))
+    (jf/gptel-scope-yaml--normalize-keys parsed)))
 
 
 ;;; Test Suites

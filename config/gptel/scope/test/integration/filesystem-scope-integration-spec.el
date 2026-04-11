@@ -122,7 +122,7 @@ security:
 (defun fs-integ--load-config-from-yaml (yaml-string)
   "Parse YAML-STRING through the real scope config pipeline.
 Returns a scope config plist identical to what jf/gptel-scope--load-config returns."
-  (jf/gptel-scope--load-schema
+  (jf/gptel-scope-yaml--load-schema
    (jf/gptel-scope-yaml--parse-string yaml-string)))
 
 (defun fs-integ--create-temp-file (content &optional suffix)

@@ -19,7 +19,7 @@
 ;;
 ;; Every expansion action (add-path, add-bash, add-pattern) must produce
 ;; a scope.yml that satisfies contract/scope-config--validate after
-;; being reloaded through jf/gptel-scope--load-schema.
+;; being reloaded through jf/gptel-scope-yaml--load-schema.
 
 ;;; Code:
 

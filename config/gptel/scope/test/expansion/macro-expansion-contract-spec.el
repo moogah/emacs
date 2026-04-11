@@ -115,7 +115,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
          "Test bash routing"
          (list '(:name "command" :type string :description "Command")
                '(:name "directory" :type string :description "Dir"))
-         "bash"
+         :operation write
          :async
          (progn
            (setq macro-contract--body-executed t)
@@ -152,7 +152,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
          "test_path_routing"
          "Test path routing"
          (list '(:name "filepath" :type string :description "Path"))
-         "filesystem"
+         :operation read
          :async
          (progn
            (setq macro-contract--body-executed t)
@@ -181,7 +181,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
          "test_meta_routing"
          "Test meta routing"
          (list '(:name "arg" :type string :description "Arg"))
-         "scope"
+         :operation read
          :async
          (progn
            (setq macro-contract--body-executed t)
@@ -247,7 +247,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
          "Test expansion trigger"
          (list '(:name "command" :type string :description "Command")
                '(:name "directory" :type string :description "Dir"))
-         "bash"
+         :operation write
          :async
          (progn
            (setq macro-contract--body-executed t)
@@ -287,7 +287,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
          "Test expansion approve"
          (list '(:name "command" :type string :description "Command")
                '(:name "directory" :type string :description "Dir"))
-         "bash"
+         :operation write
          :async
          (progn
            (setq macro-contract--body-executed t)
@@ -342,7 +342,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
          "Test expansion deny"
          (list '(:name "command" :type string :description "Command")
                '(:name "directory" :type string :description "Dir"))
-         "bash"
+         :operation write
          :async
          (progn
            (setq macro-contract--body-executed t)
@@ -390,7 +390,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
          "test_sync_no_expansion"
          "Test sync no expansion"
          (list '(:name "filepath" :type string :description "Path"))
-         "filesystem"
+         :operation read
          ;; No :async — sync tool
          (progn
            (setq macro-contract--body-executed t)
@@ -567,7 +567,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
        "Test e2e bash expansion"
        (list '(:name "command" :type string :description "Command")
              '(:name "directory" :type string :description "Dir"))
-       "bash"
+       :operation write
        :async
        (progn
          (setq macro-contract--body-executed t)
@@ -732,7 +732,7 @@ gptel-make-tool stores tools in gptel--known-tools (alist keyed by category)."
        "Test allow-once round-trip"
        (list '(:name "command" :type string :description "Command")
              '(:name "directory" :type string :description "Dir"))
-       "bash"
+       :operation write
        :async
        (progn
          (setq macro-contract--body-executed t)
