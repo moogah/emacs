@@ -27,7 +27,8 @@
 
 (require 'ert)
 (require 'transient)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-validation)
+(require 'jf-gptel-scope-tool-wrapper)
 (require 'jf-gptel-scope-expansion)
 
 (ert-deftest test-callback-closure-basic ()

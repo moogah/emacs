@@ -42,7 +42,8 @@
   ;; Scope helpers
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
   ;; Production scope modules
-  (require 'jf-gptel-scope-core (expand-file-name "scope/scope-core.el" gptel-dir))
+  (require 'jf-gptel-scope-validation (expand-file-name "scope/scope-validation.el" gptel-dir))
+  (require 'jf-gptel-scope-tool-wrapper (expand-file-name "scope/scope-tool-wrapper.el" gptel-dir))
   (require 'jf-gptel-scope-shell-tools
            (expand-file-name "scope/scope-shell-tools.el" gptel-dir))
   (require 'jf-gptel-scope-expansion

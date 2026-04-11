@@ -34,7 +34,8 @@
        (scope-test-dir (expand-file-name ".." test-dir))
        (scope-dir (expand-file-name ".." scope-test-dir)))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
-  (require 'jf-gptel-scope-core (expand-file-name "scope-core.el" scope-dir))
+  (require 'jf-gptel-scope-validation (expand-file-name "scope-validation.el" scope-dir))
+  (require 'jf-gptel-scope-tool-wrapper (expand-file-name "scope-tool-wrapper.el" scope-dir))
   (require 'jf-gptel-scope-expansion (expand-file-name "scope-expansion.el" scope-dir)))
 
 ;;; Test Infrastructure

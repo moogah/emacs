@@ -29,7 +29,8 @@
 (require 'buttercup)
 (require 'cl-lib)
 (require 'json)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-validation)
+(require 'jf-gptel-scope-tool-wrapper)
 (require 'jf-gptel-scope-expansion)
 
 ;;; Test Helpers

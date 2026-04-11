@@ -36,8 +36,9 @@
        (tools-dir (expand-file-name ".." test-dir)))
   (add-to-list 'load-path test-dir)
   (require 'tool-test-helpers-spec (expand-file-name "helpers-spec.el" test-dir))
-  ;; Load scope-core for gptel-make-scoped-tool macro and validators
-  (require 'jf-gptel-scope-core (expand-file-name "../scope/scope-core.el" tools-dir))
+  ;; Load scope modules for gptel-make-scoped-tool macro and validators
+  (require 'jf-gptel-scope-validation (expand-file-name "../scope/scope-validation.el" tools-dir))
+  (require 'jf-gptel-scope-tool-wrapper (expand-file-name "../scope/scope-tool-wrapper.el" tools-dir))
   ;; Load scope-shell-tools for run_bash_command tool and execution functions
   (require 'jf-gptel-scope-shell-tools (expand-file-name "../scope/scope-shell-tools.el" tools-dir)))
 

@@ -29,7 +29,8 @@
        (sessions-dir (expand-file-name "sessions" gptel-dir)))
   (require 'gptel-session-constants (expand-file-name "constants.el" sessions-dir))
   (require 'gptel-session-logging (expand-file-name "logging.el" sessions-dir))
-  (require 'jf-gptel-scope-core (expand-file-name "scope-core.el" scope-dir))
+  (require 'jf-gptel-scope-validation (expand-file-name "scope-validation.el" scope-dir))
+  (require 'jf-gptel-scope-tool-wrapper (expand-file-name "scope-tool-wrapper.el" scope-dir))
   (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" scope-dir)))
 
 ;;; Tool Routing Tests

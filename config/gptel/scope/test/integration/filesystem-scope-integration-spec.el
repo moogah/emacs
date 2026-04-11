@@ -48,7 +48,8 @@
   ;; Scope helpers (matchers, mock builders)
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
   ;; Production scope modules
-  (require 'jf-gptel-scope-core (expand-file-name "scope/scope-core.el" gptel-dir))
+  (require 'jf-gptel-scope-validation (expand-file-name "scope/scope-validation.el" gptel-dir))
+  (require 'jf-gptel-scope-tool-wrapper (expand-file-name "scope/scope-tool-wrapper.el" gptel-dir))
   (require 'jf-gptel-scope-expansion (expand-file-name "scope/scope-expansion.el" gptel-dir))
   (require 'jf-gptel-scope-filesystem-tools (expand-file-name "scope/scope-filesystem-tools.el" gptel-dir))
   ;; gptel itself (for gptel-tool struct accessors and tool registry)

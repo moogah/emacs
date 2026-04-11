@@ -13,7 +13,8 @@
 ;;; Code:
 
 (require 'buttercup)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-validation)
+(require 'jf-gptel-scope-tool-wrapper)
 
 (describe "jf/gptel-scope--infer-validation-type"
   (it "returns path for read_file tool"

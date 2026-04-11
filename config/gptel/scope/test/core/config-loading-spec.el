@@ -37,7 +37,8 @@
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (scope-dir (expand-file-name "../.." test-dir)))
   (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" scope-dir))
-  (require 'jf-gptel-scope-core (expand-file-name "scope-core.el" scope-dir)))
+  (require 'jf-gptel-scope-validation (expand-file-name "scope-validation.el" scope-dir))
+  (require 'jf-gptel-scope-tool-wrapper (expand-file-name "scope-tool-wrapper.el" scope-dir)))
 
 ;;; Helper Functions
 

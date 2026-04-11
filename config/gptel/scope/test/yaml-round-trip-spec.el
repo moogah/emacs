@@ -23,7 +23,8 @@
 
 (require 'buttercup)
 (require 'cl-lib)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-validation)
+(require 'jf-gptel-scope-tool-wrapper)
 (require 'jf-gptel-scope-expansion)
 (require 'yaml)
 
