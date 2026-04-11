@@ -22,6 +22,101 @@ The scope system validates tool invocations against a =scope.yml= configuration.
 
 Each numbered step crosses a component boundary.  This document defines what data looks like at each crossing.
 
+** Component Overview
+
+#+begin_example
+                              scope.yml
+                                 │
+                    ┌────────────┴────────────┐
+                    │      scope-yaml.el      │
+                    │  (parse, normalize keys) │
+                    └────────────┬────────────┘
+                                 │ parsed plist
+                    ┌────────────┴────────────┐
+                    │   scope-shell-tools.el   │
+                    │  (load-schema, defaults)  │
+                    └────────────┬────────────┘
+                                 │ scope config    ←── contract/scope-config
+                                 │
+  LLM tool call ──► gptel-make-scoped-tool (macro)
+                    │                         │
+                    │ allow-once?              │ load config
+                    │ ┌──yes──► execute tool   │ route by type
+                    │ │                        │
+                    │ └──no───► check-tool-permission
+                    │           │
+              ┌─────┴───────────┴──────────────────────┐
+              │             VALIDATORS                  │
+              │                                         │
+              │  ┌─────────────┐   ┌─────────────────┐ │
+              │  │ path-tool   │   │ pattern-tool     │ │
+              │  │(scope-core) │   │ (scope-core)     │ │
+              │  └──────┬──────┘   └────────┬────────┘ │
+              │         │                    │          │
+              │  ┌──────┴──────────────────────────┐   │
+              │  │        bash-tool (scope-core)    │   │
+              │  │              │                    │   │
+              │  │    ┌─────────┴──────────┐        │   │
+              │  │    │ 7-stage pipeline   │        │   │
+              │  │    │ (scope-shell-tools)│        │   │
+              │  │    │ ┌───────────────┐  │        │   │
+              │  │    │ │ parse-complete│  │        │   │
+              │  │    │ │ deny-list     │  │        │   │
+              │  │    │ │ no-op check   │  │        │   │
+              │  │    │ │ file-ops  ────┼──┼► path matching
+              │  │    │ │ cloud-auth    │  │        │   │
+              │  │    │ └───────────────┘  │        │   │
+              │  │    └────────────────────┘        │   │
+              │  └─────────────────────────────────┘   │
+              └───────────┬────────────────────────────┘
+                          │ validation result    ←── [[#validation-result][§ Validation Result]]
+                          │   :allowed, :error,
+                          │   :message, ...
+                          │
+              ┌───────────┴────────────────────┐
+              │     build-violation-info        │
+              │        (scope-core)             │
+              │  error code ──► resource field  │  ←── [[#error-codes][§ Error Codes]]
+              └───────────┬────────────────────┘
+                          │ violation-info       ←── [[#violation-info][§ Violation-Info]]
+                          │   :tool, :resource,
+                          │   :reason, :validation-type
+                          │
+              ┌───────────┴────────────────────┐
+              │      Expansion UI              │
+              │    (scope-expansion)            │
+              │                                │
+              │  ┌──────┐ ┌───────┐ ┌───────┐  │
+              │  │ Deny │ │Allow  │ │Add to │  │
+              │  │      │ │ Once  │ │ Scope │  │
+              │  └──┬───┘ └──┬────┘ └──┬────┘  │
+              └─────┼────────┼─────────┼───────┘
+                    │        │         │
+                    │        │         └──► write scope.yml
+                    │        │              (must produce valid config)
+                    │        │
+                    │        └──► allow-once-list  ←── [[#allow-once][§ Allow-Once]]
+                    │             (tool . resource)
+                    │
+                    └──► callback with denial
+#+end_example
+
+** File to Component Mapping
+
+| File                    | Component                | Responsibilities                            |
+|-------------------------+--------------------------+---------------------------------------------|
+| =scope-core.el=         | Macro, dispatch, path    | Tool macro, routing, path validation,       |
+|                         |                          | allow-once, build-violation-info             |
+| =scope-shell-tools.el=  | Schema, bash validation  | Config loading, 7-stage pipeline,           |
+|                         |                          | file-ops validation, path matching           |
+| =scope-expansion.el=    | Expansion UI, YAML write | Transient menu, scope.yml updates,          |
+|                         |                          | queue management                             |
+| =scope-yaml.el=         | YAML I/O                 | Parse, normalize keys, write                 |
+| =scope-metadata.el=     | File metadata            | Git status, file existence                   |
+| =scope-commands.el=     | User commands            | Project picker, preset parser                |
+| =scope-filesystem-tools.el= | Filesystem tools    | read_file, write_file, edit_file             |
+| =scope-org-roam-tools.el= | Org-roam tools        | create_node, add_tags, link_nodes            |
+
 #+begin_src emacs-lisp
 (require 'cl-lib)
 #+end_src
@@ -32,6 +127,19 @@ Each numbered step crosses a component boundary.  This document defines what dat
 :END:
 
 Validators produce error code strings.  =build-violation-info= consumes them to extract the right resource identifier.  The expansion UI routes actions based on validation type.  All three must agree on the vocabulary.
+
+#+begin_example
+  PRODUCERS                          CONSUMER
+  ─────────                          ────────
+  validate-path-tool ─────┐
+  validate-operation ─────┤  error   build-violation-info
+  validate-pipeline  ─────┤  code      │
+  validate-cloud-auth ────┤  ───►      ├──► :resource (for UI)
+  validate-parse     ─────┘            └──► :reason   (for UI)
+
+  All must use codes from scope/interface--error-codes
+  Consumer maps code → resource field via scope/interface--error-resource-fields
+#+end_example
 
 Two kinds of path denial exist because two validators check paths:
 - =validate-path-tool= checks filesystem tools (=read_file=, =write_file_in_scope=)
@@ -118,6 +226,16 @@ will be nil and the expansion UI cannot show what was denied.")
 
 All validators return plists with =:allowed= as the discriminator.  On denial, the plist carries error details that flow downstream to =build-violation-info= and =format-tool-error=.
 
+#+begin_example
+  Validator ──► validation-result ──┬──► build-violation-info ──► Expansion UI
+                                    │
+                                    └──► format-tool-error ──► LLM (JSON)
+
+  validation-result:
+    (:allowed t)                           success
+    (:allowed nil :error CODE :message STR ...)  denial
+#+end_example
+
 #+begin_src emacs-lisp
 (defun scope/interface--validate-validation-result (result)
   "Validate that RESULT is a well-formed validation result plist.
@@ -195,6 +313,22 @@ Returns nil if valid, error string if invalid."
 
 Allow-once permissions are stored as =(tool-name . resource)= cons cells in a buffer-local list.  The =resource= format varies by validation type.  =trigger-inline-expansion= computes the resource when granting permission; =check-allow-once= computes it when checking.  They must agree.
 
+#+begin_example
+  Expansion UI                       Macro / check-tool-permission
+  ────────────                       ─────────────────────────────
+  User clicks "Allow Once"
+       │
+       ▼
+  trigger-inline-expansion           check-allow-once
+  computes resource key ──► allow-once-list ──► computes resource key
+  (stores)                  (tool . resource)   (looks up)
+                                │
+                                └──► cleared after LLM response
+                                     (gptel-post-response-functions)
+
+  Both sides must compute the SAME key for the same tool+args.
+#+end_example
+
 | Validation Type | Resource Format              | Example                              |
 |-----------------+------------------------------+--------------------------------------|
 | =path=          | Expanded absolute filepath   | =/Users/jeff/workspace/file.txt=     |
@@ -221,6 +355,25 @@ and check-allow-once should produce the same value for the same inputs."
 :END:
 
 Path matching converts glob patterns from =scope.yml= to regexes and tests paths against them.  This is used by both =validate-path-tool= (for filesystem tools) and =validate-operation= (for bash file-ops).
+
+#+begin_example
+  scope.yml patterns                  paths to check
+  ("/workspace/**"                    "/workspace/file.txt"
+   "**/.git/**")                      "/workspace/.git/config"
+       │                                     │
+       └────────────┐         ┌──────────────┘
+                    ▼         ▼
+              glob-to-regex + match
+              (SINGLE implementation)
+                    │
+                    ▼
+              allowed / denied
+
+  Currently TWO implementations exist:
+    scope-core.el    ── matches-pattern ── glob-to-regex (simple)
+    scope-shell-tools ── glob-match-p ──── glob-to-regex (complex)
+  The second shadows the first at load time.
+#+end_example
 
 There should be exactly one glob-to-regex implementation and one path-matches-any-pattern function.  Currently there are two of each (see [[#known-divergences][Known Divergences]]).
 
