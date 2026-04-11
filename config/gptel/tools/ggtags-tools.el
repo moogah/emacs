@@ -1,6 +1,6 @@
 ;;; ggtags-tools.el --- GPTEL tools for semantic code navigation with ggtags -*- lexical-binding: t; -*-
 (require 'ggtags)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-tool-wrapper)
 
 (defvar gptel-ggtags-result-limit 40000
   "Maximum character count for tool results to prevent context overflow.")
@@ -47,7 +47,7 @@ Use request_scope_expansion to request access."
  (list '(:name "directory"
          :type string
          :description "Project root directory path"))
- "ggtags"
+ :operation read
  (let* ((gtags-file (expand-file-name "GTAGS" directory))
         (exists (file-exists-p gtags-file))
         (mtime (when exists (file-attribute-modification-time
@@ -119,7 +119,7 @@ Use request_scope_expansion to request access."
          :type integer
          :optional t
          :description "Max results (default 50, max 100)"))
- "ggtags"
+ :operation read
  (let ((default-directory directory)
        (file-limit (min (or limit 50) 100)))
    (condition-case err
@@ -200,7 +200,7 @@ Use request_scope_expansion to request access."
          :type integer
          :optional t
          :description "Max results (default 50, max 200)"))
- "ggtags"
+ :operation read
  (let ((default-directory directory)
        (file-limit (min (or limit 50) 200)))
    (condition-case err
@@ -279,7 +279,7 @@ Use request_scope_expansion to request access."
          :type integer
          :optional t
          :description "Max results (default 50, max 200)"))
- "ggtags"
+ :operation read
  (let ((default-directory directory)
        (file-limit (min (or limit 50) 200)))
    (condition-case err
@@ -355,7 +355,7 @@ Use request_scope_expansion to request access."
  (list '(:name "directory"
          :type string
          :description "Project root directory"))
- "ggtags"
+ :operation write
  (let ((default-directory directory))
    (condition-case err
        (progn
@@ -414,7 +414,7 @@ Use request_scope_expansion to request access."
          :type boolean
          :optional t
          :description "Force full rebuild (default: incremental)"))
- "ggtags"
+ :operation write
  (let ((default-directory directory))
    (condition-case err
        (progn
@@ -479,7 +479,7 @@ Use request_scope_expansion to request access."
  (list '(:name "directory"
          :type string
          :description "Project root directory"))
- "ggtags"
+ :operation read
  (let ((default-directory directory))
    (condition-case err
        (if (not (file-exists-p (expand-file-name "GTAGS" directory)))

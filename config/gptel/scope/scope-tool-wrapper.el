@@ -1,0 +1,231 @@
+;;; scope-tool-wrapper.el --- Thin macro for scope-aware tools -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Provides gptel-make-scoped-tool macro — the single entry point for
+;; scope validation.  The macro is thin: it loads config, normalizes
+;; arguments, gathers metadata, calls the validation module, and
+;; handles the result.  No validation logic lives here.
+
+;;; Code:
+
+;; Dependencies
+
+
+;; [[file:scope-tool-wrapper.org::*Dependencies][Dependencies:1]]
+(require 'cl-lib)
+(require 'gptel-request)
+(require 'gptel-session-constants)
+(require 'gptel-session-logging)
+(require 'jf-gptel-scope-metadata)
+(require 'jf-gptel-scope-yaml)
+(require 'jf-gptel-scope-validation)
+;; Dependencies:1 ends here
+
+;; Load Scope Configuration
+
+
+;; [[file:scope-tool-wrapper.org::*Load Scope Configuration][Load Scope Configuration:1]]
+(require 'yaml)
+
+(defun jf/gptel-scope--load-config ()
+  "Load scope configuration from scope.yml.
+Uses buffer-local jf/gptel--branch-dir if available.
+Returns nil if not found or can't be parsed."
+  (condition-case err
+      (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                             (and (buffer-file-name)
+                                  (file-name-directory (buffer-file-name))))))
+        (when context-dir
+          (let ((scope-file (expand-file-name jf/gptel-session--scope-file context-dir)))
+            (when (file-exists-p scope-file)
+              (jf/gptel-scope-yaml--load-schema scope-file)))))
+    (error
+     (message "Error loading scope config: %s" (error-message-string err))
+     nil)))
+;; Load Scope Configuration:1 ends here
+
+;; Argument Normalization
+
+
+;; [[file:scope-tool-wrapper.org::*Argument Normalization][Argument Normalization:1]]
+(defun jf/gptel-scope--normalize-args (args)
+  "Convert ARGS from vector to list if needed."
+  (if (vectorp args)
+      (append args nil)
+    args))
+;; Argument Normalization:1 ends here
+
+;; Scoped Tool Macro
+
+;; The macro accepts =:operation= (read, write, execute, modify) declared at the tool
+;; definition site.  Routes to the validation module based on tool characteristics.
+
+
+;; [[file:scope-tool-wrapper.org::*Scoped Tool Macro][Scoped Tool Macro:1]]
+(defmacro gptel-make-scoped-tool (name description args operation-keyword operation
+                                   &optional async-keyword &rest body)
+  "Create a scope-aware gptel tool with automatic validation.
+
+NAME: Tool name string
+DESCRIPTION: Tool description for LLM
+ARGS: List of argument specs
+OPERATION-KEYWORD: Must be the keyword :operation
+OPERATION: Operation type symbol (read, write, execute, modify)
+ASYNC-KEYWORD: Optional :async flag
+BODY: Tool implementation
+
+The macro:
+- Loads scope config fresh each call
+- Gathers metadata for path tools
+- Calls validation module (does NOT validate itself)
+- Handles success (execute body) or failure (error/expansion)"
+  (unless (eq operation-keyword :operation)
+    (error "gptel-make-scoped-tool: expected :operation keyword, got %S" operation-keyword))
+  (let* ((is-async (eq async-keyword :async))
+         (actual-body (if is-async body (cons async-keyword body)))
+         (arg-names (mapcar (lambda (arg-spec)
+                              (intern (plist-get arg-spec :name)))
+                            (eval args)))
+         (is-bash (equal (eval name) "run_bash_command")))
+    `(gptel-make-tool
+      :name ,name
+      :description ,description
+      :args ,args
+      :category "scope"
+      ,@(when is-async '(:async t))
+      :function
+      ,(if is-async
+           ;; ASYNC BRANCH: callback-first with inline expansion on denial
+           `(lambda (callback ,@arg-names)
+              (condition-case err
+                  (cl-block nil
+                    (let* ((normalized-args (list ,@arg-names))
+                           ;; Compute allow-once resource before loading config
+                           (allow-once-resource
+                            ,(if is-bash
+                                 `(jf/gptel-scope--compute-allow-once-resource
+                                   'bash ,name normalized-args)
+                               `(jf/gptel-scope--compute-allow-once-resource
+                                 'path ,name normalized-args))))
+
+                      ;; Check allow-once FIRST (before config)
+                      (when (and allow-once-resource
+                                 (jf/gptel-scope--check-allow-once ,name allow-once-resource))
+                        (cl-return-from nil
+                          (funcall callback (json-serialize (progn ,@actual-body)))))
+
+                      ;; Load config
+                      (let ((config (jf/gptel-scope--load-config)))
+                        (unless config
+                          (cl-return-from nil
+                            (funcall callback
+                                     (json-serialize
+                                      (list :success nil
+                                            :error "no_scope_config"
+                                            :message "No scope configuration found.")))))
+
+                        ;; Validate
+                        (let ((check-result
+                               ,(if is-bash
+                                    `(jf/gptel-scope--validate-bash-tool
+                                      ,name normalized-args config)
+                                  `(let ((metadata (jf/gptel-scope--gather-file-metadata
+                                                    (car normalized-args))))
+                                     (jf/gptel-scope--validate-filesystem-tool
+                                      ,name ',operation normalized-args config metadata)))))
+                          (if (plist-get check-result :allowed)
+                              ;; Execute tool body
+                              (funcall callback (json-serialize (progn ,@actual-body)))
+
+                            ;; Validation failed — trigger expansion
+                            (jf/gptel-scope--trigger-inline-expansion
+                             check-result ,name normalized-args
+                             ',(if is-bash 'bash 'path)
+                             (lambda (expansion-result)
+                               (if (plist-get expansion-result :approved)
+                                   ;; Retry with fresh config
+                                   (let* ((fresh-config (jf/gptel-scope--load-config))
+                                          (retry-result
+                                           ,(if is-bash
+                                                `(jf/gptel-scope--validate-bash-tool
+                                                  ,name normalized-args fresh-config)
+                                              `(jf/gptel-scope--validate-filesystem-tool
+                                                ,name ',operation normalized-args fresh-config nil))))
+                                     (if (plist-get retry-result :allowed)
+                                         (funcall callback (json-serialize (progn ,@actual-body)))
+                                       (funcall callback
+                                                (json-serialize
+                                                 (jf/gptel-scope--format-tool-error
+                                                  ,name (nth 0 normalized-args) retry-result)))))
+                                 ;; User denied
+                                 (funcall callback
+                                          (json-serialize
+                                           (jf/gptel-scope--format-tool-error
+                                            ,name (nth 0 normalized-args) check-result)))))))))))
+
+                (error
+                 (funcall callback
+                          (json-serialize
+                           (list :success nil
+                                 :error "tool_exception"
+                                 :message (format "Tool error: %s" (error-message-string err))))))))
+
+         ;; SYNC BRANCH
+         `(lambda (&rest raw-args)
+            (condition-case err
+                (cl-block nil
+                  (let* ((normalized-args (jf/gptel-scope--normalize-args raw-args))
+                       ,@(cl-mapcar (lambda (name idx)
+                                     `(,name (nth ,idx normalized-args)))
+                                   arg-names
+                                   (number-sequence 0 (1- (length arg-names))))
+                       (allow-once-resource
+                        ,(if is-bash
+                             `(jf/gptel-scope--compute-allow-once-resource
+                               'bash ,name normalized-args)
+                           `(jf/gptel-scope--compute-allow-once-resource
+                             'path ,name normalized-args))))
+
+                    ;; Check allow-once
+                    (when (and allow-once-resource
+                               (jf/gptel-scope--check-allow-once ,name allow-once-resource))
+                      (cl-return-from nil (progn ,@actual-body)))
+
+                    ;; Load config
+                    (let ((config (jf/gptel-scope--load-config)))
+                      (unless config
+                        (cl-return-from nil
+                          (list :success nil
+                                :error "no_scope_config"
+                                :message "No scope configuration found.")))
+
+                      ;; Validate
+                      (let ((check-result
+                             ,(if is-bash
+                                  `(jf/gptel-scope--validate-bash-tool
+                                    ,name normalized-args config)
+                                `(let ((metadata (jf/gptel-scope--gather-file-metadata
+                                                  (car normalized-args))))
+                                   (jf/gptel-scope--validate-filesystem-tool
+                                    ,name ',operation normalized-args config metadata)))))
+                        (if (plist-get check-result :allowed)
+                            (progn ,@actual-body)
+                          (jf/gptel-scope--format-tool-error
+                           ,name (nth 0 normalized-args) check-result))))))
+
+              (error
+               (list :success nil
+                     :error "tool_exception"
+                     :message (format "Tool error: %s" (error-message-string err))))))))))
+;; Scoped Tool Macro:1 ends here
+
+;; Provide Feature
+
+
+;; [[file:scope-tool-wrapper.org::*Provide Feature][Provide Feature:1]]
+(provide 'jf-gptel-scope-tool-wrapper)
+;;; scope-tool-wrapper.el ends here
+;; Provide Feature:1 ends here

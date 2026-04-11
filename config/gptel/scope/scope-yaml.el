@@ -79,5 +79,97 @@ boolean normalization (:true->t, :false->nil, :null->nil)."
     (insert-file-contents file-path)
     (jf/gptel-scope-yaml--parse-string (buffer-string))))
 
+(defconst jf/gptel-scope-yaml--schema-defaults
+  '(:paths (:read ()
+            :write ()
+            :execute ()
+            :modify ()
+            :deny ())
+    :cloud (:auth-detection "warn")
+    :security (:enforce-parse-complete t
+               :max-coverage-threshold 0.8))
+  "Safe defaults for scope.yml schema.
+Missing sections in YAML are merged with these defaults.")
+
+(defun jf/gptel-scope-yaml--validate-cloud-config (cloud-plist)
+  "Validate CLOUD-PLIST configuration."
+  (when cloud-plist
+    (let ((auth-detection (plist-get cloud-plist :auth-detection)))
+      (unless (member auth-detection '("allow" "warn" "deny"))
+        (error "Scope schema: cloud.auth-detection must be \"allow\", \"warn\", or \"deny\", got %S"
+               auth-detection))))
+  t)
+
+(defun jf/gptel-scope-yaml--validate-security-config (security-plist)
+  "Validate SECURITY-PLIST configuration."
+  (when security-plist
+    (let ((enforce-parse-complete (plist-get security-plist :enforce-parse-complete))
+          (max-coverage-threshold (plist-get security-plist :max-coverage-threshold)))
+      (when (plist-member security-plist :enforce-parse-complete)
+        (setq enforce-parse-complete
+              (cond ((eq enforce-parse-complete :true) t)
+                    ((or (eq enforce-parse-complete :false)
+                         (eq enforce-parse-complete :null)) nil)
+                    (t enforce-parse-complete)))
+        (unless (or (eq enforce-parse-complete t)
+                   (eq enforce-parse-complete nil))
+          (error "Scope schema: security.enforce-parse-complete must be boolean, got %S"
+                 enforce-parse-complete)))
+      (when (plist-member security-plist :max-coverage-threshold)
+        (unless (and (numberp max-coverage-threshold)
+                    (>= max-coverage-threshold 0.0)
+                    (<= max-coverage-threshold 1.0))
+          (error "Scope schema: security.max-coverage-threshold must be in [0.0, 1.0], got %S"
+                 max-coverage-threshold)))))
+  t)
+
+(defun jf/gptel-scope-yaml--load-schema (scope-file)
+  "Load scope schema from SCOPE-FILE and merge with defaults.
+Returns merged plist with normalized kebab-case keys."
+  (let* ((defaults jf/gptel-scope-yaml--schema-defaults)
+         (raw (jf/gptel-scope-yaml--parse-file scope-file))
+         (normalized (jf/gptel-scope-yaml--normalize-keys raw))
+         (paths (plist-get normalized :paths))
+         (cloud (plist-get normalized :cloud))
+         (security (plist-get normalized :security))
+         (bash-tools (plist-get normalized :bash-tools))
+         (categories (when bash-tools (plist-get bash-tools :categories))))
+
+    ;; Reject deprecated categories
+    (when categories
+      (error "bash_tools.categories section no longer supported. Remove categories section, keep only deny list"))
+
+    ;; Merge with defaults
+    (let ((merged-paths (if paths
+                            (list :read (or (plist-get paths :read) ())
+                                  :write (or (plist-get paths :write) ())
+                                  :execute (or (plist-get paths :execute) ())
+                                  :modify (or (plist-get paths :modify) ())
+                                  :deny (or (plist-get paths :deny) ()))
+                          (plist-get defaults :paths)))
+          (merged-cloud (if cloud
+                            (list :auth-detection (or (plist-get cloud :auth-detection)
+                                                     (plist-get (plist-get defaults :cloud) :auth-detection))
+                                  :allowed-providers (plist-get cloud :allowed-providers))
+                          (plist-get defaults :cloud)))
+          (merged-security (if security
+                               (list :enforce-parse-complete
+                                     (if (plist-member security :enforce-parse-complete)
+                                         (plist-get security :enforce-parse-complete)
+                                       (plist-get (plist-get defaults :security) :enforce-parse-complete))
+                                     :max-coverage-threshold
+                                     (if (plist-member security :max-coverage-threshold)
+                                         (plist-get security :max-coverage-threshold)
+                                       (plist-get (plist-get defaults :security) :max-coverage-threshold)))
+                             (plist-get defaults :security))))
+      (when cloud
+        (jf/gptel-scope-yaml--validate-cloud-config merged-cloud))
+      (when security
+        (jf/gptel-scope-yaml--validate-security-config merged-security))
+      (list :paths merged-paths
+            :cloud merged-cloud
+            :security merged-security
+            :bash-tools bash-tools))))
+
 (provide 'jf-gptel-scope-yaml)
 ;;; scope-yaml.el ends here

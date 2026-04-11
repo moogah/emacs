@@ -9,7 +9,8 @@
 ;;; Code:
 
 (require 'transient)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-validation)
+(require 'jf-gptel-scope-yaml)
 (require 'yaml)
 
 (defvar-local jf/gptel-scope--expansion-queue nil
@@ -152,8 +153,6 @@ Delegates to scope-yaml module. Returns parsed plist."
     (pcase validation-type
       ('path
        (jf/gptel-scope--add-path-to-scope scope-file resource tool denied-operation))
-      ('pattern
-       (jf/gptel-scope--add-pattern-to-scope scope-file resource tool))
       ('bash
        (jf/gptel-scope--add-bash-to-scope scope-file resource tool denied-operation))
       (_
@@ -239,13 +238,11 @@ run_bash_command which are categorized as :write but may be denied for a :read o
                 (:modify :write)
                 (:execute :execute)
                 (_ :read))  ; Default to read for unknown operations
-            ;; Fall back to tool category
-            (let* ((category (cdr (assoc tool jf/gptel-scope--tool-categories)))
-                   (operation (plist-get category :operation)))
-              (if (eq operation 'read) :read :write))))
+            ;; No denied-operation — default to read (safest)
+            :read))
          ;; Parse YAML file
          (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
-         (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+         (normalized (jf/gptel-scope-yaml--normalize-keys parsed))
          (paths (or (plist-get normalized :paths) (list)))
          (section-paths (or (plist-get paths target-section) '())))
 
@@ -262,41 +259,6 @@ run_bash_command which are categorized as :write but may be denied for a :read o
         (with-temp-buffer
           (jf/gptel-scope--write-yaml-plist normalized)
           (write-region (point-min) (point-max) scope-file nil 'silent))))))
-
-(defun jf/gptel-scope--add-pattern-to-scope (scope-file pattern tool)
-  "Add PATTERN to org_roam_patterns section in SCOPE-FILE.
-PATTERN is a string describing the pattern (format: \"subdirectory:path\" or \"tags:tag\").
-TOOL is the org-roam tool name."
-  (jf/gptel-scope--validate-scope-file-writable scope-file)
-  (let* (;; Parse YAML file
-         (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
-         (normalized (jf/gptel-scope--normalize-plist-keys parsed))
-         (org-roam (or (plist-get normalized :org-roam-patterns) (list))))
-
-    ;; Parse pattern format and add to appropriate list
-    (cond
-     ((string-prefix-p "subdirectory:" pattern)
-      (let* ((subdir (substring pattern 13))
-             (subdirs (or (plist-get org-roam :subdirectory) '())))
-        (unless (member subdir subdirs)
-          (setq subdirs (append subdirs (list subdir)))
-          (setq org-roam (plist-put org-roam :subdirectory subdirs)))))
-
-     ((string-prefix-p "tags:" pattern)
-      (let* ((tags-str (substring pattern 5))
-             (tags (split-string tags-str ","))
-             (existing-tags (or (plist-get org-roam :tags) '())))
-        (dolist (tag tags)
-          (unless (member tag existing-tags)
-            (setq existing-tags (append existing-tags (list tag)))))
-        (setq org-roam (plist-put org-roam :tags existing-tags)))))
-
-    (setq normalized (plist-put normalized :org-roam-patterns org-roam))
-
-    ;; Write updated content (plain YAML, no delimiters)
-    (with-temp-buffer
-      (jf/gptel-scope--write-yaml-plist normalized)
-      (write-region (point-min) (point-max) scope-file nil 'silent))))
 
 (defun jf/gptel-scope--add-bash-to-scope (scope-file resource tool &optional denied-operation)
   "Add bash command resource to scope.yml.
@@ -316,38 +278,9 @@ passed through to `add-path-to-scope' for correct section targeting."
       ;; File path - delegate to path expansion with denied-operation
       (jf/gptel-scope--add-path-to-scope scope-file resource tool denied-operation)
 
-    ;; Command pattern - add to bash_tools
-    (let* (;; Extract base command name
-           (cmd-name (car (split-string resource "[ |><;&]" t)))
-           ;; Parse YAML file
-           (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
-           ;; Normalize YAML keys from snake_case to kebab-case
-           (normalized (jf/gptel-scope--normalize-plist-keys parsed))
-           (bash-tools (or (plist-get normalized :bash-tools) (list)))
-           (categories (or (plist-get bash-tools :categories) (list)))
-
-           ;; Determine target category based on tool operation
-           (category (cdr (assoc tool jf/gptel-scope--tool-categories)))
-           (operation (plist-get category :operation))
-           ;; Use kebab-case internally (will be converted to snake_case on write)
-           (target-category (if (eq operation 'read) :read-only :safe-write))
-
-           ;; Get existing command list for target category
-           (category-config (or (plist-get categories target-category) (list)))
-           (command-list (or (plist-get category-config :commands) '())))
-
-      ;; Add command to target category if not present
-      (unless (member cmd-name command-list)
-        (setq command-list (append command-list (list cmd-name)))
-        (setq category-config (plist-put category-config :commands command-list))
-        (setq categories (plist-put categories target-category category-config))
-        (setq bash-tools (plist-put bash-tools :categories categories))
-        (setq normalized (plist-put normalized :bash-tools bash-tools))
-
-        ;; Write updated content (plain YAML, no delimiters)
-        (with-temp-buffer
-          (jf/gptel-scope--write-yaml-plist normalized)
-          (write-region (point-min) (point-max) scope-file nil 'silent))))))
+    ;; Command name resource — not expandable in v4 (operation-first model)
+    ;; Commands are validated by their file operations, not by name
+    (message "Cannot add command '%s' to scope — use path-based expansion instead" resource)))
 
 (defun jf/gptel-scope--kebab-to-snake (key)
   "Convert KEY from kebab-case to snake_case for YAML output.
@@ -494,8 +427,8 @@ Converts kebab-case keys to snake_case for YAML output."
   (cl-loop for (key value) on plist by #'cddr
            do (let ((key-name (jf/gptel-scope--kebab-to-snake key)))
                 (cond
-                 ;; Nested list structures (paths, org-roam-patterns)
-                 ((memq key '(:paths :org-roam-patterns))
+                 ;; Nested list structures (paths)
+                 ((memq key '(:paths))
                   (jf/gptel-scope--write-yaml-nested-list key-name value))
 
                  ;; Bash tools (triple-nested with categories)

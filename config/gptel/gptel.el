@@ -124,17 +124,20 @@ Run this after preset registration to inject skill content into presets."
 ;; After preset registration, expand skills in preset system prompts
 (jf/gptel-preset--expand-all-preset-skills)
 
-;; Load scope-yaml boundary module (required by scope-profiles, scope-core, scope-shell-tools, scope-expansion)
+;; Load scope-yaml boundary module (required by all scope modules)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-yaml.el" jf/emacs-dir))
 
 ;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
 (jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
 
-;; Load scope-metadata (required by scope-core for context-aware validation)
+;; Load scope-metadata (required by scope-tool-wrapper for context-aware validation)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-metadata.el" jf/emacs-dir))
 
-;; Load scope-core (required by scope-controlled tools; loaded after scope-profiles and scope-metadata)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-core.el" jf/emacs-dir))
+;; Load scope-validation (all validation logic: path validation, bash pipeline, allow-once, error formatting)
+(jf/load-module (expand-file-name "config/gptel/scope/scope-validation.el" jf/emacs-dir))
+
+;; Load scope-tool-wrapper (thin macro for scope-aware tools; requires scope-validation, scope-metadata)
+(jf/load-module (expand-file-name "config/gptel/scope/scope-tool-wrapper.el" jf/emacs-dir))
 
 ;; Load custom tools (tools must be registered before presets reference them)
 (jf/load-module (expand-file-name "config/gptel/tools/filesystem-tools.el" jf/emacs-dir))
@@ -158,14 +161,10 @@ Run this after preset registration to inject skill content into presets."
 (jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
 
-;; scope-core already loaded above (before tools); scope-commands requires it
-;; Load scope-commands BEFORE session-commands (session-commands requires scope-commands)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-commands.el" jf/emacs-dir))
-
 ;; Load scope-expansion (UI for handling scope violations)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-expansion.el" jf/emacs-dir))
 
-;; Load scope-shell-tools (depends on scope-core validator and scope-expansion)
+;; Load scope-shell-tools (tool definitions: run_bash_command, request_scope_expansion)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-shell-tools.el" jf/emacs-dir))
 
 ;; Load PersistentAgent tool (requires session modules to be loaded first)
@@ -174,11 +173,8 @@ Run this after preset registration to inject skill content into presets."
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
-;; Load remaining scope system modules (scope-core, scope-commands, scope-expansion, scope-shell-tools already loaded above)
-;; Scope-aware tools check approved patterns internally and return
-;; structured errors to LLM when operations are outside scope
+;; Load scope-aware filesystem tools (read_file, write_file, edit_file)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/scope/scope-org-roam-tools.el" jf/emacs-dir))
 
 ;; Load activities integration (optional - only if activities package is loaded)
 ;; Enables creating persistent gptel sessions as part of activity creation

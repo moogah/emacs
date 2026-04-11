@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 (require 'projectile)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-tool-wrapper)
 
 (defvar gptel-projectile-result-limit 40000
   "Maximum character count for tool results to prevent context overflow.")
@@ -153,7 +153,7 @@ Use request_scope_expansion to request access."
          :type string
          :optional t
          :description "Regex pattern to filter results (e.g., '\\\\.py$', '^src/')"))
- "projectile"
+ :operation read
  (let ((project-root (projectile-project-root directory)))
    (if (not project-root)
        (list :success nil
@@ -217,7 +217,7 @@ Use request_scope_expansion to request access."
          :type integer
          :optional t
          :description "Max directories to return (default 50, max 200)"))
- "projectile"
+ :operation read
  (let ((project-root (projectile-project-root directory)))
    (if (not project-root)
        (list :success nil
@@ -319,7 +319,7 @@ Use request_scope_expansion to request access."
          :type string
          :optional t
          :description "Optional glob pattern to filter files (e.g., '*.el', '*.py', '*.{js,ts}')"))
- "projectile"
+ :operation read
  (let ((project-root (projectile-project-root directory)))
    (if (not project-root)
        (list :success nil
@@ -392,7 +392,7 @@ Use request_scope_expansion to request access."
          :type integer
          :optional t
          :description "Max test files to return (default 100)"))
- "projectile"
+ :operation read
  (let ((project-root (projectile-project-root directory)))
    (if (not project-root)
        (list :success nil
@@ -468,7 +468,7 @@ Use request_scope_expansion to request access."
        '(:name "file_path"
          :type string
          :description "Path to implementation file (relative to project root or absolute)"))
- "projectile"
+ :operation read
  (let ((project-root (projectile-project-root directory)))
    (if (not project-root)
        (list :success nil
@@ -555,7 +555,7 @@ Use request_scope_expansion to request access."
          :type string
          :optional t
          :description "Optional: 'test', 'impl', or 'other'. Omit to see all relationships."))
- "projectile"
+ :operation read
  (let ((project-root (projectile-project-root directory)))
    (if (not project-root)
        (list :success nil

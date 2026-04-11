@@ -1,0 +1,634 @@
+;;; scope-validation.el --- Scope validation engine -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Unified validation module for scope system.  Contains:
+;; - Glob pattern matching (single implementation)
+;; - Shared path operation validator (used by filesystem tools AND bash pipeline)
+;; - Allow-once mechanism
+;; - Bash 7-stage validation pipeline
+;; - Error codes, violation-info building, error formatting
+
+;;; Code:
+
+;; Dependencies
+
+
+;; [[file:scope-validation.org::*Dependencies][Dependencies:1]]
+(require 'cl-lib)
+(require 'jf-gptel-scope-yaml)
+(require 'bash-parser-core)
+(require 'bash-parser-orchestrator)
+;; Dependencies:1 ends here
+
+;; Glob Pattern Matching
+
+;; Single glob-to-regex implementation used by all path matching in the scope system.
+;; Character-by-character parser that handles =/**/=, =**/=, =**=, =*= patterns.
+
+
+;; [[file:scope-validation.org::*Glob Pattern Matching][Glob Pattern Matching:1]]
+(defun jf/gptel-scope--glob-to-regex (pattern)
+  "Convert glob PATTERN to regular expression.
+- /** becomes /(.*/)? (matches slash followed by zero or more path components)
+- **/ becomes (.*/)? (matches zero or more directories ending in slash)
+- ** at end becomes .* (matches everything)
+- * becomes [^/]* (matches everything except /)
+- Other chars are escaped"
+  (let ((regex "^"))
+    (while (not (string-empty-p pattern))
+      (cond
+       ((string-prefix-p "/**/" pattern)
+        (setq regex (concat regex "/\\(?:.*/\\)?"))
+        (setq pattern (substring pattern 4)))
+
+       ((string-prefix-p "/**" pattern)
+        (setq regex (concat regex "/.*"))
+        (setq pattern (substring pattern 3)))
+
+       ((string-prefix-p "**/" pattern)
+        (setq regex (concat regex "\\(?:.*/\\)?"))
+        (setq pattern (substring pattern 3)))
+
+       ((string-prefix-p "**" pattern)
+        (setq regex (concat regex ".*"))
+        (setq pattern (substring pattern 2)))
+
+       ((string-prefix-p "*" pattern)
+        (setq regex (concat regex "[^/]*"))
+        (setq pattern (substring pattern 1)))
+
+       (t
+        (let ((char (substring pattern 0 1)))
+          (setq regex (concat regex (regexp-quote char)))
+          (setq pattern (substring pattern 1))))))
+    (concat regex "$")))
+
+(defun jf/gptel-scope--glob-match-p (path pattern)
+  "Return t if PATH matches glob PATTERN.
+Case-sensitive matching."
+  (let* ((case-fold-search nil)
+         (pattern-regex (jf/gptel-scope--glob-to-regex pattern))
+         (result (string-match-p pattern-regex path)))
+    (if result t nil)))
+
+(defun jf/gptel-scope--path-matches-any-pattern-p (path patterns)
+  "Return t if PATH matches any pattern in PATTERNS."
+  (when (and path patterns)
+    (let ((normalized-path (expand-file-name path)))
+      (catch 'matched
+        (dolist (pattern patterns)
+          (when (jf/gptel-scope--glob-match-p normalized-path pattern)
+            (throw 'matched t)))))))
+;; Glob Pattern Matching:1 ends here
+
+;; Allow-Once Mechanism
+
+;; Buffer-local temporary permissions consumed before tool execution.
+
+
+;; [[file:scope-validation.org::*Allow-Once Mechanism][Allow-Once Mechanism:1]]
+(defvar-local jf/gptel-scope--allow-once-list nil
+  "List of (tool-name . resource) pairs allowed for current LLM turn.
+Cleared automatically after LLM response completes.")
+
+(defun jf/gptel-scope--check-allow-once (tool-name resource)
+  "Check if TOOL-NAME with RESOURCE is in allow-once list.
+Returns t if found (and consumes the permission), nil otherwise."
+  (when jf/gptel-scope--allow-once-list
+    (when-let ((entry (cl-find-if (lambda (e)
+                                    (and (equal (car e) tool-name)
+                                         (equal (cdr e) resource)))
+                                  jf/gptel-scope--allow-once-list)))
+      (setq jf/gptel-scope--allow-once-list
+            (delq entry jf/gptel-scope--allow-once-list))
+      t)))
+
+(defun jf/gptel-scope-add-to-allow-once-list (tool-name resource)
+  "Add TOOL-NAME and RESOURCE to allow-once list."
+  (push (cons tool-name resource) jf/gptel-scope--allow-once-list))
+
+(defun jf/gptel-scope--clear-allow-once (&rest _)
+  "Clear allow-once list after LLM response completes."
+  (when (boundp 'jf/gptel-scope--allow-once-list)
+    (setq-local jf/gptel-scope--allow-once-list nil)))
+
+(add-hook 'gptel-post-response-functions #'jf/gptel-scope--clear-allow-once)
+;; Allow-Once Mechanism:1 ends here
+
+;; Shared Path Operation Validator
+
+;; Single function that answers: "Is this path allowed for this operation type?"
+;; Used by both =validate-filesystem-tool= and bash pipeline stage 6.
+
+
+;; [[file:scope-validation.org::*Shared Path Operation Validator][Shared Path Operation Validator:1]]
+(defun jf/gptel-scope--validate-path-operation (path operation config)
+  "Validate PATH for OPERATION against CONFIG.
+PATH is an absolute file path.
+OPERATION is a keyword symbol: :read, :write, :execute, :modify,
+  or extended forms from bash-parser (:read-directory, :read-metadata,
+  :match-pattern, :create, :create-or-modify, :append, :delete).
+CONFIG is the scope config plist (must contain :paths section).
+
+Permission hierarchy:
+- read-like (:read, :read-directory, :read-metadata, :match-pattern):
+    requires paths.read OR paths.write (write includes read)
+- write-like (:write, :create, :create-or-modify, :append, :delete):
+    requires paths.write
+- :modify: requires paths.modify OR paths.write
+- :execute: requires paths.execute only (high risk)
+
+Deny patterns take absolute precedence.
+
+Returns (:allowed t) on success.
+Returns (:allowed nil :error CODE :resource PATH :message STR ...) on denial.
+Error codes: \"denied-pattern\" or \"not-in-scope\" (canonical)."
+  (cl-block jf/gptel-scope--validate-path-operation
+    (let* ((paths-config (plist-get config :paths))
+           (deny-patterns (plist-get paths-config :deny))
+           (read-patterns (plist-get paths-config :read))
+           (write-patterns (plist-get paths-config :write))
+           (modify-patterns (plist-get paths-config :modify))
+           (execute-patterns (plist-get paths-config :execute)))
+
+      ;; Deny takes precedence over all allow patterns
+      (when (jf/gptel-scope--path-matches-any-pattern-p path deny-patterns)
+        (cl-return-from jf/gptel-scope--validate-path-operation
+          (list :allowed nil
+                :error "denied-pattern"
+                :resource path
+                :operation operation
+                :message (format "Path denied by scope: %s" path))))
+
+      ;; Operation-specific validation with hierarchy
+      (let ((allowed
+             (pcase operation
+               ((or :read :read-directory :read-metadata :match-pattern)
+                (or (jf/gptel-scope--path-matches-any-pattern-p path read-patterns)
+                    (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
+
+               ((or :write :create :create-or-modify :append :delete)
+                (jf/gptel-scope--path-matches-any-pattern-p path write-patterns))
+
+               (:modify
+                (or (jf/gptel-scope--path-matches-any-pattern-p path modify-patterns)
+                    (jf/gptel-scope--path-matches-any-pattern-p path write-patterns)))
+
+               (:execute
+                (jf/gptel-scope--path-matches-any-pattern-p path execute-patterns))
+
+               (_ nil))))
+
+        (if allowed
+            (list :allowed t)
+          (list :allowed nil
+                :error "not-in-scope"
+                :resource path
+                :operation operation
+                :required-scope (format "paths.%s" operation)
+                :allowed-patterns (pcase operation
+                                    ((or :read :read-directory :read-metadata :match-pattern)
+                                     (append read-patterns write-patterns))
+                                    ((or :write :create :create-or-modify :append :delete)
+                                     write-patterns)
+                                    (:modify (append modify-patterns write-patterns))
+                                    (:execute execute-patterns)
+                                    (_ nil))
+                :message (format "Path not in %s scope: %s" operation path)))))))
+;; Shared Path Operation Validator:1 ends here
+
+;; Filesystem Tool Validation
+
+;; Thin wrapper over =validate-path-operation= for filesystem tools.
+;; Extracts path from args, converts operation symbol to keyword, calls shared core.
+
+
+;; [[file:scope-validation.org::*Filesystem Tool Validation][Filesystem Tool Validation:1]]
+(defun jf/gptel-scope--validate-filesystem-tool (tool-name operation args config metadata)
+  "Validate filesystem tool TOOL-NAME with OPERATION against CONFIG.
+OPERATION is a symbol: read, write, execute, modify (from tool definition).
+ARGS is the tool arguments list (first arg = filepath).
+CONFIG is the scope configuration plist.
+METADATA is the file metadata plist (from scope-metadata module).
+
+Returns validation result plist."
+  (let* ((filepath (car args))
+         (full-path (expand-file-name filepath))
+         ;; Also check resolved symlink path
+         (real-path (file-truename full-path))
+         ;; Convert operation symbol to keyword for validate-path-operation
+         (op-keyword (intern (concat ":" (symbol-name operation)))))
+
+    ;; Check both real-path and abs-path, allow if either matches
+    (let ((result (jf/gptel-scope--validate-path-operation full-path op-keyword config)))
+      (if (plist-get result :allowed)
+          result
+        ;; Try real-path if different
+        (if (not (string= full-path real-path))
+            (let ((real-result (jf/gptel-scope--validate-path-operation real-path op-keyword config)))
+              (if (plist-get real-result :allowed)
+                  real-result
+                ;; Both failed - return original error with tool context
+                (plist-put result :tool tool-name)
+                result))
+          ;; No symlink - return with tool context
+          (plist-put result :tool tool-name)
+          result)))))
+;; Filesystem Tool Validation:1 ends here
+
+;; Bash Tool Entry Point
+
+
+;; [[file:scope-validation.org::*Bash Tool Entry Point][Bash Tool Entry Point:1]]
+(defun jf/gptel-scope--validate-bash-tool (tool-name args config)
+  "Validate bash command using seven-stage semantic validation pipeline.
+TOOL-NAME is the tool being validated.
+ARGS is the tool arguments list (command and directory).
+CONFIG is the scope configuration plist.
+
+Returns (:allowed t) on success or (:allowed nil :error ...) on failure."
+  (cl-block jf/gptel-scope--validate-bash-tool
+    (let* ((command-full (car args))
+           (directory (cadr args))
+           (bash-config (plist-get config :bash-tools))
+           (categories (when bash-config (plist-get bash-config :categories))))
+
+      ;; If bash_tools section is missing, deny all commands
+      (unless bash-config
+        (cl-return-from jf/gptel-scope--validate-bash-tool
+          (list :allowed nil
+                :error "command-not-allowed"
+                :tool tool-name
+                :resource command-full
+                :command command-full
+                :message "No bash_tools configuration found. All commands denied by default.")))
+
+      ;; Check for deprecated categories section
+      (when categories
+        (cl-return-from jf/gptel-scope--validate-bash-tool
+          (list :allowed nil
+                :error "malformed-config"
+                :tool tool-name
+                :resource command-full
+                :command command-full
+                :message "bash_tools.categories section no longer supported. Remove categories section, keep only deny list.")))
+
+      ;; Run semantic validation pipeline (7 stages)
+      (let ((validation-error (jf/gptel-scope--validate-command-semantics
+                               command-full directory config)))
+        (if validation-error
+            (append (list :allowed nil
+                          :tool tool-name
+                          :resource command-full
+                          :command command-full)
+                    validation-error)
+          (list :allowed t))))))
+;; Bash Tool Entry Point:1 ends here
+
+;; Stage 0: Main Pipeline
+
+
+;; [[file:scope-validation.org::*Stage 0: Main Pipeline][Stage 0: Main Pipeline:1]]
+(defun jf/gptel-scope--validate-command-semantics (command directory scope-config)
+  "Seven-stage validation pipeline with early exit on failure.
+COMMAND is the bash command string.
+DIRECTORY is the working directory.
+SCOPE-CONFIG is the scope configuration plist.
+
+Returns nil if all validations pass, error plist on first failure."
+  (cl-block jf/gptel-scope--validate-command-semantics
+    (let* ((parsed (jf/bash-parse command))
+           (semantics (jf/bash-extract-semantics parsed))
+           (security-config (plist-get scope-config :security)))
+
+      ;; Stage 1: Parse completeness
+      (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
+        (cl-return-from jf/gptel-scope--validate-command-semantics error))
+
+      ;; Stage 2: Extract pipeline commands
+      (let ((commands (jf/gptel-scope--extract-pipeline-commands parsed)))
+
+        ;; Stage 3: Validate pipeline commands (deny list)
+        (when-let ((error (jf/gptel-scope--validate-pipeline-commands
+                           commands (plist-get scope-config :bash-tools))))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error))
+
+        ;; Stage 4: No-op check
+        (unless (jf/gptel-scope--check-no-op semantics)
+          (cl-return-from jf/gptel-scope--validate-command-semantics nil))
+
+        ;; Stage 5: File operations validation
+        (when-let ((file-ops (alist-get :filesystem (plist-get semantics :domains))))
+          (when-let ((error (jf/gptel-scope--validate-file-operations
+                             file-ops directory scope-config)))
+            (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+
+        ;; Stage 6: Cloud auth policy
+        (when-let ((cloud-auth (alist-get :authentication (plist-get semantics :domains))))
+          (when-let ((error (jf/gptel-scope--validate-cloud-auth
+                             cloud-auth (plist-get scope-config :cloud))))
+            (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+
+        ;; Stage 7: Coverage check (warning only)
+        (jf/gptel-scope--check-coverage-threshold semantics security-config)
+
+        nil))))
+;; Stage 0: Main Pipeline:1 ends here
+
+;; Stage 1: Parse Completeness
+
+
+;; [[file:scope-validation.org::*Stage 1: Parse Completeness][Stage 1: Parse Completeness:1]]
+(defun jf/gptel-scope--validate-parse-completeness (parse-result security-config)
+  "Stage 1: Check parse completeness.
+Returns nil if valid, error plist if incomplete and enforced."
+  (let ((complete (plist-get parse-result :parse-complete))
+        (enforce (plist-get security-config :enforce-parse-complete))
+        (errors (plist-get parse-result :parse-errors)))
+    (when (not complete)
+      (if enforce
+          (list :error "parse_incomplete"
+                :message (format "Parse incomplete: %s" errors)
+                :parse-errors errors
+                :command (plist-get parse-result :input))
+        (warn "Parse incomplete: %s" errors)
+        nil))))
+;; Stage 1: Parse Completeness:1 ends here
+
+;; Stage 2: Extract Pipeline Commands
+
+
+;; [[file:scope-validation.org::*Stage 2: Extract Pipeline Commands][Stage 2: Extract Pipeline Commands:1]]
+(defun jf/gptel-scope--extract-pipeline-commands (parsed-command)
+  "Stage 2: Extract all commands from PARSED-COMMAND pipeline/chain.
+Returns list of command names in execution order."
+  (let ((all-commands (plist-get parsed-command :all-commands))
+        (command-names nil))
+    (dolist (cmd all-commands)
+      (when-let ((name (plist-get cmd :command-name)))
+        (push name command-names)))
+    (nreverse command-names)))
+;; Stage 2: Extract Pipeline Commands:1 ends here
+
+;; Stage 3: Validate Pipeline Commands
+
+
+;; [[file:scope-validation.org::*Stage 3: Validate Pipeline Commands][Stage 3: Validate Pipeline Commands:1]]
+(defun jf/gptel-scope--validate-pipeline-commands (commands bash-tools)
+  "Stage 3: Validate each command against BASH-TOOLS deny list.
+Returns nil if all allowed, error plist on first denied command."
+  (let ((deny-list (plist-get bash-tools :deny))
+        (pos 0))
+    (catch 'validation-failed
+      (dolist (cmd commands)
+        (when (member cmd deny-list)
+          (throw 'validation-failed
+                 (list :error "command_denied"
+                       :position pos
+                       :command cmd
+                       :message (format "Command '%s' at position %d is in deny list" cmd pos))))
+        (setq pos (1+ pos)))
+      nil)))
+;; Stage 3: Validate Pipeline Commands:1 ends here
+
+;; Stage 4: No-op Check
+
+
+;; [[file:scope-validation.org::*Stage 4: No-op Check][Stage 4: No-op Check:1]]
+(defun jf/gptel-scope--check-no-op (semantics)
+  "Stage 4: Check if command has zero file operations.
+Returns nil if no-op (allowed), t if file ops exist (continue)."
+  (let* ((domains (plist-get semantics :domains))
+         (file-ops (alist-get :filesystem domains)))
+    (if (or (null file-ops) (zerop (length file-ops)))
+        nil
+      t)))
+;; Stage 4: No-op Check:1 ends here
+
+;; Stage 5: File Operations Validation
+
+;; Uses shared =validate-path-operation= for each extracted file operation.
+
+
+;; [[file:scope-validation.org::*Stage 5: File Operations Validation][Stage 5: File Operations Validation:1]]
+(defun jf/gptel-scope--validate-file-operation (file-op directory config)
+  "Validate single FILE-OP against CONFIG using shared path validator.
+FILE-OP format: (:file PATH :operation OP :command CMD :confidence CONF)
+DIRECTORY is the working directory for resolving relative paths."
+  (let* ((operation (plist-get file-op :operation))
+         (path (plist-get file-op :file))
+         (resolved-path (when path
+                          (if (file-name-absolute-p path)
+                              (expand-file-name path)
+                            (expand-file-name path directory)))))
+    (when resolved-path
+      ;; Call shared validator — same function filesystem tools use
+      (let ((result (jf/gptel-scope--validate-path-operation resolved-path operation config)))
+        (unless (plist-get result :allowed)
+          ;; Return error fields (strip :allowed nil since caller adds it)
+          (list :error (plist-get result :error)
+                :path resolved-path
+                :operation operation
+                :required-scope (plist-get result :required-scope)
+                :message (plist-get result :message)))))))
+
+(defun jf/gptel-scope--validate-file-operations (file-ops directory scope-config)
+  "Validate all FILE-OPS against SCOPE-CONFIG.
+Returns nil if all allowed, error plist for first violation."
+  (catch 'error-found
+    (dolist (file-op file-ops)
+      (when-let ((error (jf/gptel-scope--validate-file-operation
+                         file-op directory scope-config)))
+        (throw 'error-found error)))))
+;; Stage 5: File Operations Validation:1 ends here
+
+;; Stage 6: Cloud Auth Policy
+
+
+;; [[file:scope-validation.org::*Stage 6: Cloud Auth Policy][Stage 6: Cloud Auth Policy:1]]
+(defun jf/gptel-scope--validate-cloud-auth (cloud-auth-ops cloud-config)
+  "Stage 6: Detect and enforce cloud authentication policy.
+Returns nil if passes, error plist if denied."
+  (cl-block jf/gptel-scope--validate-cloud-auth
+    (when cloud-auth-ops
+      (let* ((mode (or (plist-get cloud-config :auth-detection) "warn"))
+             (allowed-providers (plist-get cloud-config :allowed-providers))
+             (provider (plist-get cloud-auth-ops :provider))
+             (command (plist-get cloud-auth-ops :command)))
+
+        ;; Check provider filtering
+        (when (and allowed-providers
+                   (not (member provider allowed-providers)))
+          (cl-return-from jf/gptel-scope--validate-cloud-auth
+            (list :error "cloud_provider_denied"
+                  :provider provider
+                  :command command
+                  :allowed-providers allowed-providers
+                  :message (format "Cloud provider '%s' not in allowed list: %s"
+                                   provider allowed-providers))))
+
+        (cond
+         ((string= mode "allow") nil)
+
+         ((string= mode "warn")
+          (list :warning "cloud_auth_detected"
+                :provider provider
+                :command command
+                :message (format "Cloud authentication detected: %s (%s provider)"
+                                 command provider)))
+
+         ((string= mode "deny")
+          (list :error "cloud_auth_denied"
+                :provider provider
+                :command command
+                :message (format "Cloud authentication denied: %s (%s provider)"
+                                 command provider)))
+
+         (t
+          (list :error "invalid_cloud_auth_mode"
+                :mode mode
+                :message (format "Invalid cloud.auth_detection mode: %s" mode))))))))
+;; Stage 6: Cloud Auth Policy:1 ends here
+
+;; Stage 7: Coverage Threshold
+
+
+;; [[file:scope-validation.org::*Stage 7: Coverage Threshold][Stage 7: Coverage Threshold:1]]
+(defun jf/gptel-scope--check-coverage-threshold (semantics security-config)
+  "Stage 7: Check coverage threshold (warning only, non-blocking).
+Returns nil always."
+  (when-let* ((coverage (plist-get semantics :coverage))
+              (threshold (plist-get security-config :max-coverage-threshold))
+              (coverage-ratio (plist-get coverage :coverage-ratio)))
+    (when (and threshold (< coverage-ratio threshold))
+      (warn "Parse coverage %.2f below threshold %.2f"
+            coverage-ratio threshold)))
+  nil)
+;; Stage 7: Coverage Threshold:1 ends here
+
+;; Violation-Info Building
+
+;; Transform validation error plists into format expected by expansion UI.
+
+
+;; [[file:scope-validation.org::*Violation-Info Building][Violation-Info Building:1]]
+(defun jf/gptel-scope--build-violation-info (validation-error tool-name validation-type)
+  "Transform VALIDATION-ERROR into violation-info for expansion UI.
+TOOL-NAME is the denied tool.
+VALIDATION-TYPE is a symbol: path or bash.
+
+Returns plist with :tool, :resource, :operation, :reason, :validation-type, :metadata."
+  (let* ((error-type (or (plist-get validation-error :error) "unknown"))
+         (resource (pcase error-type
+                     ("denied-pattern" (plist-get validation-error :resource))
+                     ("not-in-scope" (plist-get validation-error :resource))
+                     ("command_denied" (plist-get validation-error :command))
+                     ("command-not-allowed" (plist-get validation-error :resource))
+                     ("parse_incomplete" (plist-get validation-error :command))
+                     ("cloud_auth_denied" (plist-get validation-error :provider))
+                     ("cloud_provider_denied" (plist-get validation-error :provider))
+                     ("malformed-config" (plist-get validation-error :resource))
+                     (_ (or (plist-get validation-error :resource)
+                           (plist-get validation-error :path)))))
+         (operation (plist-get validation-error :operation))
+         (reason (plist-get validation-error :message))
+         (metadata (plist-get validation-error :metadata)))
+    (list :tool tool-name
+          :resource resource
+          :operation operation
+          :reason reason
+          :validation-type validation-type
+          :metadata metadata)))
+;; Violation-Info Building:1 ends here
+
+;; Error Formatting
+
+;; Format validation errors for LLM consumption.
+
+
+;; [[file:scope-validation.org::*Error Formatting][Error Formatting:1]]
+(defun jf/gptel-scope--format-tool-error (tool-name resource check-result)
+  "Format tool permission error for LLM.
+CHECK-RESULT is the validation result plist."
+  (let ((patterns (or (plist-get check-result :allowed-patterns)
+                      (plist-get check-result :patterns)))
+        (deny-patterns (plist-get check-result :deny-patterns))
+        (error-type (or (plist-get check-result :error) "scope-violation"))
+        (custom-message (plist-get check-result :message))
+        (command (plist-get check-result :command))
+        (directory (plist-get check-result :directory))
+        (required-scope (plist-get check-result :required-scope)))
+    (list :success nil
+          :error error-type
+          :tool tool-name
+          :resource resource
+          :command command
+          :directory directory
+          :required-scope required-scope
+          :allowed-patterns patterns
+          :deny-patterns deny-patterns
+          :message (or custom-message
+                      (format "Tool '%s' denied for resource '%s'. Use request_scope_expansion to ask user for approval."
+                             tool-name resource)))))
+;; Error Formatting:1 ends here
+
+;; Allow-Once Resource Computation
+
+;; Compute allow-once resource key for a tool invocation.
+;; Used by both trigger-inline-expansion (storing) and the wrapper (checking).
+
+
+;; [[file:scope-validation.org::*Allow-Once Resource Computation][Allow-Once Resource Computation:1]]
+(defun jf/gptel-scope--compute-allow-once-resource (validation-type tool-name args)
+  "Compute allow-once resource key for VALIDATION-TYPE.
+TOOL-NAME and ARGS are the tool invocation parameters."
+  (pcase validation-type
+    ('path (expand-file-name (car args)))
+    ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
+    (_ nil)))
+;; Allow-Once Resource Computation:1 ends here
+
+;; Trigger Inline Expansion
+
+;; Invoke expansion UI with callback chain for async tools.
+
+
+;; [[file:scope-validation.org::*Trigger Inline Expansion][Trigger Inline Expansion:1]]
+(defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name tool-args
+                                                  validation-type wrapper-callback)
+  "Trigger inline expansion UI for VALIDATION-ERROR.
+VALIDATION-TYPE is path or bash.
+WRAPPER-CALLBACK receives approval result."
+  (let* ((violation-info (jf/gptel-scope--build-violation-info
+                          validation-error tool-name validation-type))
+         (allow-once-resource (jf/gptel-scope--compute-allow-once-resource
+                               validation-type tool-name tool-args))
+         (violation-info (plist-put violation-info :allow-once-resource allow-once-resource))
+         (resource (plist-get violation-info :resource))
+         (patterns (list resource))
+         (expansion-callback
+          (lambda (result-json)
+            (condition-case err
+                (let* ((parsed (json-parse-string result-json :object-type 'plist))
+                       (success (plist-get parsed :success)))
+                  (if success
+                      (funcall wrapper-callback (list :approved t))
+                    (funcall wrapper-callback (list :approved nil :reason "user_denied"))))
+              (error
+               (message "Error in expansion-callback: %s" (error-message-string err))
+               (funcall wrapper-callback (list :approved nil :reason "callback_error")))))))
+
+    (jf/gptel-scope-prompt-expansion violation-info expansion-callback patterns tool-name)
+    nil))
+;; Trigger Inline Expansion:1 ends here
+
+;; Provide Feature
+
+
+;; [[file:scope-validation.org::*Provide Feature][Provide Feature:1]]
+(provide 'jf-gptel-scope-validation)
+;;; scope-validation.el ends here
+;; Provide Feature:1 ends here

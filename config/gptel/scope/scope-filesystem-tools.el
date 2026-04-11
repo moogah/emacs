@@ -13,7 +13,7 @@
 
 ;; [[file:scope-filesystem-tools.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-tool-wrapper)
 ;; Dependencies:1 ends here
 
 ;; Git-Tracked File Validation
@@ -49,7 +49,7 @@ Use request_scope_expansion if you need to read files outside approved patterns.
          :type string
          :description "Full path to file (can be relative or absolute)"))
 
- "filesystem"
+ :operation read
 
  :async
 
@@ -95,7 +95,7 @@ When you receive a scope violation:
          :type string
          :description "File contents to write"))
 
- "filesystem"
+ :operation write
 
  :async
 
@@ -143,7 +143,7 @@ Returns scope violation error if path not approved."
          :type string
          :description "Replacement text"))
 
- "filesystem"
+ :operation write
 
  :async
 

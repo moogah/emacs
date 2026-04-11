@@ -1,6 +1,6 @@
 ;;; treesitter-tools.el --- GPTEL tools for AST-based code exploration -*- lexical-binding: t; -*-
 (require 'treesit)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-tool-wrapper)
 
 (defvar gptel-treesitter-result-limit 40000
   "Maximum character count for tool results to prevent context overflow.")
@@ -294,7 +294,7 @@ Complements:
          :type string
          :description "Line number (42 or 'L42') or character position"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -405,7 +405,7 @@ Complements:
          :optional t
          :description "Show all children nodes (default false)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -563,7 +563,7 @@ Complements:
          :optional t
          :description "End line of range (requires start_line)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -686,7 +686,7 @@ Complements:
          :optional t
          :description "Max functions (default 50, max 200)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -824,7 +824,7 @@ Complements:
          :optional t
          :description "Max classes (default 50, max 200)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
        (with-temp-buffer
@@ -981,7 +981,7 @@ Complements:
          :optional t
          :description "Group imports by source module"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -1128,7 +1128,7 @@ Complements:
          :type string
          :description "Symbol name (case-sensitive)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -1271,7 +1271,7 @@ Complements:
          :optional t
          :description "Max results (default 100, max 300)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -1412,7 +1412,7 @@ Complements:
          :optional t
          :description "Max results (default 50, max 200)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -1548,7 +1548,7 @@ Complements:
          :optional t
          :description "Optional node type filter"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -1683,7 +1683,7 @@ Complements:
          :optional t
          :description "Show sibling nodes (default false)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
@@ -1839,7 +1839,7 @@ Complements:
          :optional t
          :description "End line (requires start_line)"))
 
- "treesitter"
+ :operation read
 
  (condition-case err
      (with-temp-buffer
