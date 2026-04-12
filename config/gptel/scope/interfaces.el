@@ -5,25 +5,27 @@
 (defconst scope/interface--error-codes
   '(;; --- Path access denied ---
     ;; Produced when a path matches a deny pattern.
-    ;; Producers: validate-path-tool, validate-operation
+    ;; Producer: jf/gptel-scope--validate-path-operation
     "denied-pattern"
 
-    ;; Produced when a path is not covered by any allow pattern.
-    ;; Producers: validate-path-tool, validate-operation
+    ;; Produced when a path is not covered by any allow pattern
+    ;; for the requested operation.
+    ;; Producer: jf/gptel-scope--validate-path-operation
     "not-in-scope"
 
     ;; --- Parse errors ---
-    ;; Produced when bash-parser cannot fully parse the command.
-    ;; Producer: validate-parse-completeness
+    ;; Produced when bash-parser cannot fully parse the command
+    ;; and security.enforce_parse_complete is true.
+    ;; Producer: jf/gptel-scope--validate-parse-completeness
     "parse_incomplete"
 
     ;; --- Cloud authentication ---
     ;; Produced when cloud auth detected and policy is "deny".
-    ;; Producer: validate-cloud-auth
+    ;; Producer: jf/gptel-scope--validate-cloud-auth
     "cloud_auth_denied"
 
     ;; Produced when cloud provider not in allowed_providers list.
-    ;; Producer: validate-cloud-auth
+    ;; Producer: jf/gptel-scope--validate-cloud-auth
     "cloud_provider_denied")
   "Canonical error codes for scope validation.
 
@@ -31,11 +33,12 @@ Every validator MUST produce only codes from this list.
 Every consumer (build-violation-info, format-tool-error) MUST handle
 every code in this list.
 
-Codes not in this list:
-- \"unknown-tool\" (from check-tool-permission, not a validation error)
-- \"no_scope_config\" (from the macro, before validation runs)
-- \"tool_exception\" (from the macro, unexpected errors)
-- \"allow-once\" (from check-tool-permission, signals success not error)")
+Codes that intentionally live outside this vocabulary:
+- \"no_scope_config\"  (macro, before validation runs)
+- \"tool_exception\"   (macro, unexpected errors caught around body)
+- \"invalid_cloud_auth_mode\" (misconfigured scope.yml, not a user action)
+- \"file_not_found\", \"string_not_found\", \"execution-failed\"
+  (tool-level errors produced after validation has passed)")
 
 (defconst scope/interface--error-resource-fields
   '(("denied-pattern"       . :resource)
@@ -101,8 +104,8 @@ Returns nil if valid, error string if invalid."
       ;; :validation-type must be a known symbol
       (when (plist-member info :validation-type)
         (let ((vtype (plist-get info :validation-type)))
-          (unless (memq vtype '(path pattern bash meta))
-            (push (format ":validation-type %S not in (path pattern bash meta)" vtype)
+          (unless (memq vtype '(path bash))
+            (push (format ":validation-type %S not in (path bash)" vtype)
                   errors))))
 
       (when errors
@@ -112,11 +115,12 @@ Returns nil if valid, error string if invalid."
   "Compute the allow-once resource key for VALIDATION-TYPE.
 TOOL-NAME and ARGS are the tool invocation parameters.
 
-This is the canonical implementation.  Both trigger-inline-expansion
-and check-allow-once should produce the same value for the same inputs."
+This is the canonical implementation.  The scope-tool-wrapper macro
+and scope-validation's trigger-inline-expansion both delegate to
+`jf/gptel-scope--compute-allow-once-resource', which must produce
+the same value as this reference implementation for the same inputs."
   (pcase validation-type
     ('path (expand-file-name (car args)))
-    ('pattern (format "%s:%s" tool-name (car args)))
     ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
     (_ nil)))
 
@@ -136,7 +140,7 @@ Each entry is (PATTERN PATH EXPECTED-RESULT).
 
 Any function claiming to implement glob matching for scope validation
 must pass all of these cases.  Tests import this constant to verify
-both the path-tool matcher and the file-ops matcher agree.")
+the canonical implementation honors the contract.")
 
 (provide 'scope-interfaces)
 ;;; interfaces.el ends here
