@@ -15,11 +15,11 @@ This document defines the interfaces between components of the scope validation 
 The scope system validates tool invocations against a =scope.yml= configuration.  The flow is:
 
 1. A tool is invoked (e.g., =run_bash_command= or =read_file=)
-2. The =gptel-make-scoped-tool= macro calls the single validation entrypoint =jf/gptel-scope-validate-tool-call=
-3. The entrypoint loads config, gathers metadata, dispatches to the bash or filesystem validator, and returns an allowed/denied result (tagged with =:validation-type=)
-4. If denied, the error is transformed into a violation-info for the expansion UI
+2. The =gptel-make-scoped-tool= macro hands the arguments plus on-allow/on-deny thunks to =jf/gptel-scope-authorize-tool-call=, the single public authorization entrypoint
+3. The entrypoint loads config, dispatches to the bash or filesystem validator (gathering metadata along the way), and tags the result with =:validation-type=
+4. On an allowed result it invokes the on-allow thunk (which runs the tool body); on a denied result it triggers the inline expansion UI
 5. The expansion UI presents choices; the chosen action may write to =scope.yml= or simply authorize the single pending invocation
-6. On user approval the wrapper runs the tool body.  There is no re-validation, no retry
+6. On user approval the on-allow thunk runs; on denial the on-deny thunk delivers a final response plist.  There is no re-validation, no retry
 
 Each numbered step crosses a component boundary.  This document defines what data looks like at each crossing.
 
@@ -34,20 +34,17 @@ Each numbered step crosses a component boundary.  This document defines what dat
                     │   merge defaults)        │
                     └────────────┬─────────────┘
                                  │ scope config plist
-                    ┌────────────┴─────────────┐
-                    │  scope-tool-wrapper.el   │
-                    │  (load-config, macro)    │
-                    └────────────┬─────────────┘
-                                 │
+                                 ▼
   LLM tool call ──► gptel-make-scoped-tool (macro)
+                    │  (scope-tool-wrapper.el)
                     │
-                    │ gather args, call single entrypoint
+                    │ bind args, hand off on-allow/on-deny
                     ▼
               ┌─────────────────────────────────────────┐
               │         scope-validation.el              │
               │                                          │
-              │  jf/gptel-scope-validate-tool-call       │
-              │    ↓ (dispatch on :operation)           │
+              │  jf/gptel-scope-authorize-tool-call      │
+              │    ↓ (load config, dispatch on :op)     │
               │                                          │
               │  ┌──────────────────────┐               │
               │  │validate-filesystem-  │ path tools    │
@@ -63,25 +60,25 @@ Each numbered step crosses a component boundary.  This document defines what dat
               │  │validate-bash-tool        │ bash      │
               │  │ │                        │           │
               │  │ validate-command-        │           │
-              │  │  semantics (5-stage)     │           │
+              │  │  semantics (pipeline)    │           │
               │  │ ┌──────────────────────┐ │           │
               │  │ │1. parse-completeness │ │           │
-              │  │ │2. no-op check        │ │           │
+              │  │ │2. no-op gate         │ │           │
               │  │ │3. file-operations ───┼─┼──► shares │
               │  │ │4. cloud-auth policy  │ │  validate-│
-              │  │ │5. coverage threshold │ │  path-op  │
+              │  │ │   + coverage warn    │ │  path-op  │
               │  │ └──────────────────────┘ │           │
               │  └──────────────────────────┘           │
+              │                                          │
+              │  On denial → trigger-inline-expansion    │
+              │   ↓                                      │
+              │  build-violation-info                    │
+              │   error code ──► resource field          │
               └───────────┬──────────────────────────────┘
                           │ validation result    ←── [[#validation-result][§ Validation Result]]
                           │   (:allowed t :validation-type ...) or
                           │   (:allowed nil :error CODE :validation-type ...)
                           │
-              ┌───────────┴────────────────────┐
-              │     build-violation-info       │
-              │    (scope-validation.el)       │
-              │  error code ──► resource field │  ←── [[#error-codes][§ Error Codes]]
-              └───────────┬────────────────────┘
                           │ violation-info       ←── [[#violation-info][§ Violation-Info]]
                           │   :tool, :resource,
                           │   :reason, :validation-type
@@ -106,20 +103,19 @@ Each numbered step crosses a component boundary.  This document defines what dat
 
 ** File to Component Mapping
 
-| File                      | Provide                            | Responsibilities                              |
-|---------------------------+------------------------------------+-----------------------------------------------|
-| =scope-tool-wrapper.el=   | =jf-gptel-scope-tool-wrapper=      | =gptel-make-scoped-tool= macro, config load    |
-| =scope-validation.el=     | =jf-gptel-scope-validation=        | All validators, pipeline, glob match,         |
-|                           |                                    | validate-tool-call entrypoint,                 |
-|                           |                                    | build-violation-info, format-tool-error,       |
-|                           |                                    | trigger-inline-expansion                       |
-| =scope-yaml.el=           | =jf-gptel-scope-yaml=              | YAML parse, key normalize, merge-defaults      |
-| =scope-metadata.el=       | =jf-gptel-scope-metadata=          | File metadata (exists, git-tracked, type)      |
-| =scope-expansion.el=      | =jf-gptel-scope-expansion=         | Transient menu, scope.yml writer, queue        |
-| =scope-filesystem-tools.el= | =jf-gptel-scope-filesystem-tools= | =read_file=, =write_file_in_scope=, =edit_file_in_scope= |
-| =scope-shell-tools.el=    | =jf-gptel-scope-shell-tools=       | =run_bash_command=, =request_scope_expansion=, exec helpers |
+| File                        | Provide                            | Responsibilities                                                              |
+|-----------------------------+------------------------------------+-------------------------------------------------------------------------------|
+| =scope-tool-wrapper.el=     | =jf-gptel-scope-tool-wrapper=      | =gptel-make-scoped-tool= macro (always async; delegates to authorize)          |
+| =scope-validation.el=       | =jf-gptel-scope-validation=        | Config load, all validators, pipeline, glob match, authorize-tool-call         |
+|                             |                                    | entrypoint, metadata gather, build-violation-info, format-tool-error,          |
+|                             |                                    | trigger-inline-expansion                                                       |
+| =scope-yaml.el=             | =jf-gptel-scope-yaml=              | YAML parse, key normalize, merge-defaults                                      |
+| =scope-metadata.el=         | =jf-gptel-scope-metadata=          | File metadata (exists, git-tracked, type)                                      |
+| =scope-expansion.el=        | =jf-gptel-scope-expansion=         | Transient menu, scope.yml writer, queue                                        |
+| =scope-filesystem-tools.el= | =jf-gptel-scope-filesystem-tools=  | =read_file=, =write_file_in_scope=, =edit_file_in_scope=                       |
+| =scope-shell-tools.el=      | =jf-gptel-scope-shell-tools=       | =run_bash_command=, =request_scope_expansion=, exec helpers                    |
 
-The old =scope-core.el= was split into =scope-validation.el= (the data transformation layer) and =scope-tool-wrapper.el= (the macro entry point).  =scope-shell-tools.el= no longer contains any validation logic; it only defines the bash tool and its execution helpers.
+The old =scope-core.el= was split into =scope-validation.el= (the data transformation layer) and =scope-tool-wrapper.el= (the macro entry point).  =scope-shell-tools.el= no longer contains any validation logic; it only defines the bash tool and its execution helpers.  =scope-tool-wrapper.el= is now a pure macro shim — it binds arguments, hands them to =authorize-tool-call=, and routes the result through the gptel async callback.  Config loading, metadata gathering, validation dispatch, expansion escalation, and error formatting all live in =scope-validation.el=.
 
 #+begin_src emacs-lisp
 (require 'cl-lib)
@@ -398,15 +394,17 @@ the canonical implementation honors the contract.")
 :CUSTOM_ID: pipeline
 :END:
 
-=jf/gptel-scope--validate-command-semantics= runs a five-stage pipeline on the semantics extracted by =bash-parser=.  Each stage has early exit on failure.  The pipeline is the "operation-first" model: bash commands are validated by the file operations they would perform (via the shared path validator) rather than by command-name allow/deny lists.
+=jf/gptel-scope--validate-command-semantics= runs a four-stage pipeline on the semantics extracted by =bash-parser=, followed by a non-blocking coverage warning.  Each stage has early exit on failure.  The pipeline is the "operation-first" model: bash commands are validated by the file operations they would perform (via the shared path validator) rather than by command-name allow/deny lists.
 
 | Stage | Function                           | Purpose                                   | Error codes                               |
 |-------+------------------------------------+-------------------------------------------+-------------------------------------------|
 |     1 | =validate-parse-completeness=      | Refuse to validate commands we didn't fully parse (when =security.enforce_parse_complete=) | =parse_incomplete= |
-|     2 | =check-no-op=                      | Commands with zero file operations are allowed through | (none — signals allow) |
+|     2 | =check-no-op=                      | Commands with zero file operations exit the pipeline early and bypass stages 3 and 4 | (none — signals allow) |
 |     3 | =validate-file-operations=         | Route each extracted file op through =validate-path-operation= | =denied-pattern=, =not-in-scope= |
 |     4 | =validate-cloud-auth=              | Enforce =cloud.auth_detection= policy and =allowed_providers= filter | =cloud_auth_denied=, =cloud_provider_denied= |
-|     5 | =check-coverage-threshold=         | Non-blocking warning if parse coverage below =security.max_coverage_threshold= | (none — warn only) |
+| —     | =check-coverage-threshold=         | Non-blocking warning if parse coverage below =security.max_coverage_threshold= | (none — warn only) |
+
+Stage 2 is a *deliberate policy gate*, not an optimization: a command with zero file operations (e.g. =echo hello=, =python3 --version=) short-circuits the whole pipeline, which is also what spares it from cloud-auth checks.  Any follow-up to change that behavior should update this row.
 
 Stage 3 is where the operation-first model lives: =validate-file-operation= receives a file-op plist from bash-parser (=:file=, =:operation=, =:command=, =:confidence=) and defers to the same =validate-path-operation= used by filesystem tool validation.  This is what guarantees that bash =cat /etc/passwd= and the =read_file= tool resolve to exactly the same allow/deny decision for the same path.
 
