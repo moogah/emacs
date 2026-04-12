@@ -18,7 +18,9 @@
 
 ;; [[file:scope-validation.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
+(require 'gptel-session-constants)
 (require 'jf-gptel-scope-yaml)
+(require 'jf-gptel-scope-metadata)
 (require 'bash-parser-core)
 (require 'bash-parser-orchestrator)
 ;; Dependencies:1 ends here
@@ -448,6 +450,76 @@ Returns nil always."
             coverage-ratio threshold)))
   nil)
 ;; Stage 5: Coverage Threshold:1 ends here
+
+;; Configuration Loading
+
+;; Load =scope.yml= for the current context. Uses buffer-local
+;; =jf/gptel--branch-dir= when available, else falls back to the current
+;; buffer's directory. Returns nil if no config can be found or parsed.
+
+
+;; [[file:scope-validation.org::*Configuration Loading][Configuration Loading:1]]
+(defun jf/gptel-scope--load-config ()
+  "Load scope configuration from scope.yml.
+Uses buffer-local jf/gptel--branch-dir if available.
+Returns nil if not found or can't be parsed."
+  (condition-case err
+      (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                             (and (buffer-file-name)
+                                  (file-name-directory (buffer-file-name))))))
+        (when context-dir
+          (let ((scope-file (expand-file-name jf/gptel-session--scope-file context-dir)))
+            (when (file-exists-p scope-file)
+              (jf/gptel-scope-yaml--load-schema scope-file)))))
+    (error
+     (message "Error loading scope config: %s" (error-message-string err))
+     nil)))
+;; Configuration Loading:1 ends here
+
+;; Tool Call Validation Entrypoint
+
+;; Single public entrypoint used by =gptel-make-scoped-tool=. Owns config
+;; load, metadata gather (for filesystem ops), and bash-vs-filesystem
+;; dispatch. OPERATION discriminates:
+
+;; - =read=, =write=, =modify=, =execute= → filesystem path validation
+;; - =nil= → semantic extraction (bash pipeline, operations computed from
+;;   the command itself)
+
+;; Returns a plist whose keys are guaranteed to include =:allowed=, plus
+;; =:validation-type= tagging the dispatch branch so expansion and error
+;; formatting can use it without recomputing. When config is missing,
+;; returns =(:allowed nil :error "no_scope_config" ...)=.
+
+
+;; [[file:scope-validation.org::*Tool Call Validation Entrypoint][Tool Call Validation Entrypoint:1]]
+(defun jf/gptel-scope-validate-tool-call (tool-name operation args)
+  "Validate a scope-aware tool call. Single entrypoint.
+TOOL-NAME is the tool name string.
+OPERATION is the declared operation symbol (read/write/modify/execute)
+or nil for tools whose operations must be extracted from input (bash).
+ARGS is the normalized tool argument list.
+
+Returns a plist containing :allowed plus either success data or denial
+context. Always includes :validation-type (path or bash)."
+  (let ((config (jf/gptel-scope--load-config)))
+    (cond
+     ((null config)
+      ;; Shape mirrors pre-refactor wrapper output so callers can
+      ;; json-serialize the result without special-casing.
+      (list :success nil
+            :allowed nil
+            :error "no_scope_config"
+            :message "No scope configuration found."))
+     ((null operation)
+      ;; Bash / semantic extraction path.
+      (jf/gptel-scope--validate-bash-tool tool-name args config))
+     (t
+      ;; Filesystem / declared-operation path.
+      (let ((metadata (jf/gptel-scope--gather-file-metadata (car args))))
+        (jf/gptel-scope--validate-filesystem-tool
+         tool-name operation args config metadata))))))
+;; Tool Call Validation Entrypoint:1 ends here
 
 ;; Violation-Info Building
 

@@ -140,7 +140,8 @@ Examples:
          :type string
          :description "Working directory (must be in scope)"))
 
- :operation write
+ ;; No :operation — file operations are extracted from the command by
+ ;; the bash semantic pipeline at validation time.
 
  :async
 
