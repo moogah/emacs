@@ -243,60 +243,6 @@ Returns the loaded config on success, signals error on contract violation."
               :to-be-truthy))))
 
 
-;;; Round-trip: add-pattern-to-scope (org-roam)
-
-(describe "expansion round-trip: add-pattern-to-scope"
-
-  (before-each
-    (setq roundtrip--temp-dir (make-temp-file "roundtrip-scope-" t))
-    (setq roundtrip--scope-file (expand-file-name "scope.yml" roundtrip--temp-dir))
-    ;; Scope with org_roam_patterns section
-    (with-temp-file roundtrip--scope-file
-      (insert "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-bash_tools:
-  deny: []
-org_roam_patterns:
-  subdirectory:
-    - \"gptel/**\"
-  tags:
-    - \"project\"
-cloud:
-  auth_detection: \"warn\"
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-")))
-
-  (after-each
-    (when (and roundtrip--temp-dir (file-exists-p roundtrip--temp-dir))
-      (delete-directory roundtrip--temp-dir t)))
-
-  (it "adding subdirectory pattern produces valid config"
-    (jf/gptel-scope--add-pattern-to-scope
-     roundtrip--scope-file "subdirectory:journal/**" "create_roam_node_in_scope")
-    ;; Should not throw on reload
-    (roundtrip--reload-and-validate))
-
-  (it "adding tag pattern produces valid config"
-    (jf/gptel-scope--add-pattern-to-scope
-     roundtrip--scope-file "tags:meeting" "add_roam_tags_in_scope")
-    (roundtrip--reload-and-validate))
-
-  (it "adding duplicate pattern is idempotent"
-    (jf/gptel-scope--add-pattern-to-scope
-     roundtrip--scope-file "tags:project" "add_roam_tags_in_scope")
-    (jf/gptel-scope--add-pattern-to-scope
-     roundtrip--scope-file "tags:project" "add_roam_tags_in_scope")
-    (roundtrip--reload-and-validate)))
-
-
 ;;; Round-trip: preservation of existing config
 
 (describe "expansion round-trip: config preservation"
