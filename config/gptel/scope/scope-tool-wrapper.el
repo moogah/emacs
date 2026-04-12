@@ -4,11 +4,13 @@
 
 ;;; Commentary:
 
-;; Provides gptel-make-scoped-tool macro.  The macro has three
-;; responsibilities: gather the arguments needed to validate, call the
-;; single validation entrypoint, and run the body on allow or surface /
-;; expand the denial.  No validation logic, no config loading, no
-;; metadata gathering, no allow-once bookkeeping lives here.
+;; Provides gptel-make-scoped-tool macro.  The macro's only job is to
+;; bind arguments, hand them to the scope authorization dispatcher,
+;; and run the body on allow or return / deliver the denial response.
+;; No validation logic, no config loading, no metadata gathering, no
+;; expansion-UI handling, no error formatting lives here — the
+;; dispatcher (`jf/gptel-scope-authorize-tool-call` /
+;; `--final-deny-response` in scope-validation) owns all of that.
 
 ;;; Code:
 
@@ -42,11 +44,12 @@
 ;;   input (e.g. bash, whose file ops are parsed from the command).
 ;; - =:async= — mark the tool as async; body runs inside a callback.
 
-;; Control flow is the same for both branches: validate once. If allowed,
-;; run the body. If denied, async tools escalate to the expansion UI and
-;; trust the user's answer as authorization for this single invocation —
-;; there is no re-validation, no retry, no allow-once list. Sync tools
-;; cannot escalate and surface the denial directly.
+;; The macro does no validation reasoning of its own. Async tools delegate
+;; to =jf/gptel-scope-authorize-tool-call= and supply an on-allow thunk
+;; that runs the body plus an on-deny thunk that delivers the denial
+;; response through the gptel callback. Sync tools can't escalate to
+;; expansion, so they validate directly and convert denials via
+;; =jf/gptel-scope--final-deny-response=.
 
 
 ;; [[file:scope-tool-wrapper.org::*Scoped Tool Macro][Scoped Tool Macro:1]]
@@ -84,29 +87,13 @@ REST is parsed as optional keyword options followed by BODY:
         ,(if is-async
              `(lambda (callback ,@arg-names)
                 (condition-case err
-                    (let* ((normalized-args (list ,@arg-names))
-                           (check-result
-                            (jf/gptel-scope-validate-tool-call
-                             ,name ',operation normalized-args)))
-                      (cond
-                       ((plist-get check-result :allowed)
-                        (funcall callback (json-serialize (progn ,@body))))
-
-                       ;; Missing config is not a scope violation — no
-                       ;; expansion UI; surface the error directly.
-                       ((equal (plist-get check-result :error) "no_scope_config")
-                        (funcall callback (json-serialize check-result)))
-
-                       (t
-                        (jf/gptel-scope--trigger-inline-expansion
-                         check-result ,name
-                         (lambda (expansion-result)
-                           (if (plist-get expansion-result :approved)
-                               (funcall callback (json-serialize (progn ,@body)))
-                             (funcall callback
-                                      (json-serialize
-                                       (jf/gptel-scope--format-tool-error
-                                        ,name (nth 0 normalized-args) check-result)))))))))
+                    (let ((normalized-args (list ,@arg-names)))
+                      (jf/gptel-scope-authorize-tool-call
+                       ,name ',operation normalized-args
+                       (lambda ()
+                         (funcall callback (json-serialize (progn ,@body))))
+                       (lambda (deny-response)
+                         (funcall callback (json-serialize deny-response)))))
                   (error
                    (funcall callback
                             (json-serialize
@@ -124,14 +111,10 @@ REST is parsed as optional keyword options followed by BODY:
                          (check-result
                           (jf/gptel-scope-validate-tool-call
                            ,name ',operation normalized-args)))
-                    (cond
-                     ((plist-get check-result :allowed)
-                      (progn ,@body))
-                     ((equal (plist-get check-result :error) "no_scope_config")
-                      check-result)
-                     (t
-                      (jf/gptel-scope--format-tool-error
-                       ,name (nth 0 normalized-args) check-result))))
+                    (if (plist-get check-result :allowed)
+                        (progn ,@body)
+                      (jf/gptel-scope--final-deny-response
+                       ,name normalized-args check-result)))
                 (error
                  (list :success nil
                        :error "tool_exception"

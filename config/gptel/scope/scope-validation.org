@@ -186,36 +186,51 @@ ARGS is the tool arguments list (first arg = filepath).
 CONFIG is the scope configuration plist.
 METADATA is the file metadata plist (from scope-metadata module).
 
-Returns validation result plist."
+If the expanded path is denied and differs from its resolved symlink
+target, the resolved path is re-validated so a symlink that points into
+scope is not blocked by a deny on its containing directory (or vice
+versa).  The first passing path wins; otherwise the original denial is
+returned annotated with :tool.
+
+Returns a validation result plist."
+  (ignore metadata)
   (let* ((filepath (car args))
          (full-path (expand-file-name filepath))
-         ;; Also check resolved symlink path
          (real-path (file-truename full-path))
-         ;; Convert operation symbol to keyword for validate-path-operation
-         (op-keyword (intern (concat ":" (symbol-name operation)))))
-
-    ;; Check both real-path and abs-path, allow if either matches
-    (let ((result (jf/gptel-scope--validate-path-operation full-path op-keyword config)))
-      (if (plist-get result :allowed)
-          result
-        ;; Try real-path if different
-        (if (not (string= full-path real-path))
-            (let ((real-result (jf/gptel-scope--validate-path-operation real-path op-keyword config)))
-              (if (plist-get real-result :allowed)
-                  real-result
-                ;; Both failed - return original error with tool context
-                (plist-put result :tool tool-name)
-                result))
-          ;; No symlink - return with tool context
-          (plist-put result :tool tool-name)
-          result)))))
+         (op-keyword (intern (concat ":" (symbol-name operation))))
+         (result (jf/gptel-scope--validate-path-operation full-path op-keyword config)))
+    (cond
+     ((plist-get result :allowed)
+      result)
+     ((not (string= full-path real-path))
+      (let ((real-result (jf/gptel-scope--validate-path-operation
+                          real-path op-keyword config)))
+        (if (plist-get real-result :allowed)
+            real-result
+          (append result (list :tool tool-name)))))
+     (t
+      (append result (list :tool tool-name))))))
 #+end_src
 
 * Bash Validation Pipeline
 
-Five-stage pipeline with early exit on failure. Commands are validated by the
-file operations they perform and the cloud authentication patterns they match —
-there is no command-name deny list.
+The pipeline has four stages plus a non-blocking coverage warning:
+
+1. *Parse completeness* — bail out if bash-parser couldn't fully parse
+   the command and =security.enforce-parse-complete= is on.
+2. *No-op gate* — commands with zero filesystem operations are
+   considered safe and exit the pipeline early, skipping file-op and
+   cloud-auth checks. This is a deliberate policy decision, not an
+   optimization.
+3. *File operations* — validate every extracted file op against the
+   shared path validator.
+4. *Cloud auth policy* — classify any detected cloud authentication
+   against the =cloud= config (warn / deny / allow, optional provider
+   allow-list).
+
+Commands are validated by the file operations they perform and the
+cloud authentication patterns they match; there is no command-name
+deny list. Stages run in order with early exit on the first failure.
 
 ** Bash Tool Entry Point
 
@@ -245,11 +260,18 @@ inner validator (notably :resource for path errors); the wrapper adds
       (list :allowed t))))
 #+end_src
 
-** Stage 0: Main Pipeline
+** Pipeline Orchestrator
+
+Runs each stage in order and exits on the first error. The no-op gate
+(stage 2) is a deliberate short-circuit: commands with zero filesystem
+operations are considered safe and bypass the remaining stages. This
+is what lets =echo hello= and =python3 --version= through without
+config gymnastics, and is why a command with no file ops is never
+subjected to cloud-auth checks.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--validate-command-semantics (command directory scope-config)
-  "Five-stage validation pipeline with early exit on failure.
+  "Run the bash validation pipeline and return nil on success.
 COMMAND is the bash command string.
 DIRECTORY is the working directory.
 SCOPE-CONFIG is the scope configuration plist.
@@ -264,7 +286,8 @@ Returns nil if all validations pass, error plist on first failure."
       (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
         (cl-return-from jf/gptel-scope--validate-command-semantics error))
 
-      ;; Stage 2: No-op check
+      ;; Stage 2: No-op gate — commands with zero file ops exit the
+      ;; pipeline early and bypass file-op + cloud-auth checks.
       (unless (jf/gptel-scope--check-no-op semantics)
         (cl-return-from jf/gptel-scope--validate-command-semantics nil))
 
@@ -280,7 +303,7 @@ Returns nil if all validations pass, error plist on first failure."
                            cloud-auth (plist-get scope-config :cloud))))
           (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
-      ;; Stage 5: Coverage check (warning only)
+      ;; Non-blocking: emit warning if parse coverage is below threshold
       (jf/gptel-scope--check-coverage-threshold semantics security-config)
 
       nil)))
@@ -305,12 +328,16 @@ Returns nil if valid, error plist if incomplete and enforced."
         nil))))
 #+end_src
 
-** Stage 2: No-op Check
+** Stage 2: No-op Gate
+
+Predicate used by the orchestrator: commands whose filesystem domain
+is empty are treated as safe and short-circuit the rest of the
+pipeline.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--check-no-op (semantics)
-  "Stage 4: Check if command has zero file operations.
-Returns nil if no-op (allowed), t if file ops exist (continue)."
+  "Return nil if SEMANTICS describes a no-op command, t otherwise.
+A no-op is a command whose filesystem domain is empty."
   (let* ((domains (plist-get semantics :domains))
          (file-ops (alist-get :filesystem domains)))
     (if (or (null file-ops) (zerop (length file-ops)))
@@ -328,9 +355,10 @@ Uses shared =validate-path-operation= for each extracted file operation.
 FILE-OP format: (:file PATH :operation OP :command CMD :confidence CONF)
 DIRECTORY is the working directory for resolving relative paths.
 
-Returns nil if allowed, or a denial plist following the canonical
-contract in `scope/interface--error-codes': (:allowed nil :error CODE
-:resource PATH :operation OP :message STR ...)."
+Returns nil if allowed, otherwise the denial plist from the shared
+validator verbatim.  The shared validator already produces the canonical
+contract in `scope/interface--error-codes' (:allowed nil :error CODE
+:resource PATH :operation OP :allowed-patterns ... :message STR)."
   (let* ((operation (plist-get file-op :operation))
          (path (plist-get file-op :file))
          (resolved-path (when path
@@ -338,15 +366,10 @@ contract in `scope/interface--error-codes': (:allowed nil :error CODE
                               (expand-file-name path)
                             (expand-file-name path directory)))))
     (when resolved-path
-      ;; Call shared validator — same function filesystem tools use
-      (let ((result (jf/gptel-scope--validate-path-operation resolved-path operation config)))
+      (let ((result (jf/gptel-scope--validate-path-operation
+                     resolved-path operation config)))
         (unless (plist-get result :allowed)
-          (list :allowed nil
-                :error (plist-get result :error)
-                :resource resolved-path
-                :operation operation
-                :required-scope (plist-get result :required-scope)
-                :message (plist-get result :message)))))))
+          result)))))
 
 (defun jf/gptel-scope--validate-file-operations (file-ops directory scope-config)
   "Validate all FILE-OPS against SCOPE-CONFIG.
@@ -362,7 +385,7 @@ Returns nil if all allowed, error plist for first violation."
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--validate-cloud-auth (cloud-auth-ops cloud-config)
-  "Stage 4: Detect and enforce cloud authentication policy.
+  "Detect and enforce cloud authentication policy.
 Returns nil if passes, error plist if denied."
   (cl-block jf/gptel-scope--validate-cloud-auth
     (when cloud-auth-ops
@@ -405,12 +428,12 @@ Returns nil if passes, error plist if denied."
                 :message (format "Invalid cloud.auth_detection mode: %s" mode))))))))
 #+end_src
 
-** Stage 5: Coverage Threshold
+** Coverage Threshold (non-blocking)
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--check-coverage-threshold (semantics security-config)
-  "Stage 5: Check coverage threshold (warning only, non-blocking).
-Returns nil always."
+  "Check parse coverage ratio and emit a warning if below threshold.
+Non-blocking: returns nil always."
   (when-let* ((coverage (plist-get semantics :coverage))
               (threshold (plist-get security-config :max-coverage-threshold))
               (coverage-ratio (plist-get coverage :coverage-ratio)))
@@ -488,6 +511,66 @@ context. Always includes :validation-type (path or bash)."
         (append (jf/gptel-scope--validate-filesystem-tool
                  tool-name operation args config metadata)
                 (list :validation-type 'path)))))))
+#+end_src
+
+* Authorization Dispatcher
+
+One entry point per sync/async flow that wraps the full
+validate → expansion → final-response decision. Callers provide only
+the tool identity, arguments, and what to do on allow/deny — they do
+not need to know about =no_scope_config=, expansion UI, or error
+formatting.
+
+=jf/gptel-scope--final-deny-response= centralizes the "what plist does
+a denied call return to its caller" decision. =no_scope_config= is not
+a scope violation and is surfaced verbatim so the LLM sees the raw
+error; real violations go through =format-tool-error=.
+
+=jf/gptel-scope-authorize-tool-call= is the async dispatcher. Sync
+tools don't have a dispatcher because they can't escalate to expansion
+— they call =jf/gptel-scope-validate-tool-call= and
+=jf/gptel-scope--final-deny-response= directly.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--final-deny-response (tool-name args check-result)
+  "Return the response plist that should be delivered for a denied call.
+TOOL-NAME is the denied tool. ARGS is the tool's normalized argument
+list. CHECK-RESULT is the validation plist. A missing scope config is
+returned verbatim; real scope violations are formatted for the LLM."
+  (if (equal (plist-get check-result :error) "no_scope_config")
+      check-result
+    (jf/gptel-scope--format-tool-error
+     tool-name (nth 0 args) check-result)))
+
+(defun jf/gptel-scope-authorize-tool-call (tool-name operation args on-allow on-deny)
+  "Validate a tool call and run ON-ALLOW or ON-DENY.
+TOOL-NAME, OPERATION, and ARGS match `jf/gptel-scope-validate-tool-call'.
+
+ON-ALLOW is a thunk invoked when the call is authorized — either
+because validation passed outright or because the user approved
+through the expansion UI. ON-DENY is invoked with a response plist
+suitable for serializing back to the LLM.
+
+This function is async: expansion UI may resolve on a later turn, so
+the callbacks must be prepared to run after this function returns."
+  (let ((check-result (jf/gptel-scope-validate-tool-call
+                       tool-name operation args)))
+    (cond
+     ((plist-get check-result :allowed)
+      (funcall on-allow))
+
+     ((equal (plist-get check-result :error) "no_scope_config")
+      (funcall on-deny check-result))
+
+     (t
+      (jf/gptel-scope--trigger-inline-expansion
+       check-result tool-name
+       (lambda (expansion-result)
+         (if (plist-get expansion-result :approved)
+             (funcall on-allow)
+           (funcall on-deny
+                    (jf/gptel-scope--final-deny-response
+                     tool-name args check-result)))))))))
 #+end_src
 
 * Violation-Info Building
