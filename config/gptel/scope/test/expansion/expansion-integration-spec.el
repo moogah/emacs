@@ -102,31 +102,30 @@ Returns check-result from validator."
 
   (describe "Bash validator integration — real validator output"
 
-    (it "path_denied from real validate-operation flows through correctly"
-      ;; Call real bash-side validator: deny path
-      (let* ((paths-config '(:read ("/workspace/**") :write () :execute ()
-                             :modify () :deny ("/etc/**")))
-             (validation-error (jf/gptel-scope--validate-operation
-                                :read "/etc/passwd" paths-config))
+    (it "denied-pattern from real validate-path-operation flows through correctly"
+      ;; Call real path validator: deny pattern
+      (let* ((config '(:paths (:read ("/workspace/**") :write () :execute ()
+                               :modify () :deny ("/etc/**"))))
+             (validation-error (jf/gptel-scope--validate-path-operation
+                                "/etc/passwd" :read config))
              (violation-info (jf/gptel-scope--build-violation-info
                               validation-error "run_bash_command" 'bash)))
-        ;; Real validator returns (:error "path_denied" :path ... :message ...)
-        (expect (plist-get validation-error :error) :to-equal "path_denied")
+        (expect (plist-get validation-error :error) :to-equal "denied-pattern")
         ;; build-violation-info must produce usable violation-info
         (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
         (expect (plist-get violation-info :resource) :to-equal "/etc/passwd")
         (expect (plist-get violation-info :reason) :to-be-truthy)
         (expect (plist-get violation-info :validation-type) :to-equal 'bash)))
 
-    (it "path_out_of_scope from real validate-operation flows through correctly"
-      ;; Call real bash-side validator: path not in any scope
-      (let* ((paths-config '(:read ("/workspace/**") :write () :execute ()
-                             :modify () :deny ()))
-             (validation-error (jf/gptel-scope--validate-operation
-                                :read "/tmp/file.txt" paths-config))
+    (it "not-in-scope from real validate-path-operation flows through correctly"
+      ;; Call real path validator: path not in any scope
+      (let* ((config '(:paths (:read ("/workspace/**") :write () :execute ()
+                               :modify () :deny ())))
+             (validation-error (jf/gptel-scope--validate-path-operation
+                                "/tmp/file.txt" :read config))
              (violation-info (jf/gptel-scope--build-violation-info
                               validation-error "run_bash_command" 'bash)))
-        (expect (plist-get validation-error :error) :to-equal "path_out_of_scope")
+        (expect (plist-get validation-error :error) :to-equal "not-in-scope")
         (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
         (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")
         (expect (plist-get violation-info :reason) :to-be-truthy)
@@ -235,7 +234,7 @@ Returns check-result from validator."
         (let ((validation-error (jf/gptel-scope--validate-command-semantics
                                  command directory scope-config)))
           (expect validation-error :not :to-be nil)
-          (expect (plist-get validation-error :error) :to-equal "path_out_of_scope")
+          (expect (plist-get validation-error :error) :to-equal "not-in-scope")
 
           ;; Step 2: Build violation info
           (let ((violation-info (jf/gptel-scope--build-violation-info

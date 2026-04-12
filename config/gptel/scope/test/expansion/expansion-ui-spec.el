@@ -115,7 +115,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
     (it "denies read operation when path is out of scope"
       ;; Scenario: Command tries to read file outside configured paths
-      ;; Expected: Validation fails with path_out_of_scope error plist
+      ;; Expected: Validation fails with not-in-scope error plist
       (let* ((scope-yml (helpers-spec-make-minimal-scope))
              (scope-config (helpers-spec-load-scope-config scope-yml))
              (command "cat /tmp/secret.txt")
@@ -134,7 +134,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
           ;; Assert: Validation fails (returns error plist)
           (expect result :not :to-be nil)
-          (expect (plist-get result :error) :to-equal "path_out_of_scope")
+          (expect (plist-get result :error) :to-equal "not-in-scope")
           (expect (plist-get result :path) :to-equal "/tmp/secret.txt")
           (expect (plist-get result :operation) :to-equal :read))
 

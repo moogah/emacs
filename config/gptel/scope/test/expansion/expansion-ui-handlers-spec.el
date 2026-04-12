@@ -60,19 +60,6 @@ without actually displaying the transient menu."
   write:
     - \"/workspace/**\"
   deny: []
-org_roam_patterns:
-  subdirectory: []
-  tags: []
-  node_ids: []
-bash_tools:
-  categories:
-    read_only:
-      commands: []
-    safe_write:
-      commands: []
-    dangerous:
-      commands: []
-  deny: []
 "
   "Test YAML content for mocked file reads.")
 

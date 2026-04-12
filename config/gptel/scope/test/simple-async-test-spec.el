@@ -36,7 +36,8 @@
 
 (defun simple-test-load-config ()
   "Return simple-test-config."
-  (message "DEBUG: Loading config, paths-write=%S" (plist-get simple-test-config :paths-write))
+  (message "DEBUG: Loading config, paths-write=%S"
+           (plist-get (plist-get simple-test-config :paths) :write))
   simple-test-config)
 
 (defun simple-test-mock-ui (violation-info expansion-callback patterns tool-name)
@@ -45,12 +46,14 @@
   (setq simple-test-ui-called t)
   (setq simple-test-expansion-callback expansion-callback)
 
-  ;; Simulate user approval: update config FIRST
+  ;; Simulate user approval: update nested paths.write FIRST
   (let* ((resource (plist-get violation-info :resource))
-         (current-paths (plist-get simple-test-config :paths-write))
-         (updated-paths (append current-paths (list resource))))
-    (message "DEBUG: Updating config from %S to %S" current-paths updated-paths)
-    (setq simple-test-config (plist-put simple-test-config :paths-write updated-paths)))
+         (paths (plist-get simple-test-config :paths))
+         (current-write (plist-get paths :write))
+         (updated-write (append current-write (list resource)))
+         (updated-paths (plist-put paths :write updated-write)))
+    (message "DEBUG: Updating config write from %S to %S" current-write updated-write)
+    (setq simple-test-config (plist-put simple-test-config :paths updated-paths)))
 
   ;; Then invoke callback with success
   (message "DEBUG: Invoking expansion callback with success")
@@ -64,9 +67,12 @@
 (describe "Simple Async Tool Test"
 
   (before-each
-    (setq simple-test-config '(:paths-read ("/workspace/**")
-                               :paths-write ("/workspace/allowed/**")
-                               :paths-deny ()))
+    (setq simple-test-config
+          '(:paths (:read ("/workspace/**")
+                    :write ("/workspace/allowed/**")
+                    :execute ()
+                    :modify ()
+                    :deny ())))
     (setq simple-test-ui-called nil)
     (setq simple-test-expansion-callback nil)
     (setq simple-test-tool-executed nil)
@@ -102,7 +108,9 @@
               (setq simple-test-final-result (json-parse-string result-json :object-type 'plist)))))
 
       ;; Verify initial state
-      (expect (member test-filepath (plist-get simple-test-config :paths-write)) :to-be nil)
+      (expect (member test-filepath
+                      (plist-get (plist-get simple-test-config :paths) :write))
+              :to-be nil)
 
       ;; Call tool
       (message "DEBUG: Calling tool with filepath=%s" test-filepath)
@@ -112,13 +120,16 @@
       (message "DEBUG: After tool call:")
       (message "  UI called: %s" simple-test-ui-called)
       (message "  Tool executed: %s" simple-test-tool-executed)
-      (message "  Config paths-write: %S" (plist-get simple-test-config :paths-write))
+      (message "  Config paths.write: %S"
+               (plist-get (plist-get simple-test-config :paths) :write))
       (message "  Final result: %S" simple-test-final-result)
 
       ;; Assertions
       (expect simple-test-ui-called :to-be t)
 
-      (expect (member test-filepath (plist-get simple-test-config :paths-write)) :not :to-be nil)
+      (expect (member test-filepath
+                      (plist-get (plist-get simple-test-config :paths) :write))
+              :not :to-be nil)
 
       (expect simple-test-tool-executed :to-be t))))
 
