@@ -15,10 +15,11 @@ This document defines the interfaces between components of the scope validation 
 The scope system validates tool invocations against a =scope.yml= configuration.  The flow is:
 
 1. A tool is invoked (e.g., =run_bash_command= or =read_file=)
-2. The =gptel-make-scoped-tool= macro checks allow-once, loads scope config, and routes to a validator
-3. The validator returns a result (allowed or denied with error details)
+2. The =gptel-make-scoped-tool= macro calls the single validation entrypoint =jf/gptel-scope-validate-tool-call=
+3. The entrypoint loads config, gathers metadata, dispatches to the bash or filesystem validator, and returns an allowed/denied result (tagged with =:validation-type=)
 4. If denied, the error is transformed into a violation-info for the expansion UI
-5. The expansion UI presents choices; the chosen action may modify =scope.yml= or grant allow-once
+5. The expansion UI presents choices; the chosen action may write to =scope.yml= or simply authorize the single pending invocation
+6. On user approval the wrapper runs the tool body.  There is no re-validation, no retry
 
 Each numbered step crosses a component boundary.  This document defines what data looks like at each crossing.
 
@@ -39,16 +40,14 @@ Each numbered step crosses a component boundary.  This document defines what dat
                     └────────────┬─────────────┘
                                  │
   LLM tool call ──► gptel-make-scoped-tool (macro)
-                    │                           │
-                    │ compute allow-once key    │
-                    │ ┌──hit──► execute body    │
-                    │ │         (consume perm)  │
-                    │ │                         │
-                    │ └──miss─► load config ────┤
-                    │                           │ route by is-bash
-                    │                           ▼
-              ┌─────┴───────────────────────────────────┐
+                    │
+                    │ gather args, call single entrypoint
+                    ▼
+              ┌─────────────────────────────────────────┐
               │         scope-validation.el              │
+              │                                          │
+              │  jf/gptel-scope-validate-tool-call       │
+              │    ↓ (dispatch on :operation)           │
               │                                          │
               │  ┌──────────────────────┐               │
               │  │validate-filesystem-  │ path tools    │
@@ -75,8 +74,8 @@ Each numbered step crosses a component boundary.  This document defines what dat
               │  └──────────────────────────┘           │
               └───────────┬──────────────────────────────┘
                           │ validation result    ←── [[#validation-result][§ Validation Result]]
-                          │   (:allowed t) or
-                          │   (:allowed nil :error CODE ...)
+                          │   (:allowed t :validation-type ...) or
+                          │   (:allowed nil :error CODE :validation-type ...)
                           │
               ┌───────────┴────────────────────┐
               │     build-violation-info       │
@@ -85,8 +84,7 @@ Each numbered step crosses a component boundary.  This document defines what dat
               └───────────┬────────────────────┘
                           │ violation-info       ←── [[#violation-info][§ Violation-Info]]
                           │   :tool, :resource,
-                          │   :reason, :validation-type,
-                          │   :allow-once-resource
+                          │   :reason, :validation-type
                           │
               ┌───────────┴────────────────────┐
               │       scope-expansion.el       │
@@ -97,12 +95,11 @@ Each numbered step crosses a component boundary.  This document defines what dat
               │  └──┬───┘ └──┬────┘ └──┬────┘  │
               └─────┼────────┼─────────┼───────┘
                     │        │         │
-                    │        │         └──► write scope.yml
-                    │        │              (targets :paths section by
-                    │        │               denied-operation keyword)
+                    │        │         └──► write scope.yml,
+                    │        │              callback with success
                     │        │
-                    │        └──► allow-once-list  ←── [[#allow-once][§ Allow-Once]]
-                    │             (tool . resource)
+                    │        └──► callback with success
+                    │             (no persistence)
                     │
                     └──► callback with denial
 #+end_example
@@ -113,8 +110,9 @@ Each numbered step crosses a component boundary.  This document defines what dat
 |---------------------------+------------------------------------+-----------------------------------------------|
 | =scope-tool-wrapper.el=   | =jf-gptel-scope-tool-wrapper=      | =gptel-make-scoped-tool= macro, config load    |
 | =scope-validation.el=     | =jf-gptel-scope-validation=        | All validators, pipeline, glob match,         |
-|                           |                                    | allow-once, build-violation-info,              |
-|                           |                                    | format-tool-error, trigger-inline-expansion    |
+|                           |                                    | validate-tool-call entrypoint,                 |
+|                           |                                    | build-violation-info, format-tool-error,       |
+|                           |                                    | trigger-inline-expansion                       |
 | =scope-yaml.el=           | =jf-gptel-scope-yaml=              | YAML parse, key normalize, merge-defaults      |
 | =scope-metadata.el=       | =jf-gptel-scope-metadata=          | File metadata (exists, git-tracked, type)      |
 | =scope-expansion.el=      | =jf-gptel-scope-expansion=         | Transient menu, scope.yml writer, queue        |
@@ -288,9 +286,7 @@ Returns nil if valid, error string if invalid."
 :CUSTOM_ID: violation-info
 :END:
 
-=jf/gptel-scope--build-violation-info= transforms a validation-result into the format the expansion UI needs.  The UI reads =:tool=, =:resource=, =:reason=, =:validation-type=, and (optionally) =:operation= and =:metadata= to display the transient menu.
-
-=:allow-once-resource= is added after =build-violation-info= by =trigger-inline-expansion=.  It holds the pre-computed allow-once key (see [[#allow-once][§ Allow-Once]]) so the "Allow Once" action stores a value that =check-allow-once= will find on the retry path.
+=jf/gptel-scope--build-violation-info= transforms a validation-result into the format the expansion UI needs.  The UI reads =:tool=, =:resource=, =:reason=, =:validation-type=, and (optionally) =:operation= and =:metadata= to display the transient menu.  =:validation-type= is read from the validation-error itself — the validation entrypoint attaches =path= or =bash= to every result before returning.
 
 ** Validation type vocabulary
 
@@ -330,53 +326,22 @@ Returns nil if valid, error string if invalid."
         (mapconcat #'identity (nreverse errors) "; ")))))
 #+end_src
 
-* Allow-Once Resource Formats
+* Allow-Once Semantics
 :PROPERTIES:
 :CUSTOM_ID: allow-once
 :END:
 
-Allow-once permissions are stored as =(tool-name . resource)= cons cells in a buffer-local list (=jf/gptel-scope--allow-once-list=).  The list is cleared by =jf/gptel-scope--clear-allow-once= which is hooked into =gptel-post-response-functions= — permission persists only until the end of the current LLM turn.
+"Allow once" is an expansion-UI choice, not a runtime mechanism.  When
+a tool call is denied and the user picks "Allow once" in the expansion
+transient, =jf/gptel-scope--allow-once-action= funcalls the wrapper's
+callback with =(:success t :allowed_once t)=.  The wrapper treats this
+as authorization for the pending tool invocation and runs the body.
 
-The resource format varies by validation type.  The =gptel-make-scoped-tool= macro computes the key when granting (before loading config), and =check-allow-once= compares against that key when checking on a retry.  Both sides call the same =jf/gptel-scope--compute-allow-once-resource= function so they cannot drift.
-
-#+begin_example
-  Expansion UI                       gptel-make-scoped-tool (macro)
-  ────────────                       ───────────────────────────────
-  User clicks "Allow Once"
-       │                             First call (before config load):
-       ▼                               compute-allow-once-resource ───┐
-  jf/gptel-scope-add-to-allow-once-list                               │
-  (stores tool . resource) ────┐       check-allow-once ◄─────────────┤
-                               │                                       │
-                               │      Second call (retry):             │
-                               │       compute-allow-once-resource ────┘
-                               ▼       (same inputs → same key)
-                        allow-once-list
-                        (tool . resource)
-                               │
-                               └─► cleared after LLM response
-                                   (gptel-post-response-functions)
-#+end_example
-
-| Validation Type | Resource Format             | Example                          |
-|-----------------+-----------------------------+----------------------------------|
-| =path=          | Expanded absolute filepath  | =/Users/jeff/workspace/file.txt= |
-| =bash=          | =command:expanded-directory= | =brew:/Users/jeff/workspace=     |
-
-#+begin_src emacs-lisp
-(defun scope/interface--compute-allow-once-resource (validation-type tool-name args)
-  "Compute the allow-once resource key for VALIDATION-TYPE.
-TOOL-NAME and ARGS are the tool invocation parameters.
-
-This is the canonical implementation.  The scope-tool-wrapper macro
-and scope-validation's trigger-inline-expansion both delegate to
-`jf/gptel-scope--compute-allow-once-resource', which must produce
-the same value as this reference implementation for the same inputs."
-  (pcase validation-type
-    ('path (expand-file-name (car args)))
-    ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
-    (_ nil)))
-#+end_src
+No list is maintained.  No permission is consumed or persisted.  A
+subsequent invocation of the same resource that fails validation will
+prompt again.  The only difference between "Allow once" and "Add to
+scope" is the side effect: =add-to-scope= writes to =scope.yml=, while
+=allow-once= leaves it untouched.
 
 * Path Matching
 :PROPERTIES:
@@ -486,7 +451,7 @@ This section tracked known violations of the interfaces above during the consoli
 - *Two error-code schemes for path denial* — =validate-operation= used =path_denied= / =path_out_of_scope=; =validate-path-tool= used =denied-pattern= / =not-in-scope=.  Resolved: the two path validators were replaced by a single =validate-path-operation= producing the canonical codes.
 - *=build-violation-info= missing branches* — the old consumer had no case for =cloud_provider_denied= and checked =incomplete_parse= instead of =parse_incomplete=.  Resolved in =scope-validation.el:458=; every canonical code now has a =pcase= branch.
 - *Duplicate =glob-to-regex= implementations* — a simple regex-replacement version in =scope-core.el= and a character-by-character parser in =scope-shell-tools.el= coexisted, with the second shadowing the first at load time.  Resolved: the single canonical implementation lives in =scope-validation.el= and both path and bash code paths call through to it.
-- *Allow-once checked at two layers* — the macro and =check-tool-permission= both consulted the allow-once list.  Resolved: =check-tool-permission= was removed along with =scope-core.el=; the macro is now the only caller of =check-allow-once=.
+- *Allow-once bookkeeping leaked into the macro* — earlier iterations stored granted "allow once" permissions in a buffer-local list (=jf/gptel-scope--allow-once-list=) that both the macro (pre-check) and a post-response hook maintained.  Resolved: the list, the compute/check/clear helpers, and the per-tool resource-key format were removed.  "Allow once" is now a pure expansion-UI choice: it funcalls the wrapper callback with success, authorizing the one pending invocation.  A subsequent call to the same resource prompts again.
 - *Validation-type vocabulary drift* — earlier iterations allowed =pattern= and =meta= validation types for validators that no longer exist.  Resolved: the vocabulary in =scope/interface--validate-violation-info= is now =(path bash)=, matching the only two routes the macro and expansion UI actually take.
 
 ** Current (none tracked)

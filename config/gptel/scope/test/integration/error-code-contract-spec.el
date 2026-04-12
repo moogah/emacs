@@ -148,44 +148,49 @@
       (let* ((error-plist '(:error "denied-pattern"
                             :resource "/workspace/secret/key.pem"
                             :operation :read
+                            :validation-type path
                             :message "Path denied by scope"))
              (result (jf/gptel-scope--build-violation-info
-                      error-plist "read_file" 'path)))
+                      error-plist "read_file")))
         (expect (plist-get result :resource) :to-equal "/workspace/secret/key.pem")))
 
     (it "not-in-scope → :resource (path)"
       (let* ((error-plist '(:error "not-in-scope"
                             :resource "/outside/file.txt"
                             :operation :read
+                            :validation-type path
                             :message "Path not in read scope"))
              (result (jf/gptel-scope--build-violation-info
-                      error-plist "read_file" 'path)))
+                      error-plist "read_file")))
         (expect (plist-get result :resource) :to-equal "/outside/file.txt")))
 
     (it "parse_incomplete → :command"
       (let* ((error-plist '(:error "parse_incomplete"
                             :command "echo 'unterminated"
+                            :validation-type bash
                             :message "Parse incomplete"))
              (result (jf/gptel-scope--build-violation-info
-                      error-plist "run_bash_command" 'bash)))
+                      error-plist "run_bash_command")))
         (expect (plist-get result :resource) :to-equal "echo 'unterminated")))
 
     (it "cloud_auth_denied → :provider"
       (let* ((error-plist '(:error "cloud_auth_denied"
                             :provider "aws"
                             :command "aws s3 ls"
+                            :validation-type bash
                             :message "Cloud auth denied"))
              (result (jf/gptel-scope--build-violation-info
-                      error-plist "run_bash_command" 'bash)))
+                      error-plist "run_bash_command")))
         (expect (plist-get result :resource) :to-equal "aws")))
 
     (it "cloud_provider_denied → :provider"
       (let* ((error-plist '(:error "cloud_provider_denied"
                             :provider "azure"
                             :command "az login"
+                            :validation-type bash
                             :message "Provider not allowed"))
              (result (jf/gptel-scope--build-violation-info
-                      error-plist "run_bash_command" 'bash)))
+                      error-plist "run_bash_command")))
         (expect (plist-get result :resource) :to-equal "azure"))))
 
 
@@ -197,9 +202,10 @@
                                   :message (format "Test message for %s" code)
                                   :resource "fallback-resource"
                                   :command "test-cmd"
-                                  :provider "aws"))
+                                  :provider "aws"
+                                  :validation-type 'path))
                (result (jf/gptel-scope--build-violation-info
-                        error-plist "read_file" 'path)))
+                        error-plist "read_file")))
           (expect (plist-get result :tool) :to-equal "read_file")
           (expect (plist-get result :reason) :not :to-be nil)
           (expect (plist-get result :resource) :not :to-be nil)

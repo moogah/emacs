@@ -15,7 +15,6 @@
 ;; Unified validation module for scope system.  Contains:
 ;; - Glob pattern matching (single implementation)
 ;; - Shared path operation validator (used by filesystem tools AND bash pipeline)
-;; - Allow-once mechanism
 ;; - Bash 7-stage validation pipeline
 ;; - Error codes, violation-info building, error formatting
 
@@ -91,39 +90,6 @@ Case-sensitive matching."
         (dolist (pattern patterns)
           (when (jf/gptel-scope--glob-match-p normalized-path pattern)
             (throw 'matched t)))))))
-#+end_src
-
-* Allow-Once Mechanism
-
-Buffer-local temporary permissions consumed before tool execution.
-
-#+begin_src emacs-lisp
-(defvar-local jf/gptel-scope--allow-once-list nil
-  "List of (tool-name . resource) pairs allowed for current LLM turn.
-Cleared automatically after LLM response completes.")
-
-(defun jf/gptel-scope--check-allow-once (tool-name resource)
-  "Check if TOOL-NAME with RESOURCE is in allow-once list.
-Returns t if found (and consumes the permission), nil otherwise."
-  (when jf/gptel-scope--allow-once-list
-    (when-let ((entry (cl-find-if (lambda (e)
-                                    (and (equal (car e) tool-name)
-                                         (equal (cdr e) resource)))
-                                  jf/gptel-scope--allow-once-list)))
-      (setq jf/gptel-scope--allow-once-list
-            (delq entry jf/gptel-scope--allow-once-list))
-      t)))
-
-(defun jf/gptel-scope-add-to-allow-once-list (tool-name resource)
-  "Add TOOL-NAME and RESOURCE to allow-once list."
-  (push (cons tool-name resource) jf/gptel-scope--allow-once-list))
-
-(defun jf/gptel-scope--clear-allow-once (&rest _)
-  "Clear allow-once list after LLM response completes."
-  (when (boundp 'jf/gptel-scope--allow-once-list)
-    (setq-local jf/gptel-scope--allow-once-list nil)))
-
-(add-hook 'gptel-post-response-functions #'jf/gptel-scope--clear-allow-once)
 #+end_src
 
 * Shared Path Operation Validator
@@ -488,10 +454,10 @@ dispatch. OPERATION discriminates:
 - =nil= → semantic extraction (bash pipeline, operations computed from
   the command itself)
 
-Returns a plist whose keys are guaranteed to include =:allowed=, plus
-=:validation-type= tagging the dispatch branch so expansion and error
-formatting can use it without recomputing. When config is missing,
-returns =(:allowed nil :error "no_scope_config" ...)=.
+Returns a plist whose keys are guaranteed to include =:allowed= plus
+=:validation-type= tagging the dispatch branch (=path= or =bash=) so
+expansion and error formatting can use it without recomputing. When
+config is missing, returns =(:allowed nil :error "no_scope_config" ...)=.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope-validate-tool-call (tool-name operation args)
@@ -506,20 +472,22 @@ context. Always includes :validation-type (path or bash)."
   (let ((config (jf/gptel-scope--load-config)))
     (cond
      ((null config)
-      ;; Shape mirrors pre-refactor wrapper output so callers can
-      ;; json-serialize the result without special-casing.
+      ;; Missing config is not a scope violation and does not go through
+      ;; expansion, so no :validation-type tag is needed. Keeping the
+      ;; plist free of Lisp symbols also lets callers json-serialize it
+      ;; directly.
       (list :success nil
             :allowed nil
             :error "no_scope_config"
             :message "No scope configuration found."))
      ((null operation)
-      ;; Bash / semantic extraction path.
-      (jf/gptel-scope--validate-bash-tool tool-name args config))
+      (append (jf/gptel-scope--validate-bash-tool tool-name args config)
+              (list :validation-type 'bash)))
      (t
-      ;; Filesystem / declared-operation path.
       (let ((metadata (jf/gptel-scope--gather-file-metadata (car args))))
-        (jf/gptel-scope--validate-filesystem-tool
-         tool-name operation args config metadata))))))
+        (append (jf/gptel-scope--validate-filesystem-tool
+                 tool-name operation args config metadata)
+                (list :validation-type 'path)))))))
 #+end_src
 
 * Violation-Info Building
@@ -527,13 +495,16 @@ context. Always includes :validation-type (path or bash)."
 Transform validation error plists into format expected by expansion UI.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope--build-violation-info (validation-error tool-name validation-type)
+(defun jf/gptel-scope--build-violation-info (validation-error tool-name)
   "Transform VALIDATION-ERROR into violation-info for expansion UI.
 TOOL-NAME is the denied tool.
-VALIDATION-TYPE is a symbol: path or bash.
+VALIDATION-ERROR must carry :validation-type (attached by the
+validation entrypoint).
 
-Returns plist with :tool, :resource, :operation, :reason, :validation-type, :metadata."
+Returns plist with :tool, :resource, :operation, :reason,
+:validation-type, :metadata."
   (let* ((error-type (or (plist-get validation-error :error) "unknown"))
+         (validation-type (plist-get validation-error :validation-type))
          (resource (pcase error-type
                      ("denied-pattern" (plist-get validation-error :resource))
                      ("not-in-scope" (plist-get validation-error :resource))
@@ -583,44 +554,35 @@ CHECK-RESULT is the validation result plist."
                              tool-name resource)))))
 #+end_src
 
-* Allow-Once Resource Computation
-
-Compute allow-once resource key for a tool invocation.
-Used by both trigger-inline-expansion (storing) and the wrapper (checking).
-
-#+begin_src emacs-lisp
-(defun jf/gptel-scope--compute-allow-once-resource (validation-type tool-name args)
-  "Compute allow-once resource key for VALIDATION-TYPE.
-TOOL-NAME and ARGS are the tool invocation parameters."
-  (pcase validation-type
-    ('path (expand-file-name (car args)))
-    ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
-    (_ nil)))
-#+end_src
-
 * Trigger Inline Expansion
 
-Invoke expansion UI with callback chain for async tools.
+Invoke expansion UI. The wrapper passes in the validation error (which
+already carries =:validation-type=) plus a callback. The expansion UI's
+chosen action — approve, allow-once, or deny — resolves the callback
+with =(:approved t)= or =(:approved nil ...)=. The wrapper trusts that
+answer as authorization for the single pending tool invocation; there
+is no re-validation.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name tool-args
-                                                  validation-type wrapper-callback)
+(defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name wrapper-callback)
   "Trigger inline expansion UI for VALIDATION-ERROR.
-VALIDATION-TYPE is path or bash.
-WRAPPER-CALLBACK receives approval result."
+TOOL-NAME is the denied tool. WRAPPER-CALLBACK is invoked with a plist
+carrying :approved t/nil once the user chooses. VALIDATION-ERROR must
+include :validation-type (attached upstream by the validation entry
+point)."
   (let* ((violation-info (jf/gptel-scope--build-violation-info
-                          validation-error tool-name validation-type))
-         (allow-once-resource (jf/gptel-scope--compute-allow-once-resource
-                               validation-type tool-name tool-args))
-         (violation-info (plist-put violation-info :allow-once-resource allow-once-resource))
+                          validation-error tool-name))
          (resource (plist-get violation-info :resource))
          (patterns (list resource))
          (expansion-callback
           (lambda (result-json)
             (condition-case err
+                ;; json-parse-string returns the keyword `:false` for JSON
+                ;; `false` under the default :false-object, which is truthy
+                ;; in elisp. Only `t` counts as approval here.
                 (let* ((parsed (json-parse-string result-json :object-type 'plist))
-                       (success (plist-get parsed :success)))
-                  (if success
+                       (approved (eq (plist-get parsed :success) t)))
+                  (if approved
                       (funcall wrapper-callback (list :approved t))
                     (funcall wrapper-callback (list :approved nil :reason "user_denied"))))
               (error

@@ -250,33 +250,28 @@ Functions called by the transient menu choices.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--allow-once-action ()
-  "Add resource to temporary allow-once list."
+  "Authorize the pending tool invocation without modifying scope.yml.
+Signals success to the wrapper's callback. The wrapper treats this the
+same as a passed validation and runs the tool body once. No state is
+persisted — a subsequent invocation of the same resource will prompt
+again."
   (interactive)
   (let* ((scope (transient-scope))
          (violation (plist-get scope :violation))
          (callback (plist-get scope :callback))
-         (tool (plist-get violation :tool))
-         ;; Use allow-once-resource (composite key matching check-allow-once format)
-         ;; Falls back to :resource for backwards compatibility
-         (resource (or (plist-get violation :allow-once-resource)
-                       (plist-get violation :resource))))
-
-    ;; Add to allow-once list for this buffer
-    (jf/gptel-scope-add-to-allow-once-list tool resource)
-
-    ;; Notify callback with JSON response
+         (resource (plist-get violation :resource)))
     (condition-case err
         (if callback
             (funcall callback
                      (json-serialize
                       (list :success t
                             :allowed_once t
-                            :message "Permission granted for this turn only.")))
+                            :message "Permission granted for this invocation only.")))
           (message "Warning: No callback provided for scope expansion"))
       (error
        (message "Error invoking callback: %s" (error-message-string err))))
 
-    (message "Allowed %s once for this LLM turn" resource)
+    (message "Allowed %s once" resource)
     (transient-quit-one)
     (jf/gptel-scope--process-expansion-queue)))
 #+end_src

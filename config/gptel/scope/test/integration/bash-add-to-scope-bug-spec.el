@@ -158,14 +158,12 @@ security:
     (setq bug--callback-result nil)
     (setq bug--callback-raw nil)
     (setq bug--callback-invoked nil)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (after-each
     (when (and bug--temp-dir (file-exists-p bug--temp-dir))
       (delete-directory bug--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (it "bash-parser extracts :read-metadata on 'brew' (bare name, not path)"
     (let* ((parsed (jf/bash-parse "which brew"))
@@ -199,35 +197,30 @@ security:
 (describe "Bug 1: expansion UI should receive denied path as :resource"
 
   (before-each
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (after-each
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
-  (it "expansion UI :resource should be the denied path '/brew', not allow-once composite"
+  (it "expansion UI :resource is the denied path '/brew'"
     (let* ((captured-violation nil)
-           ;; Canonical validation error from validate-file-operation
            (validation-error (list :allowed nil
                                    :error "not-in-scope"
                                    :resource "/brew"
                                    :operation :read-metadata
-                                   :message "Path not in :read-metadata scope: /brew"))
-           (tool-args '("which brew" "/")))
+                                   :validation-type 'bash
+                                   :message "Path not in :read-metadata scope: /brew")))
 
-      ;; Capture what the expansion UI receives
       (spy-on 'jf/gptel-scope-prompt-expansion
               :and-call-fake
               (lambda (violation-info _callback _patterns _tool-name)
                 (setq captured-violation violation-info)))
 
       (jf/gptel-scope--trigger-inline-expansion
-       validation-error "run_bash_command" tool-args 'bash
+       validation-error "run_bash_command"
        (lambda (_result) nil))
 
       (expect captured-violation :to-be-truthy)
-      ;; CORRECT: :resource should be the denied path for add-to-scope to use
       (expect (plist-get captured-violation :resource) :to-equal "/brew"))))
 
 
@@ -322,14 +315,12 @@ security:
     (setq bug--callback-raw nil)
     (setq bug--callback-invoked nil)
     (bug--make-session-scope-yml)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (after-each
     (when (and bug--temp-dir (file-exists-p bug--temp-dir))
       (delete-directory bug--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (it "gptel callback receives success after add-to-scope correctly expands scope"
     (let* ((tool (bug--find-tool "run_bash_command")))

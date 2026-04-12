@@ -21,10 +21,8 @@
 ;;
 ;; Spied functions:
 ;; - jf/gptel-scope--load-config: Returns mock config
-;; - jf/gptel-scope--check-tool-permission: Returns allowed/denied
 ;; - jf/gptel-bash--execute-command: Returns mock execution results
 ;; - jf/gptel-scope--trigger-inline-expansion: Captures expansion calls
-;; - jf/gptel-scope--check-allow-once: Returns nil (not pre-approved)
 
 ;;; Code:
 
@@ -52,7 +50,6 @@
     (before-each
       (spy-on 'jf/gptel-scope--load-config :and-return-value (tool-test--scope-config-minimal))
       (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (spy-on 'jf/gptel-scope--check-allow-once :and-return-value nil)
       (spy-on 'jf/gptel-scope--gather-file-metadata :and-return-value nil)
       (spy-on 'jf/gptel-bash--execute-command :and-return-value (tool-test--execution-result)))
 
@@ -83,7 +80,6 @@
     (before-each
       (spy-on 'jf/gptel-scope--load-config :and-return-value (tool-test--scope-config-minimal))
       (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (spy-on 'jf/gptel-scope--check-allow-once :and-return-value nil)
       (spy-on 'jf/gptel-scope--gather-file-metadata :and-return-value nil))
 
     (it "calls jf/gptel-bash--execute-command with command and directory"

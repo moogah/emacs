@@ -140,12 +140,10 @@ security:
   (before-each
     (setq parallel--tool-results nil)
     (setq parallel--callback-count 0)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (after-each
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (describe "single tool call works (baseline)"
 
@@ -221,12 +219,10 @@ security:
   (before-each
     (setq parallel--tool-results nil)
     (setq parallel--callback-count 0)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (after-each
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (it "when second transient-setup clobbers first, only last callback fires (characterizes bug)"
     ;; Simulate what transient actually does: only the LAST registered
@@ -385,12 +381,10 @@ security:
   (before-each
     (setq parallel--tool-results nil)
     (setq parallel--callback-count 0)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (after-each
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    )
 
   (it "both callbacks fire when one tool passes and one triggers expansion"
     ;; Scenario: tool-1 passes validation (e.g., no-op), tool-2 fails

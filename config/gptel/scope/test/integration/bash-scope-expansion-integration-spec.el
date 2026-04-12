@@ -137,15 +137,11 @@ security:
   (before-each
     (setq bash-integ--callback-result nil)
     (setq bash-integ--callback-raw nil)
-    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t)))
 
   (after-each
     (when (and bash-integ--temp-dir (file-exists-p bash-integ--temp-dir))
-      (delete-directory bash-integ--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+      (delete-directory bash-integ--temp-dir t)))
 
   (describe "real bash-parser produces valid output"
 
@@ -267,15 +263,11 @@ security:
   (before-each
     (setq bash-integ--callback-result nil)
     (setq bash-integ--callback-raw nil)
-    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t)))
 
   (after-each
     (when (and bash-integ--temp-dir (file-exists-p bash-integ--temp-dir))
-      (delete-directory bash-integ--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+      (delete-directory bash-integ--temp-dir t)))
 
   (it "bash-parser parses 'rm -rf /tmp/foo' and path validation denies it"
     (let* ((config (bash-integ--make-scope-config
@@ -343,15 +335,11 @@ security:
   (before-each
     (setq bash-integ--callback-result nil)
     (setq bash-integ--callback-raw nil)
-    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t)))
 
   (after-each
     (when (and bash-integ--temp-dir (file-exists-p bash-integ--temp-dir))
-      (delete-directory bash-integ--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+      (delete-directory bash-integ--temp-dir t)))
 
   (it "bash-parser extracts read operation for /etc/passwd"
     (let* ((parsed (jf/bash-parse "cat /etc/passwd"))
@@ -400,14 +388,11 @@ security:
                                   :exit_code 0
                                   :truncated nil :warnings nil :error nil))
 
-      ;; Simulate "Allow once"
+      ;; "Allow once": signal success. Wrapper trusts approval and
+      ;; runs the body without re-validation.
       (spy-on 'jf/gptel-scope-prompt-expansion
               :and-call-fake
-              (lambda (violation-info callback _patterns _tool-name)
-                (jf/gptel-scope-add-to-allow-once-list
-                 (plist-get violation-info :tool)
-                 (or (plist-get violation-info :allow-once-resource)
-                     (plist-get violation-info :resource)))
+              (lambda (_violation-info callback _patterns _tool-name)
                 (funcall callback
                          (json-serialize '(:success t :allowed_once t)))))
 
@@ -416,35 +401,26 @@ security:
                "cat /etc/passwd"
                "/workspace")
 
-      ;; Tool body executed after allow-once
       (expect bash-integ--callback-result :to-be-truthy)
       (expect (plist-get bash-integ--callback-result :success) :to-be t)
       (expect (plist-get bash-integ--callback-result :output)
               :to-equal "root:x:0:0:root:/root:/bin/bash")))
 
-  (it "add-to-scope approves after config reload"
-    (let* ((restrictive-config (bash-integ--make-scope-config
-                                '("/workspace/**") '("/workspace/**") nil))
-           ;; Expanded config includes /etc/**
-           (expanded-config (bash-integ--make-scope-config
-                             '("/workspace/**" "/etc/**")
-                             '("/workspace/**") nil))
+  (it "add-to-scope approves and runs the body"
+    (let* ((config (bash-integ--make-scope-config
+                    '("/workspace/**") '("/workspace/**") nil))
            (tool (bash-integ--find-tool "run_bash_command"))
            (load-count 0))
 
-      ;; First load: restrictive; subsequent: expanded
       (spy-on 'jf/gptel-scope--load-config
               :and-call-fake
-              (lambda ()
-                (cl-incf load-count)
-                (if (= load-count 1) restrictive-config expanded-config)))
+              (lambda () (cl-incf load-count) config))
 
       (spy-on 'jf/gptel-bash--execute-command
               :and-return-value '(:output "root:x:0:0:root:/root:/bin/bash"
                                   :exit_code 0
                                   :truncated nil :warnings nil :error nil))
 
-      ;; Simulate "Add to scope"
       (spy-on 'jf/gptel-scope-prompt-expansion
               :and-call-fake
               (lambda (_violation-info callback _patterns _tool-name)
@@ -458,9 +434,8 @@ security:
                "cat /etc/passwd"
                "/workspace")
 
-      ;; Config reloaded on retry
-      (expect load-count :to-equal 2)
-      ;; Tool body executed
+      ;; One validation pass, one config load — approval runs the body directly.
+      (expect load-count :to-equal 1)
       (expect (plist-get bash-integ--callback-result :success) :to-be t))))
 
 
@@ -474,15 +449,11 @@ security:
   (before-each
     (setq bash-integ--callback-result nil)
     (setq bash-integ--callback-raw nil)
-    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    (setq bash-integ--temp-dir (make-temp-file "bash-integ-" t)))
 
   (after-each
     (when (and bash-integ--temp-dir (file-exists-p bash-integ--temp-dir))
-      (delete-directory bash-integ--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+      (delete-directory bash-integ--temp-dir t)))
 
   (it "no_scope_config returns JSON through callback"
     (let ((tool (bash-integ--find-tool "run_bash_command")))

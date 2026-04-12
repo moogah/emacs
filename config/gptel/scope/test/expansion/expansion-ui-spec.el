@@ -22,7 +22,7 @@
 ;;
 ;; Mocking approach:
 ;; - Mock: transient menu user choices, call-process
-;; - Real: validation functions, expansion triggering logic, allow-once mechanism
+;; - Real: validation functions, expansion triggering logic
 
 ;;; Code:
 
@@ -76,9 +76,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
   (before-each
     (helpers-spec-setup-session)
-    (helpers-spec-setup-bash-mocks)
-    ;; Clear allow-once list for test isolation
-    (setq jf/gptel-scope--allow-once-list nil))
+    (helpers-spec-setup-bash-mocks))
 
   (after-each
     (helpers-spec-teardown-bash-mocks)
@@ -143,9 +141,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
   (describe "Inline expansion: trigger and approval flow"
 
-    (it "triggers expansion UI when validation fails, user approves with add-to-scope, scope updated"
-      ;; Scenario: Out-of-scope -> UI -> add to scope -> scope.yml updated -> approval
-      ;; Expected: Scope file modified, callback receives approval
+    (it "user approves with add-to-scope: wrapper callback receives approval"
       (let* ((scope-yml (helpers-spec-make-minimal-scope))
              (scope-config (helpers-spec-load-scope-config scope-yml))
              (command "cat /tmp/data.txt")
@@ -153,52 +149,40 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (expansion-ui-called nil)
              (wrapper-callback-result nil))
 
-        ;; Mock out-of-scope validation
         (helpers-spec-mock-bash-parse command '("cat") t)
         (helpers-spec-mock-bash-semantics
          (list (helpers-spec--make-file-op :read "/tmp/data.txt" :command-name "cat"))
          nil
          '(:ratio 1.0))
 
-        ;; Get validation error
-        (let ((validation-error (jf/gptel-scope--validate-command-semantics
-                                 command directory scope-config)))
+        (let ((validation-error
+               (append (jf/gptel-scope--validate-command-semantics
+                        command directory scope-config)
+                       (list :validation-type 'bash))))
 
           (expect validation-error :not :to-be nil)
 
-          ;; Spy on expansion UI
           (spy-on 'jf/gptel-scope-prompt-expansion
                   :and-call-fake
-                  (lambda (violation-info callback patterns tool-name)
+                  (lambda (_violation-info callback _patterns _tool-name)
                     (setq expansion-ui-called t)
-                    ;; Simulate user choosing "Add to scope"
                     (funcall callback
                              (json-serialize
                               (list :success t
                                     :patterns_added (vector "/tmp/data.txt")
                                     :message "Added to scope permanently")))))
 
-          ;; Trigger inline expansion
           (jf/gptel-scope--trigger-inline-expansion
-           validation-error
-           "run_bash_command"
-           '("cat /tmp/data.txt" "/workspace")
-           'bash
+           validation-error "run_bash_command"
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
-          ;; Assert: Expansion UI was called
           (expect expansion-ui-called :to-be t)
-
-          ;; Assert: Wrapper callback received approval
           (expect (plist-get wrapper-callback-result :approved) :to-be t))
 
-        ;; Cleanup
         (delete-file scope-yml)))
 
-    (it "triggers expansion UI when validation fails, user approves with allow-once, retry succeeds"
-      ;; Scenario: Out-of-scope -> UI -> allow-once -> retry validation -> success
-      ;; Expected: Full inline expansion workflow completes in single flow
+    (it "user approves with allow-once: wrapper callback receives approval"
       (let* ((scope-yml (helpers-spec-make-minimal-scope))
              (scope-config (helpers-spec-load-scope-config scope-yml))
              (command "cat /tmp/data.txt")
@@ -206,60 +190,40 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (expansion-ui-called nil)
              (wrapper-callback-result nil))
 
-        ;; Mock out-of-scope validation
         (helpers-spec-mock-bash-parse command '("cat") t)
         (helpers-spec-mock-bash-semantics
          (list (helpers-spec--make-file-op :read "/tmp/data.txt" :command-name "cat"))
          nil
          '(:ratio 1.0))
 
-        ;; Get validation error
-        (let ((validation-error (jf/gptel-scope--validate-command-semantics
-                                 command directory scope-config)))
+        (let ((validation-error
+               (append (jf/gptel-scope--validate-command-semantics
+                        command directory scope-config)
+                       (list :validation-type 'bash))))
 
-          ;; Assert validation failed (returns error plist, not nil)
           (expect validation-error :not :to-be nil)
 
-          ;; Spy on expansion UI
           (spy-on 'jf/gptel-scope-prompt-expansion
                   :and-call-fake
-                  (lambda (violation-info callback patterns tool-name)
+                  (lambda (_violation-info callback _patterns _tool-name)
                     (setq expansion-ui-called t)
-                    ;; Simulate user choosing "Allow once"
-                    (jf/gptel-scope-add-to-allow-once-list
-                     "run_bash_command"
-                     (format "%s:%s" command directory))
-                    ;; Invoke callback with approval
                     (funcall callback
                              (json-serialize
                               (list :success t
                                     :allowed_once t
-                                    :message "Allowed for this turn")))))
+                                    :message "Allowed for this invocation")))))
 
-          ;; Trigger inline expansion
           (jf/gptel-scope--trigger-inline-expansion
-           validation-error
-           "run_bash_command"
-           '("cat /tmp/data.txt" "/workspace")
-           'bash
+           validation-error "run_bash_command"
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
-          ;; Assert: Expansion UI was called
           (expect expansion-ui-called :to-be t)
+          (expect (plist-get wrapper-callback-result :approved) :to-be t))
 
-          ;; Assert: Wrapper callback received approval
-          (expect (plist-get wrapper-callback-result :approved) :to-be t)
-
-          ;; Assert: Allow-once permission was granted
-          (expect (length jf/gptel-scope--allow-once-list) :to-equal 1))
-
-        ;; Cleanup
         (delete-file scope-yml)))
 
-    (it "triggers expansion UI when validation fails, user denies, error returned"
-      ;; Scenario: Out-of-scope -> UI -> deny -> rejection
-      ;; Expected: Wrapper callback receives denial
+    (it "user denies: wrapper callback receives denial"
       (let* ((scope-yml (helpers-spec-make-minimal-scope))
              (scope-config (helpers-spec-load-scope-config scope-yml))
              (command "rm /etc/hosts")
@@ -267,46 +231,36 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
              (expansion-ui-called nil)
              (wrapper-callback-result nil))
 
-        ;; Mock denied operation
         (helpers-spec-mock-bash-parse command '("rm") t)
         (helpers-spec-mock-bash-semantics
          (list (helpers-spec--make-file-op :write "/etc/hosts" :command-name "rm"))
          nil
          '(:ratio 1.0))
 
-        ;; Get validation error
-        (let ((validation-error (jf/gptel-scope--validate-command-semantics
-                                 command directory scope-config)))
+        (let ((validation-error
+               (append (jf/gptel-scope--validate-command-semantics
+                        command directory scope-config)
+                       (list :validation-type 'bash))))
 
-          ;; Spy on expansion UI
           (spy-on 'jf/gptel-scope-prompt-expansion
                   :and-call-fake
-                  (lambda (violation-info callback patterns tool-name)
+                  (lambda (_violation-info callback _patterns _tool-name)
                     (setq expansion-ui-called t)
-                    ;; Simulate user choosing "Deny"
                     (funcall callback
                              (json-serialize
                               (list :success nil
                                     :user_denied t
                                     :message "User denied request")))))
 
-          ;; Trigger inline expansion
           (jf/gptel-scope--trigger-inline-expansion
-           validation-error
-           "run_bash_command"
-           '("cat /tmp/data.txt" "/workspace")
-           'bash
+           validation-error "run_bash_command"
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
-          ;; Assert: Expansion UI was called
           (expect expansion-ui-called :to-be t)
-
-          ;; Assert: Wrapper callback received denial
           (expect (plist-get wrapper-callback-result :approved) :to-be nil)
           (expect (plist-get wrapper-callback-result :reason) :to-equal "user_denied"))
 
-        ;; Cleanup
         (delete-file scope-yml))))
 
   (describe "Transient action handlers (bash)"
@@ -385,83 +339,29 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                       (eq (plist-get parsed :success) nil)) :to-be t)
           (expect (plist-get parsed :user_denied) :to-be t))))
 
-    (it "allow-once action adds permission and invokes callback"
-      ;; Scenario: User clicks "Allow once (temporary)" in transient menu
-      ;; Expected: Permission added, callback invoked with success
+    (it "allow-once action invokes callback with success + allowed_once flag"
       (let* ((callback-invoked nil)
              (callback-result nil)
              (mock-callback (lambda (result)
                               (setq callback-invoked t)
                               (setq callback-result result))))
 
-        ;; Clear allow-once list
-        (setq jf/gptel-scope--allow-once-list nil)
-
-        ;; Mock transient scope
         (spy-on 'transient-scope
                 :and-return-value (list :violation (helpers-spec--make-violation-info
                                                       "run_bash_command" "command-not-allowed"
-                                                      :command "cat /tmp/file.txt:/workspace")
+                                                      :command "cat /tmp/file.txt")
                                         :callback mock-callback
-                                        :patterns '("cat /tmp/file.txt:/workspace")
+                                        :patterns '("/tmp/file.txt")
                                         :tool-name "run_bash_command"))
 
-        ;; Prevent actual transient quit
         (spy-on 'transient-quit-one)
 
-        ;; Simulate user clicking allow-once
         (jf/gptel-scope--allow-once-action)
 
-        ;; Assert: Callback was invoked
         (expect callback-invoked :to-be t)
-
-        ;; Assert: Permission was added
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
-        (let ((entry (car jf/gptel-scope--allow-once-list)))
-          (expect (car entry) :to-equal "run_bash_command")
-          (expect (cdr entry) :to-equal "cat /tmp/file.txt:/workspace"))
-
-        ;; Assert: Callback result indicates success
         (let ((parsed (json-parse-string callback-result :object-type 'plist)))
           (expect (plist-get parsed :success) :to-be t)
-          (expect (plist-get parsed :allowed_once) :to-be t)))))
-
-  (describe "Allow-once permission lifecycle"
-
-    (it "validation succeeds after allow-once permission granted"
-      ;; Scenario: Permission granted -> validation retried -> succeeds
-      ;; Expected: Validation passes via allow-once
-      (let* ((scope-yml (helpers-spec-make-minimal-scope))
-             (scope-config (helpers-spec-load-scope-config scope-yml))
-             (command "cat /tmp/test.txt")
-             (directory "/workspace"))
-
-        ;; Initially fails validation (returns error plist)
-        (helpers-spec-mock-bash-parse command '("cat") t)
-        (helpers-spec-mock-bash-semantics
-         (list (helpers-spec--make-file-op :read "/tmp/test.txt" :command-name "cat"))
-         nil
-         '(:ratio 1.0))
-
-        (let ((result1 (jf/gptel-scope--validate-command-semantics
-                        command directory scope-config)))
-          (expect result1 :not :to-be nil))
-
-        ;; Grant allow-once permission (what expansion UI does)
-        (jf/gptel-scope-add-to-allow-once-list
-         "run_bash_command"
-         (format "%s:%s" command directory))
-
-        ;; Verify permission exists
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
-
-        ;; Retry validation - now should check allow-once
-        (let ((entry (car jf/gptel-scope--allow-once-list)))
-          (expect (car entry) :to-equal "run_bash_command")
-          (expect (cdr entry) :to-equal (format "%s:%s" command directory)))
-
-        ;; Cleanup
-        (delete-file scope-yml)))))
+          (expect (plist-get parsed :allowed_once) :to-be t))))))
 
 ;;; ============================================================
 ;;; Transient action handler tests from filesystem-tools-scope-expansion-spec.el
@@ -470,8 +370,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 (describe "Transient action handlers (filesystem tools)"
 
   (before-each
-    (helpers-spec-setup-session)
-    (setq jf/gptel-scope--allow-once-list nil))
+    (helpers-spec-setup-session))
 
   (after-each
     (helpers-spec-teardown-session))
@@ -647,30 +546,22 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
   (describe "Allow-once action"
 
-    (it "grants temporary permission when user allows once"
-      ;; Scenario: User allows operation once
-      ;; Expected: Permission added to allow-once list, callback receives approval
+    (it "callback receives success + allowed_once when user allows once"
       (let* ((scope-yml (expansion-ui-spec--make-scope-with-paths
                          '("/workspace/**")
                          '()))
              (filepath "/tmp/temp.txt")
              (callback-result nil))
 
-        ;; Spy on expansion UI
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
-                (lambda (violation-info callback patterns tool-name)
-                  ;; Simulate allow-once action
-                  (jf/gptel-scope-add-to-allow-once-list
-                   "read_file"
-                   filepath)
+                (lambda (_violation-info callback _patterns _tool-name)
                   (funcall callback
                            (json-serialize
                             (list :success t
                                   :allowed_once t
-                                  :message "Allowed for this turn only")))))
+                                  :message "Allowed for this invocation only")))))
 
-        ;; Trigger expansion
         (let ((violation-info (helpers-spec--make-violation-info
                               "read_file" "path_out_of_scope"
                               :path filepath
@@ -678,23 +569,14 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                               :metadata (list :exists t :git-tracked nil))))
           (jf/gptel-scope-prompt-expansion
            violation-info
-           (lambda (result)
-             (setq callback-result result))
+           (lambda (result) (setq callback-result result))
            (list filepath)
            "read_file"))
 
-        ;; Assert: Callback received approval
         (let ((parsed (json-parse-string callback-result :object-type 'plist)))
           (expect (plist-get parsed :success) :to-be t)
           (expect (plist-get parsed :allowed_once) :to-be t))
 
-        ;; Assert: Permission was added to allow-once list
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
-        (let ((entry (car jf/gptel-scope--allow-once-list)))
-          (expect (car entry) :to-equal "read_file")
-          (expect (cdr entry) :to-equal filepath))
-
-        ;; Cleanup
         (delete-file scope-yml)))))
 
 (provide 'expansion-ui-spec)

@@ -145,17 +145,13 @@ Returns the full path. SUFFIX defaults to \".txt\"."
     (setq fs-integ--callback-result nil)
     (setq fs-integ--callback-raw nil)
     (setq fs-integ--temp-dir (make-temp-file "fs-integ-" t))
-    (setq fs-integ--temp-files nil)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    (setq fs-integ--temp-files nil))
 
   (after-each
     (dolist (f fs-integ--temp-files)
       (when (file-exists-p f) (delete-file f)))
     (when (and fs-integ--temp-dir (file-exists-p fs-integ--temp-dir))
-      (delete-directory fs-integ--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+      (delete-directory fs-integ--temp-dir t)))
 
   (it "read_file succeeds when path matches read scope"
     (let* ((test-file (fs-integ--create-temp-file "hello integration test"))
@@ -261,17 +257,13 @@ Returns the full path. SUFFIX defaults to \".txt\"."
     (setq fs-integ--callback-result nil)
     (setq fs-integ--callback-raw nil)
     (setq fs-integ--temp-dir (make-temp-file "fs-integ-" t))
-    (setq fs-integ--temp-files nil)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    (setq fs-integ--temp-files nil))
 
   (after-each
     (dolist (f fs-integ--temp-files)
       (when (file-exists-p f) (delete-file f)))
     (when (and fs-integ--temp-dir (file-exists-p fs-integ--temp-dir))
-      (delete-directory fs-integ--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+      (delete-directory fs-integ--temp-dir t)))
 
   (it "triggers expansion UI when path is outside read scope"
     (let* ((test-file (fs-integ--create-temp-file "secret data"))
@@ -354,15 +346,11 @@ Returns the full path. SUFFIX defaults to \".txt\"."
              (tool (fs-integ--find-tool "read_file")))
 
         (spy-on 'jf/gptel-scope--load-config :and-return-value config)
-        ;; Simulate "Allow once": add to allow-once list, then signal success
-        ;; This mirrors what the real allow-once-action does
+        ;; "Allow once": signal success. The wrapper trusts this as
+        ;; authorization and runs the body without re-validating.
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
-                (lambda (violation-info callback _patterns _tool-name)
-                  (jf/gptel-scope-add-to-allow-once-list
-                   (plist-get violation-info :tool)
-                   (or (plist-get violation-info :allow-once-resource)
-                       (plist-get violation-info :resource)))
+                (lambda (_violation-info callback _patterns _tool-name)
                   (funcall callback
                            (json-serialize '(:success t :allowed_once t)))))
 
@@ -370,13 +358,12 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                  #'fs-integ--gptel-callback
                  test-file)
 
-        ;; Tool body executed — file was actually read
         (expect fs-integ--callback-result :to-be-truthy)
         (expect (plist-get fs-integ--callback-result :success) :to-be t)
         (expect (plist-get fs-integ--callback-result :content)
                 :to-equal "allow-once content")))
 
-    (it "allow-once permission is consumed (single-use)"
+    (it "does not persist across invocations — each denied call re-prompts"
       (let* ((test-file (fs-integ--create-temp-file "single use test"))
              (yaml (fs-integ--make-scope-yaml '("/workspace/**") nil nil))
              (config (fs-integ--load-config-from-yaml yaml))
@@ -384,30 +371,22 @@ Returns the full path. SUFFIX defaults to \".txt\"."
              (expansion-count 0))
 
         (spy-on 'jf/gptel-scope--load-config :and-return-value config)
-        ;; Track how many times expansion UI is shown
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
-                (lambda (violation-info callback _patterns _tool-name)
+                (lambda (_violation-info callback _patterns _tool-name)
                   (cl-incf expansion-count)
-                  (jf/gptel-scope-add-to-allow-once-list
-                   (plist-get violation-info :tool)
-                   (or (plist-get violation-info :allow-once-resource)
-                       (plist-get violation-info :resource)))
                   (funcall callback
                            (json-serialize '(:success t :allowed_once t)))))
 
-        ;; First call: triggers expansion, gets allow-once
         (funcall (gptel-tool-function tool)
                  #'fs-integ--gptel-callback
                  test-file)
         (expect expansion-count :to-equal 1)
         (expect (plist-get fs-integ--callback-result :success) :to-be t)
 
-        ;; Reset callback state
         (setq fs-integ--callback-result nil)
 
-        ;; Second call to same file: should trigger expansion AGAIN
-        ;; because the allow-once was consumed on the retry inside the first call
+        ;; Second call to same file re-prompts — allow-once is per-invocation.
         (funcall (gptel-tool-function tool)
                  #'fs-integ--gptel-callback
                  test-file)
@@ -415,32 +394,22 @@ Returns the full path. SUFFIX defaults to \".txt\"."
 
   (describe "user adds to scope"
 
-    (it "executes tool body after scope is permanently expanded"
+    (it "executes tool body after user approves expansion"
       (let* ((test-file (fs-integ--create-temp-file "permanent scope content"))
-             ;; Start with a config that doesn't include our temp dir
              (yaml (fs-integ--make-scope-yaml '("/workspace/**") nil nil))
              (config (fs-integ--load-config-from-yaml yaml))
-             ;; Build an expanded config that includes our temp dir
-             (expanded-yaml (fs-integ--make-scope-yaml
-                             (list "/workspace/**"
-                                   (concat fs-integ--temp-dir "/**"))
-                             nil nil))
-             (expanded-config (fs-integ--load-config-from-yaml expanded-yaml))
              (tool (fs-integ--find-tool "read_file"))
              (load-count 0))
 
-        ;; First load returns restrictive config, subsequent loads return expanded
         (spy-on 'jf/gptel-scope--load-config
                 :and-call-fake
-                (lambda ()
-                  (cl-incf load-count)
-                  (if (= load-count 1) config expanded-config)))
+                (lambda () (cl-incf load-count) config))
 
-        ;; Simulate "Add to scope": signal success (scope.yml was updated)
-        ;; The macro will reload config on retry and find the path now allowed
+        ;; "Add to scope": signal success. Wrapper trusts the approval
+        ;; and runs the body; no re-validation, no second config load.
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
-                (lambda (violation-info callback _patterns _tool-name)
+                (lambda (_violation-info callback _patterns _tool-name)
                   (funcall callback
                            (json-serialize
                             (list :success t
@@ -451,10 +420,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                  #'fs-integ--gptel-callback
                  test-file)
 
-        ;; Config was loaded twice: initial check + retry after expansion
-        (expect load-count :to-equal 2)
-
-        ;; Tool body executed with the real file content
+        (expect load-count :to-equal 1)
         (expect (plist-get fs-integ--callback-result :success) :to-be t)
         (expect (plist-get fs-integ--callback-result :content)
                 :to-equal "permanent scope content")))))
@@ -471,17 +437,13 @@ Returns the full path. SUFFIX defaults to \".txt\"."
     (setq fs-integ--callback-result nil)
     (setq fs-integ--callback-raw nil)
     (setq fs-integ--temp-dir (make-temp-file "fs-integ-" t))
-    (setq fs-integ--temp-files nil)
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+    (setq fs-integ--temp-files nil))
 
   (after-each
     (dolist (f fs-integ--temp-files)
       (when (file-exists-p f) (delete-file f)))
     (when (and fs-integ--temp-dir (file-exists-p fs-integ--temp-dir))
-      (delete-directory fs-integ--temp-dir t))
-    (when (boundp 'jf/gptel-scope--allow-once-list)
-      (setq jf/gptel-scope--allow-once-list nil)))
+      (delete-directory fs-integ--temp-dir t)))
 
   (it "tool struct has :async t (gptel dispatches to callback-first path)"
     (let ((tool (fs-integ--find-tool "read_file")))

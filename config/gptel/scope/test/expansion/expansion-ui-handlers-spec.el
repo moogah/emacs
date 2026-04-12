@@ -247,7 +247,7 @@ without actually displaying the transient menu."
 
   (describe "Allow once action"
 
-    (it "adds to allow-once list and invokes callback with allowed_once flag"
+    (it "invokes callback with success + allowed_once flag"
       (let* ((callback-result nil)
              (test-callback (lambda (json) (setq callback-result json)))
              (violation-info (helpers-spec--make-violation-info
@@ -255,29 +255,16 @@ without actually displaying the transient menu."
                              :path "/tmp/temp.txt"
                              :operation :read)))
 
-        ;; Clear allow-once list
-        (setq-local jf/gptel-scope--allow-once-list nil)
-
         (test-setup-transient-scope violation-info test-callback
                                    '("/tmp/temp.txt") "read_file")
 
-        ;; Call REAL handler
         (jf/gptel-scope--allow-once-action)
 
-        ;; Verify allow-once list was updated (real implementation)
-        (expect jf/gptel-scope--allow-once-list :not :to-be nil)
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
-
-        ;; Verify entry format
-        (let ((entry (car jf/gptel-scope--allow-once-list)))
-          (expect (car entry) :to-equal "read_file")
-          (expect (cdr entry) :to-be-truthy))
-
-        ;; Verify JSON format
         (let ((parsed (json-parse-string callback-result :object-type 'plist)))
           (expect (plist-get parsed :success) :to-be t)
           (expect (plist-get parsed :allowed_once) :to-be t)
-          (expect (plist-get parsed :message) :to-equal "Permission granted for this turn only."))))
+          (expect (plist-get parsed :message)
+                  :to-equal "Permission granted for this invocation only."))))
 
     (it "handles callback invocation errors gracefully"
       (let* ((evil-callback (lambda (_) (error "Boom!")))

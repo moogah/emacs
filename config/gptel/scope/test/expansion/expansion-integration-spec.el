@@ -76,9 +76,10 @@ Returns check-result from validator."
   (describe "Path validator integration"
 
     (it "transforms path validator denial into valid violation-info"
-      ;; Call path validator with out-of-scope file
-      (let* ((check-result (expansion-integration--call-path-validator "/tmp/outside.txt" 'read))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file" 'path)))
+      (let* ((check-result (append
+                            (expansion-integration--call-path-validator "/tmp/outside.txt" 'read)
+                            (list :validation-type 'path)))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
         ;; Verify check-result has expected format
         (expect (plist-get check-result :allowed) :to-be nil)
         (expect (plist-get check-result :error) :to-equal "not-in-scope")
@@ -96,20 +97,22 @@ Returns check-result from validator."
                              :error "denied-pattern"
                              :resource "/workspace/denied/file.txt"
                              :tool "read_file"
+                             :validation-type path
                              :message "Path denied by scope: /workspace/denied/file.txt"))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file" 'path)))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
         (expect (plist-get violation-info :reason) :to-equal "Path denied by scope: /workspace/denied/file.txt"))))
 
   (describe "Bash validator integration — real validator output"
 
     (it "denied-pattern from real validate-path-operation flows through correctly"
-      ;; Call real path validator: deny pattern
       (let* ((config '(:paths (:read ("/workspace/**") :write () :execute ()
                                :modify () :deny ("/etc/**"))))
-             (validation-error (jf/gptel-scope--validate-path-operation
-                                "/etc/passwd" :read config))
+             (validation-error (append
+                                (jf/gptel-scope--validate-path-operation
+                                 "/etc/passwd" :read config)
+                                (list :validation-type 'bash)))
              (violation-info (jf/gptel-scope--build-violation-info
-                              validation-error "run_bash_command" 'bash)))
+                              validation-error "run_bash_command")))
         (expect (plist-get validation-error :error) :to-equal "denied-pattern")
         ;; build-violation-info must produce usable violation-info
         (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
@@ -118,13 +121,14 @@ Returns check-result from validator."
         (expect (plist-get violation-info :validation-type) :to-equal 'bash)))
 
     (it "not-in-scope from real validate-path-operation flows through correctly"
-      ;; Call real path validator: path not in any scope
       (let* ((config '(:paths (:read ("/workspace/**") :write () :execute ()
                                :modify () :deny ())))
-             (validation-error (jf/gptel-scope--validate-path-operation
-                                "/tmp/file.txt" :read config))
+             (validation-error (append
+                                (jf/gptel-scope--validate-path-operation
+                                 "/tmp/file.txt" :read config)
+                                (list :validation-type 'bash)))
              (violation-info (jf/gptel-scope--build-violation-info
-                              validation-error "run_bash_command" 'bash)))
+                              validation-error "run_bash_command")))
         (expect (plist-get validation-error :error) :to-equal "not-in-scope")
         (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
         (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")
@@ -140,8 +144,9 @@ Returns check-result from validator."
                              :error "not-in-scope"
                              :message "Path not in read scope: /tmp/file.txt"
                              :resource "/tmp/file.txt"
-                             :tool "read_file"))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file" 'path)))
+                             :tool "read_file"
+                             :validation-type path))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
         (expect (plist-get violation-info :reason) :to-equal "Path not in read scope: /tmp/file.txt"))))
 
   (describe "Transformation robustness"
@@ -150,8 +155,9 @@ Returns check-result from validator."
       (let* ((malformed '(:allowed nil
                          :error "some-error"
                          :resource "/tmp/file.txt"
-                         :tool "read_file"))
-             (violation-info (jf/gptel-scope--build-violation-info malformed "read_file" 'path)))
+                         :tool "read_file"
+                         :validation-type path))
+             (violation-info (jf/gptel-scope--build-violation-info malformed "read_file")))
         (expect (plist-get violation-info :reason) :to-be nil)
         (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")))))
 
@@ -163,8 +169,7 @@ Returns check-result from validator."
 
   (before-each
     (helpers-spec-setup-session)
-    (helpers-spec-setup-bash-mocks)
-    (setq jf/gptel-scope--allow-once-list nil))
+    (helpers-spec-setup-bash-mocks))
 
   (after-each
     (helpers-spec-teardown-bash-mocks)
@@ -173,9 +178,10 @@ Returns check-result from validator."
   (describe "Path validator -> expansion -> add-to-scope"
 
     (it "path validation failure triggers expansion, add-to-scope approves"
-      ;; End-to-end: path validator denies -> build-violation-info -> expansion prompt -> approval
-      (let* ((check-result (expansion-integration--call-path-validator "/tmp/outside.txt" 'read))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file" 'path))
+      (let* ((check-result (append
+                            (expansion-integration--call-path-validator "/tmp/outside.txt" 'read)
+                            (list :validation-type 'path)))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file"))
              (expansion-called nil)
              (expansion-result nil))
 
@@ -212,10 +218,9 @@ Returns check-result from validator."
         (let ((parsed (json-parse-string expansion-result :object-type 'plist)))
           (expect (plist-get parsed :success) :to-be t)))))
 
-  (describe "Bash validator -> expansion -> allow-once -> retry succeeds"
+  (describe "Bash validator -> expansion -> allow-once approval"
 
-    (it "bash validation failure triggers expansion, allow-once grants access"
-      ;; End-to-end: bash semantic validation denies -> expansion -> allow-once -> permission granted
+    (it "bash validation failure triggers expansion, allow-once delivers success"
       (let* ((scope-yml (helpers-spec-make-minimal-scope))
              (scope-config (helpers-spec-load-scope-config scope-yml))
              (command "cat /tmp/data.txt")
@@ -223,54 +228,44 @@ Returns check-result from validator."
              (expansion-called nil)
              (expansion-result nil))
 
-        ;; Mock out-of-scope validation
         (helpers-spec-mock-bash-parse command '("cat") t)
         (helpers-spec-mock-bash-semantics
          (list (helpers-spec--make-file-op :read "/tmp/data.txt" :command-name "cat"))
          nil
          '(:ratio 1.0))
 
-        ;; Step 1: Validation fails
-        (let ((validation-error (jf/gptel-scope--validate-command-semantics
-                                 command directory scope-config)))
+        (let ((validation-error
+               (append (jf/gptel-scope--validate-command-semantics
+                        command directory scope-config)
+                       (list :validation-type 'bash))))
           (expect validation-error :not :to-be nil)
           (expect (plist-get validation-error :error) :to-equal "not-in-scope")
 
-          ;; Step 2: Build violation info
           (let ((violation-info (jf/gptel-scope--build-violation-info
-                                 validation-error "run_bash_command" 'bash)))
+                                 validation-error "run_bash_command")))
             (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
             (expect (plist-get violation-info :validation-type) :to-equal 'bash)
 
-            ;; Step 3: Expansion UI approves with allow-once
             (spy-on 'jf/gptel-scope-prompt-expansion
                     :and-call-fake
-                    (lambda (vi callback patterns tool-name)
+                    (lambda (_vi callback _patterns _tool-name)
                       (setq expansion-called t)
-                      ;; Grant allow-once
-                      (jf/gptel-scope-add-to-allow-once-list
-                       "run_bash_command"
-                       (format "%s:%s" command directory))
                       (funcall callback
                                (json-serialize
                                 (list :success t
                                       :allowed_once t
                                       :message "Allowed once")))))
 
-            ;; Trigger expansion
             (jf/gptel-scope-prompt-expansion
              violation-info
              (lambda (result) (setq expansion-result result))
              (list (format "%s:%s" command directory))
              "run_bash_command")))
 
-        ;; Step 4: Verify allow-once was granted
         (expect expansion-called :to-be t)
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
         (let ((parsed (json-parse-string expansion-result :object-type 'plist)))
           (expect (plist-get parsed :allowed_once) :to-be t))
 
-        ;; Cleanup
         (delete-file scope-yml))))
 
   (describe "Validation -> expansion -> denial preserves error"
@@ -290,14 +285,14 @@ Returns check-result from validator."
          nil
          '(:ratio 1.0))
 
-        ;; Step 1: Validation fails
-        (let ((validation-error (jf/gptel-scope--validate-command-semantics
-                                 command directory scope-config)))
+        (let ((validation-error
+               (append (jf/gptel-scope--validate-command-semantics
+                        command directory scope-config)
+                       (list :validation-type 'bash))))
           (expect validation-error :not :to-be nil)
 
-          ;; Step 2: Build violation info preserves context
           (let ((violation-info (jf/gptel-scope--build-violation-info
-                                 validation-error "run_bash_command" 'bash)))
+                                 validation-error "run_bash_command")))
             (expect (plist-get violation-info :resource) :to-be-truthy)
 
             ;; Step 3: User denies
@@ -317,16 +312,11 @@ Returns check-result from validator."
              nil
              "run_bash_command")))
 
-        ;; Step 4: Verify denial
         (let ((parsed (json-parse-string denial-result :object-type 'plist)))
           (expect (plist-get parsed :user_denied) :to-be t)
           (expect (or (eq (plist-get parsed :success) :json-false)
                       (eq (plist-get parsed :success) nil)) :to-be t))
 
-        ;; Verify allow-once was NOT granted
-        (expect (length jf/gptel-scope--allow-once-list) :to-equal 0)
-
-        ;; Cleanup
         (delete-file scope-yml))))
 
   )

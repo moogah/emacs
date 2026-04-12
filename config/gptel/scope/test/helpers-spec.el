@@ -145,11 +145,7 @@ Removes temporary directory and buffer, restores original functions."
   (when helpers-spec--mock-session-dir
     (when (file-exists-p helpers-spec--mock-session-dir)
       (delete-directory helpers-spec--mock-session-dir t))
-    (setq helpers-spec--mock-session-dir nil))
-
-  ;; Clear allow-once list (critical for test isolation)
-  (when (boundp 'jf/gptel-scope--allow-once-list)
-    (setq jf/gptel-scope--allow-once-list nil)))
+    (setq helpers-spec--mock-session-dir nil)))
 
 ;;; Mock Process Management
 
@@ -572,22 +568,25 @@ is generating a realistic :message when one is not provided."
          ;; build-violation-info's default case uses (or :resource :path),
          ;; so we derive :resource from contextual fields when not explicit.
          (resource (or explicit-resource command path provider))
-         ;; Build validator-format input plist
+         ;; Derive validation-type from tool name. The only bash-validated
+         ;; tool is run_bash_command; everything else flows through the
+         ;; filesystem validator and uses 'path.
+         (validation-type (if (string= tool "run_bash_command") 'bash 'path))
+         ;; Build validator-format input plist. The real validation
+         ;; entrypoint tags results with :validation-type; this factory
+         ;; reproduces that so build-violation-info reads it directly.
          (validator-plist
           (append
            (list :error error-code
                  :message message
                  :operation operation
                  :metadata metadata
-                 :resource resource)
+                 :resource resource
+                 :validation-type validation-type)
            (when path (list :path path))
            (when command (list :command command))
-           (when provider (list :provider provider))))
-         ;; Derive validation-type from tool name. The only bash-validated tool
-         ;; is run_bash_command; everything else flows through the filesystem
-         ;; validator and uses 'path.
-         (validation-type (if (string= tool "run_bash_command") 'bash 'path)))
-    (jf/gptel-scope--build-violation-info validator-plist tool validation-type)))
+           (when provider (list :provider provider)))))
+    (jf/gptel-scope--build-violation-info validator-plist tool)))
 
 (defun helpers-spec--generate-violation-message (error-code path command provider operation)
   "Generate a realistic human-readable message for ERROR-CODE.

@@ -111,19 +111,6 @@ Returns nil if valid, error string if invalid."
       (when errors
         (mapconcat #'identity (nreverse errors) "; ")))))
 
-(defun scope/interface--compute-allow-once-resource (validation-type tool-name args)
-  "Compute the allow-once resource key for VALIDATION-TYPE.
-TOOL-NAME and ARGS are the tool invocation parameters.
-
-This is the canonical implementation.  The scope-tool-wrapper macro
-and scope-validation's trigger-inline-expansion both delegate to
-`jf/gptel-scope--compute-allow-once-resource', which must produce
-the same value as this reference implementation for the same inputs."
-  (pcase validation-type
-    ('path (expand-file-name (car args)))
-    ('bash (format "%s:%s" (car args) (expand-file-name (cadr args))))
-    (_ nil)))
-
 (defconst scope/interface--glob-test-cases
   '(;; Pattern          Path                          Expected
     ("/workspace/**"    "/workspace/file.txt"         t)
