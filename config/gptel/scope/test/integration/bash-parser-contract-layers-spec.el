@@ -145,14 +145,15 @@ Every operation type should be denied for any path."
            (read-config (unwind-protect
                             (helpers-spec-load-scope-config read-yml)
                           (delete-file read-yml)))
-           (paths-config (plist-get read-config :paths))
            (read-like-ops (mapcar #'car
                                   (cl-remove-if-not
                                    (lambda (entry) (eq (cdr entry) :read-like))
                                    contract-layers-spec--operation-classification))))
       (dolist (op read-like-ops)
-        (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
-                :to-be nil))))
+        (expect (plist-get (jf/gptel-scope--validate-path-operation
+                            "/tmp/file.txt" op read-config)
+                           :allowed)
+                :to-be t))))
 
   (it ":write-like operations are allowed with write patterns"
     (let* ((write-yml (helpers-spec-make-scope-yml
@@ -161,14 +162,15 @@ Every operation type should be denied for any path."
            (write-config (unwind-protect
                              (helpers-spec-load-scope-config write-yml)
                            (delete-file write-yml)))
-           (paths-config (plist-get write-config :paths))
            (write-like-ops (mapcar #'car
                                    (cl-remove-if-not
                                     (lambda (entry) (eq (cdr entry) :write-like))
                                     contract-layers-spec--operation-classification))))
       (dolist (op write-like-ops)
-        (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
-                :to-be nil))))
+        (expect (plist-get (jf/gptel-scope--validate-path-operation
+                            "/tmp/file.txt" op write-config)
+                           :allowed)
+                :to-be t))))
 
   (it ":modify-like operations are allowed with modify patterns"
     (let* ((modify-yml (helpers-spec-make-scope-yml
@@ -177,14 +179,15 @@ Every operation type should be denied for any path."
            (modify-config (unwind-protect
                               (helpers-spec-load-scope-config modify-yml)
                             (delete-file modify-yml)))
-           (paths-config (plist-get modify-config :paths))
            (modify-like-ops (mapcar #'car
                                     (cl-remove-if-not
                                      (lambda (entry) (eq (cdr entry) :modify-like))
                                      contract-layers-spec--operation-classification))))
       (dolist (op modify-like-ops)
-        (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
-                :to-be nil))))
+        (expect (plist-get (jf/gptel-scope--validate-path-operation
+                            "/tmp/file.txt" op modify-config)
+                           :allowed)
+                :to-be t))))
 
   (it ":execute-like operations are allowed with execute patterns"
     (let* ((exec-yml (helpers-spec-make-scope-yml
@@ -193,36 +196,35 @@ Every operation type should be denied for any path."
            (exec-config (unwind-protect
                             (helpers-spec-load-scope-config exec-yml)
                           (delete-file exec-yml)))
-           (paths-config (plist-get exec-config :paths))
            (exec-like-ops (mapcar #'car
                                   (cl-remove-if-not
                                    (lambda (entry) (eq (cdr entry) :execute-like))
                                    contract-layers-spec--operation-classification))))
       (dolist (op exec-like-ops)
-        (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
-                :to-be nil)))))
+        (expect (plist-get (jf/gptel-scope--validate-path-operation
+                            "/tmp/file.txt" op exec-config)
+                           :allowed)
+                :to-be t)))))
 
 ;; -- Layer 3: Permissive Config Property --
 (describe "Layer 3: permissive config allows everything"
   (it "every contract operation is allowed with all-permissive paths"
-    (let ((paths-config (plist-get permissive-config :paths))
-          (failures nil))
+    (let ((failures nil))
       (dolist (op contract/bash--valid-operations)
-        (let ((result (jf/gptel-scope--validate-operation
-                       op "/tmp/file.txt" paths-config)))
-          (when result
+        (let ((result (jf/gptel-scope--validate-path-operation
+                       "/tmp/file.txt" op permissive-config)))
+          (unless (plist-get result :allowed)
             (push (format "%s -> %S" op result) failures))))
       (expect failures :to-equal nil))))
 
 ;; -- Layer 4: Restrictive Config Property --
 (describe "Layer 4: restrictive config denies everything"
   (it "every contract operation is denied with empty paths"
-    (let ((paths-config (plist-get restrictive-config :paths))
-          (passes nil))
+    (let ((passes nil))
       (dolist (op contract/bash--valid-operations)
-        (let ((result (jf/gptel-scope--validate-operation
-                       op "/tmp/file.txt" paths-config)))
-          (when (null result)
+        (let ((result (jf/gptel-scope--validate-path-operation
+                       "/tmp/file.txt" op restrictive-config)))
+          (when (plist-get result :allowed)
             (push op passes))))
       (expect passes :to-equal nil))))
 
@@ -253,25 +255,24 @@ Every operation type should be denied for any path."
 ;; -- Layer 6: Error Shape Contract --
 (describe "Layer 6: error shape contract"
   (it "every denied operation produces correctly shaped error plist"
-    (let ((paths-config (plist-get restrictive-config :paths))
-          (test-path "/tmp/file.txt")
+    (let ((test-path "/tmp/file.txt")
           (shape-errors nil))
       (dolist (op contract/bash--valid-operations)
-        (let ((result (jf/gptel-scope--validate-operation
-                       op test-path paths-config)))
+        (let ((result (jf/gptel-scope--validate-path-operation
+                       test-path op restrictive-config)))
           (cond
            ;; Unexpectedly allowed — not a shape error, Layer 4 catches this
-           ((null result) nil)
+           ((plist-get result :allowed) nil)
            ;; Check error plist shape
            (t
             (unless (stringp (plist-get result :error))
               (push (format "%s: :error not a string, got %S"
                             op (plist-get result :error))
                     shape-errors))
-            (unless (and (stringp (plist-get result :path))
-                         (string= (plist-get result :path) test-path))
-              (push (format "%s: :path mismatch, expected %S got %S"
-                            op test-path (plist-get result :path))
+            (unless (and (stringp (plist-get result :resource))
+                         (string= (plist-get result :resource) test-path))
+              (push (format "%s: :resource mismatch, expected %S got %S"
+                            op test-path (plist-get result :resource))
                     shape-errors))
             (unless (eq (plist-get result :operation) op)
               (push (format "%s: :operation mismatch, expected %S got %S"

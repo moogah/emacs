@@ -8,7 +8,7 @@
 ;;; Commentary:
 
 ;; Integration tests validating that internal scope consumers
-;; (validate-operation, validate-cloud-auth, merge-schema-defaults) work
+;; (validate-path-operation, validate-cloud-auth, merge-schema-defaults) work
 ;; correctly with scope configs parsed from real YAML through the real pipeline.
 ;;
 ;; No mocks — every test uses jf/gptel-scope-yaml--parse-string and
@@ -90,11 +90,12 @@
                          '("/**") '("/**") '("/**") '("/**") nil)))
              (config (unwind-protect
                          (helpers-spec-load-scope-config yml-file)
-                       (delete-file yml-file)))
-             (paths-config (plist-get config :paths)))
+                       (delete-file yml-file))))
         (dolist (op contract/bash--valid-operations)
-          (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
-                  :to-be nil)))))
+          (expect (plist-get (jf/gptel-scope--validate-path-operation
+                              "/tmp/file.txt" op config)
+                             :allowed)
+                  :to-be t)))))
 
   ;; -- Scenario 4: Path validator compatibility (restrictive) --
   (describe "path validator with restrictive config"
@@ -104,11 +105,12 @@
                          nil nil nil nil nil)))
              (config (unwind-protect
                          (helpers-spec-load-scope-config yml-file)
-                       (delete-file yml-file)))
-             (paths-config (plist-get config :paths)))
+                       (delete-file yml-file))))
         (dolist (op contract/bash--valid-operations)
-          (expect (jf/gptel-scope--validate-operation op "/tmp/file.txt" paths-config)
-                  :not :to-be nil)))))
+          (expect (plist-get (jf/gptel-scope--validate-path-operation
+                              "/tmp/file.txt" op config)
+                             :allowed)
+                  :to-be nil)))))
 
   ;; -- Scenario 5: Cloud validator compatibility --
   (describe "cloud validator compatibility"

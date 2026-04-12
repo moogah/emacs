@@ -200,22 +200,22 @@
                        "cat /workspace/a.txt | head -10" "/workspace" workspace-config)))
           (expect result :to-be nil))))
 
-    ;; -- Scenario 7: denied command --
-    (describe "rm /workspace/file.txt (denied command)"
+    ;; -- Scenario 7: delete out of scope --
+    (describe "rm /etc/passwd (delete out of scope)"
       (it "parse result satisfies contract"
-        (let ((parsed (jf/bash-parse "rm /workspace/file.txt")))
+        (let ((parsed (jf/bash-parse "rm /etc/passwd")))
           (expect parsed :to-satisfy-contract #'contract/bash-parse-result--validate)))
 
       (it "semantics satisfy contract"
-        (let* ((parsed (jf/bash-parse "rm /workspace/file.txt"))
+        (let* ((parsed (jf/bash-parse "rm /etc/passwd"))
                (semantics (jf/bash-extract-semantics parsed)))
           (expect semantics :to-satisfy-contract #'contract/bash-semantics--validate)))
 
       (it "is denied by scope validation"
         (let ((result (jf/gptel-scope--validate-command-semantics
-                       "rm /workspace/file.txt" "/workspace" workspace-config)))
+                       "rm /etc/passwd" "/workspace" workspace-config)))
           (expect result :not :to-be nil)
-          (expect (plist-get result :error) :to-equal "command_denied"))))
+          (expect (plist-get result :error) :to-equal "denied-pattern"))))
 
     ;; -- Scenario 8: directory read --
     (describe "ls /workspace (directory read)"

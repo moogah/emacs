@@ -146,7 +146,7 @@ Returns the loaded config on success, signals error on contract violation."
 
   (it "adding a write path produces valid config"
     (jf/gptel-scope--add-path-to-scope
-     roundtrip--scope-file "/tmp/output.txt" "write_file_in_scope")
+     roundtrip--scope-file "/tmp/output.txt" "write_file_in_scope" :write)
     (let ((config (roundtrip--reload-and-validate)))
       (expect (member "/tmp/output.txt" (plist-get (plist-get config :paths) :write))
               :to-be-truthy)))

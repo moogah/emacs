@@ -277,15 +277,14 @@ security:
     (when (boundp 'jf/gptel-scope--allow-once-list)
       (setq jf/gptel-scope--allow-once-list nil)))
 
-  (it "bash-parser parses 'rm -rf /tmp/foo' and deny list catches it"
+  (it "bash-parser parses 'rm -rf /tmp/foo' and path validation denies it"
     (let* ((config (bash-integ--make-scope-config
-                    '("/workspace/**") '("/workspace/**") nil
-                    '("rm" "sudo")))
+                    '("/workspace/**") '("/workspace/**") nil))
            (result (jf/gptel-scope--validate-command-semantics
                     "rm -rf /tmp/foo" "/workspace" config)))
-      ;; Stage 3 catches "rm" in deny list
+      ;; /tmp/foo is not in /workspace/** so the delete is denied
       (expect result :not :to-be nil)
-      (expect (plist-get result :error) :to-equal "command_denied")))
+      (expect (plist-get result :error) :to-equal "not-in-scope")))
 
   (it "triggers expansion UI for denied command through macro"
     (let* ((config (bash-integ--make-scope-config
@@ -371,7 +370,7 @@ security:
       (let ((result (jf/gptel-scope--validate-command-semantics
                      "cat /etc/passwd" "/workspace" config)))
         (expect result :not :to-be nil)
-        (expect (plist-get result :error) :to-equal "path_out_of_scope"))))
+        (expect (plist-get result :error) :to-equal "not-in-scope"))))
 
   (it "triggers expansion UI through macro for out-of-scope read"
     (let* ((config (bash-integ--make-scope-config

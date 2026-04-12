@@ -186,7 +186,7 @@ security:
       (let ((result (jf/gptel-scope--validate-command-semantics
                      "which brew" "/" config)))
         (expect result :not :to-be nil)
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")
+        (expect (plist-get result :error) :to-equal "not-in-scope")
         (expect (plist-get result :path) :to-equal "/brew")))))
 
 

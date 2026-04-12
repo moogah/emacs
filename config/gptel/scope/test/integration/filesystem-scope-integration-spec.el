@@ -229,7 +229,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       (expect (plist-get fs-integ--callback-result :error)
               :to-equal "file_not_found")))
 
-  (it "uses real path validation — validate-path-tool is called, not mocked"
+  (it "uses real path validation — validate-filesystem-tool is called, not mocked"
     (let* ((test-file (fs-integ--create-temp-file "validation check"))
            (yaml (fs-integ--make-scope-yaml
                   (list (concat fs-integ--temp-dir "/**"))
@@ -239,14 +239,14 @@ Returns the full path. SUFFIX defaults to \".txt\"."
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       ;; Spy AND call-through: observe that the real validator runs
-      (spy-on 'jf/gptel-scope--validate-path-tool :and-call-through)
+      (spy-on 'jf/gptel-scope--validate-filesystem-tool :and-call-through)
 
       (funcall (gptel-tool-function tool)
                #'fs-integ--gptel-callback
                test-file)
 
       ;; Real validator was called
-      (expect 'jf/gptel-scope--validate-path-tool :to-have-been-called)
+      (expect 'jf/gptel-scope--validate-filesystem-tool :to-have-been-called)
       ;; And it allowed the path (tool body ran)
       (expect (plist-get fs-integ--callback-result :success) :to-be t))))
 
