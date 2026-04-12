@@ -1,4 +1,4 @@
-;;; deny-list-spec.el --- Deny list bypass prevention tests -*- lexical-binding: t; -*-
+;;; parse-completeness-spec.el --- Parse completeness enforcement tests -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,17 +7,24 @@
 
 ;;; Commentary:
 
-;; DENY LIST BYPASS PREVENTION (Stage 3)
+;; PARSE COMPLETENESS ENFORCEMENT (Stage 2)
 ;;
-;; Moved from: tools/test/behavioral/run-bash-command/deny-list-validation-spec.el
-;;
-;; Tests the deny list validation stage of the run_bash_command
+;; Tests the parse completeness validation stage of the run_bash_command
 ;; seven-stage validation pipeline.
 ;;
-;; Stage 3 enforces that commands not in the bash_tools.deny list
-;; are prevented from execution. This provides a safety mechanism for
-;; blocking dangerous commands (rm, sudo, chmod, dd) regardless of
-;; path-based semantic constraints.
+;; Stage 2 enforces that bash commands parse completely before proceeding
+;; to semantic validation. This prevents execution of syntactically incomplete
+;; or malformed commands.
+;;
+;; Key behaviors tested:
+;; - Strict mode rejects incomplete parses (syntax errors, incomplete loops/conditionals)
+;; - Strict mode allows valid complex syntax (loops, conditionals)
+;; - Permissive mode allows incomplete parse with warnings
+;; - Default mode is strict
+;; - Parse completeness is checked before deny list (stage ordering)
+;;
+;; Test naming convention: describe "Category: <scenario-name>"
+;; Each test validates a complete interaction flow through stage 2.
 
 ;;; Code:
 
@@ -26,8 +33,8 @@
 
 ;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (semantic-dir test-dir)
-       (scope-test-dir (expand-file-name ".." semantic-dir))
+       (validation-dir test-dir)
+       (scope-test-dir (expand-file-name ".." validation-dir))
        (scope-dir (expand-file-name ".." scope-test-dir))
        (gptel-dir (expand-file-name ".." scope-dir)))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
@@ -35,7 +42,7 @@
 
 ;;; Test Suite
 
-(describe "run_bash_command: Deny list bypass prevention (stage 3)"
+(describe "run_bash_command: Parse completeness enforcement (stage 2)"
 
   (before-each
     (helpers-spec-setup-session)
@@ -45,7 +52,7 @@
     (helpers-spec-teardown-bash-mocks)
     (helpers-spec-teardown-session))
 
-  (it "blocks simple denied command"
+  (it "strict mode rejects incomplete parse (syntax error)"
     (let* ((scope-yml (helpers-spec-make-scope-yml
                        "paths:
   read:
@@ -57,11 +64,7 @@
   deny: []
 
 bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
+  deny: []
 
 cloud:
   auth_detection: \"warn\"
@@ -72,23 +75,21 @@ security:
 "))
            (scope-config (helpers-spec-load-scope-config scope-yml)))
       (helpers-spec-mock-bash-parse
-       "rm file.txt"
-       '("rm")
-       t)
+       "function incomplete() {"
+       '()
+       nil)
       (helpers-spec-mock-bash-semantics
        '()
        nil
-       '(:ratio 1.0))
+       '(:ratio 0.5))
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "rm file.txt"
+                     "function incomplete() {"
                      "/workspace"
                      scope-config)))
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "rm")
-        (expect (plist-get result :position) :to-equal 0))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))
       (delete-file scope-yml)))
 
-  (it "blocks denied command in pipeline position 2"
+  (it "strict mode rejects incomplete loop"
     (let* ((scope-yml (helpers-spec-make-scope-yml
                        "paths:
   read:
@@ -100,11 +101,7 @@ security:
   deny: []
 
 bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
+  deny: []
 
 cloud:
   auth_detection: \"warn\"
@@ -115,24 +112,21 @@ security:
 "))
            (scope-config (helpers-spec-load-scope-config scope-yml)))
       (helpers-spec-mock-bash-parse
-       "ls | xargs rm"
-       '("ls" "xargs" "rm")
-       t)
+       "for i in ; do echo $i; done"
+       '()
+       nil)
       (helpers-spec-mock-bash-semantics
        '()
        nil
-       '(:ratio 1.0))
+       '(:ratio 0.3))
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "ls | xargs rm"
+                     "for i in ; do echo $i; done"
                      "/workspace"
                      scope-config)))
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "rm")
-        (expect (plist-get result :position) :to-equal 2)
-        (expect (plist-get result :message) :to-match "position 2"))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))
       (delete-file scope-yml)))
 
-  (it "blocks denied command in complex pipeline"
+  (it "strict mode rejects incomplete conditional"
     (let* ((scope-yml (helpers-spec-make-scope-yml
                        "paths:
   read:
@@ -144,11 +138,7 @@ security:
   deny: []
 
 bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
+  deny: []
 
 cloud:
   auth_detection: \"warn\"
@@ -159,23 +149,21 @@ security:
 "))
            (scope-config (helpers-spec-load-scope-config scope-yml)))
       (helpers-spec-mock-bash-parse
-       "find . -name \"*.tmp\" | xargs rm"
-       '("find" "xargs" "rm")
-       t)
+       "if [ -f file.txt ; then cat"
+       '()
+       nil)
       (helpers-spec-mock-bash-semantics
        '()
        nil
-       '(:ratio 1.0))
+       '(:ratio 0.4))
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "find . -name \"*.tmp\" | xargs rm"
+                     "if [ -f file.txt ; then cat"
                      "/workspace"
                      scope-config)))
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "rm")
-        (expect (plist-get result :position) :to-equal 2))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))
       (delete-file scope-yml)))
 
-  (it "blocks sudo in pipeline"
+  (it "strict mode allows valid complex syntax"
     (let* ((scope-yml (helpers-spec-make-scope-yml
                        "paths:
   read:
@@ -187,55 +175,8 @@ security:
   deny: []
 
 bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      (helpers-spec-mock-bash-parse
-       "cat data.txt | sudo tee /etc/config"
-       '("cat" "sudo" "tee")
-       t)
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 1.0))
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cat data.txt | sudo tee /etc/config"
-                     "/workspace"
-                     scope-config)))
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "sudo")
-        (expect (plist-get result :position) :to-equal 1))
-      (delete-file scope-yml)))
-
-  (it "validates chain operators (&&)"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
   deny: []
 
-bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
-
 cloud:
   auth_detection: \"warn\"
 
@@ -245,150 +186,165 @@ security:
 "))
            (scope-config (helpers-spec-load-scope-config scope-yml)))
       (helpers-spec-mock-bash-parse
-       "ls && rm file.txt"
-       '("ls" "rm")
+       "for f in /workspace/*.el; do grep TODO $f; done"
+       '("grep")
        t)
       (helpers-spec-mock-bash-semantics
-       '()
+       (list (helpers-spec--make-file-op :read "/workspace/file.el" :command-name "grep"))
        nil
        '(:ratio 1.0))
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "ls && rm file.txt"
-                     "/workspace"
-                     scope-config)))
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "rm")
-        (expect (plist-get result :position) :to-equal 1))
-      (delete-file scope-yml)))
-
-  (it "validates chain operators (||)"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      (helpers-spec-mock-bash-parse
-       "cat file || sudo cat /etc/passwd"
-       '("cat" "sudo" "cat")
-       t)
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 1.0))
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cat file || sudo cat /etc/passwd"
-                     "/workspace"
-                     scope-config)))
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "sudo")
-        (expect (plist-get result :position) :to-equal 1))
-      (delete-file scope-yml)))
-
-  (it "validates sequential commands (;)"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      (helpers-spec-mock-bash-parse
-       "mkdir dir; rm dir; ls"
-       '("mkdir" "rm" "ls")
-       t)
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 1.0))
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "mkdir dir; rm dir; ls"
-                     "/workspace"
-                     scope-config)))
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "rm")
-        (expect (plist-get result :position) :to-equal 1))
-      (delete-file scope-yml)))
-
-  (it "allows commands not in deny list to proceed to next stage"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny:
-    - rm
-    - sudo
-    - chmod
-    - dd
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      (helpers-spec-mock-bash-parse
-       "ls -la"
-       '("ls")
-       t)
-      (helpers-spec-mock-bash-semantics
-       (list (helpers-spec--make-file-op :read "/workspace/files" :command-name "ls"))
-       nil
-       '(:ratio 1.0))
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "ls -la"
+                     "for f in /workspace/*.el; do grep TODO $f; done"
                      "/workspace"
                      scope-config)))
         (expect result :to-be nil))
       (delete-file scope-yml)))
 
-  (it "allows multiple non-denied commands in pipeline to proceed"
+  (it "strict mode allows valid conditionals"
+    (let* ((scope-yml (helpers-spec-make-scope-yml
+                       "paths:
+  read:
+    - \"/workspace/**\"
+  write:
+    - \"/workspace/**\"
+  execute: []
+  modify: []
+  deny: []
+
+bash_tools:
+  deny: []
+
+cloud:
+  auth_detection: \"warn\"
+
+security:
+  enforce_parse_complete: true
+  max_coverage_threshold: 0.8
+"))
+           (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (helpers-spec-mock-bash-parse
+       "if [ -f /workspace/file ]; then cat /workspace/file; fi"
+       '("cat")
+       t)
+      (helpers-spec-mock-bash-semantics
+       (list (helpers-spec--make-file-op :read "/workspace/file" :command-name "cat"))
+       nil
+       '(:ratio 1.0))
+      (let ((result (jf/gptel-scope--validate-command-semantics
+                     "if [ -f /workspace/file ]; then cat /workspace/file; fi"
+                     "/workspace"
+                     scope-config)))
+        (expect result :to-be nil))
+      (delete-file scope-yml)))
+
+  (it "permissive mode allows incomplete parse with warning"
+    (let* ((scope-yml (helpers-spec-make-scope-yml
+                       "paths:
+  read:
+    - \"/workspace/**\"
+  write:
+    - \"/workspace/**\"
+  execute: []
+  modify: []
+  deny: []
+
+bash_tools:
+  deny: []
+
+cloud:
+  auth_detection: \"warn\"
+
+security:
+  enforce_parse_complete: false
+  max_coverage_threshold: 0.8
+"))
+           (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (helpers-spec-mock-bash-parse
+       "function incomplete() {"
+       '()
+       nil)
+      (helpers-spec-mock-bash-semantics
+       '()
+       nil
+       '(:ratio 0.5))
+      (let ((result (jf/gptel-scope--validate-command-semantics
+                     "function incomplete() {"
+                     "/workspace"
+                     scope-config)))
+        (expect (plist-get result :error) :to-be nil))
+      (delete-file scope-yml)))
+
+  (it "permissive mode allows partial syntax"
+    (let* ((scope-yml (helpers-spec-make-scope-yml
+                       "paths:
+  read:
+    - \"/workspace/**\"
+  write:
+    - \"/workspace/**\"
+  execute: []
+  modify: []
+  deny: []
+
+bash_tools:
+  deny: []
+
+cloud:
+  auth_detection: \"warn\"
+
+security:
+  enforce_parse_complete: false
+  max_coverage_threshold: 0.8
+"))
+           (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (helpers-spec-mock-bash-parse
+       "for i in ; do echo $i"
+       '()
+       nil)
+      (helpers-spec-mock-bash-semantics
+       '()
+       nil
+       '(:ratio 0.3))
+      (let ((result (jf/gptel-scope--validate-command-semantics
+                     "for i in ; do echo $i"
+                     "/workspace"
+                     scope-config)))
+        (expect (plist-get result :error) :to-be nil))
+      (delete-file scope-yml)))
+
+  (it "default mode is strict"
+    (let* ((scope-yml (helpers-spec-make-scope-yml
+                       "paths:
+  read:
+    - \"/workspace/**\"
+  write:
+    - \"/workspace/**\"
+  execute: []
+  modify: []
+  deny: []
+
+bash_tools:
+  deny: []
+
+cloud:
+  auth_detection: \"warn\"
+"))
+           (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (helpers-spec-mock-bash-parse
+       "function incomplete() {"
+       '()
+       nil)
+      (helpers-spec-mock-bash-semantics
+       '()
+       nil
+       '(:ratio 0.5))
+      (let ((result (jf/gptel-scope--validate-command-semantics
+                     "function incomplete() {"
+                     "/workspace"
+                     scope-config)))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))
+      (delete-file scope-yml)))
+
+  (it "parse completeness checked before deny list"
     (let* ((scope-yml (helpers-spec-make-scope-yml
                        "paths:
   read:
@@ -401,10 +357,8 @@ security:
 
 bash_tools:
   deny:
-    - rm
     - sudo
-    - chmod
-    - dd
+    - rm
 
 cloud:
   auth_detection: \"warn\"
@@ -415,20 +369,19 @@ security:
 "))
            (scope-config (helpers-spec-load-scope-config scope-yml)))
       (helpers-spec-mock-bash-parse
-       "cat file.txt | grep pattern | head -10"
-       '("cat" "grep" "head")
-       t)
+       "sudo incomplete syntax {"
+       '()
+       nil)
       (helpers-spec-mock-bash-semantics
-       (list (helpers-spec--make-file-op :read "/workspace/file.txt" :command-name "cat"))
+       '()
        nil
-       '(:ratio 1.0))
+       '(:ratio 0.2))
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cat file.txt | grep pattern | head -10"
+                     "sudo incomplete syntax {"
                      "/workspace"
                      scope-config)))
-        (expect result :to-be nil))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))
       (delete-file scope-yml))))
 
-(provide 'deny-list-spec)
-
-;;; deny-list-spec.el ends here
+(provide 'parse-completeness-spec)
+;;; parse-completeness-spec.el ends here

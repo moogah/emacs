@@ -438,9 +438,7 @@ Also converts YAML boolean keywords to Emacs booleans:
 (defun helpers-spec-load-scope-config (scope-file)
   "Load scope configuration from SCOPE-FILE.
 Returns scope-config plist ready for validation functions."
-  (let* ((normalized (jf/gptel-scope-yaml--parse-file scope-file))
-         (scope-config (jf/gptel-scope-yaml--load-schema normalized)))
-    scope-config))
+  (jf/gptel-scope-yaml--load-schema scope-file))
 
 (defun helpers-spec--scope-with-paths (read write execute modify deny)
   "Build scope.yml with operation-specific paths.

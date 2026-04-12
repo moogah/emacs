@@ -86,15 +86,6 @@
         (expect (plist-get result :error) :to-equal "not-in-scope")
         (expect (member "not-in-scope" scope/interface--error-codes) :to-be-truthy))))
 
-  (describe "validate-pipeline-commands produces only known codes"
-
-    (it "command_denied when command in deny list"
-      (let ((result (jf/gptel-scope--validate-pipeline-commands
-                     '("ls" "rm") '(:deny ("rm" "sudo")))))
-        (expect result :not :to-be nil)
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (member "command_denied" scope/interface--error-codes) :to-be-truthy))))
-
   (describe "validate-operation should produce canonical codes"
 
     ;; RED: validate-operation uses "path_out_of_scope" and "path_denied"

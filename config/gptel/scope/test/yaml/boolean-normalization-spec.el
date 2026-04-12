@@ -22,7 +22,7 @@
 
 ;; Load dependencies with explicit paths to avoid circular dependency issues
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (scope-dir (expand-file-name ".." test-dir))
+       (scope-dir (expand-file-name "../.." test-dir))
        (gptel-dir (expand-file-name ".." scope-dir)))
   ;; Load in dependency order
   (require 'jf-gptel-scope-expansion (expand-file-name "scope/scope-expansion.el" gptel-dir))
@@ -142,35 +142,35 @@
         (expect yaml :to-match "enforce_parse_complete: false")
         (expect yaml :to-match "max_coverage_threshold: 0.8"))))
 
-  (describe "jf/gptel-scope--validate-security-config with keyword booleans"
+  (describe "jf/gptel-scope-yaml--validate-security-config with keyword booleans"
 
     (it "accepts :true and normalizes to t"
       (let ((security-plist '(:enforce-parse-complete :true)))
-        (expect (jf/gptel-scope--validate-security-config security-plist) :to-be t)))
+        (expect (jf/gptel-scope-yaml--validate-security-config security-plist) :to-be t)))
 
     (it "accepts :false and normalizes to nil"
       (let ((security-plist '(:enforce-parse-complete :false)))
-        (expect (jf/gptel-scope--validate-security-config security-plist) :to-be t)))
+        (expect (jf/gptel-scope-yaml--validate-security-config security-plist) :to-be t)))
 
     (it "accepts :null and normalizes to nil"
       (let ((security-plist '(:enforce-parse-complete :null)))
-        (expect (jf/gptel-scope--validate-security-config security-plist) :to-be t)))
+        (expect (jf/gptel-scope-yaml--validate-security-config security-plist) :to-be t)))
 
     (it "still accepts already-normalized t"
       (let ((security-plist '(:enforce-parse-complete t)))
-        (expect (jf/gptel-scope--validate-security-config security-plist) :to-be t)))
+        (expect (jf/gptel-scope-yaml--validate-security-config security-plist) :to-be t)))
 
     (it "still accepts already-normalized nil"
       (let ((security-plist '(:enforce-parse-complete nil)))
-        (expect (jf/gptel-scope--validate-security-config security-plist) :to-be t)))
+        (expect (jf/gptel-scope-yaml--validate-security-config security-plist) :to-be t)))
 
     (it "rejects invalid keyword values"
       (let ((security-plist '(:enforce-parse-complete :invalid)))
-        (expect (jf/gptel-scope--validate-security-config security-plist) :to-throw)))
+        (expect (jf/gptel-scope-yaml--validate-security-config security-plist) :to-throw)))
 
     (it "rejects non-boolean types"
       (let ((security-plist '(:enforce-parse-complete "true")))
-        (expect (jf/gptel-scope--validate-security-config security-plist) :to-throw))))
+        (expect (jf/gptel-scope-yaml--validate-security-config security-plist) :to-throw))))
 
   (describe "YAML round-trip with boolean values"
 
@@ -207,7 +207,7 @@
         (expect (plist-get security :enforce-parse-complete) :to-be nil)
         (expect (plist-get security :max-coverage-threshold) :to-equal 0.9)
         ;; Validate passes
-        (expect (jf/gptel-scope--validate-security-config security) :to-be t)))))
+        (expect (jf/gptel-scope-yaml--validate-security-config security) :to-be t)))))
 
 (provide 'yaml-boolean-normalization-spec)
 ;;; yaml-boolean-normalization-spec.el ends here

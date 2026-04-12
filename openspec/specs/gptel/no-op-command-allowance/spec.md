@@ -22,15 +22,8 @@ The system SHALL allow execution of commands that extract no file operations fro
 
 #### Scenario: Unknown command with no operations allowed
 - **WHEN** command is `my-custom-tool --info`
-- **AND** command is not in any allowlist or deny list
 - **AND** bash-parser extracts zero file operations
 - **THEN** validation pipeline allows execution
-
-#### Scenario: No-op command in deny list still blocked
-- **WHEN** command is `sudo --version`
-- **AND** bash-parser extracts zero file operations
-- **AND** command is in bash_tools.deny list
-- **THEN** validation pipeline denies execution with "command_denied" error
 
 ### Requirement: No-op validation occurs before file operation validation
 

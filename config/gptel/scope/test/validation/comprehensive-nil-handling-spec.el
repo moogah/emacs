@@ -26,8 +26,8 @@
 (require 'cl-lib)
 
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (semantic-dir test-dir)
-       (scope-test-dir (expand-file-name ".." semantic-dir))
+       (validation-dir test-dir)
+       (scope-test-dir (expand-file-name ".." validation-dir))
        (scope-dir (expand-file-name ".." scope-test-dir))
        (gptel-dir (expand-file-name ".." scope-dir)))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
@@ -51,54 +51,7 @@
         ;; Should return nil (success) - no enforcement when security-config is nil
         (expect result :to-be nil))))
 
-  (describe "Stage 2: Extract commands with nil values"
-
-    (it "handles parsed-command with nil all-commands"
-      (let* ((parsed-command '(:all-commands nil))
-             (result (jf/gptel-scope--extract-pipeline-commands parsed-command)))
-        ;; Should return empty list, not crash
-        (expect result :to-equal '())))
-
-    (it "handles parsed-command with empty all-commands"
-      (let* ((parsed-command '(:all-commands ()))
-             (result (jf/gptel-scope--extract-pipeline-commands parsed-command)))
-        (expect result :to-equal '()))))
-
-  (describe "Stage 3: Pipeline command validation with nil values"
-
-    (it "allows all commands when bash-tools is nil"
-      (let* ((commands '("ls" "grep" "head"))
-             (bash-tools nil)
-             (result (jf/gptel-scope--validate-pipeline-commands commands bash-tools)))
-        ;; Should allow (no deny list to check)
-        (expect result :to-be nil)))
-
-    (it "allows all commands when deny list is nil"
-      (let* ((commands '("ls" "grep"))
-             (bash-tools '(:deny nil))
-             (result (jf/gptel-scope--validate-pipeline-commands commands bash-tools)))
-        (expect result :to-be nil)))
-
-    (it "allows all commands when deny list is empty"
-      (let* ((commands '("ls" "grep"))
-             (bash-tools '(:deny ()))
-             (result (jf/gptel-scope--validate-pipeline-commands commands bash-tools)))
-        (expect result :to-be nil)))
-
-    (it "handles nil commands list"
-      (let* ((commands nil)
-             (bash-tools '(:deny ("sudo" "rm")))
-             (result (jf/gptel-scope--validate-pipeline-commands commands bash-tools)))
-        ;; Should allow (no commands to validate)
-        (expect result :to-be nil)))
-
-    (it "handles empty commands list"
-      (let* ((commands '())
-             (bash-tools '(:deny ("sudo")))
-             (result (jf/gptel-scope--validate-pipeline-commands commands bash-tools)))
-        (expect result :to-be nil))))
-
-  (describe "Stage 4: No-op check with nil values"
+  (describe "Stage 2: No-op check with nil values"
 
     (it "allows when semantics is nil"
       (let ((result (jf/gptel-scope--check-no-op nil)))

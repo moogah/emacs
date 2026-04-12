@@ -7,36 +7,26 @@
 
 ;;; Commentary:
 
-;; CONSOLIDATED TESTS: Scope schema loading, parsing, and configuration management
-;;
-;; Consolidates tests from:
-;; - tools/test/integration/test-schema.el (62 ERT tests -> Buttercup)
-;; - tools/test/unit/config-spec.el (12 Buttercup tests)
-;;
 ;; Test organization:
-;; 1. Schema loading with defaults (load-schema, load-cloud-config, load-security-config)
+;; 1. Schema merge with defaults (merge-schema-defaults)
 ;; 2. Operation-specific path sections
 ;; 3. Write scope includes read capability
 ;; 4. Cloud authentication configuration
 ;; 5. Security configuration
-;; 6. Bash tools section
-;; 7. YAML parsing and normalization
-;; 8. Backward compatibility
-;; 9. Validation on schema load
-;; 10. Default merging behavior
-;; 11. Edge cases and rejection tests
-;; 12. Pipeline command extraction
+;; 6. YAML parsing and normalization
+;; 7. Validation on schema load
+;; 8. Default merging behavior
+;; 9. Edge cases and rejection tests
 
 ;;; Code:
 
 (require 'buttercup)
 (require 'cl-lib)
-(require 'yaml)
 
 ;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (scope-dir (expand-file-name "../.." test-dir)))
-  (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" scope-dir))
+  (require 'jf-gptel-scope-yaml (expand-file-name "scope-yaml.el" scope-dir))
   (require 'jf-gptel-scope-validation (expand-file-name "scope-validation.el" scope-dir))
   (require 'jf-gptel-scope-tool-wrapper (expand-file-name "scope-tool-wrapper.el" scope-dir)))
 
@@ -60,18 +50,18 @@
 (defun test-config--parse-yml (yml-content)
   "Parse YML-CONTENT string using production code path.
 Returns normalized plist with vectors converted to lists."
-  (let* ((parsed (yaml-parse-string yml-content :object-type 'plist))
-         (loaded (jf/gptel-scope-yaml--load-schema parsed))
+  (let* ((parsed (jf/gptel-scope-yaml--parse-string yml-content))
+         (loaded (jf/gptel-scope-yaml--merge-schema-defaults parsed))
          (vectors-fixed (test-config--normalize-vectors loaded)))
     vectors-fixed))
 
-;;; Schema Loading Unit Tests (from config-spec.el)
+;;; Schema Merge Unit Tests
 
-(describe "jf/gptel-scope-yaml--load-schema"
+(describe "jf/gptel-scope-yaml--merge-schema-defaults"
 
   (it "merges provided paths with defaults"
     (let* ((schema-plist '(:paths (:read ("/workspace/**"))))
-           (result (jf/gptel-scope-yaml--load-schema schema-plist))
+           (result (jf/gptel-scope-yaml--merge-schema-defaults schema-plist))
            (paths (plist-get result :paths)))
       (expect (plist-get paths :read) :to-equal '("/workspace/**"))
       (expect (plist-get paths :write) :to-equal '())
@@ -79,47 +69,12 @@ Returns normalized plist with vectors converted to lists."
 
   (it "uses defaults when sections missing"
     (let* ((schema-plist '(:paths nil))
-           (result (jf/gptel-scope-yaml--load-schema schema-plist))
+           (result (jf/gptel-scope-yaml--merge-schema-defaults schema-plist))
            (cloud (plist-get result :cloud))
            (security (plist-get result :security)))
       (expect (plist-get cloud :auth-detection) :to-equal "warn")
       (expect (plist-get security :enforce-parse-complete) :to-be t)
-      (expect (plist-get security :max-coverage-threshold) :to-equal 0.8)))
-
-  (it "preserves bash-tools deny list with normalized keys"
-    (let* ((bash-tools '(:deny ("rm" "sudo")))
-           (schema-plist (list :bash-tools bash-tools))
-           (result (jf/gptel-scope-yaml--load-schema schema-plist))
-           (result-bash-tools (plist-get result :bash-tools)))
-      (expect (plist-get result-bash-tools :deny) :to-equal '("rm" "sudo")))))
-
-;;; Cloud Config Loading Tests (from config-spec.el)
-
-(describe "jf/gptel-scope--load-cloud-config"
-
-  (it "loads auth-detection setting"
-    (let* ((cloud-plist '(:auth-detection "deny"))
-           (result (jf/gptel-scope--load-cloud-config cloud-plist)))
-      (expect (plist-get result :auth-detection) :to-equal "deny")))
-
-  (it "returns nil for nil config"
-    (let ((result (jf/gptel-scope--load-cloud-config nil)))
-      (expect result :to-be nil))))
-
-;;; Security Config Loading Tests (from config-spec.el)
-
-(describe "jf/gptel-scope--load-security-config"
-
-  (it "loads both security settings"
-    (let* ((security-plist '(:enforce-parse-complete nil
-                             :max-coverage-threshold 0.9))
-           (result (jf/gptel-scope--load-security-config security-plist)))
-      (expect (plist-get result :enforce-parse-complete) :to-be nil)
-      (expect (plist-get result :max-coverage-threshold) :to-equal 0.9)))
-
-  (it "returns nil for nil config"
-    (let ((result (jf/gptel-scope--load-security-config nil)))
-      (expect result :to-be nil))))
+      (expect (plist-get security :max-coverage-threshold) :to-equal 0.8))))
 
 ;;; Operation-Specific Path Sections (from test-schema.el)
 
@@ -217,30 +172,14 @@ Returns normalized plist with vectors converted to lists."
       (expect (plist-get security :enforce-parse-complete) :to-be t)
       (expect (plist-get security :max-coverage-threshold) :to-equal 0.8))))
 
-;;; Bash Tools Section (from test-schema.el)
-
-(describe "scope schema bash_tools"
-
-  (it "rejects categories section"
-    (let ((yml "bash_tools:\n  categories:\n    read_only:\n      commands: [\"ls\", \"cat\", \"grep\"]\n    safe_write:\n      commands: [\"mkdir\", \"touch\"]\n    dangerous:\n      commands: []"))
-      (expect (test-config--parse-yml yml) :to-throw)))
-
-  (it "loads deny list"
-    (let* ((config (test-config--parse-yml "bash_tools:\n  deny: [\"rm\", \"sudo\", \"chmod\"]"))
-           (deny (plist-get (plist-get config :bash-tools) :deny)))
-      (expect (length deny) :to-equal 3)
-      (expect deny :to-contain "rm")
-      (expect deny :to-contain "sudo"))))
-
 ;;; Full Document Structure (from test-schema.el)
 
 (describe "scope schema full document"
 
   (it "loads all sections from complete document"
-    (let* ((yml "paths:\n  read: [\"/**\"]\n  write: [\"/workspace/**\"]\n  execute: [\"/workspace/scripts/**\"]\n  modify: [\"/workspace/config/**\"]\n  deny: [\"**/.git/**\", \"**/.env\"]\n\nbash_tools:\n  deny: [\"rm\", \"sudo\"]\n\ncloud:\n  auth_detection: \"warn\"\n  allowed_providers: [\"aws\"]\n\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8")
+    (let* ((yml "paths:\n  read: [\"/**\"]\n  write: [\"/workspace/**\"]\n  execute: [\"/workspace/scripts/**\"]\n  modify: [\"/workspace/config/**\"]\n  deny: [\"**/.git/**\", \"**/.env\"]\n\ncloud:\n  auth_detection: \"warn\"\n  allowed_providers: [\"aws\"]\n\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8")
            (config (test-config--parse-yml yml)))
       (expect (plist-get config :paths) :not :to-be nil)
-      (expect (plist-get config :bash-tools) :not :to-be nil)
       (expect (plist-get config :cloud) :not :to-be nil)
       (expect (plist-get config :security) :not :to-be nil)
       ;; Verify paths subsections
@@ -249,9 +188,7 @@ Returns normalized plist with vectors converted to lists."
         (expect (plist-get paths :write) :not :to-be nil)
         (expect (plist-get paths :execute) :not :to-be nil)
         (expect (plist-get paths :modify) :not :to-be nil)
-        (expect (plist-get paths :deny) :not :to-be nil))
-      ;; Verify bash_tools has no categories
-      (expect (plist-get (plist-get config :bash-tools) :categories) :to-be nil))))
+        (expect (plist-get paths :deny) :not :to-be nil)))))
 
 ;;; YAML Parsing and Normalization (from test-schema.el)
 
@@ -276,27 +213,6 @@ Returns normalized plist with vectors converted to lists."
       (expect (plist-get cloud :auth-detection) :not :to-be nil)
       (expect (plist-get cloud :allowed-providers) :not :to-be nil))))
 
-;;; Backward Compatibility (from test-schema.el)
-
-(describe "scope schema backward compatibility"
-
-  (it "legacy document with only read/write does not auto-add execute/modify"
-    (let* ((config (test-config--parse-yml "paths:\n  read: [\"/workspace/**\"]\n  write: [\"/tmp/**\"]"))
-           (paths (plist-get config :paths)))
-      (expect (plist-get paths :read) :not :to-be nil)
-      (expect (plist-get paths :write) :not :to-be nil)
-      (expect (plist-get paths :execute) :to-be nil)
-      (expect (plist-get paths :modify) :to-be nil)))
-
-  (it "no automatic migration from legacy schemas"
-    (let* ((config (test-config--parse-yml "paths:\n  read: [\"/workspace/**\"]\n  write: [\"/tmp/**\"]\nbash_tools:\n  deny: [\"rm\"]"))
-           (paths (plist-get config :paths)))
-      (expect (plist-get paths :execute) :to-be nil)
-      (expect (plist-get paths :modify) :to-be nil)
-      ;; But defaults for cloud/security are added
-      (expect (plist-get config :cloud) :not :to-be nil)
-      (expect (plist-get config :security) :not :to-be nil))))
-
 ;;; Validation on Schema Load (from test-schema.el)
 
 (describe "scope schema validation"
@@ -313,7 +229,7 @@ Returns normalized plist with vectors converted to lists."
       (expect (stringp read-paths) :to-be t)))
 
   (it "loads valid document successfully"
-    (let* ((yml "paths:\n  read: [\"/**\"]\n  write: [\"/workspace/**\"]\n  execute: [\"/workspace/scripts/**\"]\n  modify: [\"/workspace/config/**\"]\n  deny: [\"**/.git/**\"]\n\nbash_tools:\n  deny: [\"rm\", \"sudo\"]\n\ncloud:\n  auth_detection: \"warn\"\n  allowed_providers: [\"aws\", \"gcp\"]\n\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8")
+    (let* ((yml "paths:\n  read: [\"/**\"]\n  write: [\"/workspace/**\"]\n  execute: [\"/workspace/scripts/**\"]\n  modify: [\"/workspace/config/**\"]\n  deny: [\"**/.git/**\"]\n\ncloud:\n  auth_detection: \"warn\"\n  allowed_providers: [\"aws\", \"gcp\"]\n\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8")
            (config (test-config--parse-yml yml)))
       (expect config :not :to-be nil)
       (let ((paths (plist-get config :paths)))
@@ -413,11 +329,6 @@ Returns normalized plist with vectors converted to lists."
       (expect (length read-paths) :to-equal 3)
       (expect (numberp (nth 1 read-paths)) :to-be t)))
 
-  (it "loads invalid bash_tools structure"
-    (let* ((config (test-config--parse-yml "bash_tools:\n  deny: \"rm\""))
-           (deny (plist-get (plist-get config :bash-tools) :deny)))
-      (expect (stringp deny) :to-be t)))
-
   (it "accepts boundary threshold values"
     (let* ((config-zero (test-config--parse-yml "security:\n  max_coverage_threshold: 0.0"))
            (config-one (test-config--parse-yml "security:\n  max_coverage_threshold: 1.0")))
@@ -498,18 +409,6 @@ Returns normalized plist with vectors converted to lists."
       (expect (plist-get cloud :auth-detection) :to-equal "allow")
       (expect (plist-get security :max-coverage-threshold) :to-equal 0.95)))
 
-  (it "bash_tools not modified by default merging"
-    (let* ((config (test-config--parse-yml "bash_tools:\n  deny: [\"rm\"]"))
-           (bash-tools (plist-get config :bash-tools)))
-      (expect (plist-get bash-tools :deny) :to-equal '("rm"))
-      (expect (plist-get bash-tools :categories) :to-be nil)))
-
-  (it "minimal plus bash_tools gets other defaults"
-    (let* ((config (test-config--parse-yml "bash_tools:\n  deny: []")))
-      (expect (plist-get config :paths) :not :to-be nil)
-      (expect (plist-get config :cloud) :not :to-be nil)
-      (expect (plist-get config :security) :not :to-be nil)))
-
   (it "zero threshold is preserved (not replaced by default)"
     (let* ((config (test-config--parse-yml "security:\n  max_coverage_threshold: 0.0"))
            (security (plist-get config :security)))
@@ -520,29 +419,6 @@ Returns normalized plist with vectors converted to lists."
     (let* ((config (test-config--parse-yml "security:\n  max_coverage_threshold: 1.0"))
            (security (plist-get config :security)))
       (expect (plist-get security :max-coverage-threshold) :to-equal 1.0))))
-
-;;; Pipeline Command Extraction (from config-spec.el)
-
-(describe "jf/gptel-scope--extract-pipeline-commands"
-
-  (it "extracts all commands from pipeline"
-    (let* ((parsed-command '(:all-commands ((:command-name "ls")
-                                            (:command-name "grep")
-                                            (:command-name "head"))))
-           (result (jf/gptel-scope--extract-pipeline-commands parsed-command)))
-      (expect result :to-equal '("ls" "grep" "head"))))
-
-  (it "returns empty list for no commands"
-    (let* ((parsed-command '(:all-commands ()))
-           (result (jf/gptel-scope--extract-pipeline-commands parsed-command)))
-      (expect result :to-equal '())))
-
-  (it "handles missing command-name gracefully"
-    (let* ((parsed-command '(:all-commands ((:command-name "ls")
-                                            (:other-field "value")
-                                            (:command-name "grep"))))
-           (result (jf/gptel-scope--extract-pipeline-commands parsed-command)))
-      (expect result :to-equal '("ls" "grep")))))
 
 (provide 'config-loading-spec)
 

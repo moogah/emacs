@@ -8,11 +8,11 @@
 ;;; Commentary:
 
 ;; Integration tests validating that internal scope consumers
-;; (validate-operation, validate-cloud-auth, load-schema) work correctly
-;; with scope configs parsed from real YAML through the real pipeline.
+;; (validate-operation, validate-cloud-auth, merge-schema-defaults) work
+;; correctly with scope configs parsed from real YAML through the real pipeline.
 ;;
 ;; No mocks — every test uses jf/gptel-scope-yaml--parse-string and
-;; jf/gptel-scope-yaml--load-schema with real YAML input.
+;; jf/gptel-scope-yaml--merge-schema-defaults with real YAML input.
 
 ;;; Code:
 
@@ -50,14 +50,14 @@
   (describe "parse round-trip"
     (it "preserves paths data through parse -> serialize -> parse cycle"
       (let* ((yaml-str "paths:\n  read:\n    - \"/tmp/**\"\n    - \"/home/**\"\n  write:\n    - \"/tmp/**\"\n  execute:\n    []\n  modify:\n    []\n  deny:\n    - \"/etc/**\"\ncloud:\n  auth_detection: \"warn\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
-             (first-parse (jf/gptel-scope-yaml--load-schema
+             (first-parse (jf/gptel-scope-yaml--merge-schema-defaults
                            (jf/gptel-scope-yaml--parse-string yaml-str)))
              ;; Serialize back to YAML
              (serialized (with-temp-buffer
                            (jf/gptel-scope--write-yaml-plist first-parse)
                            (buffer-string)))
              ;; Parse again
-             (second-parse (jf/gptel-scope-yaml--load-schema
+             (second-parse (jf/gptel-scope-yaml--merge-schema-defaults
                             (jf/gptel-scope-yaml--parse-string serialized)))
              (first-paths (plist-get first-parse :paths))
              (second-paths (plist-get second-parse :paths)))
@@ -69,7 +69,7 @@
   (describe "schema merge with defaults"
     (it "fills in all defaults for minimal YAML"
       (let* ((yaml-str "paths:\n  read:\n    - \"/tmp/**\"\n")
-             (config (jf/gptel-scope-yaml--load-schema
+             (config (jf/gptel-scope-yaml--merge-schema-defaults
                       (jf/gptel-scope-yaml--parse-string yaml-str))))
         ;; Contract validation passes
         (expect config :to-satisfy-contract #'contract/scope-config--validate)
@@ -114,7 +114,7 @@
   (describe "cloud validator compatibility"
     (it "cloud auth deny mode blocks auth operations"
       (let* ((yaml-str "paths:\n  read:\n    - \"/**\"\n  write: []\n  execute: []\n  modify: []\n  deny: []\ncloud:\n  auth_detection: \"deny\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
-             (config (jf/gptel-scope-yaml--load-schema
+             (config (jf/gptel-scope-yaml--merge-schema-defaults
                       (jf/gptel-scope-yaml--parse-string yaml-str)))
              (cloud-config (plist-get config :cloud))
              (cloud-auth-op '(:provider :aws-cli :command "aws s3 ls")))
@@ -123,7 +123,7 @@
 
     (it "cloud auth allow mode permits auth operations"
       (let* ((yaml-str "paths:\n  read: []\n  write: []\n  execute: []\n  modify: []\n  deny: []\ncloud:\n  auth_detection: \"allow\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
-             (config (jf/gptel-scope-yaml--load-schema
+             (config (jf/gptel-scope-yaml--merge-schema-defaults
                       (jf/gptel-scope-yaml--parse-string yaml-str)))
              (cloud-config (plist-get config :cloud))
              (cloud-auth-op '(:provider :aws-cli :command "aws s3 ls")))
@@ -138,7 +138,7 @@
                          "paths:\n  read:\n    - \"/tmp/**\"\n"
                          ;; Full
                          "paths:\n  read:\n    - \"/**\"\n  write:\n    - \"/**\"\n  execute:\n    - \"/usr/bin/**\"\n  modify:\n    - \"/tmp/**\"\n  deny:\n    - \"/etc/**\"\ncloud:\n  auth_detection: \"allow\"\nsecurity:\n  enforce_parse_complete: false\n  max_coverage_threshold: 0.5\n"))
-        (let ((config (jf/gptel-scope-yaml--load-schema
+        (let ((config (jf/gptel-scope-yaml--merge-schema-defaults
                        (jf/gptel-scope-yaml--parse-string yaml-str))))
           (expect config :to-satisfy-contract #'contract/scope-config--validate)))))
 
@@ -146,7 +146,7 @@
   (describe "YAML boolean normalization"
     (it "normalizes YAML boolean keywords to elisp booleans"
       (let* ((yaml-str "paths:\n  read: []\n  write: []\n  execute: []\n  modify: []\n  deny: []\ncloud:\n  auth_detection: \"warn\"\nsecurity:\n  enforce_parse_complete: true\n  max_coverage_threshold: 0.8\n")
-             (config (jf/gptel-scope-yaml--load-schema
+             (config (jf/gptel-scope-yaml--merge-schema-defaults
                       (jf/gptel-scope-yaml--parse-string yaml-str))))
         ;; enforce_parse_complete should be t, not :true
         (expect (plist-get (plist-get config :security) :enforce-parse-complete)

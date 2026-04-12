@@ -37,7 +37,7 @@
 
 ;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (scope-dir (expand-file-name ".." test-dir)))
+       (scope-dir (expand-file-name "../.." test-dir)))
   (require 'jf-gptel-scope-metadata (expand-file-name "scope-metadata.el" scope-dir)))
 
 ;;; Plist Structure Tests

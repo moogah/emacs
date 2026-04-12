@@ -147,17 +147,17 @@ The scope system SHALL validate org-roam tools against org_roam_patterns section
 
 The scope system SHALL support bash validation type for tools that execute shell commands with semantic validation.
 
-**Config source:** `scope.yml` in the session's branch directory, under the `bash_tools` top-level key with deny list only (no categories).
+**Config source:** `scope.yml` in the session's branch directory. Bash commands are gated by the extracted file operations and cloud-auth patterns they produce, not by command-name allow/deny lists.
 
-**Tool:** `run_bash_command` - Executes shell commands with seven-stage validation pipeline using bash-parser integration.
+**Tool:** `run_bash_command` - Executes shell commands with a five-stage validation pipeline using bash-parser integration.
 
-**Module:** `scope-shell-tools` (config/gptel/scope/scope-shell-tools.el) - Implements the run_bash_command tool using bash-parser semantic validation.
+**Module:** `scope-validation` (config/gptel/scope/scope-validation.el) - Implements bash command validation via bash-parser semantic extraction.
 
 **Related specs:** See delta specs for detailed v4 behavior:
 - `scope-validation-pipelines/spec.md` - Pipeline command extraction and validation
 - `scope-validation-file-paths/spec.md` - Operation-specific path validation
 - `scope-validation-cloud-auth/spec.md` - Cloud authentication policy enforcement
-- `scope-schema-v4/spec.md` - v4 schema structure
+- `scope-schema/spec.md` - v4 schema structure
 
 #### Scenario: Bash tool categorized
 - **WHEN** a tool executes arbitrary shell commands
@@ -165,24 +165,22 @@ The scope system SHALL support bash validation type for tools that execute shell
 
 #### Scenario: Bash validator dispatched
 - **WHEN** scope system validates a bash tool
-- **THEN** it routes to jf/gptel-scope--validate-bash-tool function using seven-stage pipeline
+- **THEN** it routes to jf/gptel-scope--validate-bash-tool using the five-stage pipeline
 
-### Requirement: Seven-stage bash validation pipeline
+### Requirement: Five-stage bash validation pipeline
 
-The scope system SHALL validate bash commands through a seven-stage pipeline with early exit on failure, using bash-parser for semantic extraction.
+The scope system SHALL validate bash commands through a five-stage pipeline with early exit on failure, using bash-parser for semantic extraction.
 
-**Implementation**: `config/gptel/scope/scope-shell-tools.el` - `jf/gptel-scope--validate-bash-tool` (seven-stage pipeline)
+**Implementation**: `config/gptel/scope/scope-validation.el` - `jf/gptel-scope--validate-bash-tool` (five-stage pipeline)
 
 **Validation stages:**
-1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
-2. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
-3. **Deny list check** - Block commands in `bash_tools.deny` (minimal list for edge cases)
-4. **Extract semantics** - Run plugins (file-ops, cloud-auth) to extract operations
-5. **No-op allowance** - Allow commands with zero file operations by default
-6. **File operation validation** - Match extracted file paths against operation-specific scope patterns (read/write/execute/modify/deny)
-7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers` (if cloud auth detected)
+1. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
+2. **No-op allowance** - Allow commands with zero file operations by default
+3. **File operation validation** - Match extracted file paths against operation-specific scope patterns (read/write/execute/modify/deny)
+4. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers` (if cloud auth detected)
+5. **Coverage threshold** - Emit warning (non-blocking) when parse coverage falls below `security.max_coverage_threshold`
 
-#### Scenario: Command passes all seven stages
+#### Scenario: Command passes all five stages
 - **WHEN** bash command completes all validation stages successfully
 - **THEN** system allows command execution
 
@@ -197,34 +195,6 @@ The scope system SHALL validate bash commands through a seven-stage pipeline wit
 #### Scenario: Semantic extraction runs plugins
 - **WHEN** AST is available
 - **THEN** system runs file-ops, cloud-auth, and security plugins to extract operations
-
-### Requirement: Deny list validation
-
-The scope system SHALL check all commands in pipelines and chains against the bash_tools.deny list (stage 3). Commands in the deny list are blocked regardless of other permissions.
-
-**Implementation**: `config/gptel/scope/scope-shell-tools.el` - deny list validation in validation pipeline
-
-**Purpose**: Minimal deny list for high-risk edge cases where semantic analysis alone is insufficient. Most commands are validated by operation-first model (file operations, cloud auth).
-
-#### Scenario: Extract commands from pipe
-- **WHEN** parsing "ls -la | grep foo"
-- **THEN** system extracts two commands: "ls" and "grep"
-
-#### Scenario: Extract commands from command chain
-- **WHEN** parsing "mkdir foo && cd foo"
-- **THEN** system extracts two commands: "mkdir" and "cd"
-
-#### Scenario: All pipeline commands checked against deny list
-- **WHEN** command is "ls | xargs rm"
-- **AND** "rm" is in bash_tools.deny list
-- **THEN** validation fails with "command_denied" error for "rm" at pipeline position 1
-
-#### Scenario: Pipeline bypass prevented
-- **WHEN** command is "find . -name '*.tmp' | xargs rm"
-- **AND** "rm" is in deny list
-- **THEN** system rejects with error identifying "rm" in pipeline position 2
-
-**Note**: This requirement implemented in v4 with bash-parser integration. v3 used regex-based parsing and could not extract pipeline commands.
 
 ### Requirement: Operation-specific path validation
 
@@ -599,13 +569,8 @@ paths:
   deny:
     - "/etc/**"
 
-bash_tools:
-  # categories section REMOVED - operation-first validation replaces category allowlists
-  deny:
-    - sudo              # Minimal deny list for high-risk edge cases
-    - dd
-    - chmod
-    - chown
+# bash_tools section REMOVED - commands are validated entirely by the
+# extracted file operations and cloud-auth patterns they produce.
 
 cloud:                  # NEW section
   auth_detection: "warn"
@@ -619,11 +584,11 @@ security:               # NEW section
 
 ### Migration Requirements
 
-**Category-based validation removed:**
-- v3: Commands required explicit allowlist membership in `bash_tools.categories` (read_only, safe_write, dangerous)
-- v4: Operation-first validation - commands validated by extracted file operations and path scopes
-- Impact: Remove entire `bash_tools.categories` section from scope.yml
-- Migration: Keep only `bash_tools.deny` list for high-risk edge cases (sudo, dd, chmod, chown)
+**Command-name deny/allow lists removed:**
+- v3: Commands required explicit allowlist membership in `bash_tools.categories` AND could be blocked by a `bash_tools.deny` list
+- v4: Operation-first validation - commands are gated solely by extracted file operations and path scopes
+- Impact: Remove entire `bash_tools` section from scope.yml
+- Migration: Rely on path-based scoping (`paths.read/write/execute/modify/deny`) to constrain what commands can touch
 
 **Commands requiring new path sections:**
 - Execute operations (e.g., `bash /workspace/script.sh`) → Add `paths.execute`

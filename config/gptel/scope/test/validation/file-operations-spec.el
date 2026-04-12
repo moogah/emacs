@@ -27,8 +27,8 @@
 
 ;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (semantic-dir test-dir)
-       (scope-test-dir (expand-file-name ".." semantic-dir))
+       (validation-dir test-dir)
+       (scope-test-dir (expand-file-name ".." validation-dir))
        (scope-dir (expand-file-name ".." scope-test-dir))
        (gptel-dir (expand-file-name ".." scope-dir)))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))

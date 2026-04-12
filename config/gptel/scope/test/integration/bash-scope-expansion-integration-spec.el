@@ -87,23 +87,17 @@ Captures both the raw JSON string and parsed plist."
           (cl-return (cdr tool-entry)))))))
 
 (defun bash-integ--make-scope-config (read-paths write-paths deny-paths
-                                       &optional bash-deny cloud-auth)
+                                       &optional _bash-deny cloud-auth)
   "Build a scope config from YAML through the real parse pipeline.
 READ-PATHS, WRITE-PATHS, DENY-PATHS are lists of glob pattern strings.
-BASH-DENY is a list of denied command strings.
-CLOUD-AUTH is the auth detection mode string (default \"warn\")."
+CLOUD-AUTH is the auth detection mode string (default \"warn\").
+The fourth positional is retained for backward compatibility with existing
+callers but is ignored — there is no longer a command-name deny list."
   (let* ((format-paths (lambda (paths)
                          (if paths
                              (mapconcat (lambda (p) (format "    - \"%s\"" p))
                                         paths "\n")
                            "    []")))
-         (format-deny (lambda (cmds)
-                        (if cmds
-                            (concat "["
-                                    (mapconcat (lambda (c) (format "%s" c))
-                                               cmds ", ")
-                                    "]")
-                          "[]")))
          (yaml (format "paths:
   read:
 %s
@@ -116,9 +110,6 @@ CLOUD-AUTH is the auth detection mode string (default \"warn\")."
   deny:
 %s
 
-bash_tools:
-  deny: %s
-
 cloud:
   auth_detection: \"%s\"
 
@@ -129,9 +120,8 @@ security:
                        (funcall format-paths read-paths)
                        (funcall format-paths write-paths)
                        (funcall format-paths deny-paths)
-                       (funcall format-deny (or bash-deny '()))
                        (or cloud-auth "warn"))))
-    (jf/gptel-scope-yaml--load-schema
+    (jf/gptel-scope-yaml--merge-schema-defaults
      (jf/gptel-scope-yaml--parse-string yaml))))
 
 ;;; Test Suites
@@ -534,36 +524,7 @@ security:
   (it "tool is registered as async in gptel--known-tools"
     (let ((tool (bash-integ--find-tool "run_bash_command")))
       (expect tool :to-be-truthy)
-      (expect (gptel-tool-async tool) :to-be t)))
-
-  (it "missing bash_tools config returns error through callback"
-    ;; Config without bash_tools section
-    (let* ((config (jf/gptel-scope-yaml--load-schema
-                    (jf/gptel-scope-yaml--parse-string
-                     "paths:\n  read:\n    - \"/workspace/**\"\n")))
-           (tool (bash-integ--find-tool "run_bash_command")))
-
-      ;; Remove :bash-tools from config to simulate missing section
-      (setq config (cl-copy-list config))
-      (cl-remf config :bash-tools)
-
-      (spy-on 'jf/gptel-scope--load-config :and-return-value config)
-      ;; Simulate user denying the expansion
-      (spy-on 'jf/gptel-scope-prompt-expansion
-              :and-call-fake
-              (lambda (_violation-info callback _patterns _tool-name)
-                (funcall callback
-                         (json-serialize
-                          (list :success :false :user_denied t)))))
-
-      (funcall (gptel-tool-function tool)
-               #'bash-integ--gptel-callback
-               "ls"
-               "/workspace")
-
-      ;; Error returned through callback, not signaled
-      (expect bash-integ--callback-result :to-be-truthy)
-      (expect (plist-get bash-integ--callback-result :success) :not :to-be t))))
+      (expect (gptel-tool-async tool) :to-be t))))
 
 (provide 'bash-scope-expansion-integration-spec)
 

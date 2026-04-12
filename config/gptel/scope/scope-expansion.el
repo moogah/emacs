@@ -262,8 +262,8 @@ run_bash_command which are categorized as :write but may be denied for a :read o
 
 (defun jf/gptel-scope--add-bash-to-scope (scope-file resource tool &optional denied-operation)
   "Add bash command resource to scope.yml.
-RESOURCE is a file path (for path_out_of_scope errors) or command name
-\(for command_denied errors).
+RESOURCE is a file path — commands are validated by the file operations they
+perform, so there is no command-name expansion path.
 TOOL is the tool name.
 DENIED-OPERATION, when non-nil, is the denied operation keyword (e.g., :read-metadata)
 passed through to `add-path-to-scope' for correct section targeting."
@@ -299,34 +299,6 @@ Used for paths and org_roam_patterns sections."
                     (dolist (item subvalue)
                       (insert (format "    - \"%s\"\n" item)))
                   (insert "    []\n")))))
-
-(defun jf/gptel-scope--write-yaml-bash-tools (key-name value)
-  "Write bash_tools section with KEY-NAME and VALUE to current buffer.
-VALUE is a plist with :categories (triple-nested) and :deny (list)."
-  (insert (format "%s:\n" key-name))
-  (cl-loop for (subkey subvalue) on value by #'cddr
-           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
-                (cond
-                 ;; Handle categories (triple-nested: categories → read_only/safe_write/dangerous → commands → list)
-                 ((eq subkey :categories)
-                  (insert (format "  %s:\n" subkey-name))
-                  (cl-loop for (cat-key cat-value) on subvalue by #'cddr
-                           do (let ((cat-name (jf/gptel-scope--kebab-to-snake cat-key)))
-                                (insert (format "    %s:\n" cat-name))
-                                (cl-loop for (prop-key prop-value) on cat-value by #'cddr
-                                         do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
-                                              (insert (format "      %s:\n" prop-name))
-                                              (if prop-value
-                                                  (dolist (cmd prop-value)
-                                                    (insert (format "        - \"%s\"\n" cmd)))
-                                                (insert "        []\n")))))))
-                 ;; Handle deny (simple list under bash_tools)
-                 ((eq subkey :deny)
-                  (insert (format "  %s:\n" subkey-name))
-                  (if subvalue
-                      (dolist (item subvalue)
-                        (insert (format "    - \"%s\"\n" item)))
-                    (insert "    []\n")))))))
 
 (defun jf/gptel-scope--write-yaml-tools (key-name value)
   "Write tools section with KEY-NAME and VALUE to current buffer.
@@ -430,10 +402,6 @@ Converts kebab-case keys to snake_case for YAML output."
                  ;; Nested list structures (paths)
                  ((memq key '(:paths))
                   (jf/gptel-scope--write-yaml-nested-list key-name value))
-
-                 ;; Bash tools (triple-nested with categories)
-                 ((eq key :bash-tools)
-                  (jf/gptel-scope--write-yaml-bash-tools key-name value))
 
                  ;; Tools (list or nested map)
                  ((eq key :tools)

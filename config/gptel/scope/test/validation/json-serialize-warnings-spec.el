@@ -27,8 +27,8 @@
 
 ;; Load scope-shell-tools for execute-command and validation
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (semantic-dir test-dir)
-       (scope-test-dir (expand-file-name ".." semantic-dir))
+       (validation-dir test-dir)
+       (scope-test-dir (expand-file-name ".." validation-dir))
        (scope-dir (expand-file-name ".." scope-test-dir))
        (gptel-dir (expand-file-name ".." scope-dir)))
   (require 'jf-gptel-scope-shell-tools (expand-file-name "scope/scope-shell-tools.el" gptel-dir))

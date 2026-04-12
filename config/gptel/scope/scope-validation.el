@@ -244,48 +244,23 @@ Returns validation result plist."
 
 ;; [[file:scope-validation.org::*Bash Tool Entry Point][Bash Tool Entry Point:1]]
 (defun jf/gptel-scope--validate-bash-tool (tool-name args config)
-  "Validate bash command using seven-stage semantic validation pipeline.
+  "Validate bash command using semantic validation pipeline.
 TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (command and directory).
 CONFIG is the scope configuration plist.
 
 Returns (:allowed t) on success or (:allowed nil :error ...) on failure."
-  (cl-block jf/gptel-scope--validate-bash-tool
-    (let* ((command-full (car args))
-           (directory (cadr args))
-           (bash-config (plist-get config :bash-tools))
-           (categories (when bash-config (plist-get bash-config :categories))))
-
-      ;; If bash_tools section is missing, deny all commands
-      (unless bash-config
-        (cl-return-from jf/gptel-scope--validate-bash-tool
-          (list :allowed nil
-                :error "command-not-allowed"
-                :tool tool-name
-                :resource command-full
-                :command command-full
-                :message "No bash_tools configuration found. All commands denied by default.")))
-
-      ;; Check for deprecated categories section
-      (when categories
-        (cl-return-from jf/gptel-scope--validate-bash-tool
-          (list :allowed nil
-                :error "malformed-config"
-                :tool tool-name
-                :resource command-full
-                :command command-full
-                :message "bash_tools.categories section no longer supported. Remove categories section, keep only deny list.")))
-
-      ;; Run semantic validation pipeline (7 stages)
-      (let ((validation-error (jf/gptel-scope--validate-command-semantics
-                               command-full directory config)))
-        (if validation-error
-            (append (list :allowed nil
-                          :tool tool-name
-                          :resource command-full
-                          :command command-full)
-                    validation-error)
-          (list :allowed t))))))
+  (let* ((command-full (car args))
+         (directory (cadr args))
+         (validation-error (jf/gptel-scope--validate-command-semantics
+                            command-full directory config)))
+    (if validation-error
+        (append (list :allowed nil
+                      :tool tool-name
+                      :resource command-full
+                      :command command-full)
+                validation-error)
+      (list :allowed t))))
 ;; Bash Tool Entry Point:1 ends here
 
 ;; Stage 0: Main Pipeline
@@ -293,7 +268,7 @@ Returns (:allowed t) on success or (:allowed nil :error ...) on failure."
 
 ;; [[file:scope-validation.org::*Stage 0: Main Pipeline][Stage 0: Main Pipeline:1]]
 (defun jf/gptel-scope--validate-command-semantics (command directory scope-config)
-  "Seven-stage validation pipeline with early exit on failure.
+  "Five-stage validation pipeline with early exit on failure.
 COMMAND is the bash command string.
 DIRECTORY is the working directory.
 SCOPE-CONFIG is the scope configuration plist.
@@ -308,34 +283,26 @@ Returns nil if all validations pass, error plist on first failure."
       (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
         (cl-return-from jf/gptel-scope--validate-command-semantics error))
 
-      ;; Stage 2: Extract pipeline commands
-      (let ((commands (jf/gptel-scope--extract-pipeline-commands parsed)))
+      ;; Stage 2: No-op check
+      (unless (jf/gptel-scope--check-no-op semantics)
+        (cl-return-from jf/gptel-scope--validate-command-semantics nil))
 
-        ;; Stage 3: Validate pipeline commands (deny list)
-        (when-let ((error (jf/gptel-scope--validate-pipeline-commands
-                           commands (plist-get scope-config :bash-tools))))
-          (cl-return-from jf/gptel-scope--validate-command-semantics error))
+      ;; Stage 3: File operations validation
+      (when-let ((file-ops (alist-get :filesystem (plist-get semantics :domains))))
+        (when-let ((error (jf/gptel-scope--validate-file-operations
+                           file-ops directory scope-config)))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
-        ;; Stage 4: No-op check
-        (unless (jf/gptel-scope--check-no-op semantics)
-          (cl-return-from jf/gptel-scope--validate-command-semantics nil))
+      ;; Stage 4: Cloud auth policy
+      (when-let ((cloud-auth (alist-get :authentication (plist-get semantics :domains))))
+        (when-let ((error (jf/gptel-scope--validate-cloud-auth
+                           cloud-auth (plist-get scope-config :cloud))))
+          (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
-        ;; Stage 5: File operations validation
-        (when-let ((file-ops (alist-get :filesystem (plist-get semantics :domains))))
-          (when-let ((error (jf/gptel-scope--validate-file-operations
-                             file-ops directory scope-config)))
-            (cl-return-from jf/gptel-scope--validate-command-semantics error)))
+      ;; Stage 5: Coverage check (warning only)
+      (jf/gptel-scope--check-coverage-threshold semantics security-config)
 
-        ;; Stage 6: Cloud auth policy
-        (when-let ((cloud-auth (alist-get :authentication (plist-get semantics :domains))))
-          (when-let ((error (jf/gptel-scope--validate-cloud-auth
-                             cloud-auth (plist-get scope-config :cloud))))
-            (cl-return-from jf/gptel-scope--validate-command-semantics error)))
-
-        ;; Stage 7: Coverage check (warning only)
-        (jf/gptel-scope--check-coverage-threshold semantics security-config)
-
-        nil))))
+      nil)))
 ;; Stage 0: Main Pipeline:1 ends here
 
 ;; Stage 1: Parse Completeness
@@ -358,46 +325,10 @@ Returns nil if valid, error plist if incomplete and enforced."
         nil))))
 ;; Stage 1: Parse Completeness:1 ends here
 
-;; Stage 2: Extract Pipeline Commands
+;; Stage 2: No-op Check
 
 
-;; [[file:scope-validation.org::*Stage 2: Extract Pipeline Commands][Stage 2: Extract Pipeline Commands:1]]
-(defun jf/gptel-scope--extract-pipeline-commands (parsed-command)
-  "Stage 2: Extract all commands from PARSED-COMMAND pipeline/chain.
-Returns list of command names in execution order."
-  (let ((all-commands (plist-get parsed-command :all-commands))
-        (command-names nil))
-    (dolist (cmd all-commands)
-      (when-let ((name (plist-get cmd :command-name)))
-        (push name command-names)))
-    (nreverse command-names)))
-;; Stage 2: Extract Pipeline Commands:1 ends here
-
-;; Stage 3: Validate Pipeline Commands
-
-
-;; [[file:scope-validation.org::*Stage 3: Validate Pipeline Commands][Stage 3: Validate Pipeline Commands:1]]
-(defun jf/gptel-scope--validate-pipeline-commands (commands bash-tools)
-  "Stage 3: Validate each command against BASH-TOOLS deny list.
-Returns nil if all allowed, error plist on first denied command."
-  (let ((deny-list (plist-get bash-tools :deny))
-        (pos 0))
-    (catch 'validation-failed
-      (dolist (cmd commands)
-        (when (member cmd deny-list)
-          (throw 'validation-failed
-                 (list :error "command_denied"
-                       :position pos
-                       :command cmd
-                       :message (format "Command '%s' at position %d is in deny list" cmd pos))))
-        (setq pos (1+ pos)))
-      nil)))
-;; Stage 3: Validate Pipeline Commands:1 ends here
-
-;; Stage 4: No-op Check
-
-
-;; [[file:scope-validation.org::*Stage 4: No-op Check][Stage 4: No-op Check:1]]
+;; [[file:scope-validation.org::*Stage 2: No-op Check][Stage 2: No-op Check:1]]
 (defun jf/gptel-scope--check-no-op (semantics)
   "Stage 4: Check if command has zero file operations.
 Returns nil if no-op (allowed), t if file ops exist (continue)."
@@ -406,14 +337,14 @@ Returns nil if no-op (allowed), t if file ops exist (continue)."
     (if (or (null file-ops) (zerop (length file-ops)))
         nil
       t)))
-;; Stage 4: No-op Check:1 ends here
+;; Stage 2: No-op Check:1 ends here
 
-;; Stage 5: File Operations Validation
+;; Stage 3: File Operations Validation
 
 ;; Uses shared =validate-path-operation= for each extracted file operation.
 
 
-;; [[file:scope-validation.org::*Stage 5: File Operations Validation][Stage 5: File Operations Validation:1]]
+;; [[file:scope-validation.org::*Stage 3: File Operations Validation][Stage 3: File Operations Validation:1]]
 (defun jf/gptel-scope--validate-file-operation (file-op directory config)
   "Validate single FILE-OP against CONFIG using shared path validator.
 FILE-OP format: (:file PATH :operation OP :command CMD :confidence CONF)
@@ -443,14 +374,14 @@ Returns nil if all allowed, error plist for first violation."
       (when-let ((error (jf/gptel-scope--validate-file-operation
                          file-op directory scope-config)))
         (throw 'error-found error)))))
-;; Stage 5: File Operations Validation:1 ends here
+;; Stage 3: File Operations Validation:1 ends here
 
-;; Stage 6: Cloud Auth Policy
+;; Stage 4: Cloud Auth Policy
 
 
-;; [[file:scope-validation.org::*Stage 6: Cloud Auth Policy][Stage 6: Cloud Auth Policy:1]]
+;; [[file:scope-validation.org::*Stage 4: Cloud Auth Policy][Stage 4: Cloud Auth Policy:1]]
 (defun jf/gptel-scope--validate-cloud-auth (cloud-auth-ops cloud-config)
-  "Stage 6: Detect and enforce cloud authentication policy.
+  "Stage 4: Detect and enforce cloud authentication policy.
 Returns nil if passes, error plist if denied."
   (cl-block jf/gptel-scope--validate-cloud-auth
     (when cloud-auth-ops
@@ -491,14 +422,14 @@ Returns nil if passes, error plist if denied."
           (list :error "invalid_cloud_auth_mode"
                 :mode mode
                 :message (format "Invalid cloud.auth_detection mode: %s" mode))))))))
-;; Stage 6: Cloud Auth Policy:1 ends here
+;; Stage 4: Cloud Auth Policy:1 ends here
 
-;; Stage 7: Coverage Threshold
+;; Stage 5: Coverage Threshold
 
 
-;; [[file:scope-validation.org::*Stage 7: Coverage Threshold][Stage 7: Coverage Threshold:1]]
+;; [[file:scope-validation.org::*Stage 5: Coverage Threshold][Stage 5: Coverage Threshold:1]]
 (defun jf/gptel-scope--check-coverage-threshold (semantics security-config)
-  "Stage 7: Check coverage threshold (warning only, non-blocking).
+  "Stage 5: Check coverage threshold (warning only, non-blocking).
 Returns nil always."
   (when-let* ((coverage (plist-get semantics :coverage))
               (threshold (plist-get security-config :max-coverage-threshold))
@@ -507,7 +438,7 @@ Returns nil always."
       (warn "Parse coverage %.2f below threshold %.2f"
             coverage-ratio threshold)))
   nil)
-;; Stage 7: Coverage Threshold:1 ends here
+;; Stage 5: Coverage Threshold:1 ends here
 
 ;; Violation-Info Building
 
@@ -525,12 +456,9 @@ Returns plist with :tool, :resource, :operation, :reason, :validation-type, :met
          (resource (pcase error-type
                      ("denied-pattern" (plist-get validation-error :resource))
                      ("not-in-scope" (plist-get validation-error :resource))
-                     ("command_denied" (plist-get validation-error :command))
-                     ("command-not-allowed" (plist-get validation-error :resource))
                      ("parse_incomplete" (plist-get validation-error :command))
                      ("cloud_auth_denied" (plist-get validation-error :provider))
                      ("cloud_provider_denied" (plist-get validation-error :provider))
-                     ("malformed-config" (plist-get validation-error :resource))
                      (_ (or (plist-get validation-error :resource)
                            (plist-get validation-error :path)))))
          (operation (plist-get validation-error :operation))

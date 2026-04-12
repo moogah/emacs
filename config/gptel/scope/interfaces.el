@@ -12,15 +12,6 @@
     ;; Producers: validate-path-tool, validate-operation
     "not-in-scope"
 
-    ;; --- Bash command denied ---
-    ;; Produced when a command appears in bash_tools.deny list.
-    ;; Producer: validate-pipeline-commands
-    "command_denied"
-
-    ;; Produced when no bash_tools section exists in scope config.
-    ;; Producer: validate-bash-tool
-    "command-not-allowed"
-
     ;; --- Parse errors ---
     ;; Produced when bash-parser cannot fully parse the command.
     ;; Producer: validate-parse-completeness
@@ -33,12 +24,7 @@
 
     ;; Produced when cloud provider not in allowed_providers list.
     ;; Producer: validate-cloud-auth
-    "cloud_provider_denied"
-
-    ;; --- Configuration errors ---
-    ;; Produced when scope config has invalid structure.
-    ;; Producer: validate-bash-tool
-    "malformed-config")
+    "cloud_provider_denied")
   "Canonical error codes for scope validation.
 
 Every validator MUST produce only codes from this list.
@@ -54,12 +40,9 @@ Codes not in this list:
 (defconst scope/interface--error-resource-fields
   '(("denied-pattern"       . :resource)
     ("not-in-scope"         . :resource)
-    ("command_denied"       . :command)
-    ("command-not-allowed"  . :resource)
     ("parse_incomplete"     . :command)
     ("cloud_auth_denied"    . :provider)
-    ("cloud_provider_denied" . :provider)
-    ("malformed-config"     . :resource))
+    ("cloud_provider_denied" . :provider))
   "Maps each error code to the plist key holding the resource identifier.
 
 build-violation-info uses this to extract :resource for the expansion UI.

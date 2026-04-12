@@ -135,29 +135,29 @@
 
 ;;; Security Config Validation Tests (from validators-spec.el)
 
-(describe "jf/gptel-scope--validate-security-config"
+(describe "jf/gptel-scope-yaml--validate-security-config"
 
   (it "accepts valid boolean enforce-parse-complete"
     (let ((security-config '(:enforce-parse-complete t)))
-      (expect (jf/gptel-scope--validate-security-config security-config) :to-be t)))
+      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-be t)))
 
   (it "accepts valid threshold in range"
     (let ((security-config '(:max-coverage-threshold 0.8)))
-      (expect (jf/gptel-scope--validate-security-config security-config) :to-be t)))
+      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-be t)))
 
   (it "rejects threshold below 0.0"
     (let ((security-config '(:max-coverage-threshold -0.1)))
-      (expect (jf/gptel-scope--validate-security-config security-config) :to-throw)))
+      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-throw)))
 
   (it "rejects threshold above 1.0"
     (let ((security-config '(:max-coverage-threshold 1.5)))
-      (expect (jf/gptel-scope--validate-security-config security-config) :to-throw)))
+      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-throw)))
 
   (it "accepts edge values 0.0 and 1.0"
     (let ((config-zero '(:max-coverage-threshold 0.0))
           (config-one '(:max-coverage-threshold 1.0)))
-      (expect (jf/gptel-scope--validate-security-config config-zero) :to-be t)
-      (expect (jf/gptel-scope--validate-security-config config-one) :to-be t))))
+      (expect (jf/gptel-scope-yaml--validate-security-config config-zero) :to-be t)
+      (expect (jf/gptel-scope-yaml--validate-security-config config-one) :to-be t))))
 
 ;;; Error Message Structure Tests (from validators-spec.el)
 

@@ -13,7 +13,7 @@
 ;; all structure, including nested plists like :cloud and :security.
 ;;
 ;; Test coverage:
-;; 1. Full scope file with all sections (paths, bash-tools, cloud, security, tools, org-roam)
+;; 1. Full scope file with all sections (paths, cloud, security, tools, org-roam)
 ;; 2. Inline expansion (add-path-to-scope) preserves existing :cloud and :security sections
 ;; 3. Generic nested plist handling for unknown keys
 ;;
@@ -51,21 +51,6 @@ org_roam_patterns:
   node_ids:
     - \"*\"
 
-bash_tools:
-  categories:
-    read_only:
-      commands:
-        - \"ls\"
-        - \"cat\"
-    safe_write:
-      commands:
-        - \"mkdir\"
-    dangerous:
-      commands: []
-  deny:
-    - \"sudo\"
-    - \"dd\"
-
 cloud:
   auth_detection: \"warn\"
   allowed_providers: []
@@ -101,7 +86,6 @@ tools:
 
               ;; Verify all sections present
               (expect (plist-get normalized :paths) :not :to-be nil)
-              (expect (plist-get normalized :bash-tools) :not :to-be nil)
               (expect (plist-get normalized :cloud) :not :to-be nil)
               (expect (plist-get normalized :security) :not :to-be nil)
               (expect (plist-get normalized :tools) :not :to-be nil)
@@ -191,66 +175,13 @@ tools:
                   (expect (plist-get security :max-coverage-threshold) :to-equal 0.8))
 
                 ;; Verify other sections preserved
-                (expect (plist-get normalized :bash-tools) :not :to-be nil)
                 (expect (plist-get normalized :org-roam-patterns) :not :to-be nil)))
 
           ;; Cleanup
           (when (file-exists-p temp-file)
             (delete-file temp-file)))))
 
-    (it "preserves :cloud and :security when adding bash command"
-      (let* ((temp-file (make-temp-file "scope-" nil ".yml")))
-        (unwind-protect
-            (progn
-              (with-temp-file temp-file
-                (insert test-full-scope-yaml))
-
-              ;; Add bash command (simulating inline expansion)
-              (jf/gptel-scope--add-bash-to-scope temp-file "tree" "run_bash_command")
-
-              ;; Read back and verify sections preserved
-              (let* ((parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                     (normalized (jf/gptel-scope-yaml--normalize-keys parsed)))
-
-                ;; Verify command added (run_bash_command has :operation write, so adds to safe-write)
-                (let* ((bash-tools (plist-get normalized :bash-tools))
-                       (categories (plist-get bash-tools :categories))
-                       (safe-write (plist-get categories :safe-write))
-                       (commands (plist-get safe-write :commands)))
-                  (expect (member "tree" commands) :to-be-truthy))
-
-                ;; Verify nested sections preserved
-                (expect (plist-get normalized :cloud) :not :to-be nil)
-                (expect (plist-get normalized :security) :not :to-be nil)))
-
-          (when (file-exists-p temp-file)
-            (delete-file temp-file)))))
-
-    (it "preserves :cloud and :security when adding org-roam pattern"
-      (let* ((temp-file (make-temp-file "scope-" nil ".yml")))
-        (unwind-protect
-            (progn
-              (with-temp-file temp-file
-                (insert test-full-scope-yaml))
-
-              ;; Add org-roam pattern
-              (jf/gptel-scope--add-pattern-to-scope temp-file "subdirectory:new-subdir/**" "create_roam_node_in_scope")
-
-              ;; Read back and verify sections preserved
-              (let* ((parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))
-                     (normalized (jf/gptel-scope-yaml--normalize-keys parsed)))
-
-                ;; Verify pattern added
-                (let* ((org-roam (plist-get normalized :org-roam-patterns))
-                       (subdirs (plist-get org-roam :subdirectory)))
-                  (expect (member "new-subdir/**" subdirs) :to-be-truthy))
-
-                ;; Verify nested sections preserved
-                (expect (plist-get normalized :cloud) :not :to-be nil)
-                (expect (plist-get normalized :security) :not :to-be nil)))
-
-          (when (file-exists-p temp-file)
-            (delete-file temp-file)))))))
+    ))
 
 (provide 'yaml-round-trip-spec)
 ;;; yaml-round-trip-spec.el ends here

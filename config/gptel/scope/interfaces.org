@@ -158,15 +158,6 @@ These should use the same error codes but currently diverge (see [[#known-diverg
     ;; Producers: validate-path-tool, validate-operation
     "not-in-scope"
 
-    ;; --- Bash command denied ---
-    ;; Produced when a command appears in bash_tools.deny list.
-    ;; Producer: validate-pipeline-commands
-    "command_denied"
-
-    ;; Produced when no bash_tools section exists in scope config.
-    ;; Producer: validate-bash-tool
-    "command-not-allowed"
-
     ;; --- Parse errors ---
     ;; Produced when bash-parser cannot fully parse the command.
     ;; Producer: validate-parse-completeness
@@ -179,12 +170,7 @@ These should use the same error codes but currently diverge (see [[#known-diverg
 
     ;; Produced when cloud provider not in allowed_providers list.
     ;; Producer: validate-cloud-auth
-    "cloud_provider_denied"
-
-    ;; --- Configuration errors ---
-    ;; Produced when scope config has invalid structure.
-    ;; Producer: validate-bash-tool
-    "malformed-config")
+    "cloud_provider_denied")
   "Canonical error codes for scope validation.
 
 Every validator MUST produce only codes from this list.
@@ -206,12 +192,9 @@ When a validator returns an error, the resource identifier lives in different fi
 (defconst scope/interface--error-resource-fields
   '(("denied-pattern"       . :resource)
     ("not-in-scope"         . :resource)
-    ("command_denied"       . :command)
-    ("command-not-allowed"  . :resource)
     ("parse_incomplete"     . :command)
     ("cloud_auth_denied"    . :provider)
-    ("cloud_provider_denied" . :provider)
-    ("malformed-config"     . :resource))
+    ("cloud_provider_denied" . :provider))
   "Maps each error code to the plist key holding the resource identifier.
 
 build-violation-info uses this to extract :resource for the expansion UI.
@@ -434,12 +417,6 @@ Red phase tests: =error-code-contract-spec.el=, "extracts provider for cloud_pro
 =scope-shell-tools.el:777= defines a character-by-character parser version.
 
 The second definition shadows the first at load time.  Both are used via different wrapper functions (=matches-pattern= vs =glob-match-p=).
-
-** add-bash-to-scope writes invalid categories
-
-=scope-expansion.el:add-bash-to-scope= writes to =bash_tools.categories= for non-path resources.  =load-schema= rejects configs with a =categories= section.
-
-Red phase tests: =expansion-roundtrip-spec.el=, "adding a command name resource produces valid config"
 
 ** Allow-once checked at two layers
 

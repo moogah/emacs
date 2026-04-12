@@ -22,15 +22,6 @@ org_roam_patterns:
   tags: []
   node_ids: []
 
-bash_tools:
-  # Deny list: Commands never allowed, even with scope expansion
-  # Minimal set for security: privilege escalation, destructive operations
-  deny:
-    - "sudo"
-    - "dd"
-    - "chmod"
-    - "chown"
-
 # V4 Schema: Cloud authentication detection
 # System exploration may encounter cloud CLI tools
 cloud:

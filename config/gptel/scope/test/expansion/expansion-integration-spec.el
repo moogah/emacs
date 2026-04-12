@@ -156,18 +156,7 @@ Returns check-result from validator."
         (expect (plist-get violation-info :reason) :to-be-truthy)
         (expect (plist-get violation-info :validation-type) :to-equal 'bash)))
 
-    (it "command_denied from real validate-pipeline-commands flows through correctly"
-      ;; Call real bash-side validator: denied command
-      (let* ((bash-tools '(:deny ("rm" "sudo")))
-             (validation-error (jf/gptel-scope--validate-pipeline-commands
-                                '("ls" "rm") bash-tools))
-             (violation-info (jf/gptel-scope--build-violation-info
-                              validation-error "run_bash_command")))
-        (expect (plist-get validation-error :error) :to-equal "command_denied")
-        (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
-        (expect (plist-get violation-info :resource) :to-equal "rm")
-        (expect (plist-get violation-info :reason) :to-be-truthy)
-        (expect (plist-get violation-info :validation-type) :to-equal 'bash))))
+    )
 
   (describe "Reason extracted from :message field"
 
