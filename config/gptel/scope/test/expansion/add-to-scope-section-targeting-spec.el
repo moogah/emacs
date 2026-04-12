@@ -1,4 +1,4 @@
-;;; add-to-scope-section-targeting-spec.el --- RED: add-to-scope should target section by denied operation -*- lexical-binding: t; -*-
+;;; add-to-scope-section-targeting-spec.el --- add-path-to-scope section targeting by denied operation -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,23 +7,16 @@
 
 ;;; Commentary:
 
-;; RED PHASE UNIT TESTS for add-path-to-scope section targeting.
+;; Specifies how `jf/gptel-scope--add-path-to-scope' picks which
+;; `paths.*' subsection to write to, based on the DENIED-OPERATION
+;; keyword passed from the validation pipeline.
 ;;
-;; BUG: add-path-to-scope determines the target section (paths.read vs
-;; paths.write) by looking up the TOOL's category operation:
-;;   (let* ((category (cdr (assoc tool jf/gptel-scope--tool-categories)))
-;;          (operation (plist-get category :operation))
-;;          (target-section (if (eq operation 'read) :read :write)))
-;;
-;; For run_bash_command, the tool category says :operation write (because bash
-;; commands CAN write). But when the denial was for a :read-metadata operation
-;; on "/brew", the path should go to paths.read, not paths.write.
-;;
-;; The fix: add-path-to-scope (or its caller) needs the DENIED OPERATION from
-;; the validation pipeline, not just the tool name. This could come through
-;; violation-info :operation.
-;;
-;; Tests assert CORRECT behavior and fail against current implementation.
+;; Historical context: an earlier version of add-path-to-scope chose the
+;; target section from a tool-name registry (jf/gptel-scope--tool-categories).
+;; That made run_bash_command always target paths.write, even when the
+;; denial was a read-metadata failure on a sub-command. The fix: drive
+;; the section choice from the actual denied operation in the validation
+;; error, not from the tool name. These tests lock that behavior in.
 
 ;;; Code:
 
@@ -35,8 +28,7 @@
        (scope-test-dir (expand-file-name ".." test-dir))
        (scope-dir (expand-file-name ".." scope-test-dir)))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
-  (require 'jf-gptel-scope-validation (expand-file-name "scope-validation.el" scope-dir))
-  (require 'jf-gptel-scope-tool-wrapper (expand-file-name "scope-tool-wrapper.el" scope-dir))
+  (require 'jf-gptel-scope-yaml (expand-file-name "scope-yaml.el" scope-dir))
   (require 'jf-gptel-scope-expansion (expand-file-name "scope-expansion.el" scope-dir)))
 
 ;;; Test Infrastructure
@@ -45,19 +37,12 @@
 (defvar section--scope-file nil)
 
 (defun section--make-empty-scope-yml ()
-  "Create scope.yml with empty read/write paths."
+  "Create scope.yml with empty read/write/execute/modify paths."
   (let ((yaml "paths:
-  read:
-    []
-  write:
-    []
-  execute:
-    []
-  modify:
-    []
-  deny:
-    []
-bash_tools:
+  read: []
+  write: []
+  execute: []
+  modify: []
   deny: []
 cloud:
   auth_detection: \"warn\"
@@ -70,12 +55,16 @@ security:
 
 (defun section--parse-scope-yml ()
   "Parse the test scope.yml into a normalized plist."
-  (jf/gptel-scope-yaml--normalize-keys
-   (jf/gptel-scope-yaml--parse-string
-    (with-temp-buffer
-      (insert-file-contents section--scope-file)
-      (buffer-string)))))
+  (jf/gptel-scope-yaml--parse-file section--scope-file))
 
+(defun section--paths-for (section)
+  "Return the list under `paths.SECTION' in the current test scope file."
+  (plist-get (plist-get (section--parse-scope-yml) :paths) section))
+
+(defun section--matches-p (section substring)
+  "Return non-nil if any path in SECTION contains SUBSTRING."
+  (cl-some (lambda (p) (string-match-p substring p))
+           (section--paths-for section)))
 
 ;;; Tests
 
@@ -90,86 +79,73 @@ security:
     (when (and section--temp-dir (file-exists-p section--temp-dir))
       (delete-directory section--temp-dir t)))
 
-  (describe "run_bash_command tool adds to wrong section"
+  (describe "without denied-operation"
 
-    (it "run_bash_command is categorized as :operation write"
-      ;; Characterization: this is a fact about the tool categories
-      (let ((category (cdr (assoc "run_bash_command" jf/gptel-scope--tool-categories))))
-        (expect (plist-get category :operation) :to-equal 'write)))
-
-    (it "add-path-to-scope puts run_bash_command paths in :write (even for read denials)"
-      ;; Characterization of CURRENT behavior — this test PASSES
-      ;; It documents the bug: all bash tool paths go to write
+    (it "defaults to paths.read (the safest default)"
       (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/brew" "run_bash_command")
+       section--scope-file "/outside/file.txt" "run_bash_command")
+      (expect (section--matches-p :read "file\\.txt") :to-be-truthy)
+      (expect (section--matches-p :write "file\\.txt") :not :to-be-truthy)))
 
-      (let* ((scope (section--parse-scope-yml))
-             (paths (plist-get scope :paths))
-             (write-paths (plist-get paths :write)))
-        (expect (cl-some (lambda (p) (string-match-p "brew" p)) write-paths)
-                :to-be-truthy))))
+  (describe "with :read-family operations"
 
-  (describe "correct behavior: section should match denied operation"
+    (it ":read targets paths.read"
+      (jf/gptel-scope--add-path-to-scope
+       section--scope-file "/brew" "run_bash_command" :read)
+      (expect (section--matches-p :read "brew") :to-be-truthy)
+      (expect (section--matches-p :write "brew") :not :to-be-truthy))
 
-    (it "read-denied path should go to paths.read, not paths.write"
-      ;; When "which brew" is denied because /brew is not in paths.read,
-      ;; "Add to scope" should expand paths.read, not paths.write
-      ;; Pass denied-operation :read-metadata to target the correct section
+    (it ":read-metadata targets paths.read"
+      ;; The original bug: bash tools doing metadata lookups (which brew)
+      ;; were denied for a :read-metadata op but the path landed in write.
       (jf/gptel-scope--add-path-to-scope
        section--scope-file "/brew" "run_bash_command" :read-metadata)
+      (expect (section--matches-p :read "brew") :to-be-truthy)
+      (expect (section--matches-p :write "brew") :not :to-be-truthy))
 
-      (let* ((scope (section--parse-scope-yml))
-             (paths (plist-get scope :paths))
-             (read-paths (plist-get paths :read))
-             (write-paths (plist-get paths :write)))
-        ;; RED: Currently /brew goes to paths.write
-        ;; CORRECT: Should go to paths.read
-        (expect (cl-some (lambda (p) (string-match-p "brew" p)) read-paths)
-                :to-be-truthy)
-        (expect (cl-some (lambda (p) (string-match-p "brew" p)) write-paths)
-                :to-be nil)))
-
-    (it "write-denied path should go to paths.write"
-      ;; When a bash command writes to an out-of-scope path,
-      ;; "Add to scope" should expand paths.write
-      ;; NOTE: This currently works by accident (run_bash_command is write)
-      ;; but should work by design (the denied operation was :write)
+    (it ":read-directory targets paths.read"
       (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/tmp/output.txt" "run_bash_command")
+       section--scope-file "/usr/local" "run_bash_command" :read-directory)
+      (expect (section--matches-p :read "usr/local") :to-be-truthy))
 
-      (let* ((scope (section--parse-scope-yml))
-             (paths (plist-get scope :paths))
-             (write-paths (plist-get paths :write)))
-        ;; This happens to pass because run_bash_command → write
-        ;; But the correct reason should be: denied operation was :write
-        (expect (cl-some (lambda (p) (string-match-p "output" p)) write-paths)
-                :to-be-truthy))))
-
-  (describe "read_file tool (contrast case)"
-
-    (it "read_file paths correctly go to paths.read"
-      ;; read_file has :operation read, so add-path-to-scope gets this right
+    (it ":match-pattern targets paths.read"
       (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/outside/file.txt" "read_file")
+       section--scope-file "/workspace/src" "read_file" :match-pattern)
+      (expect (section--matches-p :read "workspace/src") :to-be-truthy)))
 
-      (let* ((scope (section--parse-scope-yml))
-             (paths (plist-get scope :paths))
-             (read-paths (plist-get paths :read))
-             (write-paths (plist-get paths :write)))
-        (expect (cl-some (lambda (p) (string-match-p "file\\.txt" p)) read-paths)
-                :to-be-truthy)
-        (expect (cl-some (lambda (p) (string-match-p "file\\.txt" p)) write-paths)
-                :to-be nil)))
+  (describe "with :write-family operations"
 
-    (it "write_file_in_scope paths correctly go to paths.write"
+    (it ":write targets paths.write"
       (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/outside/file.txt" "write_file_in_scope")
+       section--scope-file "/tmp/output.txt" "run_bash_command" :write)
+      (expect (section--matches-p :write "output") :to-be-truthy)
+      (expect (section--matches-p :read "output") :not :to-be-truthy))
 
-      (let* ((scope (section--parse-scope-yml))
-             (paths (plist-get scope :paths))
-             (write-paths (plist-get paths :write)))
-        (expect (cl-some (lambda (p) (string-match-p "file\\.txt" p)) write-paths)
-                :to-be-truthy)))))
+    (it ":create targets paths.write"
+      (jf/gptel-scope--add-path-to-scope
+       section--scope-file "/tmp/new.txt" "write_file_in_scope" :create)
+      (expect (section--matches-p :write "new") :to-be-truthy))
+
+    (it ":delete targets paths.write"
+      (jf/gptel-scope--add-path-to-scope
+       section--scope-file "/tmp/old.txt" "run_bash_command" :delete)
+      (expect (section--matches-p :write "old") :to-be-truthy))
+
+    (it ":modify targets paths.write"
+      ;; :modify is intentionally folded into paths.write — in-place edits
+      ;; are a form of writing, not a separate permission class at scope time.
+      (jf/gptel-scope--add-path-to-scope
+       section--scope-file "/tmp/config.el" "edit_file_in_scope" :modify)
+      (expect (section--matches-p :write "config") :to-be-truthy)))
+
+  (describe "with :execute"
+
+    (it ":execute targets paths.execute"
+      (jf/gptel-scope--add-path-to-scope
+       section--scope-file "/workspace/scripts/run.sh" "run_bash_command" :execute)
+      (expect (section--matches-p :execute "run\\.sh") :to-be-truthy)
+      (expect (section--matches-p :read "run\\.sh") :not :to-be-truthy)
+      (expect (section--matches-p :write "run\\.sh") :not :to-be-truthy))))
 
 (provide 'add-to-scope-section-targeting-spec)
 

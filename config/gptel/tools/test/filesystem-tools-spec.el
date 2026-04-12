@@ -7,24 +7,16 @@
 
 ;;; Commentary:
 
-;; TOOL-SCOPE CONTRACT TESTS: filesystem tools (read_file, write_file_in_scope,
-;; edit_file_in_scope, list_directory, create_file)
+;; TOOL-SCOPE CONTRACT TESTS: filesystem tools
 ;;
-;; These tests verify the contract between filesystem tools and the scope system.
-;; They do NOT re-test path validation logic (that is scope/test/'s job).
+;; These tests verify the contract between filesystem tools and the scope
+;; system. They do NOT re-test path validation logic (that is scope/test/'s
+;; job) — they verify that tools fail cleanly on validation denials and that
+;; expansion triggers receive the denied resource.
 ;;
-;; Strategy: Spy on scope entry points and verify:
-;; 1. read_file calls jf/gptel-scope--validate-path-tool with ("read", filepath)
-;; 2. write_file_in_scope calls jf/gptel-scope--validate-path-tool with ("write", filepath)
-;; 3. On validation success, tool executes its file operation
-;; 4. On validation failure, returns error without touching filesystem
-;; 5. On validation failure with expansion, triggers expansion UI
-;;
-;; Spied functions:
-;; - jf/gptel-scope--check-tool-permission: Routes to validate-path-tool
-;; - jf/gptel-scope--validate-path-tool: Path validation
-;; - jf/gptel-scope--trigger-inline-expansion: Expansion UI
-;; - File I/O functions: file-exists-p, insert-file-contents, write-file
+;; Strategy: build synthetic denied check-results via tool-test helpers and
+;; verify that `format-tool-error' and `trigger-inline-expansion' produce
+;; the expected shapes without touching the filesystem.
 
 ;;; Code:
 
@@ -44,30 +36,6 @@
 ;;; Test Suite: read_file tool-scope contract
 
 (describe "read_file: tool-scope contract"
-
-  (describe "calls jf/gptel-scope--check-tool-permission with correct args"
-
-    (it "passes tool name 'read_file' to permission check"
-      (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (let ((config (tool-test--scope-config-minimal))
-            (args '("/workspace/file.txt")))
-        (jf/gptel-scope--check-tool-permission config "read_file" args nil)
-        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--check-tool-permission 0)))
-          (expect (nth 1 call-args) :to-equal "read_file"))))
-
-    (it "passes filepath as first arg"
-      (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (let ((config (tool-test--scope-config-minimal))
-            (args '("/workspace/src/main.el")))
-        (jf/gptel-scope--check-tool-permission config "read_file" args nil)
-        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--check-tool-permission 0)))
-          (expect (car (nth 2 call-args)) :to-equal "/workspace/src/main.el"))))
-
-    (it "routes to path validation for read operation"
-      ;; Verify tool category maps read_file to path validation with read operation
-      (let ((category (cdr (assoc "read_file" jf/gptel-scope--tool-categories))))
-        (expect (plist-get category :validation) :to-equal 'path)
-        (expect (plist-get category :operation) :to-equal 'read))))
 
   (describe "on validation success, reads file"
 
@@ -113,21 +81,6 @@
 
 (describe "write_file_in_scope: tool-scope contract"
 
-  (describe "calls permission check with write operation"
-
-    (it "passes tool name 'write_file_in_scope'"
-      (spy-on 'jf/gptel-scope--check-tool-permission :and-return-value (tool-test--scope-allowed))
-      (let ((config (tool-test--scope-config-minimal))
-            (args '("/workspace/new-file.el" "content")))
-        (jf/gptel-scope--check-tool-permission config "write_file_in_scope" args nil)
-        (let ((call-args (spy-calls-args-for 'jf/gptel-scope--check-tool-permission 0)))
-          (expect (nth 1 call-args) :to-equal "write_file_in_scope"))))
-
-    (it "routes to path validation with write operation"
-      (let ((category (cdr (assoc "write_file_in_scope" jf/gptel-scope--tool-categories))))
-        (expect (plist-get category :validation) :to-equal 'path)
-        (expect (plist-get category :operation) :to-equal 'write))))
-
   (describe "on validation success, writes file"
 
     (it "creates file with content when allowed"
@@ -162,11 +115,6 @@
 ;;; Test Suite: edit_file_in_scope tool-scope contract
 
 (describe "edit_file_in_scope: tool-scope contract"
-
-  (it "routes to path validation with write operation"
-    (let ((category (cdr (assoc "edit_file_in_scope" jf/gptel-scope--tool-categories))))
-      (expect (plist-get category :validation) :to-equal 'path)
-      (expect (plist-get category :operation) :to-equal 'write)))
 
   (it "returns error without modifying when permission denied"
     (let* ((denied (tool-test--scope-denied "path_out_of_scope" "/etc/config" "edit_file_in_scope"))

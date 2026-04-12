@@ -60,22 +60,12 @@
 ;;; Helper Functions
 
 (defun expansion-integration--call-path-validator (filepath operation)
-  "Call path validator with FILEPATH and OPERATION.
+  "Call filesystem validator with FILEPATH and OPERATION (read or write).
 Returns check-result from validator."
-  (let* ((tool-name (if (eq operation 'read) "read_file" "write_file_in_scope"))
-         (category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
-         (args (list filepath))
-         (metadata nil))
-    (jf/gptel-scope--validate-path-tool tool-name args category expansion-integration--test-scope-config metadata)))
-
-(defun expansion-integration--call-pattern-validator (pattern)
-  "Call pattern validator with PATTERN.
-Returns check-result from validator."
-  (let* ((tool-name "create_roam_node_in_scope")
-         (category (cdr (assoc tool-name jf/gptel-scope--tool-categories)))
-         (args (list pattern))
-         (config '(:roam (:node-patterns ("work/**" "personal/**")))))
-    (jf/gptel-scope--validate-pattern-tool tool-name args category config)))
+  (let ((tool-name (if (eq operation 'read) "read_file" "write_file_in_scope")))
+    (jf/gptel-scope--validate-filesystem-tool
+     tool-name operation (list filepath)
+     expansion-integration--test-scope-config nil)))
 
 ;;; ============================================================
 ;;; Tests absorbed from integration-validator-expansion-spec.el
@@ -109,20 +99,6 @@ Returns check-result from validator."
                              :message "Path denied by scope: /workspace/denied/file.txt"))
              (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
         (expect (plist-get violation-info :reason) :to-equal "Path denied by scope: /workspace/denied/file.txt"))))
-
-  (describe "Pattern validator integration"
-
-    (it "transforms pattern validator denial into valid violation-info"
-      (let* ((check-result (expansion-integration--call-pattern-validator "invalid/node/path"))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "create_roam_node_in_scope")))
-        ;; Verify check-result format
-        (expect (plist-get check-result :allowed) :to-be nil)
-        (expect (plist-get check-result :error) :to-be-truthy)
-
-        ;; Verify violation-info transformation
-        (expect (plist-get violation-info :tool) :to-equal "create_roam_node_in_scope")
-        (expect (plist-get violation-info :reason) :not :to-be nil)
-        (expect (plist-get violation-info :validation-type) :to-equal 'pattern))))
 
   (describe "Bash validator integration — real validator output"
 
@@ -354,45 +330,7 @@ Returns check-result from validator."
         ;; Cleanup
         (delete-file scope-yml))))
 
-  (describe "Cross-validator violation-info format consistency"
-
-    (it "all real validator types produce compatible violation-info for expansion UI"
-      ;; Call real validators and verify their output flows through build-violation-info
-      ;; with all fields the expansion UI expects
-      (let* (;; Real path validator
-             (path-check (expansion-integration--call-path-validator "/tmp/outside.txt" 'read))
-             ;; Real bash-side validator (path out of scope)
-             (bash-check (jf/gptel-scope--validate-operation
-                          :read "/tmp/file.txt"
-                          '(:read ("/workspace/**") :write () :execute ()
-                            :modify () :deny ())))
-             ;; Real pattern validator
-             (pattern-check (expansion-integration--call-pattern-validator "invalid/node/path")))
-
-        ;; Build violation-info from each real result
-        (let ((path-vi (jf/gptel-scope--build-violation-info path-check "read_file"))
-              (bash-vi (jf/gptel-scope--build-violation-info bash-check "run_bash_command"))
-              (pattern-vi (jf/gptel-scope--build-violation-info pattern-check "create_roam_node_in_scope")))
-
-          ;; All should have :tool field
-          (expect (plist-get path-vi :tool) :to-equal "read_file")
-          (expect (plist-get bash-vi :tool) :to-equal "run_bash_command")
-          (expect (plist-get pattern-vi :tool) :to-equal "create_roam_node_in_scope")
-
-          ;; All should have :reason field (required for UI display)
-          (expect (plist-get path-vi :reason) :to-be-truthy)
-          (expect (plist-get bash-vi :reason) :to-be-truthy)
-          (expect (plist-get pattern-vi :reason) :to-be-truthy)
-
-          ;; All should have :resource field
-          (expect (plist-get path-vi :resource) :to-be-truthy)
-          (expect (plist-get bash-vi :resource) :to-be-truthy)
-          (expect (plist-get pattern-vi :resource) :to-be-truthy)
-
-          ;; Each has appropriate validation-type
-          (expect (plist-get path-vi :validation-type) :to-equal 'path)
-          (expect (plist-get bash-vi :validation-type) :to-equal 'bash)
-          (expect (plist-get pattern-vi :validation-type) :to-equal 'pattern))))))
+  )
 
 (provide 'expansion-integration-spec)
 ;;; expansion-integration-spec.el ends here
