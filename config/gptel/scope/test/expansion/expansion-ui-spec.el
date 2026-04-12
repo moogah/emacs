@@ -135,7 +135,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
           ;; Assert: Validation fails (returns error plist)
           (expect result :not :to-be nil)
           (expect (plist-get result :error) :to-equal "not-in-scope")
-          (expect (plist-get result :path) :to-equal "/tmp/secret.txt")
+          (expect (plist-get result :resource) :to-equal "/tmp/secret.txt")
           (expect (plist-get result :operation) :to-equal :read))
 
         ;; Cleanup

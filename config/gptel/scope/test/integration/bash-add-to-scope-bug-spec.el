@@ -187,7 +187,7 @@ security:
                      "which brew" "/" config)))
         (expect result :not :to-be nil)
         (expect (plist-get result :error) :to-equal "not-in-scope")
-        (expect (plist-get result :path) :to-equal "/brew")))))
+        (expect (plist-get result :resource) :to-equal "/brew")))))
 
 
 ;; ============================================================
@@ -208,15 +208,12 @@ security:
 
   (it "expansion UI :resource should be the denied path '/brew', not allow-once composite"
     (let* ((captured-violation nil)
-           ;; Validation error from the pipeline — :path is "/brew"
+           ;; Canonical validation error from validate-file-operation
            (validation-error (list :allowed nil
-                                   :error "path_out_of_scope"
-                                   :path "/brew"
+                                   :error "not-in-scope"
+                                   :resource "/brew"
                                    :operation :read-metadata
-                                   :message "Path not in read-metadata scope: /brew"
-                                   :tool "run_bash_command"
-                                   :resource "which brew"
-                                   :command "which brew"))
+                                   :message "Path not in :read-metadata scope: /brew"))
            (tool-args '("which brew" "/")))
 
       ;; Capture what the expansion UI receives
@@ -430,7 +427,7 @@ security:
                                      (plist-get paths :write))))
           ;; At least one pattern should match /brew
           (expect (cl-some (lambda (p)
-                             (jf/gptel-scope--matches-pattern "/brew" p))
+                             (jf/gptel-scope--glob-match-p "/brew" p))
                            all-patterns)
                   :to-be-truthy))))))
 

@@ -7,19 +7,18 @@
 
 ;;; Commentary:
 
-;; RED PHASE UNIT TESTS for trigger-inline-expansion :resource handling.
+;; Tests for trigger-inline-expansion :resource handling.
 ;;
-;; BUG: trigger-inline-expansion overwrites violation-info :resource with the
-;; allow-once composite format ("command:directory") for ALL downstream consumers.
-;; The expansion UI — specifically the add-to-scope action — needs the DENIED PATH
-;; to know what to add to scope.yml.
+;; The expansion UI's add-to-scope action needs the denied path in
+;; violation-info :resource to know what to add to scope.yml. The
+;; allow-once action needs the composite "command:directory" key to
+;; match what check-allow-once constructs on retry. Both must be
+;; available simultaneously: :resource for add-to-scope, and
+;; :allow-once-resource for allow-once.
 ;;
-;; The allow-once action also needs the composite key, but it currently gets it
-;; from violation-info :resource too. The fix must preserve both:
-;;   - denied path (for add-to-scope)
-;;   - allow-once composite key (for allow-once)
-;;
-;; Tests assert CORRECT behavior and fail against current implementation.
+;; These tests inject canonical validation errors (denied-pattern /
+;; not-in-scope with :resource) into trigger-inline-expansion and
+;; verify the resulting violation-info preserves the denied path.
 
 ;;; Code:
 
@@ -48,19 +47,16 @@
     (when (boundp 'jf/gptel-scope--allow-once-list)
       (setq jf/gptel-scope--allow-once-list nil)))
 
-  (describe "bash tool with path_out_of_scope error"
+  (describe "bash tool with not-in-scope error"
 
-    (it "expansion UI :resource should be the denied path, not the allow-once composite"
-      ;; Validation error from 7-stage pipeline: /brew is out of scope
+    (it "expansion UI :resource is the denied path for read-metadata operation"
+      ;; Canonical validation error from validate-file-operation: /brew not in scope
       (let* ((captured-violation nil)
              (validation-error (list :allowed nil
-                                     :error "path_out_of_scope"
-                                     :path "/brew"
+                                     :error "not-in-scope"
+                                     :resource "/brew"
                                      :operation :read-metadata
-                                     :message "Path not in read-metadata scope: /brew"
-                                     :tool "run_bash_command"
-                                     :resource "which brew"
-                                     :command "which brew"))
+                                     :message "Path not in read-metadata scope: /brew"))
              (tool-args '("which brew" "/")))
 
         (spy-on 'jf/gptel-scope-prompt-expansion
@@ -73,20 +69,18 @@
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)
-        ;; RED: Currently receives "which brew:/" (allow-once composite)
-        ;; CORRECT: Should receive "/brew" (the denied path)
-        (expect (plist-get captured-violation :resource) :to-equal "/brew")))
+        (expect (plist-get captured-violation :resource) :to-equal "/brew")
+        ;; allow-once still gets the composite key for retry matching
+        (expect (plist-get captured-violation :allow-once-resource)
+                :to-equal (format "which brew:%s" (expand-file-name "/")))))
 
-    (it "expansion UI :resource for 'cat /etc/passwd' should be '/etc/passwd'"
+    (it "expansion UI :resource is the denied path for 'cat /etc/passwd'"
       (let* ((captured-violation nil)
              (validation-error (list :allowed nil
-                                     :error "path_out_of_scope"
-                                     :path "/etc/passwd"
+                                     :error "not-in-scope"
+                                     :resource "/etc/passwd"
                                      :operation :read
-                                     :message "Path not in read scope: /etc/passwd"
-                                     :tool "run_bash_command"
-                                     :resource "cat /etc/passwd"
-                                     :command "cat /etc/passwd"))
+                                     :message "Path not in read scope: /etc/passwd"))
              (tool-args '("cat /etc/passwd" "/workspace")))
 
         (spy-on 'jf/gptel-scope-prompt-expansion
@@ -99,19 +93,16 @@
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)
-        ;; RED: Currently receives "cat /etc/passwd:/workspace" (composite)
-        ;; CORRECT: Should receive "/etc/passwd" (the denied path)
         (expect (plist-get captured-violation :resource) :to-equal "/etc/passwd")))
 
-    (it "expansion UI :resource for command_denied should be the command name"
+    (it "denied-pattern carries the matched path through expansion UI"
       (let* ((captured-violation nil)
              (validation-error (list :allowed nil
-                                     :error "command_denied"
-                                     :command "rm"
-                                     :message "Command 'rm' is in deny list"
-                                     :tool "run_bash_command"
-                                     :resource "rm -rf /tmp/foo"))
-             (tool-args '("rm -rf /tmp/foo" "/workspace")))
+                                     :error "denied-pattern"
+                                     :resource "/etc/passwd"
+                                     :operation :read
+                                     :message "Path denied by scope: /etc/passwd"))
+             (tool-args '("cat /etc/passwd" "/workspace")))
 
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
@@ -123,11 +114,7 @@
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)
-        ;; For command_denied, resource should be the command, not a file path
-        ;; build-violation-info maps command_denied → :command field
-        ;; RED: Currently receives "rm -rf /tmp/foo:/workspace" (composite)
-        ;; CORRECT: Should receive "rm" (the denied command)
-        (expect (plist-get captured-violation :resource) :to-equal "rm"))))
+        (expect (plist-get captured-violation :resource) :to-equal "/etc/passwd"))))
 
   (describe "path tool with not-in-scope error"
 
@@ -160,11 +147,10 @@
 
     (it "allow-once action stores a key that check-allow-once can find (bash tool)"
       (let* ((validation-error (list :allowed nil
-                                     :error "path_out_of_scope"
-                                     :path "/brew"
-                                     :tool "run_bash_command"
-                                     :resource "which brew"
-                                     :command "which brew"))
+                                     :error "not-in-scope"
+                                     :resource "/brew"
+                                     :operation :read-metadata
+                                     :message "Path not in read-metadata scope: /brew"))
              (tool-args '("which brew" "/")))
 
         ;; Simulate allow-once: the expansion UI needs a resource value that,

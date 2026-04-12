@@ -151,7 +151,7 @@ security:
                      scope-config)))
         ;; Assert: Structured error with operation details
         (expect (plist-get result :error) :to-equal "not-in-scope")
-        (expect (plist-get result :path) :to-equal "/workspace/script.py")
+        (expect (plist-get result :resource) :to-equal "/workspace/script.py")
         (expect (plist-get result :operation) :to-equal :execute))
 
       ;; Cleanup
@@ -193,7 +193,7 @@ security:
                      scope-config)))
         ;; Assert: Structured error for denied path
         (expect (plist-get result :error) :to-equal "denied-pattern")
-        (expect (plist-get result :path) :to-equal "/etc/passwd"))
+        (expect (plist-get result :resource) :to-equal "/etc/passwd"))
 
       ;; Cleanup
       (delete-file scope-yml)))
@@ -290,7 +290,7 @@ security:
                      scope-config)))
         ;; Assert: Reports first violation (deny pattern)
         (expect (plist-get result :error) :to-equal "denied-pattern")
-        (expect (plist-get result :path) :to-equal "/etc/dst.txt"))
+        (expect (plist-get result :resource) :to-equal "/etc/dst.txt"))
 
       ;; Cleanup
       (delete-file scope-yml)))

@@ -185,7 +185,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
              (result (jf/gptel-scope--validate-file-operations
                       file-ops "/workspace" scope-config)))
         (expect (plist-get result :error) :to-equal "not-in-scope")
-        (expect (plist-get result :path) :to-equal "/etc/dest.txt")))
+        (expect (plist-get result :resource) :to-equal "/etc/dest.txt")))
 
     (it "first operation fails reports immediately"
       (let* ((file-ops (list
@@ -196,7 +196,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
              (result (jf/gptel-scope--validate-file-operations
                       file-ops "/workspace" scope-config)))
         (expect (plist-get result :error) :not :to-be nil)
-        (expect (plist-get result :path) :to-equal "/etc/bad.txt")))
+        (expect (plist-get result :resource) :to-equal "/etc/bad.txt")))
 
     (it "multiple read operations all validated"
       (let* ((file-ops (list
@@ -380,7 +380,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cat /etc/passwd" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "not-in-scope")
-          (expect (plist-get result :path) :to-equal "/etc/passwd"))
+          (expect (plist-get result :resource) :to-equal "/etc/passwd"))
         (delete-file scope-yml)))
 
     (it "denies write when only read scope exists via pipeline"
@@ -412,7 +412,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cat /workspace/.ssh/id_rsa" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "denied-pattern")
-          (expect (plist-get result :path) :to-equal "/workspace/.ssh/id_rsa"))
+          (expect (plist-get result :resource) :to-equal "/workspace/.ssh/id_rsa"))
         (delete-file scope-yml)))
 
     (it "denies when multiple file operations include paths outside scope"
@@ -429,7 +429,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cp /workspace/src.txt /tmp/dst.txt" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "not-in-scope")
-          (expect (plist-get result :path) :to-equal "/tmp/dst.txt"))
+          (expect (plist-get result :resource) :to-equal "/tmp/dst.txt"))
         (delete-file scope-yml)))
 
     (it "allows multiple operations when all within scope"

@@ -249,17 +249,22 @@ TOOL-NAME is the tool being validated.
 ARGS is the tool arguments list (command and directory).
 CONFIG is the scope configuration plist.
 
-Returns (:allowed t) on success or (:allowed nil :error ...) on failure."
+Returns (:allowed t) on success or (:allowed nil :error CODE ...) on
+failure. The denial plist preserves the canonical fields produced by the
+inner validator (notably :resource for path errors); the wrapper adds
+:tool and :command for downstream context."
   (let* ((command-full (car args))
          (directory (cadr args))
          (validation-error (jf/gptel-scope--validate-command-semantics
                             command-full directory config)))
     (if validation-error
-        (append (list :allowed nil
-                      :tool tool-name
-                      :resource command-full
-                      :command command-full)
-                validation-error)
+        ;; validation-error keys come first so plist-get prefers them.
+        ;; The wrapper only adds :tool and :command; it must NOT supply
+        ;; a default :resource or it would shadow the canonical :resource
+        ;; from validate-file-operation.
+        (append validation-error
+                (list :tool tool-name
+                      :command command-full))
       (list :allowed t))))
 ;; Bash Tool Entry Point:1 ends here
 
@@ -348,7 +353,11 @@ Returns nil if no-op (allowed), t if file ops exist (continue)."
 (defun jf/gptel-scope--validate-file-operation (file-op directory config)
   "Validate single FILE-OP against CONFIG using shared path validator.
 FILE-OP format: (:file PATH :operation OP :command CMD :confidence CONF)
-DIRECTORY is the working directory for resolving relative paths."
+DIRECTORY is the working directory for resolving relative paths.
+
+Returns nil if allowed, or a denial plist following the canonical
+contract in `scope/interface--error-codes': (:allowed nil :error CODE
+:resource PATH :operation OP :message STR ...)."
   (let* ((operation (plist-get file-op :operation))
          (path (plist-get file-op :file))
          (resolved-path (when path
@@ -359,9 +368,9 @@ DIRECTORY is the working directory for resolving relative paths."
       ;; Call shared validator — same function filesystem tools use
       (let ((result (jf/gptel-scope--validate-path-operation resolved-path operation config)))
         (unless (plist-get result :allowed)
-          ;; Return error fields (strip :allowed nil since caller adds it)
-          (list :error (plist-get result :error)
-                :path resolved-path
+          (list :allowed nil
+                :error (plist-get result :error)
+                :resource resolved-path
                 :operation operation
                 :required-scope (plist-get result :required-scope)
                 :message (plist-get result :message)))))))
