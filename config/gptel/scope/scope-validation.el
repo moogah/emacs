@@ -450,70 +450,28 @@ Returns nil if not found or can't be parsed."
      nil)))
 ;; Configuration Loading:1 ends here
 
-;; Tool Call Validation Entrypoint
+;; Authorization Dispatcher
 
-;; Single public entrypoint used by =gptel-make-scoped-tool=. Owns config
-;; load, metadata gather (for filesystem ops), and bash-vs-filesystem
-;; dispatch. OPERATION discriminates:
+;; Single public entry point used by =gptel-make-scoped-tool=. Owns
+;; config load, filesystem-vs-bash dispatch, expansion escalation, and
+;; final response formatting. Callers provide the tool identity,
+;; arguments, and on-allow/on-deny thunks — they do not need to know
+;; about =no_scope_config=, expansion UI, or error formatting.
+
+;; =OPERATION= discriminates the dispatch:
 
 ;; - =read=, =write=, =modify=, =execute= → filesystem path validation
 ;; - =nil= → semantic extraction (bash pipeline, operations computed from
 ;;   the command itself)
 
-;; Returns a plist whose keys are guaranteed to include =:allowed= plus
-;; =:validation-type= tagging the dispatch branch (=path= or =bash=) so
-;; expansion and error formatting can use it without recomputing. When
-;; config is missing, returns =(:allowed nil :error "no_scope_config" ...)=.
-
-
-;; [[file:scope-validation.org::*Tool Call Validation Entrypoint][Tool Call Validation Entrypoint:1]]
-(defun jf/gptel-scope-validate-tool-call (tool-name operation args)
-  "Validate a scope-aware tool call. Single entrypoint.
-TOOL-NAME is the tool name string.
-OPERATION is the declared operation symbol (read/write/modify/execute)
-or nil for tools whose operations must be extracted from input (bash).
-ARGS is the normalized tool argument list.
-
-Returns a plist containing :allowed plus either success data or denial
-context. Always includes :validation-type (path or bash)."
-  (let ((config (jf/gptel-scope--load-config)))
-    (cond
-     ((null config)
-      ;; Missing config is not a scope violation and does not go through
-      ;; expansion, so no :validation-type tag is needed. Keeping the
-      ;; plist free of Lisp symbols also lets callers json-serialize it
-      ;; directly.
-      (list :success nil
-            :allowed nil
-            :error "no_scope_config"
-            :message "No scope configuration found."))
-     ((null operation)
-      (append (jf/gptel-scope--validate-bash-tool tool-name args config)
-              (list :validation-type 'bash)))
-     (t
-      (let ((metadata (jf/gptel-scope--gather-file-metadata (car args))))
-        (append (jf/gptel-scope--validate-filesystem-tool
-                 tool-name operation args config metadata)
-                (list :validation-type 'path)))))))
-;; Tool Call Validation Entrypoint:1 ends here
-
-;; Authorization Dispatcher
-
-;; One entry point per sync/async flow that wraps the full
-;; validate → expansion → final-response decision. Callers provide only
-;; the tool identity, arguments, and what to do on allow/deny — they do
-;; not need to know about =no_scope_config=, expansion UI, or error
-;; formatting.
+;; The dispatcher tags every validation result with =:validation-type=
+;; (=path= or =bash=) so the expansion UI and error formatter can use it
+;; without recomputing.
 
 ;; =jf/gptel-scope--final-deny-response= centralizes the "what plist does
 ;; a denied call return to its caller" decision. =no_scope_config= is not
 ;; a scope violation and is surfaced verbatim so the LLM sees the raw
 ;; error; real violations go through =format-tool-error=.
-
-;; =jf/gptel-scope-authorize-tool-call= is the async dispatcher. Sync
-;; tools don't have a dispatcher because they can't escalate to expansion
-;; — they call =jf/gptel-scope-validate-tool-call= and
-;; =jf/gptel-scope--final-deny-response= directly.
 
 
 ;; [[file:scope-validation.org::*Authorization Dispatcher][Authorization Dispatcher:1]]
@@ -527,9 +485,25 @@ returned verbatim; real scope violations are formatted for the LLM."
     (jf/gptel-scope--format-tool-error
      tool-name (nth 0 args) check-result)))
 
+(defun jf/gptel-scope--validate-tool-call (tool-name operation args config)
+  "Dispatch TOOL-NAME's ARGS against CONFIG and return a validation plist.
+OPERATION is the declared filesystem operation symbol, or nil for
+tools whose operations are extracted from input (bash). The returned
+plist always includes :validation-type (path or bash)."
+  (if (null operation)
+      (append (jf/gptel-scope--validate-bash-tool tool-name args config)
+              (list :validation-type 'bash))
+    (let ((metadata (jf/gptel-scope--gather-file-metadata (car args))))
+      (append (jf/gptel-scope--validate-filesystem-tool
+               tool-name operation args config metadata)
+              (list :validation-type 'path)))))
+
 (defun jf/gptel-scope-authorize-tool-call (tool-name operation args on-allow on-deny)
-  "Validate a tool call and run ON-ALLOW or ON-DENY.
-TOOL-NAME, OPERATION, and ARGS match `jf/gptel-scope-validate-tool-call'.
+  "Validate a scope-aware tool call and run ON-ALLOW or ON-DENY.
+TOOL-NAME is the tool name string.
+OPERATION is the declared operation symbol (read/write/modify/execute)
+or nil for tools whose operations must be extracted from input (bash).
+ARGS is the normalized tool argument list.
 
 ON-ALLOW is a thunk invoked when the call is authorized — either
 because validation passed outright or because the user approved
@@ -538,24 +512,33 @@ suitable for serializing back to the LLM.
 
 This function is async: expansion UI may resolve on a later turn, so
 the callbacks must be prepared to run after this function returns."
-  (let ((check-result (jf/gptel-scope-validate-tool-call
-                       tool-name operation args)))
+  (let ((config (jf/gptel-scope--load-config)))
     (cond
-     ((plist-get check-result :allowed)
-      (funcall on-allow))
-
-     ((equal (plist-get check-result :error) "no_scope_config")
-      (funcall on-deny check-result))
-
+     ;; Missing config is not a scope violation and does not go through
+     ;; expansion. The raw plist is free of Lisp symbols so on-deny can
+     ;; json-serialize it directly.
+     ((null config)
+      (funcall on-deny
+               (list :success nil
+                     :allowed nil
+                     :error "no_scope_config"
+                     :message "No scope configuration found.")))
      (t
-      (jf/gptel-scope--trigger-inline-expansion
-       check-result tool-name
-       (lambda (expansion-result)
-         (if (plist-get expansion-result :approved)
-             (funcall on-allow)
-           (funcall on-deny
-                    (jf/gptel-scope--final-deny-response
-                     tool-name args check-result)))))))))
+      (let ((check-result (jf/gptel-scope--validate-tool-call
+                           tool-name operation args config)))
+        (cond
+         ((plist-get check-result :allowed)
+          (funcall on-allow))
+
+         (t
+          (jf/gptel-scope--trigger-inline-expansion
+           check-result tool-name
+           (lambda (expansion-result)
+             (if (plist-get expansion-result :approved)
+                 (funcall on-allow)
+               (funcall on-deny
+                        (jf/gptel-scope--final-deny-response
+                         tool-name args check-result))))))))))))
 ;; Authorization Dispatcher:1 ends here
 
 ;; Violation-Info Building

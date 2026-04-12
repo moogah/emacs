@@ -77,8 +77,6 @@ Use request_scope_expansion if you need to read files outside approved patterns.
 
  :operation read
 
- :async
-
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))
    (if (file-exists-p full-path)
@@ -121,8 +119,6 @@ When you receive a scope violation:
          :description "File contents to write"))
 
  :operation write
-
- :async
 
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))
@@ -168,8 +164,6 @@ Returns scope violation error if path not approved."
          :description "Replacement text"))
 
  :operation write
-
- :async
 
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))

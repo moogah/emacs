@@ -143,8 +143,6 @@ Examples:
  ;; No :operation — file operations are extracted from the command by
  ;; the bash semantic pipeline at validation time.
 
- :async
-
  (let* ((result (jf/gptel-bash--execute-command command directory))
         (exit-code (plist-get result :exit_code))
         (output (plist-get result :output))

@@ -94,7 +94,6 @@
              "Test"
              (list '(:name "filepath" :type string))
              :operation write
-             :async
              (progn
                (message "DEBUG: Tool body executing for %s" filepath)
                (setq simple-test-tool-executed t)

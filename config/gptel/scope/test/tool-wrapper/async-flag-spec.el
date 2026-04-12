@@ -1,4 +1,4 @@
-;;; async-flag-spec.el --- Async flag propagation through gptel-make-scoped-tool -*- lexical-binding: t; -*-
+;;; async-flag-spec.el --- Scoped tool registration is always async -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,10 +7,10 @@
 
 ;;; Commentary:
 
-;; Verifies that the :async keyword on gptel-make-scoped-tool reaches
-;; the registered gptel tool struct, producing a callback-first
-;; function signature, and that omitting :async produces a sync
-;; signature.
+;; Verifies that every scoped tool registered via gptel-make-scoped-tool
+;; reaches the gptel registry as async with a callback-first function
+;; signature. The expansion UI resolves asynchronously, so there is no
+;; supported sync path.
 
 ;;; Code:
 
@@ -33,52 +33,34 @@
             (throw 'found (cdr tool-entry))))))
     nil))
 
-(describe "gptel-make-scoped-tool async flag propagation"
+(describe "gptel-make-scoped-tool registration"
 
-  (describe "async scoped tools"
+  (it "marks scoped tools as async in the registry"
+    (eval
+     '(gptel-make-scoped-tool
+       "test_async_flag"
+       "Test async flag propagation"
+       (list '(:name "arg1" :type string :description "Arg"))
+       :operation read
+       (list :success t :value arg1)))
+    (let ((tool-found (async-flag--find-tool-in-registry "test_async_flag")))
+      (expect tool-found :to-be-truthy)
+      (expect (gptel-tool-async tool-found) :to-be t)))
 
-    (it "marks async tools as async in the registry"
-      (eval
-       '(gptel-make-scoped-tool
-         "test_async_flag"
-         "Test async flag propagation"
-         (list '(:name "arg1" :type string :description "Arg"))
-         :operation read
-         :async
-         (list :success t :value arg1)))
-      (let ((tool-found (async-flag--find-tool-in-registry "test_async_flag")))
-        (expect tool-found :to-be-truthy)
-        (expect (gptel-tool-async tool-found) :to-be t)))
-
-    (it "creates callback-first function signature for async tools"
-      (eval
-       '(gptel-make-scoped-tool
-         "test_callback_sig"
-         "Test callback signature"
-         (list '(:name "filepath" :type string :description "Path"))
-         :operation read
-         :async
-         (list :success t :content filepath)))
-      (let ((tool-found (async-flag--find-tool-in-registry "test_callback_sig")))
-        (expect tool-found :to-be-truthy)
-        (let ((fn (gptel-tool-function tool-found)))
-          (expect (functionp fn) :to-be t)
-          (let ((args (help-function-arglist fn t)))
-            (expect (car args) :to-be 'callback))))))
-
-  (describe "sync scoped tools"
-
-    (it "does not mark sync tools as async"
-      (eval
-       '(gptel-make-scoped-tool
-         "test_sync_flag"
-         "Test sync flag"
-         (list '(:name "arg1" :type string :description "Arg"))
-         :operation read
-         (list :success t :value arg1)))
-      (let ((tool-found (async-flag--find-tool-in-registry "test_sync_flag")))
-        (expect tool-found :to-be-truthy)
-        (expect (gptel-tool-async tool-found) :to-be nil)))))
+  (it "creates a callback-first function signature"
+    (eval
+     '(gptel-make-scoped-tool
+       "test_callback_sig"
+       "Test callback signature"
+       (list '(:name "filepath" :type string :description "Path"))
+       :operation read
+       (list :success t :content filepath)))
+    (let ((tool-found (async-flag--find-tool-in-registry "test_callback_sig")))
+      (expect tool-found :to-be-truthy)
+      (let ((fn (gptel-tool-function tool-found)))
+        (expect (functionp fn) :to-be t)
+        (let ((args (help-function-arglist fn t)))
+          (expect (car args) :to-be 'callback))))))
 
 (describe "read_file tool registration"
 
