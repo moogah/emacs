@@ -34,104 +34,110 @@
 
 ;;; Helper Functions
 
-(defun test-path--make-paths-config (&rest args)
-  "Create paths configuration plist from keyword arguments."
-  (list :read (plist-get args :read)
-        :write (plist-get args :write)
-        :execute (plist-get args :execute)
-        :modify (plist-get args :modify)
-        :deny (plist-get args :deny)))
+(defun test-path--make-config (&rest args)
+  "Create scope config plist with a :paths section from keyword arguments."
+  (list :paths
+        (list :read (plist-get args :read)
+              :write (plist-get args :write)
+              :execute (plist-get args :execute)
+              :modify (plist-get args :modify)
+              :deny (plist-get args :deny))))
 
 ;;; Operation Validation Tests (from validators-spec.el)
 
-(describe "jf/gptel-scope--validate-operation"
+(describe "jf/gptel-scope--validate-path-operation"
 
   (describe "read operation hierarchy"
     (it "allows read if in read patterns"
-      (let* ((paths-config (test-path--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :read "/workspace/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (test-path--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "allows read if in write patterns (write includes read)"
-      (let* ((paths-config (test-path--make-paths-config
-                            :write '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :read "/workspace/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (test-path--make-config
+                      :write '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "denies read if not in read or write patterns"
-      (let* ((paths-config (test-path--make-paths-config
-                            :read '("/tmp/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :read "/workspace/file.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")
+      (let* ((config (test-path--make-config
+                      :read '("/tmp/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")
         (expect (plist-get result :operation) :to-equal :read))))
 
   (describe "write operation"
     (it "allows write if in write patterns"
-      (let* ((paths-config (test-path--make-paths-config
-                            :write '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :write "/workspace/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (test-path--make-config
+                      :write '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/file.txt" :write config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "denies write if not in write patterns"
-      (let* ((paths-config (test-path--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :write "/workspace/file.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")
+      (let* ((config (test-path--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/file.txt" :write config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")
         (expect (plist-get result :operation) :to-equal :write))))
 
   (describe "modify operation hierarchy"
     (it "allows modify if in modify patterns"
-      (let* ((paths-config (test-path--make-paths-config
-                            :modify '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :modify "/workspace/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (test-path--make-config
+                      :modify '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/file.txt" :modify config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "allows modify if in write patterns (write includes modify)"
-      (let* ((paths-config (test-path--make-paths-config
-                            :write '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :modify "/workspace/file.txt" paths-config)))
-        (expect result :to-be nil))))
+      (let* ((config (test-path--make-config
+                      :write '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/file.txt" :modify config)))
+        (expect (plist-get result :allowed) :to-be t))))
 
   (describe "execute operation"
     (it "requires explicit execute permission"
-      (let* ((paths-config (test-path--make-paths-config
-                            :execute '("/workspace/scripts/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :execute "/workspace/scripts/deploy.sh" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (test-path--make-config
+                      :execute '("/workspace/scripts/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/scripts/deploy.sh" :execute config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "denies execute even if in write patterns"
-      (let* ((paths-config (test-path--make-paths-config
-                            :write '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :execute "/workspace/script.sh" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope"))))
+      (let* ((config (test-path--make-config
+                      :write '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/script.sh" :execute config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope"))))
 
   (describe "deny precedence"
     (it "denies access even if in allow patterns"
-      (let* ((paths-config (test-path--make-paths-config
-                            :read '("/workspace/**")
-                            :deny '("/workspace/secret/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :read "/workspace/secret/key.pem" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_denied")
-        (expect (plist-get result :path) :to-equal "/workspace/secret/key.pem")))
+      (let* ((config (test-path--make-config
+                      :read '("/workspace/**")
+                      :deny '("/workspace/secret/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/secret/key.pem" :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "denied-pattern")
+        (expect (plist-get result :resource) :to-equal "/workspace/secret/key.pem")))
 
     (it "deny overrides write permission"
-      (let* ((paths-config (test-path--make-paths-config
-                            :write '("/workspace/**")
-                            :deny '("/workspace/.git/**")))
-             (result (jf/gptel-scope--validate-operation
-                      :write "/workspace/.git/config" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_denied")))))
+      (let* ((config (test-path--make-config
+                      :write '("/workspace/**")
+                      :deny '("/workspace/.git/**")))
+             (result (jf/gptel-scope--validate-path-operation
+                      "/workspace/.git/config" :write config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "denied-pattern")))))
 
 ;;; Security Config Validation Tests (from validators-spec.el)
 
@@ -163,31 +169,33 @@
 
 (describe "validation error structure"
 
-  (it "includes all required fields for path_out_of_scope"
-    (let* ((paths-config (test-path--make-paths-config :read '("/workspace/**")))
-           (result (jf/gptel-scope--validate-operation
-                    :read "/etc/passwd" paths-config)))
-      (expect (plist-get result :error) :to-equal "path_out_of_scope")
-      (expect (plist-get result :path) :to-equal "/etc/passwd")
+  (it "includes all required fields for not-in-scope"
+    (let* ((config (test-path--make-config :read '("/workspace/**")))
+           (result (jf/gptel-scope--validate-path-operation
+                    "/etc/passwd" :read config)))
+      (expect (plist-get result :allowed) :to-be nil)
+      (expect (plist-get result :error) :to-equal "not-in-scope")
+      (expect (plist-get result :resource) :to-equal "/etc/passwd")
       (expect (plist-get result :operation) :to-equal :read)
       (expect (plist-get result :required-scope) :not :to-be nil)
       (expect (plist-get result :message) :not :to-be nil)))
 
-  (it "includes all required fields for path_denied"
-    (let* ((paths-config (test-path--make-paths-config
-                          :read '("/workspace/**")
-                          :deny '("/workspace/secret/**")))
-           (result (jf/gptel-scope--validate-operation
-                    :read "/workspace/secret/key.pem" paths-config)))
-      (expect (plist-get result :error) :to-equal "path_denied")
-      (expect (plist-get result :path) :not :to-be nil)
+  (it "includes all required fields for denied-pattern"
+    (let* ((config (test-path--make-config
+                    :read '("/workspace/**")
+                    :deny '("/workspace/secret/**")))
+           (result (jf/gptel-scope--validate-path-operation
+                    "/workspace/secret/key.pem" :read config)))
+      (expect (plist-get result :allowed) :to-be nil)
+      (expect (plist-get result :error) :to-equal "denied-pattern")
+      (expect (plist-get result :resource) :not :to-be nil)
       (expect (plist-get result :operation) :to-equal :read)
       (expect (plist-get result :message) :not :to-be nil)))
 
   (it "formats human-readable messages"
-    (let* ((paths-config (test-path--make-paths-config :read '("/workspace/**")))
-           (result (jf/gptel-scope--validate-operation
-                    :write "/tmp/file.txt" paths-config))
+    (let* ((config (test-path--make-config :read '("/workspace/**")))
+           (result (jf/gptel-scope--validate-path-operation
+                    "/tmp/file.txt" :write config))
            (message (plist-get result :message)))
       (expect message :to-match "Path not in")
       (expect message :to-match "/tmp/file.txt"))))
@@ -344,18 +352,18 @@
 
 ;;; Key Normalization Tests (from helpers-spec.el)
 
-(describe "jf/gptel-scope--normalize-keys"
+(describe "jf/gptel-scope-yaml--normalize-keys"
 
   (it "converts snake_case to kebab-case"
     (let ((plist '(:auth_detection "warn" :max_coverage_threshold 0.8)))
-      (let ((result (jf/gptel-scope--normalize-keys plist)))
+      (let ((result (jf/gptel-scope-yaml--normalize-keys plist)))
         (expect (plist-get result :auth-detection) :to-equal "warn")
         (expect (plist-get result :max-coverage-threshold) :to-equal 0.8))))
 
   (it "recursively normalizes nested plists"
     (let ((plist '(:cloud (:auth_detection "warn")
                    :security (:enforce_parse_complete t))))
-      (let* ((result (jf/gptel-scope--normalize-keys plist))
+      (let* ((result (jf/gptel-scope-yaml--normalize-keys plist))
              (cloud (plist-get result :cloud))
              (security (plist-get result :security)))
         (expect (plist-get cloud :auth-detection) :to-equal "warn")
@@ -363,7 +371,7 @@
 
   (it "preserves non-plist values"
     (let ((plist '(:commands ("ls" "cat") :threshold 0.8)))
-      (let ((result (jf/gptel-scope--normalize-keys plist)))
+      (let ((result (jf/gptel-scope-yaml--normalize-keys plist)))
         (expect (plist-get result :commands) :to-equal '("ls" "cat"))
         (expect (plist-get result :threshold) :to-equal 0.8)))))
 

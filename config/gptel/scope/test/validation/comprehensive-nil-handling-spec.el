@@ -109,24 +109,24 @@
              (scope-config '(:paths (:read nil :write nil :deny nil)))
              (result (jf/gptel-scope--validate-file-operations file-ops directory scope-config)))
         ;; Should deny (path not in read list)
-        (expect (plist-get result :error) :to-equal "path_out_of_scope"))))
+        (expect (plist-get result :error) :to-equal "not-in-scope"))))
 
   (describe "Path validation with nil values"
 
     (it "denies operation when patterns list is nil"
-      (let* ((operation :read)
-             (path "/tmp/file.txt")
-             (paths-config '(:read nil :write nil :deny nil))
-             (result (jf/gptel-scope--validate-operation operation path paths-config)))
+      (let* ((path "/tmp/file.txt")
+             (config '(:paths (:read nil :write nil :deny nil)))
+             (result (jf/gptel-scope--validate-path-operation path :read config)))
         ;; Nil pattern list → deny
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")))
 
     (it "denies operation when patterns list is empty"
-      (let* ((operation :read)
-             (path "/tmp/file.txt")
-             (paths-config '(:read () :write () :deny ()))
-             (result (jf/gptel-scope--validate-operation operation path paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")))
+      (let* ((path "/tmp/file.txt")
+             (config '(:paths (:read () :write () :deny ())))
+             (result (jf/gptel-scope--validate-path-operation path :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")))
 
     ))
 

@@ -36,14 +36,15 @@
 
 ;;; Local helpers (from ERT test-file-paths.el)
 
-(defun file-ops-spec--make-paths-config (&rest args)
-  "Create paths configuration plist from keyword arguments.
+(defun file-ops-spec--make-config (&rest args)
+  "Create scope config plist with a :paths section from keyword arguments.
 Accepts :read, :write, :execute, :modify, :deny keywords."
-  (list :read (plist-get args :read)
-        :write (plist-get args :write)
-        :execute (plist-get args :execute)
-        :modify (plist-get args :modify)
-        :deny (plist-get args :deny)))
+  (list :paths
+        (list :read (plist-get args :read)
+              :write (plist-get args :write)
+              :execute (plist-get args :execute)
+              :modify (plist-get args :modify)
+              :deny (plist-get args :deny))))
 
 (defun file-ops-spec--make-file-op (operation path &optional command-name _absolute-path)
   "Create file operation plist for testing in bash-parser format.
@@ -63,61 +64,66 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
   (describe "operation-specific scope matching"
 
     (it "read operation matches paths.read"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :read "/workspace/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "read operation matches paths.write (write includes read)"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :write '("/tmp/**")))
-             (result (jf/gptel-scope--validate-operation :read "/tmp/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (file-ops-spec--make-config
+                      :write '("/tmp/**")))
+             (result (jf/gptel-scope--validate-path-operation "/tmp/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "write operation requires paths.write"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :write "/workspace/output.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")))
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/output.txt" :write config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")))
 
     (it "execute operation requires paths.execute"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :execute "/workspace/scripts/deploy.py" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")))
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/scripts/deploy.py" :execute config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")))
 
     (it "modify operation allowed by paths.modify"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :modify '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :modify "/workspace/config/app.yml" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (file-ops-spec--make-config
+                      :modify '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/config/app.yml" :modify config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "modify operation allowed by paths.write (write includes modify)"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :write '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :modify "/workspace/config/app.yml" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (file-ops-spec--make-config
+                      :write '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/config/app.yml" :modify config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "delete operation requires paths.write"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :write '("/tmp/**")))
-             (result (jf/gptel-scope--validate-operation :delete "/tmp/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (file-ops-spec--make-config
+                      :write '("/tmp/**")))
+             (result (jf/gptel-scope--validate-path-operation "/tmp/file.txt" :delete config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "delete operation denied without paths.write"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :delete "/workspace/file.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")))
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/file.txt" :delete config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")))
 
     (it "empty patterns deny all operations"
-      (let* ((paths-config (file-ops-spec--make-paths-config))
-             (result (jf/gptel-scope--validate-operation :read "/workspace/file.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")))
+      (let* ((config (file-ops-spec--make-config))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")))
 
     (it "nil patterns deny all operations"
-      (let* ((paths-config (file-ops-spec--make-paths-config :read nil))
-             (result (jf/gptel-scope--validate-operation :read "/workspace/file.txt" paths-config)))
+      (let* ((config (file-ops-spec--make-config :read nil))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
         (expect (plist-get result :error) :not :to-be nil))))
 
   ;; === Deny patterns take precedence ===
@@ -125,31 +131,35 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
   (describe "deny patterns precedence"
 
     (it "read operation on denied path is rejected"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :deny '("/etc/**")))
-             (result (jf/gptel-scope--validate-operation :read "/etc/passwd" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_denied")))
+      (let* ((config (file-ops-spec--make-config
+                      :deny '("/etc/**")))
+             (result (jf/gptel-scope--validate-path-operation "/etc/passwd" :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "denied-pattern")))
 
     (it "deny overrides read scope"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")
-                            :deny '("/workspace/secrets/**")))
-             (result (jf/gptel-scope--validate-operation :read "/workspace/secrets/api-key.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_denied")))
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")
+                      :deny '("/workspace/secrets/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/secrets/api-key.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "denied-pattern")))
 
     (it "deny overrides write scope"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :write '("/workspace/**")
-                            :deny '("/workspace/.git/**")))
-             (result (jf/gptel-scope--validate-operation :write "/workspace/.git/config" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_denied")))
+      (let* ((config (file-ops-spec--make-config
+                      :write '("/workspace/**")
+                      :deny '("/workspace/.git/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/.git/config" :write config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "denied-pattern")))
 
     (it "deny overrides execute scope"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :execute '("/workspace/**")
-                            :deny '("/workspace/dangerous/**")))
-             (result (jf/gptel-scope--validate-operation :execute "/workspace/dangerous/script.sh" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_denied"))))
+      (let* ((config (file-ops-spec--make-config
+                      :execute '("/workspace/**")
+                      :deny '("/workspace/dangerous/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/dangerous/script.sh" :execute config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "denied-pattern"))))
 
   ;; === Multiple file operations ===
 
@@ -159,9 +169,9 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
       (let* ((file-ops (list
                         (file-ops-spec--make-file-op :read "/workspace/source.txt" "cp")
                         (file-ops-spec--make-file-op :write "/tmp/dest.txt" "cp")))
-             (scope-config (list :paths (file-ops-spec--make-paths-config
-                                         :read '("/workspace/**")
-                                         :write '("/tmp/**"))))
+             (scope-config (file-ops-spec--make-config
+                            :read '("/workspace/**")
+                            :write '("/tmp/**")))
              (result (jf/gptel-scope--validate-file-operations
                       file-ops "/workspace" scope-config)))
         (expect result :to-be nil)))
@@ -170,19 +180,19 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
       (let* ((file-ops (list
                         (file-ops-spec--make-file-op :read "/workspace/source.txt" "cp")
                         (file-ops-spec--make-file-op :write "/etc/dest.txt" "cp")))
-             (scope-config (list :paths (file-ops-spec--make-paths-config
-                                         :read '("/workspace/**"))))
+             (scope-config (file-ops-spec--make-config
+                            :read '("/workspace/**")))
              (result (jf/gptel-scope--validate-file-operations
                       file-ops "/workspace" scope-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")
+        (expect (plist-get result :error) :to-equal "not-in-scope")
         (expect (plist-get result :path) :to-equal "/etc/dest.txt")))
 
     (it "first operation fails reports immediately"
       (let* ((file-ops (list
                         (file-ops-spec--make-file-op :write "/etc/bad.txt" "cp")
                         (file-ops-spec--make-file-op :read "/workspace/source.txt" "cp")))
-             (scope-config (list :paths (file-ops-spec--make-paths-config
-                                         :read '("/workspace/**"))))
+             (scope-config (file-ops-spec--make-config
+                            :read '("/workspace/**")))
              (result (jf/gptel-scope--validate-file-operations
                       file-ops "/workspace" scope-config)))
         (expect (plist-get result :error) :not :to-be nil)
@@ -193,8 +203,8 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
                         (file-ops-spec--make-file-op :read "/workspace/file1.txt")
                         (file-ops-spec--make-file-op :read "/workspace/file2.txt")
                         (file-ops-spec--make-file-op :read "/workspace/file3.txt")))
-             (scope-config (list :paths (file-ops-spec--make-paths-config
-                                         :read '("/workspace/**"))))
+             (scope-config (file-ops-spec--make-config
+                            :read '("/workspace/**")))
              (result (jf/gptel-scope--validate-file-operations
                       file-ops "/workspace" scope-config)))
         (expect result :to-be nil)))
@@ -204,10 +214,10 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
                         (file-ops-spec--make-file-op :read "/workspace/input.txt")
                         (file-ops-spec--make-file-op :execute "/workspace/script.sh")
                         (file-ops-spec--make-file-op :write "/tmp/output.txt")))
-             (scope-config (list :paths (file-ops-spec--make-paths-config
-                                         :read '("/workspace/**")
-                                         :execute '("/workspace/**")
-                                         :write '("/tmp/**"))))
+             (scope-config (file-ops-spec--make-config
+                            :read '("/workspace/**")
+                            :execute '("/workspace/**")
+                            :write '("/tmp/**")))
              (result (jf/gptel-scope--validate-file-operations
                       file-ops "/workspace" scope-config)))
         (expect result :to-be nil))))
@@ -219,57 +229,59 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
     (it "resolves relative path from directory"
       (let* ((file-op (file-ops-spec--make-file-op :read "./file.txt" "cat"))
              (directory "/workspace")
-             (paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
+             (config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
              (result (jf/gptel-scope--validate-file-operation
-                      file-op directory paths-config)))
+                      file-op directory config)))
         (expect result :to-be nil)))
 
     (it "resolves parent directory reference"
       (let* ((file-op (file-ops-spec--make-file-op :read "../other/file.txt" "cat"))
              (directory "/workspace/project")
-             (paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
+             (config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
              (result (jf/gptel-scope--validate-file-operation
-                      file-op directory paths-config)))
+                      file-op directory config)))
         (expect result :to-be nil)))
 
     (it "absolute path unchanged"
       (let* ((file-op (file-ops-spec--make-file-op :read "/etc/passwd" "cat"))
              (directory "/workspace")
-             (paths-config (file-ops-spec--make-paths-config
-                            :read '("/etc/**")))
+             (config (file-ops-spec--make-config
+                      :read '("/etc/**")))
              (result (jf/gptel-scope--validate-file-operation
-                      file-op directory paths-config)))
+                      file-op directory config)))
         (expect result :to-be nil))))
 
   ;; === Structured error responses ===
 
   (describe "structured error responses"
 
-    (it "path out of scope error includes required fields"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :write "/tmp/file.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")
-        (expect (plist-get result :path) :not :to-be nil)
+    (it "not-in-scope error includes required fields"
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/tmp/file.txt" :write config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "not-in-scope")
+        (expect (plist-get result :resource) :not :to-be nil)
         (expect (plist-get result :operation) :not :to-be nil)
         (expect (plist-get result :message) :not :to-be nil)))
 
-    (it "path denied error includes required fields"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")
-                            :deny '("/workspace/secrets/**")))
-             (result (jf/gptel-scope--validate-operation :read "/workspace/secrets/key.txt" paths-config)))
-        (expect (plist-get result :error) :to-equal "path_denied")
-        (expect (plist-get result :path) :not :to-be nil)
+    (it "denied-pattern error includes required fields"
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")
+                      :deny '("/workspace/secrets/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/secrets/key.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be nil)
+        (expect (plist-get result :error) :to-equal "denied-pattern")
+        (expect (plist-get result :resource) :not :to-be nil)
         (expect (plist-get result :operation) :not :to-be nil)
         (expect (plist-get result :message) :not :to-be nil)))
 
     (it "error message is a string"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**")))
-             (result (jf/gptel-scope--validate-operation :write "/tmp/file.txt" paths-config)))
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**")))
+             (result (jf/gptel-scope--validate-path-operation "/tmp/file.txt" :write config)))
         (expect (plist-get result :message) :not :to-be nil)
         (expect (stringp (plist-get result :message)) :to-be t))))
 
@@ -309,10 +321,10 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
       (expect (jf/gptel-scope--glob-match-p "/workspace/file.txt" "/workspace/**/file.txt") :to-be-truthy))
 
     (it "overlapping patterns (any match allows)"
-      (let* ((paths-config (file-ops-spec--make-paths-config
-                            :read '("/workspace/**" "/workspace/sub/**")))
-             (result (jf/gptel-scope--validate-operation :read "/workspace/sub/file.txt" paths-config)))
-        (expect result :to-be nil)))
+      (let* ((config (file-ops-spec--make-config
+                      :read '("/workspace/**" "/workspace/sub/**")))
+             (result (jf/gptel-scope--validate-path-operation "/workspace/sub/file.txt" :read config)))
+        (expect (plist-get result :allowed) :to-be t)))
 
     (it "case-sensitive matching"
       (expect (jf/gptel-scope--glob-match-p "/workspace/File.txt" "/workspace/File.txt") :to-be-truthy)
@@ -367,7 +379,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
          nil '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cat /etc/passwd" "/workspace" scope-config)))
-          (expect (plist-get result :error) :to-equal "path_out_of_scope")
+          (expect (plist-get result :error) :to-equal "not-in-scope")
           (expect (plist-get result :path) :to-equal "/etc/passwd"))
         (delete-file scope-yml)))
 
@@ -383,7 +395,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
          nil '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "echo test > /tmp/output.txt" "/workspace" scope-config)))
-          (expect (plist-get result :error) :to-equal "path_out_of_scope")
+          (expect (plist-get result :error) :to-equal "not-in-scope")
           (expect (plist-get result :operation) :to-equal :write))
         (delete-file scope-yml)))
 
@@ -399,7 +411,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
          nil '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cat /workspace/.ssh/id_rsa" "/workspace" scope-config)))
-          (expect (plist-get result :error) :to-equal "path_denied")
+          (expect (plist-get result :error) :to-equal "denied-pattern")
           (expect (plist-get result :path) :to-equal "/workspace/.ssh/id_rsa"))
         (delete-file scope-yml)))
 
@@ -416,7 +428,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
          nil '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cp /workspace/src.txt /tmp/dst.txt" "/workspace" scope-config)))
-          (expect (plist-get result :error) :to-equal "path_out_of_scope")
+          (expect (plist-get result :error) :to-equal "not-in-scope")
           (expect (plist-get result :path) :to-equal "/tmp/dst.txt"))
         (delete-file scope-yml)))
 
