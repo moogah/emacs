@@ -206,7 +206,7 @@ security:
                      "/workspace/project"
                      scope-config)))
         ;; Assert: path_denied error
-        (expect (plist-get result :error) :to-equal "path_denied"))
+        (expect (plist-get result :error) :to-equal "denied-pattern"))
 
       ;; Cleanup
       (delete-file scope-yml)))
@@ -311,7 +311,7 @@ security:
                      "/etc"
                      scope-config)))
         ;; Assert: path_denied error
-        (expect (plist-get result :error) :to-equal "path_denied"))
+        (expect (plist-get result :error) :to-equal "denied-pattern"))
 
       ;; Cleanup
       (delete-file scope-yml)))
@@ -428,7 +428,7 @@ security:
                      "/workspace"
                      scope-config)))
         ;; Assert: path_denied error (absolute path in deny list)
-        (expect (plist-get result :error) :to-equal "path_denied")
+        (expect (plist-get result :error) :to-equal "denied-pattern")
         ;; Note: warnings may not be set in current implementation
         ;; but the test validates that absolute paths are checked correctly)
         )

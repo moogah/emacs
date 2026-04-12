@@ -86,19 +86,19 @@ COMMAND is the command string that triggered detection."
   (describe "cloud configuration loading"
 
     (it "loads allow mode"
-      (let* ((cloud-plist (list :auth-detection "allow"))
-             (loaded (jf/gptel-scope--load-cloud-config cloud-plist)))
-        (expect (plist-get loaded :auth-detection) :to-equal "allow")))
+      (let* ((schema (list :cloud (list :auth-detection "allow")))
+             (merged (jf/gptel-scope-yaml--merge-schema-defaults schema)))
+        (expect (plist-get (plist-get merged :cloud) :auth-detection) :to-equal "allow")))
 
     (it "loads warn mode"
-      (let* ((cloud-plist (list :auth-detection "warn"))
-             (loaded (jf/gptel-scope--load-cloud-config cloud-plist)))
-        (expect (plist-get loaded :auth-detection) :to-equal "warn")))
+      (let* ((schema (list :cloud (list :auth-detection "warn")))
+             (merged (jf/gptel-scope-yaml--merge-schema-defaults schema)))
+        (expect (plist-get (plist-get merged :cloud) :auth-detection) :to-equal "warn")))
 
     (it "loads deny mode"
-      (let* ((cloud-plist (list :auth-detection "deny"))
-             (loaded (jf/gptel-scope--load-cloud-config cloud-plist)))
-        (expect (plist-get loaded :auth-detection) :to-equal "deny")))
+      (let* ((schema (list :cloud (list :auth-detection "deny")))
+             (merged (jf/gptel-scope-yaml--merge-schema-defaults schema)))
+        (expect (plist-get (plist-get merged :cloud) :auth-detection) :to-equal "deny")))
 
     (it "defaults to warn when missing"
       (let* ((cloud-auth (cloud-auth-spec--make-cloud-auth-ops :aws "aws configure"))

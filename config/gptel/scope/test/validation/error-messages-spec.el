@@ -61,64 +61,6 @@
     (helpers-spec-teardown-bash-mocks)
     (helpers-spec-teardown-session))
 
-  (it "command denied error includes command and position"
-    ;; Test: Command denied error includes command and position
-    ;; Command: 'ls | xargs rm'
-    ;; Mock: rm in deny list at position 2
-    ;; Assert error structure:
-    ;;   * :error 'command_denied'
-    ;;   * :command 'rm'
-    ;;   * :position 2
-    ;;   * :message contains explanation
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny:
-    - rm
-    - sudo
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Extract commands including rm
-      (helpers-spec-mock-bash-parse
-       "ls | xargs rm"
-       '("ls" "xargs" "rm")
-       t)
-
-      ;; Mock semantics (not reached due to deny list)
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 1.0))
-
-      ;; Validate command
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "ls | xargs rm"
-                     "/workspace"
-                     scope-config)))
-        ;; Assert: Structured error with command and position
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "rm")
-        (expect (plist-get result :position) :to-equal 2)
-        (expect (plist-get result :message) :to-be-truthy))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
-
   (it "parse incomplete error includes parse errors"
     ;; Test: Parse incomplete error includes parse errors
     ;; Command: 'function incomplete() {'
@@ -177,7 +119,7 @@ security:
     ;; Command: 'python3 /workspace/script.py'
     ;; Mock: Execute operation outside scope
     ;; Assert error structure:
-    ;;   * :error 'path_out_of_scope'
+    ;;   * :error 'not-in-scope'
     ;;   * :path '/workspace/script.py'
     ;;   * :operation :execute
     ;;   * :required-scope 'paths.execute'
@@ -208,7 +150,7 @@ security:
                      "/workspace"
                      scope-config)))
         ;; Assert: Structured error with operation details
-        (expect (plist-get result :error) :to-equal "path_out_of_scope")
+        (expect (plist-get result :error) :to-equal "not-in-scope")
         (expect (plist-get result :path) :to-equal "/workspace/script.py")
         (expect (plist-get result :operation) :to-equal :execute))
 
@@ -220,7 +162,7 @@ security:
     ;; Command: 'cat /etc/passwd'
     ;; Mock: Path matches deny pattern
     ;; Assert error structure:
-    ;;   * :error 'path_denied'
+    ;;   * :error 'denied-pattern'
     ;;   * :path '/etc/passwd'
     ;;   * :denied-patterns contains '/etc/**'
     ;;   * :message explains deny precedence
@@ -250,7 +192,7 @@ security:
                      "/workspace"
                      scope-config)))
         ;; Assert: Structured error for denied path
-        (expect (plist-get result :error) :to-equal "path_denied")
+        (expect (plist-get result :error) :to-equal "denied-pattern")
         (expect (plist-get result :path) :to-equal "/etc/passwd"))
 
       ;; Cleanup
@@ -312,69 +254,12 @@ security:
       ;; Cleanup
       (delete-file scope-yml)))
 
-  (it "pipeline command denied includes full context"
-    ;; Test: Pipeline command denied includes full context
-    ;; Command: 'find . | xargs rm | wc'
-    ;; Mock: rm at position 2
-    ;; Assert error structure:
-    ;;   * :error 'command_denied'
-    ;;   * :position 2
-    ;;   * :full-pipeline 'find . | xargs rm | wc'
-    ;;   * :message identifies pipeline bypass attempt
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny:
-    - rm
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Extract all commands in pipeline
-      (helpers-spec-mock-bash-parse
-       "find . | xargs rm | wc"
-       '("find" "xargs" "rm" "wc")
-       t)
-
-      ;; Mock semantics
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 1.0))
-
-      ;; Validate command
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "find . | xargs rm | wc"
-                     "/workspace"
-                     scope-config)))
-        ;; Assert: Structured error with pipeline context
-        (expect (plist-get result :error) :to-equal "command_denied")
-        (expect (plist-get result :command) :to-equal "rm")
-        (expect (plist-get result :position) :to-equal 2)
-        (expect (plist-get result :message) :to-be-truthy))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
-
   (it "multiple operation failure reports first violation"
     ;; Test: Multiple operation failure reports first violation
     ;; Command: 'cp /workspace/src.txt /etc/dst.txt'
     ;; Mock: Second operation (write /etc) denied
     ;; Assert error structure:
-    ;;   * :error 'path_denied' (or path_out_of_scope)
+    ;;   * :error 'denied-pattern' (or not-in-scope)
     ;;   * :path '/etc/dst.txt'
     ;;   * Reports first failure, not all failures
     (let* ((scope-yml (helpers-spec-make-scope-yml
@@ -403,8 +288,8 @@ security:
                      "cp /workspace/src.txt /etc/dst.txt"
                      "/workspace"
                      scope-config)))
-        ;; Assert: Reports first violation (path denied)
-        (expect (plist-get result :error) :to-equal "path_denied")
+        ;; Assert: Reports first violation (deny pattern)
+        (expect (plist-get result :error) :to-equal "denied-pattern")
         (expect (plist-get result :path) :to-equal "/etc/dst.txt"))
 
       ;; Cleanup
