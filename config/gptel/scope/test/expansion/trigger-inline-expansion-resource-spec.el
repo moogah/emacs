@@ -69,7 +69,7 @@
                   (setq captured-violation violation-info)))
 
         (jf/gptel-scope--trigger-inline-expansion
-         validation-error "run_bash_command" tool-args
+         validation-error "run_bash_command" tool-args 'bash
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)
@@ -95,7 +95,7 @@
                   (setq captured-violation violation-info)))
 
         (jf/gptel-scope--trigger-inline-expansion
-         validation-error "run_bash_command" tool-args
+         validation-error "run_bash_command" tool-args 'bash
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)
@@ -119,7 +119,7 @@
                   (setq captured-violation violation-info)))
 
         (jf/gptel-scope--trigger-inline-expansion
-         validation-error "run_bash_command" tool-args
+         validation-error "run_bash_command" tool-args 'bash
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)
@@ -146,7 +146,7 @@
                   (setq captured-violation violation-info)))
 
         (jf/gptel-scope--trigger-inline-expansion
-         validation-error "read_file" tool-args
+         validation-error "read_file" tool-args 'path
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)
@@ -181,14 +181,16 @@
                            (json-serialize '(:success t :allowed_once t)))))
 
         (jf/gptel-scope--trigger-inline-expansion
-         validation-error "run_bash_command" tool-args
+         validation-error "run_bash_command" tool-args 'bash
          (lambda (_result) nil))
 
-        ;; check-allow-once constructs: (format "%s:%s" (car args) (expand-file-name (cadr args)))
-        ;; For bash: "which brew:/"
-        ;; The allow-once action must store something that matches this
-        (let ((found (jf/gptel-scope--check-allow-once
-                      "run_bash_command" tool-args nil)))
+        ;; compute-allow-once-resource for bash produces "command:directory".
+        ;; The allow-once action must store something that matches what the
+        ;; production code will look up on the retry.
+        (let* ((expected-resource
+                (format "%s:%s" "which brew" (expand-file-name "/")))
+               (found (jf/gptel-scope--check-allow-once
+                       "run_bash_command" expected-resource)))
           (expect found :to-be t))))))
 
 (provide 'trigger-inline-expansion-resource-spec)

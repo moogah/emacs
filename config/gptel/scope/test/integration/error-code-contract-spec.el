@@ -153,14 +153,14 @@
       (let* ((error-plist '(:error "denied-pattern"
                             :resource "/workspace/secret/key.pem"
                             :message "Path denied by scope"))
-             (result (jf/gptel-scope--build-violation-info error-plist "read_file")))
+             (result (jf/gptel-scope--build-violation-info error-plist "read_file" 'path)))
         (expect (plist-get result :resource) :not :to-be nil)))
 
     (it "handles not-in-scope (path validator)"
       (let* ((error-plist '(:error "not-in-scope"
                             :resource "/outside/file.txt"
                             :message "Path not in read scope"))
-             (result (jf/gptel-scope--build-violation-info error-plist "read_file")))
+             (result (jf/gptel-scope--build-violation-info error-plist "read_file" 'path)))
         (expect (plist-get result :resource) :not :to-be nil)))
 
     (it "handles path_out_of_scope (file-ops validator)"
@@ -168,7 +168,7 @@
                             :path "/outside/file.txt"
                             :operation :read
                             :message "Path not in scope"))
-             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command")))
+             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command" 'bash)))
         (expect (plist-get result :resource) :to-equal "/outside/file.txt")))
 
     (it "handles path_denied (file-ops validator)"
@@ -176,7 +176,7 @@
                             :path "/workspace/.git/config"
                             :operation :read
                             :message "Path denied"))
-             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command")))
+             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command" 'bash)))
         (expect (plist-get result :resource) :to-equal "/workspace/.git/config")))
 
     (it "handles command_denied (pipeline validator)"
@@ -184,7 +184,7 @@
                             :command "rm"
                             :position 0
                             :message "Command denied"))
-             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command")))
+             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command" 'bash)))
         (expect (plist-get result :resource) :to-equal "rm")))
 
     (it "handles cloud_auth_denied"
@@ -192,7 +192,7 @@
                             :provider "aws"
                             :command "aws s3 ls"
                             :message "Cloud auth denied"))
-             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command")))
+             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command" 'bash)))
         (expect (plist-get result :resource) :to-equal "aws")))
 
     (it "extracts provider for cloud_provider_denied"
@@ -202,7 +202,7 @@
                             :provider "azure"
                             :command "az login"
                             :message "Provider not allowed"))
-             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command")))
+             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command" 'bash)))
         (expect (plist-get result :resource) :to-equal "azure")))
 
     (it "extracts command for parse_incomplete"
@@ -211,7 +211,7 @@
       (let* ((error-plist '(:error "parse_incomplete"
                             :command "echo 'unterminated"
                             :message "Parse incomplete"))
-             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command")))
+             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command" 'bash)))
         (expect (plist-get result :resource) :to-equal "echo 'unterminated")))
 
     (it "handles command-not-allowed (no bash_tools config)"
@@ -219,7 +219,7 @@
                             :resource "which brew"
                             :command "which brew"
                             :message "No bash_tools config"))
-             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command")))
+             (result (jf/gptel-scope--build-violation-info error-plist "run_bash_command" 'bash)))
         (expect (plist-get result :resource) :not :to-be nil))))
 
 
@@ -234,7 +234,7 @@
                                   :command "test-cmd"
                                   :provider "aws"))
                (result (jf/gptel-scope--build-violation-info
-                        error-plist "read_file")))
+                        error-plist "read_file" 'path)))
           (expect (plist-get result :tool) :to-equal "read_file")
           (expect (plist-get result :reason) :not :to-be nil)
           (expect (plist-get result :resource) :not :to-be nil))))))

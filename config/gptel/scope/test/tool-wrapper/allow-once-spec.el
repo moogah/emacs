@@ -72,27 +72,24 @@
   (describe "jf/gptel-scope--check-allow-once"
 
     (it "returns t and consumes permission when matching entry exists"
-      ;; Add permission for read_file on a specific path
-      ;; The resource format for path tools is the expanded file path
+      ;; Add permission for read_file on a specific path. check-allow-once
+      ;; takes the resource directly — callers compute it via
+      ;; compute-allow-once-resource or inline.
       (let ((expanded-path (expand-file-name "/workspace/file.txt")))
         (jf/gptel-scope-add-to-allow-once-list "read_file" expanded-path)
-        (let ((config '(:paths (:read () :write () :execute () :modify () :deny ()))))
-          (expect (jf/gptel-scope--check-allow-once
-                   "read_file" (list "/workspace/file.txt") config)
-                  :to-be t)
-          ;; Permission consumed
-          (expect jf/gptel-scope--allow-once-list :to-be nil))))
+        (expect (jf/gptel-scope--check-allow-once "read_file" expanded-path)
+                :to-be t)
+        ;; Permission consumed
+        (expect jf/gptel-scope--allow-once-list :to-be nil)))
 
     (it "returns nil when no matching entry exists"
-      (let ((config '(:paths (:read () :write () :execute () :modify () :deny ()))))
-        (expect (jf/gptel-scope--check-allow-once
-                 "read_file" (list "/workspace/file.txt") config)
+      (let ((expanded-path (expand-file-name "/workspace/file.txt")))
+        (expect (jf/gptel-scope--check-allow-once "read_file" expanded-path)
                 :to-be nil)))
 
     (it "returns nil when list is empty"
-      (let ((config '(:paths (:read () :write () :execute () :modify () :deny ()))))
-        (expect (jf/gptel-scope--check-allow-once
-                 "read_file" (list "/workspace/file.txt") config)
+      (let ((expanded-path (expand-file-name "/workspace/file.txt")))
+        (expect (jf/gptel-scope--check-allow-once "read_file" expanded-path)
                 :to-be nil)))))
 
 ;;; Async Flag Propagation Tests (from test-async-flag-spec.el)

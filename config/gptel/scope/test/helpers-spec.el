@@ -582,8 +582,12 @@ is generating a realistic :message when one is not provided."
                  :resource resource)
            (when path (list :path path))
            (when command (list :command command))
-           (when provider (list :provider provider)))))
-    (jf/gptel-scope--build-violation-info validator-plist tool)))
+           (when provider (list :provider provider))))
+         ;; Derive validation-type from tool name. The only bash-validated tool
+         ;; is run_bash_command; everything else flows through the filesystem
+         ;; validator and uses 'path.
+         (validation-type (if (string= tool "run_bash_command") 'bash 'path)))
+    (jf/gptel-scope--build-violation-info validator-plist tool validation-type)))
 
 (defun helpers-spec--generate-violation-message (error-code path command provider operation)
   "Generate a realistic human-readable message for ERROR-CODE.

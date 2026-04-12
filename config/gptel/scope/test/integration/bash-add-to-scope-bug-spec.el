@@ -226,7 +226,7 @@ security:
                 (setq captured-violation violation-info)))
 
       (jf/gptel-scope--trigger-inline-expansion
-       validation-error "run_bash_command" tool-args
+       validation-error "run_bash_command" tool-args 'bash
        (lambda (_result) nil))
 
       (expect captured-violation :to-be-truthy)

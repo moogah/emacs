@@ -183,6 +183,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            validation-error
            "run_bash_command"
            '("cat /tmp/data.txt" "/workspace")
+           'bash
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
@@ -240,6 +241,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            validation-error
            "run_bash_command"
            '("cat /tmp/data.txt" "/workspace")
+           'bash
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 
@@ -293,6 +295,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            validation-error
            "run_bash_command"
            '("cat /tmp/data.txt" "/workspace")
+           'bash
            (lambda (expansion-result)
              (setq wrapper-callback-result expansion-result)))
 

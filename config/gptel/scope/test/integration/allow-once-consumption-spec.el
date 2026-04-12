@@ -69,23 +69,16 @@
       (let ((path (expand-file-name "/workspace/file.txt")))
         (jf/gptel-scope-add-to-allow-once-list "read_file" path)
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
-        (let ((config '(:paths (:read () :write () :execute () :modify () :deny ()))))
-          (expect (jf/gptel-scope--check-allow-once
-                   "read_file" (list "/workspace/file.txt") config)
-                  :to-be t)
-          (expect jf/gptel-scope--allow-once-list :to-be nil))))
+        (expect (jf/gptel-scope--check-allow-once "read_file" path) :to-be t)
+        (expect jf/gptel-scope--allow-once-list :to-be nil)))
 
     (it "second check on same tool+resource returns nil"
       (let ((path (expand-file-name "/workspace/file.txt")))
         (jf/gptel-scope-add-to-allow-once-list "read_file" path)
-        (let ((config '(:paths (:read () :write () :execute () :modify () :deny ()))))
-          ;; First: consume
-          (jf/gptel-scope--check-allow-once
-           "read_file" (list "/workspace/file.txt") config)
-          ;; Second: should find nothing
-          (expect (jf/gptel-scope--check-allow-once
-                   "read_file" (list "/workspace/file.txt") config)
-                  :to-be nil))))
+        ;; First: consume
+        (jf/gptel-scope--check-allow-once "read_file" path)
+        ;; Second: should find nothing
+        (expect (jf/gptel-scope--check-allow-once "read_file" path) :to-be nil)))
 
     (it "consuming one entry does not affect other entries"
       (let ((path-a (expand-file-name "/workspace/a.txt"))
@@ -93,15 +86,11 @@
         (jf/gptel-scope-add-to-allow-once-list "read_file" path-a)
         (jf/gptel-scope-add-to-allow-once-list "read_file" path-b)
         (expect (length jf/gptel-scope--allow-once-list) :to-equal 2)
-        (let ((config '(:paths (:read () :write () :execute () :modify () :deny ()))))
-          ;; Consume first
-          (jf/gptel-scope--check-allow-once
-           "read_file" (list "/workspace/a.txt") config)
-          ;; Second should still be present
-          (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
-          (expect (jf/gptel-scope--check-allow-once
-                   "read_file" (list "/workspace/b.txt") config)
-                  :to-be t))))))
+        ;; Consume first
+        (jf/gptel-scope--check-allow-once "read_file" path-a)
+        ;; Second should still be present
+        (expect (length jf/gptel-scope--allow-once-list) :to-equal 1)
+        (expect (jf/gptel-scope--check-allow-once "read_file" path-b) :to-be t)))))
 
 
 ;;; check-tool-permission also checks allow-once (redundancy exposure)
@@ -159,8 +148,7 @@
             (config '(:paths (:read ("/workspace/**") :write () :execute () :modify () :deny ()))))
         (jf/gptel-scope-add-to-allow-once-list "read_file" path)
         ;; Simulate the macro calling check-allow-once first (consuming it)
-        (jf/gptel-scope--check-allow-once
-         "read_file" (list "/outside/secret.txt") config)
+        (jf/gptel-scope--check-allow-once "read_file" path)
         ;; CORRECT: check-tool-permission should STILL grant access.
         ;; RED: Fails because check-allow-once already consumed the
         ;; permission, proving the double-check is not idempotent.
@@ -184,29 +172,22 @@
   (it "bash tools use composite key format: command:directory"
     (let ((composite (format "%s:%s" "which brew" (expand-file-name "/"))))
       (jf/gptel-scope-add-to-allow-once-list "run_bash_command" composite)
-      (let ((config '(:paths (:read () :write () :execute () :modify () :deny ())
-                      :bash-tools (:deny ()))))
-        (expect (jf/gptel-scope--check-allow-once
-                 "run_bash_command" (list "which brew" "/") config)
-                :to-be t))))
+      (expect (jf/gptel-scope--check-allow-once "run_bash_command" composite)
+              :to-be t)))
 
   (it "different command same directory does not match"
-    (let ((composite (format "%s:%s" "which brew" (expand-file-name "/"))))
-      (jf/gptel-scope-add-to-allow-once-list "run_bash_command" composite)
-      (let ((config '(:paths (:read () :write () :execute () :modify () :deny ())
-                      :bash-tools (:deny ()))))
-        (expect (jf/gptel-scope--check-allow-once
-                 "run_bash_command" (list "ls -la" "/") config)
-                :to-be nil))))
+    (let ((stored (format "%s:%s" "which brew" (expand-file-name "/")))
+          (lookup (format "%s:%s" "ls -la" (expand-file-name "/"))))
+      (jf/gptel-scope-add-to-allow-once-list "run_bash_command" stored)
+      (expect (jf/gptel-scope--check-allow-once "run_bash_command" lookup)
+              :to-be nil)))
 
   (it "same command different directory does not match"
-    (let ((composite (format "%s:%s" "which brew" (expand-file-name "/"))))
-      (jf/gptel-scope-add-to-allow-once-list "run_bash_command" composite)
-      (let ((config '(:paths (:read () :write () :execute () :modify () :deny ())
-                      :bash-tools (:deny ()))))
-        (expect (jf/gptel-scope--check-allow-once
-                 "run_bash_command" (list "which brew" "/tmp") config)
-                :to-be nil)))))
+    (let ((stored (format "%s:%s" "which brew" (expand-file-name "/")))
+          (lookup (format "%s:%s" "which brew" (expand-file-name "/tmp"))))
+      (jf/gptel-scope-add-to-allow-once-list "run_bash_command" stored)
+      (expect (jf/gptel-scope--check-allow-once "run_bash_command" lookup)
+              :to-be nil))))
 
 
 (provide 'allow-once-consumption-spec)
