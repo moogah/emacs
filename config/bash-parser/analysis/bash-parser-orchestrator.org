@@ -554,10 +554,14 @@ ENTRIES is the decomposition entries list.
 PARSED-COMMAND is the top-level parse result.
 
 Claims tokens by matching against the top-level :tokens list:
-  - All :redirection type tokens (grammar-level, always understood)
-  - All :operator type tokens (structural, always understood)
+  - All :redirection, :operator, :separator, :pipe, :flag type tokens
+    (structural, parse-understood, carry no filesystem semantics)
   - :command-name tokens matching processed command names
   - Tokens whose :value matches an operation :file path
+  - For commands with a registered handler: :positional-arg tokens
+    matching the command's args, even when the handler emitted no
+    operations (a no-op handler registration is enough to mark the
+    command as parse-understood)
 
 Returns list of claimed token IDs."
   (let ((claimed-ids '())
@@ -574,8 +578,10 @@ Returns list of claimed token IDs."
               (token-id (plist-get token :id)))
           (when token-id
             (cond
-             ;; Always claim redirection and operator tokens
-             ((memq token-type '(:redirection :operator))
+             ;; Always claim structural tokens — parse-understood,
+             ;; no filesystem semantics.
+             ((memq token-type
+                    '(:redirection :operator :separator :pipe :flag))
               (push token-id claimed-ids))
              ;; Claim command-name tokens for processed commands
              ((and (eq token-type :command-name)
@@ -586,6 +592,29 @@ Returns list of claimed token IDs."
              ((and token-value
                    (member token-value op-files))
               (push token-id claimed-ids)))))))
+    ;; Claim positional-arg tokens for simple commands that have a
+    ;; registered handler, regardless of whether the handler emitted
+    ;; operations. Covers pure stdout/builtin commands (echo, printf,
+    ;; true, false): a no-op handler registration is enough to mark
+    ;; the command as parse-understood.
+    (when (and tokens (boundp 'jf/bash-command-handlers))
+      (let ((commands (or (plist-get parsed-command :all-commands)
+                          (list parsed-command))))
+        (dolist (cmd commands)
+          (let ((cmd-name (plist-get cmd :command-name)))
+            (when (and cmd-name
+                       (gethash cmd-name jf/bash-command-handlers))
+              ;; Claim each positional-arg token matching this command's
+              ;; args, first-unclaimed-wins so repeated values across
+              ;; commands don't collide.
+              (dolist (pos-arg (plist-get cmd :positional-args))
+                (catch 'found
+                  (dolist (token tokens)
+                    (when (and (null (cl-find (plist-get token :id) claimed-ids))
+                               (eq (plist-get token :type) :positional-arg)
+                               (string= (plist-get token :value) pos-arg))
+                      (push (plist-get token :id) claimed-ids)
+                      (throw 'found nil))))))))))
     (delete-dups claimed-ids)))
 #+end_src
 
