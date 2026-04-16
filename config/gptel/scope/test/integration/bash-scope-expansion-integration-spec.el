@@ -407,23 +407,29 @@ security:
               :to-equal "root:x:0:0:root:/root:/bin/bash")))
 
   (it "add-to-scope approves and runs the body"
-    (let* ((config (bash-integ--make-scope-config
-                    '("/workspace/**") '("/workspace/**") nil))
+    (let* ((deny-config (bash-integ--make-scope-config
+                         '("/workspace/**") '("/workspace/**") nil))
+           (allow-config (bash-integ--make-scope-config
+                          '("/workspace/**" "/etc/**") '("/workspace/**") nil))
+           (current-config deny-config)
            (tool (bash-integ--find-tool "run_bash_command"))
            (load-count 0))
 
       (spy-on 'jf/gptel-scope--load-config
               :and-call-fake
-              (lambda () (cl-incf load-count) config))
+              (lambda () (cl-incf load-count) current-config))
 
       (spy-on 'jf/gptel-bash--execute-command
               :and-return-value '(:output "root:x:0:0:root:/root:/bin/bash"
                                   :exit_code 0
                                   :truncated nil :warnings nil :error nil))
 
+      ;; "Add to scope": simulate scope.yml being updated with /etc/**,
+      ;; then signal success. The dispatcher re-validates on approval.
       (spy-on 'jf/gptel-scope-prompt-expansion
               :and-call-fake
               (lambda (_violation-info callback _patterns _tool-name)
+                (setq current-config allow-config)
                 (funcall callback
                          (json-serialize
                           (list :success t
@@ -434,8 +440,9 @@ security:
                "cat /etc/passwd"
                "/workspace")
 
-      ;; One validation pass, one config load — approval runs the body directly.
-      (expect load-count :to-equal 1)
+      ;; Two loads: one for initial validation (deny), one for
+      ;; re-validation after the user added the path (allow).
+      (expect load-count :to-equal 2)
       (expect (plist-get bash-integ--callback-result :success) :to-be t))))
 
 

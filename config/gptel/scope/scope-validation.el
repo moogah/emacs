@@ -450,31 +450,26 @@ Returns nil if not found or can't be parsed."
      nil)))
 ;; Configuration Loading:1 ends here
 
-;; Authorization Dispatcher
+;; Multi-violation expansion loop
 
-;; Single public entry point used by =gptel-make-scoped-tool=. Owns
-;; config load, filesystem-vs-bash dispatch, expansion escalation, and
-;; final response formatting. Callers provide the tool identity,
-;; arguments, and on-allow/on-deny thunks — they do not need to know
-;; about =no_scope_config=, expansion UI, or error formatting.
+;; Bash commands frequently carry multiple file operations (e.g.
+;; =ls /foo 2>/dev/null= is both a read on =/foo= and a write on
+;; =/dev/null=). Stage 3 of the pipeline returns on the first denied
+;; op, so a single validation pass surfaces exactly one violation.
 
-;; =OPERATION= discriminates the dispatch:
+;; After the user approves *add-to-scope*, the dispatcher re-invokes
+;; itself so the pipeline re-validates against the now-updated config.
+;; If another op is still denied, the expansion UI prompts again for
+;; the new first violation; the loop continues until validation passes
+;; or the user denies.
 
-;; - =read=, =write=, =modify=, =execute= → filesystem path validation
-;; - =nil= → semantic extraction (bash pipeline, operations computed from
-;;   the command itself)
-
-;; The dispatcher tags every validation result with =:validation-type=
-;; (=path= or =bash=) so the expansion UI and error formatter can use it
-;; without recomputing.
-
-;; =jf/gptel-scope--final-deny-response= centralizes the "what plist does
-;; a denied call return to its caller" decision. =no_scope_config= is not
-;; a scope violation and is surfaced verbatim so the LLM sees the raw
-;; error; real violations go through =format-tool-error=.
+;; *Allow-once* is exempt from re-validation: it is a single-use bypass
+;; that authorizes the whole pending invocation. Re-validating would
+;; prompt the user again for the remaining violations, which defeats
+;; the "just let this one through" intent.
 
 
-;; [[file:scope-validation.org::*Authorization Dispatcher][Authorization Dispatcher:1]]
+;; [[file:scope-validation.org::*Multi-violation expansion loop][Multi-violation expansion loop:1]]
 (defun jf/gptel-scope--final-deny-response (tool-name args check-result)
   "Return the response plist that should be delivered for a denied call.
 TOOL-NAME is the denied tool. ARGS is the tool's normalized argument
@@ -510,6 +505,12 @@ because validation passed outright or because the user approved
 through the expansion UI. ON-DENY is invoked with a response plist
 suitable for serializing back to the LLM.
 
+When the user approves an add-to-scope expansion, the dispatcher
+re-invokes itself to re-validate against the updated config.  That
+surfaces subsequent denials (one per prompt) until every op in the
+command passes.  Allow-once bypasses re-validation and authorizes
+the pending invocation outright.
+
 This function is async: expansion UI may resolve on a later turn, so
 the callbacks must be prepared to run after this function returns."
   (let ((config (jf/gptel-scope--load-config)))
@@ -534,12 +535,22 @@ the callbacks must be prepared to run after this function returns."
           (jf/gptel-scope--trigger-inline-expansion
            check-result tool-name
            (lambda (expansion-result)
-             (if (plist-get expansion-result :approved)
-                 (funcall on-allow)
+             (cond
+              ((not (plist-get expansion-result :approved))
                (funcall on-deny
                         (jf/gptel-scope--final-deny-response
-                         tool-name args check-result))))))))))))
-;; Authorization Dispatcher:1 ends here
+                         tool-name args check-result)))
+              ;; Allow-once: single-use bypass, skip re-validation so
+              ;; remaining denials in the same command don't prompt.
+              ((plist-get expansion-result :allowed-once)
+               (funcall on-allow))
+              ;; Add-to-scope: re-validate against the updated config.
+              ;; If another op is still denied, the next iteration
+              ;; prompts for it.
+              (t
+               (jf/gptel-scope-authorize-tool-call
+                tool-name operation args on-allow on-deny))))))))))))
+;; Multi-violation expansion loop:1 ends here
 
 ;; Violation-Info Building
 
@@ -611,17 +622,24 @@ CHECK-RESULT is the validation result plist."
 
 ;; Invoke expansion UI. The wrapper passes in the validation error (which
 ;; already carries =:validation-type=) plus a callback. The expansion UI's
-;; chosen action — approve, allow-once, or deny — resolves the callback
-;; with =(:approved t)= or =(:approved nil ...)=. The wrapper trusts that
-;; answer as authorization for the single pending tool invocation; there
-;; is no re-validation.
+;; chosen action — add-to-scope, allow-once, or deny — resolves the
+;; callback with one of:
+
+;; - =(:approved t)= — user added the denied resource to =scope.yml=.
+;;   The dispatcher re-validates against the updated config; if another
+;;   op is still denied, the next iteration prompts for it.
+;; - =(:approved t :allowed-once t)= — user granted a single-use bypass.
+;;   The dispatcher runs the body without re-validating.
+;; - =(:approved nil :reason ...)= — user denied or the callback errored.
 
 
 ;; [[file:scope-validation.org::*Trigger Inline Expansion][Trigger Inline Expansion:1]]
 (defun jf/gptel-scope--trigger-inline-expansion (validation-error tool-name wrapper-callback)
   "Trigger inline expansion UI for VALIDATION-ERROR.
 TOOL-NAME is the denied tool. WRAPPER-CALLBACK is invoked with a plist
-carrying :approved t/nil once the user chooses. VALIDATION-ERROR must
+carrying :approved t/nil once the user chooses. When the result JSON
+carries :allowed_once t, the wrapper plist includes :allowed-once t so
+the dispatcher knows to skip re-validation.  VALIDATION-ERROR must
 include :validation-type (attached upstream by the validation entry
 point)."
   (let* ((violation-info (jf/gptel-scope--build-violation-info
@@ -635,9 +653,11 @@ point)."
                 ;; `false` under the default :false-object, which is truthy
                 ;; in elisp. Only `t` counts as approval here.
                 (let* ((parsed (json-parse-string result-json :object-type 'plist))
-                       (approved (eq (plist-get parsed :success) t)))
+                       (approved (eq (plist-get parsed :success) t))
+                       (allowed-once (eq (plist-get parsed :allowed_once) t)))
                   (if approved
-                      (funcall wrapper-callback (list :approved t))
+                      (funcall wrapper-callback
+                               (list :approved t :allowed-once allowed-once))
                     (funcall wrapper-callback (list :approved nil :reason "user_denied"))))
               (error
                (message "Error in expansion-callback: %s" (error-message-string err))

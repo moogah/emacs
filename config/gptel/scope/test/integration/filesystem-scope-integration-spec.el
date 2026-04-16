@@ -396,31 +396,39 @@ Returns the full path. SUFFIX defaults to \".txt\"."
 
     (it "executes tool body after user approves expansion"
       (let* ((test-file (fs-integ--create-temp-file "permanent scope content"))
-             (yaml (fs-integ--make-scope-yaml '("/workspace/**") nil nil))
-             (config (fs-integ--load-config-from-yaml yaml))
+             (scope-pattern (concat fs-integ--temp-dir "/**"))
+             (deny-config (fs-integ--load-config-from-yaml
+                           (fs-integ--make-scope-yaml '("/workspace/**") nil nil)))
+             (allow-config (fs-integ--load-config-from-yaml
+                            (fs-integ--make-scope-yaml
+                             (list "/workspace/**" scope-pattern) nil nil)))
+             (current-config deny-config)
              (tool (fs-integ--find-tool "read_file"))
              (load-count 0))
 
         (spy-on 'jf/gptel-scope--load-config
                 :and-call-fake
-                (lambda () (cl-incf load-count) config))
+                (lambda () (cl-incf load-count) current-config))
 
-        ;; "Add to scope": signal success. Wrapper trusts the approval
-        ;; and runs the body; no re-validation, no second config load.
+        ;; "Add to scope": simulate scope.yml being updated with the new
+        ;; pattern, then signal success. The dispatcher re-validates on
+        ;; approval, so the next load returns the allow-config.
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
                 (lambda (_violation-info callback _patterns _tool-name)
+                  (setq current-config allow-config)
                   (funcall callback
                            (json-serialize
                             (list :success t
-                                  :patterns_added
-                                  (vector (concat fs-integ--temp-dir "/**")))))))
+                                  :patterns_added (vector scope-pattern))))))
 
         (funcall (gptel-tool-function tool)
                  #'fs-integ--gptel-callback
                  test-file)
 
-        (expect load-count :to-equal 1)
+        ;; Two loads: one for initial validation (deny), one for
+        ;; re-validation after the user added the path (allow).
+        (expect load-count :to-equal 2)
         (expect (plist-get fs-integ--callback-result :success) :to-be t)
         (expect (plist-get fs-integ--callback-result :content)
                 :to-equal "permanent scope content")))))
