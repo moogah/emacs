@@ -16,11 +16,6 @@ paths:
 
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
 
-org_roam_patterns:
-  subdirectory: ["**"]
-  tags: ["*"]
-  node_ids: ["*"]
-
 # V4 Schema: Cloud authentication detection
 # Research profile is read-only, but still validate cloud auth attempts
 cloud:
@@ -37,4 +32,4 @@ security:
 
   # Maximum bash coverage threshold (0.0 to 1.0)
   # Standard threshold for read-only operations
-  max_coverage_threshold: 0.8
+  max_coverage_threshold: 1

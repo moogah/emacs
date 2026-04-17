@@ -16,11 +16,6 @@ paths:
 
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
 
-org_roam_patterns:
-  subdirectory: ["**"]
-  tags: ["*"]
-  node_ids: ["*"]
-
 # V4 Schema: Cloud authentication detection
 # Extended bash tools may interact with cloud services
 cloud:
@@ -37,4 +32,4 @@ security:
 
   # Maximum bash coverage threshold (0.0 to 1.0)
   # Higher threshold for extended bash profile to support complex commands
-  max_coverage_threshold: 0.8
+  max_coverage_threshold: 1

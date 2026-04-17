@@ -9,11 +9,6 @@ paths:
 
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
 
-org_roam_patterns:
-  subdirectory: []
-  tags: []
-  node_ids: []
-
 # V4 Schema: Cloud authentication detection
 # Restricted profile blocks all cloud operations
 cloud:
@@ -30,4 +25,4 @@ security:
 
   # Maximum bash coverage threshold (0.0 to 1.0)
   # Lowest threshold for restricted profile - minimal command parsing
-  max_coverage_threshold: 0.5
+  max_coverage_threshold: 1
