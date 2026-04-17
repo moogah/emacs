@@ -14,7 +14,7 @@ This document defines the interfaces between components of the scope validation 
 
 The scope system validates tool invocations against a =scope.yml= configuration.  The flow is:
 
-1. A tool is invoked (e.g., =run_bash_command= or =read_file=)
+1. A tool is invoked (e.g., =run_bash_command= or =read_file_in_scope=)
 2. The =gptel-make-scoped-tool= macro hands the arguments plus on-allow/on-deny thunks to =jf/gptel-scope-authorize-tool-call=, the single public authorization entrypoint
 3. The entrypoint loads config, dispatches to the bash or filesystem validator (gathering metadata along the way), and tags the result with =:validation-type=
 4. On an allowed result it invokes the on-allow thunk (which runs the tool body); on a denied result it triggers the inline expansion UI
@@ -112,7 +112,7 @@ Each numbered step crosses a component boundary.  This document defines what dat
 | =scope-yaml.el=             | =jf-gptel-scope-yaml=              | YAML parse, key normalize, merge-defaults                                      |
 | =scope-metadata.el=         | =jf-gptel-scope-metadata=          | File metadata (exists, git-tracked, type)                                      |
 | =scope-expansion.el=        | =jf-gptel-scope-expansion=         | Transient menu, scope.yml writer, queue                                        |
-| =scope-filesystem-tools.el= | =jf-gptel-scope-filesystem-tools=  | =read_file=, =write_file_in_scope=, =edit_file_in_scope=                       |
+| =scope-filesystem-tools.el= | =jf-gptel-scope-filesystem-tools=  | =read_file_in_scope=, =write_file_in_scope=, =edit_file_in_scope=              |
 | =scope-shell-tools.el=      | =jf-gptel-scope-shell-tools=       | =run_bash_command=, =request_scope_expansion=, exec helpers                    |
 
 The old =scope-core.el= was split into =scope-validation.el= (the data transformation layer) and =scope-tool-wrapper.el= (the macro entry point).  =scope-shell-tools.el= no longer contains any validation logic; it only defines the bash tool and its execution helpers.  =scope-tool-wrapper.el= is now a pure macro shim — it binds arguments, hands them to =authorize-tool-call=, and routes the result through the gptel async callback.  Config loading, metadata gathering, validation dispatch, expansion escalation, and error formatting all live in =scope-validation.el=.
@@ -406,7 +406,7 @@ the canonical implementation honors the contract.")
 
 Stage 2 is a *deliberate policy gate*, not an optimization: a command with zero file operations (e.g. =echo hello=, =python3 --version=) short-circuits the whole pipeline, which is also what spares it from cloud-auth checks.  Any follow-up to change that behavior should update this row.
 
-Stage 3 is where the operation-first model lives: =validate-file-operation= receives a file-op plist from bash-parser (=:file=, =:operation=, =:command=, =:confidence=) and defers to the same =validate-path-operation= used by filesystem tool validation.  This is what guarantees that bash =cat /etc/passwd= and the =read_file= tool resolve to exactly the same allow/deny decision for the same path.
+Stage 3 is where the operation-first model lives: =validate-file-operation= receives a file-op plist from bash-parser (=:file=, =:operation=, =:command=, =:confidence=) and defers to the same =validate-path-operation= used by filesystem tool validation.  This is what guarantees that bash =cat /etc/passwd= and the =read_file_in_scope= tool resolve to exactly the same allow/deny decision for the same path.
 
 * Scope Config Shape
 :PROPERTIES:
@@ -416,7 +416,7 @@ Stage 3 is where the operation-first model lives: =validate-file-operation= rece
 =jf/gptel-scope-yaml--load-schema= parses =scope.yml= and merges it with =jf/gptel-scope-yaml--schema-defaults=.  The resulting plist is what every validator expects.
 
 #+begin_example
-  (:paths (:read    (PATTERN ...)   ; read_file + read-like bash ops
+  (:paths (:read    (PATTERN ...)   ; read_file_in_scope + read-like bash ops
            :write   (PATTERN ...)   ; write_file + write-like bash ops
            :modify  (PATTERN ...)   ; in-place modifications
            :execute (PATTERN ...)   ; execute operations (high risk)

@@ -402,7 +402,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
         ;; Trigger expansion with read operation
         (let ((violation-info (helpers-spec--make-violation-info
-                              "read_file" "path_out_of_scope"
+                              "read_file_in_scope" "path_out_of_scope"
                               :path filepath
                               :operation :read
                               :metadata (list :exists t :git-tracked t))))
@@ -410,7 +410,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            violation-info
            (lambda (result) nil)
            (list "/home/user/**")
-           "read_file"))
+           "read_file_in_scope"))
 
         ;; Assert: Expansion UI was called with read operation
         (expect expansion-ui-called :to-be t)
@@ -524,7 +524,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
         ;; Trigger expansion
         (let ((violation-info (helpers-spec--make-violation-info
-                              "read_file" "path_out_of_scope"
+                              "read_file_in_scope" "path_out_of_scope"
                               :path filepath
                               :operation :read
                               :metadata (list :exists t :git-tracked nil))))
@@ -533,7 +533,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            (lambda (result)
              (setq callback-result result))
            (list filepath)
-           "read_file"))
+           "read_file_in_scope"))
 
         ;; Assert: Callback received denial
         (let ((parsed (json-parse-string callback-result :object-type 'plist)))
@@ -563,7 +563,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
                                   :message "Allowed for this invocation only")))))
 
         (let ((violation-info (helpers-spec--make-violation-info
-                              "read_file" "path_out_of_scope"
+                              "read_file_in_scope" "path_out_of_scope"
                               :path filepath
                               :operation :read
                               :metadata (list :exists t :git-tracked nil))))
@@ -571,7 +571,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            violation-info
            (lambda (result) (setq callback-result result))
            (list filepath)
-           "read_file"))
+           "read_file_in_scope"))
 
         (let ((parsed (json-parse-string callback-result :object-type 'plist)))
           (expect (plist-get parsed :success) :to-be t)
@@ -868,14 +868,14 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
            (mock-callback (lambda (result) nil)))
 
       (spy-on 'transient-scope
-              :and-return-value (list :violation (list :tool "read_file"
+              :and-return-value (list :violation (list :tool "read_file_in_scope"
                                                        :resource resource
                                                        :operation :read
                                                        :validation-type 'path
                                                        :reason "test")
                                       :callback mock-callback
                                       :patterns (list resource)
-                                      :tool-name "read_file"))
+                                      :tool-name "read_file_in_scope"))
       (spy-on 'jf/gptel-scope--get-scope-file-path :and-return-value scope-yml)
       (spy-on 'jf/gptel-scope--write-pattern-to-scope :and-return-value t)
       (spy-on 'transient-quit-one)
@@ -885,7 +885,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
       ;; Assert: write-pattern-to-scope was called with 'path validation type
       ;; and the denied-operation keyword (so paths.read gets targeted).
       (expect 'jf/gptel-scope--write-pattern-to-scope
-              :to-have-been-called-with "/home/user/**" 'path "read_file" scope-yml :read)
+              :to-have-been-called-with "/home/user/**" 'path "read_file_in_scope" scope-yml :read)
 
       (delete-file scope-yml))))
 

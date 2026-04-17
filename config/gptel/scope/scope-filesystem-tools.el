@@ -39,7 +39,7 @@ Returns nil if file is not in a git repository."
 
 ;; [[file:scope-filesystem-tools.org::*Read File Tool (Scope-Aware)][Read File Tool (Scope-Aware):1]]
 (gptel-make-scoped-tool
- "read_file"
+ "read_file_in_scope"
  "Read contents of a file at the specified path.
 Checks scope plan patterns before reading.
 Most scope plans allow broad read access (e.g., all project files).

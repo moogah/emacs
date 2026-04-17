@@ -62,7 +62,7 @@
 (defun expansion-integration--call-path-validator (filepath operation)
   "Call filesystem validator with FILEPATH and OPERATION (read or write).
 Returns check-result from validator."
-  (let ((tool-name (if (eq operation 'read) "read_file" "write_file_in_scope")))
+  (let ((tool-name (if (eq operation 'read) "read_file_in_scope" "write_file_in_scope")))
     (jf/gptel-scope--validate-filesystem-tool
      tool-name operation (list filepath)
      expansion-integration--test-scope-config nil)))
@@ -79,14 +79,14 @@ Returns check-result from validator."
       (let* ((check-result (append
                             (expansion-integration--call-path-validator "/tmp/outside.txt" 'read)
                             (list :validation-type 'path)))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file_in_scope")))
         ;; Verify check-result has expected format
         (expect (plist-get check-result :allowed) :to-be nil)
         (expect (plist-get check-result :error) :to-equal "not-in-scope")
         (expect (plist-get check-result :resource) :to-be-truthy)
 
         ;; Verify violation-info transformation
-        (expect (plist-get violation-info :tool) :to-equal "read_file")
+        (expect (plist-get violation-info :tool) :to-equal "read_file_in_scope")
         (expect (plist-get violation-info :resource) :to-be-truthy)
         (expect (plist-get violation-info :reason) :to-be-truthy)
         (expect (plist-get violation-info :reason) :not :to-be nil)
@@ -96,10 +96,10 @@ Returns check-result from validator."
       (let* ((check-result '(:allowed nil
                              :error "denied-pattern"
                              :resource "/workspace/denied/file.txt"
-                             :tool "read_file"
+                             :tool "read_file_in_scope"
                              :validation-type path
                              :message "Path denied by scope: /workspace/denied/file.txt"))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file_in_scope")))
         (expect (plist-get violation-info :reason) :to-equal "Path denied by scope: /workspace/denied/file.txt"))))
 
   (describe "Bash validator integration — real validator output"
@@ -144,9 +144,9 @@ Returns check-result from validator."
                              :error "not-in-scope"
                              :message "Path not in read scope: /tmp/file.txt"
                              :resource "/tmp/file.txt"
-                             :tool "read_file"
+                             :tool "read_file_in_scope"
                              :validation-type path))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file")))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file_in_scope")))
         (expect (plist-get violation-info :reason) :to-equal "Path not in read scope: /tmp/file.txt"))))
 
   (describe "Transformation robustness"
@@ -155,9 +155,9 @@ Returns check-result from validator."
       (let* ((malformed '(:allowed nil
                          :error "some-error"
                          :resource "/tmp/file.txt"
-                         :tool "read_file"
+                         :tool "read_file_in_scope"
                          :validation-type path))
-             (violation-info (jf/gptel-scope--build-violation-info malformed "read_file")))
+             (violation-info (jf/gptel-scope--build-violation-info malformed "read_file_in_scope")))
         (expect (plist-get violation-info :reason) :to-be nil)
         (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")))))
 
@@ -181,7 +181,7 @@ Returns check-result from validator."
       (let* ((check-result (append
                             (expansion-integration--call-path-validator "/tmp/outside.txt" 'read)
                             (list :validation-type 'path)))
-             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file"))
+             (violation-info (jf/gptel-scope--build-violation-info check-result "read_file_in_scope"))
              (expansion-called nil)
              (expansion-result nil))
 
@@ -189,7 +189,7 @@ Returns check-result from validator."
         (expect (plist-get check-result :allowed) :to-be nil)
 
         ;; Verify violation-info is well-formed
-        (expect (plist-get violation-info :tool) :to-equal "read_file")
+        (expect (plist-get violation-info :tool) :to-equal "read_file_in_scope")
         (expect (plist-get violation-info :reason) :to-be-truthy)
 
         ;; Mock expansion UI to simulate add-to-scope approval
@@ -198,7 +198,7 @@ Returns check-result from validator."
                 (lambda (vi callback patterns tool-name)
                   (setq expansion-called t)
                   ;; Verify violation-info fields are accessible
-                  (expect (plist-get vi :tool) :to-equal "read_file")
+                  (expect (plist-get vi :tool) :to-equal "read_file_in_scope")
                   ;; Simulate approval
                   (funcall callback
                            (json-serialize
@@ -211,7 +211,7 @@ Returns check-result from validator."
          violation-info
          (lambda (result) (setq expansion-result result))
          (list "/tmp/**")
-         "read_file")
+         "read_file_in_scope")
 
         ;; Verify end-to-end flow
         (expect expansion-called :to-be t)

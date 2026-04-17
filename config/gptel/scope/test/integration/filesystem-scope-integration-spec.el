@@ -7,13 +7,13 @@
 
 ;;; Commentary:
 
-;; INTEGRATION TESTS: Exercise the real production read_file tool through the
+;; INTEGRATION TESTS: Exercise the real production read_file_in_scope tool through the
 ;; full scope validation pipeline, verifying the complete chain from tool
 ;; invocation through to the gptel callback.
 ;;
 ;; What makes these integration tests (vs the existing contract/unit tests):
 ;;
-;; - Uses the REAL read_file tool from scope-filesystem-tools.el (not a
+;; - Uses the REAL read_file_in_scope tool from scope-filesystem-tools.el (not a
 ;;   throwaway test tool created inline)
 ;; - Uses REAL scope config parsed from YAML (not hand-built plists)
 ;; - Uses REAL path validation (not mocked check-tool-permission)
@@ -153,14 +153,14 @@ Returns the full path. SUFFIX defaults to \".txt\"."
     (when (and fs-integ--temp-dir (file-exists-p fs-integ--temp-dir))
       (delete-directory fs-integ--temp-dir t)))
 
-  (it "read_file succeeds when path matches read scope"
+  (it "read_file_in_scope succeeds when path matches read scope"
     (let* ((test-file (fs-integ--create-temp-file "hello integration test"))
            ;; Build config that allows our temp dir
            (yaml (fs-integ--make-scope-yaml
                   (list (concat fs-integ--temp-dir "/**"))
                   nil nil))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file")))
+           (tool (fs-integ--find-tool "read_file_in_scope")))
 
       (expect tool :to-be-truthy)
       (expect (gptel-tool-async tool) :to-be t)
@@ -168,7 +168,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       ;; Mock only config loading — everything else is real
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
 
-      ;; Invoke the REAL read_file tool function
+      ;; Invoke the REAL read_file_in_scope tool function
       ;; Async signature: (callback filepath)
       (funcall (gptel-tool-function tool)
                #'fs-integ--gptel-callback
@@ -189,7 +189,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                   (list (concat fs-integ--temp-dir "/**"))
                   nil nil))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file")))
+           (tool (fs-integ--find-tool "read_file_in_scope")))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
 
@@ -206,13 +206,13 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       (let ((re-parsed (json-parse-string fs-integ--callback-raw :object-type 'plist)))
         (expect (plist-get re-parsed :success) :to-be t))))
 
-  (it "read_file returns file_not_found for missing file in scope"
+  (it "read_file_in_scope returns file_not_found for missing file in scope"
     (let* ((missing-path (expand-file-name "nonexistent.txt" fs-integ--temp-dir))
            (yaml (fs-integ--make-scope-yaml
                   (list (concat fs-integ--temp-dir "/**"))
                   nil nil))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file")))
+           (tool (fs-integ--find-tool "read_file_in_scope")))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
 
@@ -231,7 +231,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                   (list (concat fs-integ--temp-dir "/**"))
                   nil nil))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file")))
+           (tool (fs-integ--find-tool "read_file_in_scope")))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       ;; Spy AND call-through: observe that the real validator runs
@@ -273,7 +273,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                   '("/workspace/**")
                   nil))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file")))
+           (tool (fs-integ--find-tool "read_file_in_scope")))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       ;; Spy on expansion UI — don't invoke callback (simulates user hasn't responded yet)
@@ -296,7 +296,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                   nil
                   (list (concat fs-integ--temp-dir "/**"))))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file")))
+           (tool (fs-integ--find-tool "read_file_in_scope")))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       (spy-on 'jf/gptel-scope-prompt-expansion)
@@ -314,7 +314,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       (let* ((test-file (fs-integ--create-temp-file "should not be read"))
              (yaml (fs-integ--make-scope-yaml '("/workspace/**") nil nil))
              (config (fs-integ--load-config-from-yaml yaml))
-             (tool (fs-integ--find-tool "read_file")))
+             (tool (fs-integ--find-tool "read_file_in_scope")))
 
         (spy-on 'jf/gptel-scope--load-config :and-return-value config)
         ;; Simulate user choosing "Deny" in transient menu
@@ -343,7 +343,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       (let* ((test-file (fs-integ--create-temp-file "allow-once content"))
              (yaml (fs-integ--make-scope-yaml '("/workspace/**") nil nil))
              (config (fs-integ--load-config-from-yaml yaml))
-             (tool (fs-integ--find-tool "read_file")))
+             (tool (fs-integ--find-tool "read_file_in_scope")))
 
         (spy-on 'jf/gptel-scope--load-config :and-return-value config)
         ;; "Allow once": signal success. The wrapper trusts this as
@@ -367,7 +367,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       (let* ((test-file (fs-integ--create-temp-file "single use test"))
              (yaml (fs-integ--make-scope-yaml '("/workspace/**") nil nil))
              (config (fs-integ--load-config-from-yaml yaml))
-             (tool (fs-integ--find-tool "read_file"))
+             (tool (fs-integ--find-tool "read_file_in_scope"))
              (expansion-count 0))
 
         (spy-on 'jf/gptel-scope--load-config :and-return-value config)
@@ -403,7 +403,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                             (fs-integ--make-scope-yaml
                              (list "/workspace/**" scope-pattern) nil nil)))
              (current-config deny-config)
-             (tool (fs-integ--find-tool "read_file"))
+             (tool (fs-integ--find-tool "read_file_in_scope"))
              (load-count 0))
 
         (spy-on 'jf/gptel-scope--load-config
@@ -454,18 +454,18 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       (delete-directory fs-integ--temp-dir t)))
 
   (it "tool struct has :async t (gptel dispatches to callback-first path)"
-    (let ((tool (fs-integ--find-tool "read_file")))
+    (let ((tool (fs-integ--find-tool "read_file_in_scope")))
       (expect tool :to-be-truthy)
       ;; gptel checks (gptel-tool-async tool-spec) to decide invocation style
       ;; For async: (apply fn process-tool-result arg-values)
       ;; For sync:  (apply fn arg-values), then (funcall process-tool-result result)
       (expect (gptel-tool-async tool) :to-be t)))
 
-  (it "tool is registered in gptel--known-tools under filesystem category"
-    (let* ((fs-category (assoc "filesystem" gptel--known-tools))
-           (tool-entry (assoc "read_file" (cdr fs-category))))
+  (it "tool is registered in gptel--known-tools under scope category"
+    (let* ((scope-category (assoc "scope" gptel--known-tools))
+           (tool-entry (assoc "read_file_in_scope" (cdr scope-category))))
       (expect tool-entry :to-be-truthy)
-      (expect (gptel-tool-name (cdr tool-entry)) :to-equal "read_file")))
+      (expect (gptel-tool-name (cdr tool-entry)) :to-equal "read_file_in_scope")))
 
   (it "callback receives exactly one string argument (gptel process-tool-result contract)"
     (let* ((test-file (fs-integ--create-temp-file "callback contract"))
@@ -473,7 +473,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
                   (list (concat fs-integ--temp-dir "/**"))
                   nil nil))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file"))
+           (tool (fs-integ--find-tool "read_file_in_scope"))
            (callback-arg-count nil)
            (callback-arg-type nil))
 
@@ -494,7 +494,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
   (it "no_scope_config error returns JSON through callback (not a signal)"
     ;; When scope.yml is missing, the tool should still invoke the callback
     ;; (not throw an error), so gptel's flow continues
-    (let ((tool (fs-integ--find-tool "read_file")))
+    (let ((tool (fs-integ--find-tool "read_file_in_scope")))
 
       ;; No config available
       (spy-on 'jf/gptel-scope--load-config :and-return-value nil)
@@ -514,7 +514,7 @@ Returns the full path. SUFFIX defaults to \".txt\"."
     (let* ((yaml (fs-integ--make-scope-yaml
                   '("/**") nil nil))
            (config (fs-integ--load-config-from-yaml yaml))
-           (tool (fs-integ--find-tool "read_file")))
+           (tool (fs-integ--find-tool "read_file_in_scope")))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       ;; Force an error inside the tool body by making expand-file-name fail

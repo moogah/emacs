@@ -70,12 +70,12 @@ this test will fail with 'void-variable wrapper-callback'."
                (message "Error in expansion-callback: %s" (error-message-string err))
                (funcall wrapper-callback (list :approved nil :reason "callback_error"))))))
 
-         (violation-info (list :tool "read_file"
+         (violation-info (list :tool "read_file_in_scope"
                               :resource "/tmp/test.txt"
                               :reason "Path not in read scope: /tmp/test.txt"
                               :validation-type 'path))
          (patterns '("/tmp/test.txt"))
-         (tool-name "read_file"))
+         (tool-name "read_file_in_scope"))
 
     ;; Verify the expansion-callback has wrapper-callback in closure
     ;; by invoking it directly (this should work)

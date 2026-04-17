@@ -60,7 +60,7 @@ security:
   max_coverage_threshold: 0.8
 
 tools:
-  - read_file
+  - read_file_in_scope
   - write_file_in_scope
 "
   "Full scope.yml with all sections including nested plists.")
@@ -152,7 +152,7 @@ tools:
                 (insert test-full-scope-yaml))
 
               ;; Add a new path (simulating inline expansion)
-              (jf/gptel-scope--add-path-to-scope temp-file "/new/path/**" "read_file")
+              (jf/gptel-scope--add-path-to-scope temp-file "/new/path/**" "read_file_in_scope")
 
               ;; Read back and verify ALL sections still present
               (let* ((parsed (jf/gptel-scope--read-scope-file-as-yaml temp-file))

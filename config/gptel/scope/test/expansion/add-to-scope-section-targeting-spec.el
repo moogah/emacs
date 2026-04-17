@@ -110,7 +110,7 @@ security:
 
     (it ":match-pattern targets paths.read"
       (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/workspace/src" "read_file" :match-pattern)
+       section--scope-file "/workspace/src" "read_file_in_scope" :match-pattern)
       (expect (section--matches-p :read "workspace/src") :to-be-truthy)))
 
   (describe "with :write-family operations"

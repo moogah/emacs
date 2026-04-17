@@ -176,7 +176,7 @@ Run this after preset registration to inject skill content into presets."
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
-;; Load scope-aware filesystem tools (read_file, write_file, edit_file)
+;; Load scope-aware filesystem tools (read_file_in_scope, write_file_in_scope, edit_file_in_scope)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
 
 ;; Load activities integration (optional - only if activities package is loaded)

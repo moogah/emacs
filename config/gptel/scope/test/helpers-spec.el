@@ -537,7 +537,7 @@ Result should have :error :path_out_of_scope."
 
 (defun helpers-spec--make-violation-info (tool error-code &rest props)
   "Build a realistic violation-info plist via the real build-violation-info.
-TOOL is the tool name string (e.g., \"read_file\", \"run_bash_command\").
+TOOL is the tool name string (e.g., \"read_file_in_scope\", \"run_bash_command\").
 ERROR-CODE is the machine-readable error string (e.g., \"not-in-scope\",
 \"path_out_of_scope\", \"command_denied\").
 PROPS are keyword arguments:

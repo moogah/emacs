@@ -72,7 +72,7 @@
     (it "invokes on-deny with no_scope_config and never validates"
       (let (allow-called deny-response)
         (jf/gptel-scope-authorize-tool-call
-         "read_file" 'read (list "/workspace/foo")
+         "read_file_in_scope" 'read (list "/workspace/foo")
          (lambda () (setq allow-called t))
          (lambda (response) (setq deny-response response)))
         (expect allow-called :to-be nil)
@@ -93,7 +93,7 @@
     (it "invokes on-allow and skips expansion"
       (let (allow-called deny-called)
         (jf/gptel-scope-authorize-tool-call
-         "read_file" 'read (list "/workspace/foo")
+         "read_file_in_scope" 'read (list "/workspace/foo")
          (lambda () (setq allow-called t))
          (lambda (_response) (setq deny-called t)))
         (expect allow-called :to-be t)
@@ -103,11 +103,11 @@
 
     (it "passes tool-name, operation, args, and config to the validator"
       (jf/gptel-scope-authorize-tool-call
-       "read_file" 'read (list "/workspace/foo")
+       "read_file_in_scope" 'read (list "/workspace/foo")
        (lambda () nil)
        (lambda (_response) nil))
       (let ((call-args (spy-calls-args-for 'jf/gptel-scope--validate-tool-call 0)))
-        (expect (nth 0 call-args) :to-equal "read_file")
+        (expect (nth 0 call-args) :to-equal "read_file_in_scope")
         (expect (nth 1 call-args) :to-equal 'read)
         (expect (nth 2 call-args) :to-equal (list "/workspace/foo"))
         (expect (nth 3 call-args) :to-equal '(:config t)))))
@@ -124,20 +124,20 @@
 
     (it "hands check-result, tool-name, and a callback to trigger-inline-expansion"
       (jf/gptel-scope-authorize-tool-call
-       "read_file" 'read (list "/etc/passwd")
+       "read_file_in_scope" 'read (list "/etc/passwd")
        (lambda () nil)
        (lambda (_response) nil))
       (let ((call-args (spy-calls-args-for
                         'jf/gptel-scope--trigger-inline-expansion 0)))
         (expect (plist-get (nth 0 call-args) :error)
                 :to-equal "path_out_of_scope")
-        (expect (nth 1 call-args) :to-equal "read_file")
+        (expect (nth 1 call-args) :to-equal "read_file_in_scope")
         (expect (functionp (nth 2 call-args)) :to-be t)))
 
     (it "does not invoke on-allow or on-deny before the user decides"
       (let (allow-called deny-called)
         (jf/gptel-scope-authorize-tool-call
-         "read_file" 'read (list "/etc/passwd")
+         "read_file_in_scope" 'read (list "/etc/passwd")
          (lambda () (setq allow-called t))
          (lambda (_response) (setq deny-called t)))
         (expect allow-called :to-be nil)
@@ -157,7 +157,7 @@
     (it "invokes on-allow without re-validating"
       (let (allow-called deny-called)
         (jf/gptel-scope-authorize-tool-call
-         "read_file" 'read (list "/etc/passwd")
+         "read_file_in_scope" 'read (list "/etc/passwd")
          (lambda () (setq allow-called t))
          (lambda (_response) (setq deny-called t)))
         (expect allow-called :to-be t)
@@ -181,13 +181,13 @@
     (it "invokes on-deny with a formatted response and never on-allow"
       (let (allow-called deny-response)
         (jf/gptel-scope-authorize-tool-call
-         "read_file" 'read (list "/etc/shadow")
+         "read_file_in_scope" 'read (list "/etc/shadow")
          (lambda () (setq allow-called t))
          (lambda (response) (setq deny-response response)))
         (expect allow-called :to-be nil)
         (expect (plist-get deny-response :success) :to-be nil)
         (expect (plist-get deny-response :error) :to-equal "path_out_of_scope")
-        (expect (plist-get deny-response :tool) :to-equal "read_file")
+        (expect (plist-get deny-response :tool) :to-equal "read_file_in_scope")
         (expect (plist-get deny-response :resource) :to-equal "/etc/shadow"))))
 
   (describe "user chooses add-to-scope"
@@ -214,7 +214,7 @@
     (it "re-validates and invokes on-allow when the retry passes"
       (let (allow-called deny-called)
         (jf/gptel-scope-authorize-tool-call
-         "read_file" 'read (list "/workspace/newly-added")
+         "read_file_in_scope" 'read (list "/workspace/newly-added")
          (lambda () (setq allow-called t))
          (lambda (_response) (setq deny-called t)))
         (expect allow-called :to-be t)

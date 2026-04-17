@@ -33,9 +33,9 @@
   (require 'jf-gptel-scope-tool-wrapper (expand-file-name "../scope/scope-tool-wrapper.el" tools-dir)))
 
 
-;;; Test Suite: read_file tool-scope contract
+;;; Test Suite: read_file_in_scope tool-scope contract
 
-(describe "read_file: tool-scope contract"
+(describe "read_file_in_scope: tool-scope contract"
 
   (describe "on validation success, reads file"
 
@@ -61,19 +61,19 @@
   (describe "on validation failure, returns error without reading"
 
     (it "returns structured scope violation error"
-      (let* ((denied-result (tool-test--scope-denied "path_out_of_scope" "/etc/passwd" "read_file"))
-             (formatted (jf/gptel-scope--format-tool-error "read_file" "/etc/passwd" denied-result)))
+      (let* ((denied-result (tool-test--scope-denied "path_out_of_scope" "/etc/passwd" "read_file_in_scope"))
+             (formatted (jf/gptel-scope--format-tool-error "read_file_in_scope" "/etc/passwd" denied-result)))
         (expect (plist-get formatted :success) :to-be nil)
         (expect (plist-get formatted :error) :to-equal "path_out_of_scope")
-        (expect (plist-get formatted :tool) :to-equal "read_file")
+        (expect (plist-get formatted :tool) :to-equal "read_file_in_scope")
         (expect (plist-get formatted :resource) :to-equal "/etc/passwd")))
 
     (it "does not read file when permission denied"
       (spy-on 'insert-file-contents)
       ;; Simulate the macro behavior: check permission, skip I/O if denied
-      (let ((check-result (tool-test--scope-denied "path_out_of_scope" "/etc/shadow" "read_file")))
+      (let ((check-result (tool-test--scope-denied "path_out_of_scope" "/etc/shadow" "read_file_in_scope")))
         (unless (plist-get check-result :allowed)
-          (jf/gptel-scope--format-tool-error "read_file" "/etc/shadow" check-result))
+          (jf/gptel-scope--format-tool-error "read_file_in_scope" "/etc/shadow" check-result))
         (expect 'insert-file-contents :not :to-have-been-called)))))
 
 
@@ -149,12 +149,12 @@
 
   (it "triggers inline expansion when async tool is denied"
     (spy-on 'jf/gptel-scope--trigger-inline-expansion)
-    (let ((validation-error (tool-test--scope-denied "path_out_of_scope" "/outside/scope" "read_file"))
+    (let ((validation-error (tool-test--scope-denied "path_out_of_scope" "/outside/scope" "read_file_in_scope"))
           (callback (lambda (_result) nil)))
-      (jf/gptel-scope--trigger-inline-expansion validation-error "read_file" '("/outside/scope") callback)
+      (jf/gptel-scope--trigger-inline-expansion validation-error "read_file_in_scope" '("/outside/scope") callback)
       (expect 'jf/gptel-scope--trigger-inline-expansion :to-have-been-called)
       (let ((call-args (spy-calls-args-for 'jf/gptel-scope--trigger-inline-expansion 0)))
-        (expect (nth 1 call-args) :to-equal "read_file"))))
+        (expect (nth 1 call-args) :to-equal "read_file_in_scope"))))
 
   (it "passes denied resource to expansion for pattern inference"
     (spy-on 'jf/gptel-scope--trigger-inline-expansion)

@@ -95,13 +95,13 @@ without actually displaying the transient menu."
                              (setq callback-invoked t)
                              (setq callback-result json)))
              (violation-info (helpers-spec--make-violation-info
-                             "read_file" "not-in-scope"
+                             "read_file_in_scope" "not-in-scope"
                              :path "/tmp/outside.txt"
                              :operation :read)))
 
         ;; Setup transient scope manually
         (test-setup-transient-scope violation-info test-callback
-                                   '("/tmp/outside.txt") "read_file")
+                                   '("/tmp/outside.txt") "read_file_in_scope")
 
         ;; Call REAL handler
         (jf/gptel-scope--deny-expansion)
@@ -251,12 +251,12 @@ without actually displaying the transient menu."
       (let* ((callback-result nil)
              (test-callback (lambda (json) (setq callback-result json)))
              (violation-info (helpers-spec--make-violation-info
-                             "read_file" "not-in-scope"
+                             "read_file_in_scope" "not-in-scope"
                              :path "/tmp/temp.txt"
                              :operation :read)))
 
         (test-setup-transient-scope violation-info test-callback
-                                   '("/tmp/temp.txt") "read_file")
+                                   '("/tmp/temp.txt") "read_file_in_scope")
 
         (jf/gptel-scope--allow-once-action)
 
@@ -268,12 +268,12 @@ without actually displaying the transient menu."
 
     (it "handles callback invocation errors gracefully"
       (let* ((evil-callback (lambda (_) (error "Boom!")))
-             (violation-info (list :tool "read_file"
+             (violation-info (list :tool "read_file_in_scope"
                                   :resource "/tmp/test.txt"
                                   :validation-type 'path)))
 
         (test-setup-transient-scope violation-info evil-callback
-                                   '("/tmp/test.txt") "read_file")
+                                   '("/tmp/test.txt") "read_file_in_scope")
 
         ;; Should catch error
         (expect (jf/gptel-scope--allow-once-action) :not :to-throw))))
@@ -283,11 +283,11 @@ without actually displaying the transient menu."
     (it "creates transient scope with correct structure"
       (let* ((test-callback (lambda (json) json))
              (violation-info (helpers-spec--make-violation-info
-                             "read_file" "not-in-scope"
+                             "read_file_in_scope" "not-in-scope"
                              :path "/tmp/test.txt"
                              :operation :read))
              (patterns '("/tmp/test.txt"))
-             (tool-name "read_file"))
+             (tool-name "read_file_in_scope"))
 
         ;; Mock transient-setup to capture arguments
         (spy-on 'transient-setup

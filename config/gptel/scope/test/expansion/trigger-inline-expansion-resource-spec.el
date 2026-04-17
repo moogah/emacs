@@ -94,12 +94,12 @@
 
   (describe "path tool with not-in-scope error"
 
-    (it "preserves the denied path for read_file"
+    (it "preserves the denied path for read_file_in_scope"
       (let* ((captured-violation nil)
              (validation-error (list :allowed nil
                                      :error "not-in-scope"
                                      :resource "/outside/scope/file.txt"
-                                     :tool "read_file"
+                                     :tool "read_file_in_scope"
                                      :validation-type 'path
                                      :message "Path not in read scope")))
         (spy-on 'jf/gptel-scope-prompt-expansion
@@ -108,7 +108,7 @@
                   (setq captured-violation violation-info)))
 
         (jf/gptel-scope--trigger-inline-expansion
-         validation-error "read_file"
+         validation-error "read_file_in_scope"
          (lambda (_result) nil))
 
         (expect captured-violation :to-be-truthy)

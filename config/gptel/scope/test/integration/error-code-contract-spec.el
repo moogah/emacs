@@ -87,7 +87,7 @@
                                :execute () :modify ()
                                :deny ("/workspace/secret/**"))))
              (result (jf/gptel-scope--validate-filesystem-tool
-                      "read_file" 'read
+                      "read_file_in_scope" 'read
                       (list "/workspace/secret/key.pem")
                       config nil)))
         (expect (plist-get result :allowed) :to-be nil)
@@ -98,7 +98,7 @@
       (let* ((config '(:paths (:read ("/workspace/**") :write ()
                                :execute () :modify () :deny ())))
              (result (jf/gptel-scope--validate-filesystem-tool
-                      "read_file" 'read
+                      "read_file_in_scope" 'read
                       (list "/outside/file.txt")
                       config nil)))
         (expect (plist-get result :allowed) :to-be nil)
@@ -151,7 +151,7 @@
                             :validation-type path
                             :message "Path denied by scope"))
              (result (jf/gptel-scope--build-violation-info
-                      error-plist "read_file")))
+                      error-plist "read_file_in_scope")))
         (expect (plist-get result :resource) :to-equal "/workspace/secret/key.pem")))
 
     (it "not-in-scope → :resource (path)"
@@ -161,7 +161,7 @@
                             :validation-type path
                             :message "Path not in read scope"))
              (result (jf/gptel-scope--build-violation-info
-                      error-plist "read_file")))
+                      error-plist "read_file_in_scope")))
         (expect (plist-get result :resource) :to-equal "/outside/file.txt")))
 
     (it "parse_incomplete → :command"
@@ -205,8 +205,8 @@
                                   :provider "aws"
                                   :validation-type 'path))
                (result (jf/gptel-scope--build-violation-info
-                        error-plist "read_file")))
-          (expect (plist-get result :tool) :to-equal "read_file")
+                        error-plist "read_file_in_scope")))
+          (expect (plist-get result :tool) :to-equal "read_file_in_scope")
           (expect (plist-get result :reason) :not :to-be nil)
           (expect (plist-get result :resource) :not :to-be nil)
           (expect (plist-get result :validation-type) :to-equal 'path))))))
@@ -224,7 +224,7 @@
     (let* ((config '(:paths (:read ("/workspace/**") :write ()
                              :execute () :modify () :deny ())))
            (wrapper-result (jf/gptel-scope--validate-filesystem-tool
-                            "read_file" 'read
+                            "read_file_in_scope" 'read
                             (list "/outside/file.txt") config nil))
            (shared-result (jf/gptel-scope--validate-path-operation
                            "/outside/file.txt" :read config)))
@@ -236,7 +236,7 @@
                              :execute () :modify ()
                              :deny ("/workspace/secret/**"))))
            (wrapper-result (jf/gptel-scope--validate-filesystem-tool
-                            "read_file" 'read
+                            "read_file_in_scope" 'read
                             (list "/workspace/secret/key.pem") config nil))
            (shared-result (jf/gptel-scope--validate-path-operation
                            "/workspace/secret/key.pem" :read config)))

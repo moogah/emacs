@@ -62,15 +62,15 @@
         (let ((args (help-function-arglist fn t)))
           (expect (car args) :to-be 'callback))))))
 
-(describe "read_file tool registration"
+(describe "read_file_in_scope tool registration"
 
-  (it "read_file is marked as async"
-    (let ((tool-found (async-flag--find-tool-in-registry "read_file")))
+  (it "read_file_in_scope is marked as async"
+    (let ((tool-found (async-flag--find-tool-in-registry "read_file_in_scope")))
       (expect tool-found :to-be-truthy)
       (expect (gptel-tool-async tool-found) :to-be t)))
 
-  (it "read_file has callback-first signature"
-    (let ((tool-found (async-flag--find-tool-in-registry "read_file")))
+  (it "read_file_in_scope has callback-first signature"
+    (let ((tool-found (async-flag--find-tool-in-registry "read_file_in_scope")))
       (expect tool-found :to-be-truthy)
       (let* ((fn (gptel-tool-function tool-found))
              (args (help-function-arglist fn t)))

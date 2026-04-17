@@ -139,7 +139,7 @@ Returns the loaded config on success, signals error on contract violation."
 
   (it "adding a read path produces valid config"
     (jf/gptel-scope--add-path-to-scope
-     roundtrip--scope-file "/tmp/data.txt" "read_file")
+     roundtrip--scope-file "/tmp/data.txt" "read_file_in_scope")
     (let ((config (roundtrip--reload-and-validate)))
       (expect (member "/tmp/data.txt" (plist-get (plist-get config :paths) :read))
               :to-be-truthy)))
@@ -153,16 +153,16 @@ Returns the loaded config on success, signals error on contract violation."
 
   (it "adding a directory path normalizes to glob pattern"
     (jf/gptel-scope--add-path-to-scope
-     roundtrip--scope-file "/tmp/data/" "read_file")
+     roundtrip--scope-file "/tmp/data/" "read_file_in_scope")
     (let ((config (roundtrip--reload-and-validate)))
       (expect (member "/tmp/data/**" (plist-get (plist-get config :paths) :read))
               :to-be-truthy)))
 
   (it "adding duplicate path is idempotent"
     (jf/gptel-scope--add-path-to-scope
-     roundtrip--scope-file "/workspace/new.txt" "read_file")
+     roundtrip--scope-file "/workspace/new.txt" "read_file_in_scope")
     (jf/gptel-scope--add-path-to-scope
-     roundtrip--scope-file "/workspace/new.txt" "read_file")
+     roundtrip--scope-file "/workspace/new.txt" "read_file_in_scope")
     (let* ((config (roundtrip--reload-and-validate))
            (read-paths (plist-get (plist-get config :paths) :read))
            (count (cl-count "/workspace/new.txt" read-paths :test #'equal)))
@@ -260,7 +260,7 @@ Returns the loaded config on success, signals error on contract violation."
     (let* ((before (helpers-spec-load-scope-config roundtrip--scope-file))
            (deny-before (plist-get (plist-get before :paths) :deny)))
       (jf/gptel-scope--add-path-to-scope
-       roundtrip--scope-file "/tmp/new.txt" "read_file")
+       roundtrip--scope-file "/tmp/new.txt" "read_file_in_scope")
       (let* ((after (roundtrip--reload-and-validate))
              (deny-after (plist-get (plist-get after :paths) :deny)))
         (expect deny-after :to-equal deny-before))))
@@ -269,7 +269,7 @@ Returns the loaded config on success, signals error on contract violation."
     (let* ((before (helpers-spec-load-scope-config roundtrip--scope-file))
            (deny-before (plist-get (plist-get before :bash-tools) :deny)))
       (jf/gptel-scope--add-path-to-scope
-       roundtrip--scope-file "/tmp/new.txt" "read_file")
+       roundtrip--scope-file "/tmp/new.txt" "read_file_in_scope")
       (let* ((after (roundtrip--reload-and-validate))
              (deny-after (plist-get (plist-get after :bash-tools) :deny)))
         (expect deny-after :to-equal deny-before))))
@@ -278,7 +278,7 @@ Returns the loaded config on success, signals error on contract violation."
     (let* ((before (helpers-spec-load-scope-config roundtrip--scope-file))
            (cloud-before (plist-get before :cloud)))
       (jf/gptel-scope--add-path-to-scope
-       roundtrip--scope-file "/tmp/new.txt" "read_file")
+       roundtrip--scope-file "/tmp/new.txt" "read_file_in_scope")
       (let* ((after (roundtrip--reload-and-validate))
              (cloud-after (plist-get after :cloud)))
         (expect (plist-get cloud-after :auth-detection)
@@ -288,7 +288,7 @@ Returns the loaded config on success, signals error on contract violation."
     (let* ((before (helpers-spec-load-scope-config roundtrip--scope-file))
            (security-before (plist-get before :security)))
       (jf/gptel-scope--add-path-to-scope
-       roundtrip--scope-file "/tmp/new.txt" "read_file")
+       roundtrip--scope-file "/tmp/new.txt" "read_file_in_scope")
       (let* ((after (roundtrip--reload-and-validate))
              (security-after (plist-get after :security)))
         (expect (plist-get security-after :enforce-parse-complete)

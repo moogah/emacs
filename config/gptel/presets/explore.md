@@ -31,7 +31,7 @@ tools:
   - update_ggtags_project
   - explain_ggtags_indexing
   # Scope Management
-  - read_file
+  - read_file_in_scope
   - write_file_in_scope
   - edit_file_in_scope
   - request_scope_expansion
