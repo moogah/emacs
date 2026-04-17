@@ -107,7 +107,7 @@ Note: =gptel-cache= can also be set to ='(system message)= to cache only specifi
 (use-package gptel
   :straight t
   :custom
-  (gptel-model 'gpt-4o) ;; model is now a symbol, not a string
+  (gptel-model 'claude-opus-4-6) ;; model is now a symbol, not a string
   (gptel-log-level 'debug) ;; Enable debug logging for testing
   :config
   ;; Enable prompt caching for Anthropic models
@@ -120,13 +120,16 @@ Note: =gptel-cache= can also be set to ='(system message)= to cache only specifi
     :stream t)
 
   ;; Configure Anthropic backend with curated Claude 4.5/4.6 models
-  ;; Includes lightweight (Haiku), balanced (Sonnet), and heavyweight (Opus) options
-  (gptel-make-anthropic "Claude"
-    :stream t
-    :key (lambda () (auth-source-pick-first-password :host "api.anthropic.com"))
-    :models '(claude-haiku-4-5-20251001      ; Fast & economical for simple tasks
-              claude-sonnet-4-6              ; Balanced for most use cases
-              claude-opus-4-6))              ; Most capable for complex reasoning
+  ;; Includes lightweight (Haiku), balanced (Sonnet), and heavyweight (Opus) options.
+  ;; Promoted to `gptel-backend' default since upstream gptel v0.9.9.5 removed
+  ;; the built-in OpenAI default (now nil).
+  (setq gptel-backend
+        (gptel-make-anthropic "Claude"
+          :stream t
+          :key (lambda () (auth-source-pick-first-password :host "api.anthropic.com"))
+          :models '(claude-haiku-4-5-20251001      ; Fast & economical for simple tasks
+                    claude-sonnet-4-6              ; Balanced for most use cases
+                    claude-opus-4-6)))             ; Most capable for complex reasoning
 
   ;; Configure Claude Sonnet 4.6 with extended thinking mode for complex problems
   ;; Thinking mode provides detailed reasoning before answering
