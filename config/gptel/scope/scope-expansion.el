@@ -235,11 +235,12 @@ again."
          (validation-type (plist-get violation :validation-type))
          (resource (plist-get violation :resource))
          (tool (plist-get violation :tool))
+         (denied-operation (plist-get violation :operation))
          (pattern (jf/gptel-scope--parent-wildcard-for resource))
          (scope-file (jf/gptel-scope--get-scope-file-path)))
 
     (jf/gptel-scope--validate-scope-file-writable scope-file)
-    (jf/gptel-scope--write-pattern-to-scope pattern validation-type tool scope-file)
+    (jf/gptel-scope--write-pattern-to-scope pattern validation-type tool scope-file denied-operation)
 
     (condition-case err
         (if callback
@@ -310,7 +311,8 @@ again."
           (transient-quit-one))
       (user-error "No scope.yml found - unable to determine context directory"))))
 
-(defun jf/gptel-scope--add-path-to-scope (scope-file path tool &optional denied-operation)
+(defun jf/gptel-scope--add-path-to-scope
+    (scope-file path tool &optional denied-operation)
   "Add PATH to scope.yml under appropriate section.
 SCOPE-FILE is the path to scope.yml.
 PATH is the file/directory path to add.
@@ -320,17 +322,12 @@ DENIED-OPERATION, when non-nil, is the operation keyword from the validation err
 instead of relying on the tool category. This is important for tools like
 run_bash_command which are categorized as :write but may be denied for a :read operation."
   (jf/gptel-scope--validate-scope-file-writable scope-file)
-  (let* (;; Determine target section from denied-operation or fall back to tool category
+  (let* (;; Route by denied-operation when we have one (bash-parser path);
+         ;; otherwise default to :read (safest for filesystem tools whose
+         ;; category the caller did not pass through).
          (target-section
           (if denied-operation
-              ;; Use the actual denied operation to pick the right section
-              (pcase denied-operation
-                ((or :read :read-directory :read-metadata :match-pattern) :read)
-                ((or :write :create :create-or-modify :append :delete) :write)
-                (:modify :write)
-                (:execute :execute)
-                (_ :read))  ; Default to read for unknown operations
-            ;; No denied-operation — default to read (safest)
+              (jf/gptel-scope--map-operation-to-scope-section denied-operation)
             :read))
          ;; Parse YAML file
          (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
@@ -361,17 +358,18 @@ DENIED-OPERATION, when non-nil, is the denied operation keyword (e.g., :read-met
 passed through to `add-path-to-scope' for correct section targeting."
   (jf/gptel-scope--validate-scope-file-writable scope-file)
 
-  ;; Check if resource is a file path or command pattern
-  ;; File paths start with / or ~ (absolute) or contain / (relative)
-  ;; Command patterns are bare names like "brew" or "tree"
+  ;; Check if resource is a path-like pattern or a bare command name.
+  ;; Path-like: absolute (/..., ~...), directory, or contains a glob wildcard
+  ;; (match-pattern operations produce globs like "*.txt").
+  ;; Command patterns are bare names like "brew" or "tree" — not expandable.
   (if (or (file-directory-p resource)
           (string-prefix-p "/" resource)
-          (string-prefix-p "~" resource))
-      ;; File path - delegate to path expansion with denied-operation
+          (string-prefix-p "~" resource)
+          (string-match-p "[*?]" resource))
       (jf/gptel-scope--add-path-to-scope scope-file resource tool denied-operation)
 
-    ;; Command name resource — not expandable in v4 (operation-first model)
-    ;; Commands are validated by their file operations, not by name
+    ;; Bare command name — not expandable in the operation-first model
+    ;; (commands are validated by their file operations, not by name).
     (message "Cannot add command '%s' to scope — use path-based expansion instead" resource)))
 
 (defun jf/gptel-scope--kebab-to-snake (key)

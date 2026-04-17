@@ -24,6 +24,35 @@
 (require 'bash-parser-orchestrator)
 ;; Dependencies:1 ends here
 
+;; Operation → Scope Section Mapping
+
+;; Canonical mapping from bash-parser operation keywords to the three scope
+;; sections (=paths.read=, =paths.write=, =paths.execute=). The bash-parser
+;; emits 11 operation types, but =scope.yml= only has three section keys; this
+;; function reduces one vocabulary to the other.
+
+;; Rule: every site that routes by operation — section targeting in the
+;; expansion UI, scope-file updates, etc. — must call this function rather than
+;; inlining its own =pcase=.
+
+;; Fail-safe default: unknown operations (and =nil=) map to =:write=. Writing
+;; is the most restrictive section, so misrouting unknowns there requires the
+;; user to grant broader permission deliberately rather than silently granting
+;; read access.
+
+
+;; [[file:scope-validation.org::*Operation → Scope Section Mapping][Operation → Scope Section Mapping:1]]
+(defun jf/gptel-scope--map-operation-to-scope-section (operation)
+  "Map OPERATION keyword to the scope section key it belongs in.
+Returns one of :read, :write, :execute.
+Unknown operations (including nil) map to :write (fail-safe)."
+  (pcase operation
+    ((or :read :read-directory :read-metadata :match-pattern) :read)
+    ((or :write :create :create-or-modify :append :delete :modify) :write)
+    (:execute :execute)
+    (_ :write)))
+;; Operation → Scope Section Mapping:1 ends here
+
 ;; Glob Pattern Matching
 
 ;; Single glob-to-regex implementation used by all path matching in the scope system.

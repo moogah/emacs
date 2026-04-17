@@ -618,7 +618,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
       ;; Read back the scope.yml and verify routing
       (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
-             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (normalized (jf/gptel-scope-yaml--normalize-keys parsed))
              (paths (plist-get normalized :paths))
              (read-paths (plist-get paths :read))
              (write-paths (plist-get paths :write)))
@@ -654,7 +654,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
       (jf/gptel-scope--add-to-scope)
 
       (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
-             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (normalized (jf/gptel-scope-yaml--normalize-keys parsed))
              (paths (plist-get normalized :paths))
              (read-paths (plist-get paths :read))
              (write-paths (plist-get paths :write)))
@@ -687,7 +687,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
       (jf/gptel-scope--add-to-scope)
 
       (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
-             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (normalized (jf/gptel-scope-yaml--normalize-keys parsed))
              (paths (plist-get normalized :paths))
              (read-paths (plist-get paths :read))
              (write-paths (plist-get paths :write)))
@@ -721,7 +721,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
       (jf/gptel-scope--add-to-scope)
 
       (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
-             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (normalized (jf/gptel-scope-yaml--normalize-keys parsed))
              (paths (plist-get normalized :paths))
              (read-paths (plist-get paths :read))
              (write-paths (plist-get paths :write)))
@@ -753,7 +753,7 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
       (jf/gptel-scope--add-to-scope)
 
       (let* ((parsed (jf/gptel-scope-yaml--parse-file scope-yml))
-             (normalized (jf/gptel-scope--normalize-plist-keys parsed))
+             (normalized (jf/gptel-scope-yaml--normalize-keys parsed))
              (paths (plist-get normalized :paths))
              (read-paths (plist-get paths :read))
              (write-paths (plist-get paths :write)))
@@ -825,9 +825,10 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
 
       (jf/gptel-scope--add-wildcard-to-scope)
 
-      ;; Assert: write-pattern-to-scope was called with the wildcard, not the original resource
+      ;; Assert: write-pattern-to-scope was called with the wildcard, not the original resource.
+      ;; The :read at the end is the denied-operation threaded through for section routing.
       (expect 'jf/gptel-scope--write-pattern-to-scope
-              :to-have-been-called-with "/home/user/**" 'bash "run_bash_command" scope-yml)
+              :to-have-been-called-with "/home/user/**" 'bash "run_bash_command" scope-yml :read)
 
       (delete-file scope-yml)))
 
@@ -882,8 +883,9 @@ GIT-TRACKED is boolean indicating if file is git-tracked."
       (jf/gptel-scope--add-wildcard-to-scope)
 
       ;; Assert: write-pattern-to-scope was called with 'path validation type
+      ;; and the denied-operation keyword (so paths.read gets targeted).
       (expect 'jf/gptel-scope--write-pattern-to-scope
-              :to-have-been-called-with "/home/user/**" 'path "read_file" scope-yml)
+              :to-have-been-called-with "/home/user/**" 'path "read_file" scope-yml :read)
 
       (delete-file scope-yml))))
 
