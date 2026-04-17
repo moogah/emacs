@@ -1,6 +1,6 @@
 ---
 name: opsx-new
-description: Start a new change using the experimental artifact workflow (OPSX). Use when the user wants to create a new feature, fix, or modification with a structured step-by-step approach, scaffolding a change under openspec/changes/<name>/ with the spec-driven-beads schema.
+description: Start a new change using the experimental artifact workflow (OPSX). Use when the user wants to create a new feature, fix, or modification with a structured step-by-step approach, scaffolding a change under openspec/changes/<name>/ with the spec-driven-tasks schema.
 ---
 
 Start a new change using the experimental artifact-driven approach.
@@ -20,22 +20,22 @@ Start a new change using the experimental artifact-driven approach.
 
 2. **Determine the workflow schema**
 
-   **For this project, use `spec-driven-beads` schema** (proposal → specs → architecture → design → beads).
+   **For this project, use `spec-driven-tasks` schema** (proposal → specs → architecture → design → tasks).
 
-   Always create changes with: `openspec new change "<name>" --schema spec-driven-beads`
+   Always create changes with: `openspec new change "<name>" --schema spec-driven-tasks`
 
    **Use a different schema only if the user mentions:**
    - A specific schema name → use `--schema <name>`
    - "show workflows" or "what workflows" → run `openspec schemas --json` and let them choose
 
-   **Why spec-driven-beads:**
+   **Why spec-driven-tasks:**
    - Includes architecture.md for system structure and testing approach
    - Clear dependency chain (no parallel/interleaved artifacts)
-   - Uses Beads for implementation tracking (no tasks.md)
+   - Generates individual `tasks/open/*.md` files for implementation tracking
 
 3. **Create the change directory**
    ```bash
-   openspec new change "<name>" --schema spec-driven-beads
+   openspec new change "<name>" --schema spec-driven-tasks
    ```
    Use a different `--schema <name>` only if the user requested a specific workflow.
    This creates a scaffolded change at `openspec/changes/<name>/` with the selected schema.

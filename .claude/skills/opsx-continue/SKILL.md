@@ -39,7 +39,7 @@ Continue working on a change by creating the next artifact.
    **If all artifacts are complete (`isComplete: true`)**:
    - Congratulate the user
    - Show final status including the schema used
-   - Suggest: "All artifacts created! Next: create Beads with `/opsx-create-beads` to generate implementation work items."
+   - Suggest: "All artifacts created! Next: run `/opsx-apply` to start implementing tasks, or `/opsx-tasks list` to review them."
    - STOP
 
    ---
@@ -89,7 +89,7 @@ After each invocation, show:
 
 The artifact types and their purpose depend on the schema. Use the `instruction` field from the instructions output to understand what to create.
 
-**spec-driven-beads schema** (proposal → specs → architecture → design) - **RECOMMENDED**:
+**spec-driven-tasks schema** (proposal → specs → architecture → design → tasks) - **RECOMMENDED**:
 - **proposal.md**: Ask user about the change if not clear. Fill in Why, What Changes, Capabilities, Impact.
   - The Capabilities section is critical - each capability listed will need a spec file.
 - **specs/<capability>/spec.md**: Create one spec per capability listed in the proposal's Capabilities section (use the capability name, not the change name).
@@ -97,11 +97,11 @@ The artifact types and their purpose depend on the schema. Use the `instruction`
   - Use `### Requirement:` and `#### Scenario:` headers for proper parsing.
 - **architecture.md**: Document components, interfaces, boundaries, and testability.
   - **IMPORTANT**: Engage user in dialog about testing approach:
-    - Test framework (e.g., ERT for Emacs, Jest for JS, pytest for Python)
-    - Test file location (e.g., `test/`, `tests/`, `spec/`)
+    - Test framework (ERT vs Buttercup for Emacs)
+    - Test file location (`test/` or co-located)
     - Naming conventions (files and test functions)
-    - How to run tests (commands)
-    - Mock/stub patterns
+    - How to run tests (commands from `./bin/run-tests.sh`)
+    - Mock/stub patterns (`cl-letf`-based)
     - Test helpers location
     - Scenario mapping strategy
   - Use **AskUserQuestion** to gather testing preferences
@@ -110,11 +110,17 @@ The artifact types and their purpose depend on the schema. Use the `instruction`
   - Reference architecture for structure and testing approach
   - Explain how implementation will map to components and interfaces
   - Include patterns, integration approach, and any design trade-offs
+- **tasks/**: Generate self-contained task files in `tasks/open/*.md`.
+  - Use the `/opsx-tasks generate` workflow (preview + user approval, then
+    file creation)
+  - Each task has YAML frontmatter (name, description, change, status,
+    relations) and a self-contained body (files to modify, implementation
+    steps, design rationale, verification, context)
 
-**After design is complete**, suggest using `/opsx-create-beads` to generate self-contained Beads issues from design and specs for implementation tracking.
+**After tasks are generated**, suggest `/opsx-apply` to start implementing, or `/opsx-tasks list` to review them first.
 
 **spec-driven-tdd schema** (proposal → specs → architecture → tests → design):
-- Similar to spec-driven-beads but includes a **tests/** artifact between architecture and design
+- Similar to spec-driven-tasks but includes a **tests/** artifact between architecture and design
 - **tests/**: Create actual test files (not documentation).
   - Location determined by architecture.md
   - Create test files that map scenarios from specs
@@ -130,7 +136,9 @@ The artifact types and their purpose depend on the schema. Use the `instruction`
 - Skip directly from specs to design (loses testing approach documentation)
 - Not recommended for new changes
 
-**IMPORTANT**: Beads are the only supported implementation tracking mechanism. Do NOT create tasks.md - all implementation work is tracked through Beads created with `/opsx-create-beads`.
+**IMPORTANT**: Implementation work is tracked through task files in
+`tasks/open/` and `tasks/closed/`. Use `/opsx-tasks` to manage them and
+`/opsx-apply` to implement.
 
 For other schemas, follow the `instruction` field from the CLI output.
 

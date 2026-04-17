@@ -36,11 +36,14 @@ I'll walk you through a complete change cycle—from idea to implementation—us
 2. Explore the problem briefly
 3. Create a change (the container for our work)
 4. Build the artifacts: proposal → specs → design
-5. Create Beads (self-contained work items) from design and specs
-6. Implement the Beads
+5. Generate task files (self-contained work items) from design and specs
+6. Implement the tasks
 7. Archive the completed change
 
-**Note:** We use Beads (not tasks.md) for implementation tracking. Beads are self-contained work items that embed all context from design and specs.
+**Note:** Implementation work is tracked in markdown task files under
+`openspec/changes/<name>/tasks/open/` and `tasks/closed/`. Each task file is
+self-contained — it embeds all context from design and specs so an agent can
+implement it without flipping back to other artifacts.
 
 **Time:** ~15-20 minutes
 
@@ -176,11 +179,15 @@ The folder structure:
 ```
 openspec/changes/<name>/
 ├── proposal.md    ← Why we're doing this (empty, we'll fill it)
+├── architecture.md← How to structure and test it (empty)
 ├── design.md      ← How we'll build it (empty)
-└── specs/         ← Detailed requirements (empty)
+├── specs/         ← Detailed requirements (empty)
+└── tasks/         ← Open and closed task files (created later)
 ```
 
-After creating these artifacts, we'll generate Beads (self-contained work items) from the design and specs. Beads replace tasks.md as the implementation tracking system.
+After creating these artifacts, we'll generate task files in `tasks/open/`
+from the design and specs. Each task is a markdown file with frontmatter
+(name, description, status, relations) and a self-contained body.
 
 Now let's fill in the first artifact—the proposal.
 ```
@@ -336,61 +343,62 @@ Save to `openspec/changes/<name>/design.md`.
 
 ---
 
-## Phase 8: Create Beads
+## Phase 8: Generate Tasks
 
 **EXPLAIN:**
 ```
-## Creating Beads
+## Generating Tasks
 
-Instead of a checkbox list, we create self-contained Beads—individual work items that include all the context needed to implement them.
+Instead of a checkbox list, we create self-contained task files—one markdown
+file per work item, each embedding all the context needed to implement it.
 
-Each Bead embeds:
-- The "why" (design rationale)
-- The "what" (specific files and steps)
-- The "done" (verification criteria)
+Each task file has:
+- Frontmatter: name, description, status, relations (blocked-by, discovered-from)
+- The "why" (design rationale, extracted from design.md)
+- The "what" (files to modify, specific implementation steps)
+- The "done" (verification commands and acceptance criteria)
 
-This means you don't need to constantly reference the design doc during implementation—everything is in the Bead.
+Files live in `openspec/changes/<name>/tasks/open/*.md` while active, then
+move to `tasks/closed/` when complete. You can grep them, diff them, and
+they travel with the change.
 
-Let me generate Beads from our design and specs.
+Let me generate tasks from our design and specs.
 ```
 
-**DO:** Generate Beads using `/opsx-create-beads`:
+**DO:** Generate tasks using `/opsx-tasks generate`:
 
 1. Read design.md and specs
 2. Break into logical work items (1-4 hours each)
-3. Show preview of generated Beads
+3. Show preview of proposed tasks
 4. Get user approval
-5. Create Beads in the database
+5. Write `tasks/open/<name>.md` files
 
 ```
-## Proposed Beads
+## Proposed Tasks
 
-**Bead 1.1: [Title]**
-Scope: ~1-2 hours
-Files: [specific paths]
-[Brief preview of what this bead does...]
+1. <name-1> — [description] [ready]
+   Scope: ~1-2 hours
+   Files: [specific paths]
 
-**Bead 1.2: [Title]**
-Scope: ~1 hour
-Files: [specific paths]
-Depends on: 1.1
-[Brief preview...]
+2. <name-2> — [description] [blocked-by: <name-1>]
+   Scope: ~1 hour
+   Files: [specific paths]
 
-Total: N beads, ~M hours estimated
+Total: N tasks, ~M hours estimated
 
-Ready to create these Beads?
+Ready to create these task files?
 ```
 
 **PAUSE** - Wait for user approval.
 
-After approval, create the Beads and show summary:
+After approval, create the files and show summary:
 
 ```
-Created N beads for <change-name>:
-- emacs-xxx: 1.1 [title]
-- emacs-yyy: 1.2 [title]
+Created N task files in openspec/changes/<name>/tasks/open/:
+- <name-1>.md — [description]
+- <name-2>.md — [description]
 
-All context embedded—each Bead is self-contained. Ready to implement?
+All context embedded—each task is self-contained. Ready to implement?
 ```
 
 **PAUSE** - Wait for user to confirm they're ready to implement.
@@ -403,29 +411,35 @@ All context embedded—each Bead is self-contained. Ready to implement?
 ```
 ## Implementation
 
-Now we implement each Bead. I'll work through them in order, showing how each Bead contains all the context needed—no need to flip back to design.md.
+Now we implement each task. I'll work through them in order, showing how
+each task file contains all the context needed—no need to flip back to
+design.md.
 
-After each one, I'll close the Bead to mark it complete.
+After each one, I'll move the file from `tasks/open/` to `tasks/closed/`
+and set its status to `done`.
 ```
 
-**DO:** For each Bead:
+**DO:** For each task:
 
-1. Show Bead: "Working on bead emacs-xxx: [title]"
-2. Reference embedded context: "This Bead says to [approach], because [rationale from design]"
+1. Show task: "Working on <task-name>: [description]"
+2. Reference embedded context: "This task says to [approach], because
+   [rationale from design]"
 3. Implement the change in the codebase
-4. Close the Bead: `bd close emacs-xxx --comment "Implemented: [summary]"`
-5. Brief status: "✓ Bead closed: emacs-xxx"
+4. Run the verification commands from the task
+5. Move the file: `git mv tasks/open/<name>.md tasks/closed/<name>.md` and
+   set `status: done` in frontmatter
+6. Brief status: "✓ Closed: <task-name>"
 
 Keep narration light—emphasize how the self-contained context helps.
 
-After all Beads:
+After all tasks:
 
 ```
 ## Implementation Complete
 
-All beads closed:
-- ✓ emacs-xxx: 1.1 [title]
-- ✓ emacs-yyy: 1.2 [title]
+All tasks closed:
+- ✓ <name-1>: [description]
+- ✓ <name-2>: [description]
 - ✓ ...
 
 The change is implemented! One more step—let's archive it.
@@ -469,12 +483,16 @@ You just completed a full OpenSpec cycle:
 2. **New** - Created a change container
 3. **Proposal** - Captured WHY
 4. **Specs** - Defined WHAT in detail
-5. **Design** - Decided HOW
-6. **Create Beads** - Generated self-contained work items from design
-7. **Apply** - Implemented the Beads
-8. **Archive** - Preserved the record
+5. **Architecture** - Decided on structure + testing approach
+6. **Design** - Decided HOW
+7. **Generate Tasks** - Created self-contained task files from design
+8. **Apply** - Implemented the tasks
+9. **Archive** - Preserved the record
 
-This same rhythm works for any size change—a small fix or a major feature. Beads are your implementation tracking system—self-contained work items generated from both design (the "how") and specs (the "what") with all the context needed.
+This same rhythm works for any size change—a small fix or a major feature.
+Task files are your implementation tracking system—self-contained markdown
+files under `tasks/open/` and `tasks/closed/`, generated from both design
+(the "how") and specs (the "what") with all the context needed.
 
 ---
 
@@ -486,8 +504,8 @@ This same rhythm works for any size change—a small fix or a major feature. Bea
 | `/opsx-new` | Start a new change, step through artifacts |
 | `/opsx-ff` | Fast-forward: create all artifacts at once |
 | `/opsx-continue` | Continue working on an existing change |
-| `/opsx-create-beads` | Generate self-contained Beads from design |
-| `/opsx-apply` | Implement Beads from a change |
+| `/opsx-tasks` | Manage task files (list/show/create/update/generate) |
+| `/opsx-apply` | Implement tasks from a change |
 | `/opsx-verify` | Verify implementation matches artifacts |
 | `/opsx-archive` | Archive a completed change |
 
@@ -511,8 +529,8 @@ No problem! Your change is saved at `openspec/changes/<name>/`.
 
 To pick up where we left off later:
 - `/opsx-continue <name>` - Resume artifact creation
-- `/opsx-create-beads <name>` - Create Beads when design is ready
-- `/opsx-apply <name>` - Jump to implementation (if Beads exist)
+- `/opsx-tasks generate <name>` - Generate task files when design is ready
+- `/opsx-apply <name>` - Jump to implementation (if tasks exist)
 
 The work won't be lost. Come back whenever you're ready.
 ```
@@ -532,8 +550,8 @@ If the user says they just want to see the commands or skip the tutorial:
 | `/opsx-new <name>` | Start a new change, step by step |
 | `/opsx-ff <name>` | Fast-forward: all artifacts at once |
 | `/opsx-continue <name>` | Continue an existing change |
-| `/opsx-create-beads <name>` | Generate Beads from design |
-| `/opsx-apply <name>` | Implement Beads |
+| `/opsx-tasks <subcmd> [name]` | Manage task files (list/show/create/update/generate) |
+| `/opsx-apply <name>` | Implement tasks |
 | `/opsx-verify <name>` | Verify implementation |
 | `/opsx-archive <name>` | Archive when done |
 

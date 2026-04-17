@@ -20,9 +20,9 @@ Fast-forward through artifact creation - generate everything needed to start imp
 
 2. **Create the change directory**
    ```bash
-   openspec new change "<name>" --schema spec-driven-beads
+   openspec new change "<name>" --schema spec-driven-tasks
    ```
-   This creates a scaffolded change at `openspec/changes/<name>/` using the spec-driven-beads schema.
+   This creates a scaffolded change at `openspec/changes/<name>/` using the spec-driven-tasks schema.
 
 3. **Get the artifact build order**
    ```bash
@@ -70,10 +70,12 @@ Fast-forward through artifact creation - generate everything needed to start imp
       - Apply `context` and `rules` as constraints - but do NOT copy them into the file
       - Show brief progress: "✓ Created <artifact-id>"
 
-   b. **Continue until design is complete**
+   b. **Continue until tasks are generated**
       - After creating each artifact, re-run `openspec status --change "<name>" --json`
-      - Stop when design artifact has `status: "done"`
-      - Skip tasks artifact (beads replace tasks)
+      - When the design artifact has `status: "done"`, hand off to the
+        `opsx-tasks generate` workflow to create task files in
+        `tasks/open/` (preview + user approval before creating)
+      - Stop once tasks artifact has `status: "done"`
 
    c. **If an artifact requires user input** (unclear context):
       - Use **AskUserQuestion tool** to clarify
@@ -86,11 +88,12 @@ Fast-forward through artifact creation - generate everything needed to start imp
 
 **Output**
 
-After completing artifacts through design, summarize:
+After completing artifacts through tasks, summarize:
 - Change name and location
 - List of artifacts created with brief descriptions
-- What's ready: "All planning artifacts created!"
-- Prompt: "Next: Create Beads with `/opsx-create-beads` to generate implementation work items from design and specs."
+- Number of task files generated in `tasks/open/`
+- What's ready: "All planning artifacts created and tasks generated!"
+- Prompt: "Run `/opsx-apply` to start implementing, or `/opsx-tasks list` to review tasks first."
 
 **Artifact Creation Guidelines**
 
@@ -100,9 +103,9 @@ After completing artifacts through design, summarize:
 - Use the `template` as a starting point, filling in based on context
 
 **Guardrails**
-- Create artifacts through design (proposal → specs → architecture → design)
+- Create artifacts through tasks (proposal → specs → architecture → design → tasks)
 - Architecture includes testing approach dialog with user
-- Skip tasks artifact (Beads replace tasks - use `/opsx-create-beads` after design)
+- Task generation uses the `/opsx-tasks generate` workflow (preview + approval)
 - Always read dependency artifacts before creating a new one
 - If context is critically unclear, ask the user - but prefer making reasonable decisions to keep momentum
 - If a change with that name already exists, ask if user wants to continue it or create a new one

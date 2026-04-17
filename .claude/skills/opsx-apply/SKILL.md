@@ -1,9 +1,9 @@
 ---
 name: opsx-apply
-description: Implement Beads from an OpenSpec change (Experimental). Use when the user wants to start implementing, continue implementation, or work through beads generated from an OpenSpec design.
+description: Implement tasks from an OpenSpec change. Use when the user wants to start implementing, continue implementation, or work through task files generated from an OpenSpec design.
 ---
 
-Implement tasks from an OpenSpec change.
+Implement tasks from an OpenSpec change by processing files in `tasks/open/`.
 
 **Input**: Optionally specify a change name (e.g., `/opsx-apply add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
@@ -14,103 +14,93 @@ Implement tasks from an OpenSpec change.
    If a name is provided, use it. Otherwise:
    - Infer from conversation context if the user mentioned a change
    - Auto-select if only one active change exists
-   - If ambiguous, run `openspec list --json` to get available changes and use the **AskUserQuestion tool** to let the user select
+   - If ambiguous, run `openspec list --json` to get available changes and use
+     the **AskUserQuestion tool** to let the user select
 
-   Always announce: "Using change: <name>" and how to override (e.g., `/opsx-apply <other>`).
+   Always announce: "Using change: <name>" and how to override
+   (e.g., `/opsx-apply <other>`).
 
-2. **Check status to understand the schema**
-   ```bash
-   openspec status --change "<name>" --json
-   ```
-   Parse the JSON to understand:
-   - `schemaName`: The workflow being used (e.g., "spec-driven")
-   - Which artifact contains the tasks (typically "tasks" for spec-driven, check status for others)
+2. **Scan task files**
 
-3. **Query beads for this change**
+   Read frontmatter and body for every file in:
 
-   ```bash
-   bd list --label openspec --long --limit 0 --json
-   ```
+   - `openspec/changes/<name>/tasks/open/*.md`
+   - `openspec/changes/<name>/tasks/closed/*.md`
 
-   Filter results to beads with external_ref matching "opsx:<change-name>" (search in description or notes).
+   For each open task, resolve status:
+   - If frontmatter `status: blocked` and every `blocked-by:<dep>` relation
+     names a task now present in `tasks/closed/`, treat the task as `ready`
+     (and rewrite its frontmatter to match)
+   - Otherwise keep the recorded status
 
-   Parse bead data:
-   - Count total beads
-   - Count open vs closed beads
-   - Extract bead IDs and titles
-   - Determine next bead to work on (first open bead by creation order)
+   **Handle states:**
+   - No task files at all → suggest running `/opsx-tasks generate` to create
+     tasks from design
+   - All tasks in `tasks/closed/` → congratulate, suggest archive
+   - Otherwise proceed to implementation
 
-   **Also get context files:**
+3. **Read shared context once**
+
+   Read the change's design, architecture, specs, and proposal into context
+   up front (so you can cross-check if a task's embedded context feels thin):
+
    ```bash
    openspec instructions apply --change "<name>" --json
    ```
 
-   This returns context file paths (proposal, design, specs).
+   Use the `contextFiles` list it returns.
 
-   **Handle states:**
-   - If no beads found: suggest running `/opsx-create-beads` to create beads from design
-   - If all beads closed: congratulate, suggest archive
-   - Otherwise: proceed to implementation
-
-4. **Read context files**
-
-   Read the files listed in `contextFiles` from the apply instructions output.
-   The files depend on the schema being used:
-   - **spec-driven**: proposal, specs, design, tasks
-   - Other schemas: follow the contextFiles from CLI output
-
-5. **Show current progress**
-
-   Read execution plan from `.openspec.yaml` if it exists to show batch context.
+4. **Show current progress**
 
    ```
    ## Implementing: <change-name>
 
-   **Batch:** foundation (3 beads, parallel)
-   **Progress:** N/M beads complete
+   **Progress:** N closed / M total
 
-   **Open beads:**
-   - emacs-a3f: 1.1 Create module
-   - emacs-a4g: 1.2 Add deps
+   **Ready:**
+   - setup-module — Create module structure
+   - write-spec-file — Draft spec.md
 
-   **Closed beads:**
-   - emacs-a5h: 2.1 Implement export
+   **Blocked:**
+   - implement-core — blocked by setup-module
 
-   Starting with: emacs-a3f
+   Starting with: setup-module
    ```
 
-6. **Implement work (loop until done or blocked)**
+5. **Implement work (loop until done or blocked)**
 
-   For each open bead (in creation order):
-   - Show bead details: `bd show <bead-id>`
-   - Extract task description and context (all context is IN the bead - self-contained)
-   - Make the code changes required
-   - Keep changes minimal and focused
-   - **Run tests** (if architecture.md exists):
-     - Check architecture.md for test command
-     - Run tests related to this bead's changes
-     - If tests fail, fix implementation
-     - If new scenarios discovered, create discovery bead for missing tests
-   - **Discovery workflow**: If you discover unexpected work:
-     - Create follow-up bead with `--deps "discovered-from:<current-bead-id>"`
-     - Types: bugs, questions, related work, blockers, missing tests
-     - DON'T expand scope of current bead
-     - DON'T update design.md (user reviews discoveries later)
-   - Close the bead: `bd close <bead-id> --comment "Implemented: <summary>"`
-   - Update `.openspec.yaml` bead status to "closed"
-   - Continue to next bead
+   For each ready task (file-order / `ls` order within `tasks/open/` is fine
+   unless a different order is obvious from dependencies):
+
+   - Read the full task file. Its body is self-contained — rely on it for
+     implementation steps, rationale, and verification.
+   - Make the code changes required. For `.org` edits, tangle with
+     `./bin/tangle-org.sh <file>` and commit both `.org` and `.el`.
+   - Run the verification commands listed in the task (usually
+     `./bin/run-tests.sh -d <dir>` or a pattern). Fix failures before closing.
+   - **Discovery workflow**: If you uncover unexpected work:
+     - Create a new task with `relations: [discovered-from:<current>]` via the
+       `opsx-tasks create` subcommand (or by writing the file directly)
+     - Types of discoveries: bugs, questions, related work, blockers,
+       missing tests
+     - Do NOT expand the current task's scope
+     - Do NOT update design.md mid-task (user reviews discoveries later)
+   - Close the task: move the file from `tasks/open/<name>.md` to
+     `tasks/closed/<name>.md` and set frontmatter `status: done`. If any other
+     open tasks had `blocked-by:<this>`, re-evaluate their status.
+   - Continue to the next ready task.
 
    **Pause if:**
-   - Bead is unclear → ask for clarification
+   - Task body is unclear → ask for clarification
    - Implementation reveals a design issue → suggest updating artifacts
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
 
-7. **On completion or pause, show status**
+6. **On completion or pause, show status**
 
-   - Beads completed this session
-   - Overall progress: "N/M beads closed"
-   - If all done: suggest archive
+   - Tasks completed this session
+   - Overall progress: "N/M tasks closed"
+   - If all done: suggest `/opsx-archive`
    - If paused: explain why and wait for guidance
 
 **Output During Implementation**
@@ -118,13 +108,13 @@ Implement tasks from an OpenSpec change.
 ```
 ## Implementing: <change-name>
 
-Working on bead emacs-a3f (1/5): 1.1 Create module
+Working on setup-module (1/5): Create module structure
 [...implementation happening...]
-✓ Bead closed: emacs-a3f
+✓ Closed: setup-module
 
-Working on bead emacs-a4g (2/5): 1.2 Add deps
-[...implementation happening...]
-✓ Bead closed: emacs-a4g
+Working on implement-core (2/5): Implement core logic
+[...]
+✓ Closed: implement-core
 ```
 
 **Output On Completion**
@@ -133,23 +123,23 @@ Working on bead emacs-a4g (2/5): 1.2 Add deps
 ## Implementation Complete
 
 **Change:** <change-name>
-**Progress:** 5/5 beads closed ✓
+**Progress:** 5/5 tasks closed ✓
 
 ### Completed This Session
-- ✓ emacs-a3f: 1.1 Create module
-- ✓ emacs-a4g: 1.2 Add deps
+- ✓ setup-module: Create module structure
+- ✓ implement-core: Implement core logic
 ...
 
-All beads closed! You can archive this change with `/opsx-archive`.
+All tasks closed. You can archive this change with `/opsx-archive`.
 ```
 
-**Output On Pause (Issue Encountered)**
+**Output On Pause**
 
 ```
 ## Implementation Paused
 
 **Change:** <change-name>
-**Progress:** 4/7 beads complete
+**Progress:** 4/7 tasks complete
 
 ### Issue Encountered
 <description of the issue>
@@ -163,20 +153,22 @@ What would you like to do?
 ```
 
 **Guardrails**
-- Keep going through beads until done or blocked
-- Always read context files before starting (from the apply instructions output)
-- If bead is ambiguous, pause and ask before implementing
-- If implementation reveals issues, pause and suggest artifact updates
-- Keep code changes minimal and scoped to each bead
-- Close bead and update `.openspec.yaml` immediately after completing
-- Pause on errors, blockers, or unclear requirements - don't guess
-- Use contextFiles from CLI output, don't assume specific file names
-- Always query current bead status with `bd show` before working on it
-- Always update both the bead (close) and `.openspec.yaml` (metadata.beads status)
+- Keep going through tasks until done or blocked
+- Always read the shared context files once (step 3) so you can sanity-check
+  task bodies against the source artifacts
+- Task bodies are the source of truth for implementation — don't expand scope
+- If a task is ambiguous, pause and ask before implementing
+- Keep code changes minimal and scoped to each task
+- Move the file to `tasks/closed/` and re-check dependents immediately after
+  completing
+- Pause on errors, blockers, or unclear requirements — don't guess
+- Don't skip verification — the task's Verification section lists the
+  commands that define "done"
 
 **Fluid Workflow Integration**
 
 This skill supports the "actions on a change" model:
-
-- **Can be invoked anytime**: Before all artifacts are done (if tasks exist), after partial implementation, interleaved with other actions
-- **Allows artifact updates**: If implementation reveals design issues, suggest updating artifacts - not phase-locked, work fluidly
+- **Can be invoked anytime**: Before all artifacts are done (if tasks exist),
+  after partial implementation, interleaved with other actions
+- **Allows artifact updates**: If implementation reveals design issues,
+  suggest updating artifacts — not phase-locked, work fluidly

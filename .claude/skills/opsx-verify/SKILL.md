@@ -13,9 +13,9 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
 
-   Show changes that have beads for implementation tracking.
+   Show changes that have task files under `tasks/open/` or `tasks/closed/`.
    Include the schema used for each change if available.
-   Mark changes with incomplete beads as "(In Progress)".
+   Mark changes with files in `tasks/open/` as "(In Progress)".
 
    **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
 
@@ -27,31 +27,22 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
    - `schemaName`: The workflow being used (e.g., "spec-driven")
    - Which artifacts exist for this change
 
-3. **Check for beads**
+3. **Scan task files**
 
-   Read `.openspec.yaml` from the change directory to find beads:
+   Read all task files in the change:
 
-   ```bash
-   cat openspec/changes/<name>/.openspec.yaml
-   ```
+   - `openspec/changes/<name>/tasks/open/*.md`
+   - `openspec/changes/<name>/tasks/closed/*.md`
 
-   Check for `metadata.beads` field containing bead IDs.
+   Parse frontmatter (name, description, status, relations) and body for each.
 
-4. **Get the change directory and load artifacts**
+4. **Load artifacts**
 
    ```bash
    openspec instructions apply --change "<name>" --json
    ```
 
    This returns the change directory and context files. Read all available artifacts from `contextFiles`.
-
-   **Query beads:**
-   ```bash
-   bd list --label openspec --long --limit 0 --json
-   ```
-
-   Filter results to beads with external_ref matching "opsx:<change-name>" (search in description).
-   Parse bead data to determine completion status.
 
 5. **Initialize verification report structure**
 
@@ -64,17 +55,13 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
 6. **Verify Completeness**
 
-   **Bead Completion:**
-   - Query beads from step 4 (filtered by external_ref)
-   - Count open vs closed beads
-   - If open beads exist:
-     - Add CRITICAL issue for each open bead
-     - Include bead ID and title
-     - Recommendation: "Complete bead <bead-id>: <description>" or "Close if already implemented"
-   - Also verify `.openspec.yaml` metadata matches bead status
-   - If metadata is stale (doesn't match actual bead status):
-     - Add WARNING: "Bead metadata out of sync"
-     - Recommendation: "Update .openspec.yaml to reflect current bead status"
+   **Task Completion:**
+   - From the scan in step 3, count open vs closed task files
+   - If open tasks exist:
+     - Add CRITICAL issue for each open task
+     - Include task name and description
+     - Recommendation: "Complete task <name>: <description>" or
+       "Move to tasks/closed/ if already implemented"
 
    **Spec Coverage**:
    - If delta specs exist in `openspec/changes/<name>/specs/`:
@@ -153,7 +140,7 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
    ### Summary
    | Dimension    | Status                    |
    |--------------|---------------------------|
-   | Completeness | X/Y beads closed, N reqs  |
+   | Completeness | X/Y tasks closed, N reqs  |
    | Correctness  | M/N reqs covered          |
    | Coherence    | Followed/Issues           |
    ```
@@ -161,15 +148,13 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
    **Issues by Priority**:
 
    1. **CRITICAL** (Must fix before archive):
-      - Open beads
-      - Metadata sync issues
+      - Open tasks in `tasks/open/`
       - Missing requirements
       - Each with specific, actionable recommendation
 
    2. **WARNING** (Should fix):
       - Spec/design divergences
       - Missing scenario coverage
-      - Stale metadata in `.openspec.yaml`
       - Each with specific recommendation
 
    3. **SUGGESTION** (Nice to fix):
@@ -192,8 +177,8 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
 **Graceful Degradation**
 
-- If only beads exist (no specs/design): verify bead completion only, skip other checks
-- If beads + specs exist: verify completeness and correctness, skip design
+- If only tasks exist (no specs/design): verify task completion only, skip other checks
+- If tasks + specs exist: verify completeness and correctness, skip design
 - If full artifacts: verify all three dimensions
 - Always note which checks were skipped and why
 
