@@ -1,8 +1,6 @@
 ---
-name: "Bead Orchestrator"
-description: Implement multiple ready beads in parallel using isolated worktrees and spawned agents
-category: Workflow
-tags: [workflow, beads, parallel, experimental]
+name: bead-orchestrator
+description: Implement multiple ready beads in parallel using isolated worktrees and spawned agents. Use when the user wants to execute multiple ready Beads concurrently with sequential merging and regression testing after each merge.
 ---
 
 Implement multiple ready beads in parallel using isolated worktrees and spawned agents. Merges happen sequentially with regression testing after each.
@@ -297,7 +295,7 @@ Total beads: 8/8 merged
 Estimated tokens: 320k (actual: ~315k)
 Batches: foundation, core-logic, testing
 
-Archive change: `/opsx:archive`
+Archive change: `/opsx-archive`
 ```
 
 ## Error Handling

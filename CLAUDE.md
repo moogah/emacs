@@ -327,14 +327,14 @@ For non-trivial changes, use **OpenSpec** to plan before implementing:
 5. **Beads** - Implementation tracking (generated from design and specs)
 
 **Invoke skills:**
-- `/opsx:explore` - Investigate and clarify requirements before planning
-- `/opsx:new` - Start structured change with spec-driven-beads schema
-- `/opsx:continue` - Progress to next artifact in workflow
-- `/opsx:ff` - Fast-forward through all artifacts to reach implementation
-- `/opsx:create-beads` - Generate Beads issues from design and specs
-- `/opsx:apply` - Implement Beads (uses `/bead-implementation` workflow)
-- `/opsx:verify` - Validate implementation matches artifacts
-- `/opsx:archive` - Archive completed change
+- `/opsx-explore` - Investigate and clarify requirements before planning
+- `/opsx-new` - Start structured change with spec-driven-beads schema
+- `/opsx-continue` - Progress to next artifact in workflow
+- `/opsx-ff` - Fast-forward through all artifacts to reach implementation
+- `/opsx-create-beads` - Generate Beads issues from design and specs
+- `/opsx-apply` - Implement Beads (uses `/bead-implementation` workflow)
+- `/opsx-verify` - Validate implementation matches artifacts
+- `/opsx-archive` - Archive completed change
 
 **Skip OpenSpec for:** Single-file edits, bug fixes, documentation updates, trivial changes.
 

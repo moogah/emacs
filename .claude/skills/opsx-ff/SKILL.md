@@ -1,13 +1,11 @@
 ---
-name: "OPSX: Fast Forward"
-description: Create a change and generate all artifacts needed for implementation in one go
-category: Workflow
-tags: [workflow, artifacts, experimental]
+name: opsx-ff
+description: Create a change and generate all artifacts needed for implementation in one go. Use when the user wants to quickly move from idea to implementation-ready without stepping through each artifact individually.
 ---
 
 Fast-forward through artifact creation - generate everything needed to start implementation.
 
-**Input**: The argument after `/opsx:ff` is the change name (kebab-case), OR a description of what the user wants to build.
+**Input**: The argument after `/opsx-ff` is the change name (kebab-case), OR a description of what the user wants to build.
 
 **Steps**
 
@@ -92,7 +90,7 @@ After completing artifacts through design, summarize:
 - Change name and location
 - List of artifacts created with brief descriptions
 - What's ready: "All planning artifacts created!"
-- Prompt: "Next: Create Beads with `/opsx:create-beads` to generate implementation work items from design and specs."
+- Prompt: "Next: Create Beads with `/opsx-create-beads` to generate implementation work items from design and specs."
 
 **Artifact Creation Guidelines**
 
@@ -104,7 +102,7 @@ After completing artifacts through design, summarize:
 **Guardrails**
 - Create artifacts through design (proposal → specs → architecture → design)
 - Architecture includes testing approach dialog with user
-- Skip tasks artifact (Beads replace tasks - use `/opsx:create-beads` after design)
+- Skip tasks artifact (Beads replace tasks - use `/opsx-create-beads` after design)
 - Always read dependency artifacts before creating a new one
 - If context is critically unclear, ask the user - but prefer making reasonable decisions to keep momentum
 - If a change with that name already exists, ask if user wants to continue it or create a new one

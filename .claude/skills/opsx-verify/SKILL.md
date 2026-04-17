@@ -1,17 +1,11 @@
 ---
-name: openspec-verify-change
-description: Verify implementation matches change artifacts using Beads tracking. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving.
-license: MIT
-compatibility: Requires openspec CLI and Beads (bd) CLI.
-metadata:
-  author: openspec
-  version: "3.0"
-  generatedBy: "1.1.1"
+name: opsx-verify
+description: Verify implementation matches change artifacts before archiving. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving a change.
 ---
 
-Verify that an implementation matches the change artifacts (specs, beads, design).
+Verify that an implementation matches the change artifacts (specs, tasks, design).
 
-**Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: Optionally specify a change name after `/opsx-verify` (e.g., `/opsx-verify add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**
 
@@ -49,14 +43,14 @@ Verify that an implementation matches the change artifacts (specs, beads, design
    openspec instructions apply --change "<name>" --json
    ```
 
-   This returns context file paths (proposal, design, specs).
+   This returns the change directory and context files. Read all available artifacts from `contextFiles`.
 
    **Query beads:**
    ```bash
    bd list --label openspec --long --limit 0 --json
    ```
 
-   Filter results to beads with external_ref matching "opsx:<change-name>".
+   Filter results to beads with external_ref matching "opsx:<change-name>" (search in description).
    Parse bead data to determine completion status.
 
 5. **Initialize verification report structure**
@@ -103,13 +97,33 @@ Verify that an implementation matches the change artifacts (specs, beads, design
        - Add WARNING: "Implementation may diverge from spec: <details>"
        - Recommendation: "Review <file>:<lines> against requirement X"
 
-   **Scenario Coverage**:
+   **Test Coverage** (if architecture.md and tests exist):
+   - Read architecture.md to determine test location and framework
+   - Read test files from the specified location
    - For each scenario in delta specs (marked with "#### Scenario:"):
-     - Check if conditions are handled in code
-     - Check if tests exist covering the scenario
-     - If scenario appears uncovered:
-       - Add WARNING: "Scenario not covered: <scenario name>"
-       - Recommendation: "Add test or implementation for scenario: <description>"
+     - Check if test case exists covering the scenario
+     - Look for test function names or comments referencing scenario
+     - If test exists:
+       - Run tests using command from architecture.md (if possible)
+       - Check test status (passing/failing/skipped)
+       - If test failing after implementation:
+         - Add CRITICAL: "Test failing: <test-name> for scenario <scenario>"
+         - Recommendation: "Fix implementation to make test pass"
+       - If test skipped:
+         - Add WARNING: "Test skipped: <test-name> for scenario <scenario>"
+         - Recommendation: "Implement test or remove skip if complete"
+     - If no test exists for scenario:
+       - Add WARNING: "No test for scenario: <scenario name>"
+       - Recommendation: "Add test case for scenario: <description>"
+
+   **Test Execution** (if tests exist):
+   - Attempt to run tests using command from architecture.md
+   - Report pass/fail counts
+   - If any tests fail:
+     - Add CRITICAL for each failing test
+     - Include failure message if available
+   - If tests cannot be run (environment issue):
+     - Add SUGGESTION: "Verify tests pass in proper environment"
 
 7. **Verify Coherence**
 
@@ -129,18 +143,19 @@ Verify that an implementation matches the change artifacts (specs, beads, design
      - Add SUGGESTION: "Code pattern deviation: <details>"
      - Recommendation: "Consider following project pattern: <example>"
 
-8. **Generate Verification Report**
+9. **Generate Verification Report**
 
-   **Summary Scorecard**:
+   **Summary Scorecard:**
+
    ```
    ## Verification Report: <change-name>
 
    ### Summary
-   | Dimension    | Status           |
-   |--------------|------------------|
-   | Completeness | X/Y tasks, N reqs|
-   | Correctness  | M/N reqs covered |
-   | Coherence    | Followed/Issues  |
+   | Dimension    | Status                    |
+   |--------------|---------------------------|
+   | Completeness | X/Y beads closed, N reqs  |
+   | Correctness  | M/N reqs covered          |
+   | Coherence    | Followed/Issues           |
    ```
 
    **Issues by Priority**:

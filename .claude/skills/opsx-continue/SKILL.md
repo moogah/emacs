@@ -1,13 +1,11 @@
 ---
-name: "OPSX: Continue"
-description: Continue working on a change - create the next artifact (Experimental)
-category: Workflow
-tags: [workflow, artifacts, experimental]
+name: opsx-continue
+description: Continue working on a change - create the next artifact (Experimental). Use when the user wants to progress their change, create the next artifact, or continue their workflow.
 ---
 
 Continue working on a change by creating the next artifact.
 
-**Input**: Optionally specify a change name after `/opsx:continue` (e.g., `/opsx:continue add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: Optionally specify a change name after `/opsx-continue` (e.g., `/opsx-continue add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**
 
@@ -41,7 +39,7 @@ Continue working on a change by creating the next artifact.
    **If all artifacts are complete (`isComplete: true`)**:
    - Congratulate the user
    - Show final status including the schema used
-   - Suggest: "All artifacts created! Next: create Beads with `/opsx:create-beads` to generate implementation work items."
+   - Suggest: "All artifacts created! Next: create Beads with `/opsx-create-beads` to generate implementation work items."
    - STOP
 
    ---
@@ -85,7 +83,7 @@ After each invocation, show:
 - Schema workflow being used
 - Current progress (N/M complete)
 - What artifacts are now unlocked
-- Prompt: "Run `/opsx:continue` to create the next artifact"
+- Prompt: "Run `/opsx-continue` to create the next artifact"
 
 **Artifact Creation Guidelines**
 
@@ -113,7 +111,7 @@ The artifact types and their purpose depend on the schema. Use the `instruction`
   - Explain how implementation will map to components and interfaces
   - Include patterns, integration approach, and any design trade-offs
 
-**After design is complete**, suggest using `/opsx:create-beads` to generate self-contained Beads issues from design and specs for implementation tracking.
+**After design is complete**, suggest using `/opsx-create-beads` to generate self-contained Beads issues from design and specs for implementation tracking.
 
 **spec-driven-tdd schema** (proposal → specs → architecture → tests → design):
 - Similar to spec-driven-beads but includes a **tests/** artifact between architecture and design
@@ -132,7 +130,7 @@ The artifact types and their purpose depend on the schema. Use the `instruction`
 - Skip directly from specs to design (loses testing approach documentation)
 - Not recommended for new changes
 
-**IMPORTANT**: Beads are the only supported implementation tracking mechanism. Do NOT create tasks.md - all implementation work is tracked through Beads created with `/opsx:create-beads`.
+**IMPORTANT**: Beads are the only supported implementation tracking mechanism. Do NOT create tasks.md - all implementation work is tracked through Beads created with `/opsx-create-beads`.
 
 For other schemas, follow the `instruction` field from the CLI output.
 

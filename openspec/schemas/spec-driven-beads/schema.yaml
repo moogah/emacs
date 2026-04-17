@@ -245,7 +245,7 @@ apply:
 
     Before starting implementation:
     1. Ensure all artifacts (proposal, specs, architecture, design) are complete
-    2. Use `/opsx:create-beads` to generate Beads issues from design and specs
+    2. Use `/opsx-create-beads` to generate Beads issues from design and specs
     3. Use `/bead-implementation` to work on individual Beads
 
     Read design for implementation approach, specs for requirements,
