@@ -195,9 +195,10 @@ C-c t    # Open test menu
 
 **Tool-scope contract tests:** `config/gptel/tools/test/`
 - `filesystem-tools-spec.el` - Filesystem tool contract tests
-- `run-bash-command-spec.el` - Bash command tool contract tests
 - `test-arg-extraction-spec.el` - Argument extraction tests
 - `helpers-spec.el` - Tool test helpers
+
+Dispatcher-level authorization flow (allow / deny / allow-once / add-to-scope) is tested in `config/gptel/scope/test/validation/authorize-tool-call-spec.el`, not per-tool.
 
 **Running scope and tool tests:**
 ```bash
