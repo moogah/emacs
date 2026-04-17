@@ -121,3 +121,13 @@ test-buttercup:
 # Run Buttercup tests in specific directory
 test-buttercup-directory:
 	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-buttercup-directory-batch "$(DIR)")'
+
+# =============================================================================
+# Hook tooling
+# =============================================================================
+
+.PHONY: build-hooks
+# Rebuild the task-frontmatter validator binary (Claude Code PostToolUse hook)
+build-hooks:
+	@cd $(BIN_DIR)/validate-task-frontmatter && go build -o validate-task-frontmatter .
+	@echo "Built $(BIN_DIR)/validate-task-frontmatter/validate-task-frontmatter"
