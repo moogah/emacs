@@ -2,314 +2,290 @@
 
 ## Purpose
 
-Scope profiles provide reusable permission templates for gptel sessions. Instead of duplicating scope configuration across preset files, profiles define standard permission sets (coding, research, restricted) that can be referenced by name and customized via variable expansion.
+Scope profiles provide reusable permission templates for gptel sessions. Rather than duplicating scope configuration across preset files, profiles define standard permission sets (coding, research, restricted, bash-enabled, system-explorer) that can be referenced by name from any preset and customized at session-creation time via variable expansion.
 
-This capability separates:
-- **Immutable templates** (scope profiles in `config/gptel/scope-profiles/`)
-- **Mutable session config** (scope.yml in session branches)
-- **Preset definitions** (registered via gptel-make-preset)
+The profile module lives at `config/gptel/scope-profiles.org` and is distinct from the `scope-*` modules under `config/gptel/scope/`. Profiles feed `scope.yml`; the `scope-validation` module then enforces that file (via `scope-yaml`) — profile templates themselves are never consulted during enforcement.
 
-## Key Concepts
-
-### Scope Profiles vs Session Scope
+## Scope Profiles vs Session Scope
 
 **Scope Profile Templates** (immutable, reusable):
 - Plain YAML files in `config/gptel/scope-profiles/` (e.g., `coding.yml`)
 - Define default permissions for categories of work
-- Include variable placeholders like `${project_root}`
-- Referenced by preset name (e.g., `:scope-profile "coding"`)
-- Shared across multiple presets
+- May include variable placeholders like `${project_root}`
+- Referenced by preset via `:scope-profile "<name>"`
+- Shared freely across presets
 
-**Session Scope Configuration** (mutable, instance-specific):
-- Written to `scope.yml` in each session branch directory
-- Created by expanding profile variables with runtime values
-- Modified by scope expansion during session lifetime
-- Source of truth for tool enforcement
-- Never modifies the registered preset or profile template
+**Session Scope Configuration** (mutable, per-session):
+- Written as `scope.yml` into each session branch directory
+- Produced by resolving a profile, expanding variables, and optionally deep-merging worktree paths
+- Modified by scope expansion during the session lifetime
+- Sole source of truth for tool enforcement
+- Changes never propagate back to the preset or the profile template
 
 **Example flow**:
-1. Preset "executor" has `:scope-profile "coding"` (extracted during registration)
-2. Session created → loads `coding.yml` → expands `${project_root}` → writes `scope.yml`
-3. User adds path via scope expansion → updates session's `scope.yml`
-4. Profile template `coding.yml` remains unchanged
+1. Preset `executor` declares `scope_profile: coding` in its YAML frontmatter; `preset-registration` extracts this into `jf/gptel-preset--scope-defaults`.
+2. Session creation resolves profile `coding` → loads `coding.yml` → expands `${project_root}` → writes `scope.yml`.
+3. User triggers scope expansion → updates the session's `scope.yml`.
+4. `coding.yml` and the registered preset remain unchanged.
 
-### Resolution Priority
+## Resolution Priority
 
-When creating a session, scope is resolved in this order:
+For a given preset, scope is resolved in this order:
 
-1. **Named profile reference** - Preset has `:scope-profile "coding"` → load `config/gptel/scope-profiles/coding.yml`
-2. **Inline scope defaults** - Preset has `:paths` etc. directly → use those values
-3. **Fallback** - No scope configuration → create empty scope.yml (deny-by-default)
+1. **Named profile reference** — `:scope-profile "coding"` → load `config/gptel/scope-profiles/coding.yml`
+2. **Inline scope defaults** — preset plist with `:paths`/`:cloud`/`:security` directly → use as-is
+3. **Empty fallback** — no scope configuration → write minimal `scope.yml` (deny-by-default)
 
-### Variable Expansion
+## Variable Expansion
 
-Scope profiles support `${project_root}` substitution:
+Profiles support `${project_root}` substitution only (other variables are reserved for future use):
 
-- **When**: During session creation, after profile loaded, before scope.yml written
-- **Placeholder**: Literal string `${project_root}` in YAML files
-- **Expansion**: First selected projectile project or explicit parameter
-- **Unresolvable**: Patterns with placeholder are removed, warning logged
-- **Currently supported**: Only `${project_root}` (other variables reserved for future)
+- Expansion runs after profile load and before `scope.yml` is written
+- The project root is supplied by session creation (typically the first selected projectile project)
+- Patterns whose `${project_root}` cannot be resolved are removed from the output, and a warning is logged
+- Non-string values pass through untouched; YAML arrays parsed as vectors are coerced to lists before expansion
 
-### Deep Merge for Multi-Project Sessions
+## Deep Merge for Multi-Worktree Sessions
 
-When session has both preset scope AND explicit worktree paths (e.g., from activities integration):
+When a session has both a resolved profile and explicit worktree paths (the activities integration case), the two are combined via a schema-agnostic deep merge:
 
-**Merge strategy** (schema-agnostic):
-- **Nested plists** (e.g., `:paths` with `:read`, `:write`, `:deny`): recursively merge
-- **Lists**: concatenate and deduplicate (base items first, then override additions)
-- **Scalars**: override value wins
-- **nil in override**: treated as absence (base value retained)
+- **Nested plists** — recursively merged key-by-key
+- **Lists of scalars** — concatenated and deduplicated (base entries first, then override additions)
+- **Scalars** — override wins
+- **nil in override** — treated as absence; the base value is retained
 
-This enables activities integration to augment preset scope with additional worktree paths.
+This lets an activity supplying multiple worktree roots augment a profile's `:paths.read` and `:paths.write` without discarding the profile's `:cloud` and `:security` choices.
 
 ## Scope Configuration Sections
 
-### Paths - File Access Control
+Profiles produce the same plist shape that `scope-validation` consumes (see `interfaces.org` §Scope Config Shape for canonical semantics). Snake_case in YAML on disk; kebab-case keywords in elisp.
+
+### Paths — File Access Control
 
 ```yaml
 paths:
-  read: ["/**"]
-  write: ["${project_root}/**"]
-  deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
+  read:    ["/**"]
+  write:   ["${project_root}/**"]
+  modify:  []
+  execute: []
+  deny:    ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
 ```
 
-- `read` - Directories/patterns accessible for reading
-- `write` - Directories/patterns accessible for creation/modification (write includes read)
-- `deny` - Patterns that override both read and write (deny wins)
+- `read` — read-like operations (includes what `write` covers, since write implies read)
+- `write` — create / write / append / delete
+- `modify` — in-place edits; `write` also satisfies `modify`
+- `execute` — execute operations (no implication from any other permission)
+- `deny` — overrides every allow pattern
 
-### Org-Roam Patterns - Knowledge Base Filtering
+### Cloud — Authentication Detection
 
 ```yaml
-org_roam_patterns:
-  subdirectory: ["gptel/**"]
-  tags: ["gptel", "research"]
-  node_ids: ["*"]
+cloud:
+  auth_detection: "warn"        # "allow" | "warn" | "deny"
+  allowed_providers: []
 ```
 
-Controls which org-roam nodes are accessible to tools.
+### Security — Parsing Strictness
+
+```yaml
+security:
+  enforce_parse_complete: true
+  max_coverage_threshold: 1
+```
+
+For the full validator semantics of these sections (permission hierarchy, deny precedence, bash parse enforcement), see `openspec/specs/gptel/scope.md`.
 
 ## Requirements
 
-### Requirement: Profile file format
+### Requirement: Profile file format (plain YAML)
 
-Scope profiles SHALL be plain YAML files with no frontmatter delimiters.
+Scope profiles SHALL be plain YAML files with no markdown frontmatter delimiters. Key normalization from YAML snake_case to elisp kebab-case is delegated to the `scope-yaml` module; the profile loader does not implement its own normalization.
 
-**Implementation**: `config/gptel/scope-profiles.org` - `jf/gptel-scope-profile--load` parses with `yaml-parse-string` only
+**Implementation**: `config/gptel/scope-profiles.org` (`jf/gptel-scope-profile--load`) calls `yaml-parse-string` and then `jf/gptel-scope-yaml--normalize-keys`.
 
 #### Scenario: Plain YAML, no frontmatter
-- **WHEN** loading a scope profile
-- **THEN** the system parses as YAML only (no markdown frontmatter extraction)
-- **AND** distinguishes profiles from preset files (which have frontmatter)
+
+- **WHEN** loading a scope profile file
+- **THEN** the system parses it as YAML only
+- **AND** does NOT attempt to strip `---` frontmatter delimiters (those belong to preset files)
 
 #### Scenario: Partial profiles are valid
-- **WHEN** a profile defines only `paths` (no org-roam section)
-- **THEN** the profile is valid
-- **AND** missing sections treated as empty (deny-by-default)
+
+- **WHEN** a profile defines only `paths` and omits `cloud` and `security`
+- **THEN** the profile loads successfully
+- **AND** missing sections are treated as absent (deny-by-default at enforcement time)
+
+#### Scenario: Key normalization delegated to scope-yaml
+
+- **WHEN** a profile contains `auth_detection` or `max_coverage_threshold`
+- **THEN** the loader passes parsed output through `jf/gptel-scope-yaml--normalize-keys`
+- **AND** the result uses kebab-case keywords (`:auth-detection`, `:max-coverage-threshold`)
 
 ### Requirement: Profile directory and naming
 
-Scope profiles SHALL be stored in `config/gptel/scope-profiles/` with `.yml` extension. Profile name matches filename without extension.
+Scope profiles SHALL reside in `config/gptel/scope-profiles/` with a `.yml` extension. The profile name referenced by a preset matches the filename sans extension.
 
-**Implementation**: Variable `jf/gptel--scope-profiles-directory` (defaults to `config/gptel/scope-profiles/`)
+**Implementation**: `jf/gptel--scope-profiles-directory` in `config/gptel/scope-profiles.org`.
 
 #### Scenario: Profile resolved by name
-- **WHEN** preset references `:scope-profile "coding"`
-- **THEN** system loads `config/gptel/scope-profiles/coding.yml`
+
+- **WHEN** a preset declares `:scope-profile "coding"`
+- **THEN** the system loads `config/gptel/scope-profiles/coding.yml`
 
 #### Scenario: Missing profile handled gracefully
-- **WHEN** preset references non-existent profile
-- **THEN** system logs warning
-- **AND** creates empty scope.yml (deny-by-default)
+
+- **WHEN** a preset references a profile file that does not exist
+- **THEN** the loader logs a warning
+- **AND** session creation writes an empty (deny-by-default) `scope.yml`
 
 #### Scenario: Default profiles provided
-- **WHEN** gptel configuration is installed
-- **THEN** these profiles exist: `coding.yml` (broad read, project write), `research.yml` (read-only), `restricted.yml` (minimal), `bash-enabled.yml` (extended tools), `system-explorer.yml` (system inspection)
+
+- **WHEN** the gptel configuration is installed
+- **THEN** these profiles exist: `coding.yml` (broad read, project write), `research.yml` (read-only), `restricted.yml` (minimal), `bash-enabled.yml` (extended bash read, project write), `system-explorer.yml` (read-only system inspection with expanded deny list)
 
 ### Requirement: Variable expansion with ${project_root}
 
-The system SHALL expand `${project_root}` to actual project directory during session creation, before writing scope.yml.
+The system SHALL expand `${project_root}` in string values during session creation, before `scope.yml` is written. Only `${project_root}` is supported.
 
-**Implementation**: `jf/gptel-scope-profile--expand-variables` recursively processes plists
-
-**Expansion rules**:
-- Placeholder replaced with project root path
-- Project root from parameter (typically first projectile project)
-- Patterns with unresolvable `${project_root}` removed, warning logged
-- YAML arrays (vectors) converted to lists before expansion
+**Implementation**: `jf/gptel-scope-profile--expand-variables` recursively walks the resolved plist.
 
 #### Scenario: Projectile project detected
-- **WHEN** creating session and `projectile-project-root` returns `/path/to/project`
-- **THEN** `${project_root}/**` becomes `/path/to/project/**` in scope.yml
 
-#### Scenario: No project detected
-- **WHEN** creating session without project root
-- **THEN** patterns containing `${project_root}` removed from scope.yml
-- **AND** warning logged
+- **WHEN** session creation supplies `/path/to/project` as the project root
+- **THEN** `${project_root}/**` in the profile becomes `/path/to/project/**` in the written `scope.yml`
 
-### Requirement: Resolution priority (named vs inline)
+#### Scenario: No project available
 
-When resolving scope for a preset, named profile references SHALL take precedence over inline scope defaults.
+- **WHEN** session creation has no project root
+- **THEN** entries containing `${project_root}` are removed from the output
+- **AND** a warning is logged
 
-**Implementation**: `jf/gptel-scope-profile--resolve` checks `:scope-profile` key first
+#### Scenario: YAML arrays coerced to lists
 
-**Resolution process**:
-1. Lookup preset in `jf/gptel-preset--scope-defaults` alist
-2. If `:scope-profile` key present → load profile from file
-3. Else if plist has `:paths` etc. → treat as inline config
-4. Else → no scope configuration
+- **WHEN** `yaml-parse-string` returns a vector for a list-valued section
+- **THEN** the expander converts the vector to a list before iterating
+
+### Requirement: Resolution priority (named profile vs inline vs empty)
+
+When resolving scope for a preset, a named profile reference SHALL take precedence over inline scope defaults; absence of both SHALL yield an empty `scope.yml`.
+
+**Implementation**: `jf/gptel-scope-profile--resolve` in `config/gptel/scope-profiles.org` inspects `jf/gptel-preset--scope-defaults`.
 
 #### Scenario: Named profile takes precedence
-- **WHEN** preset has both `:scope-profile "coding"` AND inline `:paths`
-- **THEN** named profile is used
-- **AND** inline defaults ignored
 
-#### Scenario: Inline defaults used when no profile
-- **WHEN** preset has `:paths` but no `:scope-profile`
-- **THEN** inline defaults used directly
+- **WHEN** a preset has both `:scope-profile "coding"` and inline `:paths`
+- **THEN** `coding.yml` is loaded
+- **AND** the inline `:paths` are ignored
+
+#### Scenario: Inline defaults used when no profile reference
+
+- **WHEN** a preset has `:paths`/`:cloud`/`:security` but no `:scope-profile`
+- **THEN** the inline plist is used directly as the resolved scope
 
 #### Scenario: Empty scope fallback
-- **WHEN** preset has no scope configuration
-- **THEN** empty scope.yml created (deny-by-default)
+
+- **WHEN** a preset has no scope configuration at all
+- **THEN** session creation writes a minimal `scope.yml` that denies by default
 
 ### Requirement: Mutable scope.yml in session branches
 
-Each session branch SHALL have a `scope.yml` file created at session creation time. This is the mutable copy used for enforcement.
+Each session branch SHALL receive a `scope.yml` at creation time. This file is the single source of truth for enforcement; the profile template and the registered preset are never consulted by validators.
 
-**Implementation**: `jf/gptel-scope-profile--write-scope-yml` writes to branch directory
-
-**File format**: YAML with sections matching profile structure (paths, org_roam_patterns, cloud, security)
+**Implementation**: `jf/gptel-scope-profile--write-scope-yml` in `config/gptel/scope-profiles.org`.
 
 #### Scenario: scope.yml created at session creation
-- **WHEN** creating session with preset "executor"
-- **THEN** scope.yml written to branch directory
-- **AND** populated from preset's scope profile or inline defaults
+
+- **WHEN** a session is created with preset `executor`
+- **THEN** `scope.yml` is written into the branch directory
+- **AND** its contents derive from the preset's resolved scope configuration
 
 #### Scenario: scope.yml is mutable
-- **WHEN** scope expansion adds path to session
-- **THEN** scope.yml updated
-- **AND** registered preset unchanged
-- **AND** profile template unchanged
 
-#### Scenario: scope.yml is enforcement source
-- **WHEN** tool executes and needs scope validation
-- **THEN** scope system reads from session's scope.yml
-- **AND** NOT from gptel--known-presets or profile files
+- **WHEN** scope expansion adds a path during a session
+- **THEN** the session's `scope.yml` is updated in place
+- **AND** the registered preset and the profile template remain unchanged
+
+#### Scenario: scope.yml is the enforcement source
+
+- **WHEN** a tool invocation requires path validation
+- **THEN** `scope-validation` reads the session's `scope.yml` (via `scope-yaml`)
+- **AND** does NOT read from `gptel--known-presets` or from profile files
 
 ### Requirement: Deep merge for multi-worktree sessions
 
-When session has both preset scope AND explicit worktree paths, the system SHALL deep-merge them with worktree paths augmenting preset scope.
+When session creation receives both a resolved profile and explicit worktree paths, the system SHALL deep-merge them such that worktree paths augment (not replace) the profile's configuration.
 
-**Implementation**: `jf/gptel-scope-profile--deep-merge` (schema-agnostic recursive merge)
+**Implementation**: `jf/gptel-scope-profile--deep-merge` in `config/gptel/scope-profiles.org` (schema-agnostic recursive merge).
 
-**Merge algorithm**:
-- **Nested plists**: recursively merge
-- **Lists**: concatenate and deduplicate
-- **Scalars**: override wins
-- **nil**: treated as absence (doesn't clear base)
+#### Scenario: Worktree paths augment profile scope
 
-#### Scenario: Worktree paths augment preset scope
-- **WHEN** creating session with preset having `paths: read: ["/**"]`
-- **AND** providing worktree-paths `/project-a`, `/project-b`
-- **THEN** scope.yml has both preset paths AND worktree paths
-- **AND** worktree paths added to read/write lists
+- **WHEN** the resolved profile has `paths.read: ["/**"]`
+- **AND** worktree paths `/project-a`, `/project-b` are supplied
+- **THEN** the written `scope.yml` contains both the profile's entries and the worktree paths in `paths.read`/`paths.write`
 
-#### Scenario: Explicit worktree overrides profile reference
-- **WHEN** preset has `:scope-profile "coding"`
-- **AND** worktree-paths provided (activities integration)
-- **THEN** worktree paths take precedence
-- **AND** profile not consulted
+#### Scenario: Activities session with explicit worktree paths
 
-#### Scenario: Activities session with multiple worktree paths
-- **WHEN** creating session via activities integration with worktree paths `/path/to/project-a`, `/path/to/project-b`
-- **THEN** scope.yml has each worktree path as separate read entry (with `/**` glob suffix)
-- **AND** write entries for each path
-- **AND** standard deny entries (`.git`, `runtime`, `.env`, `node_modules`)
-- **AND** does NOT use `${project_root}` variable expansion (paths already resolved)
-
-#### Scenario: Activities session with single worktree path
-- **WHEN** creating session via activities integration with one worktree path
-- **THEN** behavior identical to multi-project (explicit path written to scope.yml)
+- **WHEN** activities integration supplies already-resolved worktree paths
+- **THEN** those paths are written as-is (no `${project_root}` expansion needed)
+- **AND** standard deny entries from the profile are preserved
+- **AND** `:cloud` and `:security` from the profile are preserved
 
 #### Scenario: Activities session with no worktree paths
-- **WHEN** creating session via activities integration with no worktree paths
-- **THEN** scope profile resolution falls back to preset's scope defaults or deny-by-default
-- **AND** follows standard resolution priority (named profile > inline defaults > empty)
 
-### Requirement: Key normalization (snake_case ↔ kebab-case)
-
-Scope profiles use YAML snake_case keys. System SHALL convert to kebab-case keywords for Elisp, then back to snake_case when writing scope.yml.
-
-**Implementation**:
-- Load: `jf/gptel-scope-profile--normalize-keys` (snake_case → kebab-case)
-- Write: `jf/gptel-scope-profile--kebab-to-snake` (reverse conversion)
-
-**Normalization rules**:
-- Recursive (nested plists processed)
-- Idempotent (already-normalized keys pass through)
-
-#### Scenario: YAML keys normalized on load
-- **WHEN** loading profile with `org_roam_patterns` and `auth_detection`
-- **THEN** converted to `:org-roam-patterns` and `:auth-detection` (keywords)
-
-#### Scenario: Kebab-case converted back on write
-- **WHEN** writing scope.yml
-- **THEN** `:org-roam-patterns` becomes `org_roam_patterns` in YAML output
+- **WHEN** activities integration supplies no worktree paths
+- **THEN** resolution falls back to the standard priority (named profile > inline > empty)
 
 ### Requirement: Integration with preset registration
 
-Scope profile names and inline configs SHALL be extracted during preset registration and stored in `jf/gptel-preset--scope-defaults` alist.
+Scope keys SHALL be extracted from preset frontmatter during registration and stored in `jf/gptel-preset--scope-defaults`, keyed by preset name symbol, so that `gptel--known-presets` contains no scope data.
 
-**Implementation**: `jf/gptel-preset--extract-scope` (in preset-registration.org) separates scope keys from preset plist
-
-**Extraction process**:
-- During preset parsing
-- Scope keys (`:paths`, `:org-roam-patterns`, `:scope-profile`) removed from preset
-- Stored in `jf/gptel-preset--scope-defaults` alist
-- Preset registered without scope keys
+**Implementation**: `jf/gptel-preset--extract-scope` in `config/gptel/preset-registration.org`. Extracted keys: `:paths`, `:org-roam-patterns`, `:shell-commands`, `:bash-tools`, `:scope-profile`.
 
 #### Scenario: Scope defaults stored by preset name
-- **WHEN** registering preset "executor" with `:scope-profile "coding"`
-- **THEN** entry added: `(executor . (:scope-profile "coding"))`
-- **AND** `:scope-profile` removed from registered preset
 
-#### Scenario: Scope defaults used during session creation
-- **WHEN** creating session with preset "executor"
-- **THEN** system looks up `(alist-get 'executor jf/gptel-preset--scope-defaults)`
-- **AND** resolves scope from that configuration
+- **WHEN** registering preset `executor` whose frontmatter contains `scope_profile: coding`
+- **THEN** `jf/gptel-preset--scope-defaults` gains entry `(executor . (:scope-profile "coding"))`
+- **AND** the plist passed to `gptel-make-preset` contains no scope keys
+
+#### Scenario: Scope defaults consulted during session creation
+
+- **WHEN** a session is created for preset `executor`
+- **THEN** `jf/gptel-scope-profile--resolve` looks up `executor` in `jf/gptel-preset--scope-defaults`
+- **AND** feeds the result into the resolution priority above
 
 ## Integration Points
 
-### With Preset Registration
-- Scope keys extracted during registration (preset-registration.org)
-- Stored in `jf/gptel-preset--scope-defaults` alist
-- Presets registered without scope configuration (gptel--known-presets remains clean)
+### With preset registration (`config/gptel/preset-registration.org`)
 
-### With Session Creation
-- Called during branch creation (sessions/commands.org)
-- Function: `jf/gptel-scope-profile--create-for-session`
-- Parameters: preset-name, target-dir, project-root (optional), worktree-paths (optional)
+- Scope keys are stripped from preset plists and stored in `jf/gptel-preset--scope-defaults`
+- Upstream `gptel--known-presets` never sees scope data
 
-### With Scope Enforcement
-- Session's scope.yml is read by scope-core (scope validation)
-- Profile templates never consulted during enforcement
-- Mutable session scope allows runtime expansion
+### With session creation (`config/gptel/sessions/commands.org`)
+
+- Entry point: `jf/gptel-scope-profile--create-for-session`
+- Parameters: preset name, target directory, optional project root, optional worktree paths
+- Called during branch directory creation; responsible for the final `scope.yml`
+
+### With scope enforcement (`config/gptel/scope/`)
+
+- `scope-validation` reads the session's `scope.yml` via `scope-yaml`
+- Key normalization and schema defaulting live in `scope-yaml` (not in the profile module)
+- Profiles are never consulted at validation time
 
 ## File Organization
 
 ```
 config/gptel/
-├─ scope-profiles.org          # This module
+├─ scope-profiles.org          # This module (profile loader, resolver, expander, merger)
 ├─ scope-profiles/             # Profile templates
 │  ├─ coding.yml
 │  ├─ research.yml
 │  ├─ restricted.yml
 │  ├─ bash-enabled.yml
 │  └─ system-explorer.yml
-├─ preset-registration.org     # Extracts scope config
-└─ sessions/commands.org       # Calls profile creation
+├─ preset-registration.org     # Extracts scope keys into jf/gptel-preset--scope-defaults
+├─ sessions/commands.org       # Calls jf/gptel-scope-profile--create-for-session
+└─ scope/
+   ├─ scope-yaml.org           # Key normalization + schema defaults (delegated target)
+   └─ scope-validation.org     # Reads scope.yml; enforces at tool-call time
 ```
-
-## Summary
-
-Scope profiles solve the boilerplate problem: multiple presets can share permission sets via named profiles. The system maintains clear separation between immutable templates (profiles), mutable session config (scope.yml), and registered presets (gptel--known-presets). Variable expansion and deep merge enable flexible, context-aware scope initialization while keeping profiles reusable.
