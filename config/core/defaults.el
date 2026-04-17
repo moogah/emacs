@@ -95,8 +95,11 @@
 (setq vc-make-backup-files nil)
 
 ;; Set auto-save location
-(setq auto-save-file-name-transforms
-      `((".*" ,(expand-file-name "auto-save-list/" user-emacs-directory) t)))
+(let ((auto-save-dir (expand-file-name "auto-save-list/" user-emacs-directory)))
+  (unless (file-directory-p auto-save-dir)
+    (make-directory auto-save-dir t))
+  (setq auto-save-file-name-transforms
+        `((".*" ,auto-save-dir t))))
 
 ;; ===============================================================================
 ;; State Persistence Settings
