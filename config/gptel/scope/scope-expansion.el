@@ -42,6 +42,25 @@ If queue is empty, clears the active flag."
     ;; Queue empty — clear active flag
     (setq jf/gptel-scope--expansion-active nil)))
 
+(defun jf/gptel-scope--parent-wildcard-for (resource)
+  "Return parent-directory wildcard pattern for a RESOURCE file path.
+Examples: ~/foo/bar.txt → ~/foo/** | /a/b/src/init.el → /a/b/src/**"
+  (concat (string-remove-suffix "/" (file-name-directory resource)) "/**"))
+
+(defun jf/gptel-scope--write-pattern-to-scope (pattern validation-type tool scope-file &optional denied-operation)
+  "Route PATTERN to appropriate scope updater based on VALIDATION-TYPE.
+TOOL is the tool name.  SCOPE-FILE is the path to scope.yml.
+DENIED-OPERATION is the bash-parser operation type of the violation
+(e.g. :read, :write) and lets add-path/add-bash target the correct
+scope.yml section."
+  (pcase validation-type
+    ('path
+     (jf/gptel-scope--add-path-to-scope scope-file pattern tool denied-operation))
+    ('bash
+     (jf/gptel-scope--add-bash-to-scope scope-file pattern tool denied-operation))
+    (_
+     (user-error "Unknown validation type: %s" validation-type))))
+
 (defun jf/gptel-scope--get-scope-file-path ()
   "Get the path to scope.yml for the current buffer context.
 Returns absolute path to scope.yml, or nil if context cannot be determined."
@@ -105,6 +124,17 @@ Delegates to scope-yaml module. Returns parsed plist."
      :transient nil)
     ("a" "Add to scope (permanent)" jf/gptel-scope--add-to-scope
      :transient nil)
+    ("w" (lambda ()
+           (let* ((resource (plist-get (plist-get (transient-scope) :violation) :resource))
+                  (pattern (jf/gptel-scope--parent-wildcard-for resource)))
+             (format "Add %s to scope" pattern)))
+     jf/gptel-scope--add-wildcard-to-scope
+     :if (lambda ()
+           (not (file-directory-p
+                 (plist-get (plist-get (transient-scope) :violation) :resource))))
+     :transient nil)
+    ("c" "Add custom pattern to scope" jf/gptel-scope--add-custom-to-scope
+     :transient nil)
     ("o" "Allow once (temporary)" jf/gptel-scope--allow-once-action
      :transient nil)]
    [""
@@ -147,16 +177,9 @@ Delegates to scope-yaml module. Returns parsed plist."
          (scope-file (jf/gptel-scope--get-scope-file-path)))
 
     (jf/gptel-scope--validate-scope-file-writable scope-file)
-
-    ;; Route to appropriate updater based on validation type
-    ;; Pass denied-operation so add-path-to-scope targets the correct section
-    (pcase validation-type
-      ('path
-       (jf/gptel-scope--add-path-to-scope scope-file resource tool denied-operation))
-      ('bash
-       (jf/gptel-scope--add-bash-to-scope scope-file resource tool denied-operation))
-      (_
-       (user-error "Unknown validation type: %s" validation-type)))
+    ;; Route to the appropriate scope-section updater. denied-operation lets
+    ;; the helper target the correct paths.{read,write,execute,modify} section.
+    (jf/gptel-scope--write-pattern-to-scope resource validation-type tool scope-file denied-operation)
 
     ;; Notify callback with JSON response
     (condition-case err
@@ -202,6 +225,80 @@ again."
     (message "Allowed %s once" resource)
     (transient-quit-one)
     (jf/gptel-scope--process-expansion-queue)))
+
+(defun jf/gptel-scope--add-wildcard-to-scope ()
+  "Add parent-directory wildcard pattern to scope.yml permanently."
+  (interactive)
+  (let* ((scope (transient-scope))
+         (violation (plist-get scope :violation))
+         (callback (plist-get scope :callback))
+         (validation-type (plist-get violation :validation-type))
+         (resource (plist-get violation :resource))
+         (tool (plist-get violation :tool))
+         (pattern (jf/gptel-scope--parent-wildcard-for resource))
+         (scope-file (jf/gptel-scope--get-scope-file-path)))
+
+    (jf/gptel-scope--validate-scope-file-writable scope-file)
+    (jf/gptel-scope--write-pattern-to-scope pattern validation-type tool scope-file)
+
+    (condition-case err
+        (if callback
+            (funcall callback
+                     (json-serialize
+                      (list :success t
+                            :patterns_added (vector pattern)
+                            :message (format "Scope expanded. Added wildcard %s" pattern))))
+          (message "Warning: No callback provided for scope expansion"))
+      (error
+       (message "Error invoking callback: %s" (error-message-string err))))
+
+    (message "Added %s to scope" pattern)
+    (transient-quit-one)))
+
+(defun jf/gptel-scope--add-custom-to-scope ()
+  "Prompt for a custom pattern and add it to scope.yml permanently."
+  (interactive)
+  (let* ((scope (transient-scope))
+         (violation (plist-get scope :violation))
+         (callback (plist-get scope :callback))
+         (validation-type (plist-get violation :validation-type))
+         (resource (plist-get violation :resource))
+         (tool (plist-get violation :tool))
+         (scope-file (jf/gptel-scope--get-scope-file-path))
+         (custom-pattern (condition-case nil
+                             (read-string (format "Add pattern [%s]: " resource) resource)
+                           (quit nil))))
+
+    (if (null custom-pattern)
+        ;; User pressed C-g — deny without error
+        (condition-case err
+            (if callback
+                (funcall callback
+                         (json-serialize
+                          (list :success nil
+                                :user_denied t)))
+              (message "Warning: No callback provided for scope expansion"))
+          (error
+           (message "Error invoking callback: %s" (error-message-string err))))
+
+      ;; User provided a pattern — write it
+      (jf/gptel-scope--validate-scope-file-writable scope-file)
+      (jf/gptel-scope--write-pattern-to-scope custom-pattern validation-type tool scope-file)
+
+      (condition-case err
+          (if callback
+              (funcall callback
+                       (json-serialize
+                        (list :success t
+                              :patterns_added (vector custom-pattern)
+                              :message (format "Scope expanded. Added custom pattern %s" custom-pattern))))
+            (message "Warning: No callback provided for scope expansion"))
+        (error
+         (message "Error invoking callback: %s" (error-message-string err))))
+
+      (message "Added %s to scope" custom-pattern))
+
+    (transient-quit-one)))
 
 (defun jf/gptel-scope--edit-scope ()
   "Open scope.yml for manual editing."

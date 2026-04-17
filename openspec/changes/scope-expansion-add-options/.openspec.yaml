@@ -1,0 +1,8 @@
+schema: spec-driven-beads
+created: 2026-03-13
+beads:
+  - id: emacs-6nn2
+    title: "Implement wildcard and custom scope expansion suffixes"
+  - id: emacs-ky4s
+    title: "Tests for wildcard and custom scope expansion suffixes"
+    blocked_by: emacs-6nn2

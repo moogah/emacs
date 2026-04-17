@@ -282,7 +282,56 @@ Every operation type should be denied for any path."
               (push (format "%s: :message not a string, got %S"
                             op (plist-get result :message))
                     shape-errors))))))
-      (expect shape-errors :to-equal nil))))))
+      (expect shape-errors :to-equal nil))))
+
+;; -- Layer 7: Operation → Scope-Section Mapping Contract --
+(describe "Layer 7: operation → scope-section mapping"
+
+  (it "every contract operation maps to a known scope section"
+    ;; The mapping function must cover every operation the bash-parser can produce.
+    ;; Unknown operations would silently mis-route violations in the expansion UI.
+    (let ((known-sections '(:read :write :execute))
+          (unmapped nil))
+      (dolist (op contract/bash--valid-operations)
+        (let ((section (jf/gptel-scope--map-operation-to-scope-section op)))
+          (unless (memq section known-sections)
+            (push (format "%s -> %S (not a known section)" op section) unmapped))))
+      (expect unmapped :to-equal nil)))
+
+  (it "read-like operations map to :read (consistent with validate-operation)"
+    ;; validate-operation allows read-like ops with read patterns.
+    ;; The mapping function must agree: they route to paths.read in scope.yml.
+    (let ((read-like-ops (mapcar #'car
+                                 (cl-remove-if-not
+                                  (lambda (entry) (eq (cdr entry) :read-like))
+                                  contract-layers-spec--operation-classification))))
+      (dolist (op read-like-ops)
+        (expect (jf/gptel-scope--map-operation-to-scope-section op)
+                :to-equal :read))))
+
+  (it "write-like and modify-like operations map to :write (consistent with validate-operation)"
+    ;; validate-operation requires write patterns for write-like ops, and
+    ;; modify-like ops fall back to write. Both route to paths.write.
+    (let ((write-and-modify-ops
+           (mapcar #'car
+                   (cl-remove-if-not
+                    (lambda (entry)
+                      (memq (cdr entry) '(:write-like :modify-like)))
+                    contract-layers-spec--operation-classification))))
+      (dolist (op write-and-modify-ops)
+        (expect (jf/gptel-scope--map-operation-to-scope-section op)
+                :to-equal :write))))
+
+  (it "execute-like operations map to :execute (consistent with validate-operation)"
+    (let ((execute-like-ops (mapcar #'car
+                                    (cl-remove-if-not
+                                     (lambda (entry) (eq (cdr entry) :execute-like))
+                                     contract-layers-spec--operation-classification))))
+      (dolist (op execute-like-ops)
+        (expect (jf/gptel-scope--map-operation-to-scope-section op)
+                :to-equal :execute)))))
+
+  ))
 
 (provide 'bash-parser-contract-layers-spec)
 

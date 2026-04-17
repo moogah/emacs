@@ -104,12 +104,15 @@ Returns warning string if found, nil otherwise."
 ;; [[file:scope-shell-tools.org::*run_bash_command Tool][run_bash_command Tool:1]]
 (gptel-make-scoped-tool
  "run_bash_command"
- "Execute shell command in specified directory with scope validation.
+ "Execute shell command with semantic scope validation.
 
 Commands are validated semantically — file operations extracted from the command
 are checked against scope paths (read/write/execute/modify/deny).
 
 Commands with zero file operations (version checks, help flags) are allowed automatically.
+
+Relative paths in the command are resolved from the session's current working
+directory (default-directory), which is set from the session context.
 
 Security features:
 - 30-second timeout
@@ -118,21 +121,18 @@ Security features:
 - Deny list blocks dangerous commands
 
 Examples:
-  run_bash_command('ls -la', '/Users/jefffarr/emacs')
-  run_bash_command('grep -r TODO . | head -20', '/Users/jefffarr/projects/myapp')
-  run_bash_command('git log --oneline -10', '/Users/jefffarr/emacs')"
+  run_bash_command('ls -la')
+  run_bash_command('grep -r TODO . | head -20')
+  run_bash_command('git log --oneline -10')"
 
  (list '(:name "command"
          :type string
-         :description "Shell command to execute (pipes and redirects allowed)")
-       '(:name "directory"
-         :type string
-         :description "Working directory (must be in scope)"))
+         :description "Shell command to execute (pipes and redirects allowed)"))
 
  ;; No :operation — file operations are extracted from the command by
  ;; the bash semantic pipeline at validation time.
 
- (let* ((result (jf/gptel-bash--execute-command command directory))
+ (let* ((result (jf/gptel-bash--execute-command command default-directory))
         (exit-code (plist-get result :exit_code))
         (output (plist-get result :output))
         (truncated (plist-get result :truncated))

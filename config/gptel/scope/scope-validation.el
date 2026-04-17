@@ -214,7 +214,9 @@ Returns a validation result plist."
 (defun jf/gptel-scope--validate-bash-tool (tool-name args config)
   "Validate bash command using semantic validation pipeline.
 TOOL-NAME is the tool being validated.
-ARGS is the tool arguments list (command and directory).
+ARGS is the tool arguments list (single-element: the command string).
+Relative paths in the command are resolved against `default-directory',
+which is bound from the session context before this function runs.
 CONFIG is the scope configuration plist.
 
 Returns (:allowed t) on success or (:allowed nil :error CODE ...) on
@@ -222,7 +224,7 @@ failure. The denial plist preserves the canonical fields produced by the
 inner validator (notably :resource for path errors); the wrapper adds
 :tool and :command for downstream context."
   (let* ((command-full (car args))
-         (directory (cadr args))
+         (directory default-directory)
          (validation-error (jf/gptel-scope--validate-command-semantics
                             command-full directory config)))
     (if validation-error
