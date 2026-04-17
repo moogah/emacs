@@ -311,7 +311,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 For non-trivial changes, use **OpenSpec** to plan before implementing:
 
-**Default schema:** `spec-driven-beads` (proposal → specs → architecture → design → beads)
+**Default schema:** `spec-driven-tasks` (proposal → specs → architecture → design → tasks)
 
 **When to use:**
 - New features or significant modifications
@@ -324,17 +324,18 @@ For non-trivial changes, use **OpenSpec** to plan before implementing:
 2. **specs/** - WHAT (behavioral requirements with scenarios)
 3. **architecture.md** - HOW to structure and test (components, interfaces, testing approach)
 4. **design.md** - HOW to implement (technical decisions, implementation approach)
-5. **Beads** - Implementation tracking (generated from design and specs)
+5. **tasks/** - Implementation tracking: self-contained markdown files in `tasks/open/` and `tasks/closed/`
 
 **Invoke skills:**
-- `/opsx:explore` - Investigate and clarify requirements before planning
-- `/opsx:new` - Start structured change with spec-driven-beads schema
-- `/opsx:continue` - Progress to next artifact in workflow
-- `/opsx:ff` - Fast-forward through all artifacts to reach implementation
-- `/opsx:create-beads` - Generate Beads issues from design and specs
-- `/opsx:apply` - Implement Beads (uses `/bead-implementation` workflow)
-- `/opsx:verify` - Validate implementation matches artifacts
-- `/opsx:archive` - Archive completed change
+- `/opsx-explore` - Investigate and clarify requirements before planning
+- `/opsx-new` - Start structured change with spec-driven-tasks schema
+- `/opsx-continue` - Progress to next artifact in workflow
+- `/opsx-ff` - Fast-forward through all artifacts to reach implementation
+- `/opsx-tasks` - Manage task files (list/show/create/update/generate)
+- `/opsx-apply` - Implement tasks from `tasks/open/` in dependency order
+- `/tasks-orchestrator` - Implement multiple ready tasks in parallel worktrees
+- `/opsx-verify` - Validate implementation matches artifacts
+- `/opsx-archive` - Archive completed change
 
 **Skip OpenSpec for:** Single-file edits, bug fixes, documentation updates, trivial changes.
 
@@ -455,15 +456,23 @@ All gptel specs remain invisible unless explicitly referenced.
 2. **Start with gptel** - It's the architectural outlier (priority: `architecture.md` first)
 3. **Fill in organically** - Spec modules as you touch them
 
-### Beads Issue Tracking
+### Task Tracking
 
-Use **Beads** for tracking implementation work:
+Implementation work for an OpenSpec change lives in self-contained markdown
+files under `openspec/changes/<name>/tasks/open/` (ready/blocked) and
+`tasks/closed/` (done). Each file has YAML frontmatter (name, description,
+change, status, relations) and a body with files-to-modify, implementation
+steps, design rationale, verification commands, and context pointers.
 
 **When to use:**
-- Converting OpenSpec changes to trackable issues: `/openspec-to-beads`
-- Working on existing bead: `/bead-implementation` (handles discovery and session protocol)
+- Generate the initial set from design/specs: `/opsx-tasks generate`
+- List / show / create / update: `/opsx-tasks <subcmd>`
+- Implement sequentially: `/opsx-apply`
+- Implement in parallel worktrees: `/tasks-orchestrator`
 
-**Database location:** `.beads/beads.db` (initialized with `bd init`)
+**Historical note:** The repo previously used the Beads CLI for tracking.
+`.beads/issues.jsonl` is kept as a history record; all other beads runtime
+state has been removed.
 
 ## Key Locations
 

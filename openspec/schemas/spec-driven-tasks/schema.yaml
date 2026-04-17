@@ -1,0 +1,181 @@
+name: spec-driven-tasks
+version: 1
+description: OpenSpec workflow with file-based task tracking - proposal → specs → architecture → design → tasks
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document outlining the change
+    template: proposal.md
+    instruction: |
+      Create the proposal document that establishes WHY this change is needed.
+
+      Sections:
+      - **Why**: 1-2 sentences on the problem or opportunity. What problem does
+        this solve? Why now?
+      - **What Changes**: Bullet list of changes. Be specific about new
+        capabilities, modifications, or removals. Mark breaking changes with
+        **BREAKING**.
+      - **Capabilities**: Identify which specs will be created or modified:
+        - **New Capabilities**: List capabilities being introduced. Each becomes a new `specs/<name>/spec.md`. Use kebab-case names (e.g., `user-auth`, `data-export`).
+        - **Modified Capabilities**: List existing capabilities whose REQUIREMENTS are changing. Only include if spec-level behavior changes (not just implementation details). Each needs a delta spec file. Check `openspec/specs/` for existing spec names. Leave empty if no requirement changes.
+      - **Impact**: Affected code, APIs, dependencies, or systems.
+
+      IMPORTANT: The Capabilities section is critical. It creates the contract
+      between proposal and specs phases. Research existing specs before filling
+      this in. Each capability listed here will need a corresponding spec file.
+
+      Keep it concise (1-2 pages). Focus on the "why" not the "how" -
+      implementation details belong in design.md.
+
+      This is the foundation - specs, design, and tasks all build on this.
+    requires: []
+
+  - id: specs
+    generates: specs/**/*.md
+    description: Detailed specifications for the change
+    template: spec.md
+    instruction: |
+      Create specification files that define WHAT the system should do.
+
+      Create one spec file per capability listed in the proposal's Capabilities
+      section.
+      - New capabilities: use the exact kebab-case name from the proposal
+        (specs/<capability>/spec.md).
+      - Modified capabilities: use the existing spec folder name from
+        openspec/specs/<capability>/ when creating the delta spec at
+        specs/<capability>/spec.md.
+
+      Delta operations (use ## headers):
+      - **ADDED Requirements**: New capabilities
+      - **MODIFIED Requirements**: Changed behavior - MUST include full updated
+        content
+      - **REMOVED Requirements**: Deprecated features - MUST include **Reason**
+        and **Migration**
+      - **RENAMED Requirements**: Name changes only - use FROM:/TO: format
+
+      Format requirements:
+      - Each requirement: `### Requirement: <name>` followed by description
+      - Use SHALL/MUST for normative requirements (avoid should/may)
+      - Each scenario: `#### Scenario: <name>` with WHEN/THEN format
+      - **CRITICAL**: Scenarios MUST use exactly 4 hashtags (`####`). Using 3
+        hashtags or bullets will fail silently.
+      - Every requirement MUST have at least one scenario.
+
+      MODIFIED requirements workflow:
+      1. Locate the existing requirement in openspec/specs/<capability>/spec.md
+      2. Copy the ENTIRE requirement block (from `### Requirement:` through all
+         scenarios)
+      3. Paste under `## MODIFIED Requirements` and edit to reflect new behavior
+      4. Ensure header text matches exactly (whitespace-insensitive)
+
+      Common pitfall: Using MODIFIED with partial content loses detail at
+      archive time. If adding new concerns without changing existing behavior,
+      use ADDED instead.
+
+      Specs should be testable - each scenario is a potential test case.
+    requires:
+      - proposal
+
+  - id: architecture
+    generates: architecture.md
+    description: Architectural decisions and testing approach
+    template: architecture.md
+    instruction: |
+      Create the architecture document that defines system structure and testing approach.
+
+      This document bridges requirements (specs) and implementation (design).
+      It answers: How will the system be structured? How will we test it?
+
+      Sections:
+      - **Components**: Major building blocks and their responsibilities.
+      - **Interfaces**: How components interact. Public APIs, data flows,
+        integration points.
+      - **Boundaries**: What's in scope vs out of scope for this change.
+      - **Testing Approach**: Critical section for test-driven development.
+        - **Test Framework**: Which framework and why (ERT vs Buttercup for Emacs).
+        - **Test Organization**: Where test files live (test/, co-located).
+        - **Naming Conventions**: Test file and function naming patterns.
+        - **Running Tests**: Commands to run tests and specific subsets.
+        - **Test Patterns**: Mocking/stubbing, test data, shared helpers.
+        - **Scenario Mapping**: How spec scenarios map to test cases.
+      - **Dependencies**: External libraries, services, systems.
+      - **Constraints**: Technical limitations, performance, compatibility.
+
+      IMPORTANT: Engage the user about testing approach. Use AskUserQuestion
+      to gather preferences about framework, file locations, naming, and
+      commands. Document their answers in the Testing Approach section.
+
+      Reference specs for requirements, let design handle implementation details.
+    requires:
+      - proposal
+      - specs
+
+  - id: design
+    generates: design.md
+    description: Technical design document with implementation details
+    template: design.md
+    instruction: |
+      Create the design document that explains HOW to implement the change.
+
+      When to include design.md (create only if any apply):
+      - Cross-cutting change (multiple services/modules) or new architectural
+        pattern
+      - New external dependency or significant data model changes
+      - Security, performance, or migration complexity
+      - Ambiguity that benefits from technical decisions before coding
+
+      Sections:
+      - **Context**: Background, current state, constraints, stakeholders
+      - **Goals / Non-Goals**: What this design achieves and explicitly excludes
+      - **Decisions**: Key technical choices with rationale (why X over Y?).
+        Include alternatives considered for each decision.
+      - **Risks / Trade-offs**: Known limitations. Format: [Risk] → Mitigation
+      - **Migration Plan**: Deploy steps, rollback strategy (if applicable)
+      - **Open Questions**: Outstanding decisions or unknowns to resolve
+
+      Focus on architecture and approach, not line-by-line implementation.
+      Reference the proposal for motivation and specs for requirements.
+    requires:
+      - proposal
+      - specs
+      - architecture
+
+  - id: tasks
+    generates: tasks/open/*.md
+    description: Self-contained task files with structured metadata and rich descriptions
+    template: task.md
+    instruction: |
+      Create individual task files in `tasks/open/`. Each task is a standalone
+      markdown file with YAML frontmatter (name, description, change, status,
+      relations) and a self-contained body that an agent can implement without
+      re-reading other artifacts.
+
+      Follow the `/opsx-tasks generate` workflow: read design/specs/architecture
+      /proposal, break work into 1-4 hour tasks, use a test-first ordering
+      where practical, preview for approval, then create files.
+
+      See the opsx-tasks skill for full task file format, body structure,
+      and guidelines.
+    requires:
+      - specs
+      - architecture
+      - design
+
+apply:
+  requires:
+    - proposal
+    - specs
+    - architecture
+    - design
+    - tasks
+  tracks: tasks/open/*.md
+  instruction: |
+    Process tasks from tasks/open/ in dependency order. For each ready task:
+    read the full file, implement, verify, move to tasks/closed/, and unblock
+    dependents. Create discovered-from tasks for new work found during
+    implementation.
+
+    Read design for implementation approach, specs for requirements,
+    architecture for structure and testing approach.
+
+    Pause if you hit blockers or need clarification.

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Claude Code PostToolUse hook: validate YAML frontmatter in opsx task files.
+#
+# Fires after Write/Edit on files matching:
+#   openspec/changes/*/tasks/{open,closed}/*.md
+#
+# Exit 0 for non-matching paths or successful validation.
+# Exit 2 with stderr message when validation fails (surfaces error to Claude).
+
+set -eu
+
+project_dir="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+validator="$project_dir/bin/validate-task-frontmatter/validate-task-frontmatter"
+
+input=$(cat)
+file_path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty')
+
+[ -n "$file_path" ] || exit 0
+
+case "$file_path" in
+  */openspec/changes/*/tasks/open/*.md|*/openspec/changes/*/tasks/closed/*.md) ;;
+  openspec/changes/*/tasks/open/*.md|openspec/changes/*/tasks/closed/*.md) ;;
+  *) exit 0 ;;
+esac
+
+[ -f "$file_path" ] || exit 0
+
+if [ ! -x "$validator" ]; then
+  echo "task-frontmatter validator not built — run: make build-hooks" >&2
+  exit 2
+fi
+
+exec "$validator" "$file_path"

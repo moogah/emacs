@@ -124,7 +124,6 @@ Handles both 'dir/name' format and 'name' format."
     ("major-modes/org"    "Org-mode configuration")
     ("major-modes/org-roam" "Org-roam knowledge management")
     ("major-modes/dirvish" "Enhanced directory viewer")
-    ("major-modes/beads"  "Beads issue tracking")
 
     ;; Bash Parser - tree-sitter based bash command parser
     ("bash-parser/bash-parser" "Bash command parser with semantic extraction")
