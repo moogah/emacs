@@ -194,10 +194,10 @@ security:
 
         ;; Real bash-parser runs inside the macro's validation path
         ;; Real 7-stage pipeline runs (no-op short-circuit at stage 4)
-        (funcall (gptel-tool-function tool)
-                 #'bash-integ--gptel-callback
-                 "which brew"
-                 bash-integ--temp-dir)
+        (let ((default-directory bash-integ--temp-dir))
+          (funcall (gptel-tool-function tool)
+                   #'bash-integ--gptel-callback
+                   "which brew"))
 
         ;; Callback fired with JSON string
         (expect bash-integ--callback-raw :to-be-truthy)
@@ -221,10 +221,10 @@ security:
                                     :truncated nil :warnings nil :error nil))
         (spy-on 'jf/gptel-scope-prompt-expansion)
 
-        (funcall (gptel-tool-function tool)
-                 #'bash-integ--gptel-callback
-                 "which brew"
-                 bash-integ--temp-dir)
+        (let ((default-directory bash-integ--temp-dir))
+          (funcall (gptel-tool-function tool)
+                   #'bash-integ--gptel-callback
+                   "which brew"))
 
         (expect 'jf/gptel-scope-prompt-expansion :not :to-have-been-called)
         (expect (plist-get bash-integ--callback-result :success) :to-be t)))
@@ -243,10 +243,10 @@ security:
         (spy-on 'jf/gptel-scope--validate-bash-tool :and-call-through)
         (spy-on 'jf/gptel-scope--validate-command-semantics :and-call-through)
 
-        (funcall (gptel-tool-function tool)
-                 #'bash-integ--gptel-callback
-                 "which brew"
-                 bash-integ--temp-dir)
+        (let ((default-directory bash-integ--temp-dir))
+          (funcall (gptel-tool-function tool)
+                   #'bash-integ--gptel-callback
+                   "which brew"))
 
         (expect 'jf/gptel-scope--validate-bash-tool :to-have-been-called)
         (expect 'jf/gptel-scope--validate-command-semantics :to-have-been-called)))))
@@ -287,10 +287,10 @@ security:
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       (spy-on 'jf/gptel-scope-prompt-expansion)
 
-      (funcall (gptel-tool-function tool)
-               #'bash-integ--gptel-callback
-               "rm -rf /tmp/foo"
-               "/workspace")
+      (let ((default-directory "/workspace"))
+        (funcall (gptel-tool-function tool)
+                 #'bash-integ--gptel-callback
+                 "rm -rf /tmp/foo"))
 
       ;; Expansion UI triggered (async tool denied → expansion)
       (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
@@ -313,10 +313,10 @@ security:
                           (list :success :false
                                 :user_denied t)))))
 
-      (funcall (gptel-tool-function tool)
-               #'bash-integ--gptel-callback
-               "rm -rf /tmp/foo"
-               "/workspace")
+      (let ((default-directory "/workspace"))
+        (funcall (gptel-tool-function tool)
+                 #'bash-integ--gptel-callback
+                 "rm -rf /tmp/foo"))
 
       ;; Callback received error
       (expect bash-integ--callback-result :to-be-truthy)
@@ -368,10 +368,10 @@ security:
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       (spy-on 'jf/gptel-scope-prompt-expansion)
 
-      (funcall (gptel-tool-function tool)
-               #'bash-integ--gptel-callback
-               "cat /etc/passwd"
-               "/workspace")
+      (let ((default-directory "/workspace"))
+        (funcall (gptel-tool-function tool)
+                 #'bash-integ--gptel-callback
+                 "cat /etc/passwd"))
 
       (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
       (expect bash-integ--callback-result :to-be nil)))
@@ -396,10 +396,10 @@ security:
                 (funcall callback
                          (json-serialize '(:success t :allowed_once t)))))
 
-      (funcall (gptel-tool-function tool)
-               #'bash-integ--gptel-callback
-               "cat /etc/passwd"
-               "/workspace")
+      (let ((default-directory "/workspace"))
+        (funcall (gptel-tool-function tool)
+                 #'bash-integ--gptel-callback
+                 "cat /etc/passwd"))
 
       (expect bash-integ--callback-result :to-be-truthy)
       (expect (plist-get bash-integ--callback-result :success) :to-be t)
@@ -435,10 +435,10 @@ security:
                           (list :success t
                                 :patterns_added (vector "/etc/**"))))))
 
-      (funcall (gptel-tool-function tool)
-               #'bash-integ--gptel-callback
-               "cat /etc/passwd"
-               "/workspace")
+      (let ((default-directory "/workspace"))
+        (funcall (gptel-tool-function tool)
+                 #'bash-integ--gptel-callback
+                 "cat /etc/passwd"))
 
       ;; Two loads: one for initial validation (deny), one for
       ;; re-validation after the user added the path (allow).
@@ -466,10 +466,10 @@ security:
     (let ((tool (bash-integ--find-tool "run_bash_command")))
       (spy-on 'jf/gptel-scope--load-config :and-return-value nil)
 
-      (funcall (gptel-tool-function tool)
-               #'bash-integ--gptel-callback
-               "which brew"
-               "/workspace")
+      (let ((default-directory "/workspace"))
+        (funcall (gptel-tool-function tool)
+                 #'bash-integ--gptel-callback
+                 "which brew"))
 
       (expect bash-integ--callback-result :to-be-truthy)
       (expect (plist-get bash-integ--callback-result :error)
@@ -488,12 +488,12 @@ security:
               :and-return-value '(:output "" :exit_code 0
                                   :truncated nil :warnings nil :error nil))
 
-      (funcall (gptel-tool-function tool)
-               (lambda (&rest args)
-                 (setq callback-arg-count (length args))
-                 (setq callback-arg-type (type-of (car args))))
-               "which brew"
-               bash-integ--temp-dir)
+      (let ((default-directory bash-integ--temp-dir))
+        (funcall (gptel-tool-function tool)
+                 (lambda (&rest args)
+                   (setq callback-arg-count (length args))
+                   (setq callback-arg-type (type-of (car args))))
+                 "which brew"))
 
       (expect callback-arg-count :to-equal 1)
       (expect callback-arg-type :to-equal 'string)))

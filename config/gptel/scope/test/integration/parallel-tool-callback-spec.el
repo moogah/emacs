@@ -159,9 +159,10 @@ security:
                   (funcall callback
                            (json-serialize (list :success :false :user_denied t)))))
 
-        (funcall (gptel-tool-function tool)
-                 (parallel--make-process-tool-result :tool-1)
-                 "which brew" "/")
+        (let ((default-directory "/"))
+          (funcall (gptel-tool-function tool)
+                   (parallel--make-process-tool-result :tool-1)
+                   "which brew"))
 
         (expect parallel--callback-count :to-equal 1))))
 
@@ -188,13 +189,14 @@ security:
 
         ;; === Simulate gptel's mapc loop ===
         ;; Fire both tools immediately (no waiting between them)
-        (funcall (gptel-tool-function tool)
-                 (parallel--make-process-tool-result :tool-1)
-                 "which brew" "/")
+        (let ((default-directory "/"))
+          (funcall (gptel-tool-function tool)
+                   (parallel--make-process-tool-result :tool-1)
+                   "which brew")
 
-        (funcall (gptel-tool-function tool)
-                 (parallel--make-process-tool-result :tool-2)
-                 "ls -la /usr/local/bin/brew" "/")
+          (funcall (gptel-tool-function tool)
+                   (parallel--make-process-tool-result :tool-2)
+                   "ls -la /usr/local/bin/brew"))
 
         ;; Expansion UI should have been called twice
         (expect prompt-call-count :to-equal 2)
@@ -244,13 +246,14 @@ security:
                 (setq last-callback callback)))
 
       ;; Fire both tools (simulating mapc)
-      (funcall (gptel-tool-function tool)
-               (parallel--make-process-tool-result :tool-1)
-               "which brew" "/")
+      (let ((default-directory "/"))
+        (funcall (gptel-tool-function tool)
+                 (parallel--make-process-tool-result :tool-1)
+                 "which brew")
 
-      (funcall (gptel-tool-function tool)
-               (parallel--make-process-tool-result :tool-2)
-               "ls -la /usr/local/bin/brew" "/")
+        (funcall (gptel-tool-function tool)
+                 (parallel--make-process-tool-result :tool-2)
+                 "ls -la /usr/local/bin/brew"))
 
       ;; User responds to the transient menu (only last callback available)
       (when last-callback
@@ -289,13 +292,14 @@ security:
       (setq jf/gptel-scope--expansion-queue nil)
 
       ;; Fire both tools (simulating mapc)
-      (funcall (gptel-tool-function tool)
-               (parallel--make-process-tool-result :tool-1)
-               "which brew" "/")
+      (let ((default-directory "/"))
+        (funcall (gptel-tool-function tool)
+                 (parallel--make-process-tool-result :tool-1)
+                 "which brew")
 
-      (funcall (gptel-tool-function tool)
-               (parallel--make-process-tool-result :tool-2)
-               "ls -la /usr/local/bin/brew" "/")
+        (funcall (gptel-tool-function tool)
+                 (parallel--make-process-tool-result :tool-2)
+                 "ls -la /usr/local/bin/brew"))
 
       ;; First transient shown, second queued
       (expect (length transient-scopes) :to-equal 1)
@@ -351,13 +355,14 @@ security:
                    (setq fsm-advanced t))))))
 
         ;; Fire both tools
-        (funcall (gptel-tool-function tool)
-                 (funcall make-callback :tool-1)
-                 "which brew" "/")
+        (let ((default-directory "/"))
+          (funcall (gptel-tool-function tool)
+                   (funcall make-callback :tool-1)
+                   "which brew")
 
-        (funcall (gptel-tool-function tool)
-                 (funcall make-callback :tool-2)
-                 "ls -la /usr/local/bin/brew" "/")
+          (funcall (gptel-tool-function tool)
+                   (funcall make-callback :tool-2)
+                   "ls -la /usr/local/bin/brew"))
 
         ;; Respond to both prompts sequentially via queue
         (let ((cb-1 (plist-get (car transient-scopes) :callback)))
@@ -422,15 +427,16 @@ security:
                 (funcall callback
                          (json-serialize (list :success :false :user_denied t)))))
 
-      ;; tool-1: "git --version" in /workspace → no-op, passes
-      (funcall (gptel-tool-function tool)
-               (parallel--make-process-tool-result :tool-1)
-               "git --version" "/workspace")
+      (let ((default-directory "/workspace"))
+        ;; tool-1: "git --version" in /workspace → no-op, passes
+        (funcall (gptel-tool-function tool)
+                 (parallel--make-process-tool-result :tool-1)
+                 "git --version")
 
-      ;; tool-2: "cat /etc/passwd" in /workspace → out of scope, denied
-      (funcall (gptel-tool-function tool)
-               (parallel--make-process-tool-result :tool-2)
-               "cat /etc/passwd" "/workspace")
+        ;; tool-2: "cat /etc/passwd" in /workspace → out of scope, denied
+        (funcall (gptel-tool-function tool)
+                 (parallel--make-process-tool-result :tool-2)
+                 "cat /etc/passwd"))
 
       ;; CORRECT: Both callbacks should fire
       (expect parallel--callback-count :to-equal ntools)

@@ -357,10 +357,10 @@ security:
                                     :truncated nil :warnings nil :error nil))
 
         ;; Invoke the real tool through the macro
-        (funcall (gptel-tool-function tool)
-                 #'bug--gptel-callback
-                 "which brew"
-                 "/")
+        (let ((default-directory "/"))
+          (funcall (gptel-tool-function tool)
+                   #'bug--gptel-callback
+                   "which brew"))
 
         ;; Callback MUST fire
         (expect bug--callback-invoked :to-be t)
@@ -401,10 +401,10 @@ security:
                 :and-return-value '(:output "" :exit_code 0
                                     :truncated nil :warnings nil :error nil))
 
-        (funcall (gptel-tool-function tool)
-                 #'bug--gptel-callback
-                 "which brew"
-                 "/")
+        (let ((default-directory "/"))
+          (funcall (gptel-tool-function tool)
+                   #'bug--gptel-callback
+                   "which brew"))
 
         ;; CORRECT: scope.yml should not contain the composite key
         (let ((contents (bug--read-scope-yml)))

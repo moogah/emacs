@@ -212,10 +212,10 @@ security:
                                     :warnings nil
                                     :error nil))
 
-        (funcall (gptel-tool-function tool)
-                 #'multi--gptel-callback
-                 "ls /foo 2>/dev/null"
-                 "/workspace")
+        (let ((default-directory "/workspace"))
+          (funcall (gptel-tool-function tool)
+                   #'multi--gptel-callback
+                   "ls /foo 2>/dev/null"))
 
         (let ((read-paths (multi--scope-paths :read))
               (write-paths (multi--scope-paths :write)))
@@ -239,10 +239,10 @@ security:
                                     :warnings nil
                                     :error nil))
 
-        (funcall (gptel-tool-function tool)
-                 #'multi--gptel-callback
-                 "ls -la /usr/local/bin/brew 2>/dev/null"
-                 "/workspace")
+        (let ((default-directory "/workspace"))
+          (funcall (gptel-tool-function tool)
+                   #'multi--gptel-callback
+                   "ls -la /usr/local/bin/brew 2>/dev/null"))
 
         (let ((read-paths (multi--scope-paths :read))
               (write-paths (multi--scope-paths :write)))
