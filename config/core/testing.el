@@ -152,22 +152,10 @@ PATTERN is a regexp matched against test names."
   (jf/test-load-all-test-files)
   (ert pattern))
 
-(defun jf/test-run-module (module-name)
-  "Run all tests for MODULE-NAME.
-MODULE-NAME should match the test prefix (e.g., 'glob' for 'test-glob-*')."
-  (interactive
-   (list (completing-read "Module: "
-                          '("glob" "extraction" "variable" "security" "command")
-                          nil nil)))
-  (jf/test-load-all-test-files)
-  (let ((pattern (format "^test-%s-" module-name)))
-    (message "Running tests matching: %s" pattern)
-    (ert pattern)))
-
 (defun jf/test-run-directory (directory)
   "Run all tests in DIRECTORY.
 DIRECTORY can be absolute or relative to repository root.
-Useful for testing specific modules like 'config/experiments/bash-parser'."
+Useful for testing specific modules like 'config/bash-parser'."
   (interactive
    (list (read-directory-name "Test directory: "
                               (expand-file-name "config" jf/emacs-dir)
@@ -238,36 +226,6 @@ section above to re-enable for debugging."
       (message "No Buttercup test files found in %s" directory))))
 
 (with-eval-after-load 'transient
-  (defun jf/test--bash-parser-file-operations ()
-  "Run bash parser file operations tests."
-  (interactive)
-  (jf/test-load-all-test-files)
-  (ert "^test-extraction-"))
-
-(defun jf/test--bash-parser-glob ()
-  "Run bash parser glob matching tests."
-  (interactive)
-  (jf/test-load-all-test-files)
-  (ert "^test-glob-"))
-
-(defun jf/test--bash-parser-security ()
-  "Run bash parser security tests."
-  (interactive)
-  (jf/test-load-all-test-files)
-  (ert "^test-security-"))
-
-(defun jf/test--bash-parser-variable ()
-  "Run bash parser variable resolution tests."
-  (interactive)
-  (jf/test-load-all-test-files)
-  (ert "^test-variable-"))
-
-(defun jf/test--bash-parser-command ()
-  "Run bash parser command semantics tests."
-  (interactive)
-  (jf/test-load-all-test-files)
-  (ert "^test-command-"))
-
 (transient-define-prefix jf/test-menu ()
   "Test runner menu for Emacs configuration."
   ["ERT Tests (Legacy)"
@@ -276,7 +234,6 @@ section above to re-enable for debugging."
     ("t" "Test at point" jf/test-run-at-point)]
    [("r" "Re-run failed" jf/test-rerun-failed)
     ("p" "Pattern..." jf/test-run-pattern)
-    ("m" "Module..." jf/test-run-module)
     ("d" "Directory..." jf/test-run-directory)]]
   ["Buttercup Tests (Preferred)"
    [("B" "All Buttercup"
@@ -292,12 +249,6 @@ section above to re-enable for debugging."
          (jf/test-load-all-buttercup-test-files dir)
          (require 'buttercup)
          (buttercup-run))))]]
-  ["Bash Parser (ERT)"
-   [("bx" "File operations" jf/test--bash-parser-file-operations)
-    ("bg" "Glob matching" jf/test--bash-parser-glob)]
-   [("bs" "Security" jf/test--bash-parser-security)
-    ("bv" "Variable" jf/test--bash-parser-variable)
-    ("bc" "Command" jf/test--bash-parser-command)]]
   ["Navigation"
    [("j" "Jump to *ert* buffer"
      (lambda () (interactive)

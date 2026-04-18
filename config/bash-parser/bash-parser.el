@@ -21,6 +21,7 @@
   (add-to-list 'load-path (expand-file-name "analysis" base-dir))
   (add-to-list 'load-path (expand-file-name "plugins" base-dir))
   (add-to-list 'load-path (expand-file-name "semantics" base-dir))
+  (add-to-list 'load-path (expand-file-name "commands" base-dir))
   (add-to-list 'load-path (expand-file-name "utils" base-dir)))
 
 ;; Protocol module (forward declarations - no dependencies)
@@ -37,18 +38,12 @@
 ;; Core parsing (depends on security - for dangerous pattern detection)
 (require 'bash-parser-core)
 
-;; Analysis layer (plugin system and coverage)
+;; Analysis layer (orchestrator and coverage)
 (require 'bash-parser-coverage)
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
-
-;; Domain plugins
-(require 'bash-parser-cloud-auth)
-
-;; Recursive analysis (depends on file-ops)
-(require 'bash-parser-recursive)
 
 ;; Extensions (depends on file-ops)
 (require 'bash-parser-extensions)

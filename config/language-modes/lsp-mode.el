@@ -56,6 +56,12 @@
 (setq lsp-enable-on-type-formatting nil)   ; Format-on-type
 (setq lsp-enable-snippet nil)              ; Snippet support
 
+;; Require confirmation before executing code actions
+;; Prevents LSP from auto-applying "fixes" (like rewriting imports) without user consent.
+;; Without this, if only one code action is available for a diagnostic, lsp-mode
+;; auto-executes it — which can cascade destructively during merge conflicts.
+(setq lsp-auto-execute-action nil)
+
 (use-package lsp-mode
   :config
   ;; Disable LSP formatting - delegate to Prettier instead
@@ -66,7 +72,20 @@
   ;; Enable function signature help during completion
   ;; Shows parameter types and documentation while typing function calls
   (setq lsp-typescript-suggest-complete-function-calls t)
-  (setq lsp-javascript-suggest-complete-function-calls t))
+  (setq lsp-javascript-suggest-complete-function-calls t)
+
+  ;; Disable auto-import suggestions
+  ;; Prevents the TS server from proactively suggesting imports from arbitrary
+  ;; locations (including Emacs backup files, node_modules internals, etc.)
+  ;; You can still manually trigger imports via code actions when needed.
+  (setq lsp-typescript-suggest-auto-imports nil)
+  (setq lsp-javascript-suggest-auto-imports nil)
+
+  ;; Exclude Emacs backup/runtime directories from auto-import search
+  ;; The TS server can discover .ts files outside the project (like Emacs backup
+  ;; copies) and offer to import from them, corrupting import paths.
+  (setq lsp-clients-typescript-preferences
+        '(:autoImportFileExcludePatterns ["**/.emacs.d/**" "**/runtime/backups/**"])))
 
 ;; Enable LSP for TypeScript and JavaScript modes
 ;; Use lsp-deferred instead of lsp for better startup performance

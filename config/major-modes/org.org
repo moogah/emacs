@@ -122,6 +122,18 @@ Configure various export backends for Org mode.
 * Task Management
 Configure Org mode for task management, TODO lists, and agenda views.
 
+** TODO Keywords
+Define the workflow states for tasks.
+
+#+begin_src emacs-lisp
+;; TODO keyword workflow
+(setq org-todo-keywords
+      '((sequence "TODO(t)" "IN-PROGRESS(i)" "|" "DONE(d)" "CANCELLED(c)")))
+
+;; Timestamp when completing
+(setq org-log-done 'time)
+#+end_src
+
 ** Priority Settings
 Configure priority levels and their appearance.
 
@@ -142,6 +154,16 @@ Configure priority levels and their appearance.
 Setup for Org agenda views and files.
 
 #+begin_src emacs-lisp
+  ;; Central category definitions - used by super-agenda, capture, and housekeeping
+  ;; Each entry: (CATEGORY-ID DISPLAY-NAME CAPTURE-KEY HEADING)
+  (defconst jf/org-categories
+    '(("gtd"   "Getting Things Done" "d" "Tasks")
+      ("pkm"   "Personal Knowledge Management" "p" "PKM")
+      ("gptel" "GPTel" "g" "GPTel")
+      ("emacs" "Emacs" "e" "Emacs"))
+    "List of org agenda categories.
+Each entry is (CATEGORY-ID DISPLAY-NAME CAPTURE-KEY HEADING).")
+
   ;; Agenda key binding
   (global-set-key (kbd "C-c a") 'org-agenda)
 
@@ -169,10 +191,23 @@ Setup for Org agenda views and files.
   ;; Open agenda in current window
   (setq org-agenda-window-setup (quote current-window))
 
+  ;; Helper to build super-agenda groups from jf/org-categories
+  (defun jf/build-super-agenda-groups ()
+    "Build org-super-agenda groups from `jf/org-categories'."
+    (append '((:name "High Priority"
+               :priority "A"
+               :order 1))
+            (cl-loop for (id name _key _heading) in jf/org-categories
+                     for order from 2
+                     collect `(:name ,name :category ,id :order ,order))
+            '((:name "Everything Else"
+               :anything t
+               :order 99))))
+
   ;; Custom agenda views
   ;; From https://blog.aaronbieber.com/2016/09/24/an-agenda-for-life-with-org-mode.html
   (setq org-agenda-custom-commands
-        '(("c" "Simple agenda view"
+        `(("c" "Simple agenda view"
            ((tags "PRIORITY=\"A\""
                   ((org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
                    (org-agenda-overriding-header "High Priority Tasks:")))
@@ -200,18 +235,7 @@ Setup for Org agenda views and files.
             (alltodo ""
                      ((org-agenda-overriding-header "All TODOs")
                       (org-super-agenda-groups
-                       '((:name "High Priority"
-                          :priority "A"
-                          :order 1)
-                         (:name "Personal Knowledge Management"
-                          :category "pkm"
-                          :order 2)
-                         (:name "Getting Things Done"
-                          :category "gtd"
-                          :order 3)
-                         (:name "Everything Else"
-                          :anything t
-                          :order 99)))))))))
+                       ',(jf/build-super-agenda-groups))))))))
 
   ;; Automatically refresh agenda files when entering agenda mode
   (add-hook 'org-agenda-mode-hook 'jf/refresh-org-agenda-files)
@@ -291,20 +315,8 @@ evil-org-mode is enabled for org-agenda buffers (configured in =emacs/core/evil.
   :config
   (org-super-agenda-mode 1)
 
-  ;; Group by priority and category
-  (setq org-super-agenda-groups
-        '((:name "High Priority"
-           :priority "A"
-           :order 1)
-          (:name "Personal Knowledge Management"
-           :category "pkm"
-           :order 2)
-          (:name "Getting Things Done"
-           :category "gtd"
-           :order 3)
-          (:name "Everything Else"
-           :anything t
-           :order 99))))
+  ;; Build groups from jf/org-categories
+  (setq org-super-agenda-groups (jf/build-super-agenda-groups)))
 #+end_src
 
 ***** Agenda Tab Integration
@@ -332,6 +344,31 @@ in its original tab."
   (advice-add 'org-agenda-switch-to :around #'my/org-agenda-switch-to-new-tab))
 #+end_src
 
+***** Agenda Housekeeping Commands
+
+Functions for managing tasks directly from the agenda view.
+
+#+begin_src emacs-lisp
+(defun jf/org-agenda-set-category ()
+  "Set the CATEGORY property on the agenda item at point."
+  (interactive)
+  (let* ((marker (or (org-get-at-bol 'org-marker)
+                     (org-agenda-error)))
+         (cat (completing-read "Category: " (mapcar #'car jf/org-categories) nil t)))
+    (org-with-point-at marker
+      (org-set-property "CATEGORY" cat))
+    (org-agenda-redo-all)))
+
+(defun jf/org-agenda-set-priority ()
+  "Set priority on the agenda item at point with a single key (A/B/C)."
+  (interactive)
+  (org-agenda-priority))
+
+(with-eval-after-load 'org-agenda
+  (define-key org-agenda-mode-map "C" #'jf/org-agenda-set-category)
+  (define-key org-agenda-mode-map "P" #'jf/org-agenda-set-priority))
+#+end_src
+
 ***** TODO [#A] Set keybindings for org-insert-todo-heading and org-insert-todo-subheading
 :PROPERTIES:
 :CREATED:  [2025-12-29 Mon 16:33]
@@ -349,15 +386,38 @@ current approach doesn't see new files after the recursive list is loaded when e
 ** Capture Templates
 Configure templates for quickly capturing notes and tasks.
 
+Capture files live in =~/org/= so they are automatically picked up by the agenda.
+Each template sets a CATEGORY property for org-super-agenda grouping.
+
 #+begin_src emacs-lisp
 ;; Capture key binding
 (define-key global-map (kbd "C-c c") 'org-capture)
 
-;; Basic capture templates
+;; Capture target file
+(defvar jf/capture-file (expand-file-name "agenda/todo.org" jf/org-directory)
+  "Default capture file for TODO items.")
+
+
+;; Build capture templates from jf/org-categories
 (setq org-capture-templates
-      '(("t" "todo" entry (file+headline "~/todo.org" "Tasks")
-         "* TODO [#B] %?\n:PROPERTIES:\n:CREATED: %U\n:END:"
-         :empty-lines-before 1)))
+      (append
+       ;; Quick TODO (defaults to gtd/Tasks)
+       `(("t" "TODO" entry (file+headline ,jf/capture-file "Tasks")
+          "* TODO [#B] %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1)
+         ("T" "TODO with deadline" entry (file+headline ,jf/capture-file "Tasks")
+          "* TODO [#B] %?\nDEADLINE: %^t\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1))
+       ;; Per-category templates generated from jf/org-categories
+       (cl-loop for (id name key heading) in jf/org-categories
+                collect `(,key ,(format "%s task" name)
+                          entry (file+headline ,jf/capture-file ,heading)
+                          ,(format "* TODO [#B] %%?\n:PROPERTIES:\n:CATEGORY: %s\n:END:" id)
+                          :empty-lines-before 1))
+       ;; Note capture
+       `(("n" "Note" entry (file+headline ,jf/capture-file "Notes")
+          "* %?\n:PROPERTIES:\n:CATEGORY: gtd\n:END:"
+          :empty-lines-before 1))))
 #+end_src
 
 * Git Integration

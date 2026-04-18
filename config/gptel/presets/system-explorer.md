@@ -343,4 +343,4 @@ Use **system-explorer** for OS-level discovery, **explore** for codebase analysi
 
 ---
 
-See `config/gptel/tools/scope-shell-tools.org` for implementation details and complete documentation on scoped bash command execution.
+See `config/gptel/scope/scope-shell-tools.org` for implementation details and complete documentation on scoped bash command execution.

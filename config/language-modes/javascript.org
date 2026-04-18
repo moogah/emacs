@@ -1,107 +1,3 @@
-#+auto_tangle: y
-
-#+begin_src emacs-lisp :tangle yes
-  (use-package js2-mode
-    :straight t
-    :config
-    (add-to-list 'auto-mode-alist '("\\.js\\'" . js2-mode))
-    (add-to-list 'auto-mode-alist '("\\.cjs\\'" . js2-mode))
-    (add-to-list 'auto-mode-alist '("\\.mjs\\'" . js2-mode)))
-
-  (use-package rjsx-mode
-    :straight t
-    :mode "\\.jsx\\'"
-    :init
-    (add-hook 'rjsx-mode-hook 'lsp))
-
-  (use-package prettier-js
-    :straight t
-    :hook ((js2-mode . prettier-js-mode)
-           (typescript-mode . prettier-js-mode)
-           (rjsx-mode . prettier-js-mode)))
-#+end_src
-
-* Setup ESLint with Flycheck
-
-ESlint behaves differently in differnet versions so we want to try to use the version found in a projects `node_modules`
-
-#+begin_src emacs-lisp :tangle yes
-  (defun my/use-eslint-from-node-modules ()
-    "Use local eslint from node_modules before global."
-    (let* ((root (locate-dominating-file
-                  (or (buffer-file-name) default-directory)
-                  "node_modules"))
-           (eslint (and root
-                        (expand-file-name "node_modules/.bin/eslint"
-                                          root))))
-      (when (and eslint (file-executable-p eslint))
-        (setq-local flycheck-javascript-eslint-executable eslint))))
-  (add-hook 'flycheck-mode-hook #'my/use-eslint-from-node-modules)
-#+end_src
-
-if supporting multiple node_modules is needed, try this:
-
-#+begin_src emacs-lisp
-  (defun my/use-eslint-from-node-modules ()
-    "Use local eslint from node_modules before global."
-    (let* ((project-root (or
-                          (projectile-project-root)
-                          (locate-dominating-file default-directory "node_modules")))
-           (eslint (and project-root
-                        (expand-file-name "node_modules/.bin/eslint"
-                                          project-root))))
-      (if (and eslint (file-executable-p eslint))
-          (setq-local flycheck-javascript-eslint-executable eslint)
-        (setq-local flycheck-javascript-eslint-executable "eslint"))))
-  (add-hook 'flycheck-mode-hook #'my/use-eslint-from-node-modules)
-#+end_src
-
-
-* Use project local Prettier install
-
-#+begin_src emacs-lisp :tangle yes
-  (defun my/use-prettier-from-node-modules ()
-    "Use local prettier from node_modules before global."
-    (let* ((project-root (or
-                          (projectile-project-root)
-                          (locate-dominating-file default-directory "node_modules")))
-           (prettier (and project-root
-                          (expand-file-name "node_modules/.bin/prettier"
-                                            project-root))))
-      (if (and prettier (file-executable-p prettier))
-          (setq-local prettier-js-command prettier)
-        (setq-local prettier-js-command "prettier"))))
-  (add-hook 'prettier-js-mode-hook #'my/use-prettier-from-node-modules)
-#+end_src
-
-
-* Extras
-
-#+BEGIN_SRC emacs-lisp :tangle yes
-  (use-package turbo-log
-    :straight (:host github :repo "artawower/turbo-log.el")
-    ;; :bind (("C-s-l" . turbo-log-print)
-    ;;        ("C-s-i" . turbo-log-print-immediately)
-    ;;        ("C-s-h" . turbo-log-comment-all-logs)
-    ;;        ("C-s-s" . turbo-log-uncomment-all-logs)
-    ;;        ("C-s-[" . turbo-log-paste-as-logger)
-    ;;        ("C-s-]" . turbo-log-paste-as-logger-immediately)
-    ;;        ("C-s-d" . turbo-log-delete-all-logs))
-    :config
-    (setq turbo-log-msg-format-template "\"🚀: %s\"")
-    (setq turbo-log-allow-insert-without-treesit-p t))
-
-  (turbo-log-configure
-   :modes (typescript-mode typescriptreact-mode js2-mode web-mode)
-   :strategy merge
-
-   :loggers ("console.log(%s)" "console.debug(%s)" "console.warn(%s)")
-   :jump-list ((class_declaration (method_definition "constructor")))
-   :identifier-node-types (identifier member_expression)
-   :post-insert-hook (prettier-prettify)
-   :msg-format-template "'🦄: %s'")
-#+END_SRC
-=======
 #+title: JavaScript Mode Configuration
 #+author: Jeff Farr
 #+property: header-args:emacs-lisp :tangle javascript.el
@@ -154,18 +50,31 @@ Prettier is a code formatter that enforces a consistent style across JavaScript 
 #+end_src
 
 ** Project-local Prettier Configuration
-Use the project's local prettier installation instead of the global one.
+Use the project's local prettier installation instead of the global one. In monorepos,
+prettier may not be at the project root — it could be in a nested package's node_modules.
+This function walks up from the current file's directory to find the nearest
+=node_modules/.bin/prettier= that actually exists.
 
 #+begin_src emacs-lisp
+(defun my/find-nearest-executable (bin-relative-path)
+  "Walk up from the current buffer's directory to find the nearest
+node_modules/.bin executable. BIN-RELATIVE-PATH should be e.g.
+\"node_modules/.bin/prettier\"."
+  (let ((found-dir (locate-dominating-file
+                    (or (buffer-file-name) default-directory)
+                    (lambda (dir)
+                      (file-executable-p
+                       (expand-file-name bin-relative-path dir))))))
+    (when found-dir
+      (expand-file-name bin-relative-path found-dir))))
+
 (defun my/use-prettier-from-node-modules ()
-  "Use local prettier from node_modules before global."
-  (let* ((project-root (or
-                        (projectile-project-root)
-                        (locate-dominating-file default-directory "node_modules")))
-         (prettier (and project-root
-                        (expand-file-name "node_modules/.bin/prettier"
-                                          project-root))))
-    (if (and prettier (file-executable-p prettier))
+  "Use local prettier from nearest node_modules before global.
+Walks up from the buffer's directory to find the closest node_modules
+that contains prettier, which handles monorepos where prettier is
+installed in a nested package rather than the project root."
+  (let ((prettier (my/find-nearest-executable "node_modules/.bin/prettier")))
+    (if prettier
         (setq-local prettier-js-command prettier)
       (setq-local prettier-js-command "prettier"))))
 (add-hook 'prettier-js-mode-hook #'my/use-prettier-from-node-modules)
@@ -173,19 +82,16 @@ Use the project's local prettier installation instead of the global one.
 
 * Linting
 ** ESLint Configuration
-Use the project's local ESLint installation for better consistency with the project's coding standards.
+Use the project's local ESLint installation for better consistency with the project's
+coding standards. Uses the same nearest-ancestor search as prettier.
 
 #+begin_src emacs-lisp
 (defun my/use-eslint-from-node-modules ()
-  "Use local eslint from node_modules before global."
-  (let* ((root (locate-dominating-file
-                (or (buffer-file-name) default-directory)
-                "node_modules"))
-         (eslint (and root
-                      (expand-file-name "node_modules/.bin/eslint"
-                                        root))))
-    (when (and eslint (file-executable-p eslint))
-      (setq-local flycheck-javascript-eslint-executable eslint))))
+  "Use local eslint from nearest node_modules before global."
+  (let ((eslint (my/find-nearest-executable "node_modules/.bin/eslint")))
+    (if eslint
+        (setq-local flycheck-javascript-eslint-executable eslint)
+      (setq-local flycheck-javascript-eslint-executable "eslint"))))
 (add-hook 'flycheck-mode-hook #'my/use-eslint-from-node-modules)
 #+end_src
 
@@ -217,16 +123,3 @@ Turbo-log helps with adding console.log statements to your JavaScript code.
  :post-insert-hook (prettier-prettify)
  :msg-format-template "'🦄: %s'")
 #+end_src
-
-* Usage Notes
-** Working with React JSX Files
-JSX files are configured to use RJSX-mode which provides better syntax highlighting and indentation for React JSX syntax.
-
-
-** Using ESLint and Prettier
-The configuration automatically uses the project-local ESLint and Prettier installations if available, ensuring consistent code formatting and linting with your project's standards.
-
-* TODO Improvements
-- Consider adding additional JavaScript testing framework integration
-- Add JavaScript-specific snippets for common patterns
-- Explore integration with Node.js debugging tools

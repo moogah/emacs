@@ -1,9 +1,19 @@
+;;; scope-filesystem-tools.el --- GPTEL Scope Filesystem Tools -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Scope-aware filesystem tools for gptel sessions.
+
+;;; Code:
+
 ;; Dependencies
 
 
 ;; [[file:scope-filesystem-tools.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
-(require 'jf-gptel-scope-core)
+(require 'jf-gptel-scope-tool-wrapper)
 ;; Dependencies:1 ends here
 
 ;; Git-Tracked File Validation
@@ -29,7 +39,7 @@ Returns nil if file is not in a git repository."
 
 ;; [[file:scope-filesystem-tools.org::*Read File Tool (Scope-Aware)][Read File Tool (Scope-Aware):1]]
 (gptel-make-scoped-tool
- "read_file"
+ "read_file_in_scope"
  "Read contents of a file at the specified path.
 Checks scope plan patterns before reading.
 Most scope plans allow broad read access (e.g., all project files).
@@ -39,9 +49,7 @@ Use request_scope_expansion if you need to read files outside approved patterns.
          :type string
          :description "Full path to file (can be relative or absolute)"))
 
- "filesystem"
-
- :async
+ :operation read
 
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))
@@ -85,9 +93,7 @@ When you receive a scope violation:
          :type string
          :description "File contents to write"))
 
- "filesystem"
-
- :async
+ :operation write
 
  ;; Tool body - executed only if scope check passes
  (let ((full-path (expand-file-name filepath)))
@@ -133,36 +139,32 @@ Returns scope violation error if path not approved."
          :type string
          :description "Replacement text"))
 
- "filesystem"
-
- :async
+ :operation write
 
  ;; Tool body - executed only if scope check passes
+ ;; Note: cl-return-from nil must NOT be used here - it would exit the macro's
+ ;; outer cl-block nil, bypassing the funcall callback call entirely.
+ ;; Use if/cond instead of early returns.
  (let ((full-path (expand-file-name filepath)))
-   ;; Check if file exists
-   (unless (file-exists-p full-path)
-     (cl-return-from nil
+   (if (not (file-exists-p full-path))
        (list :success nil
              :error "file_not_found"
-             :message (format "File does not exist: %s. Use write_file_in_scope to create new files." full-path))))
-
-   ;; Execute edit
-   (let ((replaced nil))
-     (with-temp-file full-path
-       (insert-file-contents full-path)
-       (goto-char (point-min))
-       (if (search-forward old_string nil t)
-           (progn
-             (replace-match new_string t t)
-             (setq replaced t))
-         (cl-return-from nil
+             :message (format "File does not exist: %s. Use write_file_in_scope to create new files." full-path))
+     ;; Read content, check for old_string, then write if found
+     (let* ((original-content (with-temp-buffer
+                                 (insert-file-contents full-path)
+                                 (buffer-string)))
+            (found (string-match-p (regexp-quote old_string) original-content)))
+       (if (not found)
            (list :success nil
                  :error "string_not_found"
-                 :message (format "String not found in file: '%s'" old_string)))))
-     (when replaced
-       (list :success t
-             :full_path full-path
-             :message "File edited successfully")))))
+                 :message (format "String not found in file: '%s'" old_string))
+         (with-temp-file full-path
+           (insert (replace-regexp-in-string
+                    (regexp-quote old_string) new_string original-content t t)))
+         (list :success t
+               :full_path full-path
+               :message "File edited successfully"))))))
 ;; Edit File Tool (Scope-Aware):1 ends here
 
 ;; Provide Feature

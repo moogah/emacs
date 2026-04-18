@@ -27,17 +27,15 @@ The parser is organized into layers for better maintainability:
 
 **Core Layer** (core/):
 - **bash-parser-core** - Core parsing infrastructure (pipelines, chains, commands)
-- **bash-parser-protocol** - Forward declarations
-- **bash-parser-recursive** - Recursive semantic analysis
+- **bash-parser-protocol** - Forward declarations and shared configuration
 - **bash-parser-variables** - Variable context management
 
 **Analysis Layer** (analysis/):
 - **bash-parser-coverage** - Coverage calculation and visualization
-- **bash-parser-plugins** - Plugin registry and orchestration
+- **bash-parser-orchestrator** - Semantic extraction orchestrator
 
-**Domain Plugins** (plugins/):
+**Domain Modules** (plugins/):
 - **bash-parser-file-ops** - File operations extraction
-- **bash-parser-cloud-auth** - Cloud authentication detection
 - **bash-parser-security** - Security validation with rule matching
 
 **Semantics** (semantics/):
@@ -88,6 +86,7 @@ Load all parser subsystems in dependency order.
   (add-to-list 'load-path (expand-file-name "analysis" base-dir))
   (add-to-list 'load-path (expand-file-name "plugins" base-dir))
   (add-to-list 'load-path (expand-file-name "semantics" base-dir))
+  (add-to-list 'load-path (expand-file-name "commands" base-dir))
   (add-to-list 'load-path (expand-file-name "utils" base-dir)))
 
 ;; Protocol module (forward declarations - no dependencies)
@@ -104,18 +103,12 @@ Load all parser subsystems in dependency order.
 ;; Core parsing (depends on security - for dangerous pattern detection)
 (require 'bash-parser-core)
 
-;; Analysis layer (plugin system and coverage)
+;; Analysis layer (orchestrator and coverage)
 (require 'bash-parser-coverage)
-(require 'bash-parser-plugins)
+(require 'bash-parser-orchestrator)
 
 ;; File operations (depends on core, semantics, variables)
 (require 'bash-parser-file-ops)
-
-;; Domain plugins
-(require 'bash-parser-cloud-auth)
-
-;; Recursive analysis (depends on file-ops)
-(require 'bash-parser-recursive)
 
 ;; Extensions (depends on file-ops)
 (require 'bash-parser-extensions)

@@ -1,0 +1,464 @@
+#+title: Scope System Interfaces
+#+property: header-args:emacs-lisp :tangle interfaces.el
+#+auto_tangle: y
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; interfaces.el --- Scope system interface contracts -*- lexical-binding: t; -*-
+#+end_src
+
+* Purpose
+
+This document defines the interfaces between components of the scope validation system.  Each interface is an executable contract: a =defconst= or validator function that is imported by tests to verify producers and consumers agree.
+
+The scope system validates tool invocations against a =scope.yml= configuration.  The flow is:
+
+1. A tool is invoked (e.g., =run_bash_command= or =read_file_in_scope=)
+2. The =gptel-make-scoped-tool= macro hands the arguments plus on-allow/on-deny thunks to =jf/gptel-scope-authorize-tool-call=, the single public authorization entrypoint
+3. The entrypoint loads config, dispatches to the bash or filesystem validator (gathering metadata along the way), and tags the result with =:validation-type=
+4. On an allowed result it invokes the on-allow thunk (which runs the tool body); on a denied result it triggers the inline expansion UI
+5. The expansion UI presents choices; the chosen action may write to =scope.yml= or simply authorize the single pending invocation
+6. On user approval the on-allow thunk runs; on denial the on-deny thunk delivers a final response plist.  There is no re-validation, no retry
+
+Each numbered step crosses a component boundary.  This document defines what data looks like at each crossing.
+
+** Component Overview
+
+#+begin_example
+                              scope.yml
+                                 │
+                    ┌────────────┴────────────┐
+                    │      scope-yaml.el       │
+                    │  (parse, normalize keys, │
+                    │   merge defaults)        │
+                    └────────────┬─────────────┘
+                                 │ scope config plist
+                                 ▼
+  LLM tool call ──► gptel-make-scoped-tool (macro)
+                    │  (scope-tool-wrapper.el)
+                    │
+                    │ bind args, hand off on-allow/on-deny
+                    ▼
+              ┌─────────────────────────────────────────┐
+              │         scope-validation.el              │
+              │                                          │
+              │  jf/gptel-scope-authorize-tool-call      │
+              │    ↓ (load config, dispatch on :op)     │
+              │                                          │
+              │  ┌──────────────────────┐               │
+              │  │validate-filesystem-  │ path tools    │
+              │  │ tool (read/write/…)  │               │
+              │  └──────────┬───────────┘               │
+              │             │                            │
+              │  ┌──────────┴──────────────┐            │
+              │  │ validate-path-operation  │ SHARED    │
+              │  │ (deny → allow hierarchy) │ CORE      │
+              │  └──────────┬──────────────┘            │
+              │             │                            │
+              │  ┌──────────┴──────────────┐            │
+              │  │validate-bash-tool        │ bash      │
+              │  │ │                        │           │
+              │  │ validate-command-        │           │
+              │  │  semantics (pipeline)    │           │
+              │  │ ┌──────────────────────┐ │           │
+              │  │ │1. parse-completeness │ │           │
+              │  │ │2. no-op gate         │ │           │
+              │  │ │3. file-operations ───┼─┼──► shares │
+              │  │ │4. cloud-auth policy  │ │  validate-│
+              │  │ │   + coverage warn    │ │  path-op  │
+              │  │ └──────────────────────┘ │           │
+              │  └──────────────────────────┘           │
+              │                                          │
+              │  On denial → trigger-inline-expansion    │
+              │   ↓                                      │
+              │  build-violation-info                    │
+              │   error code ──► resource field          │
+              └───────────┬──────────────────────────────┘
+                          │ validation result    ←── [[#validation-result][§ Validation Result]]
+                          │   (:allowed t :validation-type ...) or
+                          │   (:allowed nil :error CODE :validation-type ...)
+                          │
+                          │ violation-info       ←── [[#violation-info][§ Violation-Info]]
+                          │   :tool, :resource,
+                          │   :reason, :validation-type
+                          │
+              ┌───────────┴────────────────────┐
+              │       scope-expansion.el       │
+              │                                │
+              │  ┌──────┐ ┌───────┐ ┌───────┐  │
+              │  │ Deny │ │Allow  │ │Add to │  │
+              │  │      │ │ Once  │ │ Scope │  │
+              │  └──┬───┘ └──┬────┘ └──┬────┘  │
+              └─────┼────────┼─────────┼───────┘
+                    │        │         │
+                    │        │         └──► write scope.yml,
+                    │        │              callback with success
+                    │        │
+                    │        └──► callback with success
+                    │             (no persistence)
+                    │
+                    └──► callback with denial
+#+end_example
+
+** File to Component Mapping
+
+| File                        | Provide                            | Responsibilities                                                              |
+|-----------------------------+------------------------------------+-------------------------------------------------------------------------------|
+| =scope-tool-wrapper.el=     | =jf-gptel-scope-tool-wrapper=      | =gptel-make-scoped-tool= macro (always async; delegates to authorize)          |
+| =scope-validation.el=       | =jf-gptel-scope-validation=        | Config load, all validators, pipeline, glob match, authorize-tool-call         |
+|                             |                                    | entrypoint, metadata gather, build-violation-info, format-tool-error,          |
+|                             |                                    | trigger-inline-expansion                                                       |
+| =scope-yaml.el=             | =jf-gptel-scope-yaml=              | YAML parse, key normalize, merge-defaults                                      |
+| =scope-metadata.el=         | =jf-gptel-scope-metadata=          | File metadata (exists, git-tracked, type)                                      |
+| =scope-expansion.el=        | =jf-gptel-scope-expansion=         | Transient menu, scope.yml writer, queue                                        |
+| =scope-filesystem-tools.el= | =jf-gptel-scope-filesystem-tools=  | =read_file_in_scope=, =write_file_in_scope=, =edit_file_in_scope=              |
+| =scope-shell-tools.el=      | =jf-gptel-scope-shell-tools=       | =run_bash_command=, =request_scope_expansion=, exec helpers                    |
+
+The old =scope-core.el= was split into =scope-validation.el= (the data transformation layer) and =scope-tool-wrapper.el= (the macro entry point).  =scope-shell-tools.el= no longer contains any validation logic; it only defines the bash tool and its execution helpers.  =scope-tool-wrapper.el= is now a pure macro shim — it binds arguments, hands them to =authorize-tool-call=, and routes the result through the gptel async callback.  Config loading, metadata gathering, validation dispatch, expansion escalation, and error formatting all live in =scope-validation.el=.
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+#+end_src
+
+* Error Code Vocabulary
+:PROPERTIES:
+:CUSTOM_ID: error-codes
+:END:
+
+Validators produce error code strings.  =build-violation-info= consumes them to extract the right resource identifier.  The expansion UI routes actions based on validation type.  All three must agree on the vocabulary.
+
+#+begin_example
+  PRODUCERS                          CONSUMER
+  ─────────                          ────────
+  validate-path-operation ────┐
+  validate-file-operation ────┤  error   build-violation-info
+  validate-parse-completeness ┤  code      │
+  validate-cloud-auth ────────┘  ───►      ├──► :resource (for UI)
+                                            └──► :reason   (for UI)
+
+  All producers must use codes from scope/interface--error-codes.
+  Consumer maps code → resource field via scope/interface--error-resource-fields.
+#+end_example
+
+A single =validate-path-operation= function in =scope-validation.el= is the authoritative path validator for *both* filesystem tools (via =validate-filesystem-tool=) and bash file operations (via =validate-file-operation= in the Stage 3 pipeline).  There is no longer a second path matcher.
+
+#+begin_src emacs-lisp
+(defconst scope/interface--error-codes
+  '(;; --- Path access denied ---
+    ;; Produced when a path matches a deny pattern.
+    ;; Producer: jf/gptel-scope--validate-path-operation
+    "denied-pattern"
+
+    ;; Produced when a path is not covered by any allow pattern
+    ;; for the requested operation.
+    ;; Producer: jf/gptel-scope--validate-path-operation
+    "not-in-scope"
+
+    ;; --- Parse errors ---
+    ;; Produced when bash-parser cannot fully parse the command
+    ;; and security.enforce_parse_complete is true.
+    ;; Producer: jf/gptel-scope--validate-parse-completeness
+    "parse_incomplete"
+
+    ;; --- Cloud authentication ---
+    ;; Produced when cloud auth detected and policy is "deny".
+    ;; Producer: jf/gptel-scope--validate-cloud-auth
+    "cloud_auth_denied"
+
+    ;; Produced when cloud provider not in allowed_providers list.
+    ;; Producer: jf/gptel-scope--validate-cloud-auth
+    "cloud_provider_denied")
+  "Canonical error codes for scope validation.
+
+Every validator MUST produce only codes from this list.
+Every consumer (build-violation-info, format-tool-error) MUST handle
+every code in this list.
+
+Codes that intentionally live outside this vocabulary:
+- \"no_scope_config\"  (macro, before validation runs)
+- \"tool_exception\"   (macro, unexpected errors caught around body)
+- \"invalid_cloud_auth_mode\" (misconfigured scope.yml, not a user action)
+- \"file_not_found\", \"string_not_found\", \"execution-failed\"
+  (tool-level errors produced after validation has passed)")
+#+end_src
+
+** Error Code to Resource Field Mapping
+
+When a validator returns an error, the resource identifier lives in different fields depending on the error type.  =build-violation-info= uses this alist to pull the correct field into =:resource=.
+
+#+begin_src emacs-lisp
+(defconst scope/interface--error-resource-fields
+  '(("denied-pattern"       . :resource)
+    ("not-in-scope"         . :resource)
+    ("parse_incomplete"     . :command)
+    ("cloud_auth_denied"    . :provider)
+    ("cloud_provider_denied" . :provider))
+  "Maps each error code to the plist key holding the resource identifier.
+
+build-violation-info uses this to extract :resource for the expansion UI.
+If a validator returns an error code not in this alist, the resource
+will be nil and the expansion UI cannot show what was denied.")
+#+end_src
+
+* Validation Result Shape
+:PROPERTIES:
+:CUSTOM_ID: validation-result
+:END:
+
+All top-level validators (=validate-filesystem-tool=, =validate-bash-tool=) return plists with =:allowed= as the discriminator.  Inner pipeline stages return =nil= on success and a denial plist on failure; the pipeline orchestrator wraps the first non-nil into the top-level shape.
+
+#+begin_example
+  Validator ──► validation-result ──┬──► build-violation-info ──► Expansion UI
+                                    │
+                                    └──► format-tool-error ──► LLM (JSON)
+
+  validation-result:
+    (:allowed t)                               success
+    (:allowed nil :error CODE :message STR …)  denial
+#+end_example
+
+** Required keys on denial
+
+| Key         | Type      | Notes                                              |
+|-------------+-----------+----------------------------------------------------|
+| =:allowed=  | =nil=     | Discriminator                                      |
+| =:error=    | string    | Must be a member of =scope/interface--error-codes=  |
+| =:message=  | string    | Human-readable reason                              |
+
+** Optional/contextual keys on denial
+
+| Key                 | Populated when                        | Consumer                      |
+|---------------------+---------------------------------------+-------------------------------|
+| =:resource=         | path errors                           | build-violation-info          |
+| =:command=          | parse errors, bash errors             | build-violation-info, LLM     |
+| =:provider=         | cloud-auth errors                     | build-violation-info          |
+| =:operation=        | path errors (keyword like =:read=)    | expansion UI (picks section)  |
+| =:required-scope=   | path errors                           | LLM error format              |
+| =:allowed-patterns= | path errors                           | LLM error format              |
+| =:parse-errors=     | parse errors                          | LLM error format              |
+| =:allowed-providers=| =cloud_provider_denied=               | LLM error format              |
+| =:tool=             | added by =validate-bash-tool= wrapper | expansion UI                  |
+| =:metadata=         | path errors with metadata available   | expansion UI (git, exists)    |
+
+The bash pipeline's *canonical :resource contract* matters here: when =validate-command-semantics= returns a file-operation denial, the outer =validate-bash-tool= wrapper must not overwrite or supply =:resource= — it only prepends =:tool= and =:command=.  The inner =validate-file-operation= is the sole producer of the =:resource= field for path errors inside bash.
+
+#+begin_src emacs-lisp
+(defun scope/interface--validate-validation-result (result)
+  "Validate that RESULT is a well-formed validation result plist.
+Returns nil if valid, error string if invalid."
+  (cl-block validate
+    (unless (listp result)
+      (cl-return-from validate
+        (format "Expected plist, got %s" (type-of result))))
+
+    ;; :allowed is required
+    (unless (plist-member result :allowed)
+      (cl-return-from validate "Missing required key :allowed"))
+
+    (if (plist-get result :allowed)
+        ;; Success case: no other keys required
+        nil
+
+      ;; Denial case: check required error fields
+      (let ((errors nil))
+        (unless (plist-member result :error)
+          (push "Denied result missing :error" errors))
+        (unless (plist-member result :message)
+          (push "Denied result missing :message" errors))
+
+        ;; :error must be a known code
+        (when (plist-member result :error)
+          (let ((code (plist-get result :error)))
+            (unless (member code scope/interface--error-codes)
+              (push (format ":error %S not in canonical error codes" code) errors))))
+
+        (when errors
+          (mapconcat #'identity (nreverse errors) "; "))))))
+#+end_src
+
+* Violation-Info Shape
+:PROPERTIES:
+:CUSTOM_ID: violation-info
+:END:
+
+=jf/gptel-scope--build-violation-info= transforms a validation-result into the format the expansion UI needs.  The UI reads =:tool=, =:resource=, =:reason=, =:validation-type=, and (optionally) =:operation= and =:metadata= to display the transient menu.  =:validation-type= is read from the validation-error itself — the validation entrypoint attaches =path= or =bash= to every result before returning.
+
+** Validation type vocabulary
+
+The only recognized validation types are =path= and =bash=.  Earlier iterations used =pattern= and =meta= types; those have been removed along with the pattern/meta validators.
+
+| Type   | Produced by                       | Resource identifier          |
+|--------+-----------------------------------+------------------------------|
+| =path= | =validate-filesystem-tool=        | absolute expanded file path  |
+| =bash= | =validate-bash-tool= (and stages) | file path or provider string |
+
+#+begin_src emacs-lisp
+(defun scope/interface--validate-violation-info (info)
+  "Validate that INFO is a well-formed violation-info plist.
+Returns nil if valid, error string if invalid."
+  (cl-block validate
+    (unless (listp info)
+      (cl-return-from validate
+        (format "Expected plist, got %s" (type-of info))))
+
+    (let ((errors nil))
+      ;; Required fields
+      (dolist (key '(:tool :resource :reason :validation-type))
+        (unless (plist-member info key)
+          (push (format "Missing required key %S" key) errors))
+        (when (and (plist-member info key)
+                   (null (plist-get info key)))
+          (push (format "Required key %S is nil" key) errors)))
+
+      ;; :validation-type must be a known symbol
+      (when (plist-member info :validation-type)
+        (let ((vtype (plist-get info :validation-type)))
+          (unless (memq vtype '(path bash))
+            (push (format ":validation-type %S not in (path bash)" vtype)
+                  errors))))
+
+      (when errors
+        (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+* Allow-Once Semantics
+:PROPERTIES:
+:CUSTOM_ID: allow-once
+:END:
+
+"Allow once" is an expansion-UI choice, not a runtime mechanism.  When
+a tool call is denied and the user picks "Allow once" in the expansion
+transient, =jf/gptel-scope--allow-once-action= funcalls the wrapper's
+callback with =(:success t :allowed_once t)=.  The wrapper treats this
+as authorization for the pending tool invocation and runs the body.
+
+No list is maintained.  No permission is consumed or persisted.  A
+subsequent invocation of the same resource that fails validation will
+prompt again.  The only difference between "Allow once" and "Add to
+scope" is the side effect: =add-to-scope= writes to =scope.yml=, while
+=allow-once= leaves it untouched.
+
+* Path Matching
+:PROPERTIES:
+:CUSTOM_ID: path-matching
+:END:
+
+Path matching converts glob patterns from =scope.yml= to regexes and tests paths against them.  There is exactly one glob-to-regex implementation — =jf/gptel-scope--glob-to-regex= in =scope-validation.el= — and exactly one top-level matcher, =jf/gptel-scope--path-matches-any-pattern-p=.  Both filesystem tool validation and bash file-operation validation reach this code through the shared =validate-path-operation= entry point.
+
+#+begin_example
+  scope.yml patterns                  paths to check
+  ("/workspace/**"                    "/workspace/file.txt"
+   "**/.git/**")                      "/workspace/.git/config"
+       │                                     │
+       └────────────┐         ┌──────────────┘
+                    ▼         ▼
+              glob-to-regex + match
+              (single canonical implementation)
+                    │
+                    ▼
+              allowed / denied
+#+end_example
+
+The contract for glob matching:
+
+| Pattern | Matches                           | Does not match |
+|---------+-----------------------------------+----------------|
+| =*=     | Any characters except =/=         | Paths with =/= |
+| =**=    | Any characters including =/=      |                |
+| =?=     | Exactly one character             |                |
+| =/**/=  | Zero or more directory components |                |
+
+#+begin_src emacs-lisp
+(defconst scope/interface--glob-test-cases
+  '(;; Pattern          Path                          Expected
+    ("/workspace/**"    "/workspace/file.txt"         t)
+    ("/workspace/**"    "/workspace/sub/file.txt"     t)
+    ("/workspace/**"    "/other/file.txt"             nil)
+    ("/workspace/*.el"  "/workspace/init.el"          t)
+    ("/workspace/*.el"  "/workspace/sub/init.el"      nil)
+    ("**/.git/**"       "/workspace/.git/config"      t)
+    ("**/.git/**"       "/workspace/sub/.git/HEAD"    t)
+    ("/tmp/*"           "/tmp/file"                   t)
+    ("/tmp/*"           "/tmp/sub/file"               nil))
+  "Test cases for glob pattern matching.
+Each entry is (PATTERN PATH EXPECTED-RESULT).
+
+Any function claiming to implement glob matching for scope validation
+must pass all of these cases.  Tests import this constant to verify
+the canonical implementation honors the contract.")
+#+end_src
+
+* Bash Validation Pipeline
+:PROPERTIES:
+:CUSTOM_ID: pipeline
+:END:
+
+=jf/gptel-scope--validate-command-semantics= runs a four-stage pipeline on the semantics extracted by =bash-parser=, followed by a non-blocking coverage warning.  Each stage has early exit on failure.  The pipeline is the "operation-first" model: bash commands are validated by the file operations they would perform (via the shared path validator) rather than by command-name allow/deny lists.
+
+| Stage | Function                           | Purpose                                   | Error codes                               |
+|-------+------------------------------------+-------------------------------------------+-------------------------------------------|
+|     1 | =validate-parse-completeness=      | Refuse to validate commands we didn't fully parse (when =security.enforce_parse_complete=) | =parse_incomplete= |
+|     2 | =check-no-op=                      | Commands with zero file operations exit the pipeline early and bypass stages 3 and 4 | (none — signals allow) |
+|     3 | =validate-file-operations=         | Route each extracted file op through =validate-path-operation= | =denied-pattern=, =not-in-scope= |
+|     4 | =validate-cloud-auth=              | Enforce =cloud.auth_detection= policy and =allowed_providers= filter | =cloud_auth_denied=, =cloud_provider_denied= |
+| —     | =check-coverage-threshold=         | Non-blocking warning if parse coverage below =security.max_coverage_threshold= | (none — warn only) |
+
+Stage 2 is a *deliberate policy gate*, not an optimization: a command with zero file operations (e.g. =echo hello=, =python3 --version=) short-circuits the whole pipeline, which is also what spares it from cloud-auth checks.  Any follow-up to change that behavior should update this row.
+
+Stage 3 is where the operation-first model lives: =validate-file-operation= receives a file-op plist from bash-parser (=:file=, =:operation=, =:command=, =:confidence=) and defers to the same =validate-path-operation= used by filesystem tool validation.  This is what guarantees that bash =cat /etc/passwd= and the =read_file_in_scope= tool resolve to exactly the same allow/deny decision for the same path.
+
+* Scope Config Shape
+:PROPERTIES:
+:CUSTOM_ID: scope-config
+:END:
+
+=jf/gptel-scope-yaml--load-schema= parses =scope.yml= and merges it with =jf/gptel-scope-yaml--schema-defaults=.  The resulting plist is what every validator expects.
+
+#+begin_example
+  (:paths (:read    (PATTERN ...)   ; read_file_in_scope + read-like bash ops
+           :write   (PATTERN ...)   ; write_file + write-like bash ops
+           :modify  (PATTERN ...)   ; in-place modifications
+           :execute (PATTERN ...)   ; execute operations (high risk)
+           :deny    (PATTERN ...))  ; highest-precedence deny list
+   :cloud (:auth-detection     "allow"|"warn"|"deny"
+           :allowed-providers  (PROVIDER ...))
+   :security (:enforce-parse-complete  BOOL
+              :max-coverage-threshold  FLOAT))
+#+end_example
+
+Keys are normalized from =snake_case= in YAML to =kebab-case= keywords in elisp by =jf/gptel-scope-yaml--normalize-keys=.  The writer (=scope-expansion.el=) performs the reverse conversion via =jf/gptel-scope-yaml--kebab-to-snake=.
+
+The permission hierarchy implemented by =validate-path-operation=:
+
+- *read-like* (=:read=, =:read-directory=, =:read-metadata=, =:match-pattern=): requires =paths.read= OR =paths.write= (write implies read)
+- *write-like* (=:write=, =:create=, =:create-or-modify=, =:append=, =:delete=): requires =paths.write=
+- =:modify=: requires =paths.modify= OR =paths.write=
+- =:execute=: requires =paths.execute= only
+- =paths.deny= takes precedence over every allow pattern
+
+* Known Divergences
+:PROPERTIES:
+:CUSTOM_ID: known-divergences
+:END:
+
+This section tracked known violations of the interfaces above during the consolidation work.  The earlier divergences have been resolved; the list is kept here for historical reference and as a place to record any new drift as it is discovered.
+
+** Resolved
+
+- *Two error-code schemes for path denial* — =validate-operation= used =path_denied= / =path_out_of_scope=; =validate-path-tool= used =denied-pattern= / =not-in-scope=.  Resolved: the two path validators were replaced by a single =validate-path-operation= producing the canonical codes.
+- *=build-violation-info= missing branches* — the old consumer had no case for =cloud_provider_denied= and checked =incomplete_parse= instead of =parse_incomplete=.  Resolved in =scope-validation.el:458=; every canonical code now has a =pcase= branch.
+- *Duplicate =glob-to-regex= implementations* — a simple regex-replacement version in =scope-core.el= and a character-by-character parser in =scope-shell-tools.el= coexisted, with the second shadowing the first at load time.  Resolved: the single canonical implementation lives in =scope-validation.el= and both path and bash code paths call through to it.
+- *Allow-once bookkeeping leaked into the macro* — earlier iterations stored granted "allow once" permissions in a buffer-local list (=jf/gptel-scope--allow-once-list=) that both the macro (pre-check) and a post-response hook maintained.  Resolved: the list, the compute/check/clear helpers, and the per-tool resource-key format were removed.  "Allow once" is now a pure expansion-UI choice: it funcalls the wrapper callback with success, authorizing the one pending invocation.  A subsequent call to the same resource prompts again.
+- *Validation-type vocabulary drift* — earlier iterations allowed =pattern= and =meta= validation types for validators that no longer exist.  Resolved: the vocabulary in =scope/interface--validate-violation-info= is now =(path bash)=, matching the only two routes the macro and expansion UI actually take.
+
+** Current (none tracked)
+
+No active divergences.  Add entries here when a contract test fails or manual review surfaces new drift.
+
+* Provide Feature
+
+#+begin_src emacs-lisp
+(provide 'scope-interfaces)
+;;; interfaces.el ends here
+#+end_src

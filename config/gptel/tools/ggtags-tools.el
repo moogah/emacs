@@ -1,6 +1,6 @@
 ;;; ggtags-tools.el --- GPTEL tools for semantic code navigation with ggtags -*- lexical-binding: t; -*-
 (require 'ggtags)
-(require 'jf-gptel-scope-core)
+(require 'gptel-request)
 
 (defvar gptel-ggtags-result-limit 40000
   "Maximum character count for tool results to prevent context overflow.")
@@ -13,11 +13,9 @@ If exceeded, return a warning message instead."
               gptel-ggtags-result-limit)
     result))
 
-(gptel-make-scoped-tool
- "check_ggtags_project"
- "SCOPE-AWARE: Requires directory to match allowed patterns.
-
-Check if a ggtags project exists and report status.
+(gptel-make-tool
+ :name "check_ggtags_project"
+ :description "Check if a ggtags project exists and report status.
 
 CRITICAL: Use this tool FIRST before any ggtags navigation operations.
 
@@ -40,41 +38,36 @@ Typical workflow:
 Arguments:
 - directory: Project root directory path
 
-This tool helps avoid 'symbol not found' errors by verifying tag database status first.
+This tool helps avoid 'symbol not found' errors by verifying tag database status first."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory path"))
+ :function (lambda (directory)
+             (let* ((gtags-file (expand-file-name "GTAGS" directory))
+                    (exists (file-exists-p gtags-file))
+                    (mtime (when exists (file-attribute-modification-time
+                                         (file-attributes gtags-file))))
+                    (age-days (when mtime
+                                (/ (float-time (time-subtract (current-time) mtime))
+                                   86400.0))))
+               (if (not exists)
+                   (list :success t
+                         :gtags_exists nil
+                         :message (format "No GTAGS database found at %s\n\nTo enable semantic navigation:\n1. Use create_ggtags_project(%s) to create tags\n2. Then use find_definition, find_references, etc."
+                                          directory directory))
+                 (let ((status (if (< age-days 1) "Current"
+                                 (if (< age-days 7) "Likely current" "Possibly stale"))))
+                   (list :success t
+                         :gtags_exists t
+                         :project_root directory
+                         :age_days age-days
+                         :status status
+                         :message (format "GTAGS Status:\n\nProject Root: %s\nTags Exist: Yes\nLast Updated: %.1f days ago\nApproximate Status: %s\n\nNext Steps:\n- Use find_definition(directory, symbol) to navigate code\n- Use find_references(directory, symbol) to see usage\n- If tags seem stale, use update_ggtags_project(directory)"
+                                          directory age-days status)))))))
 
-Returns scope_violation error if directory not in allowed patterns.
-Use request_scope_expansion to request access."
- (list '(:name "directory"
-         :type string
-         :description "Project root directory path"))
- "ggtags"
- (let* ((gtags-file (expand-file-name "GTAGS" directory))
-        (exists (file-exists-p gtags-file))
-        (mtime (when exists (file-attribute-modification-time
-                             (file-attributes gtags-file))))
-        (age-days (when mtime
-                    (/ (float-time (time-subtract (current-time) mtime))
-                       86400.0))))
-   (if (not exists)
-       (list :success t
-             :gtags_exists nil
-             :message (format "No GTAGS database found at %s\n\nTo enable semantic navigation:\n1. Use create_ggtags_project(%s) to create tags\n2. Then use find_definition, find_references, etc."
-                              directory directory))
-     (let ((status (if (< age-days 1) "Current"
-                     (if (< age-days 7) "Likely current" "Possibly stale"))))
-       (list :success t
-             :gtags_exists t
-             :project_root directory
-             :age_days age-days
-             :status status
-             :message (format "GTAGS Status:\n\nProject Root: %s\nTags Exist: Yes\nLast Updated: %.1f days ago\nApproximate Status: %s\n\nNext Steps:\n- Use find_definition(directory, symbol) to navigate code\n- Use find_references(directory, symbol) to see usage\n- If tags seem stale, use update_ggtags_project(directory)"
-                              directory age-days status))))))
-
-(gptel-make-scoped-tool
- "find_definition"
- "SCOPE-AWARE: Requires directory to match allowed patterns.
-
-Find where a symbol is defined.
+(gptel-make-tool
+ :name "find_definition"
+ :description "Find where a symbol is defined.
 
 This is the PRIMARY tool for code navigation. Use this to:
 - Locate function/method definitions
@@ -105,60 +98,55 @@ Arguments:
 - symbol: Symbol name to find (function, class, variable, etc.)
 - limit: Max results to return (default 50, max 100)
 
-Use this instead of grep when looking for where code is defined.
+Use this instead of grep when looking for where code is defined."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "symbol"
+               :type string
+               :description "Symbol name (function, class, variable)")
+             '(:name "limit"
+               :type integer
+               :optional t
+               :description "Max results (default 50, max 100)"))
+ :function (lambda (directory symbol limit)
+             (let ((default-directory directory)
+                   (file-limit (min (or limit 50) 100)))
+               (condition-case err
+                   (let* ((cmd (ggtags-global-build-command 'definition symbol))
+                          (output (shell-command-to-string cmd))
+                          (lines (split-string output "\n" t))
+                          (results (seq-take lines file-limit))
+                          (total (length lines)))
+                     (if (zerop total)
+                         (list :success t
+                               :definitions nil
+                               :symbol symbol
+                               :count 0
+                               :message (format "Symbol '%s' not found.\n\nPossible reasons:\n1. Symbol not defined in project\n2. Tags are stale - use update_ggtags_project(%s)\n3. Symbol in ignored files - use explain_ggtags_indexing(%s)"
+                                                symbol directory directory))
+                       (let ((message-str (format "Found %d definition%s for '%s':\n\n%s%s"
+                                                  total
+                                                  (if (= total 1) "" "s")
+                                                  symbol
+                                                  (mapconcat #'identity results "\n")
+                                                  (if (> total file-limit)
+                                                      (format "\n\n[Truncated: showing %d of %d. Use limit parameter to adjust]"
+                                                              file-limit total)
+                                                    ""))))
+                         (list :success t
+                               :definitions results
+                               :symbol symbol
+                               :count total
+                               :message (gptel-ggtags--result-limit message-str)))))
+                 (error (list :success nil
+                              :error "find_definition_error"
+                              :message (format "Error finding definition: %s\n\nCheck that:\n1. GTAGS exists (use check_ggtags_project)\n2. Global is installed\n3. Directory path is correct"
+                                               (error-message-string err))))))))
 
-Returns scope_violation error if directory not in allowed patterns.
-Use request_scope_expansion to request access."
- (list '(:name "directory"
-         :type string
-         :description "Project root directory")
-       '(:name "symbol"
-         :type string
-         :description "Symbol name (function, class, variable)")
-       '(:name "limit"
-         :type integer
-         :optional t
-         :description "Max results (default 50, max 100)"))
- "ggtags"
- (let ((default-directory directory)
-       (file-limit (min (or limit 50) 100)))
-   (condition-case err
-       (let* ((cmd (ggtags-global-build-command 'definition symbol))
-              (output (shell-command-to-string cmd))
-              (lines (split-string output "\n" t))
-              (results (seq-take lines file-limit))
-              (total (length lines)))
-         (if (zerop total)
-             (list :success t
-                   :definitions nil
-                   :symbol symbol
-                   :count 0
-                   :message (format "Symbol '%s' not found.\n\nPossible reasons:\n1. Symbol not defined in project\n2. Tags are stale - use update_ggtags_project(%s)\n3. Symbol in ignored files - use explain_ggtags_indexing(%s)"
-                                    symbol directory directory))
-           (let ((message-str (format "Found %d definition%s for '%s':\n\n%s%s"
-                                      total
-                                      (if (= total 1) "" "s")
-                                      symbol
-                                      (mapconcat #'identity results "\n")
-                                      (if (> total file-limit)
-                                          (format "\n\n[Truncated: showing %d of %d. Use limit parameter to adjust]"
-                                                  file-limit total)
-                                        ""))))
-             (list :success t
-                   :definitions results
-                   :symbol symbol
-                   :count total
-                   :message (gptel-ggtags--result-limit message-str)))))
-     (error (list :success nil
-                  :error "find_definition_error"
-                  :message (format "Error finding definition: %s\n\nCheck that:\n1. GTAGS exists (use check_ggtags_project)\n2. Global is installed\n3. Directory path is correct"
-                                   (error-message-string err)))))))
-
-(gptel-make-scoped-tool
- "find_references"
- "SCOPE-AWARE: Requires directory to match allowed patterns.
-
-Find all references to a symbol (where it's used/called).
+(gptel-make-tool
+ :name "find_references"
+ :description "Find all references to a symbol (where it's used/called).
 
 Use this to:
 - Find all call sites of a function
@@ -186,59 +174,54 @@ Arguments:
 - symbol: Symbol name to find references for
 - limit: Max results (default 50, max 200 for heavily-used symbols)
 
-Complements find_definition by showing usage rather than implementation.
+Complements find_definition by showing usage rather than implementation."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "symbol"
+               :type string
+               :description "Symbol to find references for")
+             '(:name "limit"
+               :type integer
+               :optional t
+               :description "Max results (default 50, max 200)"))
+ :function (lambda (directory symbol limit)
+             (let ((default-directory directory)
+                   (file-limit (min (or limit 50) 200)))
+               (condition-case err
+                   (let* ((cmd (ggtags-global-build-command 'reference symbol))
+                          (output (shell-command-to-string cmd))
+                          (lines (split-string output "\n" t))
+                          (results (seq-take lines file-limit))
+                          (total (length lines)))
+                     (if (zerop total)
+                         (list :success t
+                               :references nil
+                               :symbol symbol
+                               :count 0
+                               :message (format "No references found for '%s'.\n\nThis could mean:\n1. Symbol is defined but never used\n2. Tags are stale - use update_ggtags_project(%s)\n3. Only used in ignored files"
+                                                symbol directory))
+                       (let ((message-str (format "Found %d reference%s to '%s':\n\n%s%s"
+                                                  total
+                                                  (if (= total 1) "" "s")
+                                                  symbol
+                                                  (mapconcat #'identity results "\n")
+                                                  (if (> total file-limit)
+                                                      (format "\n\n[Truncated: showing %d of %d. Increase limit or refine search]"
+                                                              file-limit total)
+                                                    ""))))
+                         (list :success t
+                               :references results
+                               :symbol symbol
+                               :count total
+                               :message (gptel-ggtags--result-limit message-str)))))
+                 (error (list :success nil
+                              :error "find_references_error"
+                              :message (format "Error finding references: %s" (error-message-string err))))))))
 
-Returns scope_violation error if directory not in allowed patterns.
-Use request_scope_expansion to request access."
- (list '(:name "directory"
-         :type string
-         :description "Project root directory")
-       '(:name "symbol"
-         :type string
-         :description "Symbol to find references for")
-       '(:name "limit"
-         :type integer
-         :optional t
-         :description "Max results (default 50, max 200)"))
- "ggtags"
- (let ((default-directory directory)
-       (file-limit (min (or limit 50) 200)))
-   (condition-case err
-       (let* ((cmd (ggtags-global-build-command 'reference symbol))
-              (output (shell-command-to-string cmd))
-              (lines (split-string output "\n" t))
-              (results (seq-take lines file-limit))
-              (total (length lines)))
-         (if (zerop total)
-             (list :success t
-                   :references nil
-                   :symbol symbol
-                   :count 0
-                   :message (format "No references found for '%s'.\n\nThis could mean:\n1. Symbol is defined but never used\n2. Tags are stale - use update_ggtags_project(%s)\n3. Only used in ignored files"
-                                    symbol directory))
-           (let ((message-str (format "Found %d reference%s to '%s':\n\n%s%s"
-                                      total
-                                      (if (= total 1) "" "s")
-                                      symbol
-                                      (mapconcat #'identity results "\n")
-                                      (if (> total file-limit)
-                                          (format "\n\n[Truncated: showing %d of %d. Increase limit or refine search]"
-                                                  file-limit total)
-                                        ""))))
-             (list :success t
-                   :references results
-                   :symbol symbol
-                   :count total
-                   :message (gptel-ggtags--result-limit message-str)))))
-     (error (list :success nil
-                  :error "find_references_error"
-                  :message (format "Error finding references: %s" (error-message-string err)))))))
-
-(gptel-make-scoped-tool
- "find_symbol"
- "SCOPE-AWARE: Requires directory to match allowed patterns.
-
-Find all occurrences of a symbol (definitions + references).
+(gptel-make-tool
+ :name "find_symbol"
+ :description "Find all occurrences of a symbol (definitions + references).
 
 Combines find_definition and find_references into one comprehensive search.
 Shows everywhere a symbol appears in the codebase.
@@ -265,58 +248,53 @@ Arguments:
 - limit: Max results (default 50, max 200)
 
 Note: For large results, consider using find_definition first to understand
-the symbol, then find_references to see specific usage.
+the symbol, then find_references to see specific usage."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "symbol"
+               :type string
+               :description "Symbol name to find")
+             '(:name "limit"
+               :type integer
+               :optional t
+               :description "Max results (default 50, max 200)"))
+ :function (lambda (directory symbol limit)
+             (let ((default-directory directory)
+                   (file-limit (min (or limit 50) 200)))
+               (condition-case err
+                   (let* ((cmd (ggtags-global-build-command 'symbol symbol))
+                          (output (shell-command-to-string cmd))
+                          (lines (split-string output "\n" t))
+                          (results (seq-take lines file-limit))
+                          (total (length lines)))
+                     (if (zerop total)
+                         (list :success t
+                               :occurrences nil
+                               :symbol symbol
+                               :count 0
+                               :message (format "Symbol '%s' not found anywhere in project.\n\nPossible reasons:\n1. Typo in symbol name\n2. Symbol doesn't exist\n3. Tags are stale - use update_ggtags_project(%s)"
+                                                symbol directory))
+                       (let ((message-str (format "Found %d occurrence%s of '%s' (definitions + references):\n\n%s%s\n\nTip: Use find_definition for just definitions, or find_references for just usage."
+                                                  total
+                                                  (if (= total 1) "" "s")
+                                                  symbol
+                                                  (mapconcat #'identity results "\n")
+                                                  (if (> total file-limit)
+                                                      (format "\n\n[Truncated: showing %d of %d]" file-limit total)
+                                                    ""))))
+                         (list :success t
+                               :occurrences results
+                               :symbol symbol
+                               :count total
+                               :message (gptel-ggtags--result-limit message-str)))))
+                 (error (list :success nil
+                              :error "find_symbol_error"
+                              :message (format "Error finding symbol: %s" (error-message-string err))))))))
 
-Returns scope_violation error if directory not in allowed patterns.
-Use request_scope_expansion to request access."
- (list '(:name "directory"
-         :type string
-         :description "Project root directory")
-       '(:name "symbol"
-         :type string
-         :description "Symbol name to find")
-       '(:name "limit"
-         :type integer
-         :optional t
-         :description "Max results (default 50, max 200)"))
- "ggtags"
- (let ((default-directory directory)
-       (file-limit (min (or limit 50) 200)))
-   (condition-case err
-       (let* ((cmd (ggtags-global-build-command 'symbol symbol))
-              (output (shell-command-to-string cmd))
-              (lines (split-string output "\n" t))
-              (results (seq-take lines file-limit))
-              (total (length lines)))
-         (if (zerop total)
-             (list :success t
-                   :occurrences nil
-                   :symbol symbol
-                   :count 0
-                   :message (format "Symbol '%s' not found anywhere in project.\n\nPossible reasons:\n1. Typo in symbol name\n2. Symbol doesn't exist\n3. Tags are stale - use update_ggtags_project(%s)"
-                                    symbol directory))
-           (let ((message-str (format "Found %d occurrence%s of '%s' (definitions + references):\n\n%s%s\n\nTip: Use find_definition for just definitions, or find_references for just usage."
-                                      total
-                                      (if (= total 1) "" "s")
-                                      symbol
-                                      (mapconcat #'identity results "\n")
-                                      (if (> total file-limit)
-                                          (format "\n\n[Truncated: showing %d of %d]" file-limit total)
-                                        ""))))
-             (list :success t
-                   :occurrences results
-                   :symbol symbol
-                   :count total
-                   :message (gptel-ggtags--result-limit message-str)))))
-     (error (list :success nil
-                  :error "find_symbol_error"
-                  :message (format "Error finding symbol: %s" (error-message-string err)))))))
-
-(gptel-make-scoped-tool
- "create_ggtags_project"
- "SCOPE-AWARE: Requires directory to match allowed patterns.
-
-Create a new ggtags tag database (GTAGS) in directory.
+(gptel-make-tool
+ :name "create_ggtags_project"
+ :description "Create a new ggtags tag database (GTAGS) in directory.
 
 IMPORTANT: This operation can take time for large codebases (minutes for 100k+ files).
 Small projects (< 1000 files) complete in seconds.
@@ -348,34 +326,29 @@ Arguments:
 Returns: Success message with next steps, or error with troubleshooting guidance.
 
 Note: Tags stay current automatically via git post-commit hooks (configured in gtags.org).
-Manual updates: update_ggtags_project(directory)
+Manual updates: update_ggtags_project(directory)"
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory"))
+ :function (lambda (directory)
+             (let ((default-directory directory))
+               (condition-case err
+                   (progn
+                     (ggtags-create-tags directory)
+                     (list :success t
+                           :gtags_created t
+                           :directory directory
+                           :message (format "Successfully created GTAGS database at %s\n\nCreated files:\n- GTAGS (definition database)\n- GRTAGS (reference database)\n- GPATH (path database)\n\nYou can now use:\n- find_definition(directory, symbol)\n- find_references(directory, symbol)\n- find_symbol(directory, symbol)\n\nIndexing respects .gitignore and uses pygments parser (300+ languages)."
+                                            directory)))
+                 (error (list :success nil
+                              :error "create_gtags_error"
+                              :message (format "Error creating GTAGS: %s\n\nCheck that:\n1. GNU Global is installed (gtags command available)\n2. Directory is writable\n3. Directory contains source files"
+                                               (error-message-string err))))))
+             t))
 
-Returns scope_violation error if directory not in allowed patterns.
-Use request_scope_expansion to request access."
- (list '(:name "directory"
-         :type string
-         :description "Project root directory"))
- "ggtags"
- (let ((default-directory directory))
-   (condition-case err
-       (progn
-         (ggtags-create-tags directory)
-         (list :success t
-               :gtags_created t
-               :directory directory
-               :message (format "Successfully created GTAGS database at %s\n\nCreated files:\n- GTAGS (definition database)\n- GRTAGS (reference database)\n- GPATH (path database)\n\nYou can now use:\n- find_definition(directory, symbol)\n- find_references(directory, symbol)\n- find_symbol(directory, symbol)\n\nIndexing respects .gitignore and uses pygments parser (300+ languages)."
-                                directory)))
-     (error (list :success nil
-                  :error "create_gtags_error"
-                  :message (format "Error creating GTAGS: %s\n\nCheck that:\n1. GNU Global is installed (gtags command available)\n2. Directory is writable\n3. Directory contains source files"
-                                   (error-message-string err))))))
- t)
-
-(gptel-make-scoped-tool
- "update_ggtags_project"
- "SCOPE-AWARE: Requires directory to match allowed patterns.
-
-Update the ggtags tag database with recent code changes.
+(gptel-make-tool
+ :name "update_ggtags_project"
+ :description "Update the ggtags tag database with recent code changes.
 
 Updates GTAGS to reflect changes in source files since last update.
 Typically fast (seconds) because it's incremental by default.
@@ -403,46 +376,41 @@ Force rebuild useful if:
 Note: Git post-commit hooks (configured in gtags.org) auto-update tags after commits.
 This tool is for manual updates when hooks don't run or for uncommitted changes.
 
-Returns: Success message indicating update type, or error with recovery suggestions.
+Returns: Success message indicating update type, or error with recovery suggestions."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory")
+             '(:name "force"
+               :type boolean
+               :optional t
+               :description "Force full rebuild (default: incremental)"))
+ :function (lambda (directory force)
+             (let ((default-directory directory))
+               (condition-case err
+                   (progn
+                     (if (not (file-exists-p (expand-file-name "GTAGS" directory)))
+                         (list :success nil
+                               :error "no_gtags_found"
+                               :message (format "No GTAGS database found at %s\n\nUse create_ggtags_project(%s) to create one first."
+                                                directory directory))
+                       (progn
+                         (ggtags-update-tags force)
+                         (list :success t
+                               :gtags_updated t
+                               :directory directory
+                               :update_type (if force "full" "incremental")
+                               :message (format "Successfully updated GTAGS at %s\n\nUpdate type: %s\n\nTag database is now current with recent code changes.\n\nYou can now use find_definition, find_references with updated results."
+                                                directory
+                                                (if force "Full rebuild" "Incremental (changed files only)"))))))
+                 (error (list :success nil
+                              :error "update_gtags_error"
+                              :message (format "Error updating GTAGS: %s\n\nTry:\n1. Force full rebuild: update_ggtags_project(%s, true)\n2. Or recreate: create_ggtags_project(%s)"
+                                               (error-message-string err) directory directory)))))
+             t))
 
-Returns scope_violation error if directory not in allowed patterns.
-Use request_scope_expansion to request access."
- (list '(:name "directory"
-         :type string
-         :description "Project root directory")
-       '(:name "force"
-         :type boolean
-         :optional t
-         :description "Force full rebuild (default: incremental)"))
- "ggtags"
- (let ((default-directory directory))
-   (condition-case err
-       (progn
-         (if (not (file-exists-p (expand-file-name "GTAGS" directory)))
-             (list :success nil
-                   :error "no_gtags_found"
-                   :message (format "No GTAGS database found at %s\n\nUse create_ggtags_project(%s) to create one first."
-                                    directory directory))
-           (progn
-             (ggtags-update-tags force)
-             (list :success t
-                   :gtags_updated t
-                   :directory directory
-                   :update_type (if force "full" "incremental")
-                   :message (format "Successfully updated GTAGS at %s\n\nUpdate type: %s\n\nTag database is now current with recent code changes.\n\nYou can now use find_definition, find_references with updated results."
-                                    directory
-                                    (if force "Full rebuild" "Incremental (changed files only)"))))))
-     (error (list :success nil
-                  :error "update_gtags_error"
-                  :message (format "Error updating GTAGS: %s\n\nTry:\n1. Force full rebuild: update_ggtags_project(%s, true)\n2. Or recreate: create_ggtags_project(%s)"
-                                   (error-message-string err) directory directory)))))
- t)
-
-(gptel-make-scoped-tool
- "explain_ggtags_indexing"
- "SCOPE-AWARE: Requires directory to match allowed patterns.
-
-Explain how each file type is indexed in the project.
+(gptel-make-tool
+ :name "explain_ggtags_indexing"
+ :description "Explain how each file type is indexed in the project.
 
 Shows which parser/indexer handles each file extension:
 - pygments: Universal parser supporting 300+ languages (Python, JS, Ruby, Go, Rust, etc.)
@@ -472,31 +440,28 @@ If a language you need shows 'skip':
 
 File types definitely supported:
 Python, JavaScript, TypeScript, Ruby, Go, Rust, Java, C, C++, PHP,
-Shell scripts, Perl, Lua, Haskell, Scala, and 280+ more via pygments.
-
-Returns scope_violation error if directory not in allowed patterns.
-Use request_scope_expansion to request access."
- (list '(:name "directory"
-         :type string
-         :description "Project root directory"))
- "ggtags"
- (let ((default-directory directory))
-   (condition-case err
-       (if (not (file-exists-p (expand-file-name "GTAGS" directory)))
-           (list :success nil
-                 :error "no_gtags_found"
-                 :message (format "No GTAGS database at %s\n\nUse create_ggtags_project(%s) first."
-                                  directory directory))
-         (let* ((output (shell-command-to-string "global -h"))
-                (message-str (format "Indexing Configuration for %s:\n\n%s\n\nParser types:\n- pygments: Universal parser (300+ languages) - PRIMARY\n- built-in: Native parsers (C, C++, Java, PHP, Yacc) - FAST\n- skip: Not indexed\n\nYour setup uses: pygments (configured in gtags.org)\n\nIf certain files aren't searchable:\n1. Check file extension in output above\n2. Verify .gitignore isn't excluding them\n3. Update tags: update_ggtags_project(%s)"
-                                     directory output directory)))
-           (list :success t
-                 :directory directory
-                 :configuration output
-                 :message (gptel-ggtags--result-limit message-str))))
-     (error (list :success nil
-                  :error "explain_indexing_error"
-                  :message (format "Error explaining indexing: %s" (error-message-string err)))))))
+Shell scripts, Perl, Lua, Haskell, Scala, and 280+ more via pygments."
+ :args (list '(:name "directory"
+               :type string
+               :description "Project root directory"))
+ :function (lambda (directory)
+             (let ((default-directory directory))
+               (condition-case err
+                   (if (not (file-exists-p (expand-file-name "GTAGS" directory)))
+                       (list :success nil
+                             :error "no_gtags_found"
+                             :message (format "No GTAGS database at %s\n\nUse create_ggtags_project(%s) first."
+                                              directory directory))
+                     (let* ((output (shell-command-to-string "global -h"))
+                            (message-str (format "Indexing Configuration for %s:\n\n%s\n\nParser types:\n- pygments: Universal parser (300+ languages) - PRIMARY\n- built-in: Native parsers (C, C++, Java, PHP, Yacc) - FAST\n- skip: Not indexed\n\nYour setup uses: pygments (configured in gtags.org)\n\nIf certain files aren't searchable:\n1. Check file extension in output above\n2. Verify .gitignore isn't excluding them\n3. Update tags: update_ggtags_project(%s)"
+                                                 directory output directory)))
+                       (list :success t
+                             :directory directory
+                             :configuration output
+                             :message (gptel-ggtags--result-limit message-str))))
+                 (error (list :success nil
+                              :error "explain_indexing_error"
+                              :message (format "Error explaining indexing: %s" (error-message-string err))))))))
 
 (provide 'ggtags-tools)
 ;;; ggtags-tools.el ends here

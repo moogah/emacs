@@ -1,82 +1,93 @@
+# Bash Parser Architecture
+
 ## Components
 
 ### Core Parser (bash-parser-core)
 - **Responsibility**: Parse bash commands into structured representation with token inventory
-- **Key Changes**: Add token tracking (ID, type, value, position), add parse-complete flag
-- **Output**: Enhanced parsed command structure with :tokens list and :parse-complete flag
+- **Key Functions**: `jf/bash-parse` — entry point producing enhanced parsed command plist
+- **Output**: Parsed command structure with `:tokens` list, `:parse-complete` flag, `:command-name`, `:positional-args`, `:flags`, `:redirections`, etc.
 
-### Token System (bash-parser-tokens)
+### Token System (integrated into parser core)
 - **Responsibility**: Define token types, track token inventory, provide token utilities
-- **Not a separate module**: Token handling is integrated into parser core
-- **Token Types**: :command-name, :positional-arg, :flag, :flag-arg, :command-substitution, :separator, :redirection, :pipe
+- **Token Types**: `:command-name`, `:positional-arg`, `:flag`, `:flag-arg`, `:command-substitution`, `:separator`, `:redirection`, `:pipe`, `:operator`
 
-### Plugin Registry (bash-parser-plugins)
-- **Responsibility**: Register plugins, orchestrate plugin execution, aggregate results
+### Orchestrator (bash-parser-orchestrator)
+- **Responsibility**: Coordinate the two-layer semantic extraction pipeline
 - **Key Functions**:
-  - `jf/bash-register-plugin` - Register new plugin
-  - `jf/bash-extract-semantics` - Main entry point, runs all applicable plugins
-  - `jf/bash--get-applicable-plugins` - Filter plugins by predicates
-- **State**: `jf/bash-semantic-plugins` - List of registered plugins with priorities
+  - `jf/bash-extract-semantics` — Main entry point, orchestrates both layers
+  - `jf/bash--decompose-to-simple-commands` — Layer 0: pure grammar decomposition
+  - `jf/bash--claim-tokens-for-results` — Post-hoc token claiming from operations
+- **Architecture**: Two-layer pipeline (grammar decomposition → command handlers → merge)
+- **State**: Stateless — all context passed via parameters
+
+### File Operations Extraction (bash-parser-file-ops)
+- **Responsibility**: Provide extraction primitives for redirections and path resolution
+- **Key Functions**:
+  - `jf/bash-extract-operations-from-redirections` — Extract file operations from shell redirections
+  - `jf/bash--resolve-path-variables` — Resolve variable references in file paths
+  - `jf/bash-extract-file-operations` — DEPRECATED legacy wrapper
+- **Consumed by**: Orchestrator Layer 0 (redirection extraction per simple command)
+
+### Command Handler Registry (bash-parser-semantics)
+- **Responsibility**: Register per-command handlers, dispatch extraction, collect results by domain
+- **Key Functions**:
+  - `jf/bash-register-command-handler` — Register handler for command + domain
+  - `jf/bash-lookup-command-handlers` — Look up handlers by command name
+  - `jf/bash-extract-command-semantics` — Execute all handlers for a parsed command
+- **Data Structure**: Hash table `{command-name => {domain => [handler-fn ...]}}`
+- **Consumed by**: Orchestrator Layer 1 (per-simple-command handler dispatch)
+
+### Command Handlers (bash-parser/commands/)
+- **Responsibility**: Per-command semantic extraction, one file per command or command family
+- **Organization**: Auto-discovered from `commands/` directory via `commands/index.el`
+- **Examples**: `cat.el`, `rm.el`, `aws.el` (multi-domain), `gcloud.el`, `az.el`
+- **Registration**: Each file calls `jf/bash-register-command-handler` on load
 
 ### Coverage System (bash-parser-coverage)
-- **Responsibility**: Calculate semantic coverage, identify unclaimed tokens, provide visualization
+- **Responsibility**: Calculate semantic coverage from tokens and claimed IDs
 - **Key Functions**:
-  - `jf/bash-calculate-coverage` - Compute coverage metrics from tokens and claimed IDs
-  - `jf/bash-visualize-coverage` - Human-readable coverage display
+  - `jf/bash-calculate-coverage` — Compute coverage metrics
+  - `jf/bash-visualize-coverage` — Human-readable coverage display
 - **Coverage Metrics**: Total tokens, claimed tokens, coverage ratio, unclaimed tokens, coverage by type
 
-### Filesystem Plugin (bash-parser-file-ops refactored)
-- **Responsibility**: Extract filesystem operations, claim relevant tokens
-- **Refactoring**: Wrap existing extraction logic in plugin protocol
-- **Key Functions**:
-  - `jf/bash-plugin-filesystem` - Plugin implementation
-  - `jf/bash-extract-file-operations` - Backward-compatible wrapper (DEPRECATED)
-
-### Cloud Auth Plugin (bash-parser-cloud-auth)
-- **Responsibility**: Extract cloud authentication scope (AWS, GCP, Azure)
-- **Pattern Database**: `jf/bash-cloud-auth-patterns` - Command patterns for auth detection
-- **Key Functions**:
-  - `jf/bash-plugin-cloud-auth` - Plugin implementation
-  - Pattern matching for aws-vault, aws, gcloud, az commands
+### Security Validation (bash-parser-security)
+- **Responsibility**: Validate commands against sandbox rules, dangerous pattern detection
+- **Key Functions**: `jf/bash-check-security` — Validate command against sandbox rules
+- **Independent**: Does not participate in the extraction pipeline
 
 ## Interfaces
 
-### Plugin Protocol
-```elisp
-;; Plugin registration
-(jf/bash-register-plugin
-  :name 'plugin-name
-  :priority 100
-  :extractor #'plugin-function
-  :predicates (list #'predicate-fn))
-
-;; Plugin function signature
-(defun plugin-function (parsed-command)
-  "PARSED-COMMAND: Enhanced parse result with :tokens and :parse-complete
-   Returns: jf/bash-plugin-result struct or nil"
-  ...)
-
-;; Plugin result structure
-(make-jf/bash-plugin-result
-  :domain :keyword              ; :filesystem, :cloud-auth, etc.
-  :operations (list ...)        ; Domain-specific operation plists
-  :claimed-token-ids (list ...) ; Token IDs understood by plugin
-  :metadata (list ...))         ; Domain-specific metadata
-```
-
 ### Main API
 ```elisp
-;; New unified extraction API
-(jf/bash-extract-semantics parsed-command)
-  => (:parse-complete t/nil
-      :parse-errors (...)
+;; Unified semantic extraction (primary API)
+(jf/bash-extract-semantics parsed-command &optional var-context)
+  => (:domains ((:filesystem . ops) (:authentication . ops) (:network . ops) ...)
       :coverage (:total-tokens N :claimed-tokens M :coverage-ratio R ...)
-      :domains ((:filesystem . ops) (:cloud-auth . ops) ...)
-      :plugin-results (...))
+      :parse-complete t/nil)
 
 ;; Deprecated (backward compatible wrapper)
 (jf/bash-extract-file-operations parsed-command &optional var-context)
   => (list of file operation plists)
+```
+
+### Command Handler Interface
+```elisp
+;; Handler registration
+(jf/bash-register-command-handler
+ :command "cat" :domain :filesystem :handler #'handler-fn)
+
+;; Handler function signature
+(defun handler-fn (parsed-command)
+  "Returns plist with :domain, :operations, :claimed-token-ids, :metadata"
+  ...)
+
+;; Handler lookup
+(jf/bash-lookup-command-handlers "aws")
+  => hash-table {domain => [handler-fn ...]}
+
+;; Handler dispatch (called by orchestrator)
+(jf/bash-extract-command-semantics parsed-command)
+  => (:domains ((domain . ops) ...) :claimed-token-ids (...))
 ```
 
 ### Token Inventory Structure
@@ -95,19 +106,45 @@
 ### Data Flow
 ```
 Bash String
-    ↓
+    |
 jf/bash-parse (enhanced with tokens)
-    ↓
+    |
 Parsed Command (with :tokens, :parse-complete)
-    ↓
+    |
 jf/bash-extract-semantics
-    ├─→ Plugin 1 (filesystem)    → Result 1 + claimed token IDs
-    ├─→ Plugin 2 (cloud-auth)    → Result 2 + claimed token IDs
-    └─→ Plugin N (future)        → Result N + claimed token IDs
-    ↓
-Aggregate results + Calculate coverage
-    ↓
-Semantic Analysis Result
+    |
++-- Layer 0: Grammar Decomposition (unconditional) ----------------+
+|                                                                    |
+|  Compound?  --yes--> Recursive decomposition                      |
+|      |               (pipelines, chains, loops, conditionals,      |
+|      no               subshells, substitutions, nested commands)   |
+|      |                      |                                      |
+|      v                      v                                      |
+|  Simple command        Simple commands (with accumulated context)  |
+|      |                      |                                      |
+|      +----------------------+                                      |
+|      v                                                             |
+|  For each simple command:                                          |
+|    1. Extract redirections --> :filesystem ops (:source :redirection)|
+|    2. Dispatch to command handlers (Layer 1) --+                   |
+|                                                 |                   |
++-- Layer 1: Command Handlers --------------------+-----------------+
+|                                                 v                  |
+|  jf/bash-extract-command-semantics(simple-cmd)                     |
+|    --> handler results by domain                                   |
+|    (:filesystem, :authentication, :network, etc.)                  |
+|                                                                    |
++--------------------------------------------------------------------+
+                         |
++-- Merge ---------------+------------------------------------------+
+|                        v                                           |
+|  Combine: Layer 0 redirection ops + Layer 1 handler ops            |
+|  Group by domain, both layers contribute to same domain            |
+|  Claim tokens post-hoc from all operations                         |
+|  Calculate coverage                                                |
+|  Produce final (:domains :coverage :parse-complete)                |
+|                                                                    |
++--------------------------------------------------------------------+
 ```
 
 ## Boundaries
@@ -115,157 +152,127 @@ Semantic Analysis Result
 ### In Scope
 - Token inventory tracking in parser
 - Parse completeness flag
-- Plugin registry and orchestration
+- Two-layer orchestration (grammar decomposition + command handlers)
+- Post-hoc token claiming from operations
 - Coverage calculation and reporting
-- Filesystem plugin refactoring
-- Cloud authentication plugin (AWS, GCP, Azure)
-- Breaking API change to unified semantic extraction
+- Command handler auto-discovery and registration
+- Cloud authentication detection via command handlers (aws, gcloud, az)
+- Security validation (sandbox rules, dangerous patterns)
 
 ### Out of Scope (Future Extensions)
-- Cloud resource extraction (S3 buckets, log groups, etc.) - beyond authentication
 - Database connection extraction (psql, mysql, mongo)
-- Network operation extraction (curl, wget, ssh)
 - Container operation extraction (docker, podman)
-- Language-specific code parsing (python -c, node -e) - not bash injection
+- Language-specific code parsing (python -c, node -e) — not bash injection
 
 ### Internal vs External
-- **Internal**: Token structures, plugin registry, coverage calculation algorithms
-- **External**: Plugin protocol (stable interface for third-party plugins), main extraction API
+- **Internal**: Decomposition engine, token claiming algorithm, merge logic
+- **External (stable)**: `jf/bash-extract-semantics` return structure, `jf/bash-register-command-handler` API, handler function signature
 
 ### Integration Points
-- **Parser Core**: Must emit token inventory
-- **gptel Scope System**: Consumer of semantic extraction API (needs migration from old API)
-- **Existing File Operations**: Refactored as plugin, old API deprecated
+- **Parser Core**: Produces parsed commands with token inventory
+- **gptel Scope System**: Consumer of `jf/bash-extract-semantics` return value
+- **File Operations Extraction**: Provides redirection extraction primitives to Layer 0
 
 ## Testing Approach
 
 ### Test Framework
-**ERT (Emacs Lisp Regression Testing)** - Continue using ERT for consistency with existing bash-parser tests. ERT provides:
-- Test definition via `ert-deftest`
-- Assertion macros (`should`, `should-not`, `should-error`)
-- Test discovery and execution
-- Integration with existing test infrastructure
+**Buttercup** — BDD framework with `describe`/`it`/`expect` syntax. Preferred for all new tests per project convention.
 
 ### Test Organization
-**Location**: `config/experiments/bash-parser/test/`
+**Location**: `config/bash-parser/test/`
 
-Test files co-located with existing bash-parser tests in dedicated test directory. New test files:
-- `test-bash-parser-plugins.el` - Plugin registry, orchestration, protocol
-- `test-bash-parser-coverage.el` - Coverage calculation and reporting
-- `test-bash-parser-tokens.el` - Token inventory (if separate tests needed, may be integrated into core tests)
-- `test-bash-parser-filesystem-plugin.el` - Filesystem plugin refactored implementation
-- `test-bash-parser-cloud-auth.el` - Cloud authentication plugin
+- `unit/core/` — Grammar extraction, redirection extraction, semantic pipeline
+- `unit/semantic/` — Handler registry, command semantics
+- `unit/analysis/` — Coverage calculation
+- `integration/` — Orchestrator end-to-end, handler merge, error handling
+- `behavioral/` — User-facing scenarios from specs
+- `construct/` — Bash construct-specific tests
+- `corpus/` — Corpus-driven tests
 
 ### Naming Conventions
-- **Test Files**: `test-bash-parser-*.el` format
-- **Test Functions**: `test-<functionality>` format
-- **Example**: `test-plugin-registration`, `test-coverage-calculation`, `test-cloud-auth-aws-vault`
+- **Files**: `*-spec.el` suffix (Buttercup)
+- **Describes**: `(describe "Grammar extraction"` — component-focused
+- **Its**: `(it "decomposes pipeline into simple commands"` — behavior-focused
 
 ### Running Tests
-**Primary Method**: `make test-bash-parser`
-
-Extend existing Makefile target to discover and run all `test-bash-parser-*.el` files in test directory. Makefile handles:
-- Emacs invocation with isolated runtime
-- Test file discovery
-- Batch execution with output formatting
-
-**Alternative** (already supported): `./bin/run-tests.sh -d config/experiments/bash-parser`
-
-### Test Patterns
-
-#### Test Data Setup
-- **Inline command strings**: Most tests use inline bash command strings for clarity
-- **Fixture commands**: Complex commands stored in test constants
-- **Mock variable contexts**: Use alists for testing variable resolution
-
-#### Mocking/Stubbing
-- **Plugin mocking**: Create minimal test plugins for orchestration tests
-- **No external mocking needed**: Parser and plugins are pure functions
-- **Stub patterns**: Use simple alists for pattern databases in tests
-
-#### Common Helpers
-- **Parse-and-extract helper**: Combine `jf/bash-parse` and `jf/bash-extract-semantics` for tests
-- **Token finder**: Helper to find tokens by type or value in token inventory
-- **Coverage assertion**: Helper to assert expected coverage ratio
-
-#### Assertion Patterns
-```elisp
-;; Assert token presence
-(should (equal (plist-get token :type) :command-name))
-
-;; Assert coverage
-(should (= (plist-get coverage :coverage-ratio) 0.85))
-
-;; Assert plugin result structure
-(should (jf/bash-plugin-result-p result))
-(should (eq (jf/bash-plugin-result-domain result) :filesystem))
-
-;; Assert claimed tokens
-(should (member token-id claimed-ids))
+```bash
+./bin/run-tests.sh -d config/bash-parser              # All
+./bin/run-tests.sh -d config/bash-parser/test/unit     # Unit tests
+./bin/run-tests.sh -d config/bash-parser/test/integration  # Integration
+./bin/run-tests.sh -d config/bash-parser --report      # Concise report
 ```
-
-### Scenario Mapping
-
-Each spec scenario maps to one or more ERT test cases:
-
-**Pattern 1: Direct Mapping** (most common)
-- Spec: "Scenario: Register plugin"
-- Test: `test-plugin-registration`
-- Verifies: Plugin added to registry with correct fields
-
-**Pattern 2: Multiple Scenarios in One Test** (related scenarios)
-- Spec: "Scenario: Full coverage" + "Scenario: Partial coverage"
-- Test: `test-coverage-calculation-ratios`
-- Verifies: Multiple coverage ratios in single test with subtests
-
-**Pattern 3: Parameterized Test** (systematic coverage)
-- Spec: "Scenario: Claim command name" + "Scenario: Claim flag tokens"
-- Test: `test-filesystem-plugin-token-claiming` with loop over test cases
-- Verifies: Token claiming for multiple command patterns
-
-**Pattern 4: Integration Test** (multiple components)
-- Spec: Multiple scenarios across plugins and coverage
-- Test: `test-semantic-extraction-end-to-end`
-- Verifies: Full pipeline from parse to coverage report
-
-**TDD Approach**:
-1. Write failing test from spec scenario
-2. Implement minimum code to pass test
-3. Refactor with tests passing
-4. Use `ert-deftest` with descriptive names matching scenarios
 
 ## Dependencies
 
 ### Internal Dependencies
-- `bash-parser-core` - Parser with token tracking (modified)
-- `bash-parser-protocol` - Forward declarations (unchanged)
-- `cl-lib` - Common Lisp extensions for struct definitions
+- `bash-parser-core` — Parser with token tracking
+- `bash-parser-protocol` — Forward declarations
+- `bash-parser-file-ops` — Redirection extraction, path resolution
+- `bash-parser-semantics` — Command handler registry and dispatch
+- `bash-parser-coverage` — Coverage calculation
+- `cl-lib` — Common Lisp extensions
 
 ### External Dependencies
-- **None** - Plugin architecture is self-contained within bash-parser
+- **None** — Architecture is self-contained within bash-parser
 
-### Test Dependencies
-- `ert` - Emacs Lisp Regression Testing framework (built-in)
-- `bash-parser` modules - Code under test
+## Requirements
+
+### Requirement: Data flow architecture
+The semantic extraction pipeline SHALL use a two-layer architecture where grammar-level concerns are separated from domain-specific concerns. No plugin system is involved.
+
+#### Scenario: Layer 0 runs unconditionally
+- **WHEN** `jf/bash-extract-semantics` is called with any parsed command
+- **THEN** Layer 0 (grammar extraction) SHALL execute first
+- **AND** Layer 0 SHALL decompose compound structures and extract redirections without any predicate gating
+
+#### Scenario: Layer 1 runs per simple command
+- **WHEN** Layer 0 produces simple commands from compound decomposition
+- **THEN** Layer 1 (command handlers) SHALL execute for each simple command
+- **AND** handler lookup SHALL use each simple command's `:command-name`
+
+#### Scenario: Merge produces final result
+- **WHEN** Layer 0 and Layer 1 complete
+- **THEN** the merge step SHALL combine grammar-level and handler-level operations by domain
+- **AND** the result SHALL conform to the existing `jf/bash-extract-semantics` return structure
+
+#### Scenario: No plugin system in data flow
+- **WHEN** examining the data flow
+- **THEN** there SHALL be no plugin registry (`jf/bash-semantic-plugins`)
+- **AND** there SHALL be no plugin registration function (`jf/bash-register-plugin`)
+- **AND** there SHALL be no plugin-result struct (`jf/bash-plugin-result`)
+- **AND** all domain-specific extraction SHALL go through command handlers
+
+### Requirement: Component boundaries
+The semantic extraction system SHALL have clear boundaries between grammar-level and domain-level components.
+
+#### Scenario: Grammar layer has no domain knowledge
+- **WHEN** Layer 0 extracts redirections
+- **THEN** it SHALL produce `:filesystem` operations because redirections are shell I/O
+- **BUT** it SHALL NOT inspect command names to decide whether to extract
+- **AND** it SHALL NOT use any command handler registry
+
+#### Scenario: Command handlers have no compound knowledge
+- **WHEN** Layer 1 handlers execute
+- **THEN** they SHALL receive only simple commands (never compound structures)
+- **AND** they SHALL NOT need to handle pipelines, chains, loops, or conditionals
+
+#### Scenario: Command handlers provide all domain-specific extraction
+- **WHEN** domain-specific operations are needed (filesystem from positional args, authentication, network)
+- **THEN** command handlers SHALL be the sole mechanism for producing them
+- **AND** there SHALL be no parallel plugin system for domain extraction
 
 ## Constraints
 
-### Performance Constraints
-- **Token overhead**: Minimal - token tracking adds ~10% memory per parsed command
-- **Plugin execution**: Linear with plugin count - acceptable for 2-10 plugins
-- **Coverage calculation**: O(n) where n = token count - acceptable for typical commands (<100 tokens)
+### Performance
+- Token overhead: Minimal (~10% memory per parsed command)
+- Handler dispatch: O(1) hash lookup per command name
+- Decomposition: Linear in compound structure depth (capped at max-depth)
 
-### Compatibility Constraints
-- **Breaking API change**: `jf/bash-extract-file-operations` deprecated in favor of `jf/bash-extract-semantics`
-- **Backward compatibility wrapper**: Provided for gradual migration
-- **Parser output structure**: Extended but backward compatible (new fields added, old fields unchanged)
+### Compatibility
+- `jf/bash-extract-semantics` return structure is the public API contract
+- `jf/bash-extract-file-operations` preserved as deprecated wrapper
+- Parser output structure extended but backward compatible
 
-### Technical Constraints
-- **Emacs Lisp limitations**: No true multithreading - plugins execute sequentially
-- **Token granularity**: Trade-off between coverage precision and complexity - chosen word-level granularity
-- **Shared claiming**: Multiple plugins can claim same tokens - requires careful coverage calculation
-
-### Testability Constraints
-- **Pure functions**: Parser and plugins are pure (no side effects) - highly testable
-- **Test isolation**: Each test file independent - can run in any order
-- **Test data**: Uses inline command strings - no external file dependencies
+### Technical
+- Emacs Lisp: No true multithreading — handlers execute sequentially per command
+- Token claiming is post-hoc (from operations), not inline during extraction

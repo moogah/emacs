@@ -11,7 +11,7 @@ This capability bridges the gap between user-friendly preset files and upstream'
 ### Preset Files
 
 Markdown files in `config/gptel/presets/` with YAML frontmatter and markdown body:
-- **Frontmatter**: Between `---` delimiters at file start. Contains YAML with preset configuration (model, backend, tools, temperature, etc.) plus scope keys (paths, org-roam-patterns, shell-commands, bash-tools, scope-profile).
+- **Frontmatter**: Between `---` delimiters at file start. Contains YAML with preset configuration (model, backend, tools, temperature, etc.) plus scope keys (paths, org-roam-patterns, shell-commands, scope-profile).
 - **Markdown body**: Text after closing `---` delimiter. Becomes the `:system` prompt message.
 - **File name**: Basename (sans `.md`) becomes the preset name symbol (e.g., `executor.md` → symbol `executor`).
 
@@ -39,7 +39,7 @@ Pure function pipeline transforming parsed YAML into a registered preset:
 1. **Parse** — Read file, extract YAML frontmatter (between `---`) and markdown body. Returns plist with YAML keys as keywords, markdown body as `:system` value.
 2. **Normalize** — Convert all snake_case keyword names to kebab-case. Example: `:confirm_tool_calls` → `:confirm-tool-calls`, `:org_roam_patterns` → `:org-roam-patterns`.
 3. **Coerce** — Fix YAML-to-elisp type mismatches. String models become symbols, `"nil"`/`"auto"`/`"always"` strings become proper elisp values, YAML `:false` becomes `nil`.
-4. **Extract scope** — Strip scope keys (`:paths`, `:org-roam-patterns`, `:shell-commands`, `:bash-tools`, `:scope-profile`) from plist and store in `jf/gptel-preset--scope-defaults` alist keyed by preset name.
+4. **Extract scope** — Strip scope keys (`:paths`, `:org-roam-patterns`, `:shell-commands`, `:scope-profile`) from plist and store in `jf/gptel-preset--scope-defaults` alist keyed by preset name.
 5. **Register** — Call `gptel-make-preset` with cleaned plist (scope keys removed, coercion applied).
 
 ### Scope Defaults Storage
@@ -183,11 +183,11 @@ The normalization SHALL:
 
 #### Scenario: Nested plists normalized recursively
 
-**WHEN** a plist contains nested structure like `:bash_tools (:read_only ("ls") :safe_write ("mkdir"))`
+**WHEN** a plist contains nested structure like `:org_roam_patterns (:subdirectory ("gptel") :tags ("research"))`
 
 **THEN** after normalization both outer and nested keys are converted:
 ```elisp
-(:bash-tools (:read-only ("ls") :safe-write ("mkdir")))
+(:org-roam-patterns (:subdirectory ("gptel") :tags ("research")))
 ```
 
 **Location:** Lines 122–126 check if a value is a keyword-keyed plist and recursively normalize it.
@@ -296,9 +296,7 @@ Coercion SHALL handle:
 
 ### Requirement: Scope key extraction
 
-The system SHALL extract scope-related keys from parsed preset plists before registration with `gptel-make-preset`. After key normalization, scope keys are: `:paths`, `:org-roam-patterns`, `:shell-commands`, `:bash-tools`, `:scope-profile`.
-
-**Note:** bash_tools extraction extends the scope key extraction with command category configuration.
+The system SHALL extract scope-related keys from parsed preset plists before registration with `gptel-make-preset`. After key normalization, scope keys are: `:paths`, `:org-roam-patterns`, `:shell-commands`, `:scope-profile`.
 
 **Implementation:** `jf/gptel-preset--extract-scope` in `/Users/jefffarr/emacs/config/gptel/preset-registration.org` lines 177–201.
 
@@ -360,13 +358,13 @@ The extraction function SHALL:
 
 #### Scenario: Multiple scope keys in one preset
 
-**WHEN** a preset contains `:scope-profile "coding"` AND `:paths (...)` AND `:bash-tools (...)`
+**WHEN** a preset contains `:scope-profile "coding"` AND `:paths (...)` AND `:org-roam-patterns (...)`
 
 **THEN** all three are extracted together into one scope-plist entry:
 ```elisp
 (mypreset . (:scope-profile "coding"
              :paths (...)
-             :bash-tools (...)))
+             :org-roam-patterns (...)))
 ```
 
 **Location:** Lines 188–194 collect all matching keys; line 200 stores complete plist.
@@ -381,64 +379,6 @@ The extraction function SHALL:
 
 **Location:** Line 196 check `(when scope-plist ...)` ensures nothing is stored if scope-plist is nil.
 
-#### Scenario: Bash tools extracted from preset plist
-
-**WHEN** a parsed and normalized plist contains `:bash-tools`
-
-**THEN** this key is removed from the plist before calling `gptel-make-preset`
-
-**AND** the bash_tools config is stored in `jf/gptel-preset--scope-defaults`
-
-**AND** the registered preset contains only gptel-recognized keys
-
-#### Scenario: Bash tools structure preserved
-
-**WHEN** extracting bash_tools with nested categories structure
-
-**THEN** the system preserves the nested plist structure:
-```elisp
-(:bash-tools
-  (:categories
-    (:read-only (:commands ["ls" "cat" "grep"])
-     :safe-write (:commands ["mkdir" "touch"])
-     :dangerous (:commands []))
-   :deny ["rm" "sudo"]))
-```
-
-#### Scenario: Bash tools key normalization
-
-**WHEN** YAML contains `bash_tools` with snake_case keys
-
-**THEN** after normalization the key is `:bash-tools` (kebab-case)
-
-**AND** nested keys like `read_only` become `:read-only`
-
-**AND** nested keys like `safe_write` become `:safe-write`
-
-#### Scenario: Preset with bash_tools and scope_profile
-
-**WHEN** a preset defines both inline bash_tools and a scope_profile reference
-
-**THEN** both are extracted to scope defaults
-
-**AND** the scope_profile takes precedence during session creation (inline bash_tools ignored if profile has bash_tools)
-
-#### Scenario: Preset with only bash_tools (no scope_profile)
-
-**WHEN** a preset defines bash_tools but no scope_profile reference
-
-**THEN** bash_tools is extracted and stored in scope defaults
-
-**AND** during session creation, the inline bash_tools is used directly
-
-#### Scenario: Preset with neither bash_tools nor scope_profile
-
-**WHEN** a preset defines neither bash_tools nor scope_profile
-
-**THEN** no bash_tools entry is added to scope defaults
-
-**AND** sessions created from that preset have no bash command access (deny by default)
-
 #### Scenario: Scope defaults used during session creation
 
 **WHEN** a session is created with preset "executor"
@@ -446,33 +386,6 @@ The extraction function SHALL:
 **THEN** the scope subsystem looks up `(alist-get executor jf/gptel-preset--scope-defaults)` to initialize the session's scope
 
 **Location:** `scope-profiles.org` lines 224–231 implement scope lookup for presets.
-
-### Requirement: Bash tools scope defaults structure
-
-The system SHALL store extracted bash_tools in `jf/gptel-preset--scope-defaults` using the same structure as scope profiles.
-
-#### Scenario: Scope defaults alist entry
-
-**WHEN** bash_tools is extracted from preset "executor"
-
-**THEN** `jf/gptel-preset--scope-defaults` contains:
-```elisp
-(executor . (:bash-tools
-              (:categories
-                (:read-only (:commands ["ls" "grep"])
-                 :safe-write (:commands ["mkdir"]))
-               :deny ["rm" "sudo"])))
-```
-
-#### Scenario: Multiple presets with bash_tools
-
-**WHEN** multiple presets define bash_tools
-
-**THEN** each has a separate entry in `jf/gptel-preset--scope-defaults`
-
-**AND** presets do not interfere with each other
-
-**Related specs:** See `bash-tools.md` for bash tools behavior and `scope-profiles.md` for how bash_tools flows from profiles to scope.yml.
 
 ### Requirement: Preset registration via gptel-make-preset
 
@@ -486,7 +399,7 @@ Value formats passed to `gptel-make-preset`:
 - **`:tools`** — list of tool name strings (e.g., `("PersistentAgent" "Read" "Write")`). Upstream resolves to tool objects via `gptel-get-tool` at application time.
 - **`:system`** — string (the markdown body from the preset file).
 - **`:temperature`, `:description`** — passed through as-is.
-- **No scope keys** — `:paths`, `:org-roam-patterns`, `:shell-commands`, `:bash-tools`, `:scope-profile` are excluded and stored separately.
+- **No scope keys** — `:paths`, `:org-roam-patterns`, `:shell-commands`, `:scope-profile` are excluded and stored separately.
 
 The registration function SHALL:
 1. Check presets directory exists (line 221)

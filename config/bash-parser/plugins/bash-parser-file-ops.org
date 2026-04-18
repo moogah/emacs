@@ -255,64 +255,20 @@ Examples:
    flags-list))
 #+end_src
 
-** Internal Implementation Function
+** Filesystem Extraction (Delegates to Orchestrator)
 
-Internal implementation that does the actual extraction work.
-This is called by both the public API wrapper and the filesystem plugin.
-
-#+begin_src emacs-lisp
-(defun jf/bash--extract-file-operations-impl (parsed-command &optional var-context)
-  "Internal implementation: Extract all file operations from PARSED-COMMAND.
-
-PARSED-COMMAND is the output from `jf/bash-parse'.
-VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
-
-Signals error if PARSED-COMMAND is not a valid plist or if VAR-CONTEXT has invalid structure.
-
-Returns a flat list of operation plists. See `jf/bash-extract-file-operations'
-for full return value documentation."
-  ;; Validate inputs
-  (unless (listp parsed-command)
-    (error "jf/bash--extract-file-operations-impl: parsed-command must be a plist, got %S"
-           (type-of parsed-command)))
-  (when var-context
-    (unless (jf/bash--valid-var-context-p var-context)
-      (error "jf/bash--extract-file-operations-impl: var-context must be an alist of (VAR . VALUE) pairs where VAR is symbol/string and VALUE is string, got %S"
-             var-context)))
-
-  ;; Normalize var-context
-  (let ((context (jf/bash--normalize-var-context var-context)))
-    ;; Use recursive analyzer (requires bash-parser-recursive)
-    (require 'bash-parser-recursive)
-    (let ((all-ops (jf/bash-analyze-file-operations-recursive
-                   parsed-command context 0)))
-      ;; Validate all operations before returning
-      (dolist (op all-ops)
-        (jf/bash--validate-operation-type op))
-      ;; Deduplicate and return
-      (jf/bash--deduplicate-operations all-ops))))
-#+end_src
-
-** Main Extraction Function (Deprecated Wrapper)
-
-The public API for file operation extraction.
-DEPRECATED: Use `jf/bash-extract-semantics' for new code.
+Extract filesystem operations via the two-layer orchestrator.
+This function provides a flat-list interface to =jf/bash-extract-semantics=.
 
 #+begin_src emacs-lisp
 (defun jf/bash-extract-file-operations (parsed-command &optional var-context)
-  "DEPRECATED: Extract all file operations from PARSED-COMMAND.
+  "Extract all file operations from PARSED-COMMAND.
 
-This function is deprecated. Use `jf/bash-extract-semantics' instead,
-which provides a multi-domain plugin-based extraction system.
-
-For backward compatibility, this function delegates to the internal
-implementation. The filesystem plugin has been updated to call the
-internal implementation directly to avoid circular dependencies.
+Delegates to `jf/bash-extract-semantics' and extracts the :filesystem
+domain operations from the result.
 
 PARSED-COMMAND is the output from `jf/bash-parse'.
-VAR-CONTEXT is an optional alist mapping variable names (symbols or strings) to values.
-
-Signals error if PARSED-COMMAND is not a valid plist.
+VAR-CONTEXT is an optional alist mapping variable names to values.
 
 Returns a flat list of operation plists, each containing:
   :file - File path (may contain unresolved variables or patterns)
@@ -320,33 +276,10 @@ Returns a flat list of operation plists, each containing:
                                 :match-pattern, :read-directory, :read-metadata)
   :confidence - Confidence level (:high, :medium, :low)
   :source - Source of operation (:redirection, :positional-arg, :exec-block, etc.)
-  :command - Command name that performs the operation
-
-  Context flags (optional):
-  :from-substitution - t if from command substitution
-  :loop-context - t if in loop body
-  :loop-variable - Loop variable name if in loop
-  :conditional - t if in conditional branch
-  :branch - :then or :else if in conditional
-  :test-condition - t if in conditional test
-  :pattern - t if file path is a glob pattern
-  :pattern-source - Plist identifying pattern producer if applicable
-  :heredoc-content - t if from heredoc with redirect
-  :indirect - t if from nested/indirect execution
-
-Examples:
-  Simple: (jf/bash-extract-file-operations (jf/bash-parse \"cat file.txt\"))
-  => ((:file \"file.txt\" :operation :read :confidence :high :command \"cat\"))
-
-  Nested: (jf/bash-extract-file-operations (jf/bash-parse \"cat $(find . -name '*.log')\"))
-  => ((:file \".\" :operation :read-directory :command \"find\" :from-substitution t)
-      (:file \"*.log\" :operation :match-pattern :command \"find\" :pattern t :from-substitution t)
-      (:file \"*.log\" :operation :read :command \"cat\" :pattern t :pattern-source (...)))
-
-  Loop: (jf/bash-extract-file-operations (jf/bash-parse \"for f in *.txt; do rm $f; done\"))
-  => ((:file \"*.txt\" :operation :delete :command \"rm\" :pattern t :loop-context t))"
-  ;; Delegate to internal implementation
-  (jf/bash--extract-file-operations-impl parsed-command var-context))
+  :command - Command name that performs the operation"
+  (let* ((result (jf/bash-extract-semantics parsed-command var-context))
+         (domains (plist-get result :domains)))
+    (or (alist-get :filesystem domains) '())))
 #+end_src
 
 ** Operation Validation
@@ -432,16 +365,14 @@ Check if bash-parser has specific features enabled.
   "Check if bash-parser has FEATURE enabled.
 
 Features:
-  :recursive-analysis - Recursive semantic analysis
-  :pattern-flow - Pattern flow tracking through substitutions (in recursive module)
+  :semantic-extraction - Two-layer semantic extraction (orchestrator)
   :loop-context - Loop variable binding and context tracking
   :conditional-context - Conditional branch context tracking
   :heredoc-context - Heredoc context disambiguation
 
 Returns t if feature is available, nil otherwise."
   (pcase feature
-    (:recursive-analysis (fboundp 'jf/bash-analyze-file-operations-recursive))
-    (:pattern-flow (fboundp 'jf/bash-analyze-file-operations-recursive))
+    (:semantic-extraction (fboundp 'jf/bash-extract-semantics))
     (:loop-context (fboundp 'jf/bash--resolve-loop-variable))
     (:conditional-context (fboundp 'jf/bash--extract-file-test-operations))
     (:heredoc-context (fboundp 'jf/bash--determine-heredoc-context))
@@ -747,10 +678,11 @@ arguments represent file paths and what operations they perform.
 
 #+begin_src emacs-lisp
 (defun jf/bash-extract-operations-from-positional-args (parsed-command &optional var-context)
-  "Extract file operations from positional arguments in PARSED-COMMAND.
+  "Extract file operations from positional arguments using command handlers.
 
-Uses command semantics database to determine which positional arguments
-represent file paths and what operations they represent.
+Delegates to registered command handlers via `jf/bash-extract-command-semantics'
+to determine which positional arguments represent file paths and what operations
+they perform.  Applies variable resolution from VAR-CONTEXT to resulting paths.
 
 PARSED-COMMAND is the output of `jf/bash-parse'.
 VAR-CONTEXT is optional alist mapping variable names (symbols) to values (strings).
@@ -758,97 +690,66 @@ VAR-CONTEXT is optional alist mapping variable names (symbols) to values (string
 Returns list of operation plists with:
   :file - File path (string, possibly with variables)
   :operation - Operation type (:read, :write, :delete, :modify, etc.)
-  :confidence - Confidence level (:high for known commands, nil for unknown)
-  :source - Source of file path (:positional-arg)
+  :confidence - Confidence level (:high for known commands, :medium for unresolved vars)
+  :source - Source of file path (from handler, defaults to :positional-arg)
   :command - Command name that performs the operation
 
-Returns empty list if:
-- Command is not in semantics database
-- Command has no positional arguments
-- No positional args map to file operations per semantics
+Handler results may include additional properties like :pattern, :search-scope,
+etc. which are preserved in the output.
 
-Example:
-  (jf/bash-extract-operations-from-positional-args
-    (jf/bash-parse \"cat /workspace/foo.txt\"))
-  => ((:file \"/workspace/foo.txt\" :operation :read
-       :confidence :high :source :positional-arg :command \"cat\"))
-
-  (jf/bash-extract-operations-from-positional-args
-    (jf/bash-parse \"cp src.txt dst.txt\"))
-  => ((:file \"src.txt\" :operation :read :confidence :high ...)
-      (:file \"dst.txt\" :operation :write :confidence :high ...))
-
-  (jf/bash-extract-operations-from-positional-args
-    (jf/bash-parse \"grep pattern file.txt\"))
-  => ((:file \"file.txt\" :operation :read :confidence :high ...))
-      ;; Note: pattern arg at index 0 is skipped per semantics"
-  (let* ((command-name (plist-get parsed-command :command-name))
-         (subcommand (plist-get parsed-command :subcommand))
-         (flags (plist-get parsed-command :flags))
-         (positional-args (plist-get parsed-command :positional-args))
-         (args (plist-get parsed-command :args))
-         (operations nil))
-
-    ;; Only proceed if we have a command and positional args
-    (when (and command-name positional-args)
-      (let ((semantics (jf/bash-lookup-command-semantics command-name)))
-        (when semantics
-          ;; Validate semantics entry (fail fast with clear errors)
-          (condition-case err
-              (jf/bash--validate-semantics-entry (intern command-name) semantics)
-            (error
-             ;; Log validation error instead of crashing
-             (message "Warning: Semantics validation failed for command %s: %s"
-                      command-name (error-message-string err))
-             ;; Return early with empty operations
-             (setq semantics nil)))
-          (when semantics
-            (let ((ops-spec (plist-get semantics :operations)))
-            (cond
-             ;; Complex command (git, docker, etc.) - handle subcommand
-             ((eq ops-spec :complex)
-              ;; For complex commands, subcommand is either explicitly set
-              ;; or the first positional arg
-              (let* ((effective-subcommand (or subcommand (car positional-args)))
-                     (subcommand-args (if subcommand
-                                         positional-args
-                                       (cdr positional-args))))
-                (when effective-subcommand
-                  (let ((subcommand-handlers (plist-get semantics :subcommand-handlers)))
-                    (when-let ((handler-spec (alist-get (intern effective-subcommand) subcommand-handlers)))
-                      (setq operations
-                            (jf/bash--extract-ops-from-positional-specs
-                             handler-spec subcommand-args command-name var-context args)))))))
-
-             ;; Flag-dependent command (tar, sed, etc.) - check flags
-             ((eq ops-spec :flag-dependent)
-              (let* ((flag-handlers (plist-get semantics :flag-handlers))
-                     (matched-handler
-                      (cl-loop for handler in flag-handlers
-                               for trigger-flags = (car handler)
-                               for handler-spec = (cdr handler)
-                               when (or (null trigger-flags)  ; Empty trigger matches always
-                                        (seq-some (lambda (f) (jf/bash--flag-present-p f flags)) trigger-flags))
-                               return handler-spec)))  ; Can be () or operation spec list
-                ;; Extract operations if handler matched (even if handler-spec is empty list)
-                (when matched-handler
-                  (setq operations
-                        (jf/bash--extract-ops-from-positional-specs
-                         matched-handler positional-args command-name var-context args)))))
-
-             ;; Custom command handler - delegate to custom function
-             ((eq ops-spec :custom)
-              (let ((custom-handler (plist-get semantics :handler)))
-                (when (and custom-handler (fboundp custom-handler))
-                  (setq operations (funcall custom-handler parsed-command var-context)))))
-
-             ;; Simple command - direct operation specs
-             ((listp ops-spec)
-              (setq operations
-                    (jf/bash--extract-ops-from-positional-specs
-                     ops-spec positional-args command-name var-context args)))))))))
-
-    operations))
+Returns empty list if no command handlers are registered for this command."
+  (let* ((result (jf/bash-extract-command-semantics parsed-command))
+         (domains (plist-get result :domains))
+         (filesystem-ops (alist-get :filesystem domains))
+         (resolved-ops nil))
+    (dolist (op filesystem-ops)
+      (let* ((file (plist-get op :file))
+             ;; Pre-resolve command substitutions ($(pwd), $(basename ...), etc.)
+             (cmd-resolved (if (and file var-context
+                                    (fboundp 'jf/bash--resolve-command-substitution))
+                               (jf/bash--resolve-command-substitution file var-context)
+                             file))
+             ;; Skip unresolvable command substitutions
+             (skip (or (eq cmd-resolved :unresolved)
+                       (and (stringp cmd-resolved)
+                            (string-match-p "\\$(" cmd-resolved))))
+             (resolved (when (and cmd-resolved (not skip))
+                         (jf/bash--resolve-path-variables cmd-resolved var-context)))
+             (final-path (cond
+                          (skip nil)  ; will be skipped
+                          ((null resolved) cmd-resolved)
+                          ((stringp resolved) resolved)
+                          (t (plist-get resolved :path))))
+             (unresolved-vars (when (and resolved (listp resolved))
+                                (plist-get resolved :unresolved)))
+             (has-pattern (or (plist-get op :pattern)
+                             (jf/bash--has-glob-pattern-p final-path)))
+             (operation (plist-get op :operation))
+             ;; Build base operation, preserving handler properties
+             (base-op (list :file final-path
+                            :operation operation
+                            :confidence (if unresolved-vars
+                                            :medium
+                                          (or (plist-get op :confidence) :high))
+                            :source (or (plist-get op :source) :positional-arg)
+                            :command (plist-get op :command))))
+        ;; Skip unresolvable command substitutions
+        (unless skip
+          ;; Append unresolved variable info
+          (when unresolved-vars
+            (setq base-op (append base-op (list :unresolved t :unresolved-vars unresolved-vars))))
+          ;; Auto-detect glob patterns
+          (when has-pattern
+            (setq base-op (append base-op (list :pattern t))))
+          ;; Append handler-specific properties (search-scope, etc.)
+          (dolist (key '(:search-scope))
+            (when-let ((val (plist-get op key)))
+              (setq base-op (append base-op (list key val)))))
+          ;; Always include :script-args for execute operations
+          (when (eq operation :execute)
+            (setq base-op (append base-op (list :script-args (or (plist-get op :script-args) '())))))
+          (push base-op resolved-ops))))
+    (nreverse resolved-ops)))
 #+end_src
 
 *** Helper: Apply Operation Specs
@@ -1105,7 +1006,7 @@ Resolve variables in file path using context.
 
 This function performs three-stage atomic resolution with error handling:
   1. Variable resolution ($VAR, ${VAR}) using `jf/bash-resolve-variables'
-  2. Command substitution ($(pwd), `pwd`) using `jf/bash--resolve-pwd-substitution'
+  2. Command substitution ($(pwd), $(basename ...), $(dirname ...), nested) using `jf/bash--resolve-command-substitution'
   3. Relative path resolution (., ./, ../) using `jf/bash-resolve-relative-path'
 
 FILE-PATH is the file path string (may contain variables, substitutions, and/or
@@ -1161,16 +1062,23 @@ Examples:
                      (plist-get var-resolved :path)
                      (plist-get var-resolved :unresolved))))
 
-        ;; Stage 2: Resolve command substitutions (pwd)
+        ;; Stage 2: Resolve command substitutions (pwd, basename, dirname, nested)
+        ;; Try full resolve-command-substitution first for any $() pattern;
+        ;; fall back to simple resolve-pwd-substitution when it returns :unresolved
         (condition-case err
             (let ((pwd-resolved
                    (if (stringp var-resolved)
-                       ;; All variables resolved - apply pwd substitution
-                       (jf/bash--resolve-pwd-substitution var-resolved var-context)
-                     ;; Partial variable resolution - still apply pwd substitution to :path
+                       (let ((resolved (jf/bash--resolve-command-substitution var-resolved var-context)))
+                         (if (eq resolved :unresolved)
+                             (jf/bash--resolve-pwd-substitution var-resolved var-context)
+                           resolved))
+                     ;; Partial variable resolution
                      (let* ((path (plist-get var-resolved :path))
                             (unresolved-vars (plist-get var-resolved :unresolved))
-                            (resolved-path (jf/bash--resolve-pwd-substitution path var-context)))
+                            (resolved (jf/bash--resolve-command-substitution path var-context))
+                            (resolved-path (if (eq resolved :unresolved)
+                                               (jf/bash--resolve-pwd-substitution path var-context)
+                                             resolved)))
                        (list :path resolved-path :unresolved unresolved-vars)))))
               (when debug
                 (if (stringp pwd-resolved)
@@ -1312,6 +1220,63 @@ Examples:
     operations))
 #+end_src
 
+*** Helper: Dynamic Path Replacement
+
+When a redirect destination contains command substitutions or unresolvable
+variables, replace the unknowable parts with =*= (glob wildcard) while
+preserving known structure (directory prefixes, file extensions). The output
+is a glob pattern in the same language as the scope policy files, so the
+scope validator can match extracted paths against policy globs directly.
+
+#+begin_src emacs-lisp
+(defun jf/bash--dynamicize-path (file-path)
+  "Replace unresolvable dynamic parts in FILE-PATH with * (glob wildcard).
+
+Replaces command substitutions $(…) and unresolved $VAR references
+with *, preserving known directory prefixes and file extensions.
+The result is a glob pattern that the scope validator can match
+directly against policy paths (e.g., ${project_root}/**).
+
+Examples:
+  (jf/bash--dynamicize-path \"backup/$(basename \\\"$file\\\")\")
+    => \"backup/*\"
+
+  (jf/bash--dynamicize-path \"output/$line.txt\")
+    => \"output/*.txt\"
+
+  (jf/bash--dynamicize-path \"log-$(date +%Y-%m-%d).txt\")
+    => \"log-*.txt\"
+
+  (jf/bash--dynamicize-path \"backup-$(whoami)-$(date +%s).txt\")
+    => \"backup-*.txt\"
+
+  (jf/bash--dynamicize-path \"/static/path.txt\")
+    => nil  (no dynamic parts detected)
+
+Returns the dynamicized path string, or nil if the path has no dynamic parts."
+  (when (and (stringp file-path)
+             (or (string-match-p "\\$(" file-path)
+                 (string-match-p "\\$[A-Za-z_]" file-path)
+                 (string-match-p "`[^`]+`" file-path)))
+    ;; Replace command substitutions $(…) — handle nested parens
+    (let ((result file-path))
+      ;; Replace $(…) including nested parens, iteratively from innermost
+      (while (string-match-p "\\$([^)]*)" result)
+        (setq result (replace-regexp-in-string
+                      "\\$([^)]*)" "*" result t)))
+      ;; Replace backtick substitutions `…`
+      (setq result (replace-regexp-in-string
+                    "`[^`]+`" "*" result t))
+      ;; Replace bare $VAR references
+      (setq result (replace-regexp-in-string
+                    "\\$[A-Za-z_][A-Za-z0-9_]*" "*" result t))
+      ;; Collapse adjacent * segments (e.g., *-*.txt → *.txt)
+      (while (string-match-p "\\*[^/]*\\*" result)
+        (setq result (replace-regexp-in-string
+                      "\\*[^/]*\\*" "*" result t)))
+      result)))
+#+end_src
+
 *** Helper: Process Redirection List
 
 #+begin_src emacs-lisp
@@ -1349,18 +1314,22 @@ Returns list of operation plists with resolved file paths."
                                  (plist-get resolved-path :path)))
                      (unresolved-vars (when (listp resolved-path)
                                        (plist-get resolved-path :unresolved))))
-                ;; Build operation plist
-                (push (append (list :file file-path
-                                   :operation operation-type
-                                   :confidence :high
-                                   :source :redirection
-                                   :command command-name
-                                   :metadata redir)
-                             (when unresolved-vars
-                               (list :unresolved t :unresolved-vars unresolved-vars))
-                             (when has-heredoc
-                               (list :heredoc-content t)))
-                      operations)))))))
+                ;; Detect dynamic paths (unresolvable $(cmd) or $VAR)
+                (let ((dynamic-path (jf/bash--dynamicize-path file-path)))
+                  ;; Build operation plist
+                  (push (append (list :file (or dynamic-path file-path)
+                                     :operation operation-type
+                                     :confidence :high
+                                     :source :redirection
+                                     :command command-name
+                                     :metadata redir)
+                               (when dynamic-path
+                                 (list :dynamic t :dynamic-filename t))
+                               (when unresolved-vars
+                                 (list :unresolved t :unresolved-vars unresolved-vars))
+                               (when has-heredoc
+                                 (list :heredoc-content t)))
+                        operations))))))))
     (nreverse operations)))
 #+end_src
 
@@ -1468,54 +1437,6 @@ Examples:
             (push op operations)))))
 
     (nreverse operations)))
-#+end_src
-
-*** Helper: Infer Operation Type
-
-Helper function to infer operation type from command name. This is a simplified
-version for exec block extraction. Full operation extraction should use the command
-semantics database.
-
-#+begin_src emacs-lisp
-(defun jf/bash--infer-operation-type (command-name)
-  "Infer operation type from COMMAND-NAME.
-
-Returns operation type symbol (:read, :write, :delete, :modify) or nil if
-command is not recognized or doesn't operate on files.
-
-This is a simplified heuristic for exec block extraction. For full operation
-extraction, use the command semantics database instead.
-
-Recognized patterns:
-  - Read operations: cat, head, tail, less, more, grep, wc, file, stat
-  - Write operations: touch, tee, dd (of=)
-  - Delete operations: rm, rmdir
-  - Modify operations: chmod, chown, chgrp, sed -i
-
-Unknown commands return nil."
-  (when (and command-name
-             ;; Don't try to intern assignment strings like "DIR=/tmp"
-             (not (string-match-p "=" command-name)))
-    (let ((cmd (intern command-name)))
-      (cond
-       ;; Read operations
-       ((memq cmd '(cat head tail less more grep egrep fgrep wc file stat))
-        :read)
-
-       ;; Write operations
-       ((memq cmd '(touch tee))
-        :write)
-
-       ;; Delete operations
-       ((memq cmd '(rm rmdir))
-        :delete)
-
-       ;; Modify operations
-       ((memq cmd '(chmod chown chgrp))
-        :modify)
-
-       ;; Unknown or non-file-operation command
-       (t nil)))))
 #+end_src
 
 * Provide

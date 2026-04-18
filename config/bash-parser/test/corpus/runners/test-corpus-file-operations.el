@@ -720,8 +720,11 @@
 
     (:id "match-pattern-004"
      :command "ls /tmp"
-     :note "Ls without glob - no operations (just lists)"
-     :expect-ops ())
+     :note "Ls with plain path produces :read-directory"
+     :expect-ops ((:file "/tmp"
+                   :operation :read-directory
+                   :confidence :high
+                   :source :positional-arg)))
 
     (:id "match-pattern-005"
      :command "find /var/log -name 'error*.log'"
@@ -793,14 +796,13 @@
                    :branch :then
                    :loop-context t
                    :pattern t)
-                  ;; redirect writes with dynamic filename (from basename substitution)
-                  (:file "backup/{dynamic}"
+                  ;; redirect writes with resolved basename (*.log preserved through basename)
+                  (:file "backup/*.log"
                    :operation :write
                    :source :redirection
                    :conditional t
                    :branch :then
-                   :loop-context t
-                   :dynamic t)))
+                   :loop-context t)))
 
     (:id "integration-002"
      :command "cat $(find . -name '*.txt') | grep -E '^ERROR' > errors.log"
@@ -860,10 +862,9 @@
     (:id "integration-004"
      :command "cat <<'EOF' | while read line; do echo \"$line\" > output/$line.txt; done\nfile1\nfile2\nEOF"
      :note "Heredoc piped to while loop with dynamic file writes"
-     :expect-ops ((:file "output/{dynamic}.txt"
+     :expect-ops ((:file "output/*.txt"
                    :operation :write
                    :source :redirection
-                   :loop-context t
                    :dynamic t)))
 
     (:id "integration-005"

@@ -27,9 +27,18 @@
 (declare-function jf/bash--flag-present-p "bash-parser-file-ops"
                   (flag flags-list))
 
-;; Command semantics lookup
-(declare-function jf/bash-lookup-command-semantics "bash-parser-semantics"
+;; Command handler lookup
+(declare-function jf/bash-lookup-command-handlers "bash-parser-semantics"
                   (command-name))
+
+;; Command semantics extraction
+(declare-function jf/bash-extract-command-semantics "bash-parser-semantics"
+                  (parsed-command))
+
+(defvar jf/bash-recursive-max-depth 10
+  "Maximum recursion depth for semantic analysis and nested command parsing.
+Prevents infinite recursion in pathological cases.
+Shared by bash-parser-orchestrator and bash-parser-extensions modules.")
 
 (provide 'bash-parser-protocol)
 ;;; bash-parser-protocol.el ends here

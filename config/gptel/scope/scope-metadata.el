@@ -1,3 +1,13 @@
+;;; scope-metadata.el --- GPTEL Scope Metadata Utilities -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Metadata gathering for scope validation in gptel sessions.
+
+;;; Code:
+
 ;; Dependencies
 
 

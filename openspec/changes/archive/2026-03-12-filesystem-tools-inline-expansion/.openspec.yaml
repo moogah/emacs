@@ -1,0 +1,9 @@
+schema: spec-driven-beads
+created: 2026-03-10
+beads:
+  - emacs-nb4o  # Create metadata gathering module for file context
+  - emacs-lnk1  # Update validation function signatures to accept metadata
+  - emacs-2rcr  # Enable inline expansion for filesystem tools
+  - emacs-6317  # Enhance expansion UI with metadata display
+  - emacs-9g6i  # Create behavioral tests for read_file tool
+  - emacs-35go  # Create behavioral tests for write and edit tools

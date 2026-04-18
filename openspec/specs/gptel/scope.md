@@ -1,617 +1,492 @@
-# Scope System - Core Behavioral Spec
+# Scope System
 
 ## Purpose
 
-Provides fine-grained permission control for gptel tools, enforcing access policies through scope configuration. This spec describes the core validation engine, configuration loading, permission checking, and tool wrapping mechanisms.
+The scope system gates gptel tool invocations against a `scope.yml` permission file living in the session's branch directory. Filesystem tools (read, write, edit) and the `run_bash_command` tool share a single authorization entrypoint that loads config, dispatches to the appropriate validator, and — on denial — routes through an inline expansion UI where the user can deny, allow for the pending invocation, or write a new pattern to `scope.yml`. Validation is semantic, not categorical: bash commands are judged by the file operations bash-parser extracts from them, not by command-name allowlists.
 
-**Current version:** v4 (bash-parser integration)
+## Module Overview
 
-**Breaking changes from v3:** The v4 scope system uses bash-parser for semantic command validation with operation-specific path scoping, cloud authentication detection, and security settings. v3 schemas are NOT backward compatible and require manual migration. See "Breaking Changes from v3" section below.
+All modules live under `config/gptel/scope/`.
+
+| File                        | Responsibilities                                                               |
+|-----------------------------|---------------------------------------------------------------------------------|
+| `scope-tool-wrapper.el`     | `gptel-make-scoped-tool` macro (always async; delegates to the authorize entry) |
+| `scope-validation.el`       | Config load, validators, bash pipeline, glob match, authorize dispatcher, violation-info, error formatter, expansion trigger |
+| `scope-yaml.el`             | YAML parse, vector→list, snake_case→kebab-case normalization, schema defaults, merge |
+| `scope-metadata.el`         | File metadata gathering (exists, git-tracked, git-repo, type)                   |
+| `scope-filesystem-tools.el` | `read_file_in_scope`, `write_file_in_scope`, `edit_file_in_scope`               |
+| `scope-shell-tools.el`      | `run_bash_command` tool, `request_scope_expansion` tool, command execution helpers |
+| `scope-expansion.el`        | Transient menu, `scope.yml` writer, queue (referenced here; full spec in scope-expansion) |
+| `interfaces.el`             | Executable contracts: canonical error codes, validation-result/violation-info validators, glob test cases |
+
+Config loading, metadata gathering, validation dispatch, expansion escalation, and error formatting all live in `scope-validation.el`. `scope-tool-wrapper.el` is a pure macro shim. `scope-shell-tools.el` contains no validation logic.
 
 ## Requirements
 
-### Requirement: Tool categorization system
+### Requirement: Scope configuration loading
 
-The scope system SHALL maintain categorization mapping for all scope-aware tools defining validation strategy and operation type.
+The scope system SHALL load `scope.yml` fresh on every tool invocation from the session's branch directory. Configuration is never cached; the filesystem is the source of truth.
 
-**Implementation**: `config/gptel/scope/scope-core.org` - tool categories alist
+**Implementation**: `config/gptel/scope/scope-validation.org` (loader), `config/gptel/scope/scope-yaml.org` (parser)
 
-#### Scenario: Path-based read tool categorized
-- **WHEN** tool performs file read operations
-- **THEN** system categorizes with validation strategy "path" and operation type "read"
+#### Scenario: Config resolved from buffer-local branch directory
+- **WHEN** a scoped tool is invoked
+- **THEN** the loader uses buffer-local `jf/gptel--branch-dir` when bound
+- **AND** falls back to the current buffer's file directory when that variable is unset
 
-#### Scenario: Path-based write tool categorized
-- **WHEN** tool performs file write operations
-- **THEN** system categorizes with validation strategy "path" and operation type "write"
+#### Scenario: Missing configuration denies with no_scope_config
+- **WHEN** no `scope.yml` exists at the resolved location
+- **THEN** the authorization entrypoint invokes the on-deny thunk with `:error "no_scope_config"`
+- **AND** the response bypasses the expansion UI (missing config is not a scope violation)
 
-#### Scenario: Pattern-based tool categorized
-- **WHEN** tool performs org-roam operations
-- **THEN** system categorizes with validation strategy "pattern"
+#### Scenario: Configuration read fresh every call
+- **WHEN** the same tool is called twice in a session after `scope.yml` is edited
+- **THEN** each call parses the file again; there is no in-memory cache
 
-#### Scenario: Command-based tool categorized
-- **WHEN** tool executes shell commands (deprecated - replaced by bash validation)
-- **THEN** system categorizes with validation strategy "command" and operation type "write"
+### Requirement: Scope configuration shape
 
-#### Scenario: Bash-based tool categorized
-- **WHEN** tool executes arbitrary shell commands with directory scoping
-- **THEN** system categorizes with validation strategy "bash" and operation type "write"
+Parsed `scope.yml` SHALL produce a plist with `:paths`, `:cloud`, and `:security` sections. Missing sections are merged with `jf/gptel-scope-yaml--schema-defaults`. YAML keys are snake_case on disk and kebab-case keywords in elisp.
 
-#### Scenario: Meta tool bypasses validation
-- **WHEN** tool categorized as meta (e.g., request_scope_expansion)
-- **THEN** system allows without scope checks
+**Implementation**: `config/gptel/scope/scope-yaml.org`
 
-#### Scenario: PersistentAgent delegation
-- **WHEN** PersistentAgent tool categorized
-- **THEN** marked as meta with `:operation delegate` (delegates to spawned agent)
+The canonical shape:
 
-### Requirement: Configuration loading from scope.yml
+```
+(:paths (:read    (PATTERN ...)
+         :write   (PATTERN ...)
+         :modify  (PATTERN ...)
+         :execute (PATTERN ...)
+         :deny    (PATTERN ...))
+ :cloud (:auth-detection     "allow"|"warn"|"deny"
+         :allowed-providers  (PROVIDER ...))
+ :security (:enforce-parse-complete  BOOL
+            :max-coverage-threshold  FLOAT))
+```
 
-The scope system SHALL load scope configuration from scope.yml in session's branch directory.
+#### Scenario: Snake_case keys normalized to kebab-case
+- **WHEN** YAML contains `auth_detection: warn` inside `cloud:`
+- **THEN** the elisp plist exposes `(:cloud (:auth-detection "warn" ...))`
 
-**CRITICAL**: Configuration is **NOT cached** - scope.yml is read fresh on every tool call. Filesystem is source of truth.
+#### Scenario: YAML booleans normalized
+- **WHEN** YAML contains `enforce_parse_complete: true`
+- **THEN** the elisp plist value is `t` (not the `:true` keyword)
+- **AND** `false` or `null` become `nil`
 
-**Implementation**: `config/gptel/scope/scope-core.org` - `jf/gptel-scope--load-config` (lines 407-442)
+#### Scenario: Missing sections filled from defaults
+- **WHEN** `scope.yml` omits the `security` section
+- **THEN** the merged config carries `:enforce-parse-complete t` and `:max-coverage-threshold 0.8`
 
-#### Scenario: Configuration loaded from scope.yml
-- **WHEN** tool executes and needs scope validation
-- **THEN** system reads scope configuration from scope.yml in buffer's branch directory
-- **AND** does NOT use cached configuration (filesystem is source of truth)
+#### Scenario: Invalid auth_detection rejected on load
+- **WHEN** `cloud.auth_detection` is anything other than `"allow"`, `"warn"`, or `"deny"`
+- **THEN** `jf/gptel-scope-yaml--validate-cloud-config` signals a schema error
 
-#### Scenario: Missing configuration handled gracefully
-- **WHEN** no scope.yml exists in branch directory
-- **THEN** system returns "no_scope_config" error to tool
+#### Scenario: Invalid coverage threshold rejected on load
+- **WHEN** `security.max_coverage_threshold` is not a number in `[0.0, 1.0]`
+- **THEN** `jf/gptel-scope-yaml--validate-security-config` signals a schema error
 
-#### Scenario: Buffer context determines directory
-- **WHEN** tool executes in gptel buffer
-- **THEN** system uses buffer-local `jf/gptel--branch-dir` variable to locate scope.yml
+### Requirement: Scoped tool macro
 
-### Requirement: Path-based validation
+The `gptel-make-scoped-tool` macro SHALL be the only way to define scope-aware tools. It binds arguments, delegates to the authorization dispatcher, and routes the result through the gptel async callback.
 
-The scope system SHALL validate path-based tools against read/write/deny path lists using glob pattern matching.
+**Implementation**: `config/gptel/scope/scope-tool-wrapper.org`
 
-**Implementation**: `config/gptel/scope/scope-core.org` - path validator
+#### Scenario: Tools are always async
+- **WHEN** a tool is defined with `gptel-make-scoped-tool`
+- **THEN** the resulting `gptel-make-tool` form carries `:async t`
+- **AND** the body runs only when the on-allow thunk is invoked (possibly on a later turn, after the expansion UI resolves)
 
-#### Scenario: Deny patterns have highest priority
-- **WHEN** path matches both allow and deny patterns
-- **THEN** system denies access (deny takes precedence)
+#### Scenario: Declared operation for filesystem tools
+- **WHEN** the macro is given `:operation read` (or `write`/`modify`/`execute`)
+- **THEN** the authorize dispatcher routes to filesystem path validation with that operation
 
-#### Scenario: Read operation matches read patterns
-- **WHEN** read tool accesses path matching `paths.read` patterns
-- **THEN** system allows the operation
+#### Scenario: Omitted operation for bash-style tools
+- **WHEN** the macro is invoked with no `:operation` keyword
+- **THEN** the authorize dispatcher routes to bash semantic validation and operations are extracted from input
 
-#### Scenario: Write operation matches write patterns
-- **WHEN** write tool accesses path matching `paths.write` patterns
-- **THEN** system allows the operation
+#### Scenario: Tool body exceptions caught as tool_exception
+- **WHEN** the body signals an elisp error after authorization passes
+- **THEN** the callback is invoked with `:error "tool_exception"` and the error message
 
-#### Scenario: Path fails to match allowed patterns
-- **WHEN** path doesn't match any allowed patterns for operation type
-- **THEN** system denies access and returns `allowed_patterns` in error
+#### Scenario: No validation logic in the macro
+- **WHEN** authoring a new scoped tool
+- **THEN** neither the macro nor the tool body loads config, gathers metadata, or consults the expansion UI — all of that happens inside `jf/gptel-scope-authorize-tool-call`
 
-#### Scenario: Glob patterns support wildcards
-- **WHEN** patterns use `**` (any including /), `*` (any except /), or `?` (single char)
-- **THEN** system correctly matches paths using converted regex patterns
+### Requirement: Authorization entrypoint
 
-#### Scenario: Symlinks resolved before matching
-- **WHEN** validating path that is or contains symlinks
-- **THEN** system resolves symlinks to real paths
-- **AND** checks BOTH real-path AND absolute-path for pattern matches
-- **AND** allows if either matches (patterns may match either form)
+`jf/gptel-scope-authorize-tool-call` SHALL be the single public authorization entrypoint. All scoped tool dispatches go through it; no other code path consults the validation engine.
 
-**Implementation**: `config/gptel/scope/scope-core.org` - `jf/gptel-scope--matches-pattern` (lines 1098-1108)
+**Implementation**: `config/gptel/scope/scope-validation.org`
 
-### Requirement: Pattern-based validation
+#### Scenario: Entrypoint loads config, validates, dispatches
+- **WHEN** the entrypoint is invoked with tool-name, operation, args, on-allow, on-deny
+- **THEN** it loads `scope.yml`, validates, and on success funcalls on-allow
+- **AND** on failure triggers the inline expansion UI
 
-The scope system SHALL validate org-roam tools against org_roam_patterns section with subdirectory, tags, and node_ids patterns.
+#### Scenario: Entrypoint routes filesystem vs bash by :operation
+- **WHEN** `:operation` is a filesystem symbol (`read`/`write`/`modify`/`execute`)
+- **THEN** the entrypoint gathers file metadata and calls `validate-filesystem-tool`
+- **AND** tags the result with `:validation-type 'path`
 
-**Implementation**: `config/gptel/scope/scope-core.org` - pattern validator
+#### Scenario: Entrypoint routes nil operation to bash validator
+- **WHEN** `:operation` is nil
+- **THEN** the entrypoint calls `validate-bash-tool`
+- **AND** tags the result with `:validation-type 'bash`
 
-#### Scenario: Create node with subdirectory pattern
-- **WHEN** `create_roam_node_in_scope` called with subdirectory (2nd argument) matching `org_roam_patterns.subdirectory`
-- **THEN** system allows the operation
+#### Scenario: Add-to-scope re-invokes the entrypoint
+- **WHEN** the user chooses "add to scope" in the expansion UI
+- **THEN** the dispatcher calls itself again with the same arguments
+- **AND** the pipeline re-validates against the now-updated `scope.yml`
+- **AND** if another operation is still denied, the UI prompts again
 
-#### Scenario: Create node with tag pattern
-- **WHEN** `create_roam_node_in_scope` called with tags (3rd argument) matching `org_roam_patterns.tags`
-- **THEN** system allows the operation
+#### Scenario: Allow-once skips re-validation
+- **WHEN** the expansion UI returns `:allowed-once t`
+- **THEN** the dispatcher funcalls on-allow directly without re-invoking itself
 
-#### Scenario: Add tags with matching pattern
-- **WHEN** `add_roam_tags_in_scope` called with tags (2nd argument) matching `org_roam_patterns.tags`
-- **THEN** system allows the operation
+### Requirement: Path operation validation
 
-#### Scenario: Link nodes with wildcard permission
-- **WHEN** `link_roam_nodes_in_scope` called and `org_roam_patterns.node_ids` contains `"*"`
-- **THEN** system allows linking any nodes
+`jf/gptel-scope--validate-path-operation` SHALL be the single path validator used by both filesystem tools and bash Stage 3. It implements the permission hierarchy and deny precedence.
 
-#### Scenario: Pattern validation fails
-- **WHEN** org-roam tool's arguments don't match any allowed patterns
-- **THEN** system denies access with "not-in-org-roam-patterns" reason
+**Implementation**: `config/gptel/scope/scope-validation.org`
 
-**Note**: Org-roam tools use 2nd and 3rd arguments (subdirectory, tags), not just first argument.
+Permission hierarchy:
+- read-like (`:read`, `:read-directory`, `:read-metadata`, `:match-pattern`) → requires `paths.read` OR `paths.write` (write implies read)
+- write-like (`:write`, `:create`, `:create-or-modify`, `:append`, `:delete`) → requires `paths.write`
+- `:modify` → requires `paths.modify` OR `paths.write`
+- `:execute` → requires `paths.execute` only
+- `paths.deny` takes absolute precedence over every allow pattern
 
-### Requirement: Bash tool categorization
+#### Scenario: Deny pattern overrides allow pattern
+- **WHEN** a path matches both an allow pattern and a deny pattern
+- **THEN** the validator returns `:error "denied-pattern"`
 
-The scope system SHALL support bash validation type for tools that execute shell commands with semantic validation.
+#### Scenario: Read allowed via paths.write
+- **WHEN** operation is `:read` on `/tmp/file.txt`
+- **AND** `paths.write` contains `/tmp/**` but `paths.read` is empty
+- **THEN** the validator allows the operation
 
-**Config source:** `scope.yml` in the session's branch directory, under the `bash_tools` top-level key with deny list only (no categories).
+#### Scenario: Write denied when only read is scoped
+- **WHEN** operation is `:write` on `/workspace/output.txt`
+- **AND** `paths.read` contains `/workspace/**` but `paths.write` does not
+- **THEN** the validator returns `:error "not-in-scope"`
 
-**Tool:** `run_bash_command` - Executes shell commands with seven-stage validation pipeline using bash-parser integration.
+#### Scenario: Execute requires paths.execute alone
+- **WHEN** operation is `:execute` on `/workspace/scripts/deploy.py`
+- **AND** `paths.read` and `paths.write` cover the path but `paths.execute` does not
+- **THEN** the validator returns `:error "not-in-scope"`
 
-**Module:** `scope-shell-tools` (config/gptel/tools/scope-shell-tools.el) - Implements the run_bash_command tool using bash-parser semantic validation.
+#### Scenario: Filesystem tool retries with resolved symlink
+- **WHEN** the original expanded path fails validation
+- **AND** its `file-truename` resolves to a different path
+- **THEN** `validate-filesystem-tool` re-runs the validator against the resolved path
+- **AND** accepts whichever path form passes; otherwise the original denial is returned annotated with `:tool`
 
-**Related specs:** See delta specs for detailed v4 behavior:
-- `scope-validation-pipelines/spec.md` - Pipeline command extraction and validation
-- `scope-validation-file-paths/spec.md` - Operation-specific path validation
-- `scope-validation-cloud-auth/spec.md` - Cloud authentication policy enforcement
-- `scope-schema-v4/spec.md` - v4 schema structure
+### Requirement: Glob pattern matching
 
-#### Scenario: Bash tool categorized
-- **WHEN** a tool executes arbitrary shell commands
-- **THEN** the system categorizes it with validation strategy "bash" and operation type "write"
+There SHALL be exactly one glob-to-regex implementation (`jf/gptel-scope--glob-to-regex`) and one top-level matcher (`jf/gptel-scope--path-matches-any-pattern-p`) in the scope system. Both filesystem and bash code paths reach them through the shared path validator.
 
-#### Scenario: Bash validator dispatched
-- **WHEN** scope system validates a bash tool
-- **THEN** it routes to jf/gptel-scope--validate-bash-tool function using seven-stage pipeline
+**Implementation**: `config/gptel/scope/scope-validation.org`
 
-### Requirement: Seven-stage bash validation pipeline
+The pattern vocabulary:
 
-The scope system SHALL validate bash commands through a seven-stage pipeline with early exit on failure, using bash-parser for semantic extraction.
+| Pattern | Matches                           |
+|---------|-----------------------------------|
+| `*`     | Any characters except `/`         |
+| `**`    | Any characters including `/`      |
+| `?`     | Exactly one character             |
+| `/**/`  | Zero or more directory components |
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - `jf/gptel-scope--validate-bash-tool` (seven-stage pipeline)
+#### Scenario: Recursive wildcard matches across directories
+- **WHEN** pattern is `/workspace/**` and path is `/workspace/sub/file.txt`
+- **THEN** the matcher returns true
 
-**Validation stages:**
-1. **Parse** - Use bash-parser (tree-sitter) to extract AST with tokens
-2. **Parse completeness** - Reject if incomplete and `security.enforce_parse_complete: true`
-3. **Deny list check** - Block commands in `bash_tools.deny` (minimal list for edge cases)
-4. **Extract semantics** - Run plugins (file-ops, cloud-auth) to extract operations
-5. **No-op allowance** - Allow commands with zero file operations by default
-6. **File operation validation** - Match extracted file paths against operation-specific scope patterns (read/write/execute/modify/deny)
-7. **Cloud auth policy** - Enforce `cloud.auth_detection` and `allowed_providers` (if cloud auth detected)
+#### Scenario: Single-segment wildcard does not cross slash
+- **WHEN** pattern is `/tmp/*` and path is `/tmp/sub/file`
+- **THEN** the matcher returns false
 
-#### Scenario: Command passes all seven stages
-- **WHEN** bash command completes all validation stages successfully
-- **THEN** system allows command execution
+#### Scenario: Extension pattern respects slash boundary
+- **WHEN** pattern is `/workspace/*.el` and path is `/workspace/sub/init.el`
+- **THEN** the matcher returns false
+
+#### Scenario: Middle-of-path recursive segment
+- **WHEN** pattern is `**/.git/**` and path is `/workspace/sub/.git/HEAD`
+- **THEN** the matcher returns true
+
+### Requirement: Filesystem tools
+
+`scope-filesystem-tools.el` SHALL define three scoped tools that read, write, and edit files. Each declares its operation and delegates all scope checks to the macro.
+
+**Implementation**: `config/gptel/scope/scope-filesystem-tools.org`
+
+#### Scenario: read_file_in_scope reads when allowed
+- **WHEN** `read_file_in_scope` is invoked with a filepath that passes `:read` validation
+- **AND** the file exists
+- **THEN** the tool returns `:success t`, `:content <file contents>`, `:full_path <expanded>`
+
+#### Scenario: read_file_in_scope reports file_not_found
+- **WHEN** validation passes but the file does not exist
+- **THEN** the tool returns `:success nil`, `:error "file_not_found"`
+
+#### Scenario: write_file_in_scope creates parent directory
+- **WHEN** `write_file_in_scope` is authorized for a path whose parent directory does not exist
+- **THEN** the tool creates the parent directory and writes the content
+
+#### Scenario: edit_file_in_scope requires existing file
+- **WHEN** `edit_file_in_scope` is invoked on a non-existent file
+- **THEN** the tool returns `:success nil`, `:error "file_not_found"` and directs the caller to `write_file_in_scope`
+
+#### Scenario: edit_file_in_scope reports string_not_found
+- **WHEN** the `old_string` argument is not present in the file
+- **THEN** the tool returns `:success nil`, `:error "string_not_found"` and leaves the file unchanged
+
+### Requirement: Bash validation pipeline
+
+`jf/gptel-scope--validate-command-semantics` SHALL run four stages in order with early exit on the first failure, followed by a non-blocking coverage warning. Each stage returns nil on success and an error plist on denial.
+
+**Implementation**: `config/gptel/scope/scope-validation.org`
+
+| Stage | Function                        | Purpose                                                      |
+|-------|---------------------------------|--------------------------------------------------------------|
+| 1     | `validate-parse-completeness`   | Refuse to validate commands bash-parser couldn't fully parse |
+| 2     | `check-no-op`                   | Zero-op commands exit the pipeline early                     |
+| 3     | `validate-file-operations`      | Route each extracted file op through `validate-path-operation` |
+| 4     | `validate-cloud-auth`           | Apply `cloud.auth-detection` mode and `allowed-providers`    |
+| —     | `check-coverage-threshold`      | Non-blocking warning below `security.max-coverage-threshold` |
 
 #### Scenario: Early exit on first failure
-- **WHEN** any validation stage fails
-- **THEN** pipeline exits immediately with structured error (does not continue to subsequent stages)
+- **WHEN** Stage 1 returns a parse_incomplete error
+- **THEN** the pipeline does not run Stages 2, 3, or 4
 
-#### Scenario: Parse stage extracts AST
-- **WHEN** command enters validation pipeline
-- **THEN** bash-parser produces AST with token positions and structure
+#### Scenario: Successful command returns nil
+- **WHEN** every stage passes
+- **THEN** the orchestrator returns nil and `validate-bash-tool` reports `:allowed t`
 
-#### Scenario: Semantic extraction runs plugins
-- **WHEN** AST is available
-- **THEN** system runs file-ops, cloud-auth, and security plugins to extract operations
+#### Scenario: Relative paths resolved against default-directory
+- **WHEN** Stage 3 validates a file op with a relative path
+- **THEN** the path is expanded against `default-directory` (bound from session context)
 
-### Requirement: Deny list validation
+#### Scenario: First denied file op ends the stage
+- **WHEN** Stage 3 encounters multiple file ops and the first is denied
+- **THEN** the validator returns that denial and does not check the remaining ops
+- **AND** the expansion UI prompts for that op; an "add to scope" choice re-runs the pipeline and surfaces the next violation (if any)
 
-The scope system SHALL check all commands in pipelines and chains against the bash_tools.deny list (stage 3). Commands in the deny list are blocked regardless of other permissions.
+### Requirement: Parse completeness gate
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - deny list validation in validation pipeline
+Stage 1 SHALL refuse to validate commands when `bash-parser` reports `:parse-complete nil` and `security.enforce-parse-complete` is true.
 
-**Purpose**: Minimal deny list for high-risk edge cases where semantic analysis alone is insufficient. Most commands are validated by operation-first model (file operations, cloud auth).
-
-#### Scenario: Extract commands from pipe
-- **WHEN** parsing "ls -la | grep foo"
-- **THEN** system extracts two commands: "ls" and "grep"
-
-#### Scenario: Extract commands from command chain
-- **WHEN** parsing "mkdir foo && cd foo"
-- **THEN** system extracts two commands: "mkdir" and "cd"
-
-#### Scenario: All pipeline commands checked against deny list
-- **WHEN** command is "ls | xargs rm"
-- **AND** "rm" is in bash_tools.deny list
-- **THEN** validation fails with "command_denied" error for "rm" at pipeline position 1
-
-#### Scenario: Pipeline bypass prevented
-- **WHEN** command is "find . -name '*.tmp' | xargs rm"
-- **AND** "rm" is in deny list
-- **THEN** system rejects with error identifying "rm" in pipeline position 2
-
-**Note**: This requirement implemented in v4 with bash-parser integration. v3 used regex-based parsing and could not extract pipeline commands.
-
-### Requirement: Operation-specific path validation
-
-The scope system SHALL validate file paths against operation-specific scope patterns (paths.read, paths.write, paths.execute, paths.modify) based on the operation type extracted from the command.
-
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - file-ops plugin integration with bash-parser
-
-**v4 schema** (scope.yml):
-```yaml
-paths:
-  read:
-    - "/workspace/**"
-    - "/tmp/**"
-  write:
-    - "/workspace/**"
-  execute:                    # NEW in v4
-    - "/workspace/scripts/**"
-  modify:                     # NEW in v4
-    - "/workspace/config/**"
-  deny:
-    - "/etc/**"
-    - "~/.ssh/**"
-```
-
-**Operation types**:
-- `read` - File reads (cat, grep, find) - requires paths.read OR paths.write
-- `write` - File writes (echo >, mkdir) - requires paths.write
-- `execute` - Script execution (./script.sh, bash script.sh) - requires paths.execute
-- `modify` - In-place edits (sed -i, awk -i) - requires paths.modify OR paths.write
-
-#### Scenario: Read operation matches paths.read
-- **WHEN** file operation is :read "/workspace/file.txt"
-- **AND** scope.yml has paths.read: ["/workspace/**"]
-- **THEN** validation passes
-
-#### Scenario: Write scope includes read capability
-- **WHEN** file operation is :read "/tmp/file.txt"
-- **AND** scope.yml has paths.write: ["/tmp/**"]
-- **THEN** validation passes (write scope includes read)
-
-#### Scenario: Execute operation requires paths.execute
-- **WHEN** file operation is :execute "/workspace/scripts/deploy.py"
-- **AND** scope.yml has paths.read: ["/workspace/**"] but no paths.execute
-- **THEN** validation fails with "path_out_of_scope" error
-
-#### Scenario: Deny patterns take precedence
-- **WHEN** file operation is :read "/etc/passwd"
-- **AND** scope.yml has paths.deny: ["/etc/**"]
-- **THEN** validation fails with "path_denied" error (even if paths.read includes /etc)
-
-**Note**: v3 used directory-based validation only. v4 extracts file paths from command arguments and validates against operation-specific patterns.
-
-### Requirement: Cloud authentication detection and policy enforcement
-
-The scope system SHALL detect cloud authentication commands (AWS, GCP, Azure) and enforce configurable policy (allow, warn, deny) with provider filtering.
-
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - cloud-auth plugin integration with bash-parser
-
-**v4 schema** (scope.yml):
-```yaml
-cloud:
-  auth_detection: "warn"      # "allow", "warn", or "deny"
-  allowed_providers:
-    - aws
-    - gcp
-```
-
-**Detected commands**:
-- AWS: `aws-vault`, `aws sts`, `aws configure`
-- GCP: `gcloud auth`, `gcloud config`
-- Azure: `az login`, `az account`
-
-#### Scenario: Warn mode executes with warning
-- **WHEN** cloud.auth_detection: "warn"
-- **AND** command is "aws-vault exec prod -- aws s3 ls"
-- **THEN** command executes successfully
-- **AND** result includes :warnings field with cloud auth detection notice
-
-#### Scenario: Deny mode rejects unlisted provider
-- **WHEN** cloud.auth_detection: "deny"
-- **AND** cloud.allowed_providers: ["aws"]
-- **AND** command is "gcloud auth login"
-- **THEN** validation fails with "cloud_auth_denied" for GCP
-
-#### Scenario: Allow mode permits all cloud commands
-- **WHEN** cloud.auth_detection: "allow"
-- **AND** command uses any cloud provider
-- **THEN** command executes without warnings or restrictions
-
-**Note**: New in v4. v3 had no cloud authentication awareness.
-
-### Requirement: No-op command allowance
-
-The scope system SHALL automatically allow commands with zero extracted file operations, enabling version checks, help flags, and informational commands without explicit configuration.
-
-**Implementation**: `config/gptel/tools/scope-shell-tools.el` - no-op allowance (stage 5 of validation pipeline)
-
-**Purpose**: Commands that perform no file operations are inherently low-risk and should not require explicit allowlist configuration. This includes version checks, help flags, and informational queries.
-
-#### Scenario: Version check allowed by default
-- **WHEN** command is "git --version"
-- **AND** semantic extraction finds zero file operations
-- **THEN** validation passes without checking path scopes or deny lists (no-op bypass)
-
-#### Scenario: Help flag allowed by default
-- **WHEN** command is "ls --help"
-- **AND** semantic extraction finds zero file operations
-- **THEN** validation passes (no-op bypass)
-
-#### Scenario: Which command allowed by default
-- **WHEN** command is "which bash"
-- **AND** semantic extraction finds zero file operations
-- **THEN** validation passes (no-op bypass)
-
-#### Scenario: Commands with file operations skip no-op allowance
-- **WHEN** command is "cat /workspace/file.txt"
-- **AND** semantic extraction finds file operations
-- **THEN** no-op allowance stage is skipped
-- **AND** validation continues to stage 6 (file operation validation)
-
-**Note**: New in v4. v3 required all commands to be in explicit category allowlists. v4 uses operation-first validation where commands with zero file operations are automatically permitted.
-
-### Requirement: Allow-once temporary permissions
-
-The scope system SHALL support temporary single-use permissions lasting only for current LLM response turn.
-
-**Implementation**: `config/gptel/scope/scope-core.org` - `jf/gptel-scope--allow-once-list` (buffer-local, lines 547-550)
-
-**Consumption semantics**: Permission is consumed BEFORE tool body executes, not after. If tool body errors after permission check, permission is already consumed and cannot be retried with same permission.
-
-#### Scenario: Allow-once grants temporary access
-- **WHEN** tool and resource added to allow-once list
-- **THEN** next validation check for exact tool and resource succeeds
-
-#### Scenario: Allow-once permission consumed BEFORE execution
-- **WHEN** tool validation succeeds via allow-once permission
-- **THEN** permission removed from allow-once list immediately (before tool body executes)
-- **AND** if tool body errors after check, permission already consumed
-
-**Critical**: This timing matters - failed operations cannot be retried with same allow-once permission.
-
-#### Scenario: Allow-once cleared after response
-- **WHEN** LLM response completes
-- **THEN** system clears all allow-once permissions via `gptel-post-response-functions` hook
-
-#### Scenario: Allow-once checked before config
-- **WHEN** validating tool call
-- **THEN** system checks allow-once list before checking scope configuration
-
-#### Scenario: Allow-once works without config
-- **WHEN** tool granted allow-once permission but no scope config exists
-- **THEN** tool succeeds (allow-once bypasses missing config check)
-
-### Requirement: Permission checking priority
-
-The scope system SHALL check permissions in priority order: allow-once, deny patterns, allow patterns, default policy.
-
-#### Scenario: Allow-once bypasses all other checks
-- **WHEN** tool call has allow-once permission
-- **THEN** system allows without checking deny patterns or config
-
-#### Scenario: Deny patterns block allowed patterns
-- **WHEN** resource matches both deny and allow patterns
-- **THEN** deny takes precedence (operation denied)
-
-#### Scenario: Default policy denies unlisted resources
-- **WHEN** resource doesn't match any allow patterns
-- **THEN** system denies access (deny-by-default policy)
-
-### Requirement: Macro-based tool wrapping
-
-The scope system SHALL wrap scope-aware tools using macros that intercept arguments, validate against scope, and return structured errors on denial.
-
-**Implementation**: `config/gptel/scope/scope-core.org` - defmacro for wrapping
-
-#### Scenario: Wrapped tool extracts first argument
-- **WHEN** scope-wrapped tool called
-- **THEN** wrapper extracts first argument as resource identifier
-- **AND** normalizes from JSON vectors to Elisp lists
-
-#### Scenario: Validation runs before tool body
-- **WHEN** wrapped tool called
-- **THEN** scope validation runs before tool body executes
-- **AND** tool body only executes if validation succeeds
-
-#### Scenario: Structured error on denial
-- **WHEN** scope validation fails
-- **THEN** wrapper returns JSON with `:success nil`, `:reason` (error type), `:allowed_patterns`, `:denied_patterns`
-
-#### Scenario: Meta tools skip validation wrapper
-- **WHEN** tool categorized as meta
-- **THEN** wrapper allows call without scope checks
-
-**Note**: Different tools extract resource from different argument positions - path tools use 1st arg, org-roam tools use 2nd/3rd args.
-
-### Requirement: Security configuration (v4)
-
-The scope system SHALL enforce security settings for parse completeness and coverage thresholds.
-
-**v4 schema** (scope.yml):
-```yaml
-security:
-  enforce_parse_complete: true  # Reject unparseable commands
-  max_coverage_threshold: 0.8   # Warn if <80% tokens claimed by plugins
-```
-
-**Settings**:
-- `enforce_parse_complete` - When true, reject commands bash-parser cannot fully parse
-- `max_coverage_threshold` - Float 0.0-1.0; warn if semantic plugin coverage below threshold
+**Implementation**: `config/gptel/scope/scope-validation.org` (Stage 1)
 
 #### Scenario: Incomplete parse rejected when enforced
-- **WHEN** security.enforce_parse_complete: true
-- **AND** bash-parser cannot fully parse command (syntax error, unsupported construct)
-- **THEN** validation fails with "incomplete_parse" error
+- **WHEN** the command has a syntax error (e.g. unclosed quote)
+- **AND** `security.enforce-parse-complete` is `t`
+- **THEN** Stage 1 returns `:error "parse_incomplete"` with `:parse-errors` and `:command`
 
-#### Scenario: Incomplete parse allowed when not enforced
-- **WHEN** security.enforce_parse_complete: false
-- **AND** bash-parser cannot fully parse command
-- **THEN** validation continues with warning (command may execute)
+#### Scenario: Incomplete parse warned when not enforced
+- **WHEN** `security.enforce-parse-complete` is `nil`
+- **AND** the parse is incomplete
+- **THEN** Stage 1 emits an elisp `warn` and returns nil (pipeline continues)
 
-#### Scenario: Low coverage warning
-- **WHEN** security.max_coverage_threshold: 0.8
-- **AND** semantic plugins claim <80% of tokens
-- **THEN** validation includes warning about incomplete semantic extraction
+#### Scenario: Complete parse proceeds silently
+- **WHEN** `:parse-complete` is `t`
+- **THEN** Stage 1 returns nil regardless of the enforce flag
 
-**Note**: New in v4. v3 had no parse completeness or coverage tracking.
+### Requirement: No-op allowance
 
-### Requirement: Error message formatting
+Stage 2 SHALL short-circuit the pipeline when the parsed command produces zero filesystem operations. This is a deliberate policy gate, not an optimization: zero-op commands also bypass cloud-auth checks.
 
-The scope system SHALL return structured error messages helping LLMs understand denials and request appropriate expansions.
+**Implementation**: `config/gptel/scope/scope-validation.org` (Stage 2)
 
-#### Scenario: Path denial includes allowed patterns
-- **WHEN** path validation fails
-- **THEN** error includes `:allowed_patterns` list from `paths.read` or `paths.write`
+#### Scenario: Version check allowed with no config entries
+- **WHEN** command is `git --version`
+- **AND** bash-parser extracts zero file ops
+- **THEN** the pipeline returns nil at Stage 2 without consulting `paths` or `cloud`
 
-#### Scenario: Path out of scope error structure (v4)
-- **WHEN** file path fails validation
-- **THEN** error includes `:error "path_out_of_scope"`, `:path`, `:operation`, `:required_scope`, `:allowed_patterns`
+#### Scenario: Help flag allowed
+- **WHEN** command is `ls --help`
+- **AND** bash-parser extracts zero file ops
+- **THEN** Stage 2 short-circuits and the command is permitted
 
-#### Scenario: Pipeline command denied error structure (v4)
-- **WHEN** pipeline command fails validation
-- **THEN** error includes `:error "command_denied"`, `:command`, `:pipeline_position`, `:full_command`
+#### Scenario: Pipeline of zero-op commands allowed
+- **WHEN** command is `echo hello | wc -c`
+- **AND** the whole pipeline extracts zero file ops
+- **THEN** Stage 2 short-circuits
 
-#### Scenario: Cloud auth denied error structure (v4)
-- **WHEN** cloud auth command denied
-- **THEN** error includes `:error "cloud_auth_denied"`, `:provider`, `:command`, `:allowed_providers`
+#### Scenario: Command with any file op skips the no-op gate
+- **WHEN** command is `cat /workspace/file.txt`
+- **AND** bash-parser extracts at least one file op
+- **THEN** Stage 2 returns control to the orchestrator and Stage 3 runs
 
-#### Scenario: Bash denial includes custom message
-- **WHEN** bash validation fails
-- **THEN** error includes custom `:message` field explaining denial reason
-- **AND** includes `:allowed_patterns` with bash category commands
+### Requirement: Operation-specific file path validation
 
-#### Scenario: Pattern denial includes allowed patterns
-- **WHEN** org-roam validation fails
-- **THEN** error includes `:allowed_patterns` from `org_roam_patterns` section
+Stage 3 SHALL route every extracted file op through `jf/gptel-scope--validate-path-operation`, guaranteeing that bash `cat /etc/passwd` and `read_file_in_scope "/etc/passwd"` resolve to the same allow/deny decision.
 
-#### Scenario: Deny pattern error distinguishes from allow failure
-- **WHEN** resource explicitly denied
-- **THEN** error uses `:denied_patterns` list (not allowed_patterns)
+**Implementation**: `config/gptel/scope/scope-validation.org` (Stage 3)
 
-**Note**: Bash validator is unique in including custom `:message` fields for user-friendly error messages.
+#### Scenario: Read op matches paths.read
+- **WHEN** command is `cat /workspace/file.txt`
+- **AND** `paths.read` contains `/workspace/**`
+- **THEN** Stage 3 returns nil
 
-## Breaking Changes from v3
+#### Scenario: Cp extracts read and write ops
+- **WHEN** command is `cp /workspace/src.txt /tmp/dst.txt`
+- **AND** `paths.read` covers `/workspace/**` and `paths.write` covers `/tmp/**`
+- **THEN** both ops validate and Stage 3 returns nil
 
-The v4 scope system introduces breaking changes that require manual migration from v3 schemas. No automatic migration or backward compatibility is provided.
+#### Scenario: Denied path rejected
+- **WHEN** command is `cat /etc/passwd`
+- **AND** `paths.deny` contains `/etc/**`
+- **THEN** Stage 3 returns `:error "denied-pattern"` with `:resource "/etc/passwd"`
 
-### Schema Structure Changes
+#### Scenario: Pipeline bypass closed
+- **WHEN** command is `find . | xargs rm /workspace/secrets/*`
+- **AND** the extracted `rm` operation targets a path outside `paths.write`
+- **THEN** Stage 3 returns `:error "not-in-scope"` for the `rm` target (not just the pipeline head)
 
-**v3 schema:**
-```yaml
-paths:
-  read:
-    - "/workspace/**"
-  write:
-    - "/workspace/**"
-  deny:
-    - "/etc/**"
+#### Scenario: Wrapper preserves inner :resource
+- **WHEN** `validate-file-operation` produces a denial plist with `:resource`
+- **THEN** `validate-bash-tool` prepends only `:tool` and `:command` and does not overwrite `:resource`
 
-bash_tools:
-  categories:
-    read_only:
-      commands: ["ls", "cat"]
-    safe_write:
-      commands: ["mkdir", "touch"]
-    dangerous:
-      commands: []
-  deny:
-    - rm
-    - sudo
-```
+### Requirement: Cloud authentication policy
 
-**v4 schema (incompatible):**
-```yaml
-paths:
-  read:
-    - "/workspace/**"
-  write:
-    - "/workspace/**"
-  execute:              # NEW - required for script execution
-    - "/workspace/scripts/**"
-  modify:               # NEW - required for in-place edits
-    - "/workspace/config/**"
-  deny:
-    - "/etc/**"
+Stage 4 SHALL classify any detected cloud authentication against `cloud.auth-detection` (allow/warn/deny) and filter by `cloud.allowed-providers`.
 
-bash_tools:
-  # categories section REMOVED - operation-first validation replaces category allowlists
-  deny:
-    - sudo              # Minimal deny list for high-risk edge cases
-    - dd
-    - chmod
-    - chown
+**Implementation**: `config/gptel/scope/scope-validation.org` (Stage 4)
 
-cloud:                  # NEW section
-  auth_detection: "warn"
-  allowed_providers:
-    - aws
+#### Scenario: Allow mode permits any provider
+- **WHEN** `cloud.auth-detection` is `"allow"`
+- **AND** command is `aws-vault exec prod -- aws s3 ls`
+- **THEN** Stage 4 returns nil
 
-security:               # NEW section
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-```
+#### Scenario: Warn mode annotates but does not deny
+- **WHEN** `cloud.auth-detection` is `"warn"`
+- **AND** cloud auth is detected
+- **THEN** Stage 4 returns a plist with `:warning "cloud_auth_detected"` (not `:error`)
+- **AND** the pipeline continues
 
-### Migration Requirements
+#### Scenario: Deny mode rejects cloud commands
+- **WHEN** `cloud.auth-detection` is `"deny"`
+- **AND** command is `gcloud auth login`
+- **THEN** Stage 4 returns `:error "cloud_auth_denied"` with `:provider` and `:command`
 
-**Category-based validation removed:**
-- v3: Commands required explicit allowlist membership in `bash_tools.categories` (read_only, safe_write, dangerous)
-- v4: Operation-first validation - commands validated by extracted file operations and path scopes
-- Impact: Remove entire `bash_tools.categories` section from scope.yml
-- Migration: Keep only `bash_tools.deny` list for high-risk edge cases (sudo, dd, chmod, chown)
+#### Scenario: Provider filter rejects disallowed provider
+- **WHEN** `cloud.allowed-providers` is `["aws"]`
+- **AND** command uses GCP
+- **THEN** Stage 4 returns `:error "cloud_provider_denied"` with `:allowed-providers`
 
-**Commands requiring new path sections:**
-- Execute operations (e.g., `bash /workspace/script.sh`) → Add `paths.execute`
-- Modify operations (e.g., `sed -i 's/foo/bar/' file.txt`) → Add `paths.modify`
-- Cloud commands (e.g., `aws-vault exec`) → Add `cloud` section
+#### Scenario: Provider filter permits listed provider
+- **WHEN** `cloud.allowed-providers` contains the detected provider
+- **AND** `auth-detection` is `"deny"`
+- **THEN** the provider filter passes and Stage 4's mode branch runs (here, denies only if mode is still `"deny"`; when the provider is explicitly allowed the caller's policy typically sets mode to `"allow"` or `"warn"`)
 
-**No-op allowance:**
-- v3: Version checks and help flags required explicit allowlist membership
-- v4: Commands with zero file operations automatically allowed (git --version, ls --help, which bash)
-- Impact: No configuration needed for informational commands
+### Requirement: Coverage threshold warning
 
-**Pipeline validation:**
-- v3: Only validated base command (e.g., `ls` in `ls | xargs rm`)
-- v4: Validates ALL commands in pipeline against deny list (closes security bypass)
-- Impact: Commands like `find . | xargs rm` now rejected if `rm` in deny list
+The coverage check SHALL be non-blocking: it emits an elisp `warn` when `bash-parser`'s semantic plugin coverage ratio is below `security.max-coverage-threshold` and otherwise returns nil.
 
-**File path validation:**
-- v3: Validated working directory only
-- v4: Extracts and validates file paths from command arguments
-- Impact: `cat /etc/passwd` now checks `/etc/passwd` against scope, not just working directory
+**Implementation**: `config/gptel/scope/scope-validation.org`
 
-### Rollback Strategy
+#### Scenario: Below-threshold coverage warns
+- **WHEN** `security.max-coverage-threshold` is `0.8`
+- **AND** `:coverage-ratio` is `0.5`
+- **THEN** the validator emits a `warn` and the pipeline still succeeds
 
-If issues discovered post-deployment:
-- Rollback requires `git revert` of bash-parser integration PR
-- No dual-mode fallback available
-- Users must manually revert scope.yml changes
+#### Scenario: At-or-above threshold silent
+- **WHEN** `:coverage-ratio` meets or exceeds the threshold
+- **THEN** no warning is emitted
 
-### No Automatic Migration
+### Requirement: Canonical error codes
 
-Users must manually update scope.yml files. Migration guide available at:
-`openspec/changes/bash-parser-integration/migration-guide.md`
+Validators SHALL produce only codes from the canonical set. Every consumer (`build-violation-info`, `format-tool-error`, the expansion UI) SHALL handle every code in the set.
+
+**Implementation**: `config/gptel/scope/interfaces.org`
+
+Canonical codes:
+- `denied-pattern` — path matched `paths.deny`
+- `not-in-scope` — path not covered by any allow pattern for the operation
+- `parse_incomplete` — bash-parser incomplete and enforcement is on
+- `cloud_auth_denied` — cloud auth detected and policy is deny
+- `cloud_provider_denied` — provider not in `allowed-providers`
+
+Macro-level codes outside the validation vocabulary: `no_scope_config`, `tool_exception`.
+
+Error-code to resource-field mapping used by `build-violation-info`:
+
+| Error code               | Resource field |
+|--------------------------|----------------|
+| `denied-pattern`         | `:resource`    |
+| `not-in-scope`           | `:resource`    |
+| `parse_incomplete`       | `:command`     |
+| `cloud_auth_denied`      | `:provider`    |
+| `cloud_provider_denied`  | `:provider`    |
+
+#### Scenario: Every validator denial carries a canonical code
+- **WHEN** any validator returns `(:allowed nil ...)`
+- **THEN** `:error` is a member of the canonical set
+
+#### Scenario: no_scope_config surfaces verbatim
+- **WHEN** the authorization entrypoint finds no config
+- **THEN** the on-deny plist carries `:error "no_scope_config"` and is NOT transformed by `format-tool-error`
+
+### Requirement: Violation-info transformation
+
+`jf/gptel-scope--build-violation-info` SHALL transform a validation-result plist into the violation-info shape required by the expansion UI: `:tool`, `:resource`, `:operation`, `:reason`, `:validation-type`, `:metadata`. The `:validation-type` key is attached by the authorization entrypoint; the builder must not recompute it.
+
+**Implementation**: `config/gptel/scope/scope-validation.org`
+
+#### Scenario: Validation type vocabulary is exactly {path, bash}
+- **WHEN** `build-violation-info` runs
+- **THEN** `:validation-type` is either `path` or `bash`; no other values are produced
+
+#### Scenario: Resource pulled by error-code mapping
+- **WHEN** the validation error carries `:error "cloud_provider_denied"` and `:provider "gcp"`
+- **THEN** the violation-info `:resource` is `"gcp"`
+
+#### Scenario: Reason is the human-readable :message
+- **WHEN** `build-violation-info` produces a plist
+- **THEN** `:reason` is copied from the validator's `:message` (not from `:error`)
+
+### Requirement: Allow-once semantics
+
+"Allow once" SHALL be a stateless expansion-UI choice. No list is maintained; no permission is persisted or consumed on a subsequent call. A following invocation of the same resource that fails validation will prompt again.
+
+**Implementation**: `config/gptel/scope/scope-expansion.org` (UI choice), `config/gptel/scope/scope-validation.org` (dispatcher)
+
+#### Scenario: Allow-once funcalls on-allow for the pending invocation
+- **WHEN** the user picks "Allow once" in the expansion transient
+- **THEN** the expansion UI resolves with `:success t :allowed_once t`
+- **AND** the dispatcher funcalls the wrapper's on-allow thunk (runs the body)
+
+#### Scenario: No persistence across invocations
+- **WHEN** a tool is allowed once and the same tool+resource is invoked again later
+- **AND** `scope.yml` has not been updated
+- **THEN** validation denies again and the expansion UI prompts again
+
+#### Scenario: Allow-once bypasses re-validation within a single prompt cycle
+- **WHEN** the user picks "Allow once"
+- **THEN** the dispatcher does NOT re-invoke `authorize-tool-call` (unlike add-to-scope)
+- **AND** the body runs exactly once, covering all remaining violations in the pending call
+
+### Requirement: File metadata gathering
+
+For filesystem (path) tools the authorization entrypoint SHALL gather a metadata plist before validation. Metadata is I/O isolated from validation logic.
+
+**Implementation**: `config/gptel/scope/scope-metadata.org`
+
+The metadata plist carries: `:path`, `:real-path`, `:exists`, `:git-tracked`, `:git-repo`, `:type` (`file` / `directory` / `other`).
+
+#### Scenario: Metadata gathered for filesystem tools only
+- **WHEN** the dispatcher handles a tool with a declared `:operation`
+- **THEN** it calls `jf/gptel-scope--gather-file-metadata` against the first argument and passes the plist to `validate-filesystem-tool`
+
+#### Scenario: Bash path skips metadata gathering
+- **WHEN** the dispatcher handles a bash-style tool (operation nil)
+- **THEN** metadata is not gathered; the bash validator consults the shared path validator with paths alone
+
+#### Scenario: Missing git degrades gracefully
+- **WHEN** `git` is not available or the path is not inside a repo
+- **THEN** `:git-tracked` and `:git-repo` are nil and metadata gathering does not error
 
 ## Integration Points
 
-### With Preset System
-- Scope configuration extracted during preset registration
-- Stored in `jf/gptel-preset--scope-defaults` alist
-- Referenced by scope profiles during session creation
-
-### With Session Persistence
-- scope.yml written during session creation
-- Loaded from session's branch directory on every tool call
-- No caching - filesystem is source of truth
-
-### With Scope Expansion
-- Validation failures trigger scope expansion UI
-- request_scope_expansion meta-tool requests permissions
-- Allow-once list managed by expansion UI
-
-### With gptel Package
-- Wraps tools registered via gptel-make-tool
-- Uses buffer-local variables for session context
-- Integrates with gptel-post-response-functions hook
-
-## Summary
-
-The Scope System v4 provides fine-grained tool permissions through:
-- **Seven-stage bash validation pipeline** (parse → completeness → deny list → semantics → no-op allowance → file paths → cloud auth)
-- **Operation-first validation** (commands validated by extracted file operations, not category allowlists)
-- **Semantic command analysis** (bash-parser integration for AST extraction and operation detection)
-- **Operation-specific path validation** (read, write, execute, modify with glob patterns)
-- **No-op allowance** (commands with zero file operations automatically allowed)
-- **Deny list validation** (validates ALL commands in pipelines/chains against minimal deny list)
-- **Cloud authentication detection** (AWS, GCP, Azure with allow/warn/deny policy)
-- **Security settings** (parse completeness enforcement, coverage thresholds)
-- **Path-based validation** (glob patterns with deny precedence)
-- **Pattern-based validation** (org-roam subdirectory/tags/node-ids)
-- **Allow-once temporary permissions** (buffer-local, consumed before execution)
-- **No caching** (filesystem is source of truth, scope.yml read every call)
-- **Structured errors** (help LLMs understand denials and request expansions)
-
-**v4 vs v3:**
-- v3: Category-based allowlists (read_only, safe_write, dangerous), regex parsing, directory-only validation
-- v4: Operation-first validation (no categories), bash-parser semantic analysis, file path extraction, no-op allowance
-- Breaking: v3 schemas NOT compatible, manual migration required (remove categories section, keep only deny list)
+- **Preset system** — scope profiles are extracted during preset registration and written into `scope.yml` at session creation; see `openspec/specs/gptel/scope-profiles.md` and `preset-registration.md`.
+- **Session persistence** — `scope.yml` lives in `~/.gptel/sessions/<id>/branches/<branch>/`; the loader resolves it via buffer-local `jf/gptel--branch-dir`. See `openspec/specs/gptel/sessions-persistence.md`.
+- **Expansion UI** — denied calls funnel into the inline transient defined in `openspec/specs/gptel/scope-expansion.md`. `request_scope_expansion` in `scope-shell-tools.el` is a plain gptel tool (registered via `gptel-make-tool`) that the LLM invokes directly; it calls the same `jf/gptel-scope-prompt-expansion` the dispatcher uses.
+- **gptel package** — scoped tools register through `gptel-make-tool` under the `"scope"` category and run with `:async t`; `scope-tool-wrapper.el` is their only entry point.

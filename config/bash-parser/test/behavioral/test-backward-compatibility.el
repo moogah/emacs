@@ -196,14 +196,9 @@ New context flags like :pattern, :loop-context, etc. are optional additions."
 
 ;;; Feature Detection Tests
 
-(ert-deftest test-feature-detection-recursive-analysis ()
-  "Verify feature detection for recursive analysis."
-  (should (jf/bash-parser-has-feature-p :recursive-analysis)))
-
-(ert-deftest test-feature-detection-pattern-flow ()
-  "Verify feature detection for pattern flow tracking."
-  ;; Pattern flow is fully implemented and all tests pass
-  (should (jf/bash-parser-has-feature-p :pattern-flow)))
+(ert-deftest test-feature-detection-semantic-extraction ()
+  "Verify feature detection for two-layer semantic extraction."
+  (should (jf/bash-parser-has-feature-p :semantic-extraction)))
 
 (ert-deftest test-feature-detection-unknown-feature ()
   "Verify unknown features return nil."

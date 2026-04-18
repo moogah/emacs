@@ -11,7 +11,7 @@ tools:
   - WebSearch
   - WebFetch
   # Scope Management
-  - read_file
+  - read_file_in_scope
   - request_scope_expansion
   - get_scope_structure
 scope_profile: research

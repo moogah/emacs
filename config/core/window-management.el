@@ -1,4 +1,4 @@
-﻿;; -*- lexical-binding: t; -*-
+;; -*- lexical-binding: t; -*-
 
 ;; ===============================================================================
 ;; Winner Mode - Window configuration history
@@ -33,6 +33,12 @@
 (use-package activities
   :straight (:host github :repo "alphapapa/activities.el" :branch "master" :files ("*.el"))
   :init
+  ;; Set persist location BEFORE package loads (persist-defvar runs at load time)
+  (let ((subdir (if (and (boundp 'jf/machine-role) jf/machine-role)
+                    (concat "state/activities/" jf/machine-role "/")
+                  "state/activities/default/")))
+    (put 'activities-activities 'persist-location
+         (expand-file-name subdir jf/emacs-dir)))
   (activities-mode)
   (activities-tabs-mode)
   ;; Prevent `edebug' default bindings from interfering.

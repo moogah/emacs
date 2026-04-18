@@ -1,0 +1,290 @@
+#+title: Contract Core — Cross-Boundary Validation Primitives
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle contract-core.el
+#+auto_tangle: y
+
+* Why Contracts Exist
+
+When two modules communicate through data structures, each side builds assumptions
+about the shape of that data. Unit tests for each module typically mock the other
+side — and those mocks encode assumptions that may not match reality.
+
+We discovered this the hard way: *800+ passing unit tests* coexisted with *5 real
+data mismatches* at the bash-parser → scope boundary. The mocks were wrong, and
+every test that used them was testing against a fiction.
+
+Contracts solve this by establishing a *single source of truth* for the data shape
+at module boundaries. They're executable specifications that answer two questions:
+- What must a *producer* output?
+- What can a *consumer* assume?
+
+** Design Principles
+
+- *Validators return nil on success, a descriptive error string on failure.* This means
+  test failures explain /what/ is wrong, not just that something failed.
+- *Contracts live at the boundary, not in either module.* They're in =config/test/contracts/=,
+  neutral territory that neither bash-parser nor scope owns.
+- *Self-validating mocks.* Mock builders call contract validators on construction.
+  A mock with the wrong shape errors immediately — at test authoring time, not in
+  production.
+
+** The Three-Layer Testing Model
+
+Contracts enable a three-layer testing approach:
+
+1. *Contract unit tests* (=config/test/contracts/test/=) — validate that contract
+   validators themselves correctly accept and reject data shapes.
+
+2. *Self-validating mocks* (=helpers-spec.el=) — mock builders call contracts on
+   construction. If you build a mock with =:path= instead of =:file=, it fails
+   immediately rather than silently passing 400 downstream tests.
+
+3. *Integration tests* (=config/gptel/scope/test/integration/=) — no mocks at all.
+   Real bash-parser → real contract check → real scope validation. These catch
+   mismatches that even self-validating mocks can't detect (e.g., when the
+   producer adds a new enum value that no mock uses yet).
+
+** What Contracts Catch
+
+| Bug class                                 | Unit tests alone | With contracts      |
+|-------------------------------------------+------------------+---------------------|
+| Wrong field name (=:path= vs =:file=)    | Passes (mock matches) | Fails at mock build |
+| Missing field (=:source= omitted)        | Passes (mock never had it) | Fails at mock build |
+| Wrong structure (plist vs alist)          | Passes (mock matches consumer) | Fails at validation |
+| Wrong enum (=:cloud-auth= vs =:authentication=) | Passes (mock uses same wrong key) | Fails at integration |
+| Silent nil from =plist-get= on alist     | Passes (appears to work) | Documented as known bug |
+
+* Validation Primitives
+
+Two generic validators that all contracts are built on, plus a list-of-items
+validator for collections.
+
+** Plist Validator
+:PROPERTIES:
+:ID: contract-validate-plist
+:END:
+
+Validates a plist against required and optional key specifications. Each spec is
+a =(KEY PREDICATE)= pair. Required keys must be present and satisfy their
+predicate. Optional keys are only checked when present.
+
+#+begin_src emacs-lisp
+;;; contract-core.el --- Cross-boundary contract validation primitives -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: testing, contracts
+
+;;; Commentary:
+
+;; Provides validation primitives for cross-boundary data shape contracts.
+;; Contracts are the single source of truth for what a producer must output
+;; and what a consumer can assume.
+;;
+;; Two validation primitives:
+;; - `contract--validate-plist` - validates plist shape (required/optional keys + type predicates)
+;; - `contract--validate-alist` - validates alist shape (catches plist-get-on-alist bugs)
+;;
+;; One Buttercup matcher:
+;; - `:to-satisfy-contract` - calls a contract validator and reports errors
+;;
+;; Validators return nil if valid, descriptive error string if invalid.
+
+;;; Code:
+
+(require 'cl-lib)
+
+(defun contract--validate-plist (data required &optional optional)
+  "Validate DATA as a plist against REQUIRED and OPTIONAL key specs.
+REQUIRED is a list of (KEY PREDICATE) pairs that must be present and satisfy predicate.
+OPTIONAL is a list of (KEY PREDICATE) pairs that may be present.
+
+Returns nil if valid, descriptive error string if invalid.
+
+Example:
+  (contract--validate-plist result
+    \\='((:success booleanp) (:all-commands listp))
+    \\='((:error stringp)))"
+  (cl-block validate
+    (let ((errors nil))
+      ;; Check it's a plist (list)
+      (unless (listp data)
+        (cl-return-from validate
+          (format "Expected plist, got %s" (type-of data))))
+
+      ;; Check required keys
+      (dolist (req required)
+        (let ((key (car req))
+              (pred (cadr req)))
+          (if (not (plist-member data key))
+              (push (format "Missing required key %S" key) errors)
+            (let ((value (plist-get data key)))
+              (unless (funcall pred value)
+                (push (format "Key %S: value %S does not satisfy %S"
+                              key value pred)
+                      errors))))))
+
+      ;; Check optional keys (only validate if present)
+      (dolist (opt optional)
+        (let ((key (car opt))
+              (pred (cadr opt)))
+          (when (plist-member data key)
+            (let ((value (plist-get data key)))
+              (when (and value (not (funcall pred value)))
+                (push (format "Optional key %S: value %S does not satisfy %S"
+                              key value pred)
+                      errors))))))
+
+      (when errors
+        (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+** Alist Validator
+:PROPERTIES:
+:ID: contract-validate-alist
+:END:
+
+Validates an alist (list of cons cells). This validator specifically exists to
+catch the *plist-get-on-alist* class of bug: if data is structured as an alist
+=((:key . value) ...)= but accessed with =plist-get= (which expects =(:key value
+...)=), the access silently returns nil.
+
+This was the root cause of the domains mismatch — bash-parser outputs domains as
+an alist, but scope was reading them with =plist-get=, getting nil for every
+domain lookup.
+
+#+begin_src emacs-lisp
+(defun contract--validate-alist (data allowed-keys &optional value-predicate)
+  "Validate DATA as an alist.
+ALLOWED-KEYS is a list of allowed car values (keywords or symbols).
+VALUE-PREDICATE is a predicate that each cdr must satisfy (default: always true).
+
+Returns nil if valid, descriptive error string if invalid.
+
+This specifically catches the plist-get-on-alist class of bug:
+if DATA is accessed with `plist-get' instead of `alist-get', it silently returns nil.
+
+Example:
+  (contract--validate-alist domains
+    \\='(:filesystem :authentication)
+    #\\='listp)"
+  (cl-block validate
+    (let ((value-pred (or value-predicate #'identity))
+          (errors nil))
+
+      ;; Check it's a list
+      (unless (listp data)
+        (cl-return-from validate
+          (format "Expected alist, got %s" (type-of data))))
+
+      ;; Check it's actually an alist (list of cons cells), not a plist
+      (dolist (entry data)
+        (unless (consp entry)
+          (push (format "Alist entry is not a cons cell: %S (is this a plist instead of alist?)"
+                        entry)
+                errors)))
+
+      ;; Check keys are allowed
+      (when (and allowed-keys (not errors))
+        (dolist (entry data)
+          (when (consp entry)
+            (let ((key (car entry)))
+              (unless (memq key allowed-keys)
+                (push (format "Unknown alist key %S (allowed: %S)" key allowed-keys)
+                      errors))))))
+
+      ;; Check value predicate
+      (when (and value-pred (not errors))
+        (dolist (entry data)
+          (when (consp entry)
+            (let ((value (cdr entry)))
+              (when (and value (not (funcall value-pred value)))
+                (push (format "Alist key %S: value does not satisfy %S"
+                              (car entry) value-pred)
+                      errors))))))
+
+      (when errors
+        (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+** List-of-Items Validator
+
+Validates that every element in a list satisfies a given item validator. Used for
+collections like "list of file-ops" or "list of cloud-auth-ops" within a domain.
+
+#+begin_src emacs-lisp
+(defun contract--validate-plist-in-list (data-list item-validator)
+  "Validate that DATA-LIST is a list where each element satisfies ITEM-VALIDATOR.
+ITEM-VALIDATOR is a function that returns nil if valid, error string if invalid.
+Returns nil if valid, descriptive error string if invalid."
+  (cl-block validate
+    (unless (listp data-list)
+      (cl-return-from validate
+        (format "Expected list, got %s" (type-of data-list))))
+    (let ((errors nil)
+          (idx 0))
+      (dolist (item data-list)
+        (when-let ((error (funcall item-validator item)))
+          (push (format "Item %d: %s" idx error) errors))
+        (cl-incf idx))
+      (when errors
+        (mapconcat #'identity (nreverse errors) "; ")))))
+#+end_src
+
+* Buttercup Integration
+
+The =:to-satisfy-contract= matcher integrates contracts into Buttercup's
+assertion syntax, so test failures produce clear contract violation messages
+rather than generic "expected nil" output.
+
+#+begin_src emacs-lisp
+;; Buttercup matcher - register when buttercup is available
+(defun contract--register-buttercup-matcher ()
+  "Register :to-satisfy-contract Buttercup matcher."
+  (buttercup-define-matcher :to-satisfy-contract (result validator)
+    "Match that RESULT satisfies contract VALIDATOR.
+VALIDATOR is a function that returns nil if valid, error string if invalid."
+    (let* ((actual-result (funcall result))
+           (actual-validator (funcall validator))
+           (error (funcall actual-validator actual-result)))
+      (if (null error)
+          t
+        (cons nil (format "Contract violation: %s\nData: %S" error actual-result))))))
+
+(when (featurep 'buttercup)
+  (contract--register-buttercup-matcher))
+#+end_src
+
+Usage in tests:
+
+#+begin_example elisp
+(expect my-data :to-satisfy-contract #'contract/bash-file-op--validate)
+#+end_example
+
+On failure, the output includes both the violation description and the actual data:
+
+#+begin_example
+Contract violation: Missing required key :file
+Data: (:path "/tmp/test.txt" :operation :read :confidence :high)
+#+end_example
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'contract-core)
+
+;;; contract-core.el ends here
+#+end_src
+
+* Running Tests
+
+Contract core tests live in =test/contract-core-spec.el= (Buttercup):
+
+#+begin_example shell
+./bin/run-tests.sh -d config/test/contracts
+#+end_example
+
+Tests cover both accept paths (valid data returns nil) and reject paths (invalid
+data returns descriptive errors). This is important — a contract that accepts
+everything is useless.

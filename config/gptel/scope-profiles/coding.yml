@@ -16,20 +16,6 @@ paths:
 
   deny: ["**/.git/**", "**/runtime/**", "**/.env", "**/node_modules/**"]
 
-org_roam_patterns:
-  subdirectory: ["gptel/**"]
-  tags: ["gptel"]
-  node_ids: ["*"]
-
-bash_tools:
-  # Deny list: Commands never allowed, even with scope expansion
-  # Minimal set for security: privilege escalation, destructive operations
-  deny:
-    - "sudo"
-    - "dd"
-    - "chmod"
-    - "chown"
-
 # V4 Schema: Cloud authentication detection
 # Controls how cloud service authentication commands are handled
 cloud:
@@ -46,5 +32,4 @@ security:
 
   # Maximum bash coverage threshold (0.0 to 1.0)
   # Limits how much of the command tree can be parsed/validated
-  # 0.8 = allow up to 80% of command to be analyzed
-  max_coverage_threshold: 0.8
+  max_coverage_threshold: 1

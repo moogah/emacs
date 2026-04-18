@@ -114,20 +114,20 @@ emacs-isolated.sh (GUI)  - Interactive launches (independent)
 
 **Running tests:**
 ```bash
-# Via make (direct)
-make test                                # All ERT tests
-make test-buttercup                      # All Buttercup tests
-make test-bash-parser                    # Module shortcut (ERT)
-make test-directory DIR=config/gptel     # Custom directory (ERT)
-make test-buttercup-directory DIR=config/gptel  # Custom directory (Buttercup)
-
-# Via run-tests.sh (user-friendly CLI with auto-detection)
-./bin/run-tests.sh                       # All tests (both frameworks)
+# Via run-tests.sh (primary CLI with auto-detection)
+./bin/run-tests.sh                       # All tests (both frameworks, separate processes)
 ./bin/run-tests.sh -f buttercup          # Only Buttercup tests
 ./bin/run-tests.sh -f ert                # Only ERT tests
 ./bin/run-tests.sh -d config/gptel       # Directory-scoped (auto-detects framework)
 ./bin/run-tests.sh -p '^test-glob-'      # Pattern-scoped (ERT)
 ./bin/run-tests.sh -d config/foo -s      # With snapshot
+
+# Via make (convenience wrappers)
+make test                                # All tests (both frameworks)
+make test-buttercup                      # All Buttercup tests (direct)
+make test-directory DIR=config/gptel     # Tests in specific directory
+make test-buttercup-directory DIR=config/gptel  # Buttercup in directory (direct)
+make test-pattern PATTERN='^test-glob-'  # ERT pattern matching
 
 # Interactive (via transient menu)
 C-c t    # Open test menu
@@ -151,6 +151,11 @@ C-c t    # Open test menu
 - Simple unit tests with minimal setup
 - Quick assertion-based tests
 
+**Test levels:**
+- **Unit** — Tests a single function with dependencies mocked for deterministic results.
+- **Integration** — Validates critical interactions and interfaces, typically at the module level.
+- **Behavioral** — Runs real code paths end-to-end, mocking only at the boundary between our code and external dependencies (Emacs primitives, third-party packages). Mocks are scoped to the function-under-test via `cl-letf` (not global). Tests declare preconditions explicitly rather than building up stateful test infrastructure.
+
 **Snapshot testing:**
 - Capture test output to git-tracked files for regression tracking
 - Default location: `DIR/test-results.txt` for directory-scoped tests
@@ -162,7 +167,7 @@ C-c t    # Open test menu
 - Scripts are thin wrappers (no coupling)
 - Tests co-located with modules (easy navigation)
 - Automatic discovery (no manual test registration)
-- Dual-framework support (run independently or together)
+- Dual-framework runs in separate Emacs processes (ERT's `kill-emacs` cannot block Buttercup)
 
 **Bash-parser test organization:** `config/bash-parser/test/`
 - `behavioral/` - User-facing scenarios from specs (WHAT) - 129 tests
@@ -180,23 +185,38 @@ C-c t    # Open test menu
 ./bin/run-tests.sh -d config/bash-parser/test/behavioral
 ```
 
-**Scope validation test organization:** `config/gptel/tools/test/`
-- `test-scope-validation-pipeline.el` - End-to-end validation pipeline tests
-- `test-scope-validation-file-paths.el` - Operation-specific path validation (45+ scenarios)
-- `test-scope-validation-pipelines.el` - Pipeline command extraction and validation (25+ scenarios)
-- `test-scope-validation-cloud-auth.el` - Cloud authentication policy enforcement (30+ scenarios)
-- `test-scope-schema.el` - Schema loading and validation (35+ scenarios)
-- `test-scope-shell-tools-integration.el` - Integration tests with bash-parser
-- `test-scope-shell-tools-legacy.el` - Characterization tests for legacy behavior
+**Scope validation test organization:** `config/gptel/scope/test/` — mirrors the source module layout.
+- `yaml/` - `scope-yaml` module tests: schema loading, merge-schema-defaults, YAML boolean normalization, round-trip serialization
+- `validation/` - `scope-validation` module tests: path validation, cloud auth, file operations, parse completeness, path resolution, no-op allowance, resource limits, error messages, nil handling, JSON serialization warnings
+- `tool-wrapper/` - `scope-tool-wrapper` module tests: tool routing, allow-once enforcement, metadata gathering
+- `expansion/` - Expansion integration, expansion UI, expansion UI handlers
+- `integration/` - Multi-module integration tests (scope-config, bash-parser, bash-scope-expansion, filesystem-scope, parallel-tool-callback, etc.)
+- `helpers-spec.el` - Shared test infrastructure (matchers, mocks, fixtures)
 
-**Running scope validation tests:**
+**Tool-scope contract tests:** `config/gptel/tools/test/`
+- `filesystem-tools-spec.el` - Filesystem tool contract tests
+- `test-arg-extraction-spec.el` - Argument extraction tests
+- `helpers-spec.el` - Tool test helpers
+
+Dispatcher-level authorization flow (allow / deny / allow-once / add-to-scope) is tested in `config/gptel/scope/test/validation/authorize-tool-call-spec.el`, not per-tool.
+
+**Running scope and tool tests:**
 ```bash
 # All scope validation tests
-./bin/run-tests.sh -d config/gptel/tools/test
+./bin/run-tests.sh -d config/gptel/scope
 
-# Specific capability
-./bin/run-tests.sh -p '^test-file-path-'
-./bin/run-tests.sh -p '^test-cloud-auth-'
+# Scope tests by module
+./bin/run-tests.sh -d config/gptel/scope/test/yaml
+./bin/run-tests.sh -d config/gptel/scope/test/validation
+./bin/run-tests.sh -d config/gptel/scope/test/tool-wrapper
+./bin/run-tests.sh -d config/gptel/scope/test/expansion
+./bin/run-tests.sh -d config/gptel/scope/test/integration
+
+# Tool-scope contract tests
+./bin/run-tests.sh -d config/gptel/tools
+
+# All gptel tests
+./bin/run-tests.sh -d config/gptel
 ```
 
 ### GPTEL Architecture
@@ -227,7 +247,7 @@ gptel/
 
 Controlled bash command execution with semantic validation using bash-parser integration.
 
-**Implementation**: `config/gptel/tools/scope-shell-tools.org`
+**Implementation**: `config/gptel/scope/scope-shell-tools.org`
 **Behavioral spec**: `openspec/specs/gptel/scope.md`
 
 **Validation approach**: Seven-stage operation-first validation pipeline validates commands by semantic operations (file reads/writes) rather than category membership. Uses bash-parser for AST extraction and semantic plugin system.
@@ -252,12 +272,15 @@ See implementation and spec files for complete details.
 ./bin/emacs-isolated.sh -nw          # Terminal mode
 ./bin/emacs-isolated.sh myfile.txt   # Open file
 
-# Run tests (Makefile-based)
-make test                                    # All tests (auto-discovery)
-make test-bash-parser                        # Module-specific tests
-make test-directory DIR=config/gptel         # Custom directory
-make test-pattern PATTERN='^test-glob-'      # Pattern matching
-./bin/run-tests.sh -d config/foo --snapshot  # With CLI and snapshot
+# Run tests
+./bin/run-tests.sh                           # All tests (both frameworks)
+./bin/run-tests.sh -d config/bash-parser     # Directory-scoped
+./bin/run-tests.sh -f buttercup              # Buttercup only
+make test-directory DIR=config/gptel         # Via make
+./bin/run-tests.sh -d config/foo --snapshot  # With snapshot
+./bin/run-tests.sh --report                  # Concise report (counts + failures)
+make test-report                             # Via make
+make test-report DIR=config/gptel            # Directory-scoped report
 
 # Worktree workflow
 git worktree add ~/emacs-feature-name -b feature-name
@@ -288,7 +311,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 For non-trivial changes, use **OpenSpec** to plan before implementing:
 
-**Default schema:** `spec-driven-beads` (proposal → specs → architecture → design → beads)
+**Default schema:** `spec-driven-tasks` (proposal → specs → architecture → design → tasks)
 
 **When to use:**
 - New features or significant modifications
@@ -301,17 +324,18 @@ For non-trivial changes, use **OpenSpec** to plan before implementing:
 2. **specs/** - WHAT (behavioral requirements with scenarios)
 3. **architecture.md** - HOW to structure and test (components, interfaces, testing approach)
 4. **design.md** - HOW to implement (technical decisions, implementation approach)
-5. **Beads** - Implementation tracking (generated from design and specs)
+5. **tasks/** - Implementation tracking: self-contained markdown files in `tasks/open/` and `tasks/closed/`
 
 **Invoke skills:**
-- `/opsx:explore` - Investigate and clarify requirements before planning
-- `/opsx:new` - Start structured change with spec-driven-beads schema
-- `/opsx:continue` - Progress to next artifact in workflow
-- `/opsx:ff` - Fast-forward through all artifacts to reach implementation
-- `/opsx:create-beads` - Generate Beads issues from design and specs
-- `/opsx:apply` - Implement Beads (uses `/bead-implementation` workflow)
-- `/opsx:verify` - Validate implementation matches artifacts
-- `/opsx:archive` - Archive completed change
+- `/opsx-explore` - Investigate and clarify requirements before planning
+- `/opsx-new` - Start structured change with spec-driven-tasks schema
+- `/opsx-continue` - Progress to next artifact in workflow
+- `/opsx-ff` - Fast-forward through all artifacts to reach implementation
+- `/opsx-tasks` - Manage task files (list/show/create/update/generate)
+- `/opsx-apply` - Implement tasks from `tasks/open/` in dependency order
+- `/tasks-orchestrator` - Implement multiple ready tasks in parallel worktrees
+- `/opsx-verify` - Validate implementation matches artifacts
+- `/opsx-archive` - Archive completed change
 
 **Skip OpenSpec for:** Single-file edits, bug fixes, documentation updates, trivial changes.
 
@@ -432,15 +456,23 @@ All gptel specs remain invisible unless explicitly referenced.
 2. **Start with gptel** - It's the architectural outlier (priority: `architecture.md` first)
 3. **Fill in organically** - Spec modules as you touch them
 
-### Beads Issue Tracking
+### Task Tracking
 
-Use **Beads** for tracking implementation work:
+Implementation work for an OpenSpec change lives in self-contained markdown
+files under `openspec/changes/<name>/tasks/open/` (ready/blocked) and
+`tasks/closed/` (done). Each file has YAML frontmatter (name, description,
+change, status, relations) and a body with files-to-modify, implementation
+steps, design rationale, verification commands, and context pointers.
 
 **When to use:**
-- Converting OpenSpec changes to trackable issues: `/openspec-to-beads`
-- Working on existing bead: `/bead-implementation` (handles discovery and session protocol)
+- Generate the initial set from design/specs: `/opsx-tasks generate`
+- List / show / create / update: `/opsx-tasks <subcmd>`
+- Implement sequentially: `/opsx-apply`
+- Implement in parallel worktrees: `/tasks-orchestrator`
 
-**Database location:** `.beads/beads.db` (initialized with `bd init`)
+**Historical note:** The repo previously used the Beads CLI for tracking.
+`.beads/issues.jsonl` is kept as a history record; all other beads runtime
+state has been removed.
 
 ## Key Locations
 

@@ -1,0 +1,26 @@
+schema: spec-driven-beads
+created: 2026-03-12
+beads:
+  - id: emacs-3hoi
+    title: "Remove entire plugin system and restructure orchestrator to two layers"
+    phase: 1-orchestrator
+  - id: emacs-m8qj
+    title: "Migrate cloud-auth detection from plugin to command handlers"
+    phase: 1b-cloud-auth-handlers
+    depends: [emacs-3hoi]
+  - id: emacs-38yl
+    title: "Grammar extraction tests: compound decomposition and redirection"
+    phase: 2-grammar-tests
+    depends: [emacs-3hoi]
+  - id: emacs-gc80
+    title: "Semantic pipeline end-to-end tests"
+    phase: 2-pipeline-tests
+    depends: [emacs-3hoi]
+  - id: emacs-746c
+    title: "Corpus test migration to Buttercup"
+    phase: 3-corpus-migration
+    depends: [emacs-3hoi]
+  - id: emacs-9uyd
+    title: "Regression verification and cleanup"
+    phase: 4-verification
+    depends: [emacs-38yl, emacs-gc80, emacs-746c, emacs-m8qj]

@@ -1,0 +1,13 @@
+Test Report
+===========
+
+ERT: 2 ran, 2 passed
+
+Buttercup: 612 ran, 568 passed (1 pending)
+
+Buttercup failures:
+  run_bash_command: Timeout and resource limits suggests filters in truncation notice
+  run_bash_command: Timeout and resource limits warns when long-running command is terminated
+
+===========
+Total: 614 ran, 570 passed

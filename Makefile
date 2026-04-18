@@ -52,7 +52,7 @@ emacs-test-eval:
 # High-level test targets - User-facing convenience wrappers
 # =============================================================================
 
-.PHONY: test test-verbose test-pattern test-directory test-bash-parser test-gptel test-snapshot test-buttercup test-buttercup-directory test-scope-unit test-scope-integration test-scope-behavioral test-scope-schema test-scope-cloud-auth test-scope-pipelines test-scope-file-paths help
+.PHONY: test test-verbose test-pattern test-directory test-snapshot test-report test-buttercup test-buttercup-directory help
 
 # Default target
 help:
@@ -67,41 +67,26 @@ help:
 	@echo "  make emacs-isolated EMACS_ARGS='...'  Run isolated Emacs with custom args"
 	@echo "  make emacs-test-eval EVAL_CMD='...'   Run tests with elisp eval"
 	@echo ""
-	@echo "Testing (ERT - legacy):"
-	@echo "  make test                       Run all ERT tests (auto-discovery)"
-	@echo "  make test-verbose               Run all ERT tests with verbose output"
+	@echo "Testing (both frameworks via run-tests.sh):"
+	@echo "  make test                       Run all tests (both frameworks)"
+	@echo "  make test-verbose               Run all tests with verbose output"
 	@echo "  make test-pattern PATTERN=X     Run ERT tests matching pattern"
-	@echo "  make test-directory DIR=X       Run ERT tests in specific directory"
-	@echo "  make test-snapshot DIR=X        Run ERT tests and capture snapshot"
+	@echo "  make test-directory DIR=X       Run tests in specific directory"
+	@echo "  make test-snapshot DIR=X        Run tests and capture snapshot"
+	@echo "  make test-report                Run all tests with concise report"
+	@echo "  make test-report DIR=X          Run tests in directory with report"
 	@echo ""
-	@echo "Testing (Buttercup - preferred):"
+	@echo "Testing (Buttercup - direct):"
 	@echo "  make test-buttercup             Run all Buttercup tests"
 	@echo "  make test-buttercup-directory DIR=X  Run Buttercup tests in specific directory"
 	@echo ""
-	@echo "Module shortcuts:"
-	@echo "  make test-bash-parser           Run bash-parser tests (ERT)"
-	@echo "  make test-bash-parser-snapshot  Run and capture bash-parser snapshot"
-	@echo "  make test-gptel                 Run gptel tests (when available)"
-	@echo ""
-	@echo "Scope validation tests (by type):"
-	@echo "  make test-scope-unit            Run scope unit tests (Buttercup)"
-	@echo "  make test-scope-integration     Run scope integration tests (ERT)"
-	@echo "  make test-scope-behavioral      Run scope behavioral tests (Buttercup)"
-	@echo ""
-	@echo "Scope validation tests (by capability):"
-	@echo "  make test-scope-schema          Run schema validation tests"
-	@echo "  make test-scope-cloud-auth      Run cloud auth tests"
-	@echo "  make test-scope-pipelines       Run pipeline validation tests"
-	@echo "  make test-scope-file-paths      Run file path validation tests"
-	@echo ""
 	@echo "Examples:"
 	@echo "  make test-pattern PATTERN='^test-glob-'"
-	@echo "  make test-directory DIR=config/experiments/bash-parser"
-	@echo "  make test-snapshot DIR=config/experiments/bash-parser"
-	@echo "  make test-bash-parser-snapshot"
+	@echo "  make test-directory DIR=config/bash-parser"
+	@echo "  make test-snapshot DIR=config/bash-parser"
 	@echo ""
 
-# Run all tests
+# Run all tests (both frameworks)
 test:
 	@./bin/run-tests.sh
 
@@ -121,15 +106,13 @@ test-directory:
 test-snapshot:
 	@./bin/run-tests.sh -d "$(DIR)" --snapshot
 
-# Shortcuts for common modules
-test-bash-parser:
-	@./bin/run-tests.sh -d config/experiments/bash-parser
-
-test-bash-parser-snapshot:
-	@./bin/run-tests.sh -d config/experiments/bash-parser --snapshot
-
-test-gptel:
-	@./bin/run-tests.sh -d config/gptel
+# Run tests with concise report (counts + failures only)
+test-report:
+ifdef DIR
+	@./bin/run-tests.sh -d "$(DIR)" --report
+else
+	@./bin/run-tests.sh --report
+endif
 
 # Run all Buttercup tests
 test-buttercup:
@@ -140,28 +123,11 @@ test-buttercup-directory:
 	@$(EMACS_TEST_BATCH) --eval '(jf/test-run-buttercup-directory-batch "$(DIR)")'
 
 # =============================================================================
-# Scope validation test targets - organized by test type and capability
+# Hook tooling
 # =============================================================================
 
-# Run scope validation tests by type
-test-scope-unit:
-	@./bin/run-tests.sh -f buttercup -t unit -d config/gptel/tools/test/unit
-
-test-scope-integration:
-	@./bin/run-tests.sh -f ert -t integration -d config/gptel/tools/test/integration
-
-test-scope-behavioral:
-	@./bin/run-tests.sh -f buttercup -t behavioral -d config/gptel/tools/test/behavioral
-
-# Run scope validation tests by capability
-test-scope-schema:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c schema
-
-test-scope-cloud-auth:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c cloud-auth
-
-test-scope-pipelines:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c pipelines
-
-test-scope-file-paths:
-	@./bin/run-tests.sh -f ert -d config/gptel/tools/test/integration -c file-paths
+.PHONY: build-hooks
+# Rebuild the task-frontmatter validator binary (Claude Code PostToolUse hook)
+build-hooks:
+	@cd $(BIN_DIR)/validate-task-frontmatter && go build -o validate-task-frontmatter .
+	@echo "Built $(BIN_DIR)/validate-task-frontmatter/validate-task-frontmatter"

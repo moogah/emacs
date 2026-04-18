@@ -228,7 +228,7 @@ The system SHALL accept optional variable context parameter for resolving variab
 
 ## Integration Points
 
-- **Filesystem Plugin**: Uses extracted file operations for validation
+- **File Operations Extraction**: Uses extracted file operations for validation
 - **Core Parser**: Uses parsed command structure
 - **Variable Resolution**: Uses variable context for path resolution
 - **gptel Scope System**: Consumer for validating bash commands before execution
