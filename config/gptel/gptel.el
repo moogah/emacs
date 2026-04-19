@@ -20,11 +20,22 @@
   :custom
   (gptel-model 'claude-opus-4-6) ;; model is now a symbol, not a string
   (gptel-log-level 'debug) ;; Enable debug logging for testing
+  (gptel-default-mode 'org-mode)
+  (gptel-org-branching-context t)
   :config
   ;; Enable prompt caching for Anthropic models
   (setq gptel-cache t)
   ;; Enable expert commands to show advanced options in transient menu
   (setq gptel-expert-commands t)
+  ;; Prose turn markers, not headings. With branching-context on, sibling
+  ;; headings are mutually invisible; if every turn were a sibling heading,
+  ;; multi-turn conversation would break. Prose markers let turns accumulate
+  ;; linearly within a heading, and sibling headings then genuinely mean
+  ;; "fork this conversation." LLM-written headings inside responses are
+  ;; demoted by `gptel-org-heading-adjust-mode-enable' to stay nested
+  ;; inside the current subtree (see the org-utils section below).
+  (setf (alist-get 'org-mode gptel-prompt-prefix-alist) "@user\n")
+  (setf (alist-get 'org-mode gptel-response-prefix-alist) "@assistant\n")
   ;; Configure Perplexity backend
   (gptel-make-perplexity "Perplexity"
     :key (lambda () (auth-source-pick-first-password :host "api.perplexity.ai"))
@@ -57,6 +68,15 @@
     :key (lambda () (auth-source-pick-first-password :host "api.openai.com"))
     :stream t
     :models '(gpt-4o gpt-4o-mini gpt-4-turbo gpt-3.5-turbo)))
+
+(use-package gptel-org-utils
+  :straight (gptel-org-utils :type git :host github :repo "ryanobjc/gptel-org-utils"
+                             :files ("*.el"))
+  :after gptel
+  :custom
+  (gptel-org-utils-dailies-directory "~/org/roam/daily/")
+  :config
+  (gptel-org-heading-adjust-mode-enable))
 
 ;; Load skills system (core, org-roam integration, transient UI)
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
@@ -183,6 +203,11 @@ Run this after preset registration to inject skill content into presets."
 ;; Enables creating persistent gptel sessions as part of activity creation
 (when (featurep 'activities)
   (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
+
+;; Drawer corruption trace — standalone diagnostic for the property
+;; drawer stacking bug. Commented out to rule out trace hooks as a
+;; contributor to the corruption. Re-enable to capture a fresh run.
+;; (jf/load-module (expand-file-name "config/gptel/drawer-trace.el" jf/emacs-dir))
 
 (defun jf/gptel-launcher ()
   "Launch gptel session with a selected backend and model.

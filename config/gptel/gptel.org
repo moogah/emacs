@@ -93,6 +93,9 @@ This configuration enables debug mode and prompt caching for easier testing and 
 - =gptel-log-level= set to ='debug= logs full request/response bodies, headers, and connection settings to the =*gptel-log*= buffer
 - =gptel-cache= set to =t= enables prompt caching for all supported models (particularly Anthropic)
 - =gptel-expert-commands= set to =t= enables advanced options in the gptel transient menu (=C-u C-c RET=)
+- =gptel-default-mode= set to ='org-mode= so new ad-hoc gptel buffers open in org-mode (persistent session files already use =session.org=)
+- =gptel-org-branching-context= set to =t=. Context scoping uses the current heading's ancestral lineage: parent headings + preceding text + current subtree, siblings excluded. This is what makes inline sub-branches work — a =**= sibling under a shared =*= topic forks independently without polluting its siblings' contexts. The usual failure mode (LLM writing =*= headings into responses and fracturing the lineage) is neutralised by =gptel-org-heading-adjust= (see the "GPTEL Org Topic Workflow" section below), which demotes LLM-authored headings to nest inside the current subtree. See [[file:~/org/roam/20260418111938-gptel_branching_org_context.org][the branching-vs-topic research note]] for the full analysis.
+- =gptel-prompt-prefix-alist= / =gptel-response-prefix-alist= overridden for org-mode: turn markers are =@user= / =@assistant= prose, not headings. With branching on, heading-based turn markers would make every turn a sibling subtree invisible to the next. Prose markers let turns accumulate linearly within a heading; sibling headings then genuinely mean "branch fork." =GPTEL_TOPIC= (set on a =*= heading via =gptel-org-set-topic= or =gptel-org-utils-new-topic=) bounds the outer conversation scope; branching-context handles the inline forks within it.
 
 These settings are useful for:
 - Verifying prompt caching behavior (check =cache_control= blocks and cache hit/miss in response headers)
@@ -109,11 +112,22 @@ Note: =gptel-cache= can also be set to ='(system message)= to cache only specifi
   :custom
   (gptel-model 'claude-opus-4-6) ;; model is now a symbol, not a string
   (gptel-log-level 'debug) ;; Enable debug logging for testing
+  (gptel-default-mode 'org-mode)
+  (gptel-org-branching-context t)
   :config
   ;; Enable prompt caching for Anthropic models
   (setq gptel-cache t)
   ;; Enable expert commands to show advanced options in transient menu
   (setq gptel-expert-commands t)
+  ;; Prose turn markers, not headings. With branching-context on, sibling
+  ;; headings are mutually invisible; if every turn were a sibling heading,
+  ;; multi-turn conversation would break. Prose markers let turns accumulate
+  ;; linearly within a heading, and sibling headings then genuinely mean
+  ;; "fork this conversation." LLM-written headings inside responses are
+  ;; demoted by `gptel-org-heading-adjust-mode-enable' to stay nested
+  ;; inside the current subtree (see the org-utils section below).
+  (setf (alist-get 'org-mode gptel-prompt-prefix-alist) "@user\n")
+  (setf (alist-get 'org-mode gptel-response-prefix-alist) "@assistant\n")
   ;; Configure Perplexity backend
   (gptel-make-perplexity "Perplexity"
     :key (lambda () (auth-source-pick-first-password :host "api.perplexity.ai"))
@@ -146,6 +160,28 @@ Note: =gptel-cache= can also be set to ='(system message)= to cache only specifi
     :key (lambda () (auth-source-pick-first-password :host "api.openai.com"))
     :stream t
     :models '(gpt-4o gpt-4o-mini gpt-4-turbo gpt-3.5-turbo)))
+#+end_src
+
+* GPTEL Org Topic Workflow
+
+Integrates [[https://github.com/ryanobjc/gptel-org-utils][ryanobjc/gptel-org-utils]] — a third-party package that bundles two modules:
+
+1. =gptel-org-utils= — commands for topic-scoped conversations. =gptel-org-utils-new-topic= creates a new top-level heading, sets its =GPTEL_TOPIC= property, and starts a Q/R subtree. =gptel-org-utils-summarize= asks a cheap model to rewrite the current heading with a one-line summary of its body. =gptel-org-utils-daily-buffer= opens today's daily note.
+2. =gptel-org-heading-adjust= — a =:before= advice on =gptel-send= captures =(org-current-level)=, and =gptel-post-stream-hook= / =gptel-post-response-functions= demote any headings the LLM writes by that many stars (tracked with a =gptel-heading-adjusted= text property to prevent re-processing). Prevents LLM-generated =* Foo= from escaping the topic's =*= container. See the [[file:~/org/roam/20260418111938-gptel_branching_org_context.org][research note]] for why this hook is needed even under topics.
+
+The utils module requires the heading-adjust module internally — one =use-package= declaration covers both. =gptel-org-heading-adjust-mode-enable= is a plain function (despite the name — it's not a real minor mode), globally installs the hooks and advice when called; nothing auto-enables.
+
+=gptel-org-utils-dailies-directory= is overridden to =~/org/roam/daily/= to match the org-roam dailies convention (upstream default is =~/Documents/org/dailies=).
+
+#+begin_src emacs-lisp
+(use-package gptel-org-utils
+  :straight (gptel-org-utils :type git :host github :repo "ryanobjc/gptel-org-utils"
+                             :files ("*.el"))
+  :after gptel
+  :custom
+  (gptel-org-utils-dailies-directory "~/org/roam/daily/")
+  :config
+  (gptel-org-heading-adjust-mode-enable))
 #+end_src
 
 * GPTEL Skills System
@@ -330,6 +366,11 @@ Load session management modules in dependency order:
 ;; Enables creating persistent gptel sessions as part of activity creation
 (when (featurep 'activities)
   (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
+
+;; Drawer corruption trace — standalone diagnostic for the property
+;; drawer stacking bug. Commented out to rule out trace hooks as a
+;; contributor to the corruption. Re-enable to capture a fresh run.
+;; (jf/load-module (expand-file-name "config/gptel/drawer-trace.el" jf/emacs-dir))
 #+end_src
 
 * GPTEL Session Launcher
