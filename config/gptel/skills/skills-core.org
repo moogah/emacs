@@ -509,14 +509,22 @@ If BUFFER is nil, uses current buffer."
     (let ((mentions '())
           (prefix (regexp-quote jf/gptel-skills-mention-prefix))
           (skill-names (hash-table-keys jf/gptel-skills--registry)))
-      (save-excursion
-        (goto-char (point-min))
-        (while (re-search-forward (concat prefix "\\([a-zA-Z0-9_-]+\\)") nil t)
-          (let ((skill-name (match-string 1))
-                (pos (match-beginning 0)))
-            ;; Only include if skill exists in registry
-            (when (member skill-name skill-names)
-              (push (cons skill-name pos) mentions)))))
+      ;; `save-match-data' is required: this runs from
+      ;; `after-change-functions', so any `re-search-forward' here would
+      ;; otherwise clobber match-data of the caller mid-edit. The
+      ;; concrete failure mode is `org-entry-put''s UPDATE branch reading
+      ;; stale match-data from `(goto-char (match-beginning 0))' after
+      ;; `delete-region' fired this hook, causing property re-inserts to
+      ;; land at the position of the last `@mention' in the buffer.
+      (save-match-data
+        (save-excursion
+          (goto-char (point-min))
+          (while (re-search-forward (concat prefix "\\([a-zA-Z0-9_-]+\\)") nil t)
+            (let ((skill-name (match-string 1))
+                  (pos (match-beginning 0)))
+              ;; Only include if skill exists in registry
+              (when (member skill-name skill-names)
+                (push (cons skill-name pos) mentions))))))
       (nreverse mentions))))
 #+end_src
 
