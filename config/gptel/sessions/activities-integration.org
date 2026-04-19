@@ -177,7 +177,7 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                           session-id
                           session-dir
                           preset-name
-                          "* Session\n\n"  ; Org-mode heading as initial content
+                          ""               ; Empty initial content; @user prefix added at send
                           worktree-scope   ; Scope plist (or nil)
                           nil))            ; No project-root
            (branch-dir (plist-get session-info :branch-dir))

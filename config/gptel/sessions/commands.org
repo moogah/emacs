@@ -509,7 +509,7 @@ No special resume command needed - sessions auto-initialize when opened."
          (project-root (when selected-projects (car selected-projects)))
          (project-names (when selected-projects
                          (mapcar #'jf/gptel--project-display-name selected-projects)))
-         (initial-content (format "# %s\n\n" session-name)))
+         (initial-content ""))
 
     ;; Create session structure using core helper
     (let* ((session-info (jf/gptel--create-session-core
