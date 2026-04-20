@@ -14,7 +14,7 @@ A dedicated major mode for multi-turn chat and work-log interaction with an LLM,
 
 ### Buffer Format
 
-A chat-mode buffer is a sequence of **turns**, each represented by an org special block at column 0. Turn blocks are **outer blocks** — not nested inside another user or assistant block. Org headings, paragraphs, and drawers that appear outside turn blocks are permitted as organizational/commentary content for the human reader; they do NOT participate in message construction. A short buffer typically has no headings:
+A chat-mode buffer is a sequence of **turns**, each represented by an org special block whose `#+begin_*` and `#+end_*` delimiter lines begin at the start of a line with no leading whitespace (the `#` is the first character of the line). Turn blocks are **outer blocks** — not nested inside another user or assistant block. Org headings, paragraphs, and drawers that appear outside turn blocks are permitted as organizational/commentary content for the human reader; they do NOT participate in message construction. A short buffer typically has no headings:
 
 ```org
 #+begin_user
@@ -67,6 +67,12 @@ Free-form notes the human keeps for themselves. Ignored by message construction.
 ### Metadata and Commentary
 
 Optional `#+<keyword>:` lines and a top-of-buffer `:PROPERTIES:` drawer are treated as file metadata. Org headlines and paragraph content outside turn blocks are treated as human commentary/organization. All such content is excluded from message construction — the LLM sees only turn blocks.
+
+### Prompt Composition
+
+The body of a `#+begin_user` block supports the full org-mode editing experience. Users composing a prompt may use org headings, source blocks, lists, tables, links, emphasis, footnotes, or any other org feature; the entire block body — from the line after `#+begin_user` to the line before `#+end_user` — is included verbatim in the constructed user message. Heading-like text inside a user block (e.g., `* Context`) is part of the prompt's body; it does NOT partition the document-level turn structure.
+
+Users who need to include a literal `#+end_user`, `#+end_assistant`, or `#+end_tool` line in their prompt prefix it with `,` (the same escape convention the assistant write-path uses automatically). The parser strips the leading `,` on send.
 
 ### Role Taxonomy
 
@@ -174,6 +180,12 @@ Message construction SHALL NOT depend on text properties or on `gptel--parse-buf
 - **WHEN** the buffer contains one turn pair under `* Section A` and one user turn under `* Section B`
 - **THEN** the constructed message list is `[user_A, assistant_A, user_B]` in document order
 - **AND** the headings themselves are not represented in the message list
+
+#### Scenario: User prompt composed with org structural features
+- **WHEN** a `#+begin_user` block body contains an `* Heading` line, a `#+begin_src` block, a list, and emphasized text
+- **THEN** the constructed user message contains all of that content verbatim
+- **AND** the parser treats the whole block as a single user turn (the `* Heading` does not partition it)
+- **AND** the `#+begin_src` / `#+end_src` pair inside the user block does not interfere with the outer `#+end_user` match
 
 ### Requirement: Send command
 

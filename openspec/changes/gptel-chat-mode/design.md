@@ -41,7 +41,7 @@ Decision 12 establishes that headings are organizational and do not affect turn 
 - Per-buffer text-property tracking (what upstream gptel does): requires maintaining properties across edits and persisting them in drawers. We rejected this in the proposal — the spec explicitly prohibits text-property or `:GPTEL_BOUNDS:` dependence.
 - Stateless line-by-line scan (early draft of this design): depended on "all turn blocks are at document top level." Fails as soon as a user block body mentions `#+begin_assistant`, and fails more broadly once heading-organized buffers are in scope (Decision 12).
 
-**Rationale:** we own the format. Blocks are always paired, always at column 0, always the exact delimiters we emit. A state-machine regex walk is deterministic, fast, and robust against the two edge cases (literal delimiters in block bodies, turns under headings). The parser's output is a structured turn list (per the architecture data contract), so any future replacement can preserve the same interface.
+**Rationale:** we own the format. Turn-block delimiters are always paired, always begin at start-of-line with no leading whitespace (see Decision 14), and always use the exact delimiter strings we emit. A state-machine regex walk is deterministic, fast, and robust against the two edge cases (literal delimiters in block bodies, turns under headings). The parser's output is a structured turn list (per the architecture data contract), so any future replacement can preserve the same interface.
 
 ### Decision 2: Message list shape — match `gptel-request`'s documented `:prompt` contract
 
@@ -176,6 +176,36 @@ This is the **blocks-only model**, chosen from three candidates considered in ex
 - Text inside a user or assistant block is sent verbatim to the LLM, including lines that look like org headings or `#+begin_*` delimiters. Heading-like prose inside a user block becomes part of that user message — if the user writes `* Context` inside their prompt, the model sees `* Context` as user text.
 - Validation (spec §Buffer format validation) is narrower than an earlier draft's "all content outside blocks is invalid": the parser accepts any content between turn blocks and flags only structural problems (unmatched delimiters, tool-block-outside-assistant, turn-inside-turn).
 - Future scope (out of v1): a later change could add heading-aware features — per-section chat history branching, heading-to-system-message promotion, section-scoped regenerate — without changing the v1 on-disk format. The turn-list contract is stable either way.
+
+### Decision 13: User blocks support the full org-mode editing experience
+
+**Choice:** the body of a `#+begin_user` block is an unrestricted org editing surface. Users may compose prompts using org headings, source blocks, lists, tables, links, emphasis, footnotes, TODOs, timestamps, or any other org feature. The entire block body (verbatim, minus the delimiter lines) is sent as the user message.
+
+**Rationale:** this is the principal ergonomic payoff of deriving from `org-mode` (Decision 6). A chat-mode buffer is intended to be used for sustained, structured prompt composition — the exact use case where org's editing affordances (outline cycling, source-block tangling, list demotion, table editing, link insertion) matter most. Forbidding any of these would push users back toward plain-text chat and defeat the reason for building a dedicated mode.
+
+No implementation cost: the parser's state machine (Decision 1) is delimiter-matched, not structure-aware. From `#+begin_user` to the matching `#+end_user`, every line is body, whether it looks like a heading, a source block, another special block, or arbitrary prose.
+
+**Implications:**
+
+- A `* Heading` line inside a user block is part of the user message, not a document-level heading. The LLM receives `* Heading` as user text.
+- A `#+begin_src ... #+end_src` block inside a user block is part of the user message. Org's inside-block syntax highlighting still works (a free consequence of org-mode derivation).
+- Any line beginning with `#+begin_user`, `#+begin_assistant`, or `#+begin_tool` inside a user block is body text, not a new turn (the state machine stays in the "inside user block" state until the matching `#+end_user`).
+- Bare `#+end_user` / `#+end_assistant` / `#+end_tool` lines inside a user block DO end the containing block — they are what the state machine matches. Users who need to include one of those literals in their prompt prefix it with `,` (org's own escape convention). The parser un-escapes `,#+end_...` on send, identically to the assistant-path round-trip in Decision 4.
+
+**Follow-up (not v1):** a helper command (e.g., `gptel-chat-insert-literal-delimiter`) or a minor-mode indicator could make the `,`-escape convention discoverable for users who hit the edge case. Not worth the surface area for v1.
+
+### Decision 14: Disable `org-adapt-indentation` locally; delimiters pinned to column 0
+
+**Choice:** `gptel-chat-mode` sets `org-adapt-indentation` to `nil` as a buffer-local variable on activation. Turn-block delimiter lines always begin at the start of a line with no leading whitespace.
+
+**Rationale:** org's adaptive indentation can, depending on the user's global setting, indent content under a heading to align with the heading's star column. For chat-mode that would mean turn blocks under deeper headings got indented — visually consistent with other org files, but it breaks the parser's `^#\+begin_...` anchor and complicates delimiter-collision sanitization (which would need to reason about prefix indentation). Pinning delimiters to column 0 regardless of the user's global org settings keeps the parser, the sanitizer, and the on-disk format uniform.
+
+**Alternatives considered:**
+
+- **Permissive parser** (accept leading whitespace on delimiter lines; regex becomes `^[ \t]*#\+begin_...`). Simple for the read path, but the write path (streaming insertion, assistant-block opening, sanitizer) would need to know what indentation to apply per line. Worse: two chat files authored under different `org-adapt-indentation` settings would have different on-disk shapes.
+- **No local override** (respect the user's global `org-adapt-indentation`). Rejected as too fragile — a config change elsewhere could silently break every existing chat file.
+
+**Trade-off:** chat-mode buffers don't match the indentation style of the user's other org files if they've chosen adaptive indentation globally. That's a minor cosmetic inconsistency and is acceptable in exchange for parser simplicity and on-disk uniformity.
 
 ## Risks / Trade-offs
 

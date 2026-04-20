@@ -5,7 +5,7 @@ The upstream `gptel-mode` is designed as an invisible integration layer — "ass
 ## What Changes
 
 - **New `gptel-chat-mode`** derived from `org-mode`, targeting dedicated multi-turn chat/work-log buffers. Parallel to `gptel-mode`, not a replacement.
-- **Symmetric special-block turn structure** as the canonical on-disk format: every turn is a `#+begin_user`/`#+end_user` or `#+begin_assistant`/`#+end_assistant` block at column 0, with `#+begin_tool` blocks nested inside assistant blocks for tool calls. Org headings are permitted as human organizational structure for long buffers but are not required and do not affect turn ordering or message construction.
+- **Symmetric special-block turn structure** as the canonical on-disk format: every turn is a `#+begin_user`/`#+end_user` or `#+begin_assistant`/`#+end_assistant` block whose delimiter lines start at column 0 (no leading whitespace), with `#+begin_tool` blocks nested inside assistant blocks for tool calls. Org headings are permitted as human organizational structure for long buffers but are not required and do not affect turn ordering or message construction.
 - **Direct `gptel-request` backend**: the mode builds the message list by walking its own block structure; it does not rely on `gptel--parse-buffer` or on text-property-based turn tracking.
 - **Streaming insertion with sanitization**: assistant response chunks are inserted inside an open `#+begin_assistant` block; lines that would collide with `#+end_*` delimiters are escaped using the existing `org-escape-code-in-string` pattern already used for tool blocks.
 - **Minimal interactive surface**: send current user turn, navigate to next/previous turn, regenerate last response. Prompt editing uses standard org-mode keys inside the user block.
