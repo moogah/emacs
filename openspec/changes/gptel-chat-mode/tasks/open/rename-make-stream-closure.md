@@ -2,7 +2,7 @@
 name: rename-make-stream-closure
 description: Rename gptel-chat--make-stream-closure to describe its role
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - discovered-from:sanitize-chunks
   - blocked-by:expose-tool-marker-setter
