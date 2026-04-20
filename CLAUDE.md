@@ -475,6 +475,12 @@ steps, design rationale, verification commands, and context pointers.
 - Implement sequentially: `/opsx-apply`
 - Implement in parallel worktrees: `/tasks-orchestrator`
 
+**Verification grep scoping:** A task's `Verification` greps should target
+the exact files the task modifies, not a broad subsystem directory. Recursive
+greps (`grep -rn <term> <dir>/`) routinely match callers owned by parallel
+tasks and read as false "incomplete" signals. Prefer explicit file lists:
+`grep -n <term> <file1> <file2>`.
+
 **Historical note:** The repo previously used the Beads CLI for tracking.
 `.beads/issues.jsonl` is kept as a history record; all other beads runtime
 state has been removed.
