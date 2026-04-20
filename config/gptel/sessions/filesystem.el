@@ -232,7 +232,7 @@ Checks for existence of branches directory."
 
 (defun jf/gptel--valid-branch-directory-p (dir)
   "Return t if DIR is a valid branch directory.
-Checks for existence and presence of session.md file."
+Checks for existence and presence of session.org file."
   (and (file-directory-p dir)
        (file-exists-p (jf/gptel--context-file-path dir))))
 
