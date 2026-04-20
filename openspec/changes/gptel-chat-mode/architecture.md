@@ -1,6 +1,10 @@
 ## Components
 
-The mode is factored into six cohesive modules under `config/gptel/chat/`. Each module has a narrow responsibility and a small public surface.
+This change introduces chat-mode as a new subsystem under `config/gptel/chat/` **and** revises four modules in `config/gptel/sessions/` so that sessions use chat-mode as their canonical mode. Component inventory is in two groups: new modules and modified modules.
+
+### New modules (under `config/gptel/chat/`)
+
+The chat-mode subsystem is factored into six cohesive modules. Each has a narrow responsibility and a small public surface.
 
 ### `gptel-chat-mode` (mode)
 - Defines the `gptel-chat-mode` major mode, derived from `org-mode`
@@ -36,6 +40,35 @@ The mode is factored into six cohesive modules under `config/gptel/chat/`. Each 
 - Applies the v1 display layer: distinct faces (or a `line-prefix` overlay) on user-block content and assistant-block content
 - Provides `gptel-chat-toggle-display-layer` to enable/disable without modifying buffer text
 - Pure presentation: no callers depend on its side effects, and removing it leaves the buffer semantically identical
+
+### `gptel-chat-menu` (menu, preset-wiring)
+- Applies a preset at mode activation: parses the buffer's `GPTEL_PRESET` Org property drawer or file-local `gptel--preset` value, calls `gptel--apply-preset` with a buffer-local setter
+- Defines `gptel-chat-menu` — a transient prefix reusing `gptel-menu`'s configuration infixes with the Send suffix rebound to `gptel-chat-send`
+- Does **not** enable `gptel-mode`; chat-mode owns the buffer role exclusively (design.md Decision 16)
+
+### Modified modules (under `config/gptel/sessions/`)
+
+The sessions subsystem is updated so session buffers use `gptel-chat-mode` as their mode. Four modules change; the rest are untouched.
+
+### `sessions/commands` (modified)
+- Auto-init hook `jf/gptel--auto-init-session-buffer` now keys on `*/branches/<branch>/session.org` (renamed from `session.md`)
+- On match: extracts session-id / branch-name, sets buffer-local session vars, registers in `jf/gptel--session-registry`, applies preset from `metadata.yml` via `gptel--apply-preset` with buffer-local setter, ensures `gptel-chat-mode` is the active major mode
+- Does **not** call `(gptel-mode 1)`; does **not** invoke `gptel--save-state` / `gptel--restore-state`
+- `jf/gptel-persistent-session` creates `session.org` with chat-mode initial content (`#+begin_user`/`#+end_user`)
+
+### `sessions/filesystem` (modified)
+- Directory templates reference `session.org` (not `session.md`) for branches and agents
+- No change to session-id format, `current` symlink behavior, or branch-metadata handling
+
+### `sessions/branching` (modified)
+- Branch-point selection enumerates outer `#+begin_user` blocks via the chat-mode parser (`gptel-chat--parse-buffer`) — replaces the `gptel` text-property scan
+- Context truncation copies buffer content up to a turn-boundary position (end-of-user-block for "include prompt"; start-of-user-block for "exclude prompt") — replaces `gptel--bounds`-filtering
+- Writes truncated content to the new branch's `session.org`
+- Registry, metadata, and directory-creation paths unchanged
+
+### `sessions/activities-integration` (modified)
+- Session-creation helpers (`jf/gptel-session-create-persistent`) emit `session.org` unconditionally; no mode-selection parameter
+- Worktree tracking (`gptel-activity-worktrees` buffer-local) and activity directory layout unchanged
 
 ## Interfaces
 
@@ -97,23 +130,24 @@ The mode is factored into six cohesive modules under `config/gptel/chat/`. Each 
 ## Boundaries
 
 **In scope for this change:**
-- All six modules above
-- A test suite covering every spec scenario
-- Integration into `jf/enabled-modules` so the mode loads at startup
-- Basic default keybindings for the six interactive commands
+- All seven new chat-mode modules above (six core + preset/menu)
+- Four modified session modules (`commands`, `filesystem`, `branching`, `activities-integration`)
+- A test suite covering every chat-mode spec scenario plus updated session scenarios (auto-init for `session.org`, branching via turn list)
+- Integration into `jf/enabled-modules` so chat-mode loads before the sessions modules (sessions depends on chat-mode)
+- Basic default keybindings for the six chat-mode interactive commands
 
 **Explicitly out of scope (tracked for follow-up changes):**
-- Integration with `config/gptel/sessions/` (branching, activities, metadata.yml, scope.yml). Chat-mode buffers are plain `.org` files in v1 and do not participate in the session registry.
-- Migration of existing `session.md` / `session.org` files to the chat-mode format.
+- Automated migration from pre-chat-mode `session.md` files — clean break (see design.md Decision 19).
 - Display-layer delimiter hiding (the "store-symmetric-display-asymmetric" refinement). v1's display layer is presentation of block content; delimiters remain visible.
 - `org-edit-special`-style indirect buffer for rich prompt composition.
-- Per-chat preset or model selection UI. Users configure the model via `gptel-model` / `gptel-backend` at send time, same as any other `gptel-request` call.
+- Per-chat preset/model selection UI *beyond* what `gptel-menu` (with our Send-suffix rebind) already provides.
 - Persistence of in-progress streaming state across Emacs restarts.
 
 **Seams kept explicit** (so follow-up changes can extend without rework):
-- Parser produces a structured turn list rather than returning the message list directly — a session-persistence module can consume the same turn list.
-- Send is factored into validation, parsing, and backend invocation so a future session-aware send can layer on without rewriting.
+- Parser produces a structured turn list rather than returning the message list directly — the branching rewrite consumes that same turn list, as can future session features (search, summarization, export).
+- Send is factored into validation, parsing, and backend invocation so session-aware send (e.g., session-level logging) can layer on as a wrapping hook.
 - Display is isolated as a module so adding delimiter hiding later is a local change.
+- Auto-init is a single entry point — adding new path patterns (e.g., a different session layout) is a one-line extension.
 
 ## Testing Approach
 
@@ -128,7 +162,7 @@ ERT is not used for this module; existing ERT suites elsewhere in the repo are n
 
 ### Test Organization
 
-Tests live under `config/gptel/chat/test/` and mirror the module layout:
+Chat-mode tests live under `config/gptel/chat/test/` and mirror the chat-mode module layout. Session-integration tests extend the existing `config/gptel/sessions/test/` tree.
 
 ```
 config/gptel/chat/test/
@@ -148,9 +182,26 @@ config/gptel/chat/test/
 │   └── regenerate-spec.el           — Requirement: Regenerate last response
 ├── display/
 │   └── display-layer-spec.el        — Requirement: Display-layer role distinction
+├── menu/
+│   ├── preset-wiring-spec.el        — Preset parsing + apply on mode activation
+│   └── menu-send-rebind-spec.el     — gptel-chat-menu Send invokes gptel-chat-send
 ├── integration/
 │   └── end-to-end-spec.el           — Full send round-trip with stubbed backend
 └── helpers-spec.el                  — Shared fixtures and matchers
+
+config/gptel/sessions/test/
+├── commands/
+│   ├── auto-init-chat-mode-spec.el     — Auto-init enables chat-mode on session.org
+│   ├── session-org-creation-spec.el    — jf/gptel-persistent-session writes session.org
+│   └── preset-application-spec.el      — Preset applied from metadata.yml (unchanged)
+├── filesystem/
+│   └── directory-templates-spec.el     — session.org path pattern throughout
+├── branching/
+│   ├── branch-point-selection-spec.el  — Turn-list enumeration replaces text-property scan
+│   ├── context-truncation-spec.el      — Truncate at turn boundary (include/exclude)
+│   └── branching-integration-spec.el   — Full branch create with chat-mode buffer
+└── activities/
+    └── activity-session-chat-spec.el   — Activity-backed sessions emit session.org
 ```
 
 Source modules live in `config/gptel/chat/` as literate `.org` files tangling to `.el`, per the repo's literate-programming convention.

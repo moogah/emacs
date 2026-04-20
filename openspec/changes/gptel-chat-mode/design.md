@@ -21,17 +21,18 @@ Reference:
 
 **Goals:**
 - Make the chat-mode buffer the single source of truth. Re-opening a `.org` file and walking its blocks is sufficient to reconstruct conversation state; no sidecar property drawers or bounds tracking required.
-- Keep the implementation testable in isolation. Each of the six modules exposes a small public surface with narrow dependencies; the parser and the stream sanitizer can be tested without any Emacs UI state, and send can be tested without a real network call.
-- Isolate coupling to upstream `gptel`. Only `gptel-request` is a load-bearing dependency. No reliance on `gptel--parse-buffer`, `gptel-prompt-prefix-alist`, `:GPTEL_BOUNDS:`, or other internals that may change without notice.
-- Ship a v1 that a human can use for an hour without hitting a structural bug. Completeness matters more than polish; the display layer is intentionally minimal.
+- Replace `gptel-mode` with `gptel-chat-mode` throughout our sessions subsystem as part of this change — not a separate follow-up. Sessions are where the chat/log ergonomics matter most; splitting the work leaves two parsers and two save paths coexisting in a way that's more expensive than the clean-break rewrite.
+- Keep the implementation testable in isolation. Each of the chat-mode modules exposes a small public surface with narrow dependencies; the parser and the stream sanitizer can be tested without any Emacs UI state, and send can be tested without a real network call. Session-integration seams (auto-init, branching) are tested with fixtures mounted on tempdir directory structures.
+- Isolate coupling to upstream `gptel`. The load-bearing surface is `gptel-request`, `gptel-make-fsm`, `gptel--apply-preset`, and `gptel-menu` — all documented or de-facto-stable public API. No reliance on `gptel--parse-buffer`, `gptel-prompt-prefix-alist`, `:GPTEL_BOUNDS:`, or gptel-mode's text-property conventions.
+- Ship a v1 that a human can use for an hour (including creating sessions, branching, and resuming via activities) without hitting a structural bug. Completeness matters more than polish; the display layer is intentionally minimal.
 
 **Non-Goals:**
-- Integration with `config/gptel/sessions/` infrastructure (branching, activities, metadata.yml, scope.yml). Chat-mode files are plain `.org` files in v1.
-- Automatic migration of existing `session.md` / `session.org` files into the chat format.
+- Automated migration of existing pre-chat-mode sessions (see Decision 19). Clean break: old `session.md` files remain on disk in their old format; the new sessions code does not read them.
+- Coexistence of `gptel-mode` and `gptel-chat-mode` inside a single session buffer. Session buffers use chat-mode *instead of* gptel-mode — the two modes do not run together (see Decision 16).
 - Delimiter-hiding display layer ("store-symmetric, render-asymmetric"). Deferred to a later change.
 - `org-edit-special`-style indirect buffer for prompt editing. Users edit prompts in place with standard org keys.
-- Per-chat preset/model selection UI. Users control `gptel-model` / `gptel-backend` via existing mechanisms.
-- Upstream patches to `gptel`.
+- A new per-chat preset/model selection UI. **Provided by upstream `gptel-menu`** — see Decision 15.
+- Upstream patches to `gptel`. (We patch our own sessions modules, not upstream.)
 
 ## Decisions
 
@@ -189,9 +190,11 @@ The exact regex is case-insensitive because org's block-end matching is case-ins
 #+end_user
 ```
 
-Point is positioned on the empty line inside the block. No metadata is pre-populated; users who want `#+gptel-model:` or `#+gptel-system:` keywords add them manually.
+Point is positioned on the empty line inside the block. No model, system prompt, tools, or preset metadata is pre-populated in the buffer.
 
-**Rationale:** minimum viable initialization. Metadata keywords are a v2 concern.
+Per-buffer configuration (model, backend, system message, tools, temperature) is delivered by the upstream preset system and `gptel-menu`, wired in by Decision 15. Users who want a starting preset invoke `M-x gptel-menu` and pick one, or save the buffer with a `:PROPERTIES: ... :GPTEL_PRESET: name :END:` drawer; chat-mode activation will apply it.
+
+**Rationale:** minimum viable initialization. The preset system is the right layer for per-buffer configuration — inventing a parallel keyword set here would duplicate upstream.
 
 ### Decision 10: Callback dispatch — `pcase` on upstream's actual response shapes
 
@@ -212,6 +215,10 @@ Each element of a `tool-call` or `tool-result` list is a plist carrying `:name`,
 **Corrected from earlier draft:** an earlier version of this decision described tool events as "plists with a tool-call sentinel" — that was wrong. Upstream emits cons cells, not tagged plists; dispatch via `pcase` backquote patterns is both the upstream idiom and what `persistent-agent.org` already does.
 
 **Note on transitioning the FSM:** `gptel--fsm-transition` is the mechanism by which handlers advance state. Our callback does not call it directly — the default `WAIT` and `TOOL` handlers (still present in our chained handler list, Decision 3) drive transitions for us. If a future UX wants to intercept (e.g., confirm-before-tool-call), the intercept goes in our `TOOL` handler, not in the callback.
+
+**How `'abort` is triggered:** the upstream command `M-x gptel-abort` (`gptel-request.el:2099-2125`) operates on the current buffer, finds its active FSM, and invokes our callback with `'abort`. Chat-mode does not need a `gptel-chat-abort` wrapper — binding `C-c C-k` or similar directly to `gptel-abort` is sufficient.
+
+**Upstream response hooks are intentionally bypassed.** `gptel-post-response-functions` and friends are consumed by gptel-mode's default callback, not by `gptel-request`. Our callback does not invoke them, on purpose — those hooks assume gptel-mode's prompt/response-prefix insertion conventions, which we don't use. If a follow-up change needs a chat-mode-specific post-response hook (e.g., for session-save integration), add one with its own name.
 
 **Reference implementation:** `config/gptel/tools/persistent-agent.org` calls `gptel-request` with full tool history and pattern-matches every shape above in a single `pcase`. Start there for both the callback dispatcher and the `:prompt` message shape with tool history (Open Question 1).
 
@@ -278,9 +285,111 @@ No implementation cost: the parser's state machine (Decision 1) is delimiter-mat
 
 **Trade-off:** chat-mode buffers don't match the indentation style of the user's other org files if they've chosen adaptive indentation globally. That's a minor cosmetic inconsistency and is acceptable in exchange for parser simplicity and on-disk uniformity.
 
+### Decision 15: Preset system and `gptel-menu` integration
+
+**Choice:** chat-mode participates in the upstream preset system via `gptel--apply-preset` and supports `M-x gptel-menu` for interactive configuration, while routing the menu's Send action through `gptel-chat-send` (not upstream's `gptel--suffix-send`).
+
+#### Preset application
+
+All per-buffer configuration — model, backend, system message, tools, temperature, reasoning, context flags — flows through upstream's preset mechanism. This collapses what would otherwise be a handful of parallel `#+gptel-*:` keyword conventions into one:
+
+- **On mode activation**, `gptel-chat-mode` looks for a preset declaration in the buffer (in this order):
+  1. An Org `:PROPERTIES:` drawer at point-min with a `:GPTEL_PRESET: name` line — matching how `gptel-mode` handles the same property (`gptel-org.el:564-572`).
+  2. A file-local `gptel--preset: name` via the standard `-*- ... -*-` or `Local Variables:` mechanism — `gptel--preset` is already declared `safe-local-variable`.
+- If found, chat-mode calls `(gptel--apply-preset 'name (lambda (sym val) (set (make-local-variable sym) val)))`. The preset's `:backend`, `:model`, `:system`, `:tools`, etc. are installed as buffer-local values; subsequent `gptel-request` calls read them directly.
+- If no preset is declared, chat-mode does nothing — the buffer inherits the global defaults, same as any other `gptel-request` caller.
+
+This is exactly the pattern `config/gptel/tools/persistent-agent.org:646-650` already uses. We do not turn on `gptel-mode`; we only borrow its preset-parsing behavior.
+
+#### `gptel-menu` integration — configuration is free, Send is rebound
+
+`gptel-menu` is a `transient-define-prefix` with no mode guard. Its **configuration** suffixes (preset pick/save, model, backend, system message, tools, context, temperature) are pure buffer-local variable mutation and work unchanged in a chat-mode buffer. No action required — a user can invoke `M-x gptel-menu` today and everything but Send is correct.
+
+**The menu's Send suffix (`gptel--suffix-send`) is the wrong path for chat-mode buffers.** It assumes gptel-mode's prompt/response-prefix conventions and `gptel` text-property markers. Invoking it in a chat-mode buffer would insert response text outside our block structure and ignore the canonical on-disk format.
+
+**Choice:** chat-mode provides its own transient, `gptel-chat-menu`, that reuses `gptel-menu`'s configuration layout and replaces the Send suffix with one that invokes `gptel-chat-send`. `gptel-chat-menu` is bound on the chat-mode keymap (suggested: `C-c C-,` to mirror common gptel muscle memory — exact key decided during implementation). Users who type `M-x gptel-menu` directly still get the upstream prefix; the chat-mode key gets the rebound one.
+
+**Alternatives considered:**
+
+- Do nothing; let users invoke `M-x gptel-menu` for configuration and `C-c C-c` for send, never using the menu's Send entry. Rejected: the menu's Send button is too obvious a trap — a user will press it eventually and get wrong behavior inserted into their buffer.
+- Advise `gptel--suffix-send` to delegate to `gptel-chat-send` when `(derived-mode-p 'gptel-chat-mode)`. Rejected: advice on upstream internals is fragile, and affects `M-x gptel-menu` globally in a way that surprises users who expect upstream behavior.
+- Duplicate the whole `gptel-menu` layout verbatim. Rejected: maintenance burden — any new infix upstream adds is one we'd need to mirror.
+
+**Rationale:** replacing a single suffix is the narrowest possible fork. Transient's public API supports it (`transient-replace-suffix`, or defining a new prefix that shares infix symbols), and the cost is a few lines of code. The user gets the full upstream menu with exactly one behaviorally different button.
+
+**Implementation note (not a decision):** the exact transient mechanism — replacing the suffix on a copy of `gptel-menu`'s layout, or defining `gptel-chat-menu` as a fresh prefix that references the same infixes — is deferred to implementation. Both produce the same user-visible behavior.
+
+### Decision 16: Sessions use `gptel-chat-mode`, never `gptel-mode`
+
+**Choice:** session buffers are in `gptel-chat-mode` exclusively. The sessions subsystem does not enable `gptel-mode` (minor mode) on session buffers; chat-mode owns the full buffer role.
+
+Three concrete wiring changes fall out of this:
+
+1. **Auto-init hook (`jf/gptel--auto-init-session-buffer` in `config/gptel/sessions/commands.org`).** The hook keys on the path pattern `*/branches/<branch>/session.org` (renamed from `session.md` — see Decision 18). On match, it parses `metadata.yml`, applies the session's preset via `gptel--apply-preset` with a buffer-local setter (same as today), and ensures `gptel-chat-mode` is the active major mode. It does **not** call `(gptel-mode 1)`.
+2. **Preset-application path.** `gptel-chat-mode` activation itself performs preset parsing (Decision 15); the sessions auto-init hook plays the same role but driven by `metadata.yml` instead of a `GPTEL_PRESET` property drawer. Both paths call `gptel--apply-preset` with a buffer-local setter — behaviorally identical. If both sources are present, `metadata.yml` wins (sessions are the authoritative configuration for session files).
+3. **`gptel-mode`-dependent behavior is removed from the session code path.** The `jf/gptel--ensure-mode-once` helper (which today calls `(gptel-mode 1)`) is rewritten to call `(gptel-chat-mode)`. Upstream's `gptel--save-state` / `gptel--restore-state` are no longer invoked by session auto-init; chat-mode's format is self-describing (Decision 18).
+
+**Rationale:** the chat-mode buffer format and the `gptel-mode` buffer conventions (text-property bounds, prompt/response-prefix insertion, Local Variables for `gptel--bounds`) are incompatible by construction. Running both modes on the same buffer produces a mixed-format file that neither parser can read cleanly. Clean separation avoids every collision class at once.
+
+**Alternatives considered:**
+- Let the auto-init hook enable both modes and let users choose which sends through which path. Rejected: every save path then has to know which format is authoritative; a single buffer can end up with both `#+begin_user` blocks *and* `gptel--bounds` text properties after a few edits, and there is no right way to reconcile them.
+- Keep `gptel-mode` on for the minor-mode utilities it provides (some keybindings, `gptel-send` wiring). Rejected: chat-mode provides its own send command and its own keymap; nothing in `gptel-mode`'s minor-mode surface is useful to a chat-mode buffer.
+
+### Decision 17: Session auto-init contract under chat-mode
+
+**Choice:** on opening a file matching `*/branches/<branch>/session.org` (or `*/agents/<agent-name>/session.org` — agents follow the same rule), the session auto-init hook:
+
+1. Extracts `session-id` and `branch-name` from the path.
+2. Sets the five buffer-local session variables already defined by `sessions-persistence`: `jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`, and `jf/gptel--parent-session-id` (when applicable).
+3. Registers the buffer in `jf/gptel--session-registry` keyed `"<session-id>/<branch-name>"` (unchanged from today).
+4. Reads `metadata.yml` from the branch directory and calls `(gptel--apply-preset (intern (plist-get meta :preset)) (lambda (sym val) (set (make-local-variable sym) val)))`.
+5. Ensures the major mode is `gptel-chat-mode`. If the file's auto-mode-alist entry or mode cookie already brought up chat-mode, this is a no-op; if another mode is active, the hook switches to chat-mode.
+6. Updates the `current` symlink to point at this branch (unchanged from today).
+
+This is a single-pass, idempotent function keyed on path — same shape as today's auto-init, with three substantive changes: the path regex matches `.org` not `.md`, the mode switch goes to `gptel-chat-mode`, and no `gptel--save-state` / `gptel--restore-state` round-trip happens.
+
+**Rationale:** keeps the auto-init's existing contract (path-based recognition, five buffer-local vars, registry entry, preset applied, mode enabled) while swapping the mode and format. Activities integration, branching, and any future session-aware tool that relies on the buffer-local vars keeps working unchanged.
+
+### Decision 18: Session file format is `session.org` in chat-mode syntax
+
+**Choice:** new sessions are written as `session.org` with chat-mode's block format. The file's initial content on creation is:
+
+```org
+#+begin_user
+
+#+end_user
+```
+
+(matching Decision 9's new-chat initial content, so a fresh session looks the same as a fresh standalone chat buffer). Branch directories and agent directories follow the same pattern — `branches/<name>/session.org`, `agents/<name>/session.org`.
+
+**Rationale:** chat-mode's delimiters are org special blocks, which are not valid markdown. Keeping the `.md` extension would mislead external tooling, org-mode's own file-association logic, and contributors reading the filesystem. Renaming to `.org` makes the format match the extension and aligns with how chat-mode activates (via `auto-mode-alist` entries on `.org` plus a mode cookie, or an `.dir-locals.el` entry under the sessions root directory).
+
+**Persistence mechanism:** chat-mode buffers save via plain `save-buffer`. There is no `before-save-hook` that writes Local Variables; the block structure is self-describing. `metadata.yml` continues to track preset, `session_id`, `created`, `updated`; the `:updated` timestamp is refreshed via a `before-save-hook` in the sessions subsystem that touches `metadata.yml` only, not the session file.
+
+**Alternatives considered:**
+- Keep `session.md` and treat it as org internally. Rejected: tooling friction (Emacs file-associations, tree-sitter grammars, other users' tooling), plus contributors reading the directory would be confused.
+- Use a new extension like `.chat` or `.gptel`. Rejected: chat-mode is derived from `org-mode` and its files *are* valid org files; `.org` is the honest extension.
+
+### Decision 19: Clean break — no migration from pre-chat-mode sessions
+
+**Choice:** existing pre-chat-mode sessions (files named `session.md` in the gptel-mode format with `gptel--bounds` Local Variables) are not migrated. The new sessions code:
+- Does not read `session.md` files.
+- Does not provide a migration command.
+- Does not attempt to detect or convert pre-existing sessions.
+
+Users with pre-existing sessions can still open them manually in upstream `gptel-mode` (`M-x gptel-mode`) — that code path is untouched — but they are not visible to `jf/gptel--init-registry`, `jf/gptel-session-find`, or any of the chat-mode-based session commands.
+
+**Rationale:** migration tooling is substantial engineering (parsing `gptel--bounds`, reconstructing turn structure from prompt/response prefixes, handling tool-result rendering divergences, verifying round-trip) for a one-time benefit. The user explicitly directed a clean break. New sessions get the new format; old sessions stay where they are.
+
+**Alternatives considered:**
+- Write an on-open converter that transparently rewrites `session.md` to `session.org` the first time a user opens a legacy session. Rejected: destructive edits on first open are a user-trust footgun, and "the first time" is ambiguous across machines with synced sessions.
+- Provide an explicit `M-x jf/gptel-session-migrate` command. Rejected in this change; could be added as a follow-up if users request it, but not part of the scope here.
+
+**Trade-off:** a user with valuable pre-existing sessions who wants them accessible via the new workflow has no automated path. They can copy content manually from an open-in-gptel-mode buffer into a new chat-mode session, or maintain legacy sessions in parallel with new ones. This is acceptable given the user's explicit guidance.
+
 ## Risks / Trade-offs
 
-**[Risk]** `gptel-request` tool-call callback protocol differs from what we assume → **Mitigation:** the dispatcher in the stream module is the single integration point. We can adjust pattern-matching in one place. Decision 10's "open" flag reflects this.
+**[Risk]** `gptel-request` callback shapes shift in a future upstream version → **Mitigation:** the `pcase` dispatcher in Decision 10 is the single integration point. Adapting to a new shape (or a new sentinel like a hypothetical `'reasoning-done`) is a one-file change. Current shapes are cross-validated against upstream (`gptel-request.el:1684-1752`) and against our in-repo `persistent-agent.org`, which uses the same dispatch.
 
 **[Risk]** Case-insensitive sanitization misses an unusual collision form (e.g., model emits `#+End_Assistant` with odd capitalization, or includes zero-width characters between `end_` and `assistant`) → **Mitigation:** the regex covers org's own matching behavior (case-insensitive, `\b` word-boundary). Exotic cases are low-probability; if they occur, the block parser will fail on next send with a clear error identifying the offending line.
 
@@ -292,27 +401,39 @@ No implementation cost: the parser's state machine (Decision 1) is delimiter-mat
 
 **[Risk]** Performance degradation on very long logs (hundreds of turns) → **Mitigation:** regex parser is linear in buffer size; overlay scanner is incremental via `after-change-functions`. If profiling shows issues, the parser can cache the last turn-list and invalidate only the tail on edit.
 
-**[Risk]** No upstream-compatibility path if we later want sessions integration → **Mitigation:** the parser emits a structured turn list as the contract boundary (per architecture data contract). A session-persistence module consumes that same turn list without touching the buffer format.
+**[Risk]** Sessions subsystem rewrite introduces regressions in registry / activities / branching paths that were working under `gptel-mode` → **Mitigation:** the registry, `metadata.yml` schema, directory layout, `current` symlink, and activities-integration worktree tracking are all unchanged — only the mode, filename, and persistence mechanism change. The refactor surface is narrow (auto-init hook, filesystem templates, branching truncation algorithm) and has direct test coverage via the existing session spec scenarios, rewritten for the chat-mode format.
+
+**[Risk]** User opens a `session.org` file outside the sessions auto-init path (e.g., via `find-file` with a mistyped path that misses the `branches/<branch>/` regex) and chat-mode activates without session state → **Mitigation:** this is the same behavior as opening any standalone chat file — preset is not applied, registry is not updated, but the buffer is fully functional for chat. No data corruption; user can move the file into the right path if they wanted session participation.
+
+**[Risk]** Users with valuable pre-existing `session.md` sessions discover they are orphaned from the new session workflow → **Mitigation:** Decision 19's clean-break is explicit and documented in the proposal's **Breaking** section. Upstream `gptel-mode` continues to open and edit the old files normally; users lose only the new-workflow features (registry, branching, activities-resume) for legacy sessions.
+
+**[Risk]** Branching rewrite on the turn list silently differs from the bounds-based branching's truncation semantics (e.g., includes/excludes the selected prompt differently) → **Mitigation:** the sessions-branching delta spec specifies the include/exclude semantics in chat-mode terms ("truncate at the start of the Nth `#+begin_user` to exclude the prompt; truncate at the end of its paired `#+end_user` to include it"). Scenario coverage is preserved from the existing spec.
 
 ## Migration Plan
 
-Not applicable. This is a new, additive mode:
+This change replaces the mode and file format of our session workflow. It is not a migration in the traditional sense (no data transformation happens) — it is a cut-over.
 
-1. Land the `config/gptel/chat/` modules behind an entry in `jf/enabled-modules` (opt-in).
-2. User activates `gptel-chat-mode` on a buffer manually (or via `M-x gptel-chat-new`) to adopt.
-3. No existing files are modified. Existing `gptel-mode` workflows continue to function.
+1. **Implement chat-mode modules** under `config/gptel/chat/`, wired into `jf/enabled-modules` *before* the sessions modules (sessions now depends on chat-mode).
+2. **Rewrite session modules**:
+   - `config/gptel/sessions/commands.org`: auto-init keys on `session.org` and enables `gptel-chat-mode`; session-creation writes `session.org` with chat-mode initial content.
+   - `config/gptel/sessions/filesystem.org`: directory templates use `session.org`.
+   - `config/gptel/sessions/branching.org`: branch-point selection iterates chat-mode turn list; context truncation copies buffer up to the chosen turn boundary (see Decision 18 / sessions-branching delta spec).
+   - `config/gptel/sessions/activities-integration.org`: activity session creation emits `session.org` unconditionally; `jf/gptel-session-create-persistent` no longer takes a mode-selection parameter.
+3. **Update specs** — `sessions-persistence.md` and `sessions-branching.md` delta specs in this change; chat-mode spec gains session-integration scenarios.
+4. **Retire legacy paths** in the sessions code: `gptel--save-state`, `gptel--restore-state`, `gptel-mode` enable/disable, and any `gptel--bounds` reasoning are removed from the session modules. Upstream `gptel-mode` itself is untouched.
+5. **Rollback plan** if the cut-over is aborted mid-way: revert the change; new sessions created under chat-mode remain on disk as readable `.org` files but are no longer recognized by the session registry. Users can hand-convert or discard them.
 
-Rollback: remove the entry from `jf/enabled-modules`. Any chat-mode files on disk are still readable as plain `.org` files; the block structure is fully self-describing.
+**Pre-existing `session.md` files**: untouched. They continue to open in upstream `gptel-mode` (users invoke `M-x gptel-mode` in the buffer). They are not auto-recognized by the new session commands. This is Decision 19.
 
 ## Open Questions
 
 1. **Exact `:prompt` shape for tool-call history in `gptel-request`.** The *callback* shape for tool events is settled (Decision 10: cons cells of plists). What still needs verification is the reverse direction — how tool-call / tool-result history is encoded in the `:prompt` value passed **into** `gptel-request` on subsequent turns, once our parser has reconstructed it from the buffer. Upstream's backend-specific `gptel--parse-buffer` methods build this shape today; we are bypassing them. `config/gptel/tools/persistent-agent.org` passes full tool history through `:prompt` and is the canonical worked example — extract the shape from there during implementation.
 
-2. **Streaming callback protocol for tool events.** *Answered.* See Decision 10 for the full `pcase` table. The upstream emit sites are `gptel-curl--stream-filter` (text and reasoning chunks) and `gptel--handle-tool-use` (`gptel-request.el:1684-1752`, tool-call / tool-result cons cells).
+2. **Transient mechanism for the `gptel-chat-menu` send replacement.** Decision 15 commits to rebinding the menu's Send suffix but defers the exact mechanism (replace-suffix on a copy, or parallel prefix referencing shared infixes). Pick during implementation based on what produces the smallest maintenance surface against upstream `gptel-transient.el` drift.
 
 3. **Debounce timing for display-layer refresh.** 100ms is a guess. Implementation should make this a `defcustom` (`gptel-chat-display-refresh-delay`) so we can tune after seeing real behavior.
 
-4. **Does `auto-save-mode` cause problems during streaming?** Org's `auto-save-visited-file-name` may write partial buffers. Streaming inserts are append-mostly, so partial saves should be recoverable. Verify during manual testing; if problematic, disable auto-save while `gptel-chat--stream-active-p` is set.
+4. **Does `auto-save-mode` cause problems during streaming?** Org's `auto-save-visited-file-name` may write partial buffers. Streaming inserts are append-mostly, so partial saves should be recoverable. Verify during manual testing; if problematic, disable auto-save while a request is in flight (per Decision 11, detectable via `gptel--fsm-last`).
 
 5. **Should the display-toggle state persist per-buffer or globally?** v1 choice: per-buffer, via a buffer-local variable, with no persistence across Emacs restarts. If users want a global default, add a `defcustom` in a follow-up.
 

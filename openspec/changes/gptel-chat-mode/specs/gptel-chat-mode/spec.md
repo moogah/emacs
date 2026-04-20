@@ -294,3 +294,106 @@ The system SHALL issue requests to the LLM exclusively via `gptel-request`, pass
 - **WHEN** `gptel-chat-send` is invoked
 - **THEN** `gptel-request` is called with a `:prompt` argument containing the constructed message list
 - **AND** no buffer-parsing calls to `gptel--parse-buffer` are made during send
+
+### Requirement: Preset system integration
+
+The system SHALL integrate with upstream gptel's preset mechanism. On mode activation, the mode SHALL detect a preset declaration in one of two places (in order of precedence):
+
+1. A `:GPTEL_PRESET: <name>` entry in an Org `:PROPERTIES:` drawer at point-min
+2. A file-local `gptel--preset: <name>` variable (via `-*- ... -*-` header or `Local Variables:` block)
+
+When a preset is found, the system SHALL call `gptel--apply-preset` with a buffer-local setter function, installing the preset's `:backend`, `:model`, `:system`, `:tools`, and other keys as buffer-local values. Subsequent `gptel-request` calls in that buffer use the applied values.
+
+When no preset is declared, the mode SHALL take no preset-related action; the buffer inherits whatever global or dir-local configuration is in effect.
+
+The system SHALL NOT enable `gptel-mode` (minor mode) as part of preset application. Preset application is buffer-local and does not alter the major mode.
+
+#### Scenario: Preset applied from Org property drawer
+- **WHEN** a buffer opens with `:PROPERTIES:\n:GPTEL_PRESET: coding\n:END:` at point-min
+- **AND** the mode is activated
+- **THEN** `gptel--apply-preset` is called with the symbol `coding`
+- **AND** the preset's `:model`, `:backend`, `:tools` etc. are set as buffer-local values
+
+#### Scenario: Preset applied from file-local variable
+- **WHEN** a buffer opens with `# -*- gptel--preset: coding -*-` on line 1
+- **AND** the mode is activated
+- **THEN** `gptel--apply-preset` is called with the symbol `coding`
+
+#### Scenario: No preset declared
+- **WHEN** a buffer is activated with no preset property or file-local
+- **THEN** no `gptel--apply-preset` call is made
+- **AND** `gptel--preset` remains at its inherited value (global or nil)
+
+#### Scenario: Property drawer wins over file-local
+- **WHEN** both a `GPTEL_PRESET` property drawer and a file-local `gptel--preset` are present and name different presets
+- **THEN** the property drawer value is applied
+
+### Requirement: gptel-menu integration with rebound Send
+
+The system SHALL support `M-x gptel-menu` for interactive per-buffer configuration (preset selection, model, backend, tools, system message, context). Configuration suffixes SHALL function unchanged from upstream `gptel-menu`.
+
+The system SHALL provide `gptel-chat-menu` — a transient prefix mirroring `gptel-menu`'s configuration layout but with the Send suffix replaced by one that invokes `gptel-chat-send`. The chat-mode keymap SHALL bind this prefix to the same key that upstream users associate with `gptel-menu`.
+
+Upstream `M-x gptel-menu` invoked directly (by key or by `M-x`) SHALL remain available and unmodified; the rebinding affects only the chat-mode keymap's binding.
+
+#### Scenario: Menu configuration works in chat-mode buffer
+- **WHEN** point is in a `gptel-chat-mode` buffer and the user invokes `M-x gptel-menu`
+- **THEN** the menu appears with the upstream layout
+- **AND** configuration actions (preset pick, model change, tool selection) mutate buffer-local variables as upstream does
+
+#### Scenario: chat-mode menu Send invokes gptel-chat-send
+- **WHEN** the user invokes `gptel-chat-menu` via its chat-mode keybinding
+- **AND** presses Send
+- **THEN** `gptel-chat-send` is called (not `gptel--suffix-send`)
+- **AND** the response streams into a `#+begin_assistant` block
+
+### Requirement: Session-file auto-initialization
+
+When a chat-mode buffer visits a file whose absolute path matches `*/branches/<branch>/session.org` or `*/agents/<agent-name>/session.org` (the session directory layout defined in `sessions-persistence`), the session auto-initialization hook SHALL:
+
+1. Extract `session-id` and `branch-name` from the path
+2. Set the five buffer-local session variables (`jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`, and `jf/gptel--parent-session-id` when applicable)
+3. Register the buffer in `jf/gptel--session-registry` keyed `"<session-id>/<branch-name>"`
+4. Read `metadata.yml` from the branch directory and apply its `preset` via `gptel--apply-preset` with a buffer-local setter
+5. Ensure `gptel-chat-mode` is the active major mode (no-op if already active)
+6. Update the `current` symlink to point at this branch
+
+The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--save-state`, and SHALL NOT invoke `gptel--restore-state`.
+
+#### Scenario: Opening a session.org file activates chat-mode and registers the session
+- **WHEN** the user opens `~/.gptel/sessions/foo-20260420000000/branches/main/session.org`
+- **THEN** `gptel-chat-mode` is the active major mode
+- **AND** the five session buffer-local vars are set
+- **AND** the buffer is registered in `jf/gptel--session-registry`
+- **AND** `gptel-mode` is NOT enabled as a minor mode
+
+#### Scenario: Auto-init applies preset from metadata.yml
+- **WHEN** a `session.org` auto-inits and `metadata.yml` contains `preset: coding`
+- **THEN** `gptel--apply-preset` is called with `coding` and a buffer-local setter
+- **AND** buffer-local `gptel-model`, `gptel-backend`, `gptel-tools`, etc. reflect the coding preset
+
+#### Scenario: Path outside session layout does not auto-init session state
+- **WHEN** a `.org` file at an unrelated path (e.g., `~/notes/chat.org`) is opened in chat-mode
+- **THEN** the session auto-init hook does NOT fire
+- **AND** no session vars are set
+- **AND** no registry entry is created
+- **AND** the buffer is still a fully functional chat-mode buffer (preset may still apply via Requirement: Preset system integration)
+
+### Requirement: Session file format and persistence
+
+Session files (those under `branches/<branch>/session.org` or `agents/<agent>/session.org`) SHALL use the chat-mode block format defined by this specification. Saving a session buffer SHALL use plain `save-buffer`; the file's on-disk content is the chat-mode format, nothing else.
+
+The sessions subsystem SHALL NOT write `gptel--bounds` Local Variables, SHALL NOT append `gptel-mode`-style Local Variables blocks, and SHALL NOT invoke `gptel--save-state`.
+
+The sessions subsystem MAY maintain sidecar metadata (`metadata.yml`, `scope.yml`, `branch-metadata.yml`) separately from the session file. Updating `metadata.yml`'s `:updated` timestamp on save is permitted; it affects metadata only, not the session file contents.
+
+#### Scenario: Fresh session file is a chat-mode buffer
+- **WHEN** `jf/gptel-persistent-session` creates a new session
+- **THEN** `session.org` contains `#+begin_user\n\n#+end_user\n` (and only that)
+- **AND** no Local Variables block is present
+
+#### Scenario: Saving a session buffer does not add gptel-mode artifacts
+- **WHEN** the user edits a session buffer and invokes `save-buffer`
+- **THEN** the file on disk contains only chat-mode block structure
+- **AND** no `:: Local Variables:` block is appended
+- **AND** no `gptel--bounds` property is written
