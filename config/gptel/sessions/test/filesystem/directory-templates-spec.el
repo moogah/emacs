@@ -48,22 +48,14 @@
   (describe "jf/gptel-session--context-file constant"
 
     (it "names the conversation file session.org"
-      (expect jf/gptel-session--context-file :to-equal "session.org"))
-
-    (it "does not name the conversation file session.md"
-      (expect jf/gptel-session--context-file :not :to-equal "session.md")))
+      (expect jf/gptel-session--context-file :to-equal "session.org")))
 
   (describe "jf/gptel--context-file-path"
 
     (it "builds a path ending in session.org"
       (let* ((branch-dir "/tmp/example/branches/main")
              (path (jf/gptel--context-file-path branch-dir)))
-        (expect (file-name-nondirectory path) :to-equal "session.org")))
-
-    (it "does not build a path ending in session.md"
-      (let* ((branch-dir "/tmp/example/branches/main")
-             (path (jf/gptel--context-file-path branch-dir)))
-        (expect (file-name-nondirectory path) :not :to-equal "session.md"))))
+        (expect (file-name-nondirectory path) :to-equal "session.org"))))
 
   (describe "Branch template: branches/<branch-name>/session.org"
 
@@ -78,10 +70,7 @@
         (expect (file-directory-p branch-dir) :to-be-truthy)
         ;; Conversation file path ends in session.org under branches/main
         (expect ctx-path :to-match
-                "/branches/main/session\\.org\\'")
-        ;; And explicitly NOT session.md
-        (expect ctx-path :not :to-match
-                "/session\\.md\\'")))
+                "/branches/main/session\\.org\\'")))
 
     (it "places the conversation file at branches/<named>/session.org for non-main branches"
       (let* ((tempdir (jf-gptel-sessions-test--make-tempdir))
@@ -104,8 +93,7 @@
                          branch-dir "researcher" "explore-api"))
              (ctx-path (jf/gptel--context-file-path agent-dir)))
         (expect (file-directory-p agent-dir) :to-be-truthy)
-        (expect ctx-path :to-match "/agents/.*/session\\.org\\'")
-        (expect ctx-path :not :to-match "/session\\.md\\'"))))
+        (expect ctx-path :to-match "/agents/.*/session\\.org\\'"))))
 
   (describe "jf/gptel--valid-branch-directory-p"
 
