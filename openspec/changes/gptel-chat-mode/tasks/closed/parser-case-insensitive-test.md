@@ -2,7 +2,7 @@
 name: parser-case-insensitive-test
 description: Add parser test for case-insensitive delimiter matching
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:parser
 ---

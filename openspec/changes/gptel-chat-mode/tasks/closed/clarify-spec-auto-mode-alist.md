@@ -2,7 +2,7 @@
 name: clarify-spec-auto-mode-alist
 description: Clarify spec on auto-mode-alist as user configuration vs shipped behavior
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:mode-definition
 ---

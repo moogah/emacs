@@ -13,7 +13,7 @@ The chat-mode subsystem is factored into seven cohesive modules. Each has a narr
 - Sets mode-local variables required by the other modules
 
 ### `gptel-chat-parser` (parser)
-- Walks the buffer with a small state machine and produces a turn list: an ordered list of `(:role user|assistant :content STR :tool-calls (...))` plists
+- Walks the buffer with a small state machine and produces a turn list — for shape, see §Data contracts below; user turns carry `:content`, assistant turns carry `:segments`
 - Recognizes **outer** `#+begin_user` / `#+begin_assistant` blocks (blocks not nested inside another user or assistant block) regardless of org heading depth, and nested `#+begin_tool` blocks inside assistant blocks
 - Treats content outside turn blocks — org headings, paragraphs, drawers, `#+keyword:` lines — as human organization/commentary and skips it without interpretation
 - Validates structural integrity (matched delimiters, tool blocks only inside assistant blocks, no turn-inside-turn) and signals user-visible errors at the offending line
@@ -112,7 +112,8 @@ The sessions subsystem is updated so session buffers use `gptel-chat-mode` as th
 |---|---|---|
 | `gptel-chat--parse-buffer` | Buffer → turn list | parser |
 | `gptel-chat--turns-to-messages` | Turn list → `gptel-request` message list (un-escaping applied) | parser |
-| `gptel-chat--sanitize-chunk` | Chunk string → escaped chunk string (handles partial-line holdback via state) | stream |
+| `gptel-chat--sanitize-chunk` | One complete line in → one line out; prepends `,` to `#+end_\(user\|assistant\|tool\)` lines. Pure. | stream |
+| `gptel-chat--make-stream-closure` | Holdback-bearing closure factory; owns partial-line state and marker-based insertion | stream |
 | `gptel-chat--install-stream-callback` | Builds the closure passed to `gptel-request` | stream |
 
 ### Data contracts
@@ -308,7 +309,7 @@ Shared fixtures and matchers live in `helpers-spec.el`.
 
 **Runtime:**
 - `gptel` — public `gptel-request` API (stable; no internal gptel symbols referenced except for standard customization variables like `gptel-model` and `gptel-backend`)
-- `org` — derived mode; uses `org-escape-code-in-string` for sanitization
+- `org` — derived mode (chat-mode sanitization follows the same `,`-prefix convention but uses a targeted three-delimiter regex, not `org-escape-code-in-string`; see design.md Decision 4)
 - `cl-lib`, `subr-x` — standard
 
 **Test:**

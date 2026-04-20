@@ -2,7 +2,7 @@
 name: declare-function-library-names
 description: Fix declare-function library hints in mode.el to match real file names
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:mode-definition
 ---

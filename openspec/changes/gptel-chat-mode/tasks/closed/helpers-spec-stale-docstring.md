@@ -2,7 +2,7 @@
 name: helpers-spec-stale-docstring
 description: Update helpers-spec.el commentary to reflect actual mode-test location
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:mode-definition
 ---

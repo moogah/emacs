@@ -2,7 +2,7 @@
 name: cookie-test-non-org-extension
 description: Add cookie-activation test on non-.org file extension
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:mode-definition
 ---

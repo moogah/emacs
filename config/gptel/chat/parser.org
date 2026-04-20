@@ -418,7 +418,6 @@ Signals `user-error' when the buffer is structurally invalid:
                                  body-start open-line))
                           (segments (plist-get scan :segments))
                           (end-line-start (plist-get scan :body-end)))
-                     (goto-char end-line-start)
                      (push (list :role 'assistant
                                  :segments segments
                                  :start (gptel-chat--marker-at open-start)

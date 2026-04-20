@@ -150,7 +150,7 @@ global state) gives exactly-per-send scope and direct testability:
 invoke the closure with scripted chunks and inspect the buffer."
   (unless (and (markerp insertion-marker)
                (marker-buffer insertion-marker))
-    (error "gptel-chat--make-stream-closure: INSERTION-MARKER must be a live marker"))
+    (error "INSERTION-MARKER must be a live marker"))
   (let ((holdback "")
         (tool-marker nil))
     (lambda (chunk)
@@ -180,7 +180,7 @@ invoke the closure with scripted chunks and inspect the buffer."
        ;; Anything else is a caller bug; surface it loudly rather
        ;; than silently drop.
        (t
-        (error "gptel-chat--make-stream-closure: unexpected chunk %S" chunk))))))
+        (error "Unexpected chunk %S" chunk))))))
 ;; The closure factory:1 ends here
 
 ;; Provide

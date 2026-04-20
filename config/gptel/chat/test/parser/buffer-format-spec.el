@@ -121,7 +121,7 @@
 
     (it "runs `gptel-chat-mode-hook' on activation"
       (let ((hook-ran nil))
-        (cl-letf ((gptel-chat-mode-hook (list (lambda () (setq hook-ran t)))))
+        (let ((gptel-chat-mode-hook (list (lambda () (setq hook-ran t)))))
           (with-temp-buffer
             (gptel-chat-mode)
             (expect hook-ran :to-be-truthy))))))
@@ -129,6 +129,27 @@
   (describe "file-local cookie activation"
     (it "activates `gptel-chat-mode' on a file whose first line has `-*- gptel-chat -*-'"
       (let ((tmpfile (make-temp-file "gptel-chat-cookie-" nil ".org")))
+        (unwind-protect
+            (progn
+              (with-temp-file tmpfile
+                (insert "# -*- gptel-chat -*-\n"
+                        "#+begin_user\n"
+                        "hi\n"
+                        "#+end_user\n"))
+              (let ((buf (find-file-noselect tmpfile)))
+                (unwind-protect
+                    (with-current-buffer buf
+                      (expect major-mode :to-equal 'gptel-chat-mode))
+                  (kill-buffer buf))))
+          (when (file-exists-p tmpfile)
+            (delete-file tmpfile)))))
+
+    ;; Stricter check: prove the cookie — not the `.org' extension — is
+    ;; what activates the mode.  With a `.txt' tempfile, extension-based
+    ;; auto-mode-alist would select `text-mode'; only the cookie can
+    ;; switch the buffer into `gptel-chat-mode'.
+    (it "activates on a non-`.org' file when the cookie is present"
+      (let ((tmpfile (make-temp-file "gptel-chat-cookie-" nil ".txt")))
         (unwind-protect
             (progn
               (with-temp-file tmpfile
@@ -437,7 +458,26 @@
         (let ((turns (gptel-chat--parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'user)
-          (expect (plist-get (car turns) :content) :to-equal ""))))))
+          (expect (plist-get (car turns) :content) :to-equal "")))))
+
+  ;; The parser binds `case-fold-search t' to match org's own
+  ;; case-insensitive handling of structural keywords.  This test pins
+  ;; the invariant so a future refactor that replaces the regexes or
+  ;; wraps them in a case-sensitive `cond' fails loudly.
+  (describe "case-insensitive delimiter matching"
+    (it "parses mixed-case #+BEGIN_USER / #+End_User / #+END_ASSISTANT"
+      (gptel-chat-test--with-buffer
+          (concat "#+BEGIN_USER\n"
+                  "q\n"
+                  "#+End_User\n"
+                  "#+begin_assistant\n"
+                  "a\n"
+                  "#+END_ASSISTANT\n")
+        (let ((turns (gptel-chat--parse-buffer)))
+          (expect (length turns) :to-equal 2)
+          (expect (plist-get (nth 0 turns) :role) :to-equal 'user)
+          (expect (plist-get (nth 0 turns) :content) :to-equal "q\n")
+          (expect (plist-get (nth 1 turns) :role) :to-equal 'assistant))))))
 
 (describe "gptel-chat--parse-buffer: assistant segments with tool calls"
 

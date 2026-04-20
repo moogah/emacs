@@ -2,7 +2,7 @@
 name: simplify-stream-error-messages
 description: Strip function-name prefix from stream module error messages
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:sanitize-chunks
 ---

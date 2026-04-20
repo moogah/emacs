@@ -2,7 +2,7 @@
 name: replace-cl-letf-with-let-mode-test
 description: Replace cl-letf with plain let in mode-activation test for plain variable binding
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:mode-definition
 ---

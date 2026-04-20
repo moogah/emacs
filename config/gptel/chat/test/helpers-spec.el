@@ -28,8 +28,11 @@
 
 The buffer is plain (no major-mode activation), which is deliberate:
 parser tests exercise the block-level state machine directly and do
-not depend on org-mode being active.  Mode-activation tests belong in
-a separate file owned by the `mode-definition' task.
+not depend on org-mode being active.  Mode-activation tests
+currently live alongside parser specs in
+`parser/buffer-format-spec.el' because they share this fixture;
+splitting them into their own file is optional if the activation
+suite grows.
 
 CONTENT is a string inserted verbatim; it is the caller's
 responsibility to supply well-formed text for the scenario under

@@ -2,7 +2,7 @@
 name: architecture-sanitize-holdback-claim
 description: Reword architecture.md claim that gptel-chat--sanitize-chunk handles holdback
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:sanitize-chunks
 ---

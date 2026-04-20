@@ -2,7 +2,7 @@
 name: stale-org-escape-references
 description: Remove or contextualize org-escape-code-in-string references in spec.md and architecture.md
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:sanitize-chunks
 ---

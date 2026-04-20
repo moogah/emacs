@@ -2,7 +2,7 @@
 name: parser-remove-redundant-goto-char
 description: Remove dead goto-char in assistant branch of gptel-chat--parse-buffer
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:parser
 ---

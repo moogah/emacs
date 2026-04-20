@@ -2,7 +2,7 @@
 name: architecture-assistant-turn-contradiction
 description: Fix architecture.md internal contradiction about assistant turn shape
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:parser
 ---

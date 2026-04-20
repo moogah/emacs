@@ -2,7 +2,7 @@
 name: add-require-org-to-mode
 description: Add explicit require org to chat mode for batch-context safety
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:mode-definition
 ---

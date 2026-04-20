@@ -19,26 +19,40 @@
 
 ;;; Code:
 
+;; Dependencies
+
+;; =org= is our parent mode. Require it explicitly so =gptel-chat-mode=
+;; activation does not rely on a prior autoload having loaded =org= —
+;; useful for minimal batch contexts.
+
+
+;; [[file:mode.org::*Dependencies][Dependencies:1]]
+(require 'org)
+;; Dependencies:1 ends here
+
 ;; Forward declarations
 
 ;; Keymap entries bind to commands defined in later-loading sibling
 ;; modules (=send=, =nav=, =display=). Emacs resolves command symbols at
 ;; call-time, so the bindings work even when the target functions are not
-;; yet defined — but =byte-compile= and =check-declare= are happier when
-;; we acknowledge the forward reference explicitly.
+;; yet defined. The single-arg =declare-function= form below suppresses
+;; byte-compiler "not known to be defined" warnings without making
+;; unverifiable claims about the source library (the sibling files are
+;; named =send.el=, =nav.el=, =display.el=, so any library hint here
+;; would need to match — simpler to omit).
 
-;; =gptel-abort= lives upstream and is always available once =gptel=
-;; itself has loaded (design.md §Decision 10: the upstream abort command
-;; operates on the current buffer, finds its FSM, and invokes our
-;; callback with ='abort= — no chat-mode wrapper needed).
+;; =gptel-abort= lives upstream in =gptel.el= and is always available
+;; once =gptel= itself has loaded (design.md §Decision 10: the upstream
+;; abort command operates on the current buffer, finds its FSM, and
+;; invokes our callback with ='abort= — no chat-mode wrapper needed).
 
 
 ;; [[file:mode.org::*Forward declarations][Forward declarations:1]]
-(declare-function gptel-chat-send "gptel-chat-send" ())
-(declare-function gptel-chat-next-turn "gptel-chat-nav" ())
-(declare-function gptel-chat-previous-turn "gptel-chat-nav" ())
-(declare-function gptel-chat-regenerate "gptel-chat-nav" ())
-(declare-function gptel-chat-toggle-display-layer "gptel-chat-display" ())
+(declare-function gptel-chat-send nil ())
+(declare-function gptel-chat-next-turn nil ())
+(declare-function gptel-chat-previous-turn nil ())
+(declare-function gptel-chat-regenerate nil ())
+(declare-function gptel-chat-toggle-display-layer nil ())
 (declare-function gptel-abort "gptel" (buf))
 ;; Forward declarations:1 ends here
 

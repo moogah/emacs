@@ -84,13 +84,13 @@ Users who need to include a literal `#+end_user`, `#+end_assistant`, or `#+end_t
 
 ### Delimiter Collision
 
-Any response content line matching `^#\+\(end_user\|end_assistant\|end_tool\)\b` would prematurely terminate a containing block. The mode sanitizes streamed assistant content using the `org-escape-code-in-string` pattern already used by upstream `gptel` for tool-result rendering (prepending `,` to offending lines). On read-back, the sanitization is undone before sending to the model.
+Any response content line matching `^#\+\(end_user\|end_assistant\|end_tool\)\b` would prematurely terminate a containing block. The mode sanitizes streamed assistant content using the same convention as upstream `gptel` (prepending `,` to offending lines), but with a targeted three-delimiter regex rather than a call to `org-escape-code-in-string` — see design.md Decision 4 for rationale. On read-back, the sanitization is undone before sending to the model.
 
 ## Requirements
 
 ### Requirement: Mode definition and activation
 
-The system SHALL define `gptel-chat-mode` as a major mode derived from `org-mode`. Activation SHALL be possible via `M-x gptel-chat-mode`, file-local mode cookies (`-*- gptel-chat -*-`), or auto-mode-alist configuration.
+The system SHALL define `gptel-chat-mode` as a major mode derived from `org-mode`. Activation SHALL be possible via `M-x gptel-chat-mode`, file-local mode cookies (`-*- gptel-chat -*-`), or auto-mode-alist configuration. auto-mode-alist activation is a user-side configuration — users add their own pattern as desired; chat-mode does not register auto-mode-alist entries by default.
 
 #### Scenario: Interactive activation
 - **WHEN** running `M-x gptel-chat-mode` in a buffer
