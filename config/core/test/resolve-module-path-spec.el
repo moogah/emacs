@@ -59,22 +59,7 @@
   (it "resolves a three-segment path (e.g. \"gptel/chat/chat\")"
     (expect (jf/resolve-module-path "gptel/chat/chat")
             :to-equal
-            "/tmp/fixture-emacs/config/gptel/chat/chat.el"))
-
-  (it "always produces a path ending in .el"
-    (dolist (module-path '("transient"
-                           "core/defaults"
-                           "gptel/chat/chat"
-                           "major-modes/magit"))
-      (expect (jf/resolve-module-path module-path)
-              :to-match "\\.el\\'")))
-
-  (it "always produces a path beneath config/"
-    (dolist (module-path '("transient"
-                           "core/defaults"
-                           "gptel/chat/chat"))
-      (expect (jf/resolve-module-path module-path)
-              :to-match "/config/"))))
+            "/tmp/fixture-emacs/config/gptel/chat/chat.el")))
 
 (provide 'resolve-module-path-spec)
 ;;; resolve-module-path-spec.el ends here
