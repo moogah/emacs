@@ -2,7 +2,7 @@
 name: fix-resolve-module-path-extension
 description: Simplify dead-if in jf/resolve-module-path, add tests, update CLAUDE.md
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:scaffold-chat-subsystem
 ---

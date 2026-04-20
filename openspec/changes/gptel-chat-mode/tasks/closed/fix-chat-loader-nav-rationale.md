@@ -2,7 +2,7 @@
 name: fix-chat-loader-nav-rationale
 description: Correct nav-after-send dependency rationale in chat.org loader docstring
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:scaffold-chat-subsystem
 ---

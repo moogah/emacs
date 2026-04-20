@@ -2,7 +2,7 @@
 name: fix-sessions-filesystem-task-verification
 description: Rewrite closed task's verification grep to scope to files actually modified
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-filesystem
 ---

@@ -2,7 +2,7 @@
 name: remove-orphan-sanitize-module
 description: Remove standalone sanitize.org/sanitize.el (sanitize is internal to stream)
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:scaffold-chat-subsystem
   - enables:sanitize-chunks
