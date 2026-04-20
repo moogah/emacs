@@ -25,15 +25,23 @@ Reference:
 
 ## Decisions
 
-### Decision 1: Parser — regex walk, not `org-element-parse-buffer`
+### Decision 1: Parser — state-machine regex walk, not `org-element-parse-buffer`
 
-**Choice:** hand-rolled `re-search-forward` parser that scans top-level blocks and, inside assistant blocks, scans for nested `#+begin_tool` blocks. Case-insensitive (`case-fold-search t`) to match org's own case handling for block delimiters.
+**Choice:** hand-rolled `re-search-forward` parser that walks the buffer with a small state machine tracking whether the scan is currently inside an outer turn block. When outside, it looks for `^#\+begin_\(user\|assistant\)`; once inside, it looks only for the matching `#+end_*` (and, inside assistant blocks, for nested `#+begin_tool` pairs). Content outside turn blocks — headings, paragraphs, drawers, `#+keyword:` lines, blank lines — is skipped without interpretation. Case-insensitive (`case-fold-search t`) to match org's own case handling for block delimiters.
+
+The state machine disambiguates two senses of "top-level" that a naive scan conflates:
+
+- **Sense A** (structural, the one we enforce): a turn block is not nested inside another user or assistant block.
+- **Sense B** (outline, irrelevant): a turn block is at document root, outside any heading section.
+
+Decision 12 establishes that headings are organizational and do not affect turn ordering, so only Sense A matters. The state machine also naturally resists false positives: a user block whose body contains the literal line `#+begin_assistant` is not misread as a second turn, because the scanner is in the "inside user block" state until the matching `#+end_user`.
 
 **Alternatives considered:**
 - `org-element-parse-buffer`: allocates a full AST of the buffer on every parse. Correct but expensive (10-100ms on large logs) and couples tests and behavior to org-mode's internal element representation. We'd need to unwrap `special-block` / `src-block` / `paragraph` nodes to reconstruct content anyway.
 - Per-buffer text-property tracking (what upstream gptel does): requires maintaining properties across edits and persisting them in drawers. We rejected this in the proposal — the spec explicitly prohibits text-property or `:GPTEL_BOUNDS:` dependence.
+- Stateless line-by-line scan (early draft of this design): depended on "all turn blocks are at document top level." Fails as soon as a user block body mentions `#+begin_assistant`, and fails more broadly once heading-organized buffers are in scope (Decision 12).
 
-**Rationale:** we own the format. Blocks are always at top level, always paired, always the exact delimiters we emit. A regex walk is deterministic, fast, and clear in intent. The parser's output is a structured turn list (per the architecture data contract), so any future replacement can preserve the same interface.
+**Rationale:** we own the format. Blocks are always paired, always at column 0, always the exact delimiters we emit. A state-machine regex walk is deterministic, fast, and robust against the two edge cases (literal delimiters in block bodies, turns under headings). The parser's output is a structured turn list (per the architecture data contract), so any future replacement can preserve the same interface.
 
 ### Decision 2: Message list shape — match `gptel-request`'s documented `:prompt` contract
 
@@ -92,21 +100,21 @@ The exact regex is case-insensitive because org's block-end matching is case-ins
 
 **Rationale:** we get `#+begin_src` syntax highlighting, block folding, and all standard org editing for free inside user and assistant blocks. This is the key reason for choosing special blocks in the first place — they inherit all of org's inside-block machinery. Deriving from `text-mode` or defining a standalone mode would forfeit this.
 
-### Decision 7: Keybindings — small, opinionated, discoverable
+### Decision 7: Keybindings — small, opinionated, non-shadowing
 
 **Choice:**
 
 | Key | Command | Notes |
 |-----|---------|-------|
 | `C-c C-c` | `gptel-chat-send` | Matches `gptel-mode` muscle memory |
-| `C-c C-n` | `gptel-chat-next-turn` | Shadows `org-next-visible-heading` |
-| `C-c C-p` | `gptel-chat-previous-turn` | Shadows `org-previous-visible-heading` |
+| `C-c n` | `gptel-chat-next-turn` | Single-`C-c` prefix; does not shadow org heading nav |
+| `C-c p` | `gptel-chat-previous-turn` | Single-`C-c` prefix; does not shadow org heading nav |
 | `C-c C-r` | `gptel-chat-regenerate` | |
 | `C-c C-t` | `gptel-chat-toggle-display-layer` | |
 
-**Rationale:** shadowing org's heading-navigation keys is acceptable because chat-mode buffers don't use outline hierarchy structurally. The whole point is that turns aren't headings. Users who want org heading navigation inside a prompt can use `M-g n` (imenu), `M-{`/`M-}` (paragraph), or standard search.
+**Rationale:** because chat-mode buffers MAY use org headings for organizational structure (Decision 12), shadowing `C-c C-n` / `C-c C-p` would remove useful heading navigation. The single-`C-c` prefix is conventional for downstream/minor-mode bindings, so binding turn nav to `C-c n` / `C-c p` keeps both navigation systems available side by side.
 
-**Trade-off:** if users want heading navigation inside their own user content, they need to remember it doesn't work the same way. Document in mode commentary. Provide `gptel-chat-mode-map-restore-org-heading-nav` as a no-op helper users can add to their config if they disagree with the shadowing.
+**Trade-off:** turn-nav and heading-nav use parallel but distinct bindings; users developing muscle memory across `gptel-mode` and `gptel-chat-mode` must remember this. Users who prefer to shadow `C-c C-n` / `C-c C-p` can do so in their own config — chat-mode doesn't prescribe it.
 
 ### Decision 8: Shell-like append flow after response completes
 
@@ -142,11 +150,32 @@ Point is positioned on the empty line inside the block. No metadata is pre-popul
 
 **Open:** the exact sentinel/plist shape gptel-request passes to the callback for tool events needs verification during implementation. The pattern-matching dispatcher is small (one `cond` form), so adapting to the actual protocol is a narrow change.
 
+**Reference implementation to study:** `config/gptel/tools/persistent-agent.el` already calls `gptel-request` with full tool history and handles streaming tool-call events inside a ~300-line callback closure. That file is the canonical worked example for both the `:prompt` message shape with tool history (Open Question 1) and the streaming tool-event protocol (Open Question 2). Implementation should start there rather than reading upstream gptel source cold.
+
 ### Decision 11: Send-during-stream is an error
 
 **Choice:** invoking `gptel-chat-send` while a stream is in progress (detected via a buffer-local `gptel-chat--stream-active-p` flag) signals a user-visible error. No queueing.
 
 **Rationale:** streaming inserts at a fixed marker. A concurrent send would need a second marker and a second closure; the complexity isn't worth it for v1. Users waiting on a response have the obvious option of waiting.
+
+### Decision 12: Heading-allowed buffer structure — "blocks-only" model
+
+**Choice:** org headings (at any depth) are permitted in chat-mode buffers as organizational/commentary structure for the human reader. They do NOT participate in message construction. The LLM sees only the content of outer `#+begin_user` / `#+begin_assistant` blocks and their nested `#+begin_tool` blocks, in document order. Prose, drawers, and `#+keyword:` lines outside turn blocks are similarly invisible to the model.
+
+This is the **blocks-only model**, chosen from three candidates considered in exploration:
+
+- **(A) Blocks-only** — CHOSEN. Headings are human-only affordances (outline-cycle, sparse-tree, imenu, agenda). Model sees the turn sequence, nothing else.
+- **(B) Headings-as-context** — rejected. Would inject heading text into the model's view as implicit system/context messages. Too much interpretation surface area for v1; raises ordering questions (does a heading attach to the following turn, the section, both?) that blocks-only avoids entirely.
+- **(C) Section-as-conversation** — rejected. Each top-level heading would become an independent thread with its own history. A different product, not a refinement of the current design.
+
+**Rationale:** preserves the invariant "the buffer is the source of truth; turns are the message list" while letting users organize long chat logs with familiar org tooling. The parser's state-machine walk (Decision 1) is indifferent to heading depth, so the implementation cost of this decision is effectively zero — it is primarily a specification/intent choice.
+
+**Implications:**
+
+- Turn navigation (Decision 7) and org heading navigation are complementary, not competing — reflected in the non-shadowing keybinding choice.
+- Text inside a user or assistant block is sent verbatim to the LLM, including lines that look like org headings or `#+begin_*` delimiters. Heading-like prose inside a user block becomes part of that user message — if the user writes `* Context` inside their prompt, the model sees `* Context` as user text.
+- Validation (spec §Buffer format validation) is narrower than an earlier draft's "all content outside blocks is invalid": the parser accepts any content between turn blocks and flags only structural problems (unmatched delimiters, tool-block-outside-assistant, turn-inside-turn).
+- Future scope (out of v1): a later change could add heading-aware features — per-section chat history branching, heading-to-system-message promotion, section-scoped regenerate — without changing the v1 on-disk format. The turn-list contract is stable either way.
 
 ## Risks / Trade-offs
 

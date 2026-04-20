@@ -9,9 +9,10 @@ The mode is factored into six cohesive modules under `config/gptel/chat/`. Each 
 - Sets mode-local variables required by the other modules
 
 ### `gptel-chat-parser` (parser)
-- Walks the buffer and produces a turn list: an ordered list of `(:role user|assistant :content STR :tool-calls (...))` plists
-- Recognizes top-level `#+begin_user` / `#+begin_assistant` blocks and nested `#+begin_tool` blocks
-- Validates the buffer format (metadata-only preface, then well-formed block sequence) and signals user-visible errors at the offending line
+- Walks the buffer with a small state machine and produces a turn list: an ordered list of `(:role user|assistant :content STR :tool-calls (...))` plists
+- Recognizes **outer** `#+begin_user` / `#+begin_assistant` blocks (blocks not nested inside another user or assistant block) regardless of org heading depth, and nested `#+begin_tool` blocks inside assistant blocks
+- Treats content outside turn blocks — org headings, paragraphs, drawers, `#+keyword:` lines — as human organization/commentary and skips it without interpretation
+- Validates structural integrity (matched delimiters, tool blocks only inside assistant blocks, no turn-inside-turn) and signals user-visible errors at the offending line
 - Converts the turn list to a `gptel-request`-compatible message list, un-escaping `,#+end_...` lines as it does so
 
 ### `gptel-chat-send` (send)
@@ -27,7 +28,7 @@ The mode is factored into six cohesive modules under `config/gptel/chat/`. Each 
 - Handles tool-call events by emitting `#+begin_tool`/`#+end_tool` nested blocks inside the active assistant block and inserting tool results upon completion
 
 ### `gptel-chat-nav` (navigation)
-- `gptel-chat-next-turn`, `gptel-chat-previous-turn`: move point to the start of the next/previous top-level turn block
+- `gptel-chat-next-turn`, `gptel-chat-previous-turn`: move point to the start of the next/previous outer turn block (regardless of org heading context)
 - `gptel-chat-regenerate`: remove the last `#+begin_assistant` block and re-issue the send for the preceding user turn
 - No coupling to parser internals — uses `re-search-forward` on block delimiters
 

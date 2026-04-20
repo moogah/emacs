@@ -14,7 +14,7 @@ A dedicated major mode for multi-turn chat and work-log interaction with an LLM,
 
 ### Buffer Format
 
-A chat-mode buffer is a sequence of **turns**, each represented by a top-level org special block. No outer outline heading is required. Example:
+A chat-mode buffer is a sequence of **turns**, each represented by an org special block at column 0. Turn blocks are **outer blocks** — not nested inside another user or assistant block. Org headings, paragraphs, and drawers that appear outside turn blocks are permitted as organizational/commentary content for the human reader; they do NOT participate in message construction. A short buffer typically has no headings:
 
 ```org
 #+begin_user
@@ -42,9 +42,31 @@ You're on Darwin.
 #+end_assistant
 ```
 
-### Metadata
+A longer buffer may use org headings to organize sections. Turn blocks nested inside heading sections at any depth are still part of the turn sequence; the message list is the union of all outer user/assistant blocks in document order, independent of outline depth:
 
-Optional `#+<keyword>:` lines and a single top-of-buffer `:PROPERTIES:` drawer are treated as file metadata and excluded from message construction. Any content preceding the first turn block that is not metadata is an error (the buffer is not a valid chat log).
+```org
+* Initial exploration
+
+Free-form notes the human keeps for themselves. Ignored by message construction.
+
+#+begin_user
+...
+#+end_user
+
+#+begin_assistant
+...
+#+end_assistant
+
+* Follow-up thread
+
+#+begin_user
+...
+#+end_user
+```
+
+### Metadata and Commentary
+
+Optional `#+<keyword>:` lines and a top-of-buffer `:PROPERTIES:` drawer are treated as file metadata. Org headlines and paragraph content outside turn blocks are treated as human commentary/organization. All such content is excluded from message construction — the LLM sees only turn blocks.
 
 ### Role Taxonomy
 
@@ -76,7 +98,12 @@ The system SHALL define `gptel-chat-mode` as a major mode derived from `org-mode
 
 ### Requirement: Buffer format validation
 
-The system SHALL recognize a valid chat-mode buffer as a (possibly empty) sequence of top-level special blocks of types `user`, `assistant`, or (nested inside assistant) `tool`. An optional leading `:PROPERTIES:` drawer and `#+<keyword>:` lines are permitted as metadata. All other content outside blocks is invalid.
+The system SHALL accept any org document whose `#+begin_user`, `#+begin_assistant`, and `#+begin_tool` special blocks are structurally well-formed. Specifically:
+
+- Every `#+begin_user` / `#+begin_assistant` / `#+begin_tool` SHALL have a matching `#+end_*` delimiter of the same type.
+- `#+begin_tool` blocks SHALL appear only inside an `#+begin_assistant` block.
+- `#+begin_user` and `#+begin_assistant` blocks SHALL NOT be nested inside another user or assistant block.
+- Content outside turn blocks — org headings (at any depth), paragraphs, drawers, `#+keyword:` lines, blank lines — is permitted and is treated as human organization/commentary. It does NOT participate in message construction.
 
 #### Scenario: Empty buffer is valid
 - **WHEN** the buffer contains only whitespace
@@ -87,18 +114,38 @@ The system SHALL recognize a valid chat-mode buffer as a (possibly empty) sequen
 - **WHEN** the buffer contains only `#+gptel-model: foo` and blank lines
 - **THEN** message construction yields an empty message list
 
-#### Scenario: Non-metadata text outside blocks is invalid
-- **WHEN** the buffer contains the line `stray prose` outside any turn block and not as `#+keyword:` metadata
-- **THEN** message construction signals a user-visible error identifying the line
+#### Scenario: Headings and commentary outside turn blocks are valid
+- **WHEN** the buffer contains `* A heading`, free-form prose, and two turn blocks
+- **THEN** message construction yields two messages (one per turn block)
+- **AND** the heading and prose are not included in the message list
+
+#### Scenario: Turn blocks nested under org headings are valid
+- **WHEN** the buffer contains turn blocks inside org heading sections at arbitrary depth (e.g., under `* A` and `** A.1`)
+- **THEN** all such blocks participate in message construction in document order
+- **AND** heading depth has no effect on the message list
+
+#### Scenario: Unmatched delimiter is invalid
+- **WHEN** the buffer contains `#+begin_user` without a matching `#+end_user`
+- **THEN** message construction signals a user-visible error identifying the offending line
+
+#### Scenario: Tool block outside an assistant block is invalid
+- **WHEN** the buffer contains a `#+begin_tool` block that is not inside any `#+begin_assistant` block
+- **THEN** message construction signals a user-visible error identifying the tool block's start line
+
+#### Scenario: Turn nested inside another turn is invalid
+- **WHEN** a `#+begin_user` block appears inside an open `#+begin_assistant` block (or vice versa)
+- **THEN** message construction signals a user-visible error identifying the inner block's start line
 
 ### Requirement: Message construction from buffer
 
-The system SHALL construct an ordered list of API messages by walking the buffer's top-level blocks in document order. Each block produces messages as follows:
+The system SHALL construct an ordered list of API messages by walking the buffer for **outer** `#+begin_user` and `#+begin_assistant` blocks in document order. An outer block is a user or assistant block that is not nested inside another user or assistant block; its position relative to org heading structure (at document root, or inside a heading section at any depth) is irrelevant. Each block produces messages as follows:
 
 - `#+begin_user` block → one `user` message with the block's content (verbatim, delimiter lines excluded)
 - `#+begin_assistant` block → a sequence of messages: assistant-text segments and tool call / tool result pairs, in the order they appear inside the block
 - Nested `#+begin_tool (call-id args)` block → one tool-call message (name + arguments) followed by one tool-result message (the block's remaining content)
 - Delimiter-collision-escaped lines SHALL be un-escaped before inclusion in the outbound message
+
+Content outside turn blocks (headlines, paragraphs, drawers, keywords) SHALL be skipped. Text that appears inside a user or assistant block, including lines that resemble `#+begin_*` delimiters, is treated as block body and included verbatim in the emitted message (subject to the escape/un-escape round-trip for the three closing delimiters).
 
 Message construction SHALL NOT depend on text properties or on `gptel--parse-buffer`.
 
@@ -117,6 +164,16 @@ Message construction SHALL NOT depend on text properties or on `gptel--parse-buf
 #### Scenario: Empty blocks are skipped
 - **WHEN** a `#+begin_user` block contains no non-whitespace content
 - **THEN** no `user` message is emitted for that block
+
+#### Scenario: User block body containing a `#+begin_assistant` literal
+- **WHEN** a `#+begin_user` block contains a line beginning with `#+begin_assistant` as part of the user's prose
+- **THEN** the constructed user message includes that literal line as body content
+- **AND** no additional assistant message is emitted for that line
+
+#### Scenario: Turns distributed across org headings
+- **WHEN** the buffer contains one turn pair under `* Section A` and one user turn under `* Section B`
+- **THEN** the constructed message list is `[user_A, assistant_A, user_B]` in document order
+- **AND** the headings themselves are not represented in the message list
 
 ### Requirement: Send command
 
@@ -176,7 +233,7 @@ When the model emits a tool call during a streaming response, the system SHALL i
 
 ### Requirement: Turn navigation
 
-The system SHALL provide `gptel-chat-next-turn` and `gptel-chat-previous-turn` commands that move point to the beginning of the next or previous top-level turn block (either `user` or `assistant`) from the current position. When no further turn exists in the direction of travel, the command SHALL signal a user-visible message and leave point unchanged.
+The system SHALL provide `gptel-chat-next-turn` and `gptel-chat-previous-turn` commands that move point to the beginning of the next or previous outer turn block (either `user` or `assistant`) from the current position, regardless of org heading context. When no further turn exists in the direction of travel, the command SHALL signal a user-visible message and leave point unchanged. Org heading navigation is not shadowed by these commands (see design.md Decision 7).
 
 #### Scenario: Next turn from inside a user block
 - **WHEN** point is inside a user block followed by an assistant block
