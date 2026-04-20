@@ -23,15 +23,10 @@
 ;;; Code:
 
 (require 'buttercup)
-(require 'cl-lib)
 
-;; Load production modules directly from the sessions source tree so the
-;; tests work whether run via run-tests.sh or a fresh Emacs session.
-(let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (sessions-dir (expand-file-name "../.." test-dir)))
-  (load (expand-file-name "logging.el" sessions-dir) nil t)
-  (load (expand-file-name "constants.el" sessions-dir) nil t)
-  (load (expand-file-name "filesystem.el" sessions-dir) nil t))
+;; Load production modules via the feature symbols they provide.
+(require 'gptel-session-constants)
+(require 'gptel-session-filesystem)
 
 (defvar jf-gptel-sessions-test--tempdirs nil
   "List of temporary directories created during tests for cleanup.")
