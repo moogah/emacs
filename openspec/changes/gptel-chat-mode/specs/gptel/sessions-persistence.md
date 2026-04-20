@@ -42,9 +42,18 @@ This replaces the previous "session.md format" requirement. `session.md` is no l
 - **AND** `metadata.yml`'s `:updated` field is refreshed (via a separate sessions before-save-hook that writes metadata only)
 
 #### Scenario: session.md files are not read
-- **WHEN** the sessions subsystem scans for session files (e.g., in `jf/gptel--init-registry`)
-- **THEN** only `session.org` files are considered
-- **AND** any legacy `session.md` files on disk are ignored
+
+Legacy invisibility is enforced at the **branch-validity boundary**, not the session-validity boundary. Specifically:
+
+- `jf/gptel--valid-branch-directory-p` requires `session.org` to exist in the branch directory. A branch directory containing only `session.md` is rejected, and is therefore invisible to `jf/gptel--find-all-branches-with-agents` (and any other consumer that filters with this predicate).
+- `jf/gptel--valid-session-directory-p` only checks for the existence of the `branches/` subdirectory; it does NOT inspect branch contents. A pre-rename session directory whose branches all use legacy `session.md` therefore still passes session-level validity. Iteration over its branches yields zero valid branches — the invisibility occurs one level deeper, at branch enumeration.
+- Consequence: consumers of branch enumeration (registry initialization, listing, agent discovery) MUST handle the case "valid session directory, zero valid branches" gracefully (no error, no spurious entries).
+- The session-level validator is intentionally kept permissive so that empty-but-structurally-valid session directories (e.g., a session created but never written to, or a session whose branches were all moved out) remain enumerable. Tightening the session-level check would conflate two different cases (no `branches/` dir vs. `branches/` dir with no chat-mode branches) and provide no behavioral benefit over branch-level filtering.
+
+- **WHEN** the sessions subsystem scans for session files (e.g., in `jf/gptel--init-registry` or `jf/gptel--find-all-branches-with-agents`)
+- **THEN** only branch directories containing `session.org` are surfaced
+- **AND** branch directories containing only legacy `session.md` are filtered out by `jf/gptel--valid-branch-directory-p`
+- **AND** a session directory whose branches all use legacy `session.md` still passes `jf/gptel--valid-session-directory-p` but contributes zero entries to branch enumeration
 
 ### Requirement: Auto-initialization enables `gptel-chat-mode`
 
