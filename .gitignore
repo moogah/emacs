@@ -33,3 +33,7 @@ state/**
 
 # worktrees
 .worktrees/
+
+# tasks-orchestrator ephemeral state
+.orchestrator/
+.claude/scheduled_tasks.lock
