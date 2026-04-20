@@ -5,35 +5,268 @@
 
 * Introduction
 
-Scaffolded stub for =gptel-chat-stream= — the streaming callback
-passed to =gptel-request= and the state machine that accumulates
-partial lines, sanitizes chunks, and renders tool-call events as
-nested =#+begin_tool= blocks.
+=gptel-chat-stream= implements the per-chunk text hygiene layer for the
+chat-mode streaming pipeline: a line-level delimiter-collision
+sanitizer and a per-request closure that line-buffers incoming chunks
+so that split-across-chunks collisions are still caught.
 
-See =openspec/changes/gptel-chat-mode/architecture.md= §Components
-(subsection =gptel-chat-stream (stream)=) for the full contract.
+The closure here owns *text insertion* state only — markers for where
+to insert, and a one-line holdback for partial lines. It does **not**
+own request-protocol state (WAIT/TYPE/TOOL); that belongs to the
+upstream =gptel-fsm= and is wired in by the later =stream-callback=
+task.
+
+Separation of concerns (per architecture.md §Components
+=gptel-chat-stream= and design.md Decision 3b):
+
+| Concern                                       | Mechanism                        |
+|-----------------------------------------------|----------------------------------|
+| Where in the protocol are we? (WAIT/TYPE/...) | Upstream FSM (later task)        |
+| Where in the buffer do inserts go?            | Insertion marker in this closure |
+| What line is only partially received?         | Holdback string in this closure  |
+| Which single-line forms must be escaped?      | =gptel-chat--sanitize-chunk=     |
+
+See also:
+- =openspec/changes/gptel-chat-mode/design.md= §Decision 3b, §Decision 4
+- =openspec/changes/gptel-chat-mode/architecture.md= §=gptel-chat-stream=
+- =openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md=
+  §Response streaming and sanitization
 
 * Lexical Binding
 
+Keep =lexical-binding: t= on line 1 — the streaming closure captures
+per-request state (markers, holdback) and relies on lexical binding
+for correctness. See repo memory note on lexical-binding regressions.
+
 #+begin_src emacs-lisp :comments no
-;;; stream.el --- GPTEL Chat-Mode Streaming (stub) -*- lexical-binding: t; -*-
+;;; stream.el --- GPTEL Chat-Mode Streaming -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
 
 ;;; Commentary:
 
-;; Scaffolded stub for the chat-mode streaming callback.  Populated by
-;; a later task in the gptel-chat-mode OpenSpec change.
+;; Implements the per-chunk text hygiene layer for `gptel-chat-mode':
+;; line-level delimiter-collision sanitization and a per-request
+;; closure that line-buffers incoming chunks.  The protocol-level
+;; callback that invokes this closure is wired in by the
+;; `stream-callback' task.
 
 ;;; Code:
+#+end_src
+
+* Line-level sanitizer
+
+=gptel-chat--sanitize-chunk= is intentionally a *line-level* helper —
+it takes a complete line (no embedded =\n=) and returns either the
+input unchanged or a version with a single leading =,= prepended.
+
+Match rule (case-insensitive, to mirror org's own delimiter matching):
+
+: ^#\+end_\(user\|assistant\|tool\)\b
+
+Only those three forms are escaped. Lines like =#+end_src=,
+=#+begin_assistant=, or prose beginning with a colon pass through
+untouched. Design.md §Decision 4 covers the reasoning: we deliberately
+do **not** use =org-escape-code-in-string= because its broader escape
+(headings, all block delimiters) clutters assistant content with
+spurious commas on benign lines.
+
+Callers that receive multi-line chunks must split first — the
+streaming closure below does that via a holdback.
+
+#+begin_src emacs-lisp
+(defconst gptel-chat--end-delimiter-regexp
+  "^#\\+end_\\(user\\|assistant\\|tool\\)\\b"
+  "Regexp matching the three chat-mode block-closing delimiters.
+Case-insensitive via `case-fold-search'.  Used by
+`gptel-chat--sanitize-chunk' to identify lines that would prematurely
+close a containing block if inserted verbatim.")
+
+(defun gptel-chat--sanitize-chunk (line)
+  "Return LINE with `,' prepended if it would close a chat-mode block.
+LINE must be a complete single line with no embedded newline.  A line
+matches when it begins with `#+end_user', `#+end_assistant', or
+`#+end_tool' (case-insensitive).  All other lines — including
+`#+end_src', `#+begin_assistant', and ordinary prose — pass through
+unchanged.
+
+Callers with multi-line input must split on newlines first and call
+this function per line; `gptel-chat--make-stream-closure' does that
+via a one-line holdback."
+  (let ((case-fold-search t))
+    (if (string-match-p gptel-chat--end-delimiter-regexp line)
+        (concat "," line)
+      line)))
+#+end_src
+
+* Streaming closure factory
+
+=gptel-chat--make-stream-closure= returns a =(lambda (chunk))= that
+captures three slots of per-request state:
+
+- =insertion-marker= — Emacs marker for the active =#+begin_assistant=
+  block. Must be a marker, not an integer: user edits above the
+  insertion point during streaming must not corrupt the position
+  (design.md §Decision 3b).
+- =holdback= — string carrying trailing partial-line content between
+  chunks. The sanitizer only runs on complete lines; without a
+  holdback, a =#+end_assistant= split across a chunk boundary would
+  be inserted as two fragments neither of which matches the regex.
+- =tool-marker= — Emacs marker (or nil). When non-nil, inserts go
+  there instead of =insertion-marker=. This slot is exposed now so
+  the later =stream-callback= task can set it on =tool-call= events
+  and clear it on =tool-result=. Behaviour here: if =tool-marker= is
+  a live marker, inserts go to it; otherwise they go to
+  =insertion-marker=.
+
+The returned closure accepts one argument:
+
+- a STRING — a new chunk of assistant output. Concatenate with the
+  holdback, split at =\n=, sanitize each complete line, insert each
+  sanitized line at the active marker followed by =\n=. The trailing
+  partial (if the chunk did not end in =\n=) becomes the new
+  holdback.
+- =t= — a flush sentinel signalling stream completion. Sanitize and
+  insert any remaining holdback (without an appended =\n= — the
+  caller decides how to terminate the block). Holdback is cleared.
+
+The closure returns =nil=.
+
+By construction, when the caller flushes on completion there is no
+partial =#+end_*= line pending: upstream sends =t= after either a
+newline-terminated final chunk (holdback is empty) or a final
+content chunk with no trailing newline (holdback is a single line
+with no embedded =\n=, which sanitizes the same way).
+
+** Helper: pick the active insertion target
+
+Factored out for testability and for the =tool-marker= semantics to
+be visible on their own.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-active-marker (insertion-marker tool-marker)
+  "Return the marker that receives the next insert.
+Prefer TOOL-MARKER when it is a live marker pointing into a buffer;
+otherwise return INSERTION-MARKER.  A marker is considered live when
+it is a marker object with a non-nil buffer."
+  (if (and (markerp tool-marker)
+           (marker-buffer tool-marker))
+      tool-marker
+    insertion-marker))
+#+end_src
+
+** Helper: insert one sanitized line at a marker
+
+Single-statement insert so the closure body stays small and the line
+contract (sanitize, then append =\n=) is explicit.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-insert-line (marker line)
+  "Insert sanitized LINE followed by a newline at MARKER.
+LINE is a single complete line with no embedded newline.  The
+insertion advances MARKER so subsequent inserts append after it."
+  (let ((sanitized (gptel-chat--sanitize-chunk line)))
+    (with-current-buffer (marker-buffer marker)
+      (save-excursion
+        (goto-char marker)
+        (insert sanitized "\n")))))
+#+end_src
+
+** Helper: insert the holdback flush (no trailing newline)
+
+The flush path is asymmetric with the per-line path: on stream
+completion we want the final content but not an extra newline — the
+caller appends =#+end_assistant= on its own line. Factored out so the
+asymmetry is explicit rather than living inside an =if= in the main
+closure.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-insert-flush (marker line)
+  "Insert sanitized LINE at MARKER without a trailing newline.
+Used for the stream-completion holdback flush.  If LINE is empty,
+do nothing."
+  (unless (string-empty-p line)
+    (let ((sanitized (gptel-chat--sanitize-chunk line)))
+      (with-current-buffer (marker-buffer marker)
+        (save-excursion
+          (goto-char marker)
+          (insert sanitized))))))
+#+end_src
+
+** The closure factory
+
+#+begin_src emacs-lisp
+(defun gptel-chat--make-stream-closure (insertion-marker)
+  "Return a closure that inserts streamed text at INSERTION-MARKER.
+INSERTION-MARKER must be a live Emacs marker pointing inside the
+buffer that should receive assistant output.  The returned closure
+captures three slots of per-request state:
+
+- INSERTION-MARKER (the argument) — where assistant text goes.
+- HOLDBACK — string carry-over for a trailing partial line.
+- TOOL-MARKER — a marker (initially nil) for nested tool-block
+  inserts; when set to a live marker the closure writes there
+  instead of INSERTION-MARKER.  The later stream-callback task
+  wires tool-call/tool-result events to mutate this slot.
+
+The returned closure is called with one argument:
+
+- a STRING chunk: concatenate with HOLDBACK, split at `\\n',
+  sanitize each complete line via `gptel-chat--sanitize-chunk',
+  insert each at the active marker followed by `\\n'.  The
+  trailing partial becomes the new HOLDBACK.
+- t: flush.  Insert the sanitized HOLDBACK (if any) at the active
+  marker with no trailing newline, then clear HOLDBACK.
+
+The closure returns nil.  The TOOL-MARKER slot is exposed for the
+later `stream-callback' task; this module does not set it.
+
+Per design.md §Decision 3b, using a closure (not buffer-local or
+global state) gives exactly-per-send scope and direct testability:
+invoke the closure with scripted chunks and inspect the buffer."
+  (unless (and (markerp insertion-marker)
+               (marker-buffer insertion-marker))
+    (error "gptel-chat--make-stream-closure: INSERTION-MARKER must be a live marker"))
+  (let ((holdback "")
+        (tool-marker nil))
+    (lambda (chunk)
+      (cond
+       ;; Flush sentinel: insert any remaining holdback without a
+       ;; trailing newline and clear the holdback.
+       ((eq chunk t)
+        (let ((active (gptel-chat--stream-active-marker
+                       insertion-marker tool-marker)))
+          (gptel-chat--stream-insert-flush active holdback))
+        (setq holdback "")
+        nil)
+       ;; Text chunk: prepend holdback, split at newlines, complete
+       ;; lines go through the sanitizer + insert; trailing partial
+       ;; becomes the new holdback.
+       ((stringp chunk)
+        (let* ((combined (concat holdback chunk))
+               (parts (split-string combined "\n"))
+               (new-holdback (car (last parts)))
+               (complete-lines (butlast parts))
+               (active (gptel-chat--stream-active-marker
+                        insertion-marker tool-marker)))
+          (dolist (line complete-lines)
+            (gptel-chat--stream-insert-line active line))
+          (setq holdback (or new-holdback "")))
+        nil)
+       ;; Anything else is a caller bug; surface it loudly rather
+       ;; than silently drop.
+       (t
+        (error "gptel-chat--make-stream-closure: unexpected chunk %S" chunk))))))
 #+end_src
 
 * Provide
 
 #+begin_src emacs-lisp
-;; TODO(gptel-chat-mode): implement `gptel-chat--install-stream-callback'
-;; closure, chunk accumulator, abort handling, and tool-call block
-;; rendering.  Tracked by the gptel-chat-mode change.
+;; TODO(gptel-chat-mode): wire this closure into a
+;; `gptel-chat--install-stream-callback' that dispatches on
+;; gptel-request response shapes (string / tool-call / tool-result /
+;; t / nil / 'abort) per design.md §Decision 10.  Owned by the
+;; `stream-callback' task.
 
 (provide 'gptel-chat-stream)
 
