@@ -2,7 +2,7 @@
 name: replace-load-with-require-in-directory-templates-spec
 description: Use require, not load, in directory-templates-spec.el; drop unused logging.el load
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-filesystem
 ---

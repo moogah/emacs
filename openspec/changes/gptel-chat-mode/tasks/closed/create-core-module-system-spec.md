@@ -2,7 +2,7 @@
 name: create-core-module-system-spec
 description: Create openspec/specs/core/module-system.md documenting the module-loading contract
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:fix-resolve-module-path-extension
 ---

@@ -2,7 +2,7 @@
 name: remove-redundant-negative-assertions-in-directory-templates-spec
 description: Drop :not :to-equal "session.md" mirror assertions; keep positive form only
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-filesystem
 ---
