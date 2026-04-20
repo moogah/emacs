@@ -2,7 +2,7 @@
 name: revisit-decision-3b-tool-marker
 description: Revisit design.md Decision 3b on tool-marker ownership in the stream closure
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sanitize-chunks
   - enables:expose-tool-marker-setter
