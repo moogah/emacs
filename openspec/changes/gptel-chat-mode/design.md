@@ -15,7 +15,7 @@ Decisions 3, 3b, 10, and 11 collectively wire the mode onto upstream's FSM rathe
 Reference:
 - `proposal.md` — motivation (gptel-mode vs. chat/log-mode mismatch; upstream's stated invisible-integration philosophy)
 - `specs/gptel-chat-mode/spec.md` — 10 testable requirements, every scenario mapped to at least one Buttercup `it` block
-- `architecture.md` — six-module breakdown, Buttercup test layout, `gptel-request` stubbed synchronously with `cl-letf`
+- `architecture.md` — seven-module breakdown, Buttercup test layout, `gptel-request` stubbed synchronously with `cl-letf`
 
 ## Goals / Non-Goals
 
