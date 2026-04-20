@@ -2,7 +2,7 @@
 name: remove-stale-diagnostics-module
 description: Delete config/gptel/diagnostics (old troubleshooting code, no live loaders)
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sessions-filesystem
 ---
