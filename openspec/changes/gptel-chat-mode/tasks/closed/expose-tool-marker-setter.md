@@ -2,7 +2,7 @@
 name: expose-tool-marker-setter
 description: Expose tool-marker setter on stream closure so stream-callback can wire it
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sanitize-chunks
   - enables:stream-callback
