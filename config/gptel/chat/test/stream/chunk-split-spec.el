@@ -72,8 +72,9 @@
   (describe "headline scenario from spec §Response streaming and sanitization"
 
     (it "escapes `#+end_assistant' split as `#+end_ass' + `istant\\nmore'"
-      (let ((cb (gptel-chat--make-stream-closure
-                 gptel-chat-chunk-split-test--marker)))
+      (let* ((handle (gptel-chat--make-stream-closure
+                      gptel-chat-chunk-split-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
         (funcall cb "#+end_ass")                ; chunk 1 — all holdback
         ;; Mid-sequence: nothing is committed yet because no newline
         ;; has arrived.
@@ -88,8 +89,9 @@
 
     (it "escapes a collision split after a single char"
       ;; Chunk 1 ends with a single `#', chunk 2 supplies the rest.
-      (let ((cb (gptel-chat--make-stream-closure
-                 gptel-chat-chunk-split-test--marker)))
+      (let* ((handle (gptel-chat--make-stream-closure
+                      gptel-chat-chunk-split-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
         (funcall cb "prose\n#")
         (funcall cb "+end_user\nmore\n")
         (funcall cb t))
@@ -98,8 +100,9 @@
 
     (it "escapes a collision split across three chunks"
       ;; `#+end_tool' split as `#+end` + `_to` + `ol\n'.
-      (let ((cb (gptel-chat--make-stream-closure
-                 gptel-chat-chunk-split-test--marker)))
+      (let* ((handle (gptel-chat--make-stream-closure
+                      gptel-chat-chunk-split-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
         (funcall cb "#+end")
         (funcall cb "_to")
         (funcall cb "ol\n")
@@ -110,8 +113,9 @@
     (it "escapes a case-variant collision split across chunks"
       ;; Mixed case recomposed across a boundary — still escaped
       ;; because the sanitizer uses case-fold-search.
-      (let ((cb (gptel-chat--make-stream-closure
-                 gptel-chat-chunk-split-test--marker)))
+      (let* ((handle (gptel-chat--make-stream-closure
+                      gptel-chat-chunk-split-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
         (funcall cb "#+End_Ass")
         (funcall cb "istant\n")
         (funcall cb t))
@@ -121,8 +125,9 @@
     (it "does NOT escape a recomposed #+end_src (not one of the three delimiters)"
       ;; Negative control: split `#+end_src' across chunks; the
       ;; recomposed line must pass through untouched.
-      (let ((cb (gptel-chat--make-stream-closure
-                 gptel-chat-chunk-split-test--marker)))
+      (let* ((handle (gptel-chat--make-stream-closure
+                      gptel-chat-chunk-split-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
         (funcall cb "#+end_")
         (funcall cb "src\n")
         (funcall cb t))
@@ -132,8 +137,9 @@
   (describe "holdback preserves in-order inserts around a split collision"
 
     (it "content before and after the split appears in correct order"
-      (let ((cb (gptel-chat--make-stream-closure
-                 gptel-chat-chunk-split-test--marker)))
+      (let* ((handle (gptel-chat--make-stream-closure
+                      gptel-chat-chunk-split-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
         (funcall cb "line1\nlin")               ; emit line1; holdback = "lin"
         (funcall cb "e2\n#+end_")                ; emit line2;  holdback = "#+end_"
         (funcall cb "assistant\nafter\n")        ; emit escaped collision; then after

@@ -12,6 +12,8 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+
 ;; Line-level sanitizer
 
 ;; =gptel-chat--sanitize-chunk= is intentionally a *line-level* helper —
@@ -57,6 +59,47 @@ via a one-line holdback."
         (concat "," line)
       line)))
 ;; Line-level sanitizer:1 ends here
+
+;; The =gptel-chat-stream= struct
+
+;; The factory returns a =cl-defstruct= record. =cl-defstruct=
+;; auto-generates =make-gptel-chat-stream=, =gptel-chat-stream-p=, and
+;; per-slot accessors =gptel-chat-stream-insert=,
+;; =gptel-chat-stream-set-tool-marker=,
+;; =gptel-chat-stream-clear-tool-marker=. Callers invoke operations by
+;; funcalling an accessor:
+
+;; : (funcall (gptel-chat-stream-insert handle) "chunk\n")
+;; : (funcall (gptel-chat-stream-set-tool-marker handle) tool-marker)
+;; : (funcall (gptel-chat-stream-clear-tool-marker handle))
+
+
+;; [[file:stream.org::*The =gptel-chat-stream= struct][The =gptel-chat-stream= struct:1]]
+(cl-defstruct (gptel-chat-stream (:copier nil))
+  "Per-send stream handle for `gptel-chat-mode' response streaming.
+Created by `gptel-chat--make-stream-closure'.  Text-processing state
+(insertion marker, line holdback, current tool-marker value) lives
+inside the closures bound to the function slots; only the routing
+*operations* are exposed here.
+
+Slots:
+
+- INSERT: function of one argument.  Pass a string chunk for normal
+  text streaming or the sentinel `t' to flush any trailing
+  holdback on stream completion.  See
+  `gptel-chat--make-stream-closure' for semantics.
+- SET-TOOL-MARKER: function of one argument (a live marker).
+  After calling, subsequent INSERT calls route text to the given
+  marker instead of the assistant insertion marker.  Intended to
+  be called on upstream `tool-call' events.
+- CLEAR-TOOL-MARKER: zero-argument function.  Clears the routing
+  override so subsequent INSERT calls route back to the assistant
+  insertion marker.  Intended to be called on `tool-result'
+  events."
+  insert
+  set-tool-marker
+  clear-tool-marker)
+;; The =gptel-chat-stream= struct:1 ends here
 
 ;; Helper: pick the active insertion target
 
@@ -121,66 +164,97 @@ do nothing."
 
 ;; [[file:stream.org::*The closure factory][The closure factory:1]]
 (defun gptel-chat--make-stream-closure (insertion-marker)
-  "Return a closure that inserts streamed text at INSERTION-MARKER.
+  "Return a `gptel-chat-stream' handle for streaming assistant text.
 INSERTION-MARKER must be a live Emacs marker pointing inside the
-buffer that should receive assistant output.  The returned closure
-captures three slots of per-request state:
+buffer that should receive assistant output.  Three slots of
+per-request state are captured inside the closures bound to the
+returned struct's function slots:
 
-- INSERTION-MARKER (the argument) — where assistant text goes.
+- INSERTION-MARKER (the argument) — where assistant text goes by
+  default.
 - HOLDBACK — string carry-over for a trailing partial line.
-- TOOL-MARKER — a marker (initially nil) for nested tool-block
-  inserts; when set to a live marker the closure writes there
-  instead of INSERTION-MARKER.  The later stream-callback task
-  wires tool-call/tool-result events to mutate this slot.
+  Internal; never exposed on the struct.
+- TOOL-MARKER — a marker (initially nil) used for nested tool-block
+  inserts.  When set to a live marker, the insert closure writes
+  there instead of INSERTION-MARKER.  Callers mutate this slot
+  indirectly via the struct's SET-TOOL-MARKER and
+  CLEAR-TOOL-MARKER accessors — the raw value is never exposed.
 
-The returned closure is called with one argument:
+The returned struct exposes three operations:
 
-- a STRING chunk: concatenate with HOLDBACK, split at `\\n',
-  sanitize each complete line via `gptel-chat--sanitize-chunk',
-  insert each at the active marker followed by `\\n'.  The
-  trailing partial becomes the new HOLDBACK.
-- t: flush.  Insert the sanitized HOLDBACK (if any) at the active
-  marker with no trailing newline, then clear HOLDBACK.
+- INSERT (funcalled with one argument):
 
-The closure returns nil.  The TOOL-MARKER slot is exposed for the
-later `stream-callback' task; this module does not set it.
+  - a STRING chunk: concatenate with HOLDBACK, split at `\\n',
+    sanitize each complete line via `gptel-chat--sanitize-chunk',
+    insert each at the active marker followed by `\\n'.  The
+    trailing partial becomes the new HOLDBACK.
+  - t: flush.  Insert the sanitized HOLDBACK (if any) at the
+    active marker with no trailing newline, then clear HOLDBACK.
 
-Per design.md §Decision 3b, using a closure (not buffer-local or
-global state) gives exactly-per-send scope and direct testability:
-invoke the closure with scripted chunks and inspect the buffer."
+  Returns nil.
+
+- SET-TOOL-MARKER (funcalled with one argument, a live marker):
+  set TOOL-MARKER to the given marker.  Subsequent INSERT calls
+  route text to that marker instead of INSERTION-MARKER.
+  Intended to be called by `stream-callback' on `tool-call'
+  events.  Signals an error if passed a non-marker or a marker
+  with no buffer.
+
+- CLEAR-TOOL-MARKER (funcalled with zero arguments): reset
+  TOOL-MARKER to nil so subsequent INSERT calls route back to
+  INSERTION-MARKER.  Intended to be called on `tool-result'
+  events.
+
+Per design.md §Decision 3b, packaging per-send state as a
+cl-struct handle (rather than as a bare lambda or a caller-owned
+mutable cell) keeps the text-processing state scoped to the send
+while giving callers a typed, external API for toggling tool
+routing — no `cl-letf' surgery on captured variables."
   (unless (and (markerp insertion-marker)
                (marker-buffer insertion-marker))
     (error "INSERTION-MARKER must be a live marker"))
   (let ((holdback "")
         (tool-marker nil))
-    (lambda (chunk)
-      (cond
-       ;; Flush sentinel: insert any remaining holdback without a
-       ;; trailing newline and clear the holdback.
-       ((eq chunk t)
-        (let ((active (gptel-chat--stream-active-marker
-                       insertion-marker tool-marker)))
-          (gptel-chat--stream-insert-flush active holdback))
-        (setq holdback "")
-        nil)
-       ;; Text chunk: prepend holdback, split at newlines, complete
-       ;; lines go through the sanitizer + insert; trailing partial
-       ;; becomes the new holdback.
-       ((stringp chunk)
-        (let* ((combined (concat holdback chunk))
-               (parts (split-string combined "\n"))
-               (new-holdback (car (last parts)))
-               (complete-lines (butlast parts))
-               (active (gptel-chat--stream-active-marker
+    (make-gptel-chat-stream
+     :insert
+     (lambda (chunk)
+       (cond
+        ;; Flush sentinel: insert any remaining holdback without a
+        ;; trailing newline and clear the holdback.
+        ((eq chunk t)
+         (let ((active (gptel-chat--stream-active-marker
                         insertion-marker tool-marker)))
-          (dolist (line complete-lines)
-            (gptel-chat--stream-insert-line active line))
-          (setq holdback (or new-holdback "")))
-        nil)
-       ;; Anything else is a caller bug; surface it loudly rather
-       ;; than silently drop.
-       (t
-        (error "Unexpected chunk %S" chunk))))))
+           (gptel-chat--stream-insert-flush active holdback))
+         (setq holdback "")
+         nil)
+        ;; Text chunk: prepend holdback, split at newlines, complete
+        ;; lines go through the sanitizer + insert; trailing partial
+        ;; becomes the new holdback.
+        ((stringp chunk)
+         (let* ((combined (concat holdback chunk))
+                (parts (split-string combined "\n"))
+                (new-holdback (car (last parts)))
+                (complete-lines (butlast parts))
+                (active (gptel-chat--stream-active-marker
+                         insertion-marker tool-marker)))
+           (dolist (line complete-lines)
+             (gptel-chat--stream-insert-line active line))
+           (setq holdback (or new-holdback "")))
+         nil)
+        ;; Anything else is a caller bug; surface it loudly rather
+        ;; than silently drop.
+        (t
+         (error "Unexpected chunk %S" chunk))))
+     :set-tool-marker
+     (lambda (marker)
+       (unless (and (markerp marker) (marker-buffer marker))
+         (error "set-tool-marker: MARKER must be a live marker"))
+       (setq tool-marker marker)
+       nil)
+     :clear-tool-marker
+     (lambda ()
+       (setq tool-marker nil)
+       nil))))
 ;; The closure factory:1 ends here
 
 ;; Provide
