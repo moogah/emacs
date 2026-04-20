@@ -7,9 +7,12 @@
 
 ;;; Commentary:
 
-;; Buttercup specs for `gptel-chat--parse-buffer'.
+;; Buttercup specs for `gptel-chat--parse-buffer' and for the
+;; `gptel-chat-mode' major-mode definition.
 ;;
 ;; Coverage (from openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md):
+;;   §Mode definition and activation — interactive activation and the
+;;     file-local `-*- gptel-chat -*-' cookie.
 ;;   §Buffer format validation — all seven scenarios.
 ;;   §Message construction from buffer — parser-only scenarios (role
 ;;     ordering, turn list in document order, tool-call segment
@@ -17,8 +20,7 @@
 ;;     user prompt with org structural features).
 ;;
 ;; Delimiter un-escaping and the turn-list -> message-list conversion
-;; live in task `messages' and are NOT exercised here.  Mode-
-;; activation scenarios live in task `mode-definition'.
+;; live in task `messages' and are NOT exercised here.
 
 ;;; Code:
 
@@ -31,8 +33,9 @@
                 (file-name-directory (or load-file-name buffer-file-name)))))
   (load helpers nil t))
 
-;; Load the parser module under test.
+;; Load the modules under test.
 (require 'gptel-chat-parser)
+(require 'gptel-chat-mode)
 
 ;;; Small content builders — keep scenarios scannable at a glance.
 
@@ -76,6 +79,93 @@
           "#+end_user\n"))
 
 ;;; Tests
+
+(describe "gptel-chat-mode: Mode definition and activation"
+
+  (describe "interactive activation"
+    (it "sets `major-mode' to `gptel-chat-mode'"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (expect major-mode :to-equal 'gptel-chat-mode)))
+
+    (it "derives from `org-mode'"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (expect (derived-mode-p 'org-mode) :to-be-truthy)))
+
+    (it "disables `org-adapt-indentation' buffer-locally"
+      ;; Set a non-nil global value so the assertion is meaningful: the
+      ;; mode must install a buffer-local nil that shadows whatever the
+      ;; user has configured globally.
+      (let ((org-adapt-indentation t))
+        (with-temp-buffer
+          (gptel-chat-mode)
+          (expect (local-variable-p 'org-adapt-indentation) :to-be-truthy)
+          (expect org-adapt-indentation :to-equal nil))))
+
+    (it "installs the chat-mode keymap with `C-c C-c' bound to `gptel-chat-send'"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (expect (lookup-key gptel-chat-mode-map (kbd "C-c C-c"))
+                :to-equal 'gptel-chat-send)
+        (expect (lookup-key gptel-chat-mode-map (kbd "C-c n"))
+                :to-equal 'gptel-chat-next-turn)
+        (expect (lookup-key gptel-chat-mode-map (kbd "C-c p"))
+                :to-equal 'gptel-chat-previous-turn)
+        (expect (lookup-key gptel-chat-mode-map (kbd "C-c C-r"))
+                :to-equal 'gptel-chat-regenerate)
+        (expect (lookup-key gptel-chat-mode-map (kbd "C-c C-t"))
+                :to-equal 'gptel-chat-toggle-display-layer)
+        (expect (lookup-key gptel-chat-mode-map (kbd "C-c C-k"))
+                :to-equal 'gptel-abort)))
+
+    (it "runs `gptel-chat-mode-hook' on activation"
+      (let ((hook-ran nil))
+        (cl-letf ((gptel-chat-mode-hook (list (lambda () (setq hook-ran t)))))
+          (with-temp-buffer
+            (gptel-chat-mode)
+            (expect hook-ran :to-be-truthy))))))
+
+  (describe "file-local cookie activation"
+    (it "activates `gptel-chat-mode' on a file whose first line has `-*- gptel-chat -*-'"
+      (let ((tmpfile (make-temp-file "gptel-chat-cookie-" nil ".org")))
+        (unwind-protect
+            (progn
+              (with-temp-file tmpfile
+                (insert "# -*- gptel-chat -*-\n"
+                        "#+begin_user\n"
+                        "hi\n"
+                        "#+end_user\n"))
+              (let ((buf (find-file-noselect tmpfile)))
+                (unwind-protect
+                    (with-current-buffer buf
+                      (expect major-mode :to-equal 'gptel-chat-mode))
+                  (kill-buffer buf))))
+          (when (file-exists-p tmpfile)
+            (delete-file tmpfile))))))
+
+  (describe "gptel-chat-new"
+    (it "creates a buffer in `gptel-chat-mode' with an empty user block"
+      (let ((buf (gptel-chat-new)))
+        (unwind-protect
+            (with-current-buffer buf
+              (expect major-mode :to-equal 'gptel-chat-mode)
+              (expect (buffer-string)
+                      :to-equal "#+begin_user\n\n#+end_user\n"))
+          (kill-buffer buf))))
+
+    (it "positions point on the empty line inside the user block"
+      (let ((buf (gptel-chat-new)))
+        (unwind-protect
+            (with-current-buffer buf
+              ;; Point is on line 2 (the empty line between delimiters).
+              (expect (line-number-at-pos) :to-equal 2)
+              ;; Typing here extends the user block, not the delimiters.
+              (expect (buffer-substring-no-properties
+                       (line-beginning-position)
+                       (line-end-position))
+                      :to-equal ""))
+          (kill-buffer buf))))))
 
 (describe "gptel-chat--parse-buffer: Buffer format validation"
 
