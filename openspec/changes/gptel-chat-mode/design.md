@@ -1,6 +1,16 @@
 ## Context
 
-The proposal and architecture establish a new major mode (`gptel-chat-mode`) for sustained multi-turn chat/log usage, using symmetric `#+begin_user` / `#+begin_assistant` special blocks with nested `#+begin_tool` blocks, and `gptel-request` as the backend. This document records the concrete technical decisions needed to implement that architecture: how the parser walks the buffer, how the streaming state machine handles partial-line holdback and delimiter sanitization, how the display layer is wired in without disturbing buffer content, and where the implementation intentionally leans on — or deliberately avoids — upstream gptel internals.
+The proposal and architecture establish a new major mode (`gptel-chat-mode`) for sustained multi-turn chat/log usage, using symmetric `#+begin_user` / `#+begin_assistant` special blocks with nested `#+begin_tool` blocks, and `gptel-request` as the backend. This document records the concrete technical decisions needed to implement that architecture: how the parser walks the buffer, how per-request lifecycle is driven by upstream gptel's public FSM, how the streaming callback safely line-buffers and sanitizes incoming chunks, how the display layer is wired in without disturbing buffer content, and where the implementation intentionally leans on — or deliberately avoids — upstream gptel internals.
+
+**State-machine taxonomy.** Three distinct concerns in this mode are each worth naming before they blur together:
+
+| Concern | Mechanism | Lives where |
+|---|---|---|
+| Where in the request protocol are we? (`INIT` → `WAIT` → `TYPE` → {`TOOL` → `WAIT` \| `DONE` \| `ERRS`}) | Upstream `gptel-fsm` via `:fsm` + custom handlers | Decision 3 |
+| How do we safely insert streaming text into the buffer line-by-line? | Per-request closure state (insertion marker, line holdback) | Decision 3b |
+| Is the buffer currently well-formed turns? What is the next turn? | Parser walk (Decision 1), heading-aware but structure-first | Decision 1 |
+
+Decisions 3, 3b, 10, and 11 collectively wire the mode onto upstream's FSM rather than paralleling it.
 
 Reference:
 - `proposal.md` — motivation (gptel-mode vs. chat/log-mode mismatch; upstream's stated invisible-integration philosophy)
@@ -55,21 +65,64 @@ Decision 12 establishes that headings are organizational and do not affect turn 
 
 **Open**: the exact shape of tool-call / tool-result messages in the `:prompt` list needs verification against upstream gptel source during implementation. Listed in Open Questions.
 
-### Decision 3: Streaming state machine — closure with markers and a one-line holdback
+### Decision 3: Request lifecycle — upstream `gptel-fsm` via `:fsm` and custom handlers
 
-**Choice:** the streaming callback is a closure (captured on send) carrying a state plist: `(:buffer :insertion-marker :holdback-string :active-tool-marker :aborted)`. The marker is a proper Emacs marker (not an integer position), so concurrent user edits above the insertion point don't corrupt it. On each chunk:
+**Choice:** per-request lifecycle is driven by upstream gptel's public FSM abstraction. We pass `(gptel-make-fsm :handlers gptel-chat--fsm-handlers)` as `:fsm` to `gptel-request`. We do **not** build a parallel lifecycle state machine.
 
-1. Prepend any previous holdback to the new chunk.
-2. Split at `\n`; the trailing partial line (if any) becomes the new holdback.
-3. For each complete line, apply delimiter sanitization (Decision 4) and insert at the marker.
-4. On stream completion, flush any holdback (cannot be a full `#+end_...` line because it has no newline), insert `#+end_assistant`, and position point for the next turn (Decision 8).
-5. On abort, insert an interruption marker line (`,#+end_assistant  [interrupted]` or equivalent), close the block, and clear closure state.
+Upstream defines the states `INIT → WAIT → TYPE → {TOOL → WAIT | ERRS | DONE}` with a transitions table (`gptel-request--transitions`) and a handler alist (`gptel-request--handlers`) where each state maps to a list of functions invoked on entry — see `gptel-request.el:1570-1636`. Callers can supply augmented handlers; this is the public extension point. `gptel-request` returns the FSM, and `gptel-fsm-state` / `gptel-fsm-info` let any caller inspect it.
+
+Our handlers chain **before** the upstream handlers — the pattern already used by `config/gptel/tools/persistent-agent.org`:
+
+```elisp
+(defvar gptel-chat--fsm-handlers
+  `((WAIT ,#'gptel-chat--on-wait   ,#'gptel--handle-wait)
+    (TYPE ,#'gptel-chat--on-type)
+    (TOOL ,#'gptel-chat--on-tool   ,#'gptel--handle-tool-use)
+    (DONE ,#'gptel-chat--on-done)
+    (ERRS ,#'gptel-chat--on-errs)))
+
+(gptel-request prompt
+  :fsm      (gptel-make-fsm :handlers gptel-chat--fsm-handlers)
+  :callback #'gptel-chat--stream-callback
+  :stream   t)
+```
+
+Our handlers do UI-only work (update the display-layer overlay to reflect "waiting / streaming / tool-running / done / error"). Upstream's handlers continue to drive the actual protocol transitions — we neither fire `gptel--fsm-transition` directly nor replace the core handler list.
+
+**Reference implementation:** `config/gptel/tools/persistent-agent.org` is the canonical worked example of this handler-augmentation pattern in this repo. Start there, not from upstream source.
 
 **Alternatives considered:**
-- Append directly at `(point-max)`: naive; fails if the user moves point or if streaming happens into a not-at-end buffer (e.g., regenerate inserts into the middle).
-- Buffer-local state variables: harder to test, easier to leak between sends. Closure state is per-request by construction.
+- Hand-rolled per-request closure with its own state enum (an earlier draft of this decision). Rejected: it would parallel, not integrate with, the upstream FSM — leaving us stranded when the upstream tool loop advances (`TOOL → WAIT` for multi-turn agentic tool use) and we are stuck re-deriving it.
+- Ignoring the FSM entirely and relying only on `:callback`. Rejected: the callback exposes wire events (chunks, tool-call / tool-result cons cells, completion sentinels); it does not expose higher-level lifecycle state like "between tool calls during a multi-turn assistant turn." The FSM exposes that directly via `gptel-fsm-state`, which the display layer (Decision 5) and send-guard (Decision 11) both want.
 
-**Rationale:** closures keep per-send state isolated and testable. Markers are the standard Emacs idiom for tracking buffer positions across edits. Line-buffered holdback is the well-known streaming-safe pattern for line-oriented sanitization (prevents splitting a collision across chunks).
+**Rationale:** the FSM is the one durable lifecycle abstraction upstream gives us. Plugging in at the handler layer keeps our UI reactive to state changes while letting upstream own transition correctness, tool dispatch, and error propagation. If upstream adds new intermediate states (e.g., a `REASONING` phase), we inherit that for free.
+
+### Decision 3b: Per-chunk text hygiene — closure with marker and line holdback
+
+**Choice:** separate from the request FSM, the streaming `:callback` closure maintains a small amount of *text-processing* state for safe line-by-line insertion: an insertion marker for the active assistant block, a one-line holdback string, and (when a tool call is in flight) a second marker for the active `#+begin_tool` block.
+
+This is not a state machine. It is a streaming text sanitizer. The separation matters because the two concerns have different lifetimes and different test surfaces:
+
+| Concern | Mechanism |
+|---|---|
+| Where in the protocol are we? (`WAIT` / `TYPE` / `TOOL` / `DONE`) | Upstream FSM (Decision 3) |
+| Where in the buffer are we inserting? What line is partially received? | Callback closure (this decision) |
+| What is the line-level delimiter escape rule? | `gptel-chat--sanitize-chunk` (Decision 4) |
+
+On each text chunk the callback:
+
+1. Prepends any carry-over holdback to the new chunk.
+2. Splits at `\n`; trailing partial line (if any) becomes the new holdback.
+3. For each complete line, runs `gptel-chat--sanitize-chunk` (Decision 4) and inserts at the assistant insertion marker (or the tool-block marker, if one is active — Decision 10).
+4. On completion (`t` from the callback — see Decision 10), flushes the holdback (cannot be a full `#+end_*` line by construction — no newline), inserts `#+end_assistant`, and positions point per Decision 8.
+
+The markers are proper Emacs markers (not integer positions) so concurrent user edits above the insertion point don't corrupt them.
+
+**Alternatives considered:**
+- Insert directly at `(point-max)`. Fails when the buffer has content after the active assistant block (e.g., regenerate inserts into the middle of the buffer; the user edits below the cursor during stream).
+- Buffer-local state variables. Harder to test, easier to leak between sends — and concurrent sends are disallowed anyway (Decision 11), so per-request closure scope is the right granularity.
+
+**Rationale:** closures give per-send isolation and are directly testable by invoking the returned callback with scripted chunks. Markers are the standard Emacs idiom for position-tracking across edits. Line-buffered holdback is the well-known streaming-safe pattern for line-oriented sanitization (it prevents splitting a `#+end_...` collision across a chunk boundary — spec scenario "Response contains collision split across chunks").
 
 ### Decision 4: Sanitization — targeted scanner for our three delimiters, case-insensitive
 
@@ -140,23 +193,41 @@ Point is positioned on the empty line inside the block. No metadata is pre-popul
 
 **Rationale:** minimum viable initialization. Metadata keywords are a v2 concern.
 
-### Decision 10: Tool-call callback handling
+### Decision 10: Callback dispatch — `pcase` on upstream's actual response shapes
 
-**Choice:** the streaming callback pattern-matches the callback argument:
-- String → text insertion with line-level sanitization (Decisions 3, 4)
-- Plist with a tool-call sentinel → open a `#+begin_tool` block inside the assistant block, formatted as `#+begin_tool (<name> :args <sexp>)\n(:name ... :args ...)\n` to match the existing session-file convention shown in the user's test fixture
-- Plist with a tool-result sentinel → insert the result (stringified) into the active tool block, then `\n#+end_tool\n`
-- Completion sentinel → Decision 3 finalization
+**Choice:** the streaming callback receives `(response info)` from `gptel-request`. It dispatches via `pcase` on the documented response shapes. These are the shapes upstream emits at `gptel-curl--stream-filter` and `gptel--handle-tool-use` (see `gptel-request.el:1684-1752`) and that our own `config/gptel/tools/persistent-agent.org` already pattern-matches:
 
-**Open:** the exact sentinel/plist shape gptel-request passes to the callback for tool events needs verification during implementation. The pattern-matching dispatcher is small (one `cond` form), so adapting to the actual protocol is a narrow change.
+| Response | Case |
+|---|---|
+| string | text chunk — sanitize (Decision 4), line-buffer (Decision 3b), insert at active marker |
+| `` `(reasoning . ,chunk) `` | v1: ignore. A future change may render these into a `#+begin_reasoning` nested block; out of scope for v1. |
+| `` `(tool-call . ,calls) `` | open a nested `#+begin_tool (<name> :args <sexp>)` block inside the active assistant block; set the tool-block marker (Decision 3b) as the new insertion target |
+| `` `(tool-result . ,results) `` | insert stringified result into the active tool block, append `#+end_tool`, clear the tool-block marker |
+| `t` | normal completion — flush holdback, close `#+end_assistant`, append a fresh user block (Decision 8) |
+| `nil` | error / network failure — close the block with an error marker |
+| `'abort` | user abort — close the block with an interruption marker |
 
-**Reference implementation to study:** `config/gptel/tools/persistent-agent.el` already calls `gptel-request` with full tool history and handles streaming tool-call events inside a ~300-line callback closure. That file is the canonical worked example for both the `:prompt` message shape with tool history (Open Question 1) and the streaming tool-event protocol (Open Question 2). Implementation should start there rather than reading upstream gptel source cold.
+Each element of a `tool-call` or `tool-result` list is a plist carrying `:name`, `:args`, and — for results — `:result`. Our `#+begin_tool` opening line formats `:name` and `:args` as `(<name> :args <sexp>)` to match the existing session-file convention.
 
-### Decision 11: Send-during-stream is an error
+**Corrected from earlier draft:** an earlier version of this decision described tool events as "plists with a tool-call sentinel" — that was wrong. Upstream emits cons cells, not tagged plists; dispatch via `pcase` backquote patterns is both the upstream idiom and what `persistent-agent.org` already does.
 
-**Choice:** invoking `gptel-chat-send` while a stream is in progress (detected via a buffer-local `gptel-chat--stream-active-p` flag) signals a user-visible error. No queueing.
+**Note on transitioning the FSM:** `gptel--fsm-transition` is the mechanism by which handlers advance state. Our callback does not call it directly — the default `WAIT` and `TOOL` handlers (still present in our chained handler list, Decision 3) drive transitions for us. If a future UX wants to intercept (e.g., confirm-before-tool-call), the intercept goes in our `TOOL` handler, not in the callback.
+
+**Reference implementation:** `config/gptel/tools/persistent-agent.org` calls `gptel-request` with full tool history and pattern-matches every shape above in a single `pcase`. Start there for both the callback dispatcher and the `:prompt` message shape with tool history (Open Question 1).
+
+### Decision 11: Send-during-stream protection — via upstream FSM state, not a parallel flag
+
+**Choice:** to detect an in-flight request, inspect the buffer-local `gptel--fsm-last` that upstream sets on every `gptel-request` (see `gptel.el:1104, 1328`). If it is non-nil and `(gptel-fsm-state gptel--fsm-last)` is not in `(DONE ERRS)`, signal a user-visible error. No queueing. We do **not** introduce a parallel `gptel-chat--stream-active-p` flag.
 
 **Rationale:** streaming inserts at a fixed marker. A concurrent send would need a second marker and a second closure; the complexity isn't worth it for v1. Users waiting on a response have the obvious option of waiting.
+
+Reusing `gptel--fsm-last` additionally buys us:
+
+- **One source of truth.** A bug in upstream that leaves the FSM stuck in `TYPE` presents to us the same way it presents to every other gptel caller — we don't mask it with a separate flag that drifts out of sync.
+- **State-aware policy.** We can decide send policy per state. A future UX might queue sends during `TOOL` (waiting on a tool result the user is confirming) but reject them during `TYPE` (actively streaming) — both are expressible with no additional bookkeeping.
+- **No cleanup code to write on abort.** The FSM self-manages; we don't need an `unwind-protect` or error handler whose only job is to clear our flag.
+
+**Trade-off:** we depend on `gptel--fsm-last` remaining the canonical handle for in-flight requests. It is marked internal by name convention but is used pervasively across upstream (rewrite mode, tool confirmation UI, send menus), which makes it de facto stable. If upstream renames it, our check is a one-line edit in one place.
 
 ### Decision 12: Heading-allowed buffer structure — "blocks-only" model
 
@@ -235,9 +306,9 @@ Rollback: remove the entry from `jf/enabled-modules`. Any chat-mode files on dis
 
 ## Open Questions
 
-1. **Exact `:prompt` shape for tool-call history in `gptel-request`.** Upstream gptel constructs tool-call messages via its backend-specific `gptel--parse-buffer` methods. We need to confirm the canonical message shape `gptel-request` accepts for `:prompt` when the history contains prior tool calls. Verify by reading `gptel-request` documentation and the OpenAI/Anthropic backend implementations during implementation.
+1. **Exact `:prompt` shape for tool-call history in `gptel-request`.** The *callback* shape for tool events is settled (Decision 10: cons cells of plists). What still needs verification is the reverse direction — how tool-call / tool-result history is encoded in the `:prompt` value passed **into** `gptel-request` on subsequent turns, once our parser has reconstructed it from the buffer. Upstream's backend-specific `gptel--parse-buffer` methods build this shape today; we are bypassing them. `config/gptel/tools/persistent-agent.org` passes full tool history through `:prompt` and is the canonical worked example — extract the shape from there during implementation.
 
-2. **Streaming callback protocol for tool events.** The stream callback needs to distinguish text chunks, tool-call events, tool-result events, and completion. The explore-agent survey noted that gptel uses pattern-matching in `gptel--insert-response` (gptel.el:1471+) and `gptel-curl--stream-insert-response` (gptel.el:1537+). Read these to extract the protocol shape, or mirror the dispatcher pattern if the callback interface exposes it directly.
+2. **Streaming callback protocol for tool events.** *Answered.* See Decision 10 for the full `pcase` table. The upstream emit sites are `gptel-curl--stream-filter` (text and reasoning chunks) and `gptel--handle-tool-use` (`gptel-request.el:1684-1752`, tool-call / tool-result cons cells).
 
 3. **Debounce timing for display-layer refresh.** 100ms is a guess. Implementation should make this a `defcustom` (`gptel-chat-display-refresh-delay`) so we can tune after seeing real behavior.
 
