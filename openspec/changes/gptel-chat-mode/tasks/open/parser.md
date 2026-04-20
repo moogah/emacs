@@ -2,7 +2,7 @@
 name: parser
 description: State-machine regex walk producing turn list with structural validation
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:scaffold-chat-subsystem
 ---

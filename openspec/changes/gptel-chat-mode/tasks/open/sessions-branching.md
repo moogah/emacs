@@ -96,6 +96,12 @@ marker position; exclude = start-of-user-block marker position.
   include, confirm the new branch's `session.org` is well-formed and
   contains everything through that user turn's `#+end_user`.
 
+## Discovered during review of sessions-filesystem (2026-04-20)
+`config/gptel/sessions/branching.el:286` (and the corresponding `.org`)
+still references `session.md` in a docstring or comment after the
+filesystem rename. Update that reference to `session.org` as part of
+this task. (Sessions-filesystem review Finding #9.)
+
 ## Context
 - design.md §Decision 18 (session file format — `.org` everywhere)
 - specs/gptel/sessions-branching.md §"Branch point selection" (MODIFIED)
@@ -103,3 +109,4 @@ marker position; exclude = start-of-user-block marker position.
 - specs/gptel/sessions-branching.md §REMOVED — `gptel--bounds` filtering,
   text-property detection
 - architecture.md §`sessions/branching` (modified)
+- Review of sessions-filesystem (orchestrator session 2026-04-20) Finding #9

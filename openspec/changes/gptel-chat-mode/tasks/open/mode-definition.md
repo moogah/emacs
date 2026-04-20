@@ -2,7 +2,7 @@
 name: mode-definition
 description: Major mode derived from org-mode with keymap, column-0 delimiters, and new-chat command
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:scaffold-chat-subsystem
 ---

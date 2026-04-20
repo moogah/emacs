@@ -65,8 +65,16 @@ infrastructure opportunistically.
   and preset applied.
 - Scenario: activity-backed sessions emit `session.org` unconditionally.
 
+## Discovered during review of sessions-filesystem (2026-04-20)
+`config/gptel/sessions/activities-integration.el:36` and `:73` (and the
+corresponding `.org`) still reference `session.md` in docstrings or
+comments after the filesystem rename. Update those references to
+`session.org` as part of this task. (Sessions-filesystem review
+Finding #9.)
+
 ## Context
 - design.md §Decision 16 (sessions use chat-mode, never gptel-mode)
 - architecture.md §`sessions/activities-integration` (modified)
 - specs/gptel/sessions-persistence.md §"Session file format" (MODIFIED —
   applies to activity-created sessions too)
+- Review of sessions-filesystem (orchestrator session 2026-04-20) Finding #9

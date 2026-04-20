@@ -5,6 +5,7 @@ change: gptel-chat-mode
 status: blocked
 relations:
   - blocked-by:scaffold-chat-subsystem
+  - blocked-by:remove-orphan-sanitize-module
 ---
 
 ## Files to modify

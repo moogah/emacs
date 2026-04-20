@@ -2,7 +2,7 @@
 name: scaffold-chat-subsystem
 description: Create config/gptel/chat/ directory, main loader, add to enabled-modules
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations: []
 ---
 

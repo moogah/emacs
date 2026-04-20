@@ -71,6 +71,15 @@ workflow) triggers auto-init which activates chat-mode.
     chat-mode initial content; `metadata.yml` populated; file opens in
     `gptel-chat-mode` with preset applied.
 
+## Discovered during review of sessions-filesystem (2026-04-20)
+The fix-forward `a5c126a` updated `config/gptel/test/session-creation-spec.el`
+lines 70-78 to assert that the newly created `session.org` contains
+`"###\n"` (a markdown heading). That assertion is wrong-in-spirit per
+Decision 18: `session.org` should contain the chat-mode initial content
+(`#+begin_user\n\n#+end_user\n`), not markdown markup. As part of
+implementing this task, also fix that assertion to expect the correct
+chat-mode initial content. (Sessions-filesystem review Finding #2.)
+
 ## Context
 - design.md §Decision 9 (new-chat initialization)
 - design.md §Decision 18 (session file format)
@@ -78,3 +87,4 @@ workflow) triggers auto-init which activates chat-mode.
   session.org" (MODIFIED)
 - specs/gptel/sessions-persistence.md §"Fresh session.org" scenario
 - architecture.md §`sessions/commands` (modified)
+- Review of sessions-filesystem (orchestrator session 2026-04-20) Finding #2

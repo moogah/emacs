@@ -2,7 +2,7 @@
 name: sessions-filesystem
 description: Update sessions directory templates to use session.org
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations: []
 ---
 

@@ -107,6 +107,18 @@ not separate hook functions.
   - Path outside session layout — auto-init does not fire; buffer still
     usable as standalone chat.
 
+## Discovered during review of sessions-filesystem (2026-04-20)
+`config/gptel/test/session-restoration-spec.el` contains roughly 22
+hardcoded `session.md` paths in expectations. This suite passes today
+because `jf/gptel--auto-init-session-buffer` still detects `session.md`,
+but the moment this task flips the regex to `session.org`, every
+assertion in that file breaks at once. As part of implementing this
+task, also rewrite all `session.md` references in
+`config/gptel/test/session-restoration-spec.el` to `session.org`. Treat
+that file as a load-bearing part of this task's scope so the next merge
+does not require a fix-forward like `a5c126a` did.
+(Sessions-filesystem review Finding #4.)
+
 ## Context
 - design.md §Decision 16 (sessions use gptel-chat-mode, never gptel-mode)
 - design.md §Decision 17 (session auto-init contract under chat-mode)
@@ -114,3 +126,4 @@ not separate hook functions.
   gptel-chat-mode" (MODIFIED)
 - specs/gptel-chat-mode/spec.md §"Session-file auto-initialization"
 - architecture.md §`sessions/commands` (modified)
+- Review of sessions-filesystem (orchestrator session 2026-04-20) Finding #4
