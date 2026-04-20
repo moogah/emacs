@@ -2,7 +2,7 @@
 name: fix-design-md-module-count
 description: Fix design.md:18 "six-module breakdown" to match post-sanitize-removal module count
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:remove-orphan-sanitize-module
 ---

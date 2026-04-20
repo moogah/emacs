@@ -2,7 +2,7 @@
 name: audit-persistent-agent-session-md-refs
 description: Audit persistent-agent.org session.md references for stale post-rename hits
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:fix-sessions-filesystem-task-verification
 ---

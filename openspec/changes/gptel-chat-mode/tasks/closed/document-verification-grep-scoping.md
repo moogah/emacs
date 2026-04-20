@@ -2,7 +2,7 @@
 name: document-verification-grep-scoping
 description: Add CLAUDE.md guideline that task verification greps must scope to modified files
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:fix-sessions-filesystem-task-verification
 ---

@@ -2,7 +2,7 @@
 name: tighten-sessions-persistence-spec-on-iteration
 description: Spec language "old files are simply not found" is imprecise at session-iteration boundary
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-filesystem
 ---
