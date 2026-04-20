@@ -1,0 +1,227 @@
+# GPTEL Chat Mode
+
+## Purpose
+
+A dedicated major mode for multi-turn chat and work-log interaction with an LLM, complementary to upstream `gptel-mode`. Where `gptel-mode` treats LLM interaction as invisible assistance inside arbitrary documents, `gptel-chat-mode` treats the sequence of turns as the primary artifact and gives each turn a first-class structural container. The mode provides:
+
+- A canonical on-disk format using symmetric `#+begin_user` / `#+begin_assistant` special blocks with nested `#+begin_tool` blocks
+- Message construction from buffer state without relying on text properties or `gptel--parse-buffer`
+- Streaming response insertion with delimiter-collision sanitization
+- Mode-provided send, navigation, and regenerate commands
+- A minimal display layer for visual role distinction
+
+## Key Concepts
+
+### Buffer Format
+
+A chat-mode buffer is a sequence of **turns**, each represented by a top-level org special block. No outer outline heading is required. Example:
+
+```org
+#+begin_user
+What's the capital of France?
+#+end_user
+
+#+begin_assistant
+Paris.
+#+end_assistant
+
+#+begin_user
+Can you run `uname`?
+#+end_user
+
+#+begin_assistant
+Sure.
+
+#+begin_tool (run_bash_command :command "uname")
+(:name "run_bash_command" :args (:command "uname"))
+
+{"success":true,"output":"Darwin\n","exit_code":0}
+#+end_tool
+
+You're on Darwin.
+#+end_assistant
+```
+
+### Metadata
+
+Optional `#+<keyword>:` lines and a single top-of-buffer `:PROPERTIES:` drawer are treated as file metadata and excluded from message construction. Any content preceding the first turn block that is not metadata is an error (the buffer is not a valid chat log).
+
+### Role Taxonomy
+
+| Block | Role in API message list |
+|-------|--------------------------|
+| `#+begin_user`...`#+end_user` | `user` message with block content |
+| `#+begin_assistant`...`#+end_assistant` | Zero or more assistant / tool-call / tool-result messages (see Message Construction) |
+| `#+begin_tool (call-id args)`...`#+end_tool` | Tool call + tool result pair, nested inside assistant block |
+
+### Delimiter Collision
+
+Any response content line matching `^#\+\(end_user\|end_assistant\|end_tool\)\b` would prematurely terminate a containing block. The mode sanitizes streamed assistant content using the `org-escape-code-in-string` pattern already used by upstream `gptel` for tool-result rendering (prepending `,` to offending lines). On read-back, the sanitization is undone before sending to the model.
+
+## Requirements
+
+### Requirement: Mode definition and activation
+
+The system SHALL define `gptel-chat-mode` as a major mode derived from `org-mode`. Activation SHALL be possible via `M-x gptel-chat-mode`, file-local mode cookies (`-*- gptel-chat -*-`), or auto-mode-alist configuration.
+
+#### Scenario: Interactive activation
+- **WHEN** running `M-x gptel-chat-mode` in a buffer
+- **THEN** the major mode becomes `gptel-chat-mode`
+- **AND** the buffer inherits `org-mode` features
+- **AND** chat-mode keybindings are active
+
+#### Scenario: File-local cookie activation
+- **WHEN** opening a file with first line `# -*- gptel-chat -*-`
+- **THEN** the buffer is in `gptel-chat-mode` after load
+
+### Requirement: Buffer format validation
+
+The system SHALL recognize a valid chat-mode buffer as a (possibly empty) sequence of top-level special blocks of types `user`, `assistant`, or (nested inside assistant) `tool`. An optional leading `:PROPERTIES:` drawer and `#+<keyword>:` lines are permitted as metadata. All other content outside blocks is invalid.
+
+#### Scenario: Empty buffer is valid
+- **WHEN** the buffer contains only whitespace
+- **THEN** message construction yields an empty message list
+- **AND** no error is raised
+
+#### Scenario: Metadata-only buffer is valid
+- **WHEN** the buffer contains only `#+gptel-model: foo` and blank lines
+- **THEN** message construction yields an empty message list
+
+#### Scenario: Non-metadata text outside blocks is invalid
+- **WHEN** the buffer contains the line `stray prose` outside any turn block and not as `#+keyword:` metadata
+- **THEN** message construction signals a user-visible error identifying the line
+
+### Requirement: Message construction from buffer
+
+The system SHALL construct an ordered list of API messages by walking the buffer's top-level blocks in document order. Each block produces messages as follows:
+
+- `#+begin_user` block → one `user` message with the block's content (verbatim, delimiter lines excluded)
+- `#+begin_assistant` block → a sequence of messages: assistant-text segments and tool call / tool result pairs, in the order they appear inside the block
+- Nested `#+begin_tool (call-id args)` block → one tool-call message (name + arguments) followed by one tool-result message (the block's remaining content)
+- Delimiter-collision-escaped lines SHALL be un-escaped before inclusion in the outbound message
+
+Message construction SHALL NOT depend on text properties or on `gptel--parse-buffer`.
+
+#### Scenario: Single user-assistant turn
+- **WHEN** the buffer contains one `#+begin_user`/`#+end_user` block followed by one `#+begin_assistant`/`#+end_assistant` block
+- **THEN** the constructed message list is `[user: <user content>, assistant: <assistant content>]`
+
+#### Scenario: Assistant turn with one tool call
+- **WHEN** an `#+begin_assistant` block contains prose, then a `#+begin_tool` block with call args and result, then more prose
+- **THEN** the message list for that turn is `[assistant: <pre-tool prose>, tool_call: <args>, tool_result: <result>, assistant: <post-tool prose>]`
+
+#### Scenario: Delimiter escape round-trip
+- **WHEN** an `#+begin_assistant` block content contains the literal line `,#+end_assistant`
+- **THEN** the constructed assistant message contains the line `#+end_assistant` (leading comma stripped)
+
+#### Scenario: Empty blocks are skipped
+- **WHEN** a `#+begin_user` block contains no non-whitespace content
+- **THEN** no `user` message is emitted for that block
+
+### Requirement: Send command
+
+The system SHALL provide a command (`gptel-chat-send`, bound to `C-c C-c` by default) that sends the current buffer's turn sequence to the LLM via `gptel-request`. Invocation SHALL be valid from inside any `#+begin_user` block or from the point after the last `#+end_assistant` block when a pending user block exists. The command SHALL close the current user block if open, emit a new `#+begin_assistant` block, and stream the response into it.
+
+#### Scenario: Send from inside open user block
+- **WHEN** point is inside `#+begin_user`/`#+end_user` with non-empty content and the user runs `gptel-chat-send`
+- **THEN** a `gptel-request` is issued with the constructed message list
+- **AND** a new `#+begin_assistant` block is inserted immediately after the user block
+- **AND** response chunks stream into the assistant block as they arrive
+
+#### Scenario: Send with empty user block is a no-op
+- **WHEN** point is inside an empty `#+begin_user` block and the user runs `gptel-chat-send`
+- **THEN** no request is issued and the user sees a message indicating the prompt is empty
+
+#### Scenario: Send from inside assistant block is rejected
+- **WHEN** point is inside a `#+begin_assistant` block and the user runs `gptel-chat-send`
+- **THEN** an error is signaled instructing the user to send from a user block
+
+### Requirement: Response streaming and sanitization
+
+The system SHALL insert streamed response chunks between an open `#+begin_assistant` marker and its eventual `#+end_assistant`. Each chunk SHALL be scanned for lines matching `^#\+end_\(user\|assistant\|tool\)\b` and rewritten to `,#+end_...` before insertion. On stream completion, the `#+end_assistant` delimiter SHALL be inserted and point positioned after it. On stream abort or error, the block SHALL be closed with a visible error marker and `#+end_assistant` appended.
+
+#### Scenario: Normal stream completion
+- **WHEN** the model returns a multi-chunk response with no delimiter collisions
+- **THEN** all chunks appear in order inside the assistant block
+- **AND** the block terminates with `#+end_assistant` on its own line
+- **AND** the block is well-formed (parseable by `org-element`)
+
+#### Scenario: Response contains collision with end_assistant
+- **WHEN** a streamed response contains a line starting with `#+end_assistant`
+- **THEN** that line is rewritten to start with `,#+end_assistant` when inserted
+- **AND** the containing assistant block remains well-formed
+
+#### Scenario: Response contains collision split across chunks
+- **WHEN** one chunk ends with `#+end_ass` and the next begins with `istant\nmore`
+- **THEN** the completed line is recognized as a collision and escaped before final insertion
+
+#### Scenario: Stream abort
+- **WHEN** the user cancels a streaming request mid-response
+- **THEN** the assistant block is closed with `#+end_assistant`
+- **AND** a visible marker records that the response was interrupted
+
+### Requirement: Tool-call rendering inside assistant blocks
+
+When the model emits a tool call during a streaming response, the system SHALL insert a `#+begin_tool` block nested inside the current assistant block. The opening delimiter SHALL include the call identifier and arguments in a form consistent with the existing `#+begin_tool` convention used elsewhere in the repository. When the tool result is available, the result SHALL be inserted inside the same tool block, and `#+end_tool` appended. Multiple tool calls in a single assistant turn SHALL be rendered as sequential sibling `#+begin_tool` blocks within the outer assistant block.
+
+#### Scenario: Single tool call in a response
+- **WHEN** an assistant response includes exactly one tool call
+- **THEN** the assistant block contains one `#+begin_tool`/`#+end_tool` block with the call arguments and result
+- **AND** the tool block appears in the correct position relative to surrounding prose
+
+#### Scenario: Multiple tool calls in a response
+- **WHEN** an assistant response includes three sequential tool calls interleaved with prose
+- **THEN** the assistant block contains three sibling `#+begin_tool`/`#+end_tool` blocks in order
+- **AND** prose segments appear in their correct positions between tool blocks
+
+### Requirement: Turn navigation
+
+The system SHALL provide `gptel-chat-next-turn` and `gptel-chat-previous-turn` commands that move point to the beginning of the next or previous top-level turn block (either `user` or `assistant`) from the current position. When no further turn exists in the direction of travel, the command SHALL signal a user-visible message and leave point unchanged.
+
+#### Scenario: Next turn from inside a user block
+- **WHEN** point is inside a user block followed by an assistant block
+- **THEN** running `gptel-chat-next-turn` moves point to the start of `#+begin_assistant`
+
+#### Scenario: Previous turn from inside an assistant block
+- **WHEN** point is inside an assistant block preceded by a user block
+- **THEN** running `gptel-chat-previous-turn` moves point to the start of `#+begin_user`
+
+#### Scenario: Next turn at end of buffer
+- **WHEN** point is after the last turn block
+- **THEN** running `gptel-chat-next-turn` emits "No next turn" and does not move point
+
+### Requirement: Regenerate last response
+
+The system SHALL provide a `gptel-chat-regenerate` command that removes the most recent `#+begin_assistant` block and re-issues the request for the preceding user turn. If the buffer's last block is a `#+begin_user` block (no response yet), the command SHALL signal that there is no response to regenerate.
+
+#### Scenario: Regenerate after a completed response
+- **WHEN** the buffer ends in `#+begin_user`...`#+begin_assistant`...`#+end_assistant` and the user runs `gptel-chat-regenerate`
+- **THEN** the trailing assistant block is removed
+- **AND** a new request is issued and streamed into a fresh assistant block
+
+#### Scenario: Regenerate when no response exists
+- **WHEN** the buffer's last block is an unanswered `#+begin_user`
+- **THEN** `gptel-chat-regenerate` emits "No response to regenerate" and does not modify the buffer
+
+### Requirement: Display-layer role distinction
+
+The system SHALL apply a display layer that visually distinguishes user-block content from assistant-block content without modifying buffer text. The v1 implementation SHALL use either a face applied to the block body via font-lock or a `line-prefix` overlay per role. The display layer SHALL be toggleable via a mode-level command and SHALL have no effect on message construction, persistence, or block delimiter positions.
+
+#### Scenario: Display layer is active by default
+- **WHEN** a chat-mode buffer is freshly opened
+- **THEN** user-block content and assistant-block content have visually distinct presentation
+- **AND** the underlying buffer text is unchanged (e.g., `buffer-substring-no-properties` matches the on-disk file)
+
+#### Scenario: Display layer can be toggled off
+- **WHEN** the user runs the display-toggle command
+- **THEN** the visual distinction is removed
+- **AND** block delimiters and content remain unchanged
+
+### Requirement: gptel-request backend usage
+
+The system SHALL issue requests to the LLM exclusively via `gptel-request`, passing a constructed `:prompt` message list and a streaming `:callback`. The system SHALL NOT invoke `gptel--parse-buffer`, rely on `gptel-prompt-prefix-alist` / `gptel-response-prefix-alist`, or mutate `:GPTEL_BOUNDS:` property drawers.
+
+#### Scenario: Send uses gptel-request with an explicit prompt
+- **WHEN** `gptel-chat-send` is invoked
+- **THEN** `gptel-request` is called with a `:prompt` argument containing the constructed message list
+- **AND** no buffer-parsing calls to `gptel--parse-buffer` are made during send
