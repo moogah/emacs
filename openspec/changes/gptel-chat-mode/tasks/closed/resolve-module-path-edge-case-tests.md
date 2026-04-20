@@ -2,7 +2,7 @@
 name: resolve-module-path-edge-case-tests
 description: Add characterization tests for jf/resolve-module-path edge cases (empty, leading slash, .., absolute)
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:fix-resolve-module-path-extension
 ---

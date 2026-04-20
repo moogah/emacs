@@ -2,7 +2,7 @@
 name: clarify-symlink-coverage-in-directory-templates-spec
 description: Either add a current-symlink assertion or document its scope omission in commentary
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sessions-filesystem
 ---

@@ -2,7 +2,7 @@
 name: resolve-module-path-replace-tautological-assertions
 description: Replace tautological .el/config/ string matchers with full :to-equal checks
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:fix-resolve-module-path-extension
 ---

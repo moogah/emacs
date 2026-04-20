@@ -2,7 +2,7 @@
 name: resolve-module-path-docstring-clarification
 description: Clarify jf/resolve-module-path docstring on edge-case input handling
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:fix-resolve-module-path-extension
 ---

@@ -2,7 +2,7 @@
 name: nav-send-load-order-review
 description: Review whether nav→send load-order is a real dependency; update chat.org and/or architecture.md
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:fix-chat-loader-nav-rationale
 ---
