@@ -2,7 +2,7 @@
 name: display-layer
 description: Overlay-based role distinction with toggle command
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:mode-definition
 ---

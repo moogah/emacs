@@ -2,7 +2,7 @@
 name: messages
 description: Convert turn list to gptel-request :prompt shape with comma-unescape
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:parser
 ---

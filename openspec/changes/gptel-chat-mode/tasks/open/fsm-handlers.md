@@ -2,7 +2,7 @@
 name: fsm-handlers
 description: Chained FSM handlers for UI state updates on WAIT/TYPE/TOOL/DONE/ERRS
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:mode-definition
 ---
