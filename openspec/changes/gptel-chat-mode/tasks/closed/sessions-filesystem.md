@@ -62,8 +62,15 @@ Directory structure per the sessions-persistence delta spec:
 ## Verification
 - `./bin/tangle-org.sh config/gptel/sessions/filesystem.org` succeeds.
 - `./bin/run-tests.sh -d config/gptel/sessions/test/filesystem` passes.
-- `grep -rn "session.md" config/gptel/sessions/` returns only archival
-  comments or nothing — no live code references.
+- `grep -n "session.md" config/gptel/sessions/filesystem.{org,el} \
+     config/gptel/sessions/constants.{org,el}` returns nothing or only
+  archival comments. Other live `session.md` callers in
+  `commands.org`, `branching.org`, `activities-integration.org`, and
+  under `config/gptel/test/` are out of scope here — they are owned by
+  the parallel tasks `sessions-auto-init`,
+  `sessions-persistent-create`, `sessions-branching`, and
+  `sessions-activities`, and by follow-up tasks discovered during
+  review.
 - Creating a fresh session via the helpers produces `session.org` (not
   `.md`) at the expected path.
 
