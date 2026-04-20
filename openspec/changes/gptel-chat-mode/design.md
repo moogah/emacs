@@ -98,32 +98,52 @@ Our handlers do UI-only work (update the display-layer overlay to reflect "waiti
 
 **Rationale:** the FSM is the one durable lifecycle abstraction upstream gives us. Plugging in at the handler layer keeps our UI reactive to state changes while letting upstream own transition correctness, tool dispatch, and error propagation. If upstream adds new intermediate states (e.g., a `REASONING` phase), we inherit that for free.
 
-### Decision 3b: Per-chunk text hygiene — closure with marker and line holdback
+### Decision 3b: Per-chunk text hygiene — per-request stream handle (cl-struct) with insertion marker, holdback, and tool-marker
 
-**Choice:** separate from the request FSM, the streaming `:callback` closure maintains a small amount of *text-processing* state for safe line-by-line insertion: an insertion marker for the active assistant block, a one-line holdback string, and (when a tool call is in flight) a second marker for the active `#+begin_tool` block.
+**Choice:** separate from the request FSM, each send creates a per-request *stream handle*: a small `cl-defstruct` record whose slots are the text-processing state for safe line-by-line insertion. The handle owns:
 
-This is not a state machine. It is a streaming text sanitizer. The separation matters because the two concerns have different lifetimes and different test surfaces:
+- an insertion marker for the active assistant block,
+- a one-line holdback string (internal; not exposed on the handle),
+- a tool-marker slot (nil when no tool call is in flight; a live marker when one is),
+- and a set of typed function slots the caller invokes to drive the closure (`insert`, `set-tool-marker`, `clear-tool-marker`).
+
+This is not a state machine. It is a streaming text sanitizer packaged as a typed per-send handle. The separation matters because the two concerns have different lifetimes and different test surfaces:
 
 | Concern | Mechanism |
 |---|---|
 | Where in the protocol are we? (`WAIT` / `TYPE` / `TOOL` / `DONE`) | Upstream FSM (Decision 3) |
-| Where in the buffer are we inserting? What line is partially received? | Callback closure (this decision) |
+| Where in the buffer are we inserting? What line is partially received? | Stream handle (this decision) |
 | What is the line-level delimiter escape rule? | `gptel-chat--sanitize-chunk` (Decision 4) |
 
-On each text chunk the callback:
+**Handle shape.** The factory `gptel-chat--make-stream-closure` returns a `gptel-chat-stream` struct (defined via `cl-defstruct`) with at minimum:
+
+| Slot | Purpose |
+|---|---|
+| `insert` | Function of one argument (a string chunk, or the flush sentinel `t`). The primary entry point the callback invokes on each response event. |
+| `set-tool-marker` | Function of one argument (a live marker). Sets the handle's tool-marker slot; subsequent inserts route there instead of the assistant marker. Called by `stream-callback` on `tool-call` events (Decision 10). |
+| `clear-tool-marker` | Zero-argument function. Clears the tool-marker slot so subsequent inserts route back to the assistant marker. Called on `tool-result` events (Decision 10). |
+
+The holdback string and the raw tool-marker value remain captured inside the lambda closure bound to `insert` — they are per-send scratch state with no legitimate external reader. Only the routing slot (tool-marker) is externally controllable, and only via the typed setter/clearer, not as a raw assignable field.
+
+On each text chunk the `insert` function:
 
 1. Prepends any carry-over holdback to the new chunk.
 2. Splits at `\n`; trailing partial line (if any) becomes the new holdback.
-3. For each complete line, runs `gptel-chat--sanitize-chunk` (Decision 4) and inserts at the assistant insertion marker (or the tool-block marker, if one is active — Decision 10).
+3. For each complete line, runs `gptel-chat--sanitize-chunk` (Decision 4) and inserts at the active marker — tool-marker if one is live, otherwise the assistant insertion marker (Decision 10). The routing choice is made per chunk via `gptel-chat--stream-active-marker`, a pure helper directly unit-testable.
 4. On completion (`t` from the callback — see Decision 10), flushes the holdback (cannot be a full `#+end_*` line by construction — no newline), inserts `#+end_assistant`, and positions point per Decision 8.
 
 The markers are proper Emacs markers (not integer positions) so concurrent user edits above the insertion point don't corrupt them.
 
 **Alternatives considered:**
-- Insert directly at `(point-max)`. Fails when the buffer has content after the active assistant block (e.g., regenerate inserts into the middle of the buffer; the user edits below the cursor during stream).
-- Buffer-local state variables. Harder to test, easier to leak between sends — and concurrent sends are disallowed anyway (Decision 11), so per-request closure scope is the right granularity.
+- *Bare lambda with tool-marker captured internally and no setter.* Rejected (this is what the earlier draft of Decision 3b specified). The tool-marker slot exists but is unreachable from `stream-callback` without `cl-letf` surgery on the captured environment, which is the worst-of-both-worlds: the slot is documented behaviour yet dead code under YAGNI. Tests end up doing direct surgery to exercise the routing arm — an explicit anti-pattern the review on `sanitize-chunks` flagged.
+- *Plist handle* `(:insert ... :set-tool-marker ... :clear-tool-marker ...)`. Tempting for its minimal ceremony, but a plist is the idiomatic Emacs Lisp shape for *options* (keyword-arg dictionaries), not for a typed per-request record. Accessors are untyped (`plist-get`), there is no predicate, and call sites become noisy with `(funcall (plist-get handle :insert) chunk)`. Ship cost is similar to cl-defstruct; readability at call sites is worse.
+- *Caller-owned mutable cell* (factory takes a `(list nil)` tool-marker cell, closure reads `(car cell)` each chunk). Technically works but violates Decision 3b's core premise that text-processing state is *per-send* and lives with the closure: the cell's lifetime is now the caller's to manage, and the wiring contract ("the car of this list is the routing marker") is an untyped protocol leaked across the module boundary. Also costs one `car` indirection per chunk in the hot path.
+- *Insert directly at `(point-max)`.* Fails when the buffer has content after the active assistant block (e.g., regenerate inserts into the middle of the buffer; the user edits below the cursor during stream).
+- *Buffer-local state variables.* Harder to test, easier to leak between sends — and concurrent sends are disallowed anyway (Decision 11), so per-request scope is the right granularity.
 
-**Rationale:** closures give per-send isolation and are directly testable by invoking the returned callback with scripted chunks. Markers are the standard Emacs idiom for position-tracking across edits. Line-buffered holdback is the well-known streaming-safe pattern for line-oriented sanitization (it prevents splitting a `#+end_...` collision across a chunk boundary — spec scenario "Response contains collision split across chunks").
+**Rationale:** the stream handle keeps lifetime coupled to the send (handle and its underlying closure are created together and become unreachable together once the FSM reaches `DONE`) while making the routing arm directly testable: a test binds a buffer and two markers, calls `make-stream-closure`, calls the handle's `insert` once to verify assistant-marker routing, then calls `set-tool-marker`, calls `insert` again, and asserts that text lands at the tool marker. No `cl-letf` on the factory and no surgery on captured variables. `cl-defstruct` is the idiomatic Emacs Lisp construct for a small typed record with named slots and a generated predicate — exactly the situation here. Line-buffered holdback remains the well-known streaming-safe pattern for line-oriented sanitization (it prevents splitting a `#+end_...` collision across a chunk boundary — spec scenario "Response contains collision split across chunks").
+
+**Follow-up task:** implementation of this refactor is owned by `expose-tool-marker-setter`. That task's Option B (cl-struct) is the authoritative framing; Options A (plist) and C (caller-owned cell) are superseded by this decision.
 
 ### Decision 4: Sanitization — targeted scanner for our three delimiters, case-insensitive
 
