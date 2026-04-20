@@ -2,7 +2,7 @@
 name: sanitize-chunks
 description: Line-level delimiter escape and line-holdback closure for streaming
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - blocked-by:scaffold-chat-subsystem
   - blocked-by:remove-orphan-sanitize-module
