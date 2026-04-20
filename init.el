@@ -51,7 +51,11 @@ beneath \"config/\".  Examples:
 
   - \"transient\"        -> config/transient.el
   - \"core/defaults\"    -> config/core/defaults.el
-  - \"gptel/chat/chat\"  -> config/gptel/chat/chat.el"
+  - \"gptel/chat/chat\"  -> config/gptel/chat/chat.el
+
+No validation is performed; pathological inputs (empty string,
+leading `/', `..', trailing `/') expand predictably but may not
+resolve to a real file."
   (expand-file-name (concat "config/" module-path ".el") jf/emacs-dir))
 
 ;; Function to reload a specific module (useful for debugging)
