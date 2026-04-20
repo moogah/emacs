@@ -127,6 +127,22 @@ The sessions subsystem is updated so session buffers use `gptel-chat-mode` as th
 
 **Message list** (what `gptel-request` receives via `:prompt`): a list of plists or alists in `gptel-request`'s documented shape — role, content, and tool-call fields matching upstream expectations. Exact shape per `gptel-request`'s `:prompt` contract.
 
+### Module load order (convention, not load-time dependency)
+
+The chat-mode loader (`config/gptel/chat/chat.org`) loads modules in
+the order `mode → parser → stream → send → nav → display → menu`.
+This order **mirrors the data-flow diagram above** and is a
+readability convention, not a load-time dependency. None of the
+chat-mode modules issue cross-module `require` or `declare-function`
+calls; sibling-symbol references (e.g. `gptel-chat-regenerate`
+calling `gptel-chat-send`, `gptel-chat-menu`'s rebound Send suffix
+referencing `gptel-chat-send`, the keymap in `mode` binding commands
+defined in later modules) all happen inside command bodies, transient
+suffix bodies, or keymap entries — i.e. resolved at call-time, not
+load-time. The order can be reshuffled without affecting boot
+correctness; it is preserved for human readers tracing the call
+graph.
+
 ## Boundaries
 
 **In scope for this change:**
