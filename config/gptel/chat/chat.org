@@ -1,0 +1,95 @@
+#+title: GPTEL Chat-Mode Subsystem Loader
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle chat.el :comments both
+#+auto_tangle: y
+
+* Introduction
+
+This file is the loader for the =gptel-chat= subsystem. The chat-mode
+subsystem introduces a dedicated major mode (=gptel-chat-mode=) for
+conversational LLM buffers, replacing the ad-hoc =gptel-mode= usage in
+persistent sessions.
+
+The subsystem is factored into cohesive feature modules, each with a
+narrow responsibility and small public surface (see
+=openspec/changes/gptel-chat-mode/architecture.md= §Components):
+
+- =mode=     - Major mode, keymap, font-lock, activation hooks
+- =parser=   - Buffer walker producing a turn list (user/assistant)
+- =sanitize= - Delimiter-collision escaping utilities
+- =stream=   - Streaming callback and accumulator state machine
+- =send=     - Interactive =gptel-chat-send= and =gptel-request= wiring
+- =nav=      - Turn navigation and regenerate-last-response
+- =display=  - Presentation layer (faces, overlays, toggle)
+- =menu=     - Transient prefix + preset-application wiring
+
+This loader only loads those feature modules. Their actual
+implementation lives in the sibling =.org= files and is delivered by
+later tasks in the =gptel-chat-mode= OpenSpec change — at scaffold
+time, each module is a stub that only calls =provide=.
+
+* Lexical Binding
+
+Keep =lexical-binding: t= on line 1 of =chat.el= — Emacs only honors
+the mode line when it is the very first line of the file (see the
+project memory on lexical-binding regressions). The =:comments no=
+header tells org-babel not to emit structural comments above this
+block during tangling.
+
+#+begin_src emacs-lisp :comments no
+;;; chat.el --- GPTEL Chat-Mode Subsystem Loader -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Loader for the gptel chat-mode subsystem.  Loads the feature
+;; modules that together implement `gptel-chat-mode' and its
+;; supporting parser, streaming, navigation, display, and menu
+;; layers.  See `openspec/changes/gptel-chat-mode/architecture.md'
+;; for the component inventory.
+
+;;; Code:
+#+end_src
+
+* Feature Module Loading
+
+Load the chat-mode feature modules in dependency order. The loader
+follows the same pattern as =config/gptel/gptel.org= — serial
+=jf/load-module= calls against absolute paths resolved from
+=jf/emacs-dir=.
+
+Dependency notes (from architecture.md §Interfaces):
+
+1. =mode= declares the major mode and keymap — every other module
+   assumes it exists.
+2. =parser= walks the buffer; it depends only on =mode=.
+3. =sanitize= provides the delimiter-escape helpers used by =stream=.
+4. =stream= builds the streaming callback; it uses =sanitize= and
+   =parser=.
+5. =send= wires =parser= and =stream= to =gptel-request=.
+6. =nav= consumes the turn list from =parser=; loads after =send= so
+   its commands can reuse send-path utilities for regenerate.
+7. =display= is presentation-only; safe to load last among the core
+   modules.
+8. =menu= defines the transient prefix and the preset-application
+   hook; it depends on =send= (for the rebound Send suffix).
+
+#+begin_src emacs-lisp
+(jf/load-module (expand-file-name "config/gptel/chat/mode.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/parser.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/sanitize.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/stream.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/send.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/nav.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/display.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/menu.el" jf/emacs-dir))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'gptel-chat)
+
+;;; chat.el ends here
+#+end_src
