@@ -42,18 +42,17 @@ Resolves to the directory containing init.el, supporting git worktrees.")
 
 ;; Function to resolve a module path to a file path
 (defun jf/resolve-module-path (module-path)
-  "Convert a MODULE-PATH to a file path.
-Handles:
-  - \"name\"           -> config/name.el                 (e.g. \"transient\")
-  - \"dir/name\"       -> config/dir/name.el             (e.g. \"core/defaults\")
-  - \"dir/sub/name\"   -> config/dir/sub/name.el         (e.g. \"gptel/chat/chat\")
-The final segment is always treated as the file's basename; any
-preceding segments form the directory path beneath \"config/\"."
-  (if (string-match-p "/" module-path)
-      ;; Has subdirectory: treat last segment as basename, the rest as dirs.
-      (expand-file-name (concat "config/" module-path ".el") jf/emacs-dir)
-    ;; No subdirectory: "transient" -> "config/transient.el"
-    (expand-file-name (concat "config/" module-path ".el") jf/emacs-dir)))
+  "Convert a MODULE-PATH to an absolute .el file path beneath `jf/emacs-dir'.
+
+MODULE-PATH is a forward-slash separated logical module identifier
+containing zero or more `/' separators.  The final segment is the
+file basename; any preceding segments form the directory path
+beneath \"config/\".  Examples:
+
+  - \"transient\"        -> config/transient.el
+  - \"core/defaults\"    -> config/core/defaults.el
+  - \"gptel/chat/chat\"  -> config/gptel/chat/chat.el"
+  (expand-file-name (concat "config/" module-path ".el") jf/emacs-dir))
 
 ;; Function to reload a specific module (useful for debugging)
 (defun jf/reload-module (module-path)

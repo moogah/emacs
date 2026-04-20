@@ -37,8 +37,13 @@ Launch via macOS GUI (Emacs.app) or `./bin/emacs-isolated.sh` - both isolate to 
 ### Path Resolution
 
 - `jf/emacs-dir` - Repository root
-- Module paths use `config/` prefix: `"core/defaults"` → `config/core/defaults.el`
-- `jf/resolve-module-path` handles both `"core/defaults"` and `"transient"` formats
+- Module paths use `config/` prefix and a forward-slash separated
+  logical identifier; the final segment is the file basename, any
+  preceding segments form the directory path:
+  - `"transient"` → `config/transient.el`
+  - `"core/defaults"` → `config/core/defaults.el`
+  - `"gptel/chat/chat"` → `config/gptel/chat/chat.el`
+- `jf/resolve-module-path` accepts zero or more `/` separators
 
 ### Git Worktree Architecture
 
