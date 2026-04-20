@@ -16,8 +16,11 @@ relations: []
 1. Create `config/gptel/chat/` directory.
 2. Create `config/gptel/chat/chat.org` as the module loader. First block
    `:comments no` to keep `lexical-binding: t` on line 1 (repo memory rule).
-   Initial loader contents: load six feature modules (`mode`, `parser`, `sanitize`,
-   `stream`, `send`, `nav`, `display`, `menu`) in dependency order. The feature
+   Initial loader contents: load seven feature modules (`mode`, `parser`,
+   `stream`, `send`, `nav`, `display`, `menu`) in dependency order. Note:
+   sanitisation is an internal helper inside the `stream` module
+   (`gptel-chat--sanitize-chunk`), not a standalone module (see
+   architecture.md §Components and design.md Decision 4). The feature
    modules themselves are created by later tasks — stub `(provide 'gptel-chat-<x>)`
    bodies in each file with a TODO are acceptable at this stage.
 3. Add `"gptel/chat/chat"` to `jf/enabled-modules` in `init.org`, positioned

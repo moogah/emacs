@@ -4,7 +4,7 @@ This change introduces chat-mode as a new subsystem under `config/gptel/chat/` *
 
 ### New modules (under `config/gptel/chat/`)
 
-The chat-mode subsystem is factored into six cohesive modules. Each has a narrow responsibility and a small public surface.
+The chat-mode subsystem is factored into seven cohesive modules. Each has a narrow responsibility and a small public surface.
 
 ### `gptel-chat-mode` (mode)
 - Defines the `gptel-chat-mode` major mode, derived from `org-mode`
