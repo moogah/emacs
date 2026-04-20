@@ -11,7 +11,7 @@ conversation paths from any user prompt.
 Branches are full-fledged session directories with:
 - Copied config (scope.yml, metadata.yml)
 - Copied agent subdirectories
-- Truncated context (session.md) with filtered bounds
+- Truncated context (session.org) with filtered bounds
 
 * Lexical Binding
 
@@ -152,7 +152,7 @@ Returns t if valid, signals error with helpful message if not."
 
 * Context Truncation
 
-Function to copy session.md with truncated text and filtered bounds.
+Function to copy session.org with truncated text and filtered bounds.
 
 ** Copy Truncated Context with Bounds
 
@@ -357,7 +357,7 @@ The new branch is created in the same session with:
 - Copied scope.yml and metadata.yml from parent
 - branch-metadata.yml tracking parent branch name
 - Copied agent subdirectories from parent branch
-- session.md truncated at branch point with filtered bounds
+- session.org truncated at branch point with filtered bounds
 - Current symlink updated to point to new branch
 
 After creation, the branch can evolve independently from parent."

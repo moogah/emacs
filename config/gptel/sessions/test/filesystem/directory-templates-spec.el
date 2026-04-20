@@ -146,7 +146,24 @@
         (jf/gptel--update-current-symlink session-dir "main")
         (expect (file-symlink-p current-link) :to-be-truthy)
         (expect (file-truename current-ctx)
-                :to-equal (file-truename ctx-path))))))
+                :to-equal (file-truename ctx-path))))
+
+    (it "excludes branches without session.org from find-all-branches-with-agents"
+      (let* ((tempdir (jf-gptel-sessions-test--make-tempdir))
+             (jf/gptel-sessions-directory tempdir)
+             (session-dir (jf/gptel--create-session-directory "demo-20260420000000"))
+             (valid-branch (jf/gptel--create-branch-directory session-dir "main"))
+             (legacy-branch (jf/gptel--create-branch-directory session-dir "legacy")))
+        ;; Valid branch has session.org.
+        (with-temp-file (jf/gptel--context-file-path valid-branch)
+          (insert "#+begin_user\n\n#+end_user\n"))
+        ;; Legacy branch has only session.md; it must not leak through
+        ;; enumeration (Decision 19: clean break, no migration).
+        (with-temp-file (expand-file-name "session.md" legacy-branch)
+          (insert "###\n"))
+        (let ((names (mapcar (lambda (entry) (plist-get entry :branch-name))
+                             (jf/gptel--find-all-branches-with-agents))))
+          (expect names :to-equal '("main")))))))
 
 (provide 'directory-templates-spec)
 ;;; directory-templates-spec.el ends here

@@ -271,7 +271,7 @@ This runs on every file open via find-file-hook, so performance is critical."
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
 PRESET-NAME - symbol, name of registered preset in gptel--known-presets
-INITIAL-CONTENT - optional initial content for session.md (default: \"###\\n\")
+INITIAL-CONTENT - optional initial content for session.org (default: \"###\\n\")
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
 
@@ -279,7 +279,7 @@ Creates:
 - SESSION-DIR/branches/main/ directory structure
 - scope.yml (from preset's scope profile, or explicit worktree-paths)
 - metadata.yml (session metadata with preset name)
-- session.md (with initial content)
+- session.org (with initial content)
 - current symlink pointing to main branch
 
 Returns plist with:
@@ -287,7 +287,7 @@ Returns plist with:
   :session-dir - session directory path
   :branch-dir - main branch directory path
   :branch-name - \"main\"
-  :session-file - path to session.md"
+  :session-file - path to session.org"
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))

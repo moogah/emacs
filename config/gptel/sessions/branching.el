@@ -283,7 +283,7 @@ The new branch is created in the same session with:
 - Copied scope.yml and metadata.yml from parent
 - branch-metadata.yml tracking parent branch name
 - Copied agent subdirectories from parent branch
-- session.md truncated at branch point with filtered bounds
+- session.org truncated at branch point with filtered bounds
 - Current symlink updated to point to new branch
 
 After creation, the branch can evolve independently from parent."

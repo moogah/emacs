@@ -45,7 +45,7 @@ all conversation history preserved.
     ├── session/
     │   ├── branches/
     │   │   └── main/
-    │   │       ├── session.md        # Conversation history
+    │   │       ├── session.org       # Conversation history (chat-mode)
     │   │       ├── scope.yml         # File access scope (from preset's scope profile)
     │   │       └── metadata.yml      # Session metadata (preset name, timestamps)
     │   ├── current -> branches/main
@@ -378,7 +378,7 @@ Shared by both jf/gptel-persistent-session and activities integration.
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
 PRESET-NAME - symbol, name of registered preset in gptel--known-presets
-INITIAL-CONTENT - optional initial content for session.md (default: \"###\\n\")
+INITIAL-CONTENT - optional initial content for session.org (default: \"###\\n\")
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
 
@@ -386,7 +386,7 @@ Creates:
 - SESSION-DIR/branches/main/ directory structure
 - scope.yml (from preset's scope profile, or explicit worktree-paths)
 - metadata.yml (session metadata with preset name)
-- session.md (with initial content)
+- session.org (with initial content)
 - current symlink pointing to main branch
 
 Returns plist with:
@@ -394,7 +394,7 @@ Returns plist with:
   :session-dir - session directory path
   :branch-dir - main branch directory path
   :branch-name - \"main\"
-  :session-file - path to session.md"
+  :session-file - path to session.org"
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
@@ -457,7 +457,7 @@ Standalone sessions are stored in =~/.gptel/sessions/= by default.
 5. Creates session directory structure:
    - =scope.yml= from preset's scope profile (via =jf/gptel-scope-profile--create-for-session=)
    - =metadata.yml= with session metadata and preset name
-   - =session.md= with initial content
+   - =session.org= with initial content
 6. Opens session buffer - auto-initialization hook applies preset on first open
 7. After first save, upstream's Local Variables + =gptel--preset= become source of truth
 

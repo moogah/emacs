@@ -33,7 +33,7 @@ Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
 - scope.yml with file access permissions (from preset scope profile)
 - metadata.yml with session metadata and preset reference
-- session.md file for buffer to visit
+- session.org file for buffer to visit
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
@@ -70,7 +70,7 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                                :deny '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**"))))))
 
     ;; Create session directory structure using core helper
-    ;; This creates branches/main/, scope.yml, metadata.yml, session.md, and current symlink
+    ;; This creates branches/main/, scope.yml, metadata.yml, session.org, and current symlink
     (let* ((session-info (jf/gptel--create-session-core
                           session-id
                           session-dir

@@ -230,7 +230,11 @@ Returns list of plists with:
   :session-id - Session ID
   :branch-dir - Path to branch directory
   :branch-name - Branch name (e.g., \"main\" or \"20260128153042-feature\")
-  :agent-dirs - List of agent directory paths in this branch"
+  :agent-dirs - List of agent directory paths in this branch
+
+Only branch directories that pass `jf/gptel--valid-branch-directory-p'
+are included; branches without `session.org' are filtered out here so
+every consumer sees the same valid-branch view."
   (let ((sessions-root (expand-file-name jf/gptel-sessions-directory))
         (results nil))
     (when (file-directory-p sessions-root)
@@ -241,16 +245,17 @@ Returns list of plists with:
                 (branches (jf/gptel--list-branches session-dir)))
             ;; Iterate over branches in this session
             (dolist (branch-name branches)
-              (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name))
-                     (agents-dir (jf/gptel--agents-dir-path branch-dir))
-                     (agent-dirs (when (file-directory-p agents-dir)
-                                  (jf/gptel--list-agent-directories branch-dir))))
-                (push (list :session-dir session-dir
-                           :session-id session-id
-                           :branch-dir branch-dir
-                           :branch-name branch-name
-                           :agent-dirs (or agent-dirs nil))
-                     results)))))))
+              (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name)))
+                (when (jf/gptel--valid-branch-directory-p branch-dir)
+                  (let* ((agents-dir (jf/gptel--agents-dir-path branch-dir))
+                         (agent-dirs (when (file-directory-p agents-dir)
+                                       (jf/gptel--list-agent-directories branch-dir))))
+                    (push (list :session-dir session-dir
+                                :session-id session-id
+                                :branch-dir branch-dir
+                                :branch-name branch-name
+                                :agent-dirs (or agent-dirs nil))
+                          results)))))))))
     (nreverse results)))
 #+end_src
 
