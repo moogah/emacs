@@ -67,24 +67,24 @@
           (expect content :to-match "created: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T")
           (expect content :to-match "updated: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T"))))
 
-    (it "writes session.md with default content"
+    (it "writes session.org with default content"
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'executor)
         (let ((content (captured-file-content
                         captured-files
-                        "/sessions/test-session-123/branches/main/session.md")))
+                        "/sessions/test-session-123/branches/main/session.org")))
           (expect content :to-be-truthy)
           (expect content :to-equal "###\n"))))
 
-    (it "writes session.md with custom initial content"
+    (it "writes session.org with custom initial content"
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'executor
          "# My Session\n\n")
         (let ((content (captured-file-content
                         captured-files
-                        "/sessions/test-session-123/branches/main/session.md")))
+                        "/sessions/test-session-123/branches/main/session.org")))
           (expect content :to-equal "# My Session\n\n"))))
 
     (it "creates current symlink pointing to branches/main"

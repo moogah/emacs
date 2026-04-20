@@ -337,7 +337,7 @@
               (with-current-buffer agent-buf
                 (expect (buffer-string) :to-match "Analyze the codebase thoroughly")))))))
 
-    (it "associates buffer with session.md file path"
+    (it "associates buffer with session.org file path"
       (with-parent-session "/sessions/parent" "parent-123" "/sessions/parent/branches/main"
         (with-captured-io
           (with-gptel-boundary-mocks
@@ -350,7 +350,7 @@
               (expect agent-buf :to-be-truthy)
               (with-current-buffer agent-buf
                 (expect buffer-file-name :to-be-truthy)
-                (expect buffer-file-name :to-match "session\\.md$"))
+                (expect buffer-file-name :to-match "session\\.org$"))
               (when agent-buf (kill-buffer agent-buf))))))))
 
   (describe "Registry"
