@@ -28,8 +28,12 @@
 ;; 4. =stream= builds the streaming callback; it uses =sanitize= and
 ;;    =parser=.
 ;; 5. =send= wires =parser= and =stream= to =gptel-request=.
-;; 6. =nav= consumes the turn list from =parser=; loads after =send= so
-;;    its commands can reuse send-path utilities for regenerate.
+;; 6. =nav= loads after =send= because =regenerate= is a thin wrapper
+;;    over =gptel-chat-send= — it deletes the trailing assistant block
+;;    and re-invokes the send entry point. Turn navigation itself uses
+;;    =re-search-forward= on block delimiters and does NOT depend on
+;;    =parser= internals (architecture.md §gptel-chat-nav explicitly
+;;    denies coupling to parser internals).
 ;; 7. =display= is presentation-only; safe to load last among the core
 ;;    modules.
 ;; 8. =menu= defines the transient prefix and the preset-application
