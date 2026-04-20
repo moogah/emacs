@@ -44,6 +44,7 @@ Launch via macOS GUI (Emacs.app) or `./bin/emacs-isolated.sh` - both isolate to 
   - `"core/defaults"` → `config/core/defaults.el`
   - `"gptel/chat/chat"` → `config/gptel/chat/chat.el`
 - `jf/resolve-module-path` accepts zero or more `/` separators
+- Authoritative contract: `openspec/specs/core/module-system.md`
 
 ### Git Worktree Architecture
 
