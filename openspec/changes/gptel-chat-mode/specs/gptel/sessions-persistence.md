@@ -54,19 +54,21 @@ Legacy invisibility is enforced structurally at the **branch-enumeration boundar
 
 ### Requirement: Auto-initialization enables `gptel-chat-mode`
 
-The auto-init hook (`jf/gptel--auto-init-session-buffer`) SHALL detect session files by matching the path pattern `*/branches/<branch-name>/session.org` (or `*/agents/<agent-name>/session.org`). On match, it SHALL:
+The auto-init hook (`jf/gptel--auto-init-session-buffer`) SHALL detect session files by matching the path pattern `*/branches/<branch-name>/session.org` (or the nested agent shape `*/<session-id>/branches/<branch>/agents/<agent>/session.org` and the flat legacy agent shape `*/<session-id>/agents/<agent>/session.org`). On match, it SHALL:
 
-1. Extract `session-id` and `branch-name` from the path
-2. Set the five buffer-local session variables
+1. Extract `session-id` and `branch-name` from the path (branch-name defaults to `"main"` for the flat legacy agent shape that has no `branches/` segment)
+2. Set the five buffer-local session variables (including `jf/gptel--parent-session-id`, populated from `metadata.yml`'s `parent_session_id` when present)
 3. Register the buffer in `jf/gptel--session-registry`
 4. Read `metadata.yml` from the branch directory
-5. Apply the preset named in `metadata.yml` via `gptel--apply-preset` with a buffer-local setter
-6. Ensure the major mode is `gptel-chat-mode` (switching if necessary)
-7. Update the `current` symlink to point at this branch
+5. Ensure the major mode is `gptel-chat-mode` (switching if necessary)
+6. Apply the preset named in `metadata.yml` via `gptel--apply-preset` with a buffer-local setter
+7. Update the `current` symlink to point at this branch (suppressed for the flat legacy agent shape, which has no `branches/` directory)
+
+**Ordering is load-bearing.** `gptel-chat-mode` activation (step 5) runs before `metadata.yml` preset application (step 6) so that any `:GPTEL_PRESET:` drawer in the buffer is re-applied by the chat-mode hook first, letting the authoritative `metadata.yml` preset be applied last and win. Reversing the order (preset before mode) causes `kill-all-local-variables` inside mode activation to wipe the setq-local session vars, and the chat-mode hook then silently clobbers the metadata-derived preset values. See design.md §Decision 16 point 2 (metadata.yml is authoritative) and §Decision 17 step 2 (parent-session-id buffer-local).
 
 This replaces the previous Auto-initialization requirement in two respects:
 
-- The path pattern matches `session.org`, not `session.md`
+- The path pattern matches `session.org`, not the legacy markdown extension used in the pre-chat-mode sessions subsystem
 - The hook enables `gptel-chat-mode` (major mode) — it does NOT call `(gptel-mode 1)` (minor mode), does NOT invoke `gptel--save-state`, and does NOT invoke `gptel--restore-state`
 
 All other behavior (buffer-local vars, registry entry, preset application, symlink update) is unchanged.
@@ -77,11 +79,27 @@ All other behavior (buffer-local vars, registry entry, preset application, symli
 - **AND** extracts session-id and branch-name from path
 - **AND** enables `gptel-chat-mode` as the major mode
 
-#### Scenario: Agent file detection
-- **WHEN** a file matches `*/agents/<agent-name>/session.org` pattern
-- **THEN** auto-init recognizes as agent session
-- **AND** sets branch-name to `"main"`
-- **AND** enables `gptel-chat-mode`
+#### Scenario: Agent file detection (nested)
+- **WHEN** a file matches `*/<session-id>/branches/<branch>/agents/<agent>/session.org` pattern
+- **THEN** auto-init recognizes as nested agent session
+- **AND** extracts both session-id and branch-name from the path
+- **AND** enables `gptel-chat-mode` as the major mode
+- **AND** updates the `current` symlink (the `branches/` segment is present)
+
+#### Scenario: Agent file detection (flat legacy)
+- **WHEN** a file matches `*/<session-id>/agents/<agent>/session.org` pattern (no `branches/` segment)
+- **THEN** auto-init recognizes as flat legacy agent session
+- **AND** extracts session-id from the path
+- **AND** sets branch-name to `"main"` as the default
+- **AND** enables `gptel-chat-mode` as the major mode
+- **AND** suppresses the `jf/gptel--update-current-symlink` side-effect (there is no `branches/` directory to point `current` at)
+
+#### Scenario: Parent session id is populated from metadata.yml
+- **WHEN** auto-init reads `metadata.yml` for any agent or branch session
+- **AND** the file contains a `parent_session_id` field
+- **THEN** the buffer-local `jf/gptel--parent-session-id` is set to that value
+- **WHEN** `metadata.yml` does not contain a `parent_session_id` field
+- **THEN** `jf/gptel--parent-session-id` remains nil (its `defvar-local` default)
 
 #### Scenario: New session (preset from metadata.yml)
 - **WHEN** a freshly created `session.org` is opened for the first time

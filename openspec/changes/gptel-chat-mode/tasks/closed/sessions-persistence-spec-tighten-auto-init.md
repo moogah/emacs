@@ -2,7 +2,7 @@
 name: sessions-persistence-spec-tighten-auto-init
 description: Tighten sessions-persistence.md auto-init MODIFIED requirement to lock in mode-before-preset ordering and split agent-path detection into nested + flat scenarios
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:auto-init-metadata-preset-precedence
   - discovered-from:auto-init-agent-path-handling
