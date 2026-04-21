@@ -30,6 +30,7 @@
 
 (require 'buttercup)
 (require 'cl-lib)
+(require 'gptel)
 
 ;; Load the module under test from the co-located source directory.
 (let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
@@ -40,6 +41,18 @@
 
 
 ;;; Fixtures -----------------------------------------------------------------
+
+(defun gptel-chat-multi-round-test--tool (name)
+  "Build a minimal `gptel-tool' struct with NAME for test fixtures.
+Upstream emits tool-call / tool-result events as 3-lists
+`(TOOL-STRUCT ARGS CB-OR-RESULT)'; only the struct's name slot is
+consulted by the stream callback."
+  (gptel-make-tool
+   :name name
+   :function #'ignore
+   :description (format "test tool %s" name)
+   :args nil
+   :category "test"))
 
 (defvar gptel-chat-multi-round-test--buffer nil
   "Scratch buffer for multi-round tool-use tests.")
@@ -149,13 +162,14 @@ Returns an advance marker at the end of the assistant body."
         (funcall cb "Let me check.\n" nil)
         ;; Request-1 completes; FSM has marked this request as tool-use.
         (funcall cb t '(:tool-use t))
-        ;; Tool call and its result.
-        (funcall cb `(tool-call . ((:name "read_file"
-                                    :args (:path "/a"))))
+        ;; Tool call and its result (upstream's 3-list shape).
+        (funcall cb `(tool-call . ((,(gptel-chat-multi-round-test--tool "read_file")
+                                    (:path "/a")
+                                    ,#'ignore)))
                  nil)
-        (funcall cb `(tool-result . ((:name "read_file"
-                                      :args (:path "/a")
-                                      :result "file contents")))
+        (funcall cb `(tool-result . ((,(gptel-chat-multi-round-test--tool "read_file")
+                                      (:path "/a")
+                                      "file contents")))
                  nil)
         ;; Request-2 streams the assistant's final answer.
         (funcall cb "Done reading.\n" nil)
@@ -188,18 +202,24 @@ Returns an advance marker at the end of the assistant body."
         ;; Round 1: text → t(:tool-use t) → call → result.
         (funcall cb "Round1 prose\n" nil)
         (funcall cb t '(:tool-use t))
-        (funcall cb `(tool-call . ((:name "t1" :args (:k 1)))) nil)
-        (funcall cb `(tool-result . ((:name "t1"
-                                      :args (:k 1)
-                                      :result "r1")))
+        (funcall cb `(tool-call . ((,(gptel-chat-multi-round-test--tool "t1")
+                                    (:k 1)
+                                    ,#'ignore)))
+                 nil)
+        (funcall cb `(tool-result . ((,(gptel-chat-multi-round-test--tool "t1")
+                                      (:k 1)
+                                      "r1")))
                  nil)
         ;; Round 2: text → t(:tool-use t) → call → result.
         (funcall cb "Round2 prose\n" nil)
         (funcall cb t '(:tool-use t))
-        (funcall cb `(tool-call . ((:name "t2" :args (:k 2)))) nil)
-        (funcall cb `(tool-result . ((:name "t2"
-                                      :args (:k 2)
-                                      :result "r2")))
+        (funcall cb `(tool-call . ((,(gptel-chat-multi-round-test--tool "t2")
+                                    (:k 2)
+                                    ,#'ignore)))
+                 nil)
+        (funcall cb `(tool-result . ((,(gptel-chat-multi-round-test--tool "t2")
+                                      (:k 2)
+                                      "r2")))
                  nil)
         ;; Final turn: text → t(no :tool-use).
         (funcall cb "Final answer.\n" nil)
