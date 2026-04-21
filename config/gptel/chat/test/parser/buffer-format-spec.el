@@ -500,7 +500,19 @@
         (let ((turns (gptel-chat--parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'user)
-          (expect (plist-get (car turns) :content) :to-equal "")))))
+          (expect (plist-get (car turns) :content) :to-equal ""))))
+
+    ;; Pins the empty-assistant-turn contract (spec §"Message construction
+    ;; from buffer" — Empty-turn contract): an assistant block with no body
+    ;; between delimiters parses to a turn whose `:segments' is nil.  This
+    ;; is one of the two shapes the downstream message-construction empty
+    ;; rule keys off (the other being all-whitespace text segments).
+    (it "emits an assistant turn with :segments nil for an empty block"
+      (gptel-chat-test--with-buffer "#+begin_assistant\n#+end_assistant\n"
+        (let ((turns (gptel-chat--parse-buffer)))
+          (expect (length turns) :to-equal 1)
+          (expect (plist-get (car turns) :role) :to-equal 'assistant)
+          (expect (plist-get (car turns) :segments) :to-equal nil)))))
 
   ;; The parser binds `case-fold-search t' to match org's own
   ;; case-insensitive handling of structural keywords.  This test pins

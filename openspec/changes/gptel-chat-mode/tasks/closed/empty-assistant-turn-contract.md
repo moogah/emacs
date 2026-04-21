@@ -2,7 +2,7 @@
 name: empty-assistant-turn-contract
 description: Define explicitly what counts as empty assistant turn for the messages task
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:parser
   - enables:messages

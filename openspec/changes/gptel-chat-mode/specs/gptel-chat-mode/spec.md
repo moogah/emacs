@@ -153,6 +153,13 @@ The system SHALL construct an ordered list of API messages by walking the buffer
 
 Content outside turn blocks (headlines, paragraphs, drawers, keywords) SHALL be skipped. Text that appears inside a user or assistant block, including lines that resemble `#+begin_*` delimiters, is treated as block body and included verbatim in the emitted message (subject to the escape/un-escape round-trip for the three closing delimiters).
 
+**Empty-turn contract.** A turn is "empty" (and produces no outbound message) in exactly these cases:
+
+- **User turn:** `:content` is `nil`, empty, or whitespace-only (zero non-whitespace characters — a block containing only newlines or spaces is still empty).
+- **Assistant turn:** `:segments` is `nil` **OR** every segment in `:segments` is a `text` segment whose `:content` is `nil`, empty, or whitespace-only. A single `tool-call` segment is never empty — an assistant turn with at least one `tool-call` segment always emits at least one `(tool . PLIST)` message even if all surrounding text segments are blank.
+
+This definition is what `gptel-chat--turn-to-messages` enforces. An empty assistant block (`#+begin_assistant\n#+end_assistant\n`) is parsed as an assistant turn with `:segments nil`; an assistant block containing only whitespace (`#+begin_assistant\n   \n#+end_assistant\n`) is parsed as an assistant turn with one or more whitespace-only `text` segments. Both shapes are skipped.
+
 Message construction SHALL NOT depend on text properties or on `gptel--parse-buffer`.
 
 #### Scenario: Single user-assistant turn
@@ -170,6 +177,18 @@ Message construction SHALL NOT depend on text properties or on `gptel--parse-buf
 #### Scenario: Empty blocks are skipped
 - **WHEN** a `#+begin_user` block contains no non-whitespace content
 - **THEN** no `user` message is emitted for that block
+
+#### Scenario: Empty assistant block is skipped
+- **WHEN** a `#+begin_assistant` block is completely empty (no body between delimiters) — parsed as a turn with `:segments nil`
+- **THEN** no `assistant` message is emitted for that block
+
+#### Scenario: Whitespace-only assistant block is skipped
+- **WHEN** a `#+begin_assistant` block contains only whitespace (blank lines, spaces, tabs) — parsed as a turn whose `:segments` list is either empty or contains only whitespace-only `text` segments
+- **THEN** no `assistant` message is emitted for that block
+
+#### Scenario: Assistant block with tool call and blank prose is kept
+- **WHEN** a `#+begin_assistant` block contains only a `#+begin_tool` block and surrounding whitespace — parsed as a turn whose `:segments` contains one `tool-call` segment and possibly blank `text` segments
+- **THEN** the message list contains the `(tool . PLIST)` message; the blank text segments are dropped but the assistant turn as a whole is not skipped
 
 #### Scenario: User block body containing a `#+begin_assistant` literal
 - **WHEN** a `#+begin_user` block contains a line beginning with `#+begin_assistant` as part of the user's prose
