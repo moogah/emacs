@@ -67,7 +67,10 @@
           (expect content :to-match "created: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T")
           (expect content :to-match "updated: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T"))))
 
-    (it "writes session.org with default content"
+    (it "writes session.org with chat-mode initial content by default"
+      ;; Per design Decision 9 / Decision 18, a fresh session.org
+      ;; looks identical to a fresh standalone gptel-chat-mode buffer:
+      ;; an empty #+begin_user / #+end_user block, no markdown.
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'executor)
@@ -75,7 +78,7 @@
                         captured-files
                         "/sessions/test-session-123/branches/main/session.org")))
           (expect content :to-be-truthy)
-          (expect content :to-equal "###\n"))))
+          (expect content :to-equal "#+begin_user\n\n#+end_user\n"))))
 
     (it "writes session.org with custom initial content"
       (with-captured-io

@@ -330,7 +330,11 @@ critical."
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
 PRESET-NAME - symbol, name of registered preset in gptel--known-presets
-INITIAL-CONTENT - optional initial content for session.org (default: \"###\\n\")
+INITIAL-CONTENT - optional initial content for session.org (default:
+  the chat-mode empty-user-block template
+  \"#+begin_user\\n\\n#+end_user\\n\", matching `gptel-chat-mode''s
+  new-chat initialization per design Decision 9 / Decision 18 so a
+  fresh session looks identical to a fresh standalone chat buffer)
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
 
@@ -350,7 +354,7 @@ Returns plist with:
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
-         (initial-content (or initial-content "###\n")))
+         (initial-content (or initial-content "#+begin_user\n\n#+end_user\n")))
 
     ;; Write scope.yml from preset's scope profile
     (jf/gptel-scope-profile--create-for-session
@@ -419,15 +423,19 @@ No special resume command needed - sessions auto-initialize when opened."
                              (jf/gptel--select-projects)))
          (project-root (when selected-projects (car selected-projects)))
          (project-names (when selected-projects
-                         (mapcar #'jf/gptel--project-display-name selected-projects)))
-         (initial-content (format "# %s\n\n" session-name)))
+                         (mapcar #'jf/gptel--project-display-name selected-projects))))
 
-    ;; Create session structure using core helper
+    ;; Create session structure using core helper.
+    ;; `initial-content' is left nil so the core helper fills in the
+    ;; chat-mode empty-user-block template (Decision 9 / Decision 18).
+    ;; No `gptel--save-state' call, no Local Variables block write —
+    ;; `gptel-chat-mode''s block format is self-describing, and
+    ;; `metadata.yml' is the authoritative configuration source.
     (let* ((session-info (jf/gptel--create-session-core
                          session-id
                          session-dir
                          preset-name
-                         initial-content
+                         nil         ; default chat-mode initial content
                          nil         ; no worktree-paths for standalone
                          project-root))
            (session-file (plist-get session-info :session-file)))
