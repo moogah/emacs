@@ -50,18 +50,17 @@ regressions).
 
 * Dependencies
 
-=org= provides =org-entry-get= — the canonical property-drawer
-accessor that upstream =gptel-org.el= uses (see
-=gptel-org--entry-properties= at =gptel-org.el:523-531=). Reusing it
-avoids reinventing property-drawer parsing.
-
 Load =gptel= softly (=nil t=) so this module remains load-safe in
 contexts where =gptel= has not been fully initialised yet. The
 symbols we need (=gptel--apply-preset=, =gptel-get-preset=,
 =gptel--preset=) are resolved at hook-run time, not load time.
 
+We deliberately *do not* =require= =org= here. The property-drawer
+parser in =gptel-chat--declared-preset= is native =re-search-forward=
+and has no org dependency, so this module stays load-safe in minimal
+contexts where =org= has not been pulled in.
+
 #+begin_src emacs-lisp
-(require 'org)
 (require 'gptel nil t)
 #+end_src
 
@@ -83,10 +82,10 @@ declared in the current buffer, or =nil= if none is declared.
 
 Resolution order (design.md §Decision 15; task =preset-wiring=):
 
-1. An Org =:PROPERTIES:= drawer at =point-min= with a =:GPTEL_PRESET:
-   name= line. Parsed via =org-entry-get= with the =selective= scope
-   — identical to upstream =gptel-org--entry-properties=
-   (=gptel-org.el:523-531=).
+1. An Org-style =:PROPERTIES:= drawer at =point-min= with a
+   =:GPTEL_PRESET: name= line. Parsed via a native regex scoped to
+   the first drawer at =point-min= — no dependency on =org-mode=
+   being loaded (task =preset-wiring-robustness=).
 2. A file-local =gptel--preset= variable, populated by Emacs's
    standard =hack-local-variables= from the =-*- ... -*-= header or a
    =Local Variables:= block. =gptel--preset= is already declared
@@ -100,14 +99,25 @@ buffer content, while file-locals may be inherited from a parent
 The function must be robust to non-org buffers (no drawer parse
 error) and to stringy values in the drawer (coerce to symbol).
 
+Native parsing rationale (task =preset-wiring-robustness=, Finding 2):
+previously this used =org-entry-get=, which works on non-org buffers
+only because it internally falls back to regex. Using =re-search-
+forward= directly removes the implicit coupling to =org-mode= being
+loaded (chat-mode buffers derive from =text-mode= in some
+configurations) and decouples us from any future change to org's
+drawer API. We scope the search to the first =:PROPERTIES: ... :END:=
+block at =point-min=, matching how upstream =gptel-org--entry-
+properties= uses the =selective= scope.
+
 #+begin_src emacs-lisp
 (defun gptel-chat--declared-preset ()
   "Return the preset symbol declared in the current buffer, or nil.
 
 Resolution order:
 
-  1. An Org `:PROPERTIES:' drawer at `point-min' with a
-     `:GPTEL_PRESET: name' line (parsed via `org-entry-get').
+  1. A `:PROPERTIES:' drawer at `point-min' containing a
+     `:GPTEL_PRESET: name' line (parsed with a native regex — no
+     dependency on `org-mode' being loaded).
   2. The file-local `gptel--preset' variable, if bound.
 
 The property-drawer value wins when both are present — the drawer is
@@ -117,14 +127,27 @@ from a parent `.dir-locals.el'.
 A non-nil return is always a symbol; stringy drawer values are
 coerced via `intern'."
   (let ((drawer-val
-         ;; `org-entry-get' tolerates buffers that are not in
-         ;; org-mode and returns nil when no drawer is present at
-         ;; point-min.  `selective' scope mirrors upstream usage in
-         ;; `gptel-org--entry-properties'.
          (save-excursion
-           (goto-char (point-min))
-           (ignore-errors
-             (org-entry-get (point-min) "GPTEL_PRESET" 'selective)))))
+           (save-restriction
+             (widen)
+             (goto-char (point-min))
+             ;; Skip leading blank lines only — the drawer must be
+             ;; the first non-blank content for us to recognise it,
+             ;; matching how upstream `gptel-org--entry-properties'
+             ;; scopes its read with `selective'.
+             (while (and (not (eobp)) (looking-at-p "^[ \t]*$"))
+               (forward-line 1))
+             (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+               (let ((drawer-end
+                      (save-excursion
+                        (when (re-search-forward
+                               "^[ \t]*:END:[ \t]*$" nil t)
+                          (line-beginning-position)))))
+                 (when drawer-end
+                   (when (re-search-forward
+                          "^[ \t]*:GPTEL_PRESET:[ \t]*\\(\\S-+\\)[ \t]*$"
+                          drawer-end t)
+                     (match-string-no-properties 1)))))))))
     (cond
      ((and drawer-val (not (string-empty-p drawer-val)))
       (intern drawer-val))
@@ -198,35 +221,68 @@ Preset detection runs at mode activation via
 - File opened with =-*- gptel-chat -*-= and a property drawer at
   point-min.
 
-A second hook on =hack-local-variables-hook= handles the
-file-local =gptel--preset= case. =run-mode-hooks= invokes the
-mode hook *before* =hack-local-variables= (see =subr.el=
-=run-mode-hooks=: hooks, then =hack-local-variables=, then
-=after-change-major-mode-hook=), so a file-local =gptel--preset=
+A second hook on =hack-local-variables-hook= handles the file-local
+=gptel--preset= case. In the =normal-mode= sequence (files.el), the
+major mode is activated first (firing =gptel-chat-mode-hook=), then
+=hack-local-variables= runs the full local-variables pass (firing
+=hack-local-variables-hook=). So a file-local =gptel--preset=
 declaration is not yet bound when =gptel-chat-mode-hook= runs on a
-fresh file open. The =hack-local-variables-hook= entry runs after
-file-locals are applied and re-invokes the applier, gated on the
-current major mode so it is a no-op in unrelated buffers.
+fresh file open, and we need a second hook that runs after locals
+land.
+
+*Registration scope (task =preset-wiring-robustness=, Finding 1).*
+We add the =hack-local-variables-hook= entry *buffer-locally from
+within the mode-hook handler* — not at module top level. Global
+registration would invoke =derived-mode-p= in every buffer Emacs ever
+opens, regardless of whether the user ever interacts with chat-mode.
+Registering buffer-locally from the mode hook means the registration
+only happens in chat-mode buffers, and the post-locals re-apply still
+fires because the mode hook is invoked before the full
+=hack-local-variables= pass.
 
 Calling =gptel-chat--apply-declared-preset= twice is safe —
 =gptel--apply-preset= simply re-installs the same buffer-local
-values.
+values. The post-locals invocation is load-bearing for the
+=gptel--preset= file-local path (drawer-only buffers see a redundant
+but harmless second apply; =gptel--preset=-only buffers see their
+one and only apply from the post-locals path).
 
 #+begin_src emacs-lisp
-(add-hook 'gptel-chat-mode-hook #'gptel-chat--apply-declared-preset)
-
 (defun gptel-chat--apply-declared-preset-after-locals ()
   "Re-apply the declared preset after `hack-local-variables' runs.
 
-Gated on `gptel-chat-mode' being active in the current buffer so
-this hook is a no-op in unrelated buffers.  Catches the file-local
-`gptel--preset' case — the mode-hook entry alone cannot, because
-`run-mode-hooks' runs mode hooks *before* `hack-local-variables'."
+Registered buffer-locally on `hack-local-variables-hook' from the
+`gptel-chat-mode-hook' entry, so this only fires in chat-mode
+buffers.  Catches the file-local `gptel--preset' case — the mode-
+hook entry alone cannot, because the `normal-mode' sequence runs
+mode hooks before the full `hack-local-variables' pass.
+
+The `derived-mode-p' guard is defence-in-depth: the buffer-local
+registration already scopes this to chat-mode buffers, but a direct
+caller (or a future global add-hook by mistake) should still no-op
+outside chat-mode."
   (when (derived-mode-p 'gptel-chat-mode)
     (gptel-chat--apply-declared-preset)))
 
-(add-hook 'hack-local-variables-hook
-          #'gptel-chat--apply-declared-preset-after-locals)
+(defun gptel-chat--install-preset-hooks ()
+  "Install buffer-local preset hooks for `gptel-chat-mode'.
+
+Called from `gptel-chat-mode-hook'.  Applies any preset declared by
+the buffer's property drawer immediately, and registers a buffer-
+local entry on `hack-local-variables-hook' so file-local
+`gptel--preset' declarations are picked up after Emacs's full
+local-variables pass.
+
+Registering the `hack-local-variables-hook' entry buffer-locally
+(rather than at module top level) avoids imposing a
+`derived-mode-p' check in every unrelated buffer Emacs ever opens
+(task `preset-wiring-robustness', Finding 1)."
+  (gptel-chat--apply-declared-preset)
+  (add-hook 'hack-local-variables-hook
+            #'gptel-chat--apply-declared-preset-after-locals
+            nil t))
+
+(add-hook 'gptel-chat-mode-hook #'gptel-chat--install-preset-hooks)
 #+end_src
 
 * Provide

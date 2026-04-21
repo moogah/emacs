@@ -321,7 +321,131 @@
         (org-mode)  ; not chat-mode
         (setq-local gptel--preset 'coding)
         (gptel-chat--apply-declared-preset-after-locals)
-        (expect 'gptel--apply-preset :not :to-have-been-called)))))
+        (expect 'gptel--apply-preset :not :to-have-been-called))))
+
+
+  ;; -----------------------------------------------------------------------
+  ;; 5. Buffer-local hook registration (task `preset-wiring-robustness',
+  ;; Finding 1).
+  ;;
+  ;; Loading `gptel-chat-menu' must NOT install
+  ;; `gptel-chat--apply-declared-preset-after-locals' onto the *global*
+  ;; `hack-local-variables-hook'.  A global registration makes every
+  ;; file-open in every unrelated buffer pay a `derived-mode-p' check,
+  ;; even when the user never touches chat-mode.  Registration must
+  ;; happen buffer-locally from the mode-hook handler, so the hook only
+  ;; fires in chat-mode buffers.
+
+  (describe "hook registration scope"
+
+    (it "does not register the after-locals hook globally at module load"
+      ;; The module has already loaded via `(require 'gptel-chat-menu)'
+      ;; at the top of this spec file.  Assert the GLOBAL value of
+      ;; `hack-local-variables-hook' does not contain our function.
+      (expect (memq 'gptel-chat--apply-declared-preset-after-locals
+                    (default-value 'hack-local-variables-hook))
+              :to-be nil))
+
+    (it "registers the after-locals hook buffer-locally on mode activation"
+      (with-temp-buffer
+        (insert gptel-chat-preset-test--no-preset)
+        (gptel-chat-mode)
+        ;; The mode-hook handler `gptel-chat--install-preset-hooks'
+        ;; should have added the after-locals hook as a buffer-local
+        ;; entry on `hack-local-variables-hook'.
+        (expect (local-variable-p 'hack-local-variables-hook) :to-be t)
+        (expect (memq 'gptel-chat--apply-declared-preset-after-locals
+                      hack-local-variables-hook)
+                :to-be-truthy)
+        ;; And must still NOT be on the global list.
+        (expect (memq 'gptel-chat--apply-declared-preset-after-locals
+                      (default-value 'hack-local-variables-hook))
+                :to-be nil)))
+
+    (it "leaves the global hack-local-variables-hook untouched when opening non-chat buffers"
+      ;; Simulate opening an ordinary (non-chat) buffer.  The
+      ;; registration path should never run, so the global hook stays
+      ;; clean.
+      (with-temp-buffer
+        (fundamental-mode)
+        (expect (memq 'gptel-chat--apply-declared-preset-after-locals
+                      (default-value 'hack-local-variables-hook))
+                :to-be nil))))
+
+
+  ;; -----------------------------------------------------------------------
+  ;; 6. Native drawer parser (task `preset-wiring-robustness', Finding 2).
+  ;;
+  ;; `gptel-chat--declared-preset' must parse a `:PROPERTIES:' drawer
+  ;; using its own `re-search-forward' — not via `org-entry-get'.  This
+  ;; lets chat-mode buffers (which may derive from `text-mode' in some
+  ;; configurations) find a declared preset without requiring `org' to
+  ;; be loaded, and insulates us from any future change to org's drawer
+  ;; API.
+
+  (describe "native drawer parser"
+
+    (it "reads the preset from a drawer in a fundamental-mode buffer"
+      ;; No `org-mode' activation — exercises the native regex path.
+      (with-temp-buffer
+        (fundamental-mode)
+        (insert gptel-chat-preset-test--drawer-coding)
+        (expect (gptel-chat--declared-preset) :to-equal 'coding)))
+
+    (it "reads the preset from a drawer in a text-mode buffer"
+      ;; `text-mode' does NOT autoload or require `org'.
+      (with-temp-buffer
+        (text-mode)
+        (insert gptel-chat-preset-test--drawer-coding)
+        (expect (gptel-chat--declared-preset) :to-equal 'coding)))
+
+    (it "does not call org-entry-get on the drawer path"
+      ;; Spy on `org-entry-get' and confirm the resolver never reaches
+      ;; it.  This catches accidental regressions toward the org-
+      ;; coupled implementation.
+      (spy-on 'org-entry-get :and-call-through)
+      (with-temp-buffer
+        (fundamental-mode)
+        (insert gptel-chat-preset-test--drawer-coding)
+        (gptel-chat--declared-preset)
+        (expect 'org-entry-get :not :to-have-been-called)))
+
+    (it "tolerates trailing whitespace on the GPTEL_PRESET line"
+      (with-temp-buffer
+        (fundamental-mode)
+        (insert ":PROPERTIES:\n"
+                ":GPTEL_PRESET: coding   \n"
+                ":END:\n")
+        (expect (gptel-chat--declared-preset) :to-equal 'coding)))
+
+    (it "tolerates leading indentation on drawer lines"
+      (with-temp-buffer
+        (fundamental-mode)
+        (insert "  :PROPERTIES:\n"
+                "  :GPTEL_PRESET: coding\n"
+                "  :END:\n")
+        (expect (gptel-chat--declared-preset) :to-equal 'coding)))
+
+    (it "ignores a GPTEL_PRESET line outside the first drawer at point-min"
+      ;; When the first meaningful content is not a `:PROPERTIES:'
+      ;; block, a later drawer-like stanza is not consulted — mirrors
+      ;; upstream's `selective' scope at `point-min'.
+      (with-temp-buffer
+        (fundamental-mode)
+        (insert "Some prose.\n\n"
+                ":PROPERTIES:\n"
+                ":GPTEL_PRESET: coding\n"
+                ":END:\n")
+        (expect (gptel-chat--declared-preset) :to-be nil)))
+
+    (it "returns nil cleanly on a malformed drawer (missing :END:)"
+      (with-temp-buffer
+        (fundamental-mode)
+        (insert ":PROPERTIES:\n"
+                ":GPTEL_PRESET: coding\n")
+        (expect (gptel-chat--declared-preset) :to-be nil))))
+
+  )
 
 (provide 'gptel-chat-preset-wiring-spec)
 
