@@ -51,9 +51,12 @@ matches when it begins with `#+end_user', `#+end_assistant', or
 `#+end_src', `#+begin_assistant', and ordinary prose — pass through
 unchanged.
 
-Callers with multi-line input must split on newlines first and call
-this function per line; `gptel-chat--make-stream-closure' does that
-via a one-line holdback."
+Signals an error when LINE contains an embedded newline.  Callers with
+multi-line input must split on newlines first and call this function
+per line; `gptel-chat--make-stream-closure' does that via a one-line
+holdback."
+  (when (string-match-p "\n" line)
+    (error "LINE must not contain newlines"))
   (let ((case-fold-search t))
     (if (string-match-p gptel-chat--end-delimiter-regexp line)
         (concat "," line)
