@@ -2,7 +2,7 @@
 name: auto-init-simplify-org-guards
 description: Drop the redundant string-suffix-p ".org" guard in jf/gptel--auto-init-session-buffer; inner string= file-name "session.org" check is stricter
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sessions-auto-init
 ---
@@ -38,3 +38,23 @@ Non-blocking — does not gate downstream tasks.
 ## Context
 - Review of `sessions-auto-init` (2026-04-21, orch-review-1776774164),
   Finding #5 (non-blocking code-quality).
+
+## Review
+- **Session:** orch-review-1776789773 (2026-04-21), agent `a5138c0dcde9e4c3b`
+- **Verdict:** clean
+- **Findings:** none
+- **Checked and ruled out:**
+  - **Guard subsumption**: inner `(string= file-name "session.org")` is
+    strictly stricter than outer `(string-suffix-p ".org" ...)` across
+    symlinks, case-insensitive filesystems, `.org_archive`, trailing
+    slashes, and `my-session.org`. Inner was already the real gate.
+  - **Re-tangle fidelity**: `.org` and `.el` diffs align line-for-line;
+    lexical-binding header preserved.
+  - **Comment history**: trivial `;; Is .org file?` comment replaced
+    with useful rationale; no historical context lost.
+  - **Downstream impact**: no open task references the removed guard.
+- **Verification:** `config/gptel/sessions/test/commands/test-report.txt`
+  reports 8/8 Buttercup passing. Commit message cited 10/10; discrepancy
+  is a pre-snapshot-regeneration count, both green.
+- **Follow-ups:** none
+- **Dependents repointed:** none

@@ -2,7 +2,7 @@
 name: fsm-handlers-test-hardening
 description: Tighten gptel-chat--state accessor's struct predicate and add INIT/ABRT/unknown-state test coverage
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:fsm-handlers
 ---
@@ -50,3 +50,26 @@ could silently pass.
 ## Context
 - Review of `fsm-handlers` (2026-04-21, orch-review-1776770835),
   Findings 3 and 4.
+
+## Review
+- **Session:** orch-review-1776789773 (2026-04-21), agent `a40f26d3055e9e332`
+- **Verdict:** clean
+- **Findings:** none
+- **Checked and ruled out:**
+  - **Predicate choice**: `cl-defstruct (gptel-fsm ...)` autogenerates
+    `gptel-fsm-p`; `fboundp` preserves load-order safety without
+    weakening the predicate. Guard returns nil cleanly if upstream
+    unloaded (correct — `gptel--fsm-last` is also unbound then).
+  - **Negative-test robustness**: custom struct passes `cl-struct-p`
+    but fails `gptel-fsm-p`; if guard regressed, `gptel-fsm-state`
+    would signal wrong-type-argument on tag mismatch. `:not :to-throw`
+    paired with `:to-equal nil` pins both branches.
+  - **Load-order asymmetry**: tests and production both load upstream
+    before any caller of `gptel-chat--state`; `fboundp` is defensive.
+  - **Buttercup matcher usage**: `:not :to-throw` is wrapped correctly,
+    consistent with `send-command-spec.el:165`.
+  - **Downstream impact**: no open task depends on this.
+- **Verification:** `./bin/run-tests.sh -d config/gptel/chat/test/send`
+  passes 53/53 specs; new INIT/ABRT/negative-struct specs execute.
+- **Follow-ups:** none
+- **Dependents repointed:** none

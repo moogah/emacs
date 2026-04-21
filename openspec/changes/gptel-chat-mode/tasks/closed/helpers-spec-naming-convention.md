@@ -2,7 +2,7 @@
 name: helpers-spec-naming-convention
 description: Reconcile helpers-spec.el naming with Buttercup discovery convention
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:parser
 ---
@@ -45,3 +45,29 @@ future contributor will look at the name and expect tests.
 
 ## Context
 - Review of `parser` task Finding #7.
+
+## Review
+- **Session:** orch-review-1776789773 (2026-04-21), agent `a378c6344a6bf751b`
+- **Verdict:** clean with one doc follow-up
+- **Findings:**
+  - [follow-up] `openspec/changes/gptel-chat-mode/architecture.md:212,284,311`
+    — architecture.md still names the fixture `helpers-spec.el` after
+    the rename. Doc drift, not merge-blocking. Follow-up task
+    `update-architecture-md-helpers-rename` created.
+- **Checked and ruled out:**
+  - **Loader callsites**: all three (`buffer-format-spec.el`,
+    `escape-round-trip-spec.el`, `message-construction-spec.el`)
+    consistently use `expand-file-name "../test-helpers.el"` anchored
+    on `load-file-name`.
+  - **Provide symbol**: `gptel-chat-test-helpers` unchanged — stable
+    feature symbol.
+  - **Git history**: tracked as R094 true rename; `git log --follow`
+    works.
+  - **Buttercup discovery**: new name no longer matches `*-spec.el`,
+    so it won't be auto-loaded as a spec — correct, the three specs
+    explicitly `load` it.
+  - **Downstream impact**: no open task depends on this.
+- **Verification:** `./bin/run-tests.sh -d config/gptel/chat --report`
+  shows 282/282 passing (no drop since rename).
+- **Follow-ups:** `update-architecture-md-helpers-rename` (ready, doc-only)
+- **Dependents repointed:** none
