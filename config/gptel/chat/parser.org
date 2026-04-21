@@ -578,7 +578,10 @@ Returns a list (possibly empty) of cons cells in the advanced
 `gptel-request' `:prompt' format.  Text segments yield a single
 `(response . STR)' cons (nil if the content is blank); tool-call
 segments yield a single `(tool . PLIST)' cons with `:name', `:args',
-and `:result' copied from the segment."
+and `:result' copied from the segment.  Both text content and tool
+`:result' are routed through `gptel-chat--unescape-end-delimiters' so
+that the sanitizer's `,'-prefix escape is inverted symmetrically
+across every content type before the message reaches the model."
   (pcase (plist-get segment :type)
     (`text
      (let ((content (gptel-chat--unescape-end-delimiters
@@ -589,7 +592,8 @@ and `:result' copied from the segment."
     (`tool-call
      (let ((call (list :name   (plist-get segment :name)
                        :args   (plist-get segment :args)
-                       :result (or (plist-get segment :result) ""))))
+                       :result (gptel-chat--unescape-end-delimiters
+                                (or (plist-get segment :result) "")))))
        (list (cons 'tool call))))
     (_ nil)))
 #+end_src

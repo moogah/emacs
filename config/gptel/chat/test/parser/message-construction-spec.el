@@ -412,7 +412,43 @@
       (let* ((msgs (gptel-chat--turns-to-messages
                     (gptel-chat--parse-buffer)))
              (call (cdr (car msgs))))
-        (expect (plist-get call :result) :to-equal "")))))
+        (expect (plist-get call :result) :to-equal ""))))
+
+  (describe "tool :result delimiter un-escape (symmetry with prose)"
+
+    ;; The stream sanitizer prepends `,' to any body line matching
+    ;; `^#\+end_\(user\|assistant\|tool\)\b'.  User and assistant text
+    ;; route their content through `gptel-chat--unescape-end-delimiters'
+    ;; at emit time.  Tool-result content must be un-escaped the same
+    ;; way so the model never sees the sanitizer's `,'-prefix artifact.
+
+    (it "strips leading `,' from `,#+end_tool' lines in tool :result"
+      ;; Build the segment plist directly so the spec pins the
+      ;; converter's contract without depending on parser round-tripping
+      ;; an escaped delimiter through a tool block body.
+      (let* ((segment (list :type   'tool-call
+                            :name   "dump_prose"
+                            :args   '(:arg 1)
+                            :result (concat "prose\n"
+                                            ",#+end_tool\n"
+                                            "more prose\n")))
+             (msgs (gptel-chat--segment-to-messages segment))
+             (call (cdr (car msgs))))
+        (expect (car (car msgs)) :to-equal 'tool)
+        (expect (plist-get call :result)
+                :to-equal (concat "prose\n"
+                                  "#+end_tool\n"
+                                  "more prose\n"))))
+
+    (it "is a no-op when :result contains no escaped delimiters"
+      (let* ((raw "no delimiters here\njust prose\n")
+             (segment (list :type   'tool-call
+                            :name   "plain"
+                            :args   nil
+                            :result raw))
+             (msgs (gptel-chat--segment-to-messages segment))
+             (call (cdr (car msgs))))
+        (expect (plist-get call :result) :to-equal raw)))))
 
 (provide 'message-construction-spec)
 
