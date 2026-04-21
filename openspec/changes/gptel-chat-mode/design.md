@@ -115,7 +115,7 @@ This is not a state machine. It is a streaming text sanitizer packaged as a type
 | Where in the buffer are we inserting? What line is partially received? | Stream handle (this decision) |
 | What is the line-level delimiter escape rule? | `gptel-chat--sanitize-chunk` (Decision 4) |
 
-**Handle shape.** The factory `gptel-chat--make-stream-closure` returns a `gptel-chat-stream` struct (defined via `cl-defstruct`) with at minimum:
+**Handle shape.** The factory `gptel-chat--make-stream-inserter` returns a `gptel-chat-stream` struct (defined via `cl-defstruct`) with at minimum:
 
 | Slot | Purpose |
 |---|---|

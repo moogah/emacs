@@ -16,7 +16,7 @@
 ;;    intentional absence of escaping for lines like `#+end_src',
 ;;    `#+begin_assistant', or generic prose (design.md §Decision 4).
 ;;
-;; 2. `gptel-chat--make-stream-closure' — per-request factory that
+;; 2. `gptel-chat--make-stream-inserter' — per-request factory that
 ;;    returns a `gptel-chat-stream' cl-struct handle.  The handle's
 ;;    `insert' slot is the line-buffered chunk processor; its
 ;;    `set-tool-marker' / `clear-tool-marker' slots expose the
@@ -173,9 +173,9 @@ Returns the marker."
               :to-throw 'error))))
 
 
-;;; gptel-chat--make-stream-closure ------------------------------------------
+;;; gptel-chat--make-stream-inserter ------------------------------------------
 
-(describe "gptel-chat--make-stream-closure"
+(describe "gptel-chat--make-stream-inserter"
 
   (before-each
     (gptel-chat-stream-test--fresh-buffer))
@@ -186,13 +186,13 @@ Returns the marker."
   (describe "argument validation"
 
     (it "rejects a non-marker argument"
-      (expect (gptel-chat--make-stream-closure 42)
+      (expect (gptel-chat--make-stream-inserter 42)
               :to-throw))
 
     (it "rejects a marker with no buffer"
       (let ((dead (make-marker)))
         ;; A freshly-made marker has no buffer until you set one.
-        (expect (gptel-chat--make-stream-closure dead)
+        (expect (gptel-chat--make-stream-inserter dead)
                 :to-throw)))
 
     (it "rejects a marker with insertion-type nil"
@@ -208,7 +208,7 @@ Returns the marker."
                (copy-marker (point-min)))))
         (expect (marker-insertion-type default-type-marker)
                 :to-equal nil)
-        (expect (gptel-chat--make-stream-closure default-type-marker)
+        (expect (gptel-chat--make-stream-inserter default-type-marker)
                 :to-throw)))
 
     (it "accepts a marker with insertion-type t"
@@ -218,14 +218,14 @@ Returns the marker."
       ;; the valid shape.
       (expect (marker-insertion-type gptel-chat-stream-test--marker)
               :to-equal t)
-      (let ((handle (gptel-chat--make-stream-closure
+      (let ((handle (gptel-chat--make-stream-inserter
                      gptel-chat-stream-test--marker)))
         (expect (gptel-chat-stream-p handle) :to-be-truthy))))
 
   (describe "inserting complete lines in order"
 
     (it "inserts two complete lines from a single newline-terminated chunk"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "hello\nworld\n")
@@ -234,7 +234,7 @@ Returns the marker."
               :to-equal "hello\nworld\n"))
 
     (it "preserves order across multiple chunks with no collisions"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "alpha\n")
@@ -245,7 +245,7 @@ Returns the marker."
               :to-equal "alpha\nbeta\ngamma\n"))
 
     (it "flushes a final partial line via the t sentinel without adding a newline"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "trailing partial")
@@ -259,7 +259,7 @@ Returns the marker."
   (describe "holdback behaviour (no premature inserts)"
 
     (it "does not insert a partial line that arrives without a newline"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "partial "))
@@ -267,7 +267,7 @@ Returns the marker."
               :to-equal ""))
 
     (it "completes a line only when a later chunk supplies the newline"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "partial ")
@@ -279,7 +279,7 @@ Returns the marker."
   (describe "sanitizes collisions on whole-line chunks"
 
     (it "escapes #+end_assistant when it arrives as its own line"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "prose\n#+end_assistant\nmore\n")
@@ -288,7 +288,7 @@ Returns the marker."
               :to-equal "prose\n,#+end_assistant\nmore\n"))
 
     (it "escapes case-variant #+End_Assistant mid-stream"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "a\n#+End_Assistant\nb\n")
@@ -297,7 +297,7 @@ Returns the marker."
               :to-equal "a\n,#+End_Assistant\nb\n"))
 
     (it "does NOT escape #+end_src on its own line"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "before\n#+end_src\nafter\n")
@@ -306,7 +306,7 @@ Returns the marker."
               :to-equal "before\n#+end_src\nafter\n"))
 
     (it "does NOT escape #+begin_assistant (begin, not end)"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "a\n#+begin_assistant\nb\n")
@@ -317,7 +317,7 @@ Returns the marker."
   (describe "flush semantics on stream completion"
 
     (it "flush of an empty holdback is a no-op"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "full line\n")
@@ -330,7 +330,7 @@ Returns the marker."
       ;; final chunk (holdback empty) OR a final content chunk with no
       ;; newline (holdback is a single line).  In the latter case the
       ;; single-line flush goes through the same sanitizer.
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "#+end_assistant")
@@ -357,7 +357,7 @@ Returns the marker."
       (let* ((advance-marker
               (with-current-buffer gptel-chat-stream-test--buffer
                 (copy-marker (point-max) t)))
-             (handle (gptel-chat--make-stream-closure advance-marker))
+             (handle (gptel-chat--make-stream-inserter advance-marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "response line\n")
         (funcall cb t)
@@ -375,7 +375,7 @@ Returns the marker."
   (describe "closure isolation"
 
     (it "each factory call produces an independent holdback"
-      (let* ((handle1 (gptel-chat--make-stream-closure
+      (let* ((handle1 (gptel-chat--make-stream-inserter
                        gptel-chat-stream-test--marker))
              (cb1 (gptel-chat-stream-insert handle1)))
         ;; Park a partial in cb1's holdback, then throw it away; a
@@ -383,7 +383,7 @@ Returns the marker."
         (funcall cb1 "partial-from-cb1")
         (setq cb1 nil
               handle1 nil))
-      (let* ((handle2 (gptel-chat--make-stream-closure
+      (let* ((handle2 (gptel-chat--make-stream-inserter
                        gptel-chat-stream-test--marker))
              (cb2 (gptel-chat-stream-insert handle2)))
         (funcall cb2 "fresh\n")
@@ -413,12 +413,12 @@ Returns the marker."
   (describe "factory return type"
 
     (it "returns a gptel-chat-stream struct"
-      (let ((handle (gptel-chat--make-stream-closure
+      (let ((handle (gptel-chat--make-stream-inserter
                      gptel-chat-stream-test--marker)))
         (expect (gptel-chat-stream-p handle) :to-be-truthy)))
 
     (it "populates all three function slots"
-      (let ((handle (gptel-chat--make-stream-closure
+      (let ((handle (gptel-chat--make-stream-inserter
                      gptel-chat-stream-test--marker)))
         (expect (functionp (gptel-chat-stream-insert handle))
                 :to-be-truthy)
@@ -430,13 +430,13 @@ Returns the marker."
   (describe "set-tool-marker slot"
 
     (it "rejects a non-marker argument"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (setter (gptel-chat-stream-set-tool-marker handle)))
         (expect (funcall setter 42) :to-throw)))
 
     (it "rejects a marker with no buffer"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (setter (gptel-chat-stream-set-tool-marker handle))
              (dead (make-marker)))
@@ -455,7 +455,7 @@ Returns the marker."
              (tool-marker
               (with-current-buffer gptel-chat-stream-test--buffer
                 (copy-marker (point-max) t)))
-             (handle (gptel-chat--make-stream-closure assistant-marker))
+             (handle (gptel-chat--make-stream-inserter assistant-marker))
              (cb (gptel-chat-stream-insert handle))
              (set-tool (gptel-chat-stream-set-tool-marker handle)))
         ;; First insert goes to the assistant marker (before SENTINEL).
@@ -481,7 +481,7 @@ Returns the marker."
              (tool-marker
               (with-current-buffer gptel-chat-stream-test--buffer
                 (copy-marker (point-max) t)))
-             (handle (gptel-chat--make-stream-closure assistant-marker))
+             (handle (gptel-chat--make-stream-inserter assistant-marker))
              (cb (gptel-chat-stream-insert handle))
              (set-tool (gptel-chat-stream-set-tool-marker handle))
              (clear-tool (gptel-chat-stream-clear-tool-marker handle)))
@@ -494,7 +494,7 @@ Returns the marker."
               :to-equal "back-to-assistant\nSENTINEL\nin-tool\n"))
 
     (it "is a no-op when no tool marker has been set"
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle))
              (clear-tool (gptel-chat-stream-clear-tool-marker handle)))
@@ -590,7 +590,7 @@ Returns the marker."
              (tool-marker-2
               (with-current-buffer gptel-chat-stream-test--buffer
                 (copy-marker (point-max) t)))
-             (handle (gptel-chat--make-stream-closure assistant-marker))
+             (handle (gptel-chat--make-stream-inserter assistant-marker))
              (cb (gptel-chat-stream-insert handle))
              (set-tool (gptel-chat-stream-set-tool-marker handle)))
         ;; First: route to tool-marker-1 and insert.
@@ -628,7 +628,7 @@ Returns the marker."
              (tool-marker-2
               (with-current-buffer gptel-chat-stream-test--buffer
                 (copy-marker (point-max) t)))
-             (handle (gptel-chat--make-stream-closure assistant-marker))
+             (handle (gptel-chat--make-stream-inserter assistant-marker))
              (cb (gptel-chat-stream-insert handle))
              (set-tool (gptel-chat-stream-set-tool-marker handle))
              (clear-tool (gptel-chat-stream-clear-tool-marker handle)))
@@ -651,7 +651,7 @@ Returns the marker."
       ;; caller bug and must raise.  The current implementation
       ;; already rejects nil; this spec pins that contract so a
       ;; future refactor cannot silently weaken it.
-      (let* ((handle (gptel-chat--make-stream-closure
+      (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (setter (gptel-chat-stream-set-tool-marker handle)))
         (expect (funcall setter nil) :to-throw)))))
