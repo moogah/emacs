@@ -32,10 +32,27 @@ relations:
    | `nil` | error / network failure — close the block with a visible error marker, then `#+end_assistant` |
    | `'abort` | user abort (triggered by `M-x gptel-abort`) — close the block with an interruption marker, then `#+end_assistant` |
 
-3. Tool-call and tool-result elements are **plists** carrying `:name`,
-   `:args`, and (for results) `:result`. The `#+begin_tool` opening line
-   formats as `(<name> :args <sexp>)` to match the existing session-file
+3. Tool-call and tool-result elements are **3-lists** matching upstream's
+   own contract: `(TOOL-STRUCT ARGS CB)` for calls and
+   `(TOOL-STRUCT ARGS RESULT)` for results (see `gptel-request.el:1812-1827`,
+   `gptel.el:1801, 1855`; TOOL-STRUCT is the `gptel-tool` cl-defstruct
+   at `gptel-request.el:1308`). The `#+begin_tool` opening line formats
+   as `(<name> :args <sexp>)` — `<name>` obtained via `gptel-tool-name`,
+   `<sexp>` from the ARGS slot — to match the existing session-file
    convention.
+
+   **NOTE (2026-04-21):** the original task body wrote "plists carrying
+   :name, :args, :result" — that was drift. The implementing agent
+   followed the task body verbatim, so `plist-get call :name`
+   returned nil against real upstream events, rendering every tool
+   header as `#+begin_tool ( :args nil)` and every result as the
+   empty string. Tests used the same plist shape as fixtures, so the
+   drift passed CI. Corrective follow-up:
+   `tasks/closed/stream-callback-tool-element-shape-and-tests.md`
+   (restores the 3-list destructuring in `stream.org`, converts
+   `tool-call-spec.el` to feed real 3-list shapes, and documents the
+   upstream contract in design.md §Decision 10 with
+   `gptel-request.el` / `gptel.el` line pointers).
 4. Handle multiple tool calls in one assistant turn: each `tool-call`
    event opens a new sibling `#+begin_tool` block, and each `tool-result`
    closes it. Prose chunks between tool events are inserted normally at
@@ -159,3 +176,29 @@ Non-blocking:
 `stream-callback-tool-element-shape-and-tests` and
 `stream-callback-multi-round-t-signal`. `verify-change` repoints
 similarly (re-verify once both blocking follow-ups close).
+
+### Corrective follow-up
+
+Findings #1 and #3 (coupled) are fixed by task
+`stream-callback-tool-element-shape-and-tests`. That task:
+
+- Rewrites `stream.org`'s tool-call / tool-result handlers to
+  destructure via `` (pcase-dolist `(,tool-spec ,args ,_cb) calls) ``
+  and `` (pcase-dolist `(,_tool-spec ,_args ,result) results) `` —
+  matching upstream's emission at `gptel.el:1801` and
+  `gptel.el:1855`. Names come from `(gptel-tool-name tool-spec)`,
+  not `(plist-get call :name)`.
+- Rewrites `tool-call-spec.el` to feed real 3-list fixtures built
+  with `gptel-make-tool` (the upstream `gptel-tool` struct
+  constructor) — so the tests exercise the real shape and cannot
+  mask a future regression of the same class.
+- Corrects design.md §Decision 10 and the task-body claim on this
+  file (see step 3 above) with file:line pointers to upstream for
+  future readers.
+
+Future readers: the upstream-shape claim in design.md §Decision 10
+and in the `gptel-tool` cl-defstruct at `gptel-request.el:1308` are
+the authoritative sources; treat the third-element of a tool-call
+3-list as the *callback*, the third-element of a tool-result 3-list
+as the *result*, and never reach for `plist-get` on a tool event
+element.

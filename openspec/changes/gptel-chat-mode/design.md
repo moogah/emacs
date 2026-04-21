@@ -246,11 +246,19 @@ Per-buffer configuration (model, backend, system message, tools, temperature) is
 | `nil` | error / network failure — close the block with an error marker |
 | `'abort` | user abort — close the block with an interruption marker |
 
-Each element of a `tool-call` or `tool-result` list is a plist carrying `:name`, `:args`, and — for results — `:result`. Our `#+begin_tool` opening line formats `:name` and `:args` as `(<name> :args <sexp>)` to match the existing session-file convention.
+Each element of a `tool-call` or `tool-result` list is a **3-list** — NOT a plist — matching upstream's own contract:
+
+- `tool-call`: `(TOOL-STRUCT ARGS CB)` (see callback docstring, `gptel-request.el:1812-1827`; destructured via `pcase-dolist` at `gptel.el:1801` inside `gptel--run-tool-confirm`). TOOL-STRUCT is a `gptel-tool` cl-defstruct (`gptel-request.el:1308`); ARGS is a plist of model-supplied arguments; CB is the continuation upstream invokes with the tool result.
+- `tool-result`: `(TOOL-STRUCT ARGS RESULT)` (`cl-loop for (tool args result) in tool-results` at `gptel.el:1855` inside `gptel--display-tool-result`). RESULT is whatever the tool function returned — typically a string, possibly nil, occasionally a non-string sexp.
+
+Our callback destructures via `` `(,tool-spec ,args ,_cb) `` / `` `(,_tool-spec ,_args ,result) `` and extracts the tool name via `gptel-tool-name` (the struct accessor). The `#+begin_tool` opening line formats the name and args as `(<name> :args <sexp>)` to match the existing session-file convention.
 
 **Sequencing invariant (cross-reference to Decision 3b):** routing changes (`set-tool-marker` / `clear-tool-marker`) MUST be interleaved *between* distinct `insert` calls on the stream handle, not within. The active marker is resolved once per `insert` invocation, so a routing change issued mid-call has no effect on the in-flight call — it applies from the next `insert` onward. See Decision 3b step 3 for the underlying rule.
 
-**Corrected from earlier draft:** an earlier version of this decision described tool events as "plists with a tool-call sentinel" — that was wrong. Upstream emits cons cells, not tagged plists; dispatch via `pcase` backquote patterns is both the upstream idiom and what `persistent-agent.org` already does.
+**Corrected from earlier drafts:** two successive drafts of this decision had drift that this final form fixes.
+
+1. The original draft described tool events as "plists with a tool-call sentinel" — that was wrong. Upstream emits cons cells whose cdrs are lists of 3-lists, not tagged plists; dispatch via `pcase` backquote patterns is both the upstream idiom and what `persistent-agent.org` already does.
+2. The first correction over-pivoted and described each list element as a plist carrying `:name` / `:args` / `:result`. That was also wrong (task `stream-callback-tool-element-shape-and-tests`, orch-review-1776774164 Finding #1): upstream emits 3-lists, not keyword-tagged plists. Reading the real shape with `plist-get` yielded nil for every slot and rendered every tool header as `#+begin_tool ( :args nil)` with empty results. Destructure via `pcase` triples, not `plist-get`. The original draft's "plist carrying :name" language is retained elsewhere in this file only as a historical marker — treat the 3-list form above as authoritative.
 
 **Note on transitioning the FSM:** `gptel--fsm-transition` is the mechanism by which handlers advance state. Our callback does not call it directly — the default `WAIT` and `TOOL` handlers (still present in our chained handler list, Decision 3) drive transitions for us. If a future UX wants to intercept (e.g., confirm-before-tool-call), the intercept goes in our `TOOL` handler, not in the callback.
 

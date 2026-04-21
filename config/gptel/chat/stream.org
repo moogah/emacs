@@ -416,11 +416,13 @@ this form, so tool blocks round-trip through disk unchanged.
 
 #+begin_src emacs-lisp
 (defun gptel-chat--stream-format-tool-header (name args)
-  "Format a `#+begin_tool' header line for tool CALL plist.
-NAME is a string.  ARGS is a plist-or-list (model-supplied tool
-arguments) rendered via `prin1-to-string' so the parser's
-`read-from-string' round-trips it intact.  Returns the full
-header line without a trailing newline."
+  "Format a `#+begin_tool' header line.
+NAME is a string — the tool name extracted via `gptel-tool-name'
+from the TOOL-STRUCT upstream passes in the tool-call 3-list.
+ARGS is a plist-or-list (model-supplied tool arguments) rendered
+via `prin1-to-string' so the parser's `read-from-string'
+round-trips it intact.  Returns the full header line without a
+trailing newline."
   (format "#+begin_tool (%s :args %s)"
           name
           (prin1-to-string args)))
@@ -500,22 +502,27 @@ block, or streamed assistant text) do not disturb prior tool
 markers.
 
 #+begin_src emacs-lisp
-(defun gptel-chat--stream-open-tool-block (insertion-marker call)
-  "Open a nested `#+begin_tool' block at INSERTION-MARKER for CALL.
-CALL is a plist carrying at least `:name' (string) and `:args'
-\(plist or list\).  Inserts both `#+begin_tool ...' and matching
-`#+end_tool' delimiters with an empty body, and returns an advance
-marker (insertion-type t) positioned on the empty body line
-between them.  The caller feeds the result text into that marker
-via `gptel-chat--stream-close-tool-block'; the closing delimiter
-is already in place.
+(defun gptel-chat--stream-open-tool-block (insertion-marker tool-spec args)
+  "Open a nested `#+begin_tool' block at INSERTION-MARKER.
+TOOL-SPEC is a `gptel-tool' struct (upstream's
+`gptel-request.el:1308' cl-defstruct) whose `name' slot is
+extracted via `gptel-tool-name'.  ARGS is the plist (or list)
+of model-supplied tool arguments carried as the second element
+of each tool-call / tool-result 3-list
+\(see `gptel-request.el:1812-1827' for upstream's contract\).
+
+Inserts both `#+begin_tool ...' and matching `#+end_tool'
+delimiters with an empty body, and returns an advance marker
+\(insertion-type t\) positioned on the empty body line between
+them.  The caller feeds the result text into that marker via
+`gptel-chat--stream-close-tool-block'; the closing delimiter is
+already in place.
 
 Marker construction is ordered so the result-marker is not
 co-located with INSERTION-MARKER at any moment when a shared-position
 insert happens — see the §\"Helper: open a tool block\" discussion
 above."
-  (let* ((name (or (plist-get call :name) ""))
-         (args (plist-get call :args))
+  (let* ((name (or (and tool-spec (gptel-tool-name tool-spec)) ""))
          (header (gptel-chat--stream-format-tool-header name args))
          (buf (marker-buffer insertion-marker)))
     (with-current-buffer buf
@@ -543,12 +550,20 @@ the body.
 #+begin_src emacs-lisp
 (defun gptel-chat--stream-close-tool-block (tool-marker result)
   "Insert RESULT at TOOL-MARKER; the `#+end_tool' closer is pre-placed.
-RESULT is a string (or nil for an empty result).  Each line of
-RESULT is sanitized via `gptel-chat--sanitize-chunk' so a result
-that itself contains `#+end_tool' or `#+end_assistant' cannot
-prematurely close a containing block."
-  (gptel-chat--stream-insert-sanitized-block tool-marker
-                                             (or result "")))
+RESULT is the third element of upstream's tool-result 3-list
+\(see `gptel-request.el:1812-1827'\): typically a string returned
+by the tool function, but tool authors may return nil or a
+non-string sexp.  A nil RESULT renders as an empty body line; a
+non-string sexp is rendered via `prin1-to-string' so the block is
+well-formed regardless.  Each line of the rendered form is
+sanitized via `gptel-chat--sanitize-chunk' so a result that itself
+contains `#+end_tool' or `#+end_assistant' cannot prematurely close
+a containing block."
+  (let ((text (cond
+               ((null result) "")
+               ((stringp result) result)
+               (t (prin1-to-string result)))))
+    (gptel-chat--stream-insert-sanitized-block tool-marker text)))
 #+end_src
 
 ** Helper: close the assistant block and append a fresh user block
@@ -689,11 +704,18 @@ State captured in the closure:
         ;; subsequent streaming to the LAST opened block (if any)
         ;; so prose arriving between tool-call and tool-result
         ;; lands inside the tool body.
+        ;;
+        ;; Upstream emits each element of CALLS as a 3-list
+        ;; `(TOOL-STRUCT ARGS CB)' — see `gptel-request.el:1812-1827'
+        ;; (callback docstring) and `gptel.el:1801'
+        ;; (`pcase-dolist' destructuring in `gptel--run-tool-confirm').
+        ;; CB is the continuation upstream itself calls with the
+        ;; tool result; we only render here, so CB is ignored.
         (`(tool-call . ,calls)
          (let (last-marker)
-           (dolist (call calls)
+           (pcase-dolist (`(,tool-spec ,args ,_cb) calls)
              (let ((m (gptel-chat--stream-open-tool-block
-                       insertion-marker call)))
+                       insertion-marker tool-spec args)))
                (setq pending-tool-markers
                      (append pending-tool-markers (list m))
                      last-marker m)))
@@ -704,12 +726,16 @@ State captured in the closure:
         ;; block.  Once all results have been processed, clear the
         ;; tool-marker override so subsequent streaming goes back
         ;; to the assistant-level marker.
+        ;;
+        ;; Upstream emits each element of RESULTS as a 3-list
+        ;; `(TOOL-STRUCT ARGS RESULT)' — see `gptel-request.el:1812-1827'
+        ;; and `gptel.el:1855' (`cl-loop for (tool args result) in
+        ;; tool-results').
         (`(tool-result . ,results)
-         (dolist (result results)
-           (let ((marker (pop pending-tool-markers))
-                 (text (plist-get result :result)))
+         (pcase-dolist (`(,_tool-spec ,_args ,result) results)
+           (let ((marker (pop pending-tool-markers)))
              (when marker
-               (gptel-chat--stream-close-tool-block marker text))))
+               (gptel-chat--stream-close-tool-block marker result))))
          (unless pending-tool-markers
            (funcall clear-tool)))
         ;; Normal completion: flush holdback, close the block,
