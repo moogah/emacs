@@ -168,9 +168,36 @@ Returns the marker."
     ;; `\n', re-introducing the split-chunk bug the holdback exists
     ;; to prevent.  The guard turns that silent misuse into a loud
     ;; failure so callers cannot regress.
+    ;;
+    ;; Each negative spec pins the error *message* (Buttercup's
+    ;; `:to-throw' compares signal args with `equal', so the list
+    ;; form below requires the exact args of the raised signal),
+    ;; not just the error *type* — so a future refactor that signals
+    ;; an unrelated error on this input cannot rubber-stamp the
+    ;; contract.  See task `sanitize-chunk-newline-guard' Finding 2.
     (it "signals when LINE contains an embedded newline"
       (expect (gptel-chat--sanitize-chunk "#+end_assistant\nmore")
-              :to-throw 'error))))
+              :to-throw 'error '("LINE must not contain newlines")))
+
+    ;; Edge cases: `string-match-p' is position-agnostic so these
+    ;; all hit the same guard, but pinning each shape makes the
+    ;; contract self-documenting in the suite.  See task
+    ;; `sanitize-chunk-newline-guard' Finding 3.
+    (it "signals when LINE begins with a newline"
+      (expect (gptel-chat--sanitize-chunk "\nleading")
+              :to-throw 'error '("LINE must not contain newlines")))
+
+    (it "signals when LINE ends with a newline"
+      (expect (gptel-chat--sanitize-chunk "trailing\n")
+              :to-throw 'error '("LINE must not contain newlines")))
+
+    (it "signals when LINE contains multiple newlines"
+      (expect (gptel-chat--sanitize-chunk "a\nb\nc")
+              :to-throw 'error '("LINE must not contain newlines")))
+
+    (it "signals when LINE is a bare newline"
+      (expect (gptel-chat--sanitize-chunk "\n")
+              :to-throw 'error '("LINE must not contain newlines")))))
 
 
 ;;; gptel-chat--make-stream-inserter ------------------------------------------
@@ -313,6 +340,34 @@ Returns the marker."
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
               :to-equal "a\n#+begin_assistant\nb\n")))
+
+  (describe "rejects chunk values that are neither string nor t sentinel"
+    ;; Contract (design.md §Decision 10): the insert slot's dispatch
+    ;; recognises exactly two chunk shapes — a string chunk or the
+    ;; `t' flush sentinel.  Any other value (including nil, a
+    ;; symbol, or a cons cell like `(tool-call . _)') is a caller
+    ;; bug and must signal loudly so drift from upstream's protocol
+    ;; does not silently drop response data.  The callback layer
+    ;; relies on this "loud fail" to ensure misrouted events surface
+    ;; during testing rather than appearing as silently-missing
+    ;; buffer content.  See task `sanitize-chunks' Finding 1.
+    (it "signals on a non-string symbol chunk (e.g. 'abort)"
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (expect (funcall cb 'abort) :to-throw 'error)))
+
+    (it "signals on nil"
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (expect (funcall cb nil) :to-throw 'error)))
+
+    (it "signals on a cons cell (e.g. '(tool-call . _))"
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (expect (funcall cb '(tool-call . dummy)) :to-throw 'error))))
 
   (describe "flush semantics on stream completion"
 

@@ -92,10 +92,17 @@ matches when it begins with `#+end_user', `#+end_assistant', or
 `#+end_src', `#+begin_assistant', and ordinary prose — pass through
 unchanged.
 
-Signals an error when LINE contains an embedded newline.  Callers with
-multi-line input must split on newlines first and call this function
-per line; `gptel-chat--make-stream-inserter' does that via a one-line
-holdback."
+Signals an error with message \"LINE must not contain newlines\" when
+LINE contains an embedded `\\n'.  Callers with multi-line input must
+split on newlines first and call this function per line;
+`gptel-chat--make-stream-inserter' does that via a one-line holdback.
+
+Bare `\\r' is deliberately NOT checked.  The sole upstream author of
+LINE is `split-string' in `gptel-chat--make-stream-inserter', which
+splits on `\\n' only and therefore never emits a string containing a
+bare `\\r' as a line terminator.  If a future caller introduces a
+different upstream, tighten the guard to `[\\n\\r]' and extend the
+negative specs accordingly."
   (when (string-match-p "\n" line)
     (error "LINE must not contain newlines"))
   (let ((case-fold-search t))
@@ -251,7 +258,15 @@ closure.
 (defun gptel-chat--stream-insert-flush (marker line)
   "Insert sanitized LINE at MARKER without a trailing newline.
 Used for the stream-completion holdback flush.  If LINE is empty,
-do nothing."
+do nothing.
+
+MARKER must have insertion-type t (an \"advance\" marker — see
+`set-marker-insertion-type'); the factory
+`gptel-chat--make-stream-inserter' enforces that contract at
+construction.  With insertion-type nil a flush at the marker would
+leave the marker sitting before the inserted text, so a subsequent
+close-block insert from the callback would land before rather than
+after the flushed content."
   (unless (string-empty-p line)
     (let ((sanitized (gptel-chat--sanitize-chunk line)))
       (with-current-buffer (marker-buffer marker)

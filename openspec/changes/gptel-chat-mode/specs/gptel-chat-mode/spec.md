@@ -243,6 +243,10 @@ The system SHALL insert streamed response chunks between an open `#+begin_assist
 - **WHEN** one chunk ends with `#+end_ass` and the next begins with `istant\nmore`
 - **THEN** the completed line is recognized as a collision and escaped before final insertion
 
+#### Scenario: Streaming inserter rejects markers that do not advance past inserted text
+- **WHEN** a caller constructs a streaming inserter with a marker whose `insertion-type` is not `t`
+- **THEN** the factory signals an error at construction rather than producing reversed-order output downstream
+
 #### Scenario: Stream abort
 - **WHEN** the user cancels a streaming request mid-response
 - **THEN** the assistant block is closed with `#+end_assistant`
