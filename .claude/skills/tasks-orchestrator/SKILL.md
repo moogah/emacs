@@ -78,20 +78,39 @@ unblocks further work.
 
 ### Reviewer mindset
 
-The reviewer is **adversarial on purpose**. Implementing agents optimise to
-satisfy the task as written and to make tests pass; that is not the same as
-producing the right code. Passing tests and a green regression run are
-necessary but not sufficient — they tell you nothing about design drift,
-over-mocking, spec blind spots, or code quality.
+The reviewer is **rigorous and substantive, not contrarian**. Implementing
+agents optimise to satisfy the task as written and to make tests pass;
+that is not the same as producing the right code. Passing tests and a
+green regression run are necessary but not sufficient — they tell you
+nothing about design drift, over-mocking, spec blind spots, or code
+quality. Review exists to catch what those signals miss.
 
-Approach the review with three specific suspicions:
+"Rigorous" means reading the actual code against the actual design and
+thinking hard about what could be wrong. "Not contrarian" means not
+inventing objections to prove the review was thorough. A finding must
+clear this bar:
+
+> Would a thoughtful maintainer, familiar with this codebase, raise this
+> in a PR review — and would the project be meaningfully worse if it
+> shipped unchanged?
+
+If the answer is no, don't raise it. Style preferences, bikeshed names,
+speculative "future-proofing," re-litigations of settled decisions, and
+nits that would churn a diff without changing behaviour all fail this
+bar. A clean review is a valid outcome. If you find nothing, say what
+you looked for and why you ruled it out — silence is not a pass, but
+padding findings is worse than finding nothing.
+
+Look hard in three specific directions:
 
 1. **Sub-par code from the implementing agent.** Agents gravitate toward
-   solutions that look plausible and pass tests. Look for code smells:
+   solutions that look plausible and pass tests. Look for real issues:
    copy-paste, over-broad try/except, dead branches, implicit coupling,
    tests that re-state the implementation instead of verifying behaviour,
    shortcuts that cheat the verification step. Ask: "If I had written this
-   from scratch, would it look like this?" If not, articulate the gap.
+   from scratch, would it look like this?" If not, articulate the gap —
+   but only if the gap matters functionally or to maintainers, not just
+   stylistically.
 
 2. **Implementation drift from the design.** The implementation may pass
    its verification commands while quietly diverging from architecture or
@@ -105,15 +124,11 @@ Approach the review with three specific suspicions:
    design meets reality. If the work revealed friction — an awkward
    abstraction, a contract that doesn't compose, a case the spec didn't
    anticipate, a decision that now looks premature — that is a **signal
-   from the code**, not a problem with the implementation. Be skeptical of
-   the underlying specs. "Implemented as specified" is not a defence if
-   the spec is the problem. Capture architectural signals that the design
-   discussion missed as their own findings; they may warrant spec updates,
-   new tasks, or even a pause to rethink before further work proceeds.
-
-A clean review is possible; a review that finds nothing because the
-reviewer deferred to the spec or the tests is a failure of the review
-process, not a success.
+   from the code**, not a problem with the implementation. "Implemented
+   as specified" is not a defence if the spec is the problem. Capture
+   architectural signals that the design discussion missed; they may
+   warrant spec updates, new tasks, or even a pause to rethink before
+   further work proceeds.
 
 ### What the review covers
 
@@ -147,9 +162,13 @@ reviewer agent, brief it with:
 - Pointers to the change's `proposal.md`, `specs/`, `architecture.md`,
   `design.md` — marked as **reference material to pressure-test, not
   authority to defer to**
-- The reviewer mindset and review concerns above
-- An explicit instruction: "If you find nothing, explain what you looked
-  for and why you ruled it out — silence is not a pass."
+- The reviewer mindset and review concerns above, including the
+  signal/noise bar (thoughtful maintainer + meaningfully worse)
+- An explicit instruction: "Rigorous, not contrarian. Raise findings
+  that would matter in a real PR review. Skip style nits, speculative
+  future-proofing, and re-litigation of settled decisions. If you find
+  nothing, say what you looked for and why you ruled it out — silence
+  is not a pass, but padding is worse than nothing."
 
 Run reviews one task at a time. Keep findings concrete (file:line,
 specific concern, suggested fix). For spec-level findings, name the
@@ -179,9 +198,25 @@ after inline fixes** — treat them like any other commit.
   new task instead.
 
 **New task (follow-up)** — for everything that isn't a trivial inline
-fix. Each finding is its own task file under
-`openspec/changes/<change>/tasks/open/`; do not lump multiple issues
-together. Use `/opsx-tasks create` or write the file directly:
+fix. Findings go into task files under
+`openspec/changes/<change>/tasks/open/`. **Group clustered findings
+into a single task; split only when findings are genuinely
+independent.** Specifically:
+
+- **Group** when findings share an artifact cluster (same file,
+  module, spec section, or a coordinated set of `design.md` +
+  `architecture.md` + adjacent task files that need to move together)
+  or form a coherent unit of work.
+- **Split** when findings touch unrelated parts of the codebase, have
+  different owners or dependencies, or would create conflicting
+  diffs if batched together.
+
+Grouping keeps the follow-up queue small, reduces the setup cost of
+each fix, and produces coherent diffs instead of N small patches that
+re-read the same context. One task per distinct concern, not one per
+bullet point.
+
+Use `/opsx-tasks create` or write the file directly:
 
 ```yaml
 ---
@@ -658,7 +693,11 @@ Archive change: `/opsx-archive`
 - At session start, check for `needs-review` tasks in `tasks/closed/` and
   resolve them before selecting new work (§2 Code Review)
 - Non-trivial review findings become new tasks with `discovered-from:`
-  relation; trivial ones may be fixed inline during review
+  relation; trivial ones may be fixed inline during review. Group
+  clustered findings into one task instead of fragmenting them
+- Apply the signal/noise bar to findings: raise only what a thoughtful
+  maintainer would flag in a PR review and that would make the project
+  meaningfully worse if shipped unchanged
 - Flip reviewed task to `done` after review, regardless of findings.
   When blocking follow-ups exist, repoint downstream dependents'
   `blocked-by:` to the follow-up tasks instead of leaving the parent
