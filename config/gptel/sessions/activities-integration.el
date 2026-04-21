@@ -199,7 +199,7 @@ following documentation-first architecture. Uses only standard org-mode function
 SESSION-INFO is plist from jf/gptel-session-create-persistent.
 
 The find-file-hook (`jf/gptel--auto-init-session-buffer') handles
-preset application and gptel-mode initialization automatically
+preset application and gptel-chat-mode initialization automatically
 when the session file is opened."
   (let* ((buffer-name (plist-get session-info :buffer-name))
          (session-file (plist-get session-info :session-file)))
