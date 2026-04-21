@@ -1,0 +1,277 @@
+;;; backend-invocation-spec.el --- Buttercup tests for gptel-chat FSM handler chain -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: tests
+
+;;; Commentary:
+
+;; Tests for the chained FSM handlers delivered by task
+;; `fsm-handlers' in the `gptel-chat-mode' OpenSpec change.  The
+;; handler alist `gptel-chat--fsm-handlers' wires five UI-only
+;; handlers onto upstream's request FSM so chat-mode buffers can
+;; surface lifecycle state (waiting / streaming / tool-running /
+;; done / error) via the buffer-local `gptel-chat--lifecycle-state'
+;; without cracking open `gptel--fsm-last' directly.
+;;
+;; Two invariants under test (design.md §Decision 3):
+;;
+;;   1. Our handler chains BEFORE upstream's handler for WAIT and
+;;      TOOL — UI state updates precede the transition-driving
+;;      logic that would otherwise fire the network request or run
+;;      tool calls.
+;;
+;;   2. Our handlers are UI-only: they never call
+;;      `gptel--fsm-transition' themselves.  Transitions are driven
+;;      solely by upstream's chained handlers (`gptel--handle-wait',
+;;      `gptel--handle-tool-use') and by the curl/url response
+;;      pipeline (for TYPE/DONE/ERRS entry).
+;;
+;; Approach: we build a real `gptel-fsm' struct populated with our
+;; handler alist, spy on upstream's chained handlers AND on
+;; `gptel--fsm-transition' itself (to isolate our handlers from any
+;; real side effects), then call `gptel--fsm-transition' to drive
+;; scripted entry into each state.  Assertions cover (a) the
+;; lifecycle indicator transitions, (b) our handlers run, (c) they
+;; run before the chained upstream handlers, and (d) they never
+;; invoke `gptel--fsm-transition' directly.
+
+;;; Code:
+
+(require 'buttercup)
+(require 'cl-lib)
+
+;; Load the module under test from the co-located source directory.
+;; `file-name-directory' of this spec is .../config/gptel/chat/test/send/;
+;; two levels up is .../config/gptel/chat/, which holds `send.el'.
+(let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (chat-dir (expand-file-name "../../" spec-dir)))
+  (add-to-list 'load-path chat-dir))
+
+(require 'gptel)
+(require 'gptel-chat-send)
+
+
+;;; Fixtures -----------------------------------------------------------------
+
+(defvar gptel-chat-send-test--buffer nil
+  "Scratch chat buffer used by the FSM-handler specs.")
+
+(defun gptel-chat-send-test--setup ()
+  "Create a fresh request buffer for each example."
+  (setq gptel-chat-send-test--buffer
+        (generate-new-buffer " *gptel-chat-send-test*")))
+
+(defun gptel-chat-send-test--cleanup ()
+  "Tear down the fixture buffer after each example."
+  (when (buffer-live-p gptel-chat-send-test--buffer)
+    (kill-buffer gptel-chat-send-test--buffer))
+  (setq gptel-chat-send-test--buffer nil))
+
+(defun gptel-chat-send-test--make-fsm ()
+  "Build a `gptel-fsm' wired with our handler alist.
+The INFO slot carries `:buffer' pointing at the fixture buffer so
+the UI handlers have somewhere to deposit the lifecycle symbol."
+  (gptel-make-fsm
+   :handlers gptel-chat--fsm-handlers
+   :info     (list :buffer gptel-chat-send-test--buffer)))
+
+(defun gptel-chat-send-test--lifecycle ()
+  "Return the lifecycle indicator set in the fixture buffer."
+  (buffer-local-value 'gptel-chat--lifecycle-state
+                      gptel-chat-send-test--buffer))
+
+
+;;; Specs --------------------------------------------------------------------
+
+(describe "gptel-chat FSM handlers (task fsm-handlers)"
+
+  (before-each
+    (gptel-chat-send-test--setup)
+    ;; Stub upstream's chained handlers so entering WAIT / TOOL
+    ;; does not fire a network request or execute tool calls.
+    ;; Also spy on the transition primitive itself so we can
+    ;; assert our handlers never invoke it.
+    (spy-on 'gptel--handle-wait)
+    (spy-on 'gptel--handle-tool-use)
+    (spy-on 'gptel--fsm-transition :and-call-through))
+
+  (after-each (gptel-chat-send-test--cleanup))
+
+
+  (describe "handler alist shape"
+
+    (it "chains our WAIT handler BEFORE upstream's gptel--handle-wait"
+      (let ((entry (alist-get 'WAIT gptel-chat--fsm-handlers)))
+        (expect (car entry)  :to-equal #'gptel-chat--on-wait)
+        (expect (cadr entry) :to-equal #'gptel--handle-wait)))
+
+    (it "chains our TOOL handler BEFORE upstream's gptel--handle-tool-use"
+      (let ((entry (alist-get 'TOOL gptel-chat--fsm-handlers)))
+        (expect (car entry)  :to-equal #'gptel-chat--on-tool)
+        (expect (cadr entry) :to-equal #'gptel--handle-tool-use)))
+
+    (it "lists a lone UI handler for TYPE (no upstream handler in the chain)"
+      (let ((entry (alist-get 'TYPE gptel-chat--fsm-handlers)))
+        (expect (car entry)  :to-equal #'gptel-chat--on-type)
+        (expect (length entry) :to-equal 1)))
+
+    (it "lists a lone UI handler for DONE"
+      (let ((entry (alist-get 'DONE gptel-chat--fsm-handlers)))
+        (expect (car entry)  :to-equal #'gptel-chat--on-done)
+        (expect (length entry) :to-equal 1)))
+
+    (it "lists a lone UI handler for ERRS"
+      (let ((entry (alist-get 'ERRS gptel-chat--fsm-handlers)))
+        (expect (car entry)  :to-equal #'gptel-chat--on-errs)
+        (expect (length entry) :to-equal 1))))
+
+
+  (describe "lifecycle indicator transitions"
+
+    (it "sets `waiting' on entry to WAIT"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (spy-on 'gptel-chat--on-wait :and-call-through)
+        (gptel--fsm-transition fsm 'WAIT)
+        (expect 'gptel-chat--on-wait :to-have-been-called)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'waiting)))
+
+    (it "sets `streaming' on entry to TYPE"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (spy-on 'gptel-chat--on-type :and-call-through)
+        (gptel--fsm-transition fsm 'TYPE)
+        (expect 'gptel-chat--on-type :to-have-been-called)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'streaming)))
+
+    (it "sets `tool-running' on entry to TOOL"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (spy-on 'gptel-chat--on-tool :and-call-through)
+        (gptel--fsm-transition fsm 'TOOL)
+        (expect 'gptel-chat--on-tool :to-have-been-called)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'tool-running)))
+
+    (it "clears the indicator on entry to DONE"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        ;; Seed a non-nil value so "clear" is observable.
+        (with-current-buffer gptel-chat-send-test--buffer
+          (setq gptel-chat--lifecycle-state 'streaming))
+        (spy-on 'gptel-chat--on-done :and-call-through)
+        (gptel--fsm-transition fsm 'DONE)
+        (expect 'gptel-chat--on-done :to-have-been-called)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal nil)))
+
+    (it "sets `error' and logs a message on entry to ERRS"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (spy-on 'gptel-chat--on-errs :and-call-through)
+        (spy-on 'message)
+        (gptel--fsm-transition fsm 'ERRS)
+        (expect 'gptel-chat--on-errs :to-have-been-called)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'error)
+        (expect 'message :to-have-been-called)))
+
+    (it "walks a WAIT -> TYPE -> TOOL -> DONE sequence and ends idle"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (gptel--fsm-transition fsm 'WAIT)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'waiting)
+        (gptel--fsm-transition fsm 'TYPE)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'streaming)
+        (gptel--fsm-transition fsm 'TOOL)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'tool-running)
+        (gptel--fsm-transition fsm 'DONE)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal nil))))
+
+
+  (describe "chaining order (our handler runs before upstream's)"
+
+    (it "fires gptel-chat--on-wait strictly before gptel--handle-wait"
+      (let ((fsm (gptel-chat-send-test--make-fsm))
+            (call-log '()))
+        (spy-on 'gptel-chat--on-wait
+                :and-call-fake
+                (lambda (_fsm) (push 'ours call-log)))
+        ;; Re-spy upstream with a logger; before-each already installed
+        ;; a plain stub — replace it so ordering is observable.
+        (spy-on 'gptel--handle-wait
+                :and-call-fake
+                (lambda (_fsm) (push 'upstream call-log)))
+        (gptel--fsm-transition fsm 'WAIT)
+        (expect (nreverse call-log) :to-equal '(ours upstream))))
+
+    (it "fires gptel-chat--on-tool strictly before gptel--handle-tool-use"
+      (let ((fsm (gptel-chat-send-test--make-fsm))
+            (call-log '()))
+        (spy-on 'gptel-chat--on-tool
+                :and-call-fake
+                (lambda (_fsm) (push 'ours call-log)))
+        (spy-on 'gptel--handle-tool-use
+                :and-call-fake
+                (lambda (_fsm) (push 'upstream call-log)))
+        (gptel--fsm-transition fsm 'TOOL)
+        (expect (nreverse call-log) :to-equal '(ours upstream)))))
+
+
+  (describe "UI-only invariant: handlers do not drive transitions"
+
+    (it "gptel-chat--on-wait does not call gptel--fsm-transition"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (gptel-chat--on-wait fsm)
+        (expect 'gptel--fsm-transition :not :to-have-been-called)))
+
+    (it "gptel-chat--on-type does not call gptel--fsm-transition"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (gptel-chat--on-type fsm)
+        (expect 'gptel--fsm-transition :not :to-have-been-called)))
+
+    (it "gptel-chat--on-tool does not call gptel--fsm-transition"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (gptel-chat--on-tool fsm)
+        (expect 'gptel--fsm-transition :not :to-have-been-called)))
+
+    (it "gptel-chat--on-done does not call gptel--fsm-transition"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (gptel-chat--on-done fsm)
+        (expect 'gptel--fsm-transition :not :to-have-been-called)))
+
+    (it "gptel-chat--on-errs does not call gptel--fsm-transition"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (spy-on 'message)                 ; silence the side-effect log
+        (gptel-chat--on-errs fsm)
+        (expect 'gptel--fsm-transition :not :to-have-been-called))))
+
+
+  (describe "handler robustness"
+
+    (it "is a silent no-op when the request buffer has been killed"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (kill-buffer gptel-chat-send-test--buffer)
+        (expect (gptel-chat--on-wait fsm) :not :to-throw)))
+
+    (it "is a silent no-op when :buffer is missing from info"
+      (let ((fsm (gptel-make-fsm
+                  :handlers gptel-chat--fsm-handlers
+                  :info     nil)))
+        (expect (gptel-chat--on-done fsm) :not :to-throw))))
+
+
+  (describe "gptel-chat--state accessor"
+
+    (it "returns nil when no request has run in this buffer"
+      (with-current-buffer gptel-chat-send-test--buffer
+        ;; `gptel--fsm-last' is a defvar-local initialised to nil.
+        (setq gptel--fsm-last nil)
+        (expect (gptel-chat--state) :to-equal nil)))
+
+    (it "returns the current state from the buffer-local gptel--fsm-last"
+      (with-current-buffer gptel-chat-send-test--buffer
+        (let ((fsm (gptel-make-fsm :info (list :buffer (current-buffer)))))
+          ;; Drive to TYPE directly via setf on the struct slot to
+          ;; avoid invoking handler chains in this accessor test.
+          (setf (gptel-fsm-state fsm) 'TYPE)
+          (setq gptel--fsm-last fsm)
+          (expect (gptel-chat--state) :to-equal 'TYPE))))))
+
+
+(provide 'backend-invocation-spec)
+
+;;; backend-invocation-spec.el ends here

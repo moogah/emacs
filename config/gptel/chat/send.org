@@ -5,27 +5,249 @@
 
 * Introduction
 
-Scaffolded stub for =gptel-chat-send= — the interactive command
-bound to =C-c C-c= that validates preconditions, constructs the
-message list via the parser, invokes =gptel-request=, and manages
-the open-assistant-block lifecycle.
+This module will ultimately host the interactive =gptel-chat-send=
+command bound to =C-c C-c=. That command is delivered by task
+=send-command= in the =gptel-chat-mode= OpenSpec change.
 
-See =openspec/changes/gptel-chat-mode/architecture.md= §Components
-(subsection =gptel-chat-send (send)=) for the full contract.
+The present task (=fsm-handlers=) populates only the *FSM handler
+layer* — the chained handlers passed to =gptel-make-fsm= as the
+=:handlers= keyword. Each handler is a UI-only side effect wired
+to an upstream lifecycle state transition (=WAIT= / =TYPE= / =TOOL=
+/ =DONE= / =ERRS=). See
+=openspec/changes/gptel-chat-mode/design.md= §Decision 3 for the
+integration rationale and
+=config/gptel/tools/persistent-agent.org= for the canonical
+in-repo chained-handler pattern.
+
+Two invariants for the handler layer:
+
+1. *Handlers are UI-only.* They set a buffer-local indicator and
+   (for =ERRS=) log a message. They do NOT call
+   =gptel--fsm-transition= — the chained upstream handlers
+   (=gptel--handle-wait= for =WAIT=, =gptel--handle-tool-use= for
+   =TOOL=) remain the sole drivers of state transitions.
+2. *Our handlers chain BEFORE upstream.* The chained alist uses
+   =(STATE our-handler upstream-handler)= order so the UI
+   indicator updates before the transition-driving logic fires.
 
 * Lexical Binding
 
+Keep =lexical-binding: t= on line 1 of =send.el=. The =:comments no=
+header tells org-babel not to emit structural comments above this
+block during tangling (see the project memory on lexical-binding
+regressions).
+
 #+begin_src emacs-lisp :comments no
-;;; send.el --- GPTEL Chat-Mode Send Command (stub) -*- lexical-binding: t; -*-
+;;; send.el --- GPTEL Chat-Mode Send Command -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
 
 ;;; Commentary:
 
-;; Scaffolded stub for the chat-mode send command.  Populated by a
-;; later task in the gptel-chat-mode OpenSpec change.
+;; Home of the interactive `gptel-chat-send' command (delivered by a
+;; later task) and the chained FSM handlers that drive chat-mode's
+;; lifecycle UI indicator.
+;;
+;; The handler layer is deliberately tiny: each handler sets a
+;; buffer-local symbol on state entry so that the mode line (or a
+;; future overlay in the display layer) can read the current
+;; lifecycle state without cracking open `gptel--fsm-last' itself.
+;; State transitions remain driven by the chained upstream handlers
+;; -- our handlers never call `gptel--fsm-transition'.
 
 ;;; Code:
+#+end_src
+
+* Dependencies
+
+=gptel= (upstream) owns the FSM primitives we chain onto:
+=gptel-make-fsm=, =gptel-fsm-state=, =gptel--handle-wait=,
+=gptel--handle-tool-use=, =gptel--fsm-last=.
+
+We use =(require 'gptel nil t)= — the soft form — because this
+module loads BEFORE =config/gptel/gptel.el= installs the upstream
+package (see =init.org= load order: the chat subsystem is listed
+ahead of =gptel/gptel=). All uses of gptel symbols in this file
+live inside backtick-quoted handler references or inside function
+bodies that only run at call time, so a failed soft require at
+load time is harmless — the symbols resolve when =gptel-chat-send=
+is eventually invoked.
+
+=cl-lib= is always safe to require at load time and gives us
+=cl-typep= for the accessor's defensive type check.
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+(require 'gptel nil t)
+#+end_src
+
+* Lifecycle indicator (buffer-local)
+
+A buffer-local symbol summarizing the most recent FSM state entry.
+The display layer (task =display-layer=) will surface this value
+via overlays or a mode-line segment; until that task lands, the
+variable is a passive signal readable by any observer.
+
+Values:
+- ='waiting=     — entered =WAIT= (request sent, awaiting first bytes)
+- ='streaming=   — entered =TYPE= (response body streaming in)
+- ='tool-running= — entered =TOOL= (running tool calls)
+- =nil=          — entered =DONE= (request complete; indicator cleared)
+- ='error=       — entered =ERRS= (request failed)
+
+The variable is *per-buffer* because each chat-mode buffer owns its
+own in-flight request (via upstream's buffer-local =gptel--fsm-last=).
+
+#+begin_src emacs-lisp
+(defvar-local gptel-chat--lifecycle-state nil
+  "Most recent FSM lifecycle state for this chat-mode buffer.
+One of `waiting', `streaming', `tool-running', `error', or nil
+\(meaning idle / DONE\).  Set by the chained handlers in
+`gptel-chat--fsm-handlers'; read by the display layer.")
+#+end_src
+
+* Handler functions
+
+Five handlers, one per lifecycle state we care about. Each is UI-only:
+it sets =gptel-chat--lifecycle-state= in the request's buffer (via
+=gptel-fsm-info='s =:buffer= plist key — that is the buffer the user
+originated the request from) and, for =ERRS=, logs a message.
+
+The =FSM= argument is the upstream =gptel-fsm= struct. We read its
+=info= slot to find the originating buffer; we never mutate the
+FSM, never call =gptel--fsm-transition=, and never consult
+=gptel-fsm-state= inside these handlers (that is the job of the
+accessor defined below, for external observers).
+
+#+begin_src emacs-lisp
+(defun gptel-chat--set-lifecycle-state (fsm state)
+  "Helper: set `gptel-chat--lifecycle-state' to STATE in FSM's buffer.
+
+FSM is a `gptel-fsm' struct; STATE is one of the symbol values
+documented on `gptel-chat--lifecycle-state'.  If the request
+buffer is dead or unset, this is a silent no-op — the indicator
+is purely advisory."
+  (when-let* ((info (gptel-fsm-info fsm))
+              (buf  (plist-get info :buffer))
+              ((buffer-live-p buf)))
+    (with-current-buffer buf
+      (setq gptel-chat--lifecycle-state state))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun gptel-chat--on-wait (fsm)
+  "Chained FSM handler for state WAIT: mark buffer as waiting.
+
+Runs BEFORE upstream's `gptel--handle-wait', which actually fires
+the network request.  UI-only: sets the lifecycle indicator to
+`waiting'."
+  (gptel-chat--set-lifecycle-state fsm 'waiting))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun gptel-chat--on-type (fsm)
+  "Chained FSM handler for state TYPE: mark buffer as streaming.
+
+Upstream does not chain a handler for TYPE in the alist we
+install — the TYPE transition is driven by the curl/url response
+pipeline, not by a handler — so this is the only function that
+fires on TYPE entry.  UI-only."
+  (gptel-chat--set-lifecycle-state fsm 'streaming))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun gptel-chat--on-tool (fsm)
+  "Chained FSM handler for state TOOL: mark buffer as tool-running.
+
+Runs BEFORE upstream's `gptel--handle-tool-use', which executes
+the queued tool calls and transitions the FSM onward.  UI-only."
+  (gptel-chat--set-lifecycle-state fsm 'tool-running))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun gptel-chat--on-done (fsm)
+  "Chained FSM handler for state DONE: clear the lifecycle indicator.
+
+No upstream handler is chained for DONE in our alist; the request
+is complete and there is no further transition work.  UI-only."
+  (gptel-chat--set-lifecycle-state fsm nil))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun gptel-chat--on-errs (fsm)
+  "Chained FSM handler for state ERRS: mark buffer as errored, log.
+
+Sets the lifecycle indicator to `error' and emits a message so
+the error is visible in the echo area / `*Messages*' buffer even
+if no display-layer overlay is active yet.  UI-only."
+  (gptel-chat--set-lifecycle-state fsm 'error)
+  (message "gptel-chat: request failed (FSM entered ERRS)"))
+#+end_src
+
+* Handler alist
+
+The alist passed to =gptel-make-fsm= as =:handlers=. Entry shape
+is =(STATE HANDLER-FN-1 HANDLER-FN-2 ...)=; on transition to
+=STATE=, each handler fires in list order. Our handler chains
+BEFORE upstream's so UI state updates precede the
+transition-driving logic (see the persistent-agent pattern).
+
+=TYPE=, =DONE=, =ERRS= do not need a chained upstream handler in
+this flow: =TYPE= has no handler-level transition work (curl/url
+pipeline advances from =TYPE=), and =DONE=/=ERRS= are terminal
+for our purposes.
+
+#+begin_src emacs-lisp
+(defvar gptel-chat--fsm-handlers
+  `((WAIT ,#'gptel-chat--on-wait  ,#'gptel--handle-wait)
+    (TYPE ,#'gptel-chat--on-type)
+    (TOOL ,#'gptel-chat--on-tool  ,#'gptel--handle-tool-use)
+    (DONE ,#'gptel-chat--on-done)
+    (ERRS ,#'gptel-chat--on-errs))
+  "Chained FSM handlers for `gptel-chat-mode' requests.
+Each entry is \(STATE OUR-HANDLER [UPSTREAM-HANDLER]\).  Our handler
+runs first and performs UI-only work; upstream's handler \(when
+present\) drives the actual state transition.  Pass this as
+`:handlers' to `gptel-make-fsm' when building an FSM for a
+chat-mode `gptel-request' call.")
+#+end_src
+
+* State accessor
+
+Public accessor returning the most recent FSM's current state,
+read from upstream's buffer-local =gptel--fsm-last=. Used by the
+send-guard in task =send-command= to reject sends while a request
+is in flight (design.md §Decision 11). Returns =nil= if no request
+has run in this buffer.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--state ()
+  "Return the current FSM state for this buffer, or nil.
+
+Reads the buffer-local `gptel--fsm-last' upstream sets on every
+`gptel-request' \(see `gptel.el':1104, 1328\).  Returns the state
+symbol \(`INIT', `WAIT', `TYPE', `TOOL', `DONE', `ERRS', `ABRT'\)
+or nil if no request has run in this buffer yet.
+
+Callers — notably the `send-command' task's in-flight guard —
+use this to decide whether a new send is permitted.  Design.md
+§Decision 11: one source of truth; no parallel
+`gptel-chat--stream-active-p' flag.
+
+Type-dispatch note: `cl-typep' / `gptel-fsm-p' would be more
+precise, but both compile-macro-expand to references to the
+`gptel-fsm' struct tag that is only defined once upstream
+`gptel-request' has loaded.  Chat-mode loads before upstream
+gptel (see `init.org' module order), so macro expansion of this
+defun at tangle time would fail on a strict predicate.  We use
+the structural `cl-struct-p' — resolved at run time, accepts any
+`cl-defstruct' instance.  The only producer of `gptel--fsm-last'
+is upstream, so in practice any non-nil value passing
+`cl-struct-p' is a `gptel-fsm'."
+  (when (and (boundp 'gptel--fsm-last)
+             gptel--fsm-last
+             (cl-struct-p gptel--fsm-last))
+    (gptel-fsm-state gptel--fsm-last)))
 #+end_src
 
 * Provide
@@ -33,7 +255,8 @@ See =openspec/changes/gptel-chat-mode/architecture.md= §Components
 #+begin_src emacs-lisp
 ;; TODO(gptel-chat-mode): implement `gptel-chat-send' (interactive),
 ;; send-precondition validation, and assistant-block lifecycle
-;; management.  Tracked by the gptel-chat-mode change.
+;; management.  Tracked by task `send-command' in the
+;; gptel-chat-mode change.
 
 (provide 'gptel-chat-send)
 
