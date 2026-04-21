@@ -527,9 +527,13 @@ streams text, renders tool blocks, and closes the block on
 completion / error / abort per design.md §Decision 10.
 
 The returned closure has signature `(RESPONSE INFO)' matching
-upstream's `gptel-request' :callback contract.  INFO is unused in
-v1 but its positional slot is preserved so upstream can pass it
-without adaptation.
+upstream's `gptel-request' :callback contract.  INFO is consulted
+on the `t' (HTTP success) arm only: upstream fires `t' once per
+HTTP round-trip, so during a multi-round tool-use turn we must
+keep the assistant block open until the FINAL `t' (the one with
+`:tool-use' unset) so tool results and subsequent request text
+land inside the same block.  See `persistent-agent.org' for the
+canonical pattern.
 
 State captured in the closure:
 
@@ -552,7 +556,7 @@ State captured in the closure:
          (set-tool (gptel-chat-stream-set-tool-marker stream-handle))
          (clear-tool (gptel-chat-stream-clear-tool-marker stream-handle))
          (pending-tool-markers nil))
-    (lambda (response _info)
+    (lambda (response info)
       (pcase response
         ;; Text chunk: line-buffered sanitize + insert at active marker.
         ((pred stringp)
@@ -589,11 +593,22 @@ State captured in the closure:
                (gptel-chat--stream-close-tool-block marker text))))
          (unless pending-tool-markers
            (funcall clear-tool)))
-        ;; Normal completion: flush holdback, close the block,
-        ;; append a fresh empty user block and position point.
+        ;; HTTP success (`t'): upstream fires this after every
+        ;; request completes — once per round-trip.  For a
+        ;; multi-round tool-use turn the sequence is
+        ;;   Request-1 text → `t' (with :tool-use) → tool-call
+        ;;   → tool-result → Request-2 text → `t' (no :tool-use).
+        ;; If we closed the assistant block on the FIRST `t', the
+        ;; subsequent tool-result and Request-2 text would land
+        ;; after `#+end_assistant' and corrupt the buffer.
+        ;; Gate the close-and-append sequence on the final turn
+        ;; (null :tool-use); otherwise only flush holdback and
+        ;; leave the block open.  Mirrors persistent-agent's
+        ;; `(unless (plist-get info :tool-use) …)' pattern.
         ('t
          (funcall stream-insert t)
-         (gptel-chat--stream-close-assistant insertion-marker))
+         (unless (plist-get info :tool-use)
+           (gptel-chat--stream-close-assistant insertion-marker)))
         ;; Error / network failure: flush, close with error marker.
         ('nil
          (funcall stream-insert t)
