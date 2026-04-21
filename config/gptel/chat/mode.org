@@ -92,6 +92,7 @@ invokes our callback with ='abort= — no chat-mode wrapper needed).
 (declare-function gptel-chat-previous-turn nil ())
 (declare-function gptel-chat-regenerate nil ())
 (declare-function gptel-chat-toggle-display-layer nil ())
+(declare-function gptel-chat-menu nil ())
 (declare-function gptel-abort "gptel" (buf))
 #+end_src
 
@@ -107,6 +108,14 @@ prefix (=C-c n= / =C-c p=) so both navigation systems remain usable.
 =C-c C-k= is bound directly to the upstream =gptel-abort= — chat-mode
 does not need its own abort wrapper (design.md §Decision 10).
 
+=C-c C-,= opens =gptel-chat-menu= — the chat-mode transient that
+mirrors =gptel-menu='s configuration layout with the Send suffix
+rebound to =gptel-chat-send= (design.md §Decision 15, task
+=menu-integration=). We deliberately avoid binding the /same/ key as
+upstream =gptel-menu='s suggested binding (users who want upstream
+behaviour can still run =M-x gptel-menu= directly, and the upstream
+prefix remains unmutated).
+
 #+begin_src emacs-lisp
 (defvar gptel-chat-mode-map
   (let ((map (make-sparse-keymap)))
@@ -116,6 +125,7 @@ does not need its own abort wrapper (design.md §Decision 10).
     (define-key map (kbd "C-c C-r") #'gptel-chat-regenerate)
     (define-key map (kbd "C-c C-t") #'gptel-chat-toggle-display-layer)
     (define-key map (kbd "C-c C-k") #'gptel-abort)
+    (define-key map (kbd "C-c C-,") #'gptel-chat-menu)
     map)
   "Keymap for `gptel-chat-mode'.
 
@@ -126,6 +136,7 @@ Bindings:
   C-c C-r  `gptel-chat-regenerate'           — regenerate last response
   C-c C-t  `gptel-chat-toggle-display-layer' — show/hide overlays
   C-c C-k  `gptel-abort'                     — abort the in-flight request
+  C-c C-,  `gptel-chat-menu'                 — open chat-mode transient
 
 The single-`C-c' prefix on turn navigation avoids shadowing org's
 `C-c C-n' / `C-c C-p' heading navigation — see design.md §Decision 7.")
