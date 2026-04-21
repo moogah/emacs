@@ -2,7 +2,7 @@
 name: marker-insertion-type-contract
 description: Make the stream closure's insertion-marker insertion-type contract explicit
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sanitize-chunks
 ---

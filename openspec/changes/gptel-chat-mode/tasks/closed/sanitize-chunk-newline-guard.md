@@ -2,7 +2,7 @@
 name: sanitize-chunk-newline-guard
 description: Guard gptel-chat--sanitize-chunk against embedded newlines
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sanitize-chunks
 ---

@@ -2,7 +2,7 @@
 name: tool-marker-routing-tests
 description: Add tests that exercise tool-marker routing in the stream closure
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sanitize-chunks
   - blocked-by:expose-tool-marker-setter

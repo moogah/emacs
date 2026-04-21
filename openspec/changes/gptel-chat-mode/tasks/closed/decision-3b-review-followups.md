@@ -2,7 +2,7 @@
 name: decision-3b-review-followups
 description: Tighten Decision 3b prose and reconcile related doc/spec artifacts per the revisit-decision-3b review
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:revisit-decision-3b-tool-marker
 ---
