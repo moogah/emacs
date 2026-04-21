@@ -614,7 +614,7 @@
   ;; calls — hence this scenario mandated by spec
   ;; §"Tool-call rendering inside assistant blocks" → "Multiple tool
   ;; calls in a response".
-  (it "splits an assistant with two tool calls into (text tool-call text tool-call text)"
+  (it "splits an assistant with three tool calls into (text tool-call text tool-call text tool-call text)"
     (gptel-chat-test--with-buffer
         (concat "#+begin_assistant\n"
                 "prose1\n"
@@ -630,21 +630,31 @@
                 "#+end_tool\n"
                 "\n"
                 "prose3\n"
+                "\n"
+                "#+begin_tool (tool_c :z 3)\n"
+                "result_c\n"
+                "#+end_tool\n"
+                "\n"
+                "prose4\n"
                 "#+end_assistant\n")
       (let* ((turns (gptel-chat--parse-buffer))
              (assistant (car turns))
              (segs (plist-get assistant :segments)))
         (expect (plist-get assistant :role) :to-equal 'assistant)
-        (expect (length segs) :to-equal 5)
+        (expect (length segs) :to-equal 7)
         (expect (mapcar (lambda (s) (plist-get s :type)) segs)
-                :to-equal '(text tool-call text tool-call text))
+                :to-equal '(text tool-call text tool-call text tool-call text))
         (expect (plist-get (nth 1 segs) :name) :to-equal "tool_a")
         (expect (plist-get (nth 1 segs) :result) :to-equal "result_a")
         (expect (plist-get (nth 3 segs) :name) :to-equal "tool_b")
         (expect (plist-get (nth 3 segs) :result) :to-equal "result_b")
+        (expect (plist-get (nth 5 segs) :name) :to-equal "tool_c")
+        (expect (plist-get (nth 5 segs) :args) :to-equal '(:z 3))
+        (expect (plist-get (nth 5 segs) :result) :to-equal "result_c")
         (expect (plist-get (nth 0 segs) :content) :to-match "prose1")
         (expect (plist-get (nth 2 segs) :content) :to-match "prose2")
-        (expect (plist-get (nth 4 segs) :content) :to-match "prose3")))))
+        (expect (plist-get (nth 4 segs) :content) :to-match "prose3")
+        (expect (plist-get (nth 6 segs) :content) :to-match "prose4")))))
 
 (provide 'buffer-format-spec)
 
