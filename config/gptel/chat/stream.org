@@ -370,15 +370,375 @@ routing — no `cl-letf' surgery on captured variables."
        nil))))
 #+end_src
 
+* Callback dispatch
+
+=gptel-chat--stream-callback= is the factory that returns the closure
+passed to =gptel-request= as =:callback=. It wraps the text-processing
+handle built by =gptel-chat--make-stream-inserter= with a
+=pcase=-based dispatcher on upstream's documented response shapes
+(design.md §Decision 10).
+
+The captured state is:
+
+| Slot                    | Purpose                                                                                     |
+|-------------------------+---------------------------------------------------------------------------------------------|
+| =insertion-marker=      | Advance marker at the end of the open =#+begin_assistant= block (where text streams in).   |
+| =stream-handle=         | =gptel-chat-stream= struct returned by =gptel-chat--make-stream-inserter=.                 |
+| =pending-tool-markers=  | FIFO list of advance markers, one per open tool block awaiting its result.                  |
+
+Response-shape dispatch (see design.md §Decision 10 for the full
+table and rationale):
+
+| Response                       | Action                                                                                 |
+|--------------------------------+----------------------------------------------------------------------------------------|
+| a STRING                       | Pass through the holdback-aware stream handle (line-buffered sanitize + insert).       |
+| =(reasoning . _)=              | v1: ignore. A later change may render into a =#+begin_reasoning= block.                |
+| =(tool-call . ,calls)=         | Open one =#+begin_tool (<name> :args <sexp>)= block per call; route subsequent inserts into the LAST opened block via =set-tool-marker=; push each call's result-target marker onto a FIFO. |
+| =(tool-result . ,results)=     | For each result, pop the matching marker off the FIFO, insert stringified result + =#+end_tool=; after all results clear =tool-marker= via =clear-tool-marker=. |
+| =t=                            | Normal completion — flush holdback, close block with =#+end_assistant=, append fresh empty =#+begin_user= block, position point on blank line inside it (Decision 8). |
+| =nil=                          | Error / network failure — flush holdback, insert visible error marker, close block.    |
+| ='abort=                       | User abort (=M-x gptel-abort=) — flush holdback, insert visible interruption marker, close block. |
+
+**Upstream response hooks are intentionally bypassed.**
+=gptel-post-response-functions= and =gptel-pre-response-hook= are
+consumed by gptel-mode's default callback, which assumes gptel-mode's
+prompt/response-prefix conventions — conventions chat-mode does not
+use. Our callback does NOT invoke those hooks, on purpose
+(design.md §Decision 10).
+
+** Helper: format a tool-block header
+
+The session-file convention is =#+begin_tool (<name> :args <sexp>)=.
+The parser reads the header as a single sexp with the tool name as
+the first symbol and the remaining keyword arguments (=:args <sexp>=)
+as the plist tail. Formatting on write and reading on parse share
+this form, so tool blocks round-trip through disk unchanged.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-format-tool-header (name args)
+  "Format a `#+begin_tool' header line for tool CALL plist.
+NAME is a string.  ARGS is a plist-or-list (model-supplied tool
+arguments) rendered via `prin1-to-string' so the parser's
+`read-from-string' round-trips it intact.  Returns the full
+header line without a trailing newline."
+  (format "#+begin_tool (%s :args %s)"
+          name
+          (prin1-to-string args)))
+#+end_src
+
+** Helper: insert a sanitized multi-line block at a marker
+
+Tool results arrive as a single string (not a stream), so they do
+not go through the holdback-aware inserter. They MAY still contain
+collision lines (=#+end_tool= in particular), so each line is
+individually passed through =gptel-chat--sanitize-chunk= before
+insertion.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-insert-sanitized-block (marker text)
+  "Insert TEXT at MARKER with per-line delimiter-collision sanitization.
+TEXT may contain embedded newlines; each line is individually
+sanitized via `gptel-chat--sanitize-chunk', then reassembled with
+its original line separators preserved.  The inserted payload
+always ends in exactly one newline so a following closer delimiter
+lands on its own line:
+
+- TEXT nil or empty  → a single newline (empty body line).
+- TEXT ends in `\\n'  → preserved as-is (already line-terminated).
+- TEXT lacks `\\n'    → a trailing newline is appended.
+
+Rationale: tool results may be arbitrarily shaped (with or without
+a trailing newline), and the calling layout relies on exactly one
+`\\n' between the last content line and the closer delimiter."
+  (with-current-buffer (marker-buffer marker)
+    (save-excursion
+      (goto-char marker)
+      (cond
+       ((or (null text) (string-empty-p text))
+        (insert "\n"))
+       (t
+        (let* ((lines (split-string text "\n"))
+               ;; If TEXT ends in `\\n' the split produces a trailing
+               ;; empty element; dropping it avoids emitting a spurious
+               ;; blank line, then the explicit terminator below gives
+               ;; us exactly one trailing newline regardless of input
+               ;; shape.
+               (effective (if (and (> (length lines) 1)
+                                   (string-empty-p
+                                    (car (last lines))))
+                              (butlast lines)
+                            lines))
+               (sanitized (mapconcat #'gptel-chat--sanitize-chunk
+                                     effective "\n")))
+          (insert sanitized "\n")))))))
+#+end_src
+
+** Helper: open a tool block and return its result marker
+
+Inserts both delimiters (=#+begin_tool ...= and =#+end_tool=)
+immediately with an empty body, and returns an advance marker
+positioned on the blank body line between them. Opening-with-closer
+matters for multi-call events: if the opener inserted only the
+header and left the close to =gptel-chat--stream-close-tool-block=,
+the first call's result marker and the assistant =insertion-marker=
+would sit at the same buffer position, and inserting the second
+call's header would push both markers forward together — corrupting
+the FIFO. Closing both delimiters up-front separates the two markers
+by the =#+end_tool= line, so subsequent work at =insertion-marker=
+does not disturb prior result markers.
+
+The implementation performs the =#+end_tool= insert BEFORE
+building the result-marker so the result-marker does not ride the
+`#+end_tool= insertion forward. We record the body position
+(an integer from =(point)=) after writing the header, then insert
+the closer (which advances =insertion-marker= past the whole
+block), then construct a fresh advance marker at the recorded
+integer position. The result-marker ends up between the two
+delimiters while =insertion-marker= ends up past them — so
+subsequent inserts at =insertion-marker= (a second sibling tool
+block, or streamed assistant text) do not disturb prior tool
+markers.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-open-tool-block (insertion-marker call)
+  "Open a nested `#+begin_tool' block at INSERTION-MARKER for CALL.
+CALL is a plist carrying at least `:name' (string) and `:args'
+\(plist or list\).  Inserts both `#+begin_tool ...' and matching
+`#+end_tool' delimiters with an empty body, and returns an advance
+marker (insertion-type t) positioned on the empty body line
+between them.  The caller feeds the result text into that marker
+via `gptel-chat--stream-close-tool-block'; the closing delimiter
+is already in place.
+
+Marker construction is ordered so the result-marker is not
+co-located with INSERTION-MARKER at any moment when a shared-position
+insert happens — see the §\"Helper: open a tool block\" discussion
+above."
+  (let* ((name (or (plist-get call :name) ""))
+         (args (plist-get call :args))
+         (header (gptel-chat--stream-format-tool-header name args))
+         (buf (marker-buffer insertion-marker)))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char insertion-marker)
+        (insert header "\n")
+        ;; Record the integer position of the result-body line,
+        ;; then insert the closer.  Because `body-pos' is a plain
+        ;; integer (not a marker), the `#+end_tool' insert does
+        ;; not carry it forward; `insertion-marker' (insertion-type
+        ;; t) advances past the closer while `body-pos' continues
+        ;; to refer to the body line.
+        (let ((body-pos (point)))
+          (insert "#+end_tool\n")
+          (copy-marker body-pos t))))))
+#+end_src
+
+** Helper: close a tool block at its result marker
+
+On =tool-result=, insert the stringified result at the result-target
+marker. The =#+end_tool= closer is already in the buffer (inserted
+by =gptel-chat--stream-open-tool-block=); this helper only fills in
+the body.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-close-tool-block (tool-marker result)
+  "Insert RESULT at TOOL-MARKER; the `#+end_tool' closer is pre-placed.
+RESULT is a string (or nil for an empty result).  Each line of
+RESULT is sanitized via `gptel-chat--sanitize-chunk' so a result
+that itself contains `#+end_tool' or `#+end_assistant' cannot
+prematurely close a containing block."
+  (gptel-chat--stream-insert-sanitized-block tool-marker
+                                             (or result "")))
+#+end_src
+
+** Helper: close the assistant block and append a fresh user block
+
+Three terminal paths (completion, error, abort) share the same
+structural operation: ensure the buffer text ends with a newline,
+append =#+end_assistant= on its own line, then append a fresh empty
+=#+begin_user= / =#+end_user= block with point positioned on the
+blank line inside (Decision 8's shell-like append flow). For the
+error and abort paths, a visible marker line is prepended before the
+closing delimiter.
+
+Completion and error/abort share the closing-and-append sequence
+so the buffer always ends in a well-formed user-block pending the
+next send.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-close-assistant (insertion-marker
+                                           &optional marker-text)
+  "Close the open assistant block at INSERTION-MARKER.
+If MARKER-TEXT is non-nil, insert it as a line before
+`#+end_assistant'; used by the error and abort paths to record a
+visible interruption marker.  Then append a fresh empty
+`#+begin_user' / `#+end_user' block and move point to the blank
+line inside it (Decision 8).  Always leaves the buffer in a
+well-formed state: one closed assistant block followed by one open
+(empty) user block."
+  (let ((buf (marker-buffer insertion-marker)))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char insertion-marker)
+        ;; Ensure we're at the start of a line before inserting the
+        ;; closing delimiter.  If the previous insert left point
+        ;; mid-line (e.g., a holdback flush with no trailing newline),
+        ;; start a new line first.
+        (unless (bolp) (insert "\n"))
+        (when marker-text
+          (insert marker-text "\n"))
+        (insert "#+end_assistant\n\n#+begin_user\n\n#+end_user\n"))
+      ;; Position point on the blank line inside the new user block.
+      ;; The insertion-marker (insertion-type t) has advanced past
+      ;; everything we just inserted, so search backward from it for
+      ;; the `#+end_user' line and step one line up.
+      (goto-char insertion-marker)
+      (when (search-backward "#+end_user" nil t)
+        (forward-line -1)))))
+#+end_src
+
+** Constants: visible error and abort markers
+
+Shared constants so test assertions can reference them without
+hard-coding literals across files. Plain org comment lines keep the
+parser happy (comment lines are ignored when walking an assistant
+body).
+
+#+begin_src emacs-lisp
+(defconst gptel-chat--stream-error-marker
+  "# gptel-chat: request failed"
+  "Visible marker line inserted at the end of an assistant block on
+error (network failure / `nil' response).  See
+`gptel-chat--stream-callback'.")
+
+(defconst gptel-chat--stream-abort-marker
+  "# gptel-chat: interrupted"
+  "Visible marker line inserted at the end of an assistant block on
+user abort (`M-x gptel-abort').  See `gptel-chat--stream-callback'.")
+#+end_src
+
+** The callback factory
+
+=gptel-chat--stream-callback= is the entry point. Given an advance
+marker at the end of the open =#+begin_assistant= block, it returns
+the =:callback= closure for =gptel-request=. The closure ignores
+its second argument (=info=) except to extract no currently-used
+context; all per-send state is captured in the closure.
+
+Design invariants:
+
+1. The callback's =pcase= dispatcher is the single integration point
+   with upstream's callback protocol (design.md §Decision 10). If a
+   future upstream version adds a new response shape, the fix is a
+   one-file edit here.
+2. The callback never calls =gptel--fsm-transition= — state
+   transitions are driven by the chained upstream handlers
+   (=gptel--handle-wait=, =gptel--handle-tool-use=). See
+   =config/gptel/chat/send.org= for the handler chain.
+3. The callback never invokes =gptel-post-response-functions= or
+   =gptel-pre-response-hook=: those hooks assume gptel-mode's
+   prompt/response-prefix conventions that chat-mode deliberately
+   does not use (design.md §Decision 10 paragraph "Upstream response
+   hooks are intentionally bypassed").
+
+#+begin_src emacs-lisp
+(defun gptel-chat--stream-callback (insertion-marker)
+  "Return a `gptel-request' :callback closure for INSERTION-MARKER.
+INSERTION-MARKER is an advance marker (insertion-type t) at the
+end of an open `#+begin_assistant' block; the returned closure
+streams text, renders tool blocks, and closes the block on
+completion / error / abort per design.md §Decision 10.
+
+The returned closure has signature `(RESPONSE INFO)' matching
+upstream's `gptel-request' :callback contract.  INFO is unused in
+v1 but its positional slot is preserved so upstream can pass it
+without adaptation.
+
+State captured in the closure:
+
+- INSERTION-MARKER (the argument): where assistant-level text goes.
+- STREAM-HANDLE: the `gptel-chat-stream' built by
+  `gptel-chat--make-stream-inserter' — carries line-holdback state
+  and the tool-marker routing override.
+- PENDING-TOOL-MARKERS: FIFO list of result-target markers, one
+  per open tool block awaiting its result.  Pushed on `tool-call',
+  popped in order on `tool-result'."
+  (unless (and (markerp insertion-marker)
+               (marker-buffer insertion-marker))
+    (error "INSERTION-MARKER must be a live marker"))
+  (unless (marker-insertion-type insertion-marker)
+    (error "INSERTION-MARKER must have insertion-type t \
+(advance marker); got insertion-type nil"))
+  (let* ((stream-handle (gptel-chat--make-stream-inserter
+                         insertion-marker))
+         (stream-insert (gptel-chat-stream-insert stream-handle))
+         (set-tool (gptel-chat-stream-set-tool-marker stream-handle))
+         (clear-tool (gptel-chat-stream-clear-tool-marker stream-handle))
+         (pending-tool-markers nil))
+    (lambda (response _info)
+      (pcase response
+        ;; Text chunk: line-buffered sanitize + insert at active marker.
+        ((pred stringp)
+         (funcall stream-insert response))
+        ;; Reasoning event: v1 ignores.  A later change may render
+        ;; into a `#+begin_reasoning' block (design.md §Decision 10).
+        (`(reasoning . ,_)
+         nil)
+        ;; Tool-call event: open one #+begin_tool block per call,
+        ;; push each result-target marker onto the FIFO, and route
+        ;; subsequent streaming to the LAST opened block (if any)
+        ;; so prose arriving between tool-call and tool-result
+        ;; lands inside the tool body.
+        (`(tool-call . ,calls)
+         (let (last-marker)
+           (dolist (call calls)
+             (let ((m (gptel-chat--stream-open-tool-block
+                       insertion-marker call)))
+               (setq pending-tool-markers
+                     (append pending-tool-markers (list m))
+                     last-marker m)))
+           (when last-marker
+             (funcall set-tool last-marker))))
+        ;; Tool-result event: match each result to the next pending
+        ;; marker in FIFO order, insert the result and close the
+        ;; block.  Once all results have been processed, clear the
+        ;; tool-marker override so subsequent streaming goes back
+        ;; to the assistant-level marker.
+        (`(tool-result . ,results)
+         (dolist (result results)
+           (let ((marker (pop pending-tool-markers))
+                 (text (plist-get result :result)))
+             (when marker
+               (gptel-chat--stream-close-tool-block marker text))))
+         (unless pending-tool-markers
+           (funcall clear-tool)))
+        ;; Normal completion: flush holdback, close the block,
+        ;; append a fresh empty user block and position point.
+        ('t
+         (funcall stream-insert t)
+         (gptel-chat--stream-close-assistant insertion-marker))
+        ;; Error / network failure: flush, close with error marker.
+        ('nil
+         (funcall stream-insert t)
+         (gptel-chat--stream-close-assistant
+          insertion-marker gptel-chat--stream-error-marker))
+        ;; User abort (M-x gptel-abort): flush, close with
+        ;; interruption marker.
+        ('abort
+         (funcall stream-insert t)
+         (gptel-chat--stream-close-assistant
+          insertion-marker gptel-chat--stream-abort-marker))
+        ;; Any other shape is a caller bug or an unexpected
+        ;; upstream shape; surface it loudly so drift from the
+        ;; upstream protocol does not silently corrupt the buffer.
+        (_
+         (error "gptel-chat: unexpected response shape %S" response)))
+      nil)))
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp
-;; TODO(gptel-chat-mode): wire this closure into a
-;; `gptel-chat--install-stream-callback' that dispatches on
-;; gptel-request response shapes (string / tool-call / tool-result /
-;; t / nil / 'abort) per design.md §Decision 10.  Owned by the
-;; `stream-callback' task.
-
 (provide 'gptel-chat-stream)
 
 ;;; stream.el ends here

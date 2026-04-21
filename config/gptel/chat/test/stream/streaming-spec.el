@@ -657,6 +657,181 @@ Returns the marker."
         (expect (funcall setter nil) :to-throw)))))
 
 
+;;; gptel-chat--stream-callback terminal paths -----------------------------
+;;
+;; These specs exercise the completion / abort / error branches of
+;; `gptel-chat--stream-callback' (design.md §Decision 10).  The
+;; callback closes the active assistant block, optionally records a
+;; visible marker for abort/error, and appends a fresh empty
+;; `#+begin_user' / `#+end_user' block with point positioned on the
+;; blank line inside (Decision 8, shell-like append flow).
+;;
+;; Also asserts the bypass of `gptel-post-response-functions' and
+;; `gptel-pre-response-hook': those hooks are consumed by gptel-mode's
+;; default callback and assume its prompt/response-prefix conventions
+;; — which chat-mode deliberately does not use (Decision 10, "Upstream
+;; response hooks are intentionally bypassed").
+
+(describe "gptel-chat--stream-callback terminal paths"
+
+  (let (test-buffer test-marker)
+
+    (cl-labels
+        ((fresh-buffer ()
+           (setq test-buffer
+                 (generate-new-buffer " *gptel-chat-stream-callback-test*"))
+           (with-current-buffer test-buffer
+             (insert "#+begin_user\nhi\n#+end_user\n#+begin_assistant\n")
+             (setq test-marker (copy-marker (point-max) t)))
+           test-marker)
+         (buffer-string-no-props ()
+           (with-current-buffer test-buffer
+             (buffer-substring-no-properties (point-min) (point-max))))
+         (cleanup ()
+           (when (buffer-live-p test-buffer)
+             (kill-buffer test-buffer))
+           (setq test-buffer nil test-marker nil)))
+
+      (before-each (fresh-buffer))
+      (after-each  (cleanup))
+
+      (describe "normal completion (response `t')"
+
+        (it "flushes holdback, closes block, appends a fresh user block"
+          (let ((cb (gptel-chat--stream-callback test-marker)))
+            (funcall cb "Hello.\n" nil)
+            (funcall cb t nil))
+          (expect (buffer-string-no-props)
+                  :to-equal
+                  (concat "#+begin_user\nhi\n#+end_user\n"
+                          "#+begin_assistant\n"
+                          "Hello.\n"
+                          "#+end_assistant\n"
+                          "\n#+begin_user\n\n#+end_user\n")))
+
+        (it "flushes a trailing partial line before closing"
+          ;; Upstream may send the completion `t' after a final chunk
+          ;; that has no trailing newline.  The holdback-aware inserter
+          ;; flushes that partial without adding a newline; the
+          ;; callback then adds one before `#+end_assistant'.
+          (let ((cb (gptel-chat--stream-callback test-marker)))
+            (funcall cb "trailing partial" nil)
+            (funcall cb t nil))
+          (expect (buffer-string-no-props)
+                  :to-equal
+                  (concat "#+begin_user\nhi\n#+end_user\n"
+                          "#+begin_assistant\n"
+                          "trailing partial\n"
+                          "#+end_assistant\n"
+                          "\n#+begin_user\n\n#+end_user\n")))
+
+        (it "positions point on the blank line inside the new user block"
+          (let ((cb (gptel-chat--stream-callback test-marker)))
+            (funcall cb "Done.\n" nil)
+            (funcall cb t nil))
+          ;; Point should be on the empty line inside the appended
+          ;; `#+begin_user' block.  The character immediately before
+          ;; point is "\n" (closing the `#+begin_user' line) and the
+          ;; character at point is "\n" (the blank line's own
+          ;; terminator), so (char-after) = ?\n AND (bolp).
+          (with-current-buffer test-buffer
+            (expect (bolp) :to-be-truthy)
+            (expect (char-after) :to-equal ?\n)
+            ;; Backward-looking sanity: the line immediately before
+            ;; point is `#+begin_user'.
+            (forward-line -1)
+            (expect (buffer-substring-no-properties
+                     (point) (line-end-position))
+                    :to-equal "#+begin_user"))))
+
+      (describe "user abort (response `abort')"
+
+        (it "closes block with interruption marker and appends a user block"
+          ;; Spec §"Stream abort": the assistant block is closed with
+          ;; `#+end_assistant' and a visible marker records that the
+          ;; response was interrupted.
+          (let ((cb (gptel-chat--stream-callback test-marker)))
+            (funcall cb "Partial before abort.\n" nil)
+            (funcall cb 'abort nil))
+          (expect (buffer-string-no-props)
+                  :to-equal
+                  (concat "#+begin_user\nhi\n#+end_user\n"
+                          "#+begin_assistant\n"
+                          "Partial before abort.\n"
+                          gptel-chat--stream-abort-marker "\n"
+                          "#+end_assistant\n"
+                          "\n#+begin_user\n\n#+end_user\n")))
+
+        (it "closes cleanly when no prior content has been streamed"
+          (let ((cb (gptel-chat--stream-callback test-marker)))
+            (funcall cb 'abort nil))
+          (expect (buffer-string-no-props)
+                  :to-equal
+                  (concat "#+begin_user\nhi\n#+end_user\n"
+                          "#+begin_assistant\n"
+                          gptel-chat--stream-abort-marker "\n"
+                          "#+end_assistant\n"
+                          "\n#+begin_user\n\n#+end_user\n"))))
+
+      (describe "network / API error (response `nil')"
+
+        (it "closes block with error marker and appends a user block"
+          (let ((cb (gptel-chat--stream-callback test-marker)))
+            (funcall cb "Some content.\n" nil)
+            (funcall cb nil nil))
+          (expect (buffer-string-no-props)
+                  :to-equal
+                  (concat "#+begin_user\nhi\n#+end_user\n"
+                          "#+begin_assistant\n"
+                          "Some content.\n"
+                          gptel-chat--stream-error-marker "\n"
+                          "#+end_assistant\n"
+                          "\n#+begin_user\n\n#+end_user\n"))))
+
+      (describe "upstream response hooks are bypassed"
+
+        (it "does NOT invoke `gptel-post-response-functions' on completion"
+          ;; Decision 10: those hooks assume gptel-mode's
+          ;; prompt/response-prefix conventions.  Chat-mode does not
+          ;; use them; the callback must not run them.
+          (let ((gptel-post-response-functions nil)
+                (call-count 0))
+            (add-hook 'gptel-post-response-functions
+                      (lambda (&rest _) (cl-incf call-count)))
+            (let ((cb (gptel-chat--stream-callback test-marker)))
+              (funcall cb "text\n" nil)
+              (funcall cb t nil))
+            (expect call-count :to-equal 0)))
+
+        (it "does NOT invoke `gptel-pre-response-hook' on any path"
+          (let ((gptel-pre-response-hook nil)
+                (call-count 0))
+            (add-hook 'gptel-pre-response-hook
+                      (lambda (&rest _) (cl-incf call-count)))
+            (let ((cb (gptel-chat--stream-callback test-marker)))
+              (funcall cb "text\n" nil)
+              (funcall cb t nil))
+            (expect call-count :to-equal 0)))
+
+        (it "does NOT invoke `gptel-post-response-functions' on abort"
+          (let ((gptel-post-response-functions nil)
+                (call-count 0))
+            (add-hook 'gptel-post-response-functions
+                      (lambda (&rest _) (cl-incf call-count)))
+            (let ((cb (gptel-chat--stream-callback test-marker)))
+              (funcall cb 'abort nil))
+            (expect call-count :to-equal 0)))
+
+        (it "does NOT invoke `gptel-post-response-functions' on error"
+          (let ((gptel-post-response-functions nil)
+                (call-count 0))
+            (add-hook 'gptel-post-response-functions
+                      (lambda (&rest _) (cl-incf call-count)))
+            (let ((cb (gptel-chat--stream-callback test-marker)))
+              (funcall cb nil nil))
+            (expect call-count :to-equal 0)))))))
+
+
 (provide 'streaming-spec)
 
 ;;; streaming-spec.el ends here

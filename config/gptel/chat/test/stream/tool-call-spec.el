@@ -1,0 +1,312 @@
+;;; tool-call-spec.el --- Buttercup tests for gptel-chat stream-callback tool-call rendering -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: tests
+
+;;; Commentary:
+
+;; Exercises `gptel-chat--stream-callback', the factory that returns
+;; the closure passed to `gptel-request' as `:callback' (design.md
+;; §Decision 10).  The callback dispatches on upstream's documented
+;; response shapes via `pcase' and renders tool calls as nested
+;; `#+begin_tool' blocks inside the active assistant block.
+;;
+;; Scenarios covered (spec §"Tool-call rendering inside assistant
+;; blocks" and §"Response streaming and sanitization"):
+;; - Single tool call: one `#+begin_tool'/`#+end_tool' block with
+;;   correct args and result.
+;; - Multiple tool calls interleaved with prose: three sibling blocks
+;;   with prose in correct positions.
+;; - Tool-result containing a `#+end_tool' collision is sanitized.
+;; - Reasoning events are ignored.
+;; - Unknown response shape signals (defensive guard).
+;;
+;; Sibling specs (`streaming-spec.el') cover the completion / abort /
+;; error terminal paths and the bypass assertion on
+;; `gptel-post-response-functions'.
+
+;;; Code:
+
+(require 'buttercup)
+(require 'cl-lib)
+
+;; Load the module under test from the co-located source directory.
+(let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (chat-dir (expand-file-name "../../" spec-dir)))
+  (add-to-list 'load-path chat-dir))
+
+(require 'gptel-chat-stream)
+
+
+;;; Fixtures -----------------------------------------------------------------
+
+(defvar gptel-chat-tool-call-test--buffer nil
+  "Scratch buffer for stream-callback tool-call tests.")
+
+(defvar gptel-chat-tool-call-test--marker nil
+  "Live advance insertion marker for the active assistant block.")
+
+(defun gptel-chat-tool-call-test--fresh-buffer ()
+  "Create a fresh scratch buffer containing a single open assistant block.
+Returns an advance marker positioned at the end of the assistant
+body (i.e., where `#+end_assistant' will eventually be inserted)."
+  (setq gptel-chat-tool-call-test--buffer
+        (generate-new-buffer " *gptel-chat-tool-call-test*"))
+  (with-current-buffer gptel-chat-tool-call-test--buffer
+    (insert "#+begin_user\nhello\n#+end_user\n#+begin_assistant\n")
+    (setq gptel-chat-tool-call-test--marker
+          (copy-marker (point-max) t)))
+  gptel-chat-tool-call-test--marker)
+
+(defun gptel-chat-tool-call-test--buffer-string ()
+  "Return the current contents of the scratch test buffer."
+  (with-current-buffer gptel-chat-tool-call-test--buffer
+    (buffer-substring-no-properties (point-min) (point-max))))
+
+(defun gptel-chat-tool-call-test--cleanup ()
+  (when (buffer-live-p gptel-chat-tool-call-test--buffer)
+    (kill-buffer gptel-chat-tool-call-test--buffer))
+  (setq gptel-chat-tool-call-test--buffer nil
+        gptel-chat-tool-call-test--marker nil))
+
+
+;;; gptel-chat--stream-callback — argument validation ---------------------
+
+(describe "gptel-chat--stream-callback"
+
+  (before-each
+    (gptel-chat-tool-call-test--fresh-buffer))
+
+  (after-each
+    (gptel-chat-tool-call-test--cleanup))
+
+  (describe "argument validation"
+
+    (it "rejects a non-marker argument"
+      (expect (gptel-chat--stream-callback 42) :to-throw))
+
+    (it "rejects a marker with no buffer"
+      (let ((dead (make-marker)))
+        (expect (gptel-chat--stream-callback dead) :to-throw)))
+
+    (it "rejects a marker with insertion-type nil"
+      (let ((default-type-marker
+             (with-current-buffer gptel-chat-tool-call-test--buffer
+               (copy-marker (point-max)))))
+        (expect (marker-insertion-type default-type-marker) :to-equal nil)
+        (expect (gptel-chat--stream-callback default-type-marker)
+                :to-throw)))
+
+    (it "returns a callable closure when given a valid marker"
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (expect (functionp cb) :to-be-truthy))))
+
+
+  ;;; gptel-chat--stream-callback — tool-call / tool-result ---------------
+
+  (describe "single tool call"
+
+    (it "renders one #+begin_tool block with name, args, and result"
+      ;; Scenario: assistant block contains one `#+begin_tool' /
+      ;; `#+end_tool' block with the call arguments and result.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb `(tool-call . ((:name "read_file"
+                                    :args (:path "/tmp/x")))) nil)
+        (funcall cb `(tool-result . ((:name "read_file"
+                                      :args (:path "/tmp/x")
+                                      :result "file contents\n"))) nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (read_file :args (:path \"/tmp/x\"))\n"
+                      "file contents\n"
+                      "#+end_tool\n")))
+
+    (it "renders an empty result when :result is nil"
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb `(tool-call . ((:name "noop" :args nil))) nil)
+        (funcall cb `(tool-result . ((:name "noop"
+                                      :args nil
+                                      :result nil))) nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (noop :args nil)\n"
+                      "\n"
+                      "#+end_tool\n"))))
+
+
+  (describe "prose surrounding a tool call"
+
+    (it "prose before and after a single tool call lands in the right places"
+      ;; Scenario: prose streams before and after the tool event.
+      ;; After tool-result, `tool-marker' is cleared, so subsequent
+      ;; streamed prose routes back to the assistant-level marker.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb "Let me check.\n" nil)
+        (funcall cb `(tool-call . ((:name "read_file"
+                                    :args (:path "/a")))) nil)
+        (funcall cb `(tool-result . ((:name "read_file"
+                                      :args (:path "/a")
+                                      :result "ok"))) nil)
+        (funcall cb "Done.\n" nil)
+        (funcall cb t nil))
+      (let ((s (gptel-chat-tool-call-test--buffer-string)))
+        (expect s
+                :to-equal
+                (concat "#+begin_user\nhello\n#+end_user\n"
+                        "#+begin_assistant\n"
+                        "Let me check.\n"
+                        "#+begin_tool (read_file :args (:path \"/a\"))\n"
+                        "ok\n"
+                        "#+end_tool\n"
+                        "Done.\n"
+                        "#+end_assistant\n"
+                        "\n#+begin_user\n\n#+end_user\n")))))
+
+
+  (describe "multiple tool calls interleaved with prose"
+
+    (it "renders three sibling #+begin_tool blocks in order"
+      ;; Scenario (spec §"Multiple tool calls in a response"): three
+      ;; sequential tool calls interleaved with prose produce three
+      ;; sibling blocks in document order, with prose in its correct
+      ;; positions.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb "A\n" nil)
+        (funcall cb `(tool-call . ((:name "t1" :args (:x 1)))) nil)
+        (funcall cb `(tool-result . ((:name "t1"
+                                      :args (:x 1)
+                                      :result "r1"))) nil)
+        (funcall cb "B\n" nil)
+        (funcall cb `(tool-call . ((:name "t2" :args (:x 2)))) nil)
+        (funcall cb `(tool-result . ((:name "t2"
+                                      :args (:x 2)
+                                      :result "r2"))) nil)
+        (funcall cb "C\n" nil)
+        (funcall cb `(tool-call . ((:name "t3" :args (:x 3)))) nil)
+        (funcall cb `(tool-result . ((:name "t3"
+                                      :args (:x 3)
+                                      :result "r3"))) nil)
+        (funcall cb "D\n" nil)
+        (funcall cb t nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "A\n"
+                      "#+begin_tool (t1 :args (:x 1))\nr1\n#+end_tool\n"
+                      "B\n"
+                      "#+begin_tool (t2 :args (:x 2))\nr2\n#+end_tool\n"
+                      "C\n"
+                      "#+begin_tool (t3 :args (:x 3))\nr3\n#+end_tool\n"
+                      "D\n"
+                      "#+end_assistant\n"
+                      "\n#+begin_user\n\n#+end_user\n")))
+
+    (it "handles a single tool-call event carrying multiple parallel calls"
+      ;; Two calls arrive in one tool-call event (parallel), then two
+      ;; results in one tool-result event in matching order.  Both
+      ;; blocks must be in-order siblings with the correct results.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb `(tool-call . ((:name "p1" :args (:k 1))
+                                   (:name "p2" :args (:k 2))))
+                 nil)
+        (funcall cb `(tool-result . ((:name "p1"
+                                      :args (:k 1)
+                                      :result "first")
+                                     (:name "p2"
+                                      :args (:k 2)
+                                      :result "second")))
+                 nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (p1 :args (:k 1))\nfirst\n#+end_tool\n"
+                      "#+begin_tool (p2 :args (:k 2))\nsecond\n#+end_tool\n"))))
+
+
+  (describe "tool-result sanitization"
+
+    (it "escapes a #+end_tool line inside a tool result"
+      ;; If the tool's result happens to contain a `#+end_tool' line
+      ;; (e.g. the tool read a file that contains one), that line must
+      ;; be rewritten to `,#+end_tool' before insertion — otherwise it
+      ;; would prematurely close the containing block.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb `(tool-call . ((:name "cat" :args (:f "p"))))
+                 nil)
+        (funcall cb `(tool-result . ((:name "cat"
+                                      :args (:f "p")
+                                      :result ,(concat "line1\n"
+                                                       "#+end_tool\n"
+                                                       "line3"))))
+                 nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (cat :args (:f \"p\"))\n"
+                      "line1\n"
+                      ",#+end_tool\n"
+                      "line3\n"
+                      "#+end_tool\n")))
+
+    (it "escapes a #+end_assistant line inside a tool result"
+      ;; Same protection for an outer-block collision.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb `(tool-call . ((:name "cat" :args (:f "p"))))
+                 nil)
+        (funcall cb `(tool-result . ((:name "cat"
+                                      :args (:f "p")
+                                      :result "#+end_assistant\n")))
+                 nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (cat :args (:f \"p\"))\n"
+                      ",#+end_assistant\n"
+                      "#+end_tool\n"))))
+
+
+  (describe "reasoning events"
+
+    (it "ignores a reasoning chunk"
+      ;; Decision 10: v1 ignores `(reasoning . CHUNK)`.  The buffer
+      ;; must be unchanged after a reasoning event.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (funcall cb `(reasoning . "I should check the file first.") nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              "#+begin_user\nhello\n#+end_user\n#+begin_assistant\n")))
+
+
+  (describe "defensive guard for unknown shapes"
+
+    (it "signals on an unexpected response shape"
+      ;; The default `pcase' arm surfaces drift from upstream's
+      ;; callback protocol so it cannot silently corrupt the buffer.
+      (let ((cb (gptel-chat--stream-callback
+                 gptel-chat-tool-call-test--marker)))
+        (expect (funcall cb 'unexpected-sentinel nil)
+                :to-throw)))))
+
+
+(provide 'tool-call-spec)
+
+;;; tool-call-spec.el ends here
