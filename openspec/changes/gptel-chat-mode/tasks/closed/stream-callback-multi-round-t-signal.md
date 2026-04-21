@@ -2,7 +2,7 @@
 name: stream-callback-multi-round-t-signal
 description: Gate end-of-turn close in the `'t` completion arm on (null (plist-get info :tool-use)) so multi-round tool-use turns don't prematurely close the assistant block
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:stream-callback
 ---

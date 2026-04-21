@@ -2,7 +2,7 @@
 name: auto-init-metadata-preset-precedence
 description: Ensure metadata.yml preset wins over the chat-mode hook's property-drawer re-apply
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-auto-init
 ---

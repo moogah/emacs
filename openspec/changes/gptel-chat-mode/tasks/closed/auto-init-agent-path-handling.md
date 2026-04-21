@@ -2,7 +2,7 @@
 name: auto-init-agent-path-handling
 description: Fix nested per-branch agent path handling (session-id, session-dir, parent-session-id) and add real assertions to the agent-path spec
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-auto-init
 ---
