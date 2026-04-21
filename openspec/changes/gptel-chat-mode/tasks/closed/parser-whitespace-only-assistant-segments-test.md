@@ -2,7 +2,7 @@
 name: parser-whitespace-only-assistant-segments-test
 description: Pin parser output for whitespace-only assistant block (`:segments` list with whitespace text segment)
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:empty-assistant-turn-contract
 ---

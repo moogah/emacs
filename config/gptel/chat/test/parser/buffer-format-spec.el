@@ -512,7 +512,41 @@
         (let ((turns (gptel-chat--parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'assistant)
-          (expect (plist-get (car turns) :segments) :to-equal nil)))))
+          (expect (plist-get (car turns) :segments) :to-equal nil))))
+
+    ;; Pins the other half of the empty-assistant-turn contract (spec
+    ;; §"Message construction from buffer" — Empty-turn contract): an
+    ;; assistant block whose body is whitespace-only parses to a turn
+    ;; whose `:segments' is a non-empty list of `text' segments whose
+    ;; payload is whitespace-only.  The sibling `:segments nil' spec
+    ;; above pins the fully-empty branch; this spec pins the
+    ;; all-whitespace branch so a regression that silently trims
+    ;; whitespace segments (collapsing them to `:segments nil' or
+    ;; dropping them entirely) fails at the parser layer rather than
+    ;; sliding through invisibly because the end-to-end message list is
+    ;; nil either way.
+    (it "emits an assistant turn with whitespace-only text segments for a whitespace-only block"
+      (gptel-chat-test--with-buffer "#+begin_assistant\n   \n#+end_assistant\n"
+        (let* ((turns (gptel-chat--parse-buffer))
+               (assistant (car turns))
+               (segs (plist-get assistant :segments)))
+          (expect (length turns) :to-equal 1)
+          (expect (plist-get assistant :role) :to-equal 'assistant)
+          (expect (listp segs) :to-be-truthy)
+          (expect (>= (length segs) 1) :to-be-truthy)
+          ;; Every segment is a `text' segment.
+          (expect (cl-every (lambda (s) (eq (plist-get s :type) 'text))
+                            segs)
+                  :to-be-truthy)
+          ;; Every segment's payload is whitespace-only (no
+          ;; non-whitespace characters).
+          (expect (cl-every
+                   (lambda (s)
+                     (let ((content (plist-get s :content)))
+                       (and (stringp content)
+                            (not (string-match-p "[^ \t\n\r]" content)))))
+                   segs)
+                  :to-be-truthy)))))
 
   ;; The parser binds `case-fold-search t' to match org's own
   ;; case-insensitive handling of structural keywords.  This test pins
