@@ -2,7 +2,7 @@
 name: keymap-activation-active-map-test
 description: Strengthen keymap-activation test to assert the active local map
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:mode-definition
 ---
