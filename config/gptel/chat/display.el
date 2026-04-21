@@ -27,6 +27,14 @@
 (require 'cl-lib)
 (require 'gptel-chat-parser)
 
+;; Forward declarations for symbols that live in `gptel-chat-send'
+;; (loaded independently at mode-activation time) and in upstream
+;; gptel.  Silences byte-compiler warnings without creating a hard
+;; load-order dependency; all run-time references are guarded by
+;; `bound-and-true-p' or `fboundp'.
+(defvar gptel-chat--lifecycle-state)
+(declare-function gptel-fsm-info "gptel-request" (fsm))
+
 ;; Customization group
 
 ;; Reuse the parent =gptel-chat= group when it exists; otherwise create a
@@ -213,15 +221,59 @@ the buffer reaches a parseable state."
 ;; reparse. The timer callback captures the buffer so it still runs
 ;; correctly if the user switches windows before idle kicks in.
 
+;; **Streaming-aware refresh** (design.md Decision 5 Risks, lines
+;; 418/424): during an active streaming or tool-running request the
+;; upstream =gptel-request= pipeline fires an =after-change= event on
+;; every chunk inserted into the buffer. A naive O(n) full-buffer
+;; reparse per chunk produces visual flicker on large chats and
+;; monopolises idle time. The scheduler therefore skips scheduling
+;; while =gptel-chat--lifecycle-state= is =streaming= or
+;; =tool-running=; a single refresh fires from the =DONE= handler
+;; (=gptel-chat--display-refresh-on-done=, below) once the request
+;; completes.
+
+;; The =bound-and-true-p= check keeps display.el load-order
+;; independent: if =gptel-chat-send= has not been loaded yet
+;; (e.g. in a unit test that only requires the display layer), the
+;; variable is unbound and the guard falls through to the normal
+;; scheduling path.
+
 
 ;; [[file:display.org::*Debounced after-change callback][Debounced after-change callback:1]]
+(defconst gptel-chat--display-streaming-states
+  '(streaming tool-running)
+  "Lifecycle-state symbols during which the display layer defers refresh.
+Matches the values `gptel-chat--on-type' / `gptel-chat--on-tool' set
+on `gptel-chat--lifecycle-state' (see send.org §Handler functions).
+A single refresh is fired from `gptel-chat--display-refresh-on-done'
+once the request reaches terminal state.  design.md §Decision 5
+Risks (lines 418/424).")
+
+(defun gptel-chat--display-streaming-p ()
+  "Return non-nil when this buffer has a streaming/tool-running request.
+Reads the buffer-local `gptel-chat--lifecycle-state' that the FSM
+handlers in `send.el' write.  Returns nil when the variable is
+unbound (display layer loaded standalone in a test) or holds any
+non-streaming value (`waiting', `error', `aborted', nil)."
+  (and (boundp 'gptel-chat--lifecycle-state)
+       (memq gptel-chat--lifecycle-state
+             gptel-chat--display-streaming-states)))
+
 (defun gptel-chat--display-schedule-refresh (&rest _args)
   "Schedule a debounced overlay refresh for the current buffer.
 Intended for `after-change-functions'; the three positional args are
 ignored.  Cancels any pending timer so rapid edits collapse into one
 refresh after `gptel-chat-display-refresh-delay' seconds of idle
-time."
-  (when gptel-chat--display-enabled
+time.
+
+Skips scheduling while the buffer has a streaming or tool-running
+request in flight (see `gptel-chat--display-streaming-p').  Streaming
+chunks fire `after-change-functions' on every inserted token; a
+full-buffer reparse per chunk is expensive and causes overlay
+flicker.  The refresh is deferred until the `DONE' handler
+(`gptel-chat--display-refresh-on-done') fires one final reparse."
+  (when (and gptel-chat--display-enabled
+             (not (gptel-chat--display-streaming-p)))
     (when (timerp gptel-chat--display-refresh-timer)
       (cancel-timer gptel-chat--display-refresh-timer))
     (let ((buf (current-buffer)))
@@ -234,6 +286,42 @@ time."
                    (setq gptel-chat--display-refresh-timer nil)
                    (gptel-chat--refresh-overlays)))))))))
 ;; Debounced after-change callback:1 ends here
+
+;; Post-stream refresh
+
+;; When a streaming request finishes, the display layer needs a single
+;; refresh to reflect all the content that arrived while scheduling was
+;; suppressed. =gptel-chat--on-done= (defined in =send.el=) fires on
+;; the terminal =DONE= transition; advising it with this helper keeps
+;; the coupling one-way (display depends on send — never the reverse)
+;; and load-order-independent via =with-eval-after-load=.
+
+;; The helper reads the request buffer from the FSM's =info= plist
+;; (the same contract =gptel-chat--set-lifecycle-state= uses) so a
+;; dead or detached FSM is a silent no-op.
+
+
+;; [[file:display.org::*Post-stream refresh][Post-stream refresh:1]]
+(defun gptel-chat--display-refresh-on-done (fsm)
+  "Refresh display-layer overlays once after FSM reaches DONE.
+Intended as `:after' advice on `gptel-chat--on-done'.  Reads the
+originating buffer from FSM's `info' plist (key `:buffer') — the
+same lookup `gptel-chat--set-lifecycle-state' uses — and fires a
+single overlay refresh so the buffer reflects all chunks that
+arrived while `gptel-chat--display-schedule-refresh' was
+suppressed during streaming.  design.md §Decision 5 Risks."
+  (when-let* ((info (and (fboundp 'gptel-fsm-info)
+                         (gptel-fsm-info fsm)))
+              (buf  (plist-get info :buffer))
+              ((buffer-live-p buf)))
+    (with-current-buffer buf
+      (when gptel-chat--display-enabled
+        (gptel-chat--refresh-overlays)))))
+
+(with-eval-after-load 'gptel-chat-send
+  (advice-add 'gptel-chat--on-done :after
+              #'gptel-chat--display-refresh-on-done))
+;; Post-stream refresh:1 ends here
 
 ;; Hook install / uninstall
 
@@ -264,16 +352,30 @@ time."
 ;; present immediately (spec scenario "Display layer is active by
 ;; default") without waiting for the first edit.
 
+;; It also registers =gptel-chat--display-uninstall-hooks= on the
+;; buffer-local =kill-buffer-hook=. A pending idle timer captures the
+;; buffer in its closure; if the buffer is killed before the timer
+;; fires, the closure runs =buffer-live-p= and no-ops — but the timer
+;; itself lingers on =timer-list= until GC. Cancelling it on kill
+;; keeps =timer-list= tidy and matches the uninstall contract used by
+;; the toggle command.
+
 
 ;; [[file:display.org::*Mode-activation entry point][Mode-activation entry point:1]]
 (defun gptel-chat--display-activate ()
   "Activate the display layer in the current buffer.
 Installs the after-change hook, runs a full overlay refresh, and
 ensures `gptel-chat--display-enabled' starts in its default
-truthy state."
+truthy state.  Also registers `gptel-chat--display-uninstall-hooks'
+on the buffer-local `kill-buffer-hook' so a pending idle timer is
+cancelled (and removed from `timer-list') when the buffer is
+killed — a no-op closure firing post-kill is harmless but the
+timer entry lingers until GC without this cleanup."
   (unless gptel-chat--display-enabled
     (setq gptel-chat--display-enabled t))
   (gptel-chat--display-install-hooks)
+  (add-hook 'kill-buffer-hook
+            #'gptel-chat--display-uninstall-hooks nil t)
   (gptel-chat--refresh-overlays))
 
 (add-hook 'gptel-chat-mode-hook #'gptel-chat--display-activate)

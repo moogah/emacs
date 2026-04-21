@@ -39,6 +39,7 @@
 (require 'gptel-chat-mode)
 (require 'gptel-chat-parser)
 (require 'gptel-chat-display)
+(require 'gptel-chat-send)
 
 
 ;;; Fixtures -----------------------------------------------------------------
@@ -205,6 +206,149 @@ synchronously."
      (expect (gptel-chat--refresh-overlays) :not :to-throw)
      (expect (length (gptel-chat-display-test--display-overlays))
              :to-equal 0))))
+
+
+
+;;; After-change scheduling + streaming guard -----------------------------
+
+(describe "gptel-chat-display: after-change debounced scheduling"
+
+  (it "schedules exactly one refresh after N rapid inserts (debounce collapses)"
+    (gptel-chat-display-test--with-chat-buffer
+     gptel-chat-display-test--two-turns
+     ;; Clear any pending timer from activation.
+     (when (timerp gptel-chat--display-refresh-timer)
+       (cancel-timer gptel-chat--display-refresh-timer)
+       (setq gptel-chat--display-refresh-timer nil))
+     (spy-on 'gptel-chat--refresh-overlays :and-call-through)
+     ;; Three rapid inserts in the user body.
+     (save-excursion
+       (goto-char (point-min))
+       (forward-line 1) ;; inside user body
+       (insert "a")
+       (insert "b")
+       (insert "c"))
+     ;; The scheduler installs (or re-installs) a single pending timer
+     ;; for all three inserts — earlier timers are cancelled in favour
+     ;; of the latest.  No refresh has fired yet because the idle
+     ;; delay has not elapsed.
+     (let ((pending gptel-chat--display-refresh-timer))
+       (expect (timerp pending) :to-be-truthy)
+       (expect 'gptel-chat--refresh-overlays :not :to-have-been-called)
+       ;; Idle timers do not advance under batch-mode `sit-for'; invoke
+       ;; the timer's own function directly to simulate its firing.
+       ;; That matches what the Emacs timer loop would do.
+       (timer-event-handler pending))
+     ;; Exactly one refresh call from the debounced path.
+     (expect 'gptel-chat--refresh-overlays :to-have-been-called)
+     (expect (spy-calls-count 'gptel-chat--refresh-overlays)
+             :to-equal 1)
+     ;; After the timer fires it clears its own handle.
+     (expect gptel-chat--display-refresh-timer :to-equal nil)))
+
+  (it "does NOT schedule refresh while lifecycle-state is `streaming'"
+    (gptel-chat-display-test--with-chat-buffer
+     gptel-chat-display-test--two-turns
+     ;; Clear any pending timer from activation.
+     (when (timerp gptel-chat--display-refresh-timer)
+       (cancel-timer gptel-chat--display-refresh-timer)
+       (setq gptel-chat--display-refresh-timer nil))
+     (spy-on 'gptel-chat--refresh-overlays)
+     (let ((gptel-chat--lifecycle-state 'streaming))
+       (gptel-chat--display-schedule-refresh))
+     ;; No timer scheduled, no refresh fired.
+     (expect gptel-chat--display-refresh-timer :to-equal nil)
+     (expect 'gptel-chat--refresh-overlays :not :to-have-been-called)))
+
+  (it "does NOT schedule refresh while lifecycle-state is `tool-running'"
+    (gptel-chat-display-test--with-chat-buffer
+     gptel-chat-display-test--two-turns
+     (when (timerp gptel-chat--display-refresh-timer)
+       (cancel-timer gptel-chat--display-refresh-timer)
+       (setq gptel-chat--display-refresh-timer nil))
+     (spy-on 'gptel-chat--refresh-overlays)
+     (let ((gptel-chat--lifecycle-state 'tool-running))
+       (gptel-chat--display-schedule-refresh))
+     (expect gptel-chat--display-refresh-timer :to-equal nil)
+     (expect 'gptel-chat--refresh-overlays :not :to-have-been-called)))
+
+  (it "resumes scheduling once lifecycle-state clears (nil)"
+    (gptel-chat-display-test--with-chat-buffer
+     gptel-chat-display-test--two-turns
+     (when (timerp gptel-chat--display-refresh-timer)
+       (cancel-timer gptel-chat--display-refresh-timer)
+       (setq gptel-chat--display-refresh-timer nil))
+     (let ((gptel-chat--lifecycle-state nil))
+       (gptel-chat--display-schedule-refresh))
+     ;; With lifecycle-state back to idle, the scheduler installs a
+     ;; pending timer as normal.
+     (expect (timerp gptel-chat--display-refresh-timer) :to-be-truthy)
+     (cancel-timer gptel-chat--display-refresh-timer)
+     (setq gptel-chat--display-refresh-timer nil))))
+
+
+(describe "gptel-chat-display: DONE-handler refresh"
+
+  (it "fires exactly one refresh on `gptel-chat--on-done' entry"
+    (gptel-chat-display-test--with-chat-buffer
+     gptel-chat-display-test--two-turns
+     (let ((target-buf (current-buffer)))
+       ;; Build an FSM whose info points at this buffer so the advice
+       ;; can locate us.
+       (let ((fsm (gptel-make-fsm
+                   :handlers gptel-chat--fsm-handlers
+                   :info     (list :buffer target-buf))))
+         (spy-on 'gptel-chat--refresh-overlays :and-call-through)
+         ;; Simulate the upstream transition into DONE; the chained
+         ;; `gptel-chat--on-done' runs our advice which calls
+         ;; `gptel-chat--refresh-overlays' once.  Stub upstream's
+         ;; `gptel--handle-post' so no :post list iteration interferes.
+         (spy-on 'gptel--handle-post)
+         (gptel--fsm-transition fsm 'DONE)
+         (expect 'gptel-chat--refresh-overlays :to-have-been-called)
+         (expect (spy-calls-count 'gptel-chat--refresh-overlays)
+                 :to-equal 1)))))
+
+  (it "is a no-op when the FSM's buffer was killed before DONE"
+    ;; The helper guards on `buffer-live-p'; a dead buffer must not
+    ;; signal (e.g. `wrong-type-argument' from `with-current-buffer').
+    (let* ((buf (generate-new-buffer " *gptel-chat-display-test-dead*"))
+           (fsm (gptel-make-fsm
+                 :handlers gptel-chat--fsm-handlers
+                 :info     (list :buffer buf))))
+      (kill-buffer buf)
+      (expect (gptel-chat--display-refresh-on-done fsm)
+              :not :to-throw))))
+
+
+(describe "gptel-chat-display: kill-buffer timer cleanup"
+
+  (it "cancels the pending idle timer when the buffer is killed"
+    (let* ((buf (generate-new-buffer " *gptel-chat-display-test-kill*"))
+           pending-timer)
+      (unwind-protect
+          (progn
+            (with-current-buffer buf
+              (insert gptel-chat-display-test--two-turns)
+              (gptel-chat-mode)
+              ;; Schedule a refresh by inserting something; the timer
+              ;; sits in `timer-list' until either it fires or we
+              ;; cancel it.
+              (goto-char (point-min))
+              (forward-line 1)
+              (insert "x")
+              (setq pending-timer gptel-chat--display-refresh-timer)
+              (expect (timerp pending-timer) :to-be-truthy)
+              (expect (memq pending-timer timer-idle-list) :to-be-truthy))
+            ;; Kill the buffer; `kill-buffer-hook' must cancel the
+            ;; pending timer so it no longer sits in `timer-idle-list'.
+            (kill-buffer buf)
+            (expect (memq pending-timer timer-idle-list) :to-equal nil))
+        (when (buffer-live-p buf) (kill-buffer buf))
+        ;; Defensive: if the hook was somehow skipped, clean up.
+        (when (and (timerp pending-timer)
+                   (memq pending-timer timer-idle-list))
+          (cancel-timer pending-timer))))))
 
 
 ;;; display-layer-spec.el ends here
