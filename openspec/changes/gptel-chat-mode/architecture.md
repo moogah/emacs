@@ -209,7 +209,7 @@ config/gptel/chat/test/
 │   └── menu-send-rebind-spec.el     — gptel-chat-menu Send invokes gptel-chat-send
 ├── integration/
 │   └── end-to-end-spec.el           — Full send round-trip with stubbed backend
-└── helpers-spec.el                  — Shared fixtures and matchers
+└── test-helpers.el                  — Shared fixtures and matchers
 
 config/gptel/sessions/test/
 ├── commands/
@@ -281,7 +281,7 @@ Example shape (pseudocode):
               :to-equal '((:role "user" :content "Capital of France?"))))))
 ```
 
-**Buffer fixtures** — tests use an inline helper (`with-gptel-chat-buffer`) from `helpers-spec.el` that creates a temp buffer, inserts the given content, activates `gptel-chat-mode`, and runs the body.
+**Buffer fixtures** — tests use an inline helper (`with-gptel-chat-buffer`) from `test-helpers.el` that creates a temp buffer, inserts the given content, activates `gptel-chat-mode`, and runs the body.
 
 **No org-element dependency in tests** — tests that assert on block structure use string comparison or regex on buffer contents, not `org-element-parse-buffer`. This avoids coupling tests to org-mode internals.
 
@@ -308,7 +308,7 @@ Mapping table (requirement → test file):
 | Display-layer role distinction | `display/display-layer-spec.el` |
 | `gptel-request` backend usage | `send/backend-invocation-spec.el` |
 
-Shared fixtures and matchers live in `helpers-spec.el`.
+Shared fixtures and matchers live in `test-helpers.el`.
 
 ## Dependencies
 
