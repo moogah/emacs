@@ -183,7 +183,34 @@ Returns the marker."
       (let ((dead (make-marker)))
         ;; A freshly-made marker has no buffer until you set one.
         (expect (gptel-chat--make-stream-closure dead)
-                :to-throw))))
+                :to-throw)))
+
+    (it "rejects a marker with insertion-type nil"
+      ;; The factory requires an advance marker (insertion-type t) so
+      ;; that inserts at the marker push it forward and successive line
+      ;; inserts land in order.  Callers that pass a default-type
+      ;; marker would otherwise get reversed-order output; the guard
+      ;; fails loudly at construction instead.
+      (let ((default-type-marker
+             (with-current-buffer gptel-chat-stream-test--buffer
+               ;; `copy-marker' without the second argument gives
+               ;; insertion-type nil — the silent-bug case.
+               (copy-marker (point-min)))))
+        (expect (marker-insertion-type default-type-marker)
+                :to-equal nil)
+        (expect (gptel-chat--make-stream-closure default-type-marker)
+                :to-throw)))
+
+    (it "accepts a marker with insertion-type t"
+      ;; Positive case: the fixture marker is built with
+      ;; `(copy-marker ... t)' so it has insertion-type t and must be
+      ;; accepted.  Guards against an over-eager check that rejects
+      ;; the valid shape.
+      (expect (marker-insertion-type gptel-chat-stream-test--marker)
+              :to-equal t)
+      (let ((handle (gptel-chat--make-stream-closure
+                     gptel-chat-stream-test--marker)))
+        (expect (gptel-chat-stream-p handle) :to-be-truthy))))
 
   (describe "inserting complete lines in order"
 
