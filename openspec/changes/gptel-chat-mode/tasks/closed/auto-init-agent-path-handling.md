@@ -2,10 +2,70 @@
 name: auto-init-agent-path-handling
 description: Fix nested per-branch agent path handling (session-id, session-dir, parent-session-id) and add real assertions to the agent-path spec
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sessions-auto-init
 ---
+
+## Review (2026-04-21, orch session `orch-1776779279`)
+
+Clean merge. Nested and flat agent-path regexes are genuinely split,
+session-id and branch-name come from path captures (not from
+`jf/gptel--session-id-from-directory` walking up from the agent
+directory), the flat-layout `jf/gptel--update-current-symlink`
+side-effect is suppressed, and `jf/gptel--parent-session-id` is
+populated from `metadata.yml` via the existing
+`jf/gptel--read-session-metadata` helper. Tests tightened as
+specified; the merge's conflict resolution on both `.el` and `.org`
+kept the files in sync. 10/10 specs in
+`config/gptel/sessions/test/commands` pass. No scope drift.
+
+### Findings
+
+1. **Non-blocking — test assertion gap (nested agent path).**
+   `config/gptel/sessions/test/commands/auto-init-chat-mode-spec.el:123-164`
+   — the nested-agent spec originally used a path with
+   `branches/main/agents/...`, so `branch-name = "main"` matched both
+   the old hardcoded value and the new path-captured value. **Fixed
+   inline** during review: path changed to
+   `branches/feature-x/agents/...` and the assertion to
+   `(expect jf/gptel--branch-name :to-equal "feature-x")`. Regression
+   now actually guards the "not hardcoded" claim. Directory specs
+   still pass.
+
+2. **Non-blocking — indentation drift.**
+   `config/gptel/sessions/commands.org:415-428` (and mirrored in
+   `.el:284-297`) — the `(setq-local jf/gptel--parent-session-id
+   parent-id)` is indented one column shallower than its sibling
+   `(if (and preset-name ...) ...)` inside the same `let*`. Cosmetic;
+   not fixed. Worth a re-indent on the next touch.
+
+3. **Spec-level — `sessions-persistence.md` under-specifies agent
+   path.** Lines 80-84 still say "sets branch-name to `"main"`"
+   unconditionally and mention `session.md` (the code matches
+   `session.org`). The scenario should split into nested vs flat,
+   and add a parent-session-id scenario. **Tracked as follow-up
+   task**:
+   [`sessions-persistence-spec-tighten-auto-init`](../open/sessions-persistence-spec-tighten-auto-init.md)
+   (non-blocking; does not repoint downstream `blocked-by:`).
+
+### Verification
+- `./bin/run-tests.sh -d config/gptel/sessions/test/commands` →
+  10/10 pass (including updated `feature-x` assertion).
+- `./bin/run-tests.sh --snapshot` → baseline ERT 9 unexpected / 3
+  buttercup failures unchanged (pre-existing bash-parser issues,
+  unrelated).
+
+### Inline fixes applied
+- `config/gptel/sessions/test/commands/auto-init-chat-mode-spec.el:131,163`
+  — nested-agent path uses `feature-x` branch; assertion locks in
+  path-capture behaviour.
+
+### Dependents
+- `sessions-activities`, `sessions-branching` — both block on this
+  plus `auto-init-metadata-preset-precedence`. Not repointed:
+  spec-level finding #3 is non-blocking for dependents, which rely
+  on correct CODE, not spec wording.
 
 ## Files to modify
 - `config/gptel/sessions/commands.org` (`jf/gptel--auto-init-session-buffer`

@@ -128,7 +128,7 @@
             (with-current-buffer buf
               (setq buffer-file-name
                     (expand-file-name
-                     "~/.gptel/sessions/foo-20260420000000/branches/main/agents/researcher-20260420120000-explore/session.org"))
+                     "~/.gptel/sessions/foo-20260420000000/branches/feature-x/agents/researcher-20260420120000-explore/session.org"))
               (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                         ((symbol-function 'file-exists-p) (lambda (_) t))
                         ((symbol-function 'insert-file-contents)
@@ -159,8 +159,8 @@
                 ;; agent's own directory name.
                 (expect jf/gptel--session-id :to-equal "foo-20260420000000")
                 ;; branch-name comes from the branches/<branch>/
-                ;; segment, NOT hardcoded.
-                (expect jf/gptel--branch-name :to-equal "main")))
+                ;; segment, NOT hardcoded to "main".
+                (expect jf/gptel--branch-name :to-equal "feature-x")))
           (kill-buffer buf))))
 
     (it "opens flat */agents/<name>/session.org (legacy): session-id from path, branch-name defaults to main"

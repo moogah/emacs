@@ -2,10 +2,57 @@
 name: stream-callback-tool-element-shape-and-tests
 description: Destructure tool-call/tool-result elements as the (TOOL-STRUCT ARGS CB-OR-RESULT) triple upstream emits, and add behavioral tests that use the real shape
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:stream-callback
 ---
+
+## Review (2026-04-21, orch session `orch-1776779279`)
+
+**Bookkeeping note:** the prior orchestrator transition (`b1997a3`)
+intended to flip this file to `status: needs-review` but left it at
+`status: ready` while still moving it to `tasks/closed/`. The merge
+(`0341d26`) and implementation had already landed. This review
+closes the gap.
+
+Clean merge. Handlers in `stream.org` destructure `(TOOL-STRUCT ARGS
+CB)` / `(TOOL-STRUCT ARGS RESULT)` triples via `pcase-dolist`, names
+come from `gptel-tool-name` on the struct (not `plist-get :name`),
+and the result handler defensively handles string / nil / non-string
+sexp per upstream's loose contract at
+`gptel-request.el:1812-1827`. Every test fixture in `tool-call-spec.el`
+was converted — no stale plist fixtures remain — and fixtures are
+built with the real `gptel-make-tool` constructor so a future shape
+drift fails the tests. Decision 10 and the parent `stream-callback.md`
+Review section both document the correction with explicit upstream
+line pointers. 81/81 `config/gptel/chat/test/stream` specs pass.
+
+### Findings
+
+None that clear the signal/noise bar. The reviewer agent
+(`aeb05dcd57f21e605`) explicitly pressure-tested for:
+
+- Stale plist fixtures masking the fix (none remain).
+- `:name` / `:args` plist drift in Decision 10 (corrected with
+  upstream line pointers).
+- Scope creep (stayed within declared files; a small defensive
+  extension to accept non-string results via `prin1-to-string` is
+  reasonable hardening consistent with upstream's loose docstring).
+- Parser.org / parser.el still using `:name :args :result` plist
+  language — confirmed as a legitimate *different* data path
+  (session-file / wire-format tool representation), not
+  stream-callback's element shape.
+
+### Verification
+- `./bin/run-tests.sh -d config/gptel/chat/test/stream` → 81/81 pass.
+- `grep -rn "plist-get.*:name" config/gptel/chat/stream.el config/gptel/chat/stream.org`
+  → 0 hits in tool-event code.
+- Design.md Decision 10 updated; parent stream-callback.md Review
+  note added.
+
+### Dependents
+- `send-command`, `verify-change` — transitively blocked-by this
+  task (listed via `stream-callback`'s chain). No repoint needed.
 
 ## Files to modify
 - `config/gptel/chat/stream.org` (`gptel-chat--stream-open-tool-block`

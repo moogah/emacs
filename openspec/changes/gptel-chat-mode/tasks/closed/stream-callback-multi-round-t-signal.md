@@ -2,10 +2,64 @@
 name: stream-callback-multi-round-t-signal
 description: Gate end-of-turn close in the `'t` completion arm on (null (plist-get info :tool-use)) so multi-round tool-use turns don't prematurely close the assistant block
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:stream-callback
 ---
+
+## Review (2026-04-21, orch session `orch-1776779279`)
+
+Clean merge. The `'t` arm gates `gptel-chat--stream-close-assistant`
+on `(null (plist-get info :tool-use))` while keeping the holdback
+flush (`stream-insert t`) unconditional — precisely what the task
+specifies and what `config/gptel/tools/persistent-agent.org:733`
+models. The `_info → info` rename is confined to the one callback
+that consumes it. The new spec is genuinely behavioural — it scripts
+the full
+`stream → t(:tool-use t) → tool-call → tool-result → stream → t(nil)`
+trace through the real closure and asserts buffer equality including
+exactly one `#+end_assistant` at buffer end. A two-round variant plus
+three single-turn regression guards (nil INFO, `:tool-use nil`,
+plain single turn) are present. The post-merge `d85f931` repair is a
+narrow fixture update for the three-list tool-call shape that landed
+from `stream-callback-tool-element-shape-and-tests`; assertions
+(buffer equality, `#+end_assistant` count) are preserved. 81/81 specs
+in `config/gptel/chat/test/stream` pass.
+
+### Findings
+
+1. **Spec-level — chat spec doesn't capture `t`-per-round semantics.**
+   `openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md`
+   "Response streaming and sanitization" (line 208) says nothing
+   about the `t` signal firing once per HTTP round-trip rather than
+   once per turn. That invariant is load-bearing for this fix — a
+   future "simplify the `'t` arm" change would silently regress
+   buffer corruption in tool-using turns. Currently the invariant
+   lives only in code comments, design.md Decision 10, and this
+   task body. **Tracked as follow-up task**:
+   [`chat-spec-t-signal-round-semantics`](../open/chat-spec-t-signal-round-semantics.md)
+   (non-blocking; code is correct, spec is under-specified).
+
+2. **Non-blocking — synthetic INFO plist.**
+   `config/gptel/chat/test/stream/multi-round-tool-use-spec.el:~165`
+   constructs INFO as `'(:tool-use t)` rather than going through an
+   upstream plist builder. This matches the task's own guidance and
+   `persistent-agent.org`'s usage; the two defensive specs (nil
+   INFO, `:tool-use nil`) pin the plist-get contract. Known gap of
+   the unit-level approach — if upstream ever renames `:tool-use`,
+   only integration tests catch it. Not worth fixing here.
+
+### Verification
+- `./bin/run-tests.sh -d config/gptel/chat/test/stream` → 81 specs,
+  0 failed.
+- Manual trace check not performed by reviewer agent; scripted
+  buffer-equality assertion covers the exact sequence the task's
+  manual step calls out.
+
+### Dependents
+- `send-command`, `verify-change` — blocked-by this task. Not
+  repointed: spec-level finding #1 is non-blocking for CODE
+  dependents.
 
 ## Files to modify
 - `config/gptel/chat/stream.org` (the `'t` completion arm of

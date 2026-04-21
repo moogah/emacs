@@ -2,7 +2,7 @@
 name: send-command
 description: gptel-chat-send with preconditions and in-flight guard via gptel--fsm-last
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:messages
   - blocked-by:stream-callback-tool-element-shape-and-tests

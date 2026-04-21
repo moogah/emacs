@@ -2,7 +2,7 @@
 name: sessions-branching
 description: Branch-point selection and truncation on chat-mode turn list
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:parser
   - blocked-by:auto-init-metadata-preset-precedence

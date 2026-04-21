@@ -2,10 +2,66 @@
 name: auto-init-metadata-preset-precedence
 description: Ensure metadata.yml preset wins over the chat-mode hook's property-drawer re-apply
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sessions-auto-init
 ---
+
+## Review (2026-04-21, orch session `orch-1776779279`)
+
+Clean merge. Path A (ordering swap) was taken — the correct call.
+`jf/gptel--ensure-mode-once` now runs *before* reading `metadata.yml`,
+so the chat-mode hook's drawer re-apply runs first and the
+authoritative metadata apply runs last and wins. The implementation
+also caught a latent bug the task didn't flag: `kill-all-local-
+variables` during mode activation would wipe the `setq-local`
+session vars if they ran before the mode change — so the session-var
+block was also moved to run post-mode. The new real-mode integration
+spec honestly exercises `find-file-noselect` + real
+`gptel-chat-mode` + real `gptel-chat-mode-hook`, with disambiguating
+`:temperature` on the two presets so clobbering is detectable. 10/10
+directory specs pass; no residual `cl-letf.*gptel-chat-mode.*lambda`
+stub in the precedence block.
+
+### Findings
+
+1. **Spec-level — persistence spec step ordering is a trap.**
+   `openspec/changes/gptel-chat-mode/specs/gptel/sessions-persistence.md:55-65`
+   — the MODIFIED "Auto-initialization enables `gptel-chat-mode`"
+   requirement numbers steps 1-7 with step 5 (apply preset from
+   `metadata.yml`) *before* step 6 (ensure mode). The implementation
+   is the opposite and must be: any future reader treating those
+   numbered steps as ordered will reintroduce the clobbering bug
+   this task just fixed. **Tracked as follow-up task**:
+   [`sessions-persistence-spec-tighten-auto-init`](../open/sessions-persistence-spec-tighten-auto-init.md)
+   (grouped with the agent-path spec finding from
+   `auto-init-agent-path-handling`; same file, same MODIFIED block).
+
+2. **Non-blocking — two surviving no-op stubs.**
+   `config/gptel/sessions/test/commands/preset-application-spec.el:89-90,123-124`
+   still stub `gptel-chat-mode` as a no-op lambda. The file header
+   (lines 58-65) correctly scopes them to "auto-init's OWN call" and
+   documents that the precedence-specific guarantee now lives in the
+   real-mode integration block. Defensible; not reopened.
+
+3. **Non-blocking — scope positive.** Diff stays strictly within
+   `commands.org/.el` and `preset-application-spec.el`. Path B's
+   `chat/menu.org` was correctly left alone.
+
+### Verification
+- `./bin/run-tests.sh -d config/gptel/sessions/test/commands` →
+  10/10 pass.
+- `grep -rn "cl-letf.*gptel-chat-mode.*lambda" config/gptel/sessions/test/`
+  — 0 hits in the precedence integration block; surviving hits are
+  in comments explaining the removal.
+- Bug-catch validation described in the implementation commit is
+  credible given the 67ms test runtime (real `find-file` + mode
+  activation, not a stubbed path).
+
+### Dependents
+- `sessions-activities`, `sessions-branching` — blocked-by both
+  this task and `auto-init-agent-path-handling`. Not repointed:
+  spec-level finding #1 is non-blocking for CODE dependents.
 
 ## Files to modify
 - `config/gptel/sessions/commands.org` (`jf/gptel--auto-init-session-buffer`
