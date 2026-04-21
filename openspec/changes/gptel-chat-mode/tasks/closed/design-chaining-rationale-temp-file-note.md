@@ -2,7 +2,7 @@
 name: design-chaining-rationale-temp-file-note
 description: Extend design.md Decision 3 chaining rationale to note upstream's own temp-file cleanup rides :post
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:fsm-handlers-upstream-integration
 ---
