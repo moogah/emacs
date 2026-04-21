@@ -2,7 +2,7 @@
 name: chat-spec-t-signal-round-semantics
 description: Capture the per-round-not-per-turn semantics of the `t` stream-completion signal in the chat-mode spec so the multi-round gating fix is regression-guarded by the spec
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:stream-callback-multi-round-t-signal
 ---

@@ -229,6 +229,14 @@ The system SHALL insert streamed response chunks between an open `#+begin_assist
 - **THEN** the assistant block is closed with `#+end_assistant`
 - **AND** a visible marker records that the response was interrupted
 
+#### Scenario: Multi-round tool-use preserves the assistant block across rounds
+- **WHEN** the model completes a tool-use round and upstream fires the `t` completion signal with `:tool-use` set on the INFO plist
+- **THEN** the callback flushes any holdback characters into the open assistant block
+- **AND** the assistant block remains open — no `#+end_assistant` is appended and no new empty user block is started
+- **AND** subsequent `(tool-result . ...)` events and the next request's streamed text land inside the same assistant block
+- **WHEN** the model completes the final round (no further tool use pending) and upstream fires `t` with `:tool-use` unset or absent on the INFO plist
+- **THEN** the holdback is flushed, `#+end_assistant` is appended, and an empty `#+begin_user`/`#+end_user` block is started with point positioned for the next human turn
+
 ### Requirement: Tool-call rendering inside assistant blocks
 
 When the model emits a tool call during a streaming response, the system SHALL insert a `#+begin_tool` block nested inside the current assistant block. The opening delimiter SHALL include the call identifier and arguments in a form consistent with the existing `#+begin_tool` convention used elsewhere in the repository. When the tool result is available, the result SHALL be inserted inside the same tool block, and `#+end_tool` appended. Multiple tool calls in a single assistant turn SHALL be rendered as sequential sibling `#+begin_tool` blocks within the outer assistant block.

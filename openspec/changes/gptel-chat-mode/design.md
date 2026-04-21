@@ -242,7 +242,7 @@ Per-buffer configuration (model, backend, system message, tools, temperature) is
 | `` `(reasoning . ,chunk) `` | v1: ignore. A future change may render these into a `#+begin_reasoning` nested block; out of scope for v1. |
 | `` `(tool-call . ,calls) `` | open a nested `#+begin_tool (<name> <plist...>)` block inside the active assistant block; set the tool-block marker (Decision 3b) as the new insertion target |
 | `` `(tool-result . ,results) `` | insert stringified result into the active tool block, append `#+end_tool`, clear the tool-block marker |
-| `t` | normal completion — flush holdback, close `#+end_assistant`, append a fresh user block (Decision 8) |
+| `t` | completion signal — fires once per HTTP round-trip, NOT once per turn. The `'t` arm gates end-of-turn close on `(null (plist-get info :tool-use))`: when `:tool-use` is set, flush holdback only and leave the assistant block open for the next round; when `:tool-use` is unset or absent, flush holdback, close `#+end_assistant`, and append a fresh user block (Decision 8). See spec scenario "Multi-round tool-use preserves the assistant block across rounds" under Response streaming and sanitization. |
 | `nil` | error / network failure — close the block with an error marker |
 | `'abort` | user abort — close the block with an interruption marker |
 
