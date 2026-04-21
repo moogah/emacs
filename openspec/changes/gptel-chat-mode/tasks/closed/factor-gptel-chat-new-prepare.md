@@ -2,7 +2,7 @@
 name: factor-gptel-chat-new-prepare
 description: Factor gptel-chat-new into pure prepare and interactive switch wrappers
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:mode-definition
 ---

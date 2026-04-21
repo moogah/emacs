@@ -2,7 +2,7 @@
 name: sessions-activities
 description: Activities integration emits session.org unconditionally
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - blocked-by:auto-init-metadata-preset-precedence
   - blocked-by:auto-init-agent-path-handling
