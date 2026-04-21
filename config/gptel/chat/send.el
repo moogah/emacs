@@ -270,15 +270,268 @@ is upstream, so in practice any non-nil value passing
     (gptel-fsm-state gptel--fsm-last)))
 ;; State accessor:1 ends here
 
+;; Send-guard idle-state contract
+
+;; The send-guard (=gptel-chat-send=, below) rejects a new send when a
+;; prior request is still in flight. "In flight" is determined by
+;; reading the buffer-local =gptel--fsm-last= upstream sets on every
+;; =gptel-request= (see =gptel.el:1104=, =:1328=): if the FSM struct
+;; exists and its current state is one of =WAIT= / =TYPE= / =TOOL=, a
+;; request is still running.
+
+;; Conversely, =nil= (no request yet), =INIT= (FSM allocated but not
+;; advanced), =DONE= (completed cleanly), =ERRS= (errored), and =ABRT=
+;; (user aborted) are all *idle* — a new send is permitted. =ABRT= in
+;; particular MUST be idle; otherwise every =gptel-abort= wedges the
+;; buffer on a stale busy state. See design.md §Decision 11 for
+;; rationale (one source of truth; no parallel busy flag).
+
+;; The two constants below pin the in-flight / idle state sets so the
+;; guard and its tests share a single definition. =INIT= is listed in
+;; the idle set so a freshly-constructed =gptel-fsm= that has not yet
+;; transitioned into =WAIT= does not wedge the guard.
+
+
+;; [[file:send.org::*Send-guard idle-state contract][Send-guard idle-state contract:1]]
+(defconst gptel-chat--in-flight-states
+  '(WAIT TYPE TOOL)
+  "FSM states that indicate an in-flight `gptel-request' for chat-mode.
+Any other state — including `INIT', `DONE', `ERRS', `ABRT', or nil
+— is treated as idle by `gptel-chat-send's send-guard.  See
+design.md §Decision 11.")
+
+(defun gptel-chat--in-flight-p ()
+  "Return non-nil when this buffer has a `gptel-request' in flight.
+Reads the buffer-local `gptel--fsm-last' (upstream) and consults
+`gptel-chat--in-flight-states'.  Returns nil when no FSM has been
+installed in this buffer or when the current state is terminal /
+idle (including the user-abort state `ABRT')."
+  (when-let* ((state (gptel-chat--state)))
+    (memq state gptel-chat--in-flight-states)))
+;; Send-guard idle-state contract:1 ends here
+
+;; User-block resolution
+
+;; =gptel-chat-send= must decide which user block's body to send. Three
+;; cases, from the task body:
+
+;; - Point is inside an outer =#+begin_user= block → that block.
+;; - Point is inside an =#+begin_assistant= block → =user-error=.
+;; - Point is between blocks (e.g., just after =#+end_assistant=) →
+;;   fall back to the /last/ user block in the buffer. This is the
+;;   common case during the append flow, where streaming completion
+;;   appends a fresh empty user block and leaves point on the blank
+;;   line inside it (see =gptel-chat--stream-close-assistant=).
+
+;; The helper returns a plist describing the decision so the caller
+;; can handle each case without re-parsing:
+
+;; : (:turn TURN :reason RESULT)
+;; :   RESULT ∈ '(current last none)      ;; none = no user block exists
+
+;; : (:turn nil :reason assistant)        ;; point inside assistant block
+
+;; Parse errors propagate out of =gptel-chat--parse-buffer= as
+;; =user-error=; the caller (=gptel-chat-send=) simply lets them
+;; surface to the user.
+
+
+;; [[file:send.org::*User-block resolution][User-block resolution:1]]
+(declare-function gptel-chat--parse-buffer "gptel-chat-parser")
+(declare-function gptel-chat-nav--containing-turn "gptel-chat-nav")
+
+(defun gptel-chat--resolve-send-turn ()
+  "Return a plist describing which user turn `gptel-chat-send' should send.
+
+Shape: =(:turn TURN :reason REASON)= where REASON is one of
+
+  current    — point is inside an outer `#+begin_user' block; TURN is it.
+  last       — point is outside any turn block; TURN is the last user
+               block in the buffer (nil if none exists).
+  assistant  — point is inside an `#+begin_assistant' block; TURN is nil.
+  none       — no user block exists in the buffer; TURN is nil.
+
+The returned TURN is a parser turn plist (:role :content :start :end)
+or nil.  Parse errors propagate from `gptel-chat--parse-buffer' as
+`user-error'."
+  (let* ((turns (gptel-chat--parse-buffer))
+         (containing (gptel-chat-nav--containing-turn turns (point))))
+    (cond
+     ((and containing (eq (plist-get containing :role) 'assistant))
+      (list :turn nil :reason 'assistant))
+     ((and containing (eq (plist-get containing :role) 'user))
+      (list :turn containing :reason 'current))
+     (t
+      (let ((last-user (cl-loop for turn in (reverse turns)
+                                when (eq (plist-get turn :role) 'user)
+                                return turn)))
+        (if last-user
+            (list :turn last-user :reason 'last)
+          (list :turn nil :reason 'none)))))))
+;; User-block resolution:1 ends here
+
+;; Assistant-block opener
+
+;; When =gptel-chat-send= is ready to fire, it must transform the
+;; end-of-user-block position into the start of a fresh, open
+;; =#+begin_assistant= block and return an /advance/ marker at the
+;; assistant body (one character past the =#+begin_assistant= line).
+;; The stream callback captures this marker and uses it as the
+;; insertion point for streamed tokens.
+
+;; Input contract: TURN is a populated user-turn plist as returned by
+;; =gptel-chat--parse-buffer=. Its =:end= marker points at the START
+;; of the =#+end_user= delimiter line.
+
+;; Output contract: an /advance/ marker (insertion-type t) positioned
+;; immediately after the newline terminating =#+begin_assistant=,
+;; pointing into a now-open assistant block. The buffer mutation:
+
+;;   <turn body>
+;;   #+end_user
+;;   #+begin_assistant
+;;   <marker here>
+
+;; The close delimiter (=#+end_assistant=) is appended later by
+;; =gptel-chat--stream-close-assistant= on completion, error, or
+;; abort. We deliberately do NOT pre-close the assistant block — the
+;; stream inserter's advance marker would then sit ahead of that
+;; delimiter and text would land after =#+end_assistant=.
+
+
+;; [[file:send.org::*Assistant-block opener][Assistant-block opener:1]]
+(defun gptel-chat--open-assistant-block (turn)
+  "Open a fresh `#+begin_assistant' block after TURN's `#+end_user'.
+TURN is a populated user-turn plist from `gptel-chat--parse-buffer'
+whose `:end' marker points at the start of its `#+end_user' line.
+
+Inserts a blank line and `#+begin_assistant\\n' immediately after
+the line holding `#+end_user'.  Returns a live advance marker
+\(insertion-type t\) at the assistant body — one character past
+the inserted `#+begin_assistant' line — ready for the stream
+callback to use as its insertion point."
+  (let* ((end-marker (plist-get turn :end))
+         (buf (marker-buffer end-marker))
+         (insertion (make-marker)))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char end-marker)
+        ;; `:end' points at the start of `#+end_user'; step past the
+        ;; whole line so the assistant block opens BELOW it.
+        (forward-line 1)
+        ;; `forward-line' stops at point-max without appending a
+        ;; newline when the buffer does not end in one; ensure we
+        ;; start the new block on a fresh line.
+        (unless (bolp) (insert "\n"))
+        (insert "\n#+begin_assistant\n")
+        ;; Position the insertion marker on the line immediately
+        ;; after the `#+begin_assistant' header.  Point is currently
+        ;; at the character right after the trailing `\n' of
+        ;; `#+begin_assistant'.
+        (set-marker insertion (point) buf)
+        (set-marker-insertion-type insertion t)))
+    insertion))
+;; Assistant-block opener:1 ends here
+
+;; Interactive send command
+
+;; =gptel-chat-send= is the =C-c C-c= entry point. It is deliberately
+;; narrow — most of the work is precondition validation and buffer
+;; layout; once the assistant block is open the stream callback and
+;; FSM handlers own the request's lifetime.
+
+;; Pipeline:
+
+;; 1. In-flight guard (=gptel-chat--in-flight-p=).
+;; 2. User-block resolution (=gptel-chat--resolve-send-turn=).
+;; 3. Empty-prompt check — a blank or whitespace-only user body
+;;    yields a =message= (no =user-error=) and nil return.
+;; 4. Parse + messages construction via =gptel-chat--parse-buffer=
+;;    and =gptel-chat--turns-to-messages=. An empty message list
+;;    (e.g., a lone empty user block that slipped past the blank
+;;    check for some reason) is treated the same as an empty prompt.
+;; 5. Open the assistant block, grab the insertion marker.
+;; 6. Invoke =gptel-request= with =:prompt= / =:stream= /
+;;    =:callback= / =:fsm=. We do NOT pass =:buffer= — upstream
+;;    defaults to =(current-buffer)=, which is the chat-mode buffer.
+
+;; Design: the command never queues. When a request is in flight the
+;; user receives a =user-error= and the buffer is untouched (design.md
+;; §Decision 11). The stream callback is the sole driver of assistant
+;; text insertion, tool-block rendering, and the post-completion
+;; append flow (design.md §Decision 8 / §Decision 10).
+
+
+;; [[file:send.org::*Interactive send command][Interactive send command:1]]
+(declare-function gptel-chat--turns-to-messages "gptel-chat-parser")
+(declare-function gptel-chat--blank-content-p   "gptel-chat-parser")
+(declare-function gptel-chat--stream-callback   "gptel-chat-stream")
+
+;;;###autoload
+(defun gptel-chat-send ()
+  "Send the current (or last) user block to the model.
+
+Validates four preconditions:
+
+- No `gptel-request' is in flight in this buffer (consults
+  `gptel--fsm-last'; states `WAIT', `TYPE', `TOOL' signal a
+  `user-error').
+- Point is NOT inside an `#+begin_assistant' block.
+- A user block exists (at point, or the last one in the buffer if
+  point is between blocks).
+- That user block has non-whitespace body content.
+
+On an empty or missing user block, prints a user-visible message
+and returns nil without signalling.  An assistant-block point or
+an in-flight request signals `user-error'.
+
+On success, parses the buffer, converts the turn list into a
+`gptel-request' `:prompt' message list, opens a fresh
+`#+begin_assistant' block after the user's `#+end_user', and
+invokes `gptel-request' with `:stream t', the chat-mode stream
+callback, and an FSM wired with `gptel-chat--fsm-handlers'.
+
+Returns the value of `gptel-request' on success, or nil on the
+empty-prompt no-op path."
+  (interactive)
+  ;; 1. In-flight guard.
+  (when (gptel-chat--in-flight-p)
+    (user-error
+     "gptel-chat: a request is already in flight in this buffer"))
+  ;; 2. Resolve the user turn.
+  (let* ((resolved (gptel-chat--resolve-send-turn))
+         (reason   (plist-get resolved :reason))
+         (turn     (plist-get resolved :turn)))
+    (pcase reason
+      (`assistant
+       (user-error "gptel-chat: send from a user block, not an assistant block"))
+      ((or `none (guard (null turn)))
+       (message "gptel-chat: prompt is empty")
+       nil)
+      (_
+       (if (gptel-chat--blank-content-p (plist-get turn :content))
+           (progn (message "gptel-chat: prompt is empty") nil)
+         ;; 4. Parse + messages.
+         (let* ((turns    (gptel-chat--parse-buffer))
+                (messages (gptel-chat--turns-to-messages turns)))
+           (if (null messages)
+               (progn (message "gptel-chat: prompt is empty") nil)
+             ;; 5. Open assistant block, grab insertion marker.
+             (let* ((insertion (gptel-chat--open-assistant-block turn))
+                    (callback  (gptel-chat--stream-callback insertion))
+                    (fsm       (gptel-make-fsm
+                                :handlers gptel-chat--fsm-handlers)))
+               ;; 6. Invoke gptel-request.
+               (gptel-request messages
+                              :stream   t
+                              :callback callback
+                              :fsm      fsm)))))))))
+;; Interactive send command:1 ends here
+
 ;; Provide
 
 
 ;; [[file:send.org::*Provide][Provide:1]]
-;; TODO(gptel-chat-mode): implement `gptel-chat-send' (interactive),
-;; send-precondition validation, and assistant-block lifecycle
-;; management.  Tracked by task `send-command' in the
-;; gptel-chat-mode change.
-
 (provide 'gptel-chat-send)
 
 ;;; send.el ends here
