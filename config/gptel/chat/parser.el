@@ -10,11 +10,8 @@
 ;; and is indifferent to org heading depth (design.md Decision 12).
 ;;
 ;; Public entry points:
-;;   `gptel-chat--parse-buffer'  — buffer -> turn list
-;;
-;; Message-shape conversion (turn list -> `gptel-request' :prompt)
-;; is the responsibility of `gptel-chat--turns-to-messages', tangled
-;; from the same .org file in a later task.
+;;   `gptel-chat--parse-buffer'       — buffer -> turn list
+;;   `gptel-chat--turns-to-messages'  — turn list -> `gptel-request' :prompt
 
 ;;; Code:
 
@@ -390,6 +387,176 @@ Signals `user-error' when the buffer is structurally invalid:
                (gptel-chat--line-of (match-beginning 3))))))
           (nreverse turns))))))
 ;; Buffer parser — public entry point:1 ends here
+
+;; Comma un-escape (inverse of the stream sanitizer)
+
+;; The streaming sanitizer (=gptel-chat--sanitize-chunk= in =stream.el=)
+;; prepends =,= to any body line matching
+
+;; : ^#\+end_\(user\|assistant\|tool\)\b
+
+;; so that assistant output cannot prematurely close a containing block.
+;; On the send path, the same transform must be inverted before the text
+;; reaches the model: a line =,#+end_assistant= on disk is presented to
+;; the model as =#+end_assistant=.
+
+;; =gptel-chat--unescape-end-delimiters= is a pure string → string
+;; function that strips a single leading =,= from lines matching the
+;; escape pattern (case-insensitive, anchored to beginning of line) and
+;; leaves everything else untouched. It is the exact inverse of
+;; =gptel-chat--sanitize-chunk= restricted to the three collision
+;; delimiters — round-trip tests in =test/parser/escape-round-trip-spec.el=
+;; pin that inverse relationship.
+
+
+;; [[file:parser.org::*Comma un-escape (inverse of the stream sanitizer)][Comma un-escape (inverse of the stream sanitizer):1]]
+(defconst gptel-chat--escaped-end-delimiter-regexp
+  "^,\\(#\\+end_\\(user\\|assistant\\|tool\\)\\b\\)"
+  "Regexp matching a comma-escaped chat-mode closing delimiter line.
+Group 1 is the un-escaped delimiter text.  Case-folded matches via
+`case-fold-search' so mixed-case delimiters (e.g., `,#+End_User')
+round-trip cleanly.")
+
+(defun gptel-chat--unescape-end-delimiters (text)
+  "Strip a single leading `,' from any `,#+end_*' line in TEXT.
+Inverse of the `,'-prefix escape applied by
+`gptel-chat--sanitize-chunk'.  Only the three chat-mode closers
+(`#+end_user', `#+end_assistant', `#+end_tool') are un-escaped —
+`,#+end_src' and other org delimiters are preserved verbatim.
+
+Lines are identified by `\\n' boundaries; the first line is treated
+identically to any other line in TEXT.  Matching is case-insensitive
+to mirror the sanitizer.  Returns TEXT unchanged when no escaped
+delimiter is present."
+  (if (or (null text) (string-empty-p text))
+      (or text "")
+    (let ((case-fold-search t))
+      (replace-regexp-in-string
+       "\\(\\`\\|\n\\),\\(#\\+end_\\(user\\|assistant\\|tool\\)\\b\\)"
+       "\\1\\2"
+       text))))
+;; Comma un-escape (inverse of the stream sanitizer):1 ends here
+
+;; Whitespace emptiness test
+
+;; Empty user/assistant turns are skipped when building the message list
+;; (spec scenario "Empty blocks are skipped"). "Empty" means zero
+;; non-whitespace characters — a block containing only a newline is
+;; still empty.
+
+
+;; [[file:parser.org::*Whitespace emptiness test][Whitespace emptiness test:1]]
+(defun gptel-chat--blank-content-p (text)
+  "Return non-nil when TEXT is nil, empty, or whitespace-only."
+  (or (null text)
+      (string-empty-p text)
+      (string-match-p "\\`[ \t\n\r]*\\'" text)))
+;; Whitespace emptiness test:1 ends here
+
+;; Assistant segment → messages
+
+;; Assistant turns hold a list of segments in document order. Text
+;; segments become one =(response . STR)= cons each (after un-escape);
+;; tool-call segments become one =(tool . PLIST)= cons each. Empty text
+;; segments are dropped — the parser does not emit empty text segments
+;; today (see =gptel-chat--flush-text-segment=), but we defend against
+;; that shape anyway so future parser tweaks don't silently inject blank
+;; assistant messages.
+
+;; Tool calls carry =:name=, =:args=, and =:result= from the parser;
+;; upstream backends additionally consume =:id=. The turn list has no
+;; =:id= slot — tool-call IDs in on-disk buffers are implicit (the
+;; =#+begin_tool (NAME ARGS)= header does not carry one). Each backend's
+;; =gptel--parse-list= synthesises a fresh ID when the =:id= key is
+;; absent (e.g., =gptel--anthropic-format-tool-id=,
+;; =gptel--openai-format-tool-id=), so we simply pass the =:id= through
+;; only when the parser has one. Today it never does, so the emitted
+;; plist carries only =:name=, =:args=, =:result=.
+
+
+;; [[file:parser.org::*Assistant segment → messages][Assistant segment → messages:1]]
+(defun gptel-chat--segment-to-messages (segment)
+  "Convert one assistant SEGMENT into a list of messages.
+Returns a list (possibly empty) of cons cells in the advanced
+`gptel-request' `:prompt' format.  Text segments yield a single
+`(response . STR)' cons (nil if the content is blank); tool-call
+segments yield a single `(tool . PLIST)' cons with `:name', `:args',
+and `:result' copied from the segment."
+  (pcase (plist-get segment :type)
+    (`text
+     (let ((content (gptel-chat--unescape-end-delimiters
+                     (plist-get segment :content))))
+       (if (gptel-chat--blank-content-p content)
+           nil
+         (list (cons 'response content)))))
+    (`tool-call
+     (let ((call (list :name   (plist-get segment :name)
+                       :args   (plist-get segment :args)
+                       :result (or (plist-get segment :result) ""))))
+       (list (cons 'tool call))))
+    (_ nil)))
+;; Assistant segment → messages:1 ends here
+
+;; Turn → messages
+
+;; =gptel-chat--turn-to-messages= dispatches on =:role=. User turns emit
+;; a single =(prompt . STR)= cons when non-blank; assistant turns emit
+;; one message per non-empty segment in document order.
+
+
+;; [[file:parser.org::*Turn → messages][Turn → messages:1]]
+(defun gptel-chat--turn-to-messages (turn)
+  "Convert TURN (a parser turn plist) into a list of messages.
+See `gptel-chat--turns-to-messages' for the message-shape contract.
+Returns nil for an empty user turn or an assistant turn whose
+segments are all empty."
+  (pcase (plist-get turn :role)
+    (`user
+     (let ((content (gptel-chat--unescape-end-delimiters
+                     (plist-get turn :content))))
+       (if (gptel-chat--blank-content-p content)
+           nil
+         (list (cons 'prompt content)))))
+    (`assistant
+     (cl-loop for seg in (plist-get turn :segments)
+              nconc (gptel-chat--segment-to-messages seg)))
+    (_ nil)))
+;; Turn → messages:1 ends here
+
+;; Public entry point
+
+;; =gptel-chat--turns-to-messages= is the public converter. It accepts
+;; either a buffer's parsed turn list directly, or the result of an
+;; earlier call to =gptel-chat--parse-buffer=. Empty input yields an
+;; empty message list.
+
+
+;; [[file:parser.org::*Public entry point][Public entry point:1]]
+(defun gptel-chat--turns-to-messages (turns)
+  "Convert TURNS into a `gptel-request' `:prompt' message list.
+
+TURNS is the return value of `gptel-chat--parse-buffer' — an ordered
+list of turn plists.  Returns an ordered list of cons cells suitable
+for passing as `gptel-request''s `:prompt' keyword:
+
+  (prompt . STR)      — a user turn
+  (response . STR)    — an assistant text segment
+  (tool . PLIST)      — one tool call; PLIST has `:name', `:args',
+                        `:result' (the backend synthesises `:id')
+
+User turns with whitespace-only content and assistant turns whose
+segments are all empty are skipped.  Assistant segments with tool
+calls are emitted as a single `(tool . PLIST)' cons each; the
+backend's `gptel--parse-list' method expands each into the wire-
+level tool_use / tool_result pair (see Anthropic, OpenAI, Ollama,
+Gemini implementations in `runtime/straight/repos/gptel/').
+
+Body lines matching `^,#\\+end_\\(user\\|assistant\\|tool\\)\\b' are
+un-escaped (leading `,' stripped) before inclusion — the inverse of
+the streaming sanitizer in `gptel-chat-stream'."
+  (cl-loop for turn in turns
+           nconc (gptel-chat--turn-to-messages turn)))
+;; Public entry point:1 ends here
 
 ;; Provide
 
