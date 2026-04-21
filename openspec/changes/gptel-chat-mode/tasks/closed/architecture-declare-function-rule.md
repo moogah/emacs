@@ -2,7 +2,7 @@
 name: architecture-declare-function-rule
 description: Soften architecture.md no-cross-module-references rule to permit declare-function
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:mode-definition
 ---
@@ -43,3 +43,22 @@ byte-compile noise for no real benefit.
 ## Context
 - Review of `mode-definition` task Finding #2 (and related
   spec-level signal).
+
+## Review
+- **Session:** orch-review-1776785000 (2026-04-21), agent `ae9fd1f16149850dc`
+- **Verdict:** clean
+- **Findings:** none
+- **Checked and ruled out:**
+  - Hard prohibition on cross-module `require` remains intact in
+    architecture.md:137 and chat.org:65.
+  - architecture.md and chat.org/chat.el wording agree: both state the
+    hard rule is "no cross-module require" and explicitly permit
+    `declare-function` as a byte-compiler hint.
+  - New wording matches actual practice — mode.el uses 5 sibling + 1
+    upstream (`gptel-abort`) declare-functions; nav.el 1, send.el 5,
+    menu.el 2, display.el 1. Grep confirms no cross-module `require`
+    to sibling chat-mode modules in any chat/*.el.
+  - Task file properly moved to tasks/closed/; chat.el is in sync with
+    chat.org (tangled correctly).
+- **Follow-ups:** none
+- **Dependents repointed:** none (no open task is blocked by this one)

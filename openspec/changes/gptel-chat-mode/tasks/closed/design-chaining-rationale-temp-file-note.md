@@ -2,7 +2,7 @@
 name: design-chaining-rationale-temp-file-note
 description: Extend design.md Decision 3 chaining rationale to note upstream's own temp-file cleanup rides :post
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:fsm-handlers-upstream-integration
 ---
@@ -36,3 +36,25 @@ for future readers reconsidering the design.
 - Review of `fsm-handlers-upstream-integration` (2026-04-21,
   orch-review-1776774164), Finding #1 (non-blocking spec-signal).
 - Upstream: `runtime/straight/build/gptel/gptel-request.el:2539-2541`.
+
+## Review
+- **Session:** orch-review-1776785000 (2026-04-21), agent `a60e3535129eccb77`
+- **Verdict:** clean
+- **Findings:** none
+- **Checked and ruled out:**
+  - Line-number citation accurate: `gptel-request.el:2539-2541`
+    corresponds exactly to the `cleanup-fn` lambda and the
+    `plist-put info :post (cons cleanup-fn ...)` call in the
+    curl-large-data branch.
+  - Upstream code unconditionally pushes `cleanup-fn` onto `info[:post]`
+    when `data-json` exceeds `gptel-curl-file-size-threshold`; the
+    "replacing rather than chaining would leak one temp file per large
+    request" claim is literally correct.
+  - Sentence materially strengthens Decision 3 — supplies a concrete
+    already-shipping consumer to replace hypothetical future ones;
+    "not merely drop caller-supplied hooks" ties back without
+    contradicting prior sentence.
+  - Verification greps from the task body succeed against the
+    committed file; no scope creep.
+- **Follow-ups:** none
+- **Dependents repointed:** none

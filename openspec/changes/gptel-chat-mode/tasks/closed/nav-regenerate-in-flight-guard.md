@@ -2,7 +2,7 @@
 name: nav-regenerate-in-flight-guard
 description: Prevent gptel-chat-regenerate from deleting an in-flight assistant response and wrap its delete+send in atomic-change-group
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:nav-commands
 ---
@@ -69,3 +69,32 @@ response with no single-keystroke undo path.
 - State accessor: `config/gptel/chat/send.el:63` (or wherever
   `gptel-chat--lifecycle-state` is declared after fsm-handlers
   review close).
+
+## Review
+- **Session:** orch-review-1776785000 (2026-04-21), agent `a77d64933253cca42`
+- **Verdict:** clean
+- **Findings:** none
+- **Checked and ruled out:**
+  - **In-flight set vs. send.el**: `(waiting streaming tool-running)`
+    exactly matches what `gptel-chat--on-wait` / `on-type` / `on-tool`
+    set; `error`/`aborted`/`nil` correctly treated as idle per
+    send.el:60-64 and design.md §Decision 11.
+  - **Cross-module coupling**: no `(require 'send)`. Uses
+    `declare-function gptel-chat-send` + `(defvar
+    gptel-chat--lifecycle-state)` — mirrors the forward-decl pattern
+    already established in display.el:35. Architecture-rule compliant.
+  - **`atomic-change-group` semantics**: `delete-region` is inside
+    the group, directly before `gptel-chat-send`. Per elisp manual,
+    non-local exit cancels the group (rolls back the delete). The
+    rollback spec genuinely forces a signal from the spied
+    `gptel-chat-send` and asserts `buffer-string` restoration — not
+    a mocked assumption.
+  - **Test realism**: real buffer with `buffer-enable-undo`, real
+    atomic-change-group semantics. `error`/`aborted` idle-passthrough
+    specs verify the guard's written logic.
+  - Buttercup `*-spec.el` naming and literate-programming .org/.el
+    sync both honoured.
+- **Follow-ups:** none (future `insert-turn`-style mutating nav
+  commands would warrant a shared `gptel-chat-nav--assert-idle`
+  helper, but that is speculative and out of scope)
+- **Dependents repointed:** none

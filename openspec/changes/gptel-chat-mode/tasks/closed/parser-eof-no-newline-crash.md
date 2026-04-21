@@ -2,7 +2,7 @@
 name: parser-eof-no-newline-crash
 description: Parser crashes args-out-of-range on begin_user/begin_assistant at EOF without trailing newline
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:parser
 ---
@@ -43,3 +43,28 @@ malformed `.org` files.
 
 ## Context
 - Review of `parser` task (orchestrator session 2026-04-20) Finding #1.
+
+## Review
+- **Session:** orch-review-1776785000 (2026-04-21), agent `ae98797b8157ffd47`
+- **Verdict:** clean
+- **Findings:** none
+- **Checked and ruled out:**
+  - **Clamp correctness**: `(min (1+ (line-end-position)) (point-max))`
+    is correct. For buffers with trailing newlines it equals
+    `(1+ line-end-position)` (unchanged); for EOF-without-newline it
+    equals `point-max`, so the body scanners enter, `re-search-forward`
+    returns nil, and the `'unclosed-<kind>` branch fires.
+  - **No off-by-one regression** on valid buffers — `min` is a no-op
+    when `point-max > (1+ line-end-position)`.
+  - **Sibling call site parser.el:242** (`tool-body-start = (1+ tool-line-end)`
+    inside `scan-assistant-body`): exercised `"#+begin_assistant\n#+begin_tool (foo)"`
+    with no trailing newline — raised `user-error: unclosed tool block
+    at line 2` cleanly via Emacs' silent `goto-char` clamping.
+  - **Test coverage**: specs use literal `"#+begin_user"` /
+    `"#+begin_assistant"` via `gptel-chat-test--with-buffer` (no
+    trailing newline), genuinely exercising the EOF path.
+  - **Message shape**: two of four new specs pin
+    `:to-match "unclosed (user|assistant) block at line 1"`, matching
+    `gptel-chat--parse-error`'s format at parser.el:96-98.
+- **Follow-ups:** none
+- **Dependents repointed:** none

@@ -2,7 +2,7 @@
 name: display-layer-streaming-integration
 description: Skip overlay refresh during streaming TYPE, refresh once on DONE, cancel pending timer on kill-buffer, and add after-change path tests
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:display-layer
 ---
@@ -88,3 +88,42 @@ pattern is settled.
 - Review of `display-layer` (2026-04-21, orch-review-1776770835),
   Findings 1, 2, and 3.
 - design.md Decision 5 Risks (`design.md:418,424`).
+
+## Review
+- **Session:** orch-review-1776785000 (2026-04-21), agent `a21426201b8fad957`
+- **Verdict:** clean
+- **Findings:** none
+- **Checked and ruled out:**
+  - **Accessor choice**: `'streaming`/`'tool-running` match the values
+    written by `gptel-chat--on-type` / `gptel-chat--on-tool` at
+    send.el:126,135. The task spec offered either the FSM accessor
+    or the lifecycle-state buffer-local; the agent picked the latter.
+  - **`'waiting` correctly excluded**: WAIT fires before the network
+    request — no body content arrives, so after-change events there
+    are user-driven and should refresh.
+  - **Architecture rule**: `declare-function` + `defvar` forward
+    decl + `with-eval-after-load` (no `require`) matches
+    architecture.md:137-139 (forbids cross-module require, permits
+    byte-compiler hints).
+  - **DONE advice buffer-scoping**: advice reads FSM info `:buffer`
+    and wraps with `with-current-buffer` (display.el:305-319), so
+    it targets the originating chat buffer, not global.
+  - **kill-buffer-hook**: buffer-local (`t` 4th arg, display.el:378);
+    `gptel-chat--display-uninstall-hooks` calls `cancel-timer` on the
+    stored timer (display.el:343-345). No dangling timer.
+  - **Advice lifecycle**: advice is function-scoped, idempotent under
+    reload (`advice-add` no-ops on duplicate NAME+FUNCTION), and
+    self-guards with `buffer-live-p`. Not a leak.
+  - **Tests**: debounce spec drives `timer-event-handler` on the
+    captured timer (pragmatic given batch-mode idle-timer behaviour,
+    still exercises the real callback). Streaming/tool-running guards
+    use `let` binding + spy assertion on `gptel-chat--refresh-overlays`.
+    All 17 display specs pass.
+- **Spec-level signals:** the pre-existing `gptel-chat--lifecycle-state`
+  / `gptel-chat--state` duality is documented as intentional
+  (lifecycle = advisory UI indicator, state = FSM source-of-truth);
+  this task consumed the existing shape without drift. Formalising a
+  DONE hook in place of `advice-add` would be nice but is out of
+  scope for a v2 integration task.
+- **Follow-ups:** none
+- **Dependents repointed:** none
