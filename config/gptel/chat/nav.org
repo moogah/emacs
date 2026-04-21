@@ -67,8 +67,37 @@ one, and in batch/test contexts the symbol may be stubbed via a spy.
 =declare-function= suppresses byte-compiler warnings without making
 claims about a specific source library.
 
+The in-flight guard reads =gptel-chat--lifecycle-state= (buffer-local
+indicator owned by =send.el='s =fsm-handlers= subsystem).  Declaring
+the variable here with =defvar= avoids a byte-compile warning when
+=nav.el= is compiled ahead of =send.el=; the real =defvar-local=
+binding in =send.el= takes precedence at load time.
+
 #+begin_src emacs-lisp
 (declare-function gptel-chat-send "send" ())
+(defvar gptel-chat--lifecycle-state)
+#+end_src
+
+* In-flight state set
+
+A regenerate during =waiting= / =streaming= / =tool-running= would
+delete the assistant block while stream handlers are still writing
+into it (via markers inside the deleted range), corrupt the buffer,
+and double-fire a request upstream.  =error= and =aborted= are
+terminal / idle values (see =send.org= §"Send-guard idle-state
+contract") and MUST NOT block regenerate — if the prior request
+errored, regenerating is exactly what the user wants.
+
+The set is pinned as a defconst so the guard and its tests share a
+single definition.
+
+#+begin_src emacs-lisp
+(defconst gptel-chat-nav--regenerate-in-flight-states
+  '(waiting streaming tool-running)
+  "Lifecycle-state values that block `gptel-chat-regenerate'.
+Any other value — including nil, `error', and `aborted' — is
+treated as idle so the user can regenerate after a failed or
+aborted request.  See `gptel-chat--lifecycle-state' in send.el.")
 #+end_src
 
 * Turn-position helper
@@ -209,6 +238,25 @@ delimiter line. We extend the deletion range to the end of that line
 (and the following newline, when present) so the block is removed
 cleanly without leaving a dangling =#+end_assistant= or an empty line.
 
+** In-flight guard
+
+Before touching the buffer we consult =gptel-chat--lifecycle-state=
+(written by =send.el='s chained FSM handlers).  If a request is
+active — =waiting=, =streaming=, or =tool-running= — we signal a
+=user-error= and leave the buffer untouched.  Without this guard the
+delete-region below would run while the stream handlers are still
+writing into markers inside the deleted range, corrupting the
+in-flight write and double-firing a request against upstream.
+
+** Atomic delete-and-send
+
+The delete + =gptel-chat-send= pair is wrapped in
+=atomic-change-group=.  If the send errors (e.g., preset missing,
+auth failure), a single =C-/= restores the pre-regenerate buffer —
+the user does not lose their prior response on top of seeing an
+error.  On success the change group simply commits; =gptel-chat-send=
+has its own undo boundary for the fresh request.
+
 #+begin_src emacs-lisp
 (defun gptel-chat-nav--delete-assistant-block (turn)
   "Delete the assistant-block TURN from the current buffer.
@@ -238,16 +286,27 @@ buffer so the request for the preceding user turn is re-issued.
 
 When the buffer has no turns, or the last turn is an unanswered
 user block, emit `No response to regenerate' and leave the buffer
-unchanged."
+unchanged.
+
+Signals `user-error' when a chat request is currently in flight
+for this buffer (see `gptel-chat--lifecycle-state').  The
+delete-and-send pair is wrapped in `atomic-change-group' so a
+single undo restores the pre-regenerate buffer if the send
+errors."
   (interactive)
+  (when (and (boundp 'gptel-chat--lifecycle-state)
+             (memq gptel-chat--lifecycle-state
+                   gptel-chat-nav--regenerate-in-flight-states))
+    (user-error "Chat request in progress; cannot regenerate"))
   (let* ((turns (gptel-chat--parse-buffer))
          (last (car (last turns))))
     (cond
      ((null last)
       (message "No response to regenerate"))
      ((eq (plist-get last :role) 'assistant)
-      (gptel-chat-nav--delete-assistant-block last)
-      (gptel-chat-send))
+      (atomic-change-group
+        (gptel-chat-nav--delete-assistant-block last)
+        (gptel-chat-send)))
      (t
       (message "No response to regenerate")))))
 #+end_src
