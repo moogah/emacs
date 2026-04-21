@@ -2,7 +2,7 @@
 name: branching-dirty-buffer-handling
 description: Handle unsaved changes in source session buffer before deriving branch-point positions against on-disk file
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-branching
 ---

@@ -2,7 +2,7 @@
 name: branching-edge-case-test-hardening
 description: Pin two under-tested edge cases in the branching suite (EOF INCLUDE and registry-update semantics)
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-branching
 ---
