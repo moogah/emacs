@@ -24,9 +24,17 @@
 ;; and has no org dependency, so this module stays load-safe in minimal
 ;; contexts where =org= has not been pulled in.
 
+;; =transient= is required eagerly — the =transient-define-prefix= and
+;; =transient-define-suffix= forms below expand to code that needs the
+;; transient package present at load time. =cl-lib= is required for
+;; =cl-delete-if= used inside the =gptel-chat-menu= body (mirroring
+;; upstream =gptel-menu='s context sanitisation).
+
 
 ;; [[file:menu.org::*Dependencies][Dependencies:1]]
 (require 'gptel nil t)
+(require 'transient)
+(require 'cl-lib)
 ;; Dependencies:1 ends here
 
 ;; Forward declarations
@@ -254,13 +262,254 @@ Registering the `hack-local-variables-hook' entry buffer-locally
 (add-hook 'gptel-chat-mode-hook #'gptel-chat--install-preset-hooks)
 ;; Hook wiring:1 ends here
 
+;; Send suffix
+
+;; =gptel-chat--suffix-send= is the narrow replacement for
+;; =gptel--suffix-send=. Its only job is to call =gptel-chat-send= —
+;; chat-mode's send command already encapsulates argument handling,
+;; prompt construction, streaming, and FSM setup (see
+;; =config/gptel/chat/send.org=). We do *not* pass =transient-args=
+;; through to it: chat-mode's send takes no arguments and always reads
+;; the current buffer as its source of truth.
+
+;; The =:key "RET"= and =:description= options mirror upstream so the
+;; rebound suffix lands in the same visual slot the user associates
+;; with Send (architecture.md §=gptel-chat-menu=).
+
+;; =gptel-chat-send= is loaded by a sibling module; we reference it at
+;; call time inside the suffix body, so this module does not require
+;; =send= to be loaded yet. =declare-function= below silences the
+;; byte-compiler.
+
+
+;; [[file:menu.org::*Send suffix][Send suffix:1]]
+(declare-function gptel-chat-send "gptel-chat-send" ())
+
+(transient-define-suffix gptel-chat--suffix-send (_args)
+  "Dispatch Send from `gptel-chat-menu' to `gptel-chat-send'.
+
+Replaces `gptel--suffix-send' on the chat-mode transient.  Unlike
+upstream Send, this suffix takes no transient arguments — chat-mode
+reads everything it needs from the current buffer (design.md
+§Decision 15, architecture.md §`gptel-chat-menu')."
+  :key "RET"
+  :description "Send chat buffer"
+  (interactive (list (transient-args
+                      (or transient-current-command 'gptel-chat-menu))))
+  (call-interactively #'gptel-chat-send))
+;; Send suffix:1 ends here
+
+;; Prefix definition
+
+;; =gptel-chat-menu= duplicates the layout of upstream =gptel-menu=
+;; (=runtime/straight/repos/gptel/gptel-transient.el=: the
+;; =transient-define-prefix gptel-menu= form) and replaces the final
+;; =[(gptel--suffix-send)]= row with =[(gptel-chat--suffix-send)]=. All
+;; other groups — system-prompt/context/tools at the top, request-
+;; parameters/prompt-from/response-to in the middle, rewrite/response-
+;; tweak/dry-run/logging below — are identical by symbol reference.
+
+;; We deliberately do *not* =require 'gptel-transient= at top level so
+;; this module stays load-safe before the transient has initialised.
+;; The infix symbols resolve at transient-setup time (when the user
+;; invokes the prefix), at which point =gptel-transient= will have been
+;; loaded by the upstream autoloads triggered by =gptel-menu= or
+;; =gptel-mode=. Should a user somehow reach =gptel-chat-menu= without
+;; =gptel-transient= loaded (unlikely in practice), =transient-setup=
+;; will surface a clear error; we do not try to pre-empt that path.
+
+;; The prefix body mirrors upstream's: sanitise the active model,
+;; prune stale buffer-local context entries, then hand off to
+;; =transient-setup=. Keeping the body identical preserves the
+;; behavioural contract of the inherited infixes — they expect
+;; =gptel-context= to be pre-cleaned and =gptel-model= to be
+;; resolvable.
+
+
+;; [[file:menu.org::*Prefix definition][Prefix definition:1]]
+(declare-function gptel--sanitize-model "gptel" (&optional backend model shoosh))
+(declare-function gptel-system-prompt--format "gptel-transient" (&optional message))
+(declare-function gptel--describe-infix-context "gptel-transient" ())
+(declare-function gptel--model-capable-p "gptel" (capability))
+(defvar gptel-context)
+(defvar gptel-use-tools)
+(defvar gptel--known-tools)
+(defvar gptel-tools)
+(defvar gptel--fsm-last)
+(defvar gptel--rewrite-overlays)
+(defvar gptel-mode)
+(defvar gptel-track-response)
+(defvar gptel-expert-commands)
+(defvar gptel-log-level)
+(defvar gptel-backend)
+(defvar gptel--log-buffer-name)
+
+;;;###autoload (autoload 'gptel-chat-menu "gptel-chat-menu" nil t)
+(transient-define-prefix gptel-chat-menu ()
+  "Change parameters of the chat-mode prompt to send to the LLM.
+
+Mirrors the layout of upstream `gptel-menu' but replaces the Send
+suffix with `gptel-chat--suffix-send', which dispatches to
+`gptel-chat-send'.  Configuration infixes (system message, context,
+tools, preset, provider, temperature, etc.) are reused by symbol
+from `gptel-transient.el', so their behaviour is identical to
+upstream.
+
+Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
+`M-x gptel-chat-menu'.  Upstream `gptel-menu' remains unchanged —
+`M-x gptel-menu' invoked directly retains its upstream Send suffix."
+  :incompatible '(("m" "y" "i") ("e" "g" "b" "k"))
+  [:description gptel-system-prompt--format
+   [""
+    :if (lambda () (not (gptel--model-capable-p 'nosystem)))
+    "Instructions"
+    ("s" "Set system message" gptel-system-prompt :transient t)
+    (gptel--infix-add-directive)]
+   [:pad-keys t ""
+    (:info #'gptel--describe-infix-context
+     :face transient-heading :format "%d")
+    (gptel--infix-context-add-current-kill)
+    (gptel--infix-context-add-region)
+    (gptel--infix-context-add-buffer)
+    (gptel--infix-context-add-file)
+    (gptel--infix-context-remove-all)
+    (gptel--suffix-context-buffer)]
+   [:pad-keys t
+    :if (lambda () (and gptel-use-tools
+                   (or gptel--known-tools (featurep 'gptel-integrations))))
+    "" (:info
+        (lambda ()
+          (concat
+           "Tools" (and gptel-tools
+                        (concat " (" (propertize (format "%d selected"
+                                                         (length gptel-tools))
+                                                 'face 'warning)
+                                ")"))))
+        :format "%d" :face transient-heading)
+    ("t" "Select tools" gptel-tools :transient t)
+    ("T" "Continue tool calls"
+     (lambda () (interactive) (gptel--handle-tool-use gptel--fsm-last))
+     :if (lambda () (and gptel--fsm-last
+                    (eq (gptel-fsm-state gptel--fsm-last) 'TOOL))))]]
+  [[(gptel--preset
+     :key "@" :format "%d"
+     :description
+     (lambda ()
+       (concat (propertize "Request Parameters" 'face 'transient-heading)
+               (gptel--format-preset-string))))
+    (gptel--infix-variable-scope)
+    (gptel--infix-provider)
+    (gptel--infix-max-tokens)
+    (gptel--infix-num-messages-to-send
+     :if (lambda () (and gptel-expert-commands
+                    (or gptel-mode gptel-track-response))))
+    (gptel--infix-temperature :if (lambda () gptel-expert-commands))
+    (gptel--infix-use-context)
+    (gptel--infix-include-reasoning)
+    (gptel--infix-use-tools)
+    (gptel--infix-track-response
+     :if (lambda () (and gptel-expert-commands (not gptel-mode))))
+    (gptel--infix-track-media :if (lambda () gptel-mode))]
+   [" <Prompt from"
+    ("m" "Minibuffer instead" "m")
+    ("y" "Kill-ring instead" "y")
+    ""
+    ("i" "Respond in place" "i")]
+   [" >Response to"
+    ("e" "Echo area" "e")
+    ("b" "Other buffer" "b"
+     :class transient-option
+     :prompt "Output to buffer: "
+     :reader (lambda (prompt _ _history)
+               (read-buffer prompt (buffer-name (other-buffer)) nil)))
+    ("g" "gptel session" "g"
+     :class transient-option
+     :prompt "Existing or new gptel session: "
+     :reader
+     (lambda (prompt _ _history)
+       (read-buffer
+        prompt (generate-new-buffer-name
+                (concat "*" (gptel-backend-name gptel-backend) "*"))
+        nil (lambda (buf-name)
+              (if (consp buf-name) (setq buf-name (car buf-name)))
+              (let ((buf (get-buffer buf-name)))
+                (and (buffer-local-value 'gptel-mode buf)
+                     (not (eq (current-buffer) buf))))))))
+    ("k" "Kill-ring" "k")]]
+  [[:description (lambda () (concat (and gptel--rewrite-overlays "Continue ")
+                               "Rewrite"))
+    :if (lambda () (or (use-region-p)
+                  (and gptel--rewrite-overlays
+                       (gptel--rewrite-sanitize-overlays))))
+    ("r"
+     (lambda () (if (get-char-property (point) 'gptel-rewrite)
+               "Iterate" "Rewrite"))
+     gptel-rewrite)]
+   ["Tweak Response" :if gptel--in-response-p :pad-keys t
+    ("SPC" "Mark" gptel--mark-response)
+    ("M-RET" "Regenerate" gptel--regenerate :if gptel--in-response-p)
+    ("P" "Previous variant" gptel--previous-variant
+     :if gptel--at-response-history-p
+     :transient t)
+    ("N" "Next variant" gptel--previous-variant
+     :if gptel--at-response-history-p
+     :transient t)
+    ("E" "Ediff previous" gptel--ediff
+     :if gptel--at-response-history-p)]
+   ["Dry Run" :if (lambda () (or gptel-log-level gptel-expert-commands))
+    ("I" "Inspect query (Lisp)"
+     (lambda ()
+       "Inspect the query that will be sent as a lisp object."
+       (interactive)
+       (gptel--sanitize-model)
+       (gptel--inspect-query
+        (gptel--suffix-send
+         (cons "I" (transient-args transient-current-command))))))
+    ("J" "Inspect query (JSON)"
+     (lambda ()
+       "Inspect the query that will be sent as a JSON object."
+       (interactive)
+       (gptel--sanitize-model)
+       (gptel--inspect-query
+        (gptel--suffix-send
+         (cons "I" (transient-args transient-current-command)))
+        'json)))]
+   ["Logging"
+    :if (lambda () (or gptel-log-level gptel-expert-commands))
+    ("-l" "Log level" "-l"
+     :class gptel-lisp-variable
+     :variable gptel-log-level
+     :set-value gptel--set-with-scope
+     :display-nil "Off"
+     :prompt "Log level: "
+     :reader
+     (lambda (prompt _ _)
+       "Manage gptel's logging."
+       (let ((state (completing-read
+                     prompt '("off" "info" "debug") nil t)))
+         (message "Log level set to %s" state)
+         (if (string= state "off") nil (intern state)))))
+    ("L" "Inspect Log"
+     (lambda () (interactive)
+       (pop-to-buffer (get-buffer-create gptel--log-buffer-name)))
+     :format "  %k %d")]]
+  [(gptel-chat--suffix-send)]
+  (interactive)
+  (gptel--sanitize-model)
+  (when gptel-context
+    (setq gptel-context
+          (cl-delete-if
+           (lambda (entry)
+             (let ((first (or (car-safe entry) entry)))
+               (and (bufferp first) (not (buffer-live-p first)))))
+           gptel-context)))
+  (transient-setup 'gptel-chat-menu))
+;; Prefix definition:1 ends here
+
 ;; Provide
 
 
 ;; [[file:menu.org::*Provide][Provide:1]]
-;; TODO(gptel-chat-mode): implement `gptel-chat-menu' transient prefix
-;; — delivered by the `menu-integration' task.
-
 (provide 'gptel-chat-menu)
 
 ;;; menu.el ends here
