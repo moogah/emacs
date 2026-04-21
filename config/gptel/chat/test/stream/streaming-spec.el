@@ -160,7 +160,17 @@ Returns the marker."
     ;; like a delimiter is not spuriously escaped.
     (it "passes `  #+end_assistant' (indented) through"
       (expect (gptel-chat--sanitize-chunk "  #+end_assistant")
-              :to-equal "  #+end_assistant"))))
+              :to-equal "  #+end_assistant")))
+
+  (describe "enforces its single-line contract"
+    ;; The sanitizer is a line-level helper; misuse with an embedded
+    ;; newline would silently sanitize only the prefix up to the first
+    ;; `\n', re-introducing the split-chunk bug the holdback exists
+    ;; to prevent.  The guard turns that silent misuse into a loud
+    ;; failure so callers cannot regress.
+    (it "signals when LINE contains an embedded newline"
+      (expect (gptel-chat--sanitize-chunk "#+end_assistant\nmore")
+              :to-throw 'error))))
 
 
 ;;; gptel-chat--make-stream-closure ------------------------------------------
