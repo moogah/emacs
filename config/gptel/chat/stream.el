@@ -52,7 +52,7 @@ matches when it begins with `#+end_user', `#+end_assistant', or
 unchanged.
 
 Callers with multi-line input must split on newlines first and call
-this function per line; `gptel-chat--make-stream-closure' does that
+this function per line; `gptel-chat--make-stream-inserter' does that
 via a one-line holdback."
   (let ((case-fold-search t))
     (if (string-match-p gptel-chat--end-delimiter-regexp line)
@@ -77,7 +77,7 @@ via a one-line holdback."
 ;; [[file:stream.org::*The =gptel-chat-stream= struct][The =gptel-chat-stream= struct:1]]
 (cl-defstruct (gptel-chat-stream (:copier nil))
   "Per-send stream handle for `gptel-chat-mode' response streaming.
-Created by `gptel-chat--make-stream-closure'.  Text-processing state
+Created by `gptel-chat--make-stream-inserter'.  Text-processing state
 (insertion marker, line holdback, current tool-marker value) lives
 inside the closures bound to the function slots; only the routing
 *operations* are exposed here.
@@ -87,7 +87,7 @@ Slots:
 - INSERT: function of one argument.  Pass a string chunk for normal
   text streaming or the sentinel `t' to flush any trailing
   holdback on stream completion.  See
-  `gptel-chat--make-stream-closure' for semantics.
+  `gptel-chat--make-stream-inserter' for semantics.
 - SET-TOOL-MARKER: function of one argument (a live marker).
   After calling, subsequent INSERT calls route text to the given
   marker instead of the assistant insertion marker.  Intended to
@@ -163,7 +163,7 @@ do nothing."
 
 
 ;; [[file:stream.org::*The closure factory][The closure factory:1]]
-(defun gptel-chat--make-stream-closure (insertion-marker)
+(defun gptel-chat--make-stream-inserter (insertion-marker)
   "Return a `gptel-chat-stream' handle for streaming assistant text.
 INSERTION-MARKER must be a live Emacs marker pointing inside the
 buffer that should receive assistant output.  Three slots of
