@@ -2,7 +2,7 @@
 name: sessions-persistent-create
 description: jf/gptel-persistent-session writes session.org with chat-mode initial content
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - blocked-by:mode-definition
   - blocked-by:sessions-filesystem

@@ -2,7 +2,7 @@
 name: messages-tool-result-unescape
 description: Un-escape chat delimiters in tool :result before emitting to gptel-request
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:messages
 ---

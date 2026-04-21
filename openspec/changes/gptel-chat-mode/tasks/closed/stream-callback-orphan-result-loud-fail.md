@@ -2,7 +2,7 @@
 name: stream-callback-orphan-result-loud-fail
 description: Fail loudly (cl-assert or visible marker) when a tool-result arrives without a pending tool-marker, instead of silently dropping
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:stream-callback
 ---

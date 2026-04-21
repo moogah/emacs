@@ -2,7 +2,7 @@
 name: sanitize-chunks-contract-hardening
 description: Tighten tests and docstrings around the stream insert / sanitize contracts (loud-fail, sibling flush, CR handling, error-message pinning, spec encoding)
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sanitize-chunks
   - discovered-from:marker-insertion-type-contract
