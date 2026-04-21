@@ -468,6 +468,158 @@ Returns the marker."
               :to-equal "hello\n"))))
 
 
+;;; gptel-chat--stream-active-marker ---------------------------------------
+;;
+;; Direct unit tests for the helper that picks the active insertion
+;; target from (INSERTION-MARKER, TOOL-MARKER).  Prior to this task
+;; the helper was reached only transitively through the stream
+;; closure; these specs invoke it directly so all three input
+;; states (nil tool-marker, live tool-marker, dead tool-marker) are
+;; pinned independently of the closure wiring.  Companion to
+;; task `tool-marker-routing-tests' step 1 (review of `sanitize-chunks'
+;; Finding #4).
+
+(describe "gptel-chat--stream-active-marker"
+
+  (before-each
+    (gptel-chat-stream-test--fresh-buffer))
+
+  (after-each
+    (gptel-chat-stream-test--cleanup))
+
+  (it "returns insertion-marker when tool-marker is nil"
+    (let ((insertion gptel-chat-stream-test--marker))
+      (expect (gptel-chat--stream-active-marker insertion nil)
+              :to-be insertion)))
+
+  (it "returns tool-marker when it is live"
+    (let* ((insertion gptel-chat-stream-test--marker)
+           (tool (with-current-buffer gptel-chat-stream-test--buffer
+                   (copy-marker (point-max) t))))
+      (expect (gptel-chat--stream-active-marker insertion tool)
+              :to-be tool)))
+
+  (it "falls back to insertion-marker when tool-marker has been cleared with set-marker nil"
+    ;; A marker whose buffer has been cleared via (set-marker M nil)
+    ;; is no longer "live" in the helper's sense — (marker-buffer M)
+    ;; is nil — so routing must fall back to the assistant marker.
+    (let* ((insertion gptel-chat-stream-test--marker)
+           (tool (with-current-buffer gptel-chat-stream-test--buffer
+                   (copy-marker (point-max) t))))
+      (set-marker tool nil)
+      (expect (marker-buffer tool) :to-be nil)
+      (expect (gptel-chat--stream-active-marker insertion tool)
+              :to-be insertion))))
+
+
+;;; tool-marker routing through the closure --------------------------------
+;;
+;; Integration-level specs that exercise tool-marker routing through
+;; the public struct surface.  These complement the handle-API specs
+;; above by covering the case where the *same* setter lambda is
+;; called more than once on the same closure instance (the "reroute"
+;; scenario) and by pinning the input-validation contract on a
+;; `nil' argument.  Owned by task `tool-marker-routing-tests' steps
+;; 2-3 (review findings #2 and #5 on `expose-tool-marker-setter').
+
+(describe "gptel-chat-stream tool-marker routing through the closure"
+
+  (before-each
+    (gptel-chat-stream-test--fresh-buffer))
+
+  (after-each
+    (gptel-chat-stream-test--cleanup))
+
+  (describe "reroute: set → insert → set-to-a-different-marker → insert"
+
+    (it "routes the second insert to the new tool marker, not the first"
+      ;; Finding #2: pins that `setq tool-marker …' in the setter
+      ;; lambda works on the *second* call of the same closure
+      ;; instance, not just the first.  Layout: three distinct
+      ;; anchor points in the buffer, separated by sentinels, each
+      ;; with its own advance marker.  Each insert lands at the
+      ;; marker active at the time of the call.
+      (with-current-buffer gptel-chat-stream-test--buffer
+        (insert "S1\nS2\n"))
+      (let* ((assistant-marker
+              (with-current-buffer gptel-chat-stream-test--buffer
+                (copy-marker (point-min) t)))
+             (tool-marker-1
+              (with-current-buffer gptel-chat-stream-test--buffer
+                (save-excursion
+                  (goto-char (point-min))
+                  (search-forward "S1\n")
+                  (copy-marker (point) t))))
+             (tool-marker-2
+              (with-current-buffer gptel-chat-stream-test--buffer
+                (copy-marker (point-max) t)))
+             (handle (gptel-chat--make-stream-closure assistant-marker))
+             (cb (gptel-chat-stream-insert handle))
+             (set-tool (gptel-chat-stream-set-tool-marker handle)))
+        ;; First: route to tool-marker-1 and insert.
+        (funcall set-tool tool-marker-1)
+        (funcall cb "first-tool\n")
+        ;; Second: re-route to tool-marker-2 on the SAME closure and
+        ;; insert again.  If the setter's `setq' only took effect
+        ;; the first time, this text would land at tool-marker-1.
+        (funcall set-tool tool-marker-2)
+        (funcall cb "second-tool\n")
+        (funcall cb t))
+      ;; Expected layout:
+      ;;   S1\n           ← original sentinel 1
+      ;;   first-tool\n   ← inserted at tool-marker-1 (between S1 and S2)
+      ;;   S2\n           ← original sentinel 2
+      ;;   second-tool\n  ← inserted at tool-marker-2 (end of buffer)
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal "S1\nfirst-tool\nS2\nsecond-tool\n"))
+
+    (it "after rerouting, clear-tool-marker still returns routing to the assistant marker"
+      ;; A follow-on check: once the setter has been called more
+      ;; than once, the clearer must still restore the assistant
+      ;; marker as the routing target.
+      (with-current-buffer gptel-chat-stream-test--buffer
+        (insert "S1\n"))
+      (let* ((assistant-marker
+              (with-current-buffer gptel-chat-stream-test--buffer
+                (copy-marker (point-min) t)))
+             (tool-marker-1
+              (with-current-buffer gptel-chat-stream-test--buffer
+                (save-excursion
+                  (goto-char (point-min))
+                  (search-forward "S1\n")
+                  (copy-marker (point) t))))
+             (tool-marker-2
+              (with-current-buffer gptel-chat-stream-test--buffer
+                (copy-marker (point-max) t)))
+             (handle (gptel-chat--make-stream-closure assistant-marker))
+             (cb (gptel-chat-stream-insert handle))
+             (set-tool (gptel-chat-stream-set-tool-marker handle))
+             (clear-tool (gptel-chat-stream-clear-tool-marker handle)))
+        (funcall set-tool tool-marker-1)
+        (funcall cb "at-tm1\n")
+        (funcall set-tool tool-marker-2)
+        (funcall cb "at-tm2\n")
+        (funcall clear-tool)
+        (funcall cb "back-to-assistant\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal
+              "back-to-assistant\nS1\nat-tm1\nat-tm2\n")))
+
+  (describe "set-tool-marker input validation (finding #5)"
+
+    (it "signals an error when called with nil"
+      ;; Contract: clearing the routing override is
+      ;; `clear-tool-marker''s job.  Passing nil to the setter is a
+      ;; caller bug and must raise.  The current implementation
+      ;; already rejects nil; this spec pins that contract so a
+      ;; future refactor cannot silently weaken it.
+      (let* ((handle (gptel-chat--make-stream-closure
+                      gptel-chat-stream-test--marker))
+             (setter (gptel-chat-stream-set-tool-marker handle)))
+        (expect (funcall setter nil) :to-throw)))))
+
+
 (provide 'streaming-spec)
 
 ;;; streaming-spec.el ends here
