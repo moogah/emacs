@@ -205,7 +205,16 @@ The new branch is created under the same session with:
 - session.org truncated at the branch-point position
 - current symlink updated to point to the new branch
 
-After creation, the branch can evolve independently from the parent."
+After creation, the branch can evolve independently from the parent.
+
+If the source session buffer has unsaved changes, `save-buffer' is
+called before branch-point selection. This keeps the branch-point
+position source (the live buffer) and the branch content source (the
+on-disk `session.org', read verbatim by
+`jf/gptel--copy-truncated-context') byte-identical, preventing silent
+misalignment between computed positions and copied bytes. This mirrors
+the sessions subsystem's persistence convention, where writing a
+session uses plain `save-buffer' (no gptel--bounds drawer to manage)."
   (interactive)
 
   ;; Verify current buffer is a branch session in chat-mode.
@@ -215,6 +224,14 @@ After creation, the branch can evolve independently from the parent."
 
   (unless (derived-mode-p 'gptel-chat-mode)
     (user-error "Current buffer is not in gptel-chat-mode"))
+
+  ;; Flush any unsaved parent edits before computing branch-point
+  ;; positions against the live buffer. Positions and the bytes
+  ;; copied by `jf/gptel--copy-truncated-context' must come from the
+  ;; same source of truth; otherwise a dirty parent buffer causes
+  ;; silent byte-offset misalignment in the new branch's session.org.
+  (when (buffer-modified-p)
+    (save-buffer))
 
   ;; Select branch point.
   (let* ((branch-point-data (jf/gptel--branching-select-branch-point))
