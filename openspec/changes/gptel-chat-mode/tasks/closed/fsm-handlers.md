@@ -2,7 +2,7 @@
 name: fsm-handlers
 description: Chained FSM handlers for UI state updates on WAIT/TYPE/TOOL/DONE/ERRS
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:mode-definition
 ---
@@ -120,3 +120,8 @@ Blocking follow-up: `fsm-handlers-upstream-integration` (stays at
 `needs-review` until that task closes; `send-command` remains blocked by
 this task).
 
+## Closeout (2026-04-21, orch-review-1776774164)
+
+`fsm-handlers-upstream-integration` reviewed with two non-blocking
+findings (folded into separate follow-ups) and closed. Flipping this
+task to `done`. `send-command` remains blocked only by `stream-callback`.

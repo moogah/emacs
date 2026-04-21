@@ -5,8 +5,8 @@ change: gptel-chat-mode
 status: blocked
 relations:
   - blocked-by:messages
-  - blocked-by:fsm-handlers
-  - blocked-by:stream-callback
+  - blocked-by:stream-callback-tool-element-shape-and-tests
+  - blocked-by:stream-callback-multi-round-t-signal
 ---
 
 ## Files to modify
@@ -92,3 +92,29 @@ unit-tested with buffer fixtures and a spy on `gptel-request`.
 - specs/gptel-chat-mode/spec.md §"Send command"
 - specs/gptel-chat-mode/spec.md §"gptel-request backend usage"
 - architecture.md §`gptel-chat-send`
+
+## Review-derived requirement (2026-04-21, from fsm-handlers-upstream-integration review)
+
+`backend-invocation-spec.el:369-390` currently contains a
+contract-placeholder "send-guard idle-state" describe block that only
+asserts on `gptel-chat--lifecycle-state`. It does NOT exercise any
+guard function.
+
+This task MUST add a real guard spec that:
+
+1. Sets up a buffer with `gptel--fsm-last` bound to a real `gptel-fsm`
+   in each of the idle states `{DONE, ERRS, ABRT}`.
+2. Calls `gptel-chat-send` (or whatever guard helper it uses) and
+   asserts the send proceeds — no `user-error` raised.
+3. Also asserts that in-flight states (`WAIT`, `TYPE`, `TOOL`) DO raise
+   the in-flight `user-error`.
+
+This closes the test-gap Finding #2 from the
+`fsm-handlers-upstream-integration` review. The reviewer's suggested
+alternative (dropping the redundant placeholder in
+`fsm-handlers-upstream-integration`) is not taken; the placeholder
+remains as a contract marker until `send-command` replaces it with the
+real test here.
+
+Reference: `openspec/changes/gptel-chat-mode/tasks/closed/fsm-handlers-upstream-integration.md`
+§Review (2026-04-21, orch-review-1776774164) Finding #2.

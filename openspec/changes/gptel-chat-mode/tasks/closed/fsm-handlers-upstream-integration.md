@@ -2,7 +2,7 @@
 name: fsm-handlers-upstream-integration
 description: Chain gptel--handle-post on DONE/ERRS and handle the ABRT state so :post hooks and aborts don't silently drop
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:fsm-handlers
 ---
@@ -87,3 +87,28 @@ This task is a **blocking follow-up** — `fsm-handlers` stays at
 - `config/gptel/tools/persistent-agent.org:541-544` (chains WAIT/TOOL
   only; leaves DONE/ERRS/ABRT to upstream — the pattern this task
   realigns with).
+
+## Review (2026-04-21, orch-review-1776774164)
+
+Pass on the core contract — implementation matches upstream's handler
+alist (`gptel-request.el:1589-1594`) exactly on DONE/ERRS/ABRT; tests
+exercise real FSM transitions and real `gptel--handle-post` (not
+mock-choreography). Double- and zero-fire both ruled out. `design.md`
+Decision 3 state taxonomy, Decision 10, Decision 11, and the header
+table all list ABRT.
+
+Two non-blocking findings — follow-ups opened independently:
+
+1. **spec-signal**: `design.md:102-104` rationale for chaining
+   `gptel--handle-post` focuses on caller hooks and omits that upstream
+   itself rides `:post` for temp-file cleanup
+   (`gptel-request.el:2539-2541`). Strengthening the "must chain"
+   argument. → `design-chaining-rationale-temp-file-note.md`
+2. **test-gap**: `backend-invocation-spec.el:369-390` is a
+   contract-placeholder for the send-guard idle-state check; it asserts
+   on the lifecycle indicator rather than the guard itself. The real
+   guard test belongs in `send-command`. → requirement appended to
+   `tasks/open/send-command.md` (Review-derived requirement).
+
+Parent `fsm-handlers` unblocked; `send-command` remains blocked on
+`stream-callback` (still at needs-review).

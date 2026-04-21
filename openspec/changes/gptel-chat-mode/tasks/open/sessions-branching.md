@@ -5,7 +5,8 @@ change: gptel-chat-mode
 status: blocked
 relations:
   - blocked-by:parser
-  - blocked-by:sessions-auto-init
+  - blocked-by:auto-init-metadata-preset-precedence
+  - blocked-by:auto-init-agent-path-handling
 ---
 
 ## Files to modify

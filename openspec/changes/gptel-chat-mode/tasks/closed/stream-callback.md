@@ -2,7 +2,7 @@
 name: stream-callback
 description: pcase dispatch on response shapes with tool-block rendering and completion/abort handling
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:sanitize-chunks
   - blocked-by:mode-definition
@@ -110,3 +110,52 @@ scripted response sequences into `:callback`. See architecture.md §
 - `config/gptel/tools/persistent-agent.org` — canonical reference
 - specs/gptel-chat-mode/spec.md §"Response streaming and sanitization"
 - specs/gptel-chat-mode/spec.md §"Tool-call rendering inside assistant blocks"
+
+## Review (2026-04-21, orch-review-1776774164)
+
+Three **blocking findings** (two drift + coupled test-gap) and two
+non-blocking findings. Under the revised workflow, reviewed tasks flip
+to `done` regardless of findings — blocking follow-ups live as their
+own tasks in the open queue and downstream dependents re-point
+`blocked-by:` at the follow-ups (not at this parent).
+
+Blocking — drift from upstream contract:
+
+1. **Tool-call / tool-result element shape.** Implementation destructures
+   each call via `(plist-get call :name)` / `(plist-get call :args)` /
+   `(plist-get result :result)`. Upstream (`gptel-request.el:1812-1827`,
+   `gptel.el:1801, 1855`) emits each element as a 3-list
+   `(TOOL-STRUCT ARGS CB-OR-RESULT)`. Reading the real shape yields nil
+   for `:name`/`:args`; tool headers render as
+   `#+begin_tool ( :args nil)` and all results render as empty strings.
+   Tests only passed because stubs feed synthetic plists through the
+   callback. → `stream-callback-tool-element-shape-and-tests.md`
+2. **`t` completion signal fires per HTTP request, not per assistant
+   turn.** Upstream fires `(funcall callback t info)` on every HTTP
+   success (`gptel-request.el:2669`). For a tool-use turn this fires
+   between Request-1 and Request-2, so our `'t` arm unconditionally
+   closes the assistant block and appends a fresh user block mid-turn.
+   `persistent-agent.org:733` handles this correctly via
+   `(unless (plist-get info :tool-use) ...)`. →
+   `stream-callback-multi-round-t-signal.md`
+3. **Tests are structural, not behavioral.** Every tool-call/tool-result
+   spec constructs the cdr as `((:name ... :args ... :result ...))` —
+   a shape upstream never emits. This is why Finding #1 slipped through.
+   Coupled fix: folded into `stream-callback-tool-element-shape-and-tests.md`.
+
+Non-blocking:
+
+4. **spec-signal**: `specs/gptel-chat-mode/spec.md:35` shows
+   `#+begin_tool (run_bash_command :command "uname")` (inline kwargs);
+   implementation writes the `:args`-wrapped shape
+   `(run_bash_command :args (:command "uname"))`. Spec example is out of
+   sync. → `spec-tool-header-shape-alignment.md`
+5. **code-quality**: `config/gptel/chat/stream.org:707-714` silently
+   drops a `tool-result` with no matching pending marker. Inconsistent
+   with the loud-fail style of the rest of the file. →
+   `stream-callback-orphan-result-loud-fail.md`
+
+`send-command` repoints off `stream-callback` onto
+`stream-callback-tool-element-shape-and-tests` and
+`stream-callback-multi-round-t-signal`. `verify-change` repoints
+similarly (re-verify once both blocking follow-ups close).

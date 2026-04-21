@@ -2,7 +2,7 @@
 name: sessions-auto-init
 description: Rewrite auto-init hook for session.org and chat-mode activation
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:mode-definition
   - blocked-by:preset-wiring
@@ -127,3 +127,67 @@ does not require a fix-forward like `a5c126a` did.
 - specs/gptel-chat-mode/spec.md §"Session-file auto-initialization"
 - architecture.md §`sessions/commands` (modified)
 - Review of sessions-filesystem (orchestrator session 2026-04-20) Finding #4
+
+## Review (2026-04-21, orch-review-1776774164)
+
+Four **blocking findings** (drift + coupled test-gap) and one
+non-blocking cleanup. Under the revised workflow, reviewed tasks flip
+to `done` regardless of findings — blocking follow-ups live as their
+own tasks in the open queue and downstream dependents re-point
+`blocked-by:` at the follow-ups (not at this parent). Mechanical
+Decision-16/17 shape (`.md`→`.org`, never calling `(gptel-mode 1)`,
+no save/restore round-trip, `session-restoration-spec` rewrite) is all
+correctly implemented.
+
+Blocking — drift and coupled test-gap:
+
+1. **metadata.yml precedence violated by chat-mode hook.** Auto-init
+   applies the metadata.yml preset first, then activates
+   `gptel-chat-mode`, whose hook (`gptel-chat--apply-declared-preset`
+   at `config/gptel/chat/menu.el:185`) re-reads the property-drawer
+   preset and clobbers the metadata-derived values with the same
+   buffer-local setter. Decision 16 point 2 and the MODIFIED persistence
+   spec require metadata.yml to win. The existing test only passes
+   because `preset-application-spec.el` stubs `gptel-chat-mode` as a
+   no-op lambda that never runs its hook. →
+   `auto-init-metadata-preset-precedence.md`
+2. **Nested per-branch agent path picks the wrong session-id.** The
+   regex at `commands.org:298-305` matches
+   `<session>/branches/<branch>/agents/<agent>/session.org` but sets
+   `session-dir = agent-dir`; `jf/gptel--session-id-from-directory`
+   then returns the agent directory name instead of the parent
+   session-id. Consequences: wrong registry key, stray
+   `current → branches/main` symlink inside agent dir, `branch-name`
+   forced to `"main"`. →
+   `auto-init-agent-path-handling.md` (grouped with Findings 3/4)
+3. **Agent-path test does not assert session-id value.**
+   `auto-init-chat-mode-spec.el:123-158` uses
+   `.../foo-20260420000000/branches/main/agents/researcher-.../session.org`
+   but only checks `session-id :to-be-truthy` and a hardcoded
+   `branch-name = "main"`. Passes with the wrong session-id.
+   → folded into `auto-init-agent-path-handling.md`.
+4. **`jf/gptel--parent-session-id` never populated.** Five buffer-locals
+   are set but `jf/gptel--parent-session-id` is not — despite
+   Decision 17 step 2, the MODIFIED persistence scenario, and the
+   chat-mode spec listing it. `jf/gptel--read-session-metadata` already
+   parses `:parent_session_id`; branch/agent open should pull it into
+   the buffer-local. Blocks branch-aware tooling in `sessions-branching`.
+   → folded into `auto-init-agent-path-handling.md`.
+
+Non-blocking:
+
+5. **code-quality**: redundant `.org` guard — outer
+   `string-suffix-p ".org"` is dominated by inner
+   `string= file-name "session.org"` checks; inner is stricter. →
+   `auto-init-simplify-org-guards.md`
+
+Collateral (noted but not in scope of this task):
+- `config/gptel/sessions/branching.org:371-372` still errors with
+  "Current buffer is not in gptel-mode" — must update as part of
+  `sessions-branching`.
+- `commands.org:584` diagnostic still says `"GPTel Mode: %s"` —
+  cosmetic; can ride into `sessions-branching` or a follow-up.
+
+`sessions-activities` and `sessions-branching` repoint off
+`sessions-auto-init` onto `auto-init-metadata-preset-precedence` and
+`auto-init-agent-path-handling`.

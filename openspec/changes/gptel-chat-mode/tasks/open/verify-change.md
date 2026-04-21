@@ -8,8 +8,8 @@ relations:
   - blocked-by:messages
   - blocked-by:sanitize-chunks
   - blocked-by:mode-definition
-  - blocked-by:fsm-handlers
-  - blocked-by:stream-callback
+  - blocked-by:stream-callback-tool-element-shape-and-tests
+  - blocked-by:stream-callback-multi-round-t-signal
   - blocked-by:send-command
   - blocked-by:nav-commands
   - blocked-by:display-layer
@@ -17,7 +17,8 @@ relations:
   - blocked-by:menu-integration
   - blocked-by:sessions-filesystem
   - blocked-by:sessions-persistent-create
-  - blocked-by:sessions-auto-init
+  - blocked-by:auto-init-metadata-preset-precedence
+  - blocked-by:auto-init-agent-path-handling
   - blocked-by:sessions-branching
   - blocked-by:sessions-activities
 ---

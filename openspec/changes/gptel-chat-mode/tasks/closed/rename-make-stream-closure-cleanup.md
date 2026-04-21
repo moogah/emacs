@@ -2,7 +2,7 @@
 name: rename-make-stream-closure-cleanup
 description: Sweep stale "make-stream-closure" references in design.md and "closure factory" headings after the rename
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:rename-make-stream-closure
 ---
@@ -44,3 +44,13 @@ stays at `needs-review` until this closes.
 ## Context
 - Review of `rename-make-stream-closure` (2026-04-21, orch-review-1776770835),
   Findings 1-3.
+
+## Review (2026-04-21, orch-review-1776774164)
+
+Pass — sweep is complete. `make-stream-closure` and "closure factory"
+survive only in historical closed-task files (scoped out by the task body).
+design.md Decision 3b Rationale is internally consistent with the new
+`gptel-chat--make-stream-inserter` name; stream.org headings, stream.el
+comment markers, and streaming-spec.el describe block + banner all agree.
+No findings. Parent `rename-make-stream-closure` unblocked and flipped to
+`done`.
