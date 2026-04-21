@@ -20,16 +20,12 @@ relations:
    closure with no accessor. The downstream `stream-callback` task
    needs to set/clear it as tool blocks open and close, and the
    closure as merged provides no API for that.
-2. Refactor `gptel-chat--make-stream-closure` to return a small
-   handle exposing both insertion and tool-marker control. Choose
-   ONE shape:
-   - **A**: Plist —
-     `(:insert <fn> :set-tool-marker <fn> :clear-tool-marker <fn>)`.
-   - **B**: cl-struct —
-     `(cl-defstruct gptel-chat-stream insert set-tool-marker clear-tool-marker)`.
-   - **C**: Caller-owned mutable cell — pass a `(list nil)` into the
-     factory and have the closure read its `car`. (See companion
-     finding `revisit-decision-3b-tool-marker`.)
+2. Refactor `gptel-chat--make-stream-closure` to return a
+   `cl-defstruct gptel-chat-stream` with
+   `insert`, `set-tool-marker`, and `clear-tool-marker` slots,
+   per Decision 3b. Options A (plist) and C (caller-owned
+   cell) previously listed here are superseded — see
+   `design.md` Decision 3b Alternatives.
 3. Update existing call sites (none in production yet — only tests).
 4. Tests covered by companion task `tool-marker-routing-tests`.
 
