@@ -120,12 +120,16 @@ delimiter."
 ;; Tool-block parsing
 
 ;; Inside an open assistant block the parser encounters =#+begin_tool=
-;; headers of the form =#+begin_tool (name :args sexp)= (matching the
-;; session-file convention used in =tools/persistent-agent=). We capture:
+;; headers. The header contract is =#+begin_tool (<name> <plist...>)=: a
+;; single sexp whose =car= is the tool-name symbol and whose =cdr= is a
+;; plist of arguments (the plist keys are opaque to the parser — the
+;; stream-writer currently emits =(:args <sexp>)= by convention, but any
+;; plist shape round-trips). We capture:
 
 ;; - =:name= — first element of the header sexp as a string (or the raw
 ;;   post-delimiter text if the header fails to parse).
-;; - =:args= — remaining sexp tail (or nil if no parseable sexp).
+;; - =:args= — =(cdr parsed)= verbatim: the plist tail of the header
+;;   sexp (or nil if no parseable sexp / no tail).
 ;; - =:result= — everything between the header line and =#+end_tool=,
 ;;   with leading/trailing whitespace trimmed.
 
@@ -137,6 +141,11 @@ delimiter."
 ;; [[file:parser.org::*Tool-block parsing][Tool-block parsing:1]]
 (defun gptel-chat--parse-tool-header (header-text)
   "Parse HEADER-TEXT (portion of `#+begin_tool' line after the delimiter).
+
+The header contract is `(<name> <plist...>)': a single sexp whose car
+is the tool-name symbol and whose cdr is the arguments plist.  :args
+is extracted as `(cdr parsed)' verbatim — the plist keys are not
+interpreted here.
 
 Returns a cons (NAME . ARGS):
 - NAME is a string (symbol-name of the first sexp element, or the

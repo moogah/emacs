@@ -2,7 +2,7 @@
 name: reconcile-tool-args-shape
 description: Reconcile design.md Decision 10 vs spec.md examples on tool-block :args header shape
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:parser
   - enables:messages

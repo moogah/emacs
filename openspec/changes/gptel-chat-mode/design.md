@@ -240,7 +240,7 @@ Per-buffer configuration (model, backend, system message, tools, temperature) is
 |---|---|
 | string | text chunk — sanitize (Decision 4), line-buffer (Decision 3b), insert at active marker |
 | `` `(reasoning . ,chunk) `` | v1: ignore. A future change may render these into a `#+begin_reasoning` nested block; out of scope for v1. |
-| `` `(tool-call . ,calls) `` | open a nested `#+begin_tool (<name> :args <sexp>)` block inside the active assistant block; set the tool-block marker (Decision 3b) as the new insertion target |
+| `` `(tool-call . ,calls) `` | open a nested `#+begin_tool (<name> <plist...>)` block inside the active assistant block; set the tool-block marker (Decision 3b) as the new insertion target |
 | `` `(tool-result . ,results) `` | insert stringified result into the active tool block, append `#+end_tool`, clear the tool-block marker |
 | `t` | normal completion — flush holdback, close `#+end_assistant`, append a fresh user block (Decision 8) |
 | `nil` | error / network failure — close the block with an error marker |
@@ -251,7 +251,7 @@ Each element of a `tool-call` or `tool-result` list is a **3-list** — NOT a pl
 - `tool-call`: `(TOOL-STRUCT ARGS CB)` (see callback docstring, `gptel-request.el:1812-1827`; destructured via `pcase-dolist` at `gptel.el:1801` inside `gptel--run-tool-confirm`). TOOL-STRUCT is a `gptel-tool` cl-defstruct (`gptel-request.el:1308`); ARGS is a plist of model-supplied arguments; CB is the continuation upstream invokes with the tool result.
 - `tool-result`: `(TOOL-STRUCT ARGS RESULT)` (`cl-loop for (tool args result) in tool-results` at `gptel.el:1855` inside `gptel--display-tool-result`). RESULT is whatever the tool function returned — typically a string, possibly nil, occasionally a non-string sexp.
 
-Our callback destructures via `` `(,tool-spec ,args ,_cb) `` / `` `(,_tool-spec ,_args ,result) `` and extracts the tool name via `gptel-tool-name` (the struct accessor). The `#+begin_tool` opening line formats the name and args as `(<name> :args <sexp>)` to match the existing session-file convention.
+Our callback destructures via `` `(,tool-spec ,args ,_cb) `` / `` `(,_tool-spec ,_args ,result) `` and extracts the tool name via `gptel-tool-name` (the struct accessor). The `#+begin_tool` opening line formats the name and args as `(<name> <plist...>)` — a single sexp whose `car` is the tool name symbol and whose `cdr` is the model-supplied arguments plist. The parser contract (`gptel-chat--parse-tool-header`) destructures the args as `(cdr parsed)`, so the plist tail is whatever the writer emits; the stream currently writes a single-entry plist `(:args <sexp>)` to carry the raw arguments sexp, but the parser does not privilege any specific keyword — it returns the cdr verbatim.
 
 **Sequencing invariant (cross-reference to Decision 3b):** routing changes (`set-tool-marker` / `clear-tool-marker`) MUST be interleaved *between* distinct `insert` calls on the stream handle, not within. The active marker is resolved once per `insert` invocation, so a routing change issued mid-call has no effect on the in-flight call — it applies from the next `insert` onward. See Decision 3b step 3 for the underlying rule.
 
