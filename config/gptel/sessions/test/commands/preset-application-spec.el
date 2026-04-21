@@ -32,6 +32,13 @@
 (require 'gptel-session-registry)
 (require 'gptel-session-commands)
 
+;; Ensure the real `gptel-chat-mode' and `gptel-chat--apply-declared-preset'
+;; hook are loaded so the real-mode integration spec exercises the full
+;; mode-activation path (including `gptel-chat-mode-hook').
+(require 'gptel-chat-mode)
+(require 'gptel-chat-menu)
+(require 'gptel)
+
 (defvar jf-gptel-preset-app-test--registry-keys nil
   "Registry keys to clean up after each example.")
 
@@ -47,6 +54,15 @@
     (setq jf-gptel-preset-app-test--registry-keys nil))
 
   (describe "metadata.yml preset path"
+
+    ;; These are unit-level tests that focus on auto-init's OWN call
+    ;; to `gptel--apply-preset' and its choice not to enable
+    ;; `gptel-mode'.  They stub `gptel-chat-mode' to avoid pulling in
+    ;; org-mode/yasnippet initialisation side-effects in the batch
+    ;; test runner — but critically, they DO NOT exercise precedence.
+    ;; The real-mode integration spec below is the authoritative
+    ;; precedence check; it does NOT stub `gptel-chat-mode'.  See the
+    ;; note on `auto-init-metadata-preset-precedence'.
 
     (it "calls gptel--apply-preset with buffer-local setter"
       (let ((buf (generate-new-buffer "session.org"))
@@ -118,50 +134,115 @@
                 (expect gptel-mode-called :to-be nil)))
           (kill-buffer buf)))))
 
-  (describe "precedence: metadata.yml wins over property drawer"
+  ;; NOTE: an earlier unit-level precedence test lived here but was
+  ;; REMOVED by the `auto-init-metadata-preset-precedence' task.  That
+  ;; test stubbed `gptel-chat-mode' as a no-op lambda
+  ;; (`(lambda (&optional _) nil)'), which masked a real precedence bug
+  ;; where `gptel-chat-mode-hook' re-applied the drawer preset AFTER
+  ;; `metadata.yml', silently clobbering metadata-set buffer-locals.
+  ;; Keeping that unit-level stub in place after swapping the
+  ;; ordering would continue to give false confidence, because the
+  ;; stub neutralises the exact hook whose behaviour the test was
+  ;; meant to constrain.  The real-mode integration spec below
+  ;; exercises the full path — real `gptel-chat-mode' activation, real
+  ;; `gptel-chat-mode-hook', real `gptel--apply-preset', real
+  ;; `find-file' — and is the only honest check of precedence.
 
-    (it "applies metadata.yml's preset even when gptel--preset is set locally"
-      ;; Simulate a property drawer / file-local having set gptel--preset
-      ;; to 'drawer-preset before auto-init runs.  metadata.yml names
-      ;; 'executor.  Expect gptel--apply-preset to be invoked with
-      ;; 'executor (from metadata.yml), not 'drawer-preset.
-      (let ((buf (generate-new-buffer "session.org"))
-            (apply-preset-calls nil))
-        (unwind-protect
-            (with-current-buffer buf
-              (setq buffer-file-name
-                    "/sessions/sess-three/branches/main/session.org")
-              (setq-local gptel--preset 'drawer-preset)
-              (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
-                        ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest _)
-                           (insert "session_id: \"sess-three\"\npreset: \"executor\"\n")
-                           (list f 0)))
-                        ((symbol-function 'gptel-get-preset)
-                         (lambda (name)
-                           (pcase name
-                             ('executor '((gptel-model . "exec")))
-                             ('drawer-preset '((gptel-model . "drawer")))
-                             (_ nil))))
-                        ((symbol-function 'gptel--apply-preset)
-                         (lambda (name _setter)
-                           (push name apply-preset-calls)))
-                        ((symbol-function 'gptel-chat-mode)
-                         (lambda (&optional _) nil))
-                        ((symbol-function 'make-symbolic-link)
-                         (lambda (_t _l &optional _ok) nil))
-                        ((symbol-function 'delete-file)
-                         (lambda (_f &optional _trash) nil)))
-                (jf/gptel--auto-init-session-buffer)
-                (jf-gptel-preset-app-test--register-cleanup "sess-three" "main")
+  (describe "real-mode integration: metadata.yml preset beats drawer preset"
 
-                ;; Exactly one call, with 'executor from metadata.yml.
-                (expect apply-preset-calls :to-equal '(executor))
-                ;; The property-drawer preset is NOT applied during auto-init.
-                (expect (memq 'drawer-preset apply-preset-calls)
-                        :to-be nil)))
-          (kill-buffer buf))))))
+    ;; This spec exercises the FULL real path — a real `session.org' file
+    ;; on disk, a real `metadata.yml' next to it, a real `gptel-chat-mode'
+    ;; activation (which fires `gptel-chat-mode-hook' and thus
+    ;; `gptel-chat--apply-declared-preset'), and real `find-file' /
+    ;; `find-file-hook' triggering.
+    ;;
+    ;; Two presets are registered via the upstream `gptel-make-preset'
+    ;; helper with disambiguating `:temperature' values:
+    ;;
+    ;;   metadata-wins-meta  → temperature 0.11 (from metadata.yml)
+    ;;   metadata-wins-drawer → temperature 0.99 (from :GPTEL_PRESET:)
+    ;;
+    ;; After auto-init completes, the buffer-local `gptel-temperature'
+    ;; MUST equal 0.11 (metadata preset wins over drawer preset).
+    ;; `gptel--preset' MUST equal 'metadata-wins-meta.
+    ;;
+    ;; Earlier revisions of `preset-application-spec.el' stubbed
+    ;; `gptel-chat-mode' as `(lambda (&optional _) nil)', which masked a
+    ;; bug where the chat-mode hook re-applied the drawer preset AFTER
+    ;; the metadata apply, silently clobbering `gptel-temperature' back
+    ;; to 0.99.  Running the real mode is the only way to catch this.
+
+    (let ((temp-root nil)
+          (session-dir nil)
+          (branch-dir nil)
+          (session-file nil)
+          (buf nil)
+          (meta-preset 'metadata-wins-meta)
+          (drawer-preset 'metadata-wins-drawer))
+
+      (before-each
+        (setq temp-root (make-temp-file "gptel-preset-precedence-" t))
+        (setq session-dir
+              (expand-file-name "sess-precedence-20260421120000" temp-root))
+        (setq branch-dir (expand-file-name "branches/main" session-dir))
+        (make-directory branch-dir t)
+        ;; Register two distinct presets with distinguishable temperatures.
+        (gptel-make-preset meta-preset :temperature 0.11)
+        (gptel-make-preset drawer-preset :temperature 0.99)
+        ;; Write metadata.yml declaring the "meta" preset.
+        (with-temp-file (expand-file-name "metadata.yml" branch-dir)
+          (insert (format "session_id: \"sess-precedence-20260421120000\"\n"))
+          (insert (format "preset: \"%s\"\n" meta-preset)))
+        ;; Write session.org with a :PROPERTIES: drawer naming the
+        ;; "drawer" preset at point-min.
+        (setq session-file (expand-file-name "session.org" branch-dir))
+        (with-temp-file session-file
+          (insert ":PROPERTIES:\n"
+                  (format ":GPTEL_PRESET: %s\n" drawer-preset)
+                  ":END:\n"
+                  "\n"
+                  "#+begin_user\n"
+                  "hello\n"
+                  "#+end_user\n")))
+
+      (after-each
+        ;; Kill the buffer (if any) so `find-file-hook' doesn't keep
+        ;; running against stale state.
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (set-buffer-modified-p nil))
+          (kill-buffer buf))
+        (setq buf nil)
+        ;; Unregister the presets we added so the global registry
+        ;; stays clean for other tests.
+        (setq gptel--known-presets
+              (assq-delete-all meta-preset gptel--known-presets))
+        (setq gptel--known-presets
+              (assq-delete-all drawer-preset gptel--known-presets))
+        ;; Clean up the temp tree.
+        (when (and temp-root (file-directory-p temp-root))
+          (delete-directory temp-root t)))
+
+      (it "applies metadata.yml's preset (NOT the drawer preset) after find-file"
+        ;; Open the session file via the real `find-file'. That runs:
+        ;;   1. `set-auto-mode' (org-mode via auto-mode-alist),
+        ;;   2. `hack-local-variables' + `hack-local-variables-hook',
+        ;;   3. `find-file-hook' (which includes
+        ;;      `jf/gptel--auto-init-session-buffer').
+        ;; Auto-init activates `gptel-chat-mode' (firing its hook, which
+        ;; applies the drawer preset — temperature 0.99) and then
+        ;; applies metadata.yml's preset (temperature 0.11). metadata
+        ;; must win.
+        (setq buf (find-file-noselect session-file))
+        (with-current-buffer buf
+          (jf-gptel-preset-app-test--register-cleanup
+           "sess-precedence-20260421120000" "main")
+          ;; Chat-mode is active.
+          (expect (derived-mode-p 'gptel-chat-mode) :to-be-truthy)
+          ;; metadata.yml's preset is the authoritative one.
+          (expect gptel--preset :to-equal meta-preset)
+          ;; Temperature reflects metadata.yml's preset, not drawer's.
+          (expect gptel-temperature :to-equal 0.11))))))
 
 (provide 'preset-application-spec)
 ;;; preset-application-spec.el ends here
