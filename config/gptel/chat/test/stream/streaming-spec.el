@@ -549,7 +549,7 @@ Returns the marker."
               :to-be insertion))))
 
 
-;;; tool-marker routing through the closure --------------------------------
+;;; tool-marker routing through the inserter --------------------------------
 ;;
 ;; Integration-level specs that exercise tool-marker routing through
 ;; the public struct surface.  These complement the handle-API specs
@@ -559,7 +559,7 @@ Returns the marker."
 ;; `nil' argument.  Owned by task `tool-marker-routing-tests' steps
 ;; 2-3 (review findings #2 and #5 on `expose-tool-marker-setter').
 
-(describe "gptel-chat-stream tool-marker routing through the closure"
+(describe "gptel-chat-stream tool-marker routing through the inserter"
 
   (before-each
     (gptel-chat-stream-test--fresh-buffer))

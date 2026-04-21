@@ -104,7 +104,7 @@ holdback."
       line)))
 #+end_src
 
-* Streaming closure factory
+* Streaming inserter factory
 
 =gptel-chat--make-stream-inserter= returns a =gptel-chat-stream=
 struct (a =cl-defstruct= record — design.md §Decision 3b) that
@@ -260,7 +260,7 @@ do nothing."
           (insert sanitized))))))
 #+end_src
 
-** The closure factory
+** The inserter factory
 
 #+begin_src emacs-lisp
 (defun gptel-chat--make-stream-inserter (insertion-marker)

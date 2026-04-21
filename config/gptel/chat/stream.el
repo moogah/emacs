@@ -165,10 +165,10 @@ do nothing."
           (insert sanitized))))))
 ;; Helper: insert the holdback flush (no trailing newline):1 ends here
 
-;; The closure factory
+;; The inserter factory
 
 
-;; [[file:stream.org::*The closure factory][The closure factory:1]]
+;; [[file:stream.org::*The inserter factory][The inserter factory:1]]
 (defun gptel-chat--make-stream-inserter (insertion-marker)
   "Return a `gptel-chat-stream' handle for streaming assistant text.
 INSERTION-MARKER must be a live Emacs marker pointing inside the
@@ -274,7 +274,7 @@ routing — no `cl-letf' surgery on captured variables."
      (lambda ()
        (setq tool-marker nil)
        nil))))
-;; The closure factory:1 ends here
+;; The inserter factory:1 ends here
 
 ;; Provide
 
