@@ -80,7 +80,7 @@ Users who need to include a literal `#+end_user`, `#+end_assistant`, or `#+end_t
 |-------|--------------------------|
 | `#+begin_user`...`#+end_user` | `user` message with block content |
 | `#+begin_assistant`...`#+end_assistant` | Zero or more assistant / tool-call / tool-result messages (see Message Construction) |
-| `#+begin_tool (call-id args)`...`#+end_tool` | Tool call + tool result pair, nested inside assistant block |
+| `#+begin_tool (<name> <plist...>)`...`#+end_tool` | Tool call + tool result pair, nested inside assistant block. Header contract: a single sexp whose `car` is the tool-name symbol and whose `cdr` is the arguments plist (see design.md Decision 10) |
 
 ### Delimiter Collision
 
@@ -148,7 +148,7 @@ The system SHALL construct an ordered list of API messages by walking the buffer
 
 - `#+begin_user` block → one `user` message with the block's content (verbatim, delimiter lines excluded)
 - `#+begin_assistant` block → a sequence of messages: assistant-text segments and tool call / tool result pairs, in the order they appear inside the block
-- Nested `#+begin_tool (call-id args)` block → one tool-call message (name + arguments) followed by one tool-result message (the block's remaining content)
+- Nested `#+begin_tool (<name> <plist...>)` block → one tool-call message (name + arguments plist) followed by one tool-result message (the block's remaining content)
 - Delimiter-collision-escaped lines SHALL be un-escaped before inclusion in the outbound message
 
 Content outside turn blocks (headlines, paragraphs, drawers, keywords) SHALL be skipped. Text that appears inside a user or assistant block, including lines that resemble `#+begin_*` delimiters, is treated as block body and included verbatim in the emitted message (subject to the escape/un-escape round-trip for the three closing delimiters).

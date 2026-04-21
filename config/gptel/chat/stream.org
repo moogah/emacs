@@ -393,7 +393,7 @@ table and rationale):
 |--------------------------------+----------------------------------------------------------------------------------------|
 | a STRING                       | Pass through the holdback-aware stream handle (line-buffered sanitize + insert).       |
 | =(reasoning . _)=              | v1: ignore. A later change may render into a =#+begin_reasoning= block.                |
-| =(tool-call . ,calls)=         | Open one =#+begin_tool (<name> :args <sexp>)= block per call; route subsequent inserts into the LAST opened block via =set-tool-marker=; push each call's result-target marker onto a FIFO. |
+| =(tool-call . ,calls)=         | Open one =#+begin_tool (<name> <plist...>)= block per call; route subsequent inserts into the LAST opened block via =set-tool-marker=; push each call's result-target marker onto a FIFO. |
 | =(tool-result . ,results)=     | For each result, pop the matching marker off the FIFO, insert stringified result + =#+end_tool=; after all results clear =tool-marker= via =clear-tool-marker=. |
 | =t=                            | Normal completion — flush holdback, close block with =#+end_assistant=, append fresh empty =#+begin_user= block, position point on blank line inside it (Decision 8). |
 | =nil=                          | Error / network failure — flush holdback, insert visible error marker, close block.    |
@@ -408,11 +408,15 @@ use. Our callback does NOT invoke those hooks, on purpose
 
 ** Helper: format a tool-block header
 
-The session-file convention is =#+begin_tool (<name> :args <sexp>)=.
-The parser reads the header as a single sexp with the tool name as
-the first symbol and the remaining keyword arguments (=:args <sexp>=)
-as the plist tail. Formatting on write and reading on parse share
-this form, so tool blocks round-trip through disk unchanged.
+The header contract is =#+begin_tool (<name> <plist...>)= (see
+design.md Decision 10 and =gptel-chat--parse-tool-header=): a single
+sexp whose =car= is the tool-name symbol and whose =cdr= is the
+arguments plist. The parser returns =(cdr parsed)= verbatim — it
+does not privilege any particular keyword. This writer currently
+emits =(:args <sexp>)= as the one plist shape, but that is a writer
+choice, not a parser contract. Formatting on write and reading on
+parse share the header shape, so tool blocks round-trip through disk
+unchanged.
 
 #+begin_src emacs-lisp
 (defun gptel-chat--stream-format-tool-header (name args)

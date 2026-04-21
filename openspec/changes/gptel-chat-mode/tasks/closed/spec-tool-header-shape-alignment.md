@@ -2,7 +2,7 @@
 name: spec-tool-header-shape-alignment
 description: Update spec.md tool-header example to use the implementation's :args-wrapped shape (canonical via persistent-agent and parser round-trip)
 change: gptel-chat-mode
-status: ready
+status: done
 relations:
   - discovered-from:stream-callback
 ---
@@ -46,3 +46,26 @@ Non-blocking — documentation-only correctness.
   (`gptel-chat--stream-open-tool-block`).
 - Precedent: `config/gptel/tools/persistent-agent.org` tool-header
   formatting.
+
+## Resolution (2026-04-21, superseded)
+
+This task is obsolete. A later task, `reconcile-tool-args-shape`,
+re-opened the same question and reached the **opposite** conclusion:
+the canonical header contract is Path B `(<name> <plist...>)` — a
+single sexp whose `car` is the tool-name symbol and whose `cdr` is
+the arguments plist — NOT Path A `(<name> :args <sexp>)` as this
+task prescribed. The `(cdr parsed)` destructuring in the parser as
+merged is Path B; the writer currently emits `(:args <sexp>)` as
+its concrete plist choice, but the parser does not privilege any
+particular keyword.
+
+Implementing this task as written would have reintroduced the very
+drift that `reconcile-tool-args-shape` resolved. The spec example
+at `spec.md:35` already uses valid Path B form
+(`(run_bash_command :command "uname")` — a one-entry plist with
+`:command` as the key), so no spec edit is needed.
+
+Closed without action as part of `reconcile-tool-args-shape` review.
+Cross-reference:
+`openspec/changes/gptel-chat-mode/tasks/closed/reconcile-tool-args-shape.md`
+§Review.

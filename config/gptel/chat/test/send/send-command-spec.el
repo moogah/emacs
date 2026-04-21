@@ -192,7 +192,11 @@ invoked inside the buffer and is free to call `re-search-forward',
           (expect (plist-get keys :stream) :to-be t)
           ;; :callback is a function (closure from
           ;; `gptel-chat--stream-callback').
-          (expect (functionp (plist-get keys :callback)) :to-be-truthy))))
+          (expect (functionp (plist-get keys :callback)) :to-be-truthy)
+          ;; :buffer is NOT passed — upstream defaults to
+          ;; current-buffer, which is what chat-mode wants
+          ;; (design Decision 11 / send.org invocation).
+          (expect (plist-member keys :buffer) :to-be nil))))
 
     (it "passes :fsm built with gptel-chat--fsm-handlers"
       (gptel-chat-send-cmd-test--setup

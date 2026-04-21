@@ -404,11 +404,13 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
     (describe "idle states permit send"
       ;; DONE / ERRS / ABRT — the three terminal states — are all
       ;; idle.  `gptel-chat-send' must proceed to `gptel-request'
-      ;; without signalling.  The guard also treats a fresh FSM
-      ;; state of `INIT' as idle (not explicitly tested here; covered
-      ;; by the "nil gptel--fsm-last" case below where no FSM exists).
+      ;; without signalling.  `INIT' is also idle (fresh FSM that
+      ;; has not advanced past init) and is exercised explicitly
+      ;; here — distinct from the "nil gptel--fsm-last" case (no
+      ;; FSM at all) covered below, since the two go through
+      ;; different branches of `gptel-chat--state'.
 
-      (dolist (state '(DONE ERRS ABRT))
+      (dolist (state '(DONE ERRS ABRT INIT))
         (it (format "proceeds when gptel--fsm-last is in %s" state)
           (gptel-chat-send-test--populate-user-block)
           (gptel-chat-send-test--seed-state state)

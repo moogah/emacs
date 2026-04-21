@@ -2,7 +2,7 @@
 name: sessions-persistence-spec-tighten-auto-init
 description: Tighten sessions-persistence.md auto-init MODIFIED requirement to lock in mode-before-preset ordering and split agent-path detection into nested + flat scenarios
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:auto-init-metadata-preset-precedence
   - discovered-from:auto-init-agent-path-handling
@@ -98,3 +98,25 @@ No code or test changes. Spec-only task.
   Spec-level finding on agent-path shape + stale `session.md` drift.
 - design.md §Decision 16 point 2 (metadata.yml is authoritative).
 - design.md §Decision 17 step 2 (parent-session-id buffer-local).
+
+## Review (2026-04-21, orch-review session)
+
+- Reviewer agent `a73b5b7f85cfad109`. Verdict: CLEAN.
+- Findings: none above the bar.
+- Steps renumbered so mode-ensure precedes preset-apply AND an
+  explicit "Ordering is load-bearing" note spells out the failure
+  mode (`kill-all-local-variables` wipe + chat-mode-hook clobber).
+  Cross-refs to design.md §Decision 16 point 2 / §Decision 17 step 2
+  present.
+- Nested and flat agent scenarios are genuinely distinct: nested
+  captures session-id + branch, flat asserts branch defaults to
+  `"main"` AND names the `jf/gptel--update-current-symlink`
+  suppression. parent-session-id scenario covers present-populated
+  and absent-nil cases.
+- Remaining `session.md` hits are all inside the legacy-invisibility
+  scenario or the transitional "replaces the previous" sentence, per
+  the Verification clause.
+- Spec-level nit ("five buffer-local session variables" — code sets
+  4 core + 1 conditional): predates this task, parenthetical
+  clarifies, below the bar. Not worth a follow-up.
+- No follow-up tasks. Flipped to `done`.

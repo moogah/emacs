@@ -278,11 +278,15 @@ routing — no `cl-letf' surgery on captured variables."
 
 ;; Helper: format a tool-block header
 
-;; The session-file convention is =#+begin_tool (<name> :args <sexp>)=.
-;; The parser reads the header as a single sexp with the tool name as
-;; the first symbol and the remaining keyword arguments (=:args <sexp>=)
-;; as the plist tail. Formatting on write and reading on parse share
-;; this form, so tool blocks round-trip through disk unchanged.
+;; The header contract is =#+begin_tool (<name> <plist...>)= (see
+;; design.md Decision 10 and =gptel-chat--parse-tool-header=): a single
+;; sexp whose =car= is the tool-name symbol and whose =cdr= is the
+;; arguments plist. The parser returns =(cdr parsed)= verbatim — it
+;; does not privilege any particular keyword. This writer currently
+;; emits =(:args <sexp>)= as the one plist shape, but that is a writer
+;; choice, not a parser contract. Formatting on write and reading on
+;; parse share the header shape, so tool blocks round-trip through disk
+;; unchanged.
 
 
 ;; [[file:stream.org::*Helper: format a tool-block header][Helper: format a tool-block header:1]]

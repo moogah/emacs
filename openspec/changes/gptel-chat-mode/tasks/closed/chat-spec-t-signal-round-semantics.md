@@ -2,7 +2,7 @@
 name: chat-spec-t-signal-round-semantics
 description: Capture the per-round-not-per-turn semantics of the `t` stream-completion signal in the chat-mode spec so the multi-round gating fix is regression-guarded by the spec
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:stream-callback-multi-round-t-signal
 ---
@@ -82,3 +82,15 @@ No code or test changes. Spec-only task.
   `config/gptel/tools/persistent-agent.org:733`.
 - Upstream reference: `gptel-request.el:2669` (where the `t`
   callback is issued by `gptel-curl--stream-cleanup`).
+
+## Review (2026-04-21, orch-review session)
+
+- Reviewer agent `ab6c15959cebf83f1`. Verdict: CLEAN.
+- Findings: none.
+- The scenario is placed under "Response streaming and sanitization",
+  names the `:tool-use` plist-key exactly as the code inspects it, and
+  covers both `:tool-use` set (keep-open) and unset/absent (close)
+  arms. Design.md Decision 10 cross-reference was applied. Canonical-
+  pattern alignment with `persistent-agent.org:733` holds. Verification
+  greps both pass.
+- No follow-up tasks. Flipped to `done`.

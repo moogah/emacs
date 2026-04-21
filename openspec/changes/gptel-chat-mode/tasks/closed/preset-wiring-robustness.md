@@ -2,7 +2,7 @@
 name: preset-wiring-robustness
 description: Scope preset's hack-local-variables-hook to the buffer and drop the org-entry-get dependency for drawer parsing
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:preset-wiring
 ---
@@ -78,3 +78,22 @@ blocks downstream work.
   Findings 1 and 2.
 - Upstream reference: `runtime/straight/build/gptel/gptel.el:636-643`
   (`gptel--restore-state` from inside mode body).
+
+## Review (2026-04-21, orch-review session)
+
+- Reviewer agent `a0773251317f0be90`. Verdict: CLEAN.
+- Findings: none above the bar.
+- Buffer-local `hack-local-variables-hook` registration confirmed
+  inside `gptel-chat--install-preset-hooks`; global-hook cleanliness
+  test at `preset-wiring-spec.el:330-355` drives the real code path.
+- Native drawer parser anchoring and regex traced through adversarial
+  cases (indented drawer, malformed `:END:`, drawer not at point-min)
+  — all handled by the `save-excursion` / inner `re-search-forward`
+  bounds.
+- `(require 'org)` dropped at module load; remaining `org-*` strings
+  in `menu.el` are comments only. `org-entry-get` spy test guards
+  against regression.
+- Docstring finding (`derived-mode-p` defence-in-depth kept despite
+  redundancy under buffer-local hook): reviewer ruled below the bar.
+  Docstring honestly labels it. Not worth a PR comment.
+- No follow-up tasks. Flipped to `done`.

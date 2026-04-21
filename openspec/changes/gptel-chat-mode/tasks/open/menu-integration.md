@@ -2,7 +2,7 @@
 name: menu-integration
 description: gptel-chat-menu transient with rebound Send suffix
 change: gptel-chat-mode
-status: blocked
+status: ready
 relations:
   - blocked-by:send-command
   - blocked-by:preset-wiring

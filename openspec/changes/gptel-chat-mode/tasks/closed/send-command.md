@@ -2,7 +2,7 @@
 name: send-command
 description: gptel-chat-send with preconditions and in-flight guard via gptel--fsm-last
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:messages
   - blocked-by:stream-callback-tool-element-shape-and-tests
@@ -118,3 +118,38 @@ real test here.
 
 Reference: `openspec/changes/gptel-chat-mode/tasks/closed/fsm-handlers-upstream-integration.md`
 §Review (2026-04-21, orch-review-1776774164) Finding #2.
+
+## Review (2026-04-21, orch-review session)
+
+- Reviewer agent `a681ba0f845f4abc7`. Verdict: FINDINGS (minor,
+  inline-fixed).
+- The Review-derived requirement is correctly satisfied: the old
+  "send-guard idle-state" contract placeholder at
+  `backend-invocation-spec.el:369-390` was **replaced** (not deleted
+  or left dangling) by real specs at 370-441 that drive
+  `gptel-chat-send` across {DONE, ERRS, ABRT, nil} idle states and
+  {WAIT, TYPE, TOOL} in-flight states with spy-on boundary assertions.
+  Empty/assistant/between-blocks precondition semantics are covered.
+- Findings and inline fixes applied during this review:
+  1. `send-command-spec.el:187-195` — keyword-shape block asserted
+     `:stream`, `:callback`, `:fsm`, `:prompt` but never that
+     `:buffer` is absent. Task body 1e says "Do NOT pass `:buffer`"
+     explicitly, so a future accidental addition had no guard.
+     Added `(expect (plist-member keys :buffer) :to-be nil)`.
+  2. `send.org` docstring of `gptel-chat-send` did not mention how
+     the "mid-edit unclosed `#+begin_user`" case (task body 1d,
+     "rare") is handled. Implementation relies on parse-error
+     propagation from `gptel-chat--parse-buffer` rather than
+     auto-closing. Added one-line docstring note to that effect.
+     Re-tangled to `send.el`.
+  3. `backend-invocation-spec.el:409-427` — comment claimed INIT
+     state was covered by the nil-gptel--fsm-last case, but
+     nil-FSM and INIT-state-FSM go through distinct branches of
+     `gptel-chat--state`. Added `INIT` to the idle-states `dolist`
+     and rewrote the leading comment to state that INIT is now
+     exercised explicitly.
+- Re-ran `./bin/run-tests.sh -d config/gptel/chat/test/send`:
+  50/50 specs pass (was 49/49 before the two added assertions).
+- Full regression after inline fixes matches baseline (599 ERT,
+  9 pre-existing unexpected; 1528 buttercup, 3 pre-existing failed).
+- No follow-up tasks. Flipped to `done`.

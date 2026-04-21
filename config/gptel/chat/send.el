@@ -491,6 +491,10 @@ On success, parses the buffer, converts the turn list into a
 invokes `gptel-request' with `:stream t', the chat-mode stream
 callback, and an FSM wired with `gptel-chat--fsm-handlers'.
 
+An unclosed `#+begin_user' block (rare: user mid-edit) surfaces
+as a parser `user-error' from `gptel-chat--parse-buffer' rather
+than being auto-closed here.
+
 Returns the value of `gptel-request' on success, or nil on the
 empty-prompt no-op path."
   (interactive)

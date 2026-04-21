@@ -2,7 +2,7 @@
 name: reconcile-tool-args-shape
 description: Reconcile design.md Decision 10 vs spec.md examples on tool-block :args header shape
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:parser
   - enables:messages
@@ -46,3 +46,35 @@ agent-completion) will silently diverge.
 - Review of `parser` task Finding #3 (severity: recommended, but
   reviewer flagged "before messages lands" — included as a hard
   blocker on `messages` to force the reconciliation up front).
+
+## Review (2026-04-21, orch-review session)
+
+- Reviewer agent `a6f3edea8dcae27a6`. Verdict: FINDINGS (inline-fixed).
+- The Path B adoption covered `parser.org` + `parser.el` docstring and
+  `design.md` §Decision 10 callback-dispatch table + narrative, but
+  missed three other places that still described Path A language. The
+  reconciliation was incomplete by the single-source-of-truth goal
+  stated in the task itself.
+- Findings and inline fixes applied during this review:
+  1. `config/gptel/chat/stream.org:396` dispatch-table row still said
+     `(<name> :args <sexp>)`. Updated to `(<name> <plist...>)` and
+     re-tangled to `stream.el`.
+  2. `config/gptel/chat/stream.org:411-414` narrative described Path A
+     contract. Rewrote to state the Path B header contract
+     explicitly, with the writer's current `(:args <sexp>)` plist
+     shape framed as a writer choice, not a parser contract.
+  3. `specs/gptel-chat-mode/spec.md:83` schema row said
+     `#+begin_tool (call-id args)` — misleading (no call-id in header,
+     `args` suggests a single arg rather than a plist tail). Rewrote
+     to `#+begin_tool (<name> <plist...>)` with contract description
+     and a back-pointer to design.md Decision 10.
+  4. `specs/gptel-chat-mode/spec.md:151` Message Construction section
+     had the same stale `(call-id args)` phrasing. Updated to match.
+  5. Sibling task `spec-tool-header-shape-alignment.md` was an
+     open task that prescribed the OPPOSITE shape (Path A) and
+     called the current Path B example "wrong." Moved to
+     `tasks/closed/` with a Resolution note — see that file.
+- Re-ran verification: gptel-chat suite 260/260 specs pass; full
+  regression matches baseline (599 ERT, 9 pre-existing unexpected;
+  1528 buttercup, 3 pre-existing failed).
+- No follow-up tasks. Flipped to `done`.
