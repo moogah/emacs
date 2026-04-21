@@ -2,7 +2,7 @@
 name: fsm-handlers-upstream-integration
 description: Chain gptel--handle-post on DONE/ERRS and handle the ABRT state so :post hooks and aborts don't silently drop
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:fsm-handlers
 ---

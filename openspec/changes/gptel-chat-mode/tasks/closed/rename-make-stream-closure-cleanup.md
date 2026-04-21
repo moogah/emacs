@@ -2,7 +2,7 @@
 name: rename-make-stream-closure-cleanup
 description: Sweep stale "make-stream-closure" references in design.md and "closure factory" headings after the rename
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:rename-make-stream-closure
 ---

@@ -2,7 +2,7 @@
 name: sessions-auto-init
 description: Rewrite auto-init hook for session.org and chat-mode activation
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - blocked-by:mode-definition
   - blocked-by:preset-wiring

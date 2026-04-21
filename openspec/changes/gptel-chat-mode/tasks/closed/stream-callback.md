@@ -2,7 +2,7 @@
 name: stream-callback
 description: pcase dispatch on response shapes with tool-block rendering and completion/abort handling
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - blocked-by:sanitize-chunks
   - blocked-by:mode-definition
