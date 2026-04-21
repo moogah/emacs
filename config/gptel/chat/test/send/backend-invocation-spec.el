@@ -89,10 +89,16 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
 
   (before-each
     (gptel-chat-send-test--setup)
-    ;; Stub upstream's chained handlers so entering WAIT / TOOL
-    ;; does not fire a network request or execute tool calls.
-    ;; Also spy on the transition primitive itself so we can
-    ;; assert our handlers never invoke it.
+    ;; Stub upstream's chained handlers for WAIT / TOOL so entering
+    ;; those states does not fire a network request or execute tool
+    ;; calls.  We deliberately do NOT stub `gptel--handle-post' here
+    ;; -- it is cheap and has no external side effects (it just
+    ;; iterates the caller-supplied :post list on info), and the
+    ;; `:post hook chaining on terminal states' specs need the real
+    ;; implementation to run.  Individual specs that need to observe
+    ;; ordering stub it locally.  Also spy on the transition
+    ;; primitive itself so we can assert our handlers never invoke
+    ;; it.
     (spy-on 'gptel--handle-wait)
     (spy-on 'gptel--handle-tool-use)
     (spy-on 'gptel--fsm-transition :and-call-through))
@@ -117,15 +123,20 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
         (expect (car entry)  :to-equal #'gptel-chat--on-type)
         (expect (length entry) :to-equal 1)))
 
-    (it "lists a lone UI handler for DONE"
+    (it "chains our DONE handler BEFORE upstream's gptel--handle-post"
       (let ((entry (alist-get 'DONE gptel-chat--fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-done)
-        (expect (length entry) :to-equal 1)))
+        (expect (cadr entry) :to-equal #'gptel--handle-post)))
 
-    (it "lists a lone UI handler for ERRS"
+    (it "chains our ERRS handler BEFORE upstream's gptel--handle-post"
       (let ((entry (alist-get 'ERRS gptel-chat--fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-errs)
-        (expect (length entry) :to-equal 1))))
+        (expect (cadr entry) :to-equal #'gptel--handle-post)))
+
+    (it "chains our ABRT handler BEFORE upstream's gptel--handle-post"
+      (let ((entry (alist-get 'ABRT gptel-chat--fsm-handlers)))
+        (expect (car entry)  :to-equal #'gptel-chat--on-abrt)
+        (expect (cadr entry) :to-equal #'gptel--handle-post))))
 
 
   (describe "lifecycle indicator transitions"
@@ -170,6 +181,19 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
         (expect (gptel-chat-send-test--lifecycle) :to-equal 'error)
         (expect 'message :to-have-been-called)))
 
+    (it "sets `aborted' and logs a message on entry to ABRT"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        ;; Seed a non-nil busy value so "abort transition clears busy
+        ;; state" is observable.
+        (with-current-buffer gptel-chat-send-test--buffer
+          (setq gptel-chat--lifecycle-state 'streaming))
+        (spy-on 'gptel-chat--on-abrt :and-call-through)
+        (spy-on 'message)
+        (gptel--fsm-transition fsm 'ABRT)
+        (expect 'gptel-chat--on-abrt :to-have-been-called)
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'aborted)
+        (expect 'message :to-have-been-called)))
+
     (it "walks a WAIT -> TYPE -> TOOL -> DONE sequence and ends idle"
       (let ((fsm (gptel-chat-send-test--make-fsm)))
         (gptel--fsm-transition fsm 'WAIT)
@@ -208,6 +232,44 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
                 :and-call-fake
                 (lambda (_fsm) (push 'upstream call-log)))
         (gptel--fsm-transition fsm 'TOOL)
+        (expect (nreverse call-log) :to-equal '(ours upstream))))
+
+    (it "fires gptel-chat--on-done strictly before gptel--handle-post"
+      (let ((fsm (gptel-chat-send-test--make-fsm))
+            (call-log '()))
+        (spy-on 'gptel-chat--on-done
+                :and-call-fake
+                (lambda (_fsm) (push 'ours call-log)))
+        (spy-on 'gptel--handle-post
+                :and-call-fake
+                (lambda (_fsm) (push 'upstream call-log)))
+        (gptel--fsm-transition fsm 'DONE)
+        (expect (nreverse call-log) :to-equal '(ours upstream))))
+
+    (it "fires gptel-chat--on-errs strictly before gptel--handle-post"
+      (let ((fsm (gptel-chat-send-test--make-fsm))
+            (call-log '()))
+        (spy-on 'gptel-chat--on-errs
+                :and-call-fake
+                (lambda (_fsm) (push 'ours call-log)))
+        (spy-on 'gptel--handle-post
+                :and-call-fake
+                (lambda (_fsm) (push 'upstream call-log)))
+        (spy-on 'message)               ; silence the ERRS log
+        (gptel--fsm-transition fsm 'ERRS)
+        (expect (nreverse call-log) :to-equal '(ours upstream))))
+
+    (it "fires gptel-chat--on-abrt strictly before gptel--handle-post"
+      (let ((fsm (gptel-chat-send-test--make-fsm))
+            (call-log '()))
+        (spy-on 'gptel-chat--on-abrt
+                :and-call-fake
+                (lambda (_fsm) (push 'ours call-log)))
+        (spy-on 'gptel--handle-post
+                :and-call-fake
+                (lambda (_fsm) (push 'upstream call-log)))
+        (spy-on 'message)               ; silence the ABRT log
+        (gptel--fsm-transition fsm 'ABRT)
         (expect (nreverse call-log) :to-equal '(ours upstream)))))
 
 
@@ -237,6 +299,12 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
       (let ((fsm (gptel-chat-send-test--make-fsm)))
         (spy-on 'message)                 ; silence the side-effect log
         (gptel-chat--on-errs fsm)
+        (expect 'gptel--fsm-transition :not :to-have-been-called)))
+
+    (it "gptel-chat--on-abrt does not call gptel--fsm-transition"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (spy-on 'message)                 ; silence the side-effect log
+        (gptel-chat--on-abrt fsm)
         (expect 'gptel--fsm-transition :not :to-have-been-called))))
 
 
@@ -252,6 +320,76 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
                   :handlers gptel-chat--fsm-handlers
                   :info     nil)))
         (expect (gptel-chat--on-done fsm) :not :to-throw))))
+
+
+  (describe ":post hook chaining on terminal states"
+    ;; Upstream's `gptel--handle-post' is the mechanism that runs any
+    ;; caller-supplied `:post' functions on the request info plist
+    ;; (`gptel-request.el':1754-1758).  Our handler alist chains it on
+    ;; DONE / ERRS / ABRT so callers that rely on `:post' — future
+    ;; session export, budget tracking, activities integration — do
+    ;; not silently lose their hook.
+    ;;
+    ;; These specs run the real `gptel--handle-post' (the enclosing
+    ;; before-each does not stub it) and observe the caller-supplied
+    ;; post hook actually firing on each terminal state.
+
+    (it "fires :post callback on DONE"
+      (let* ((fired nil)
+             (post-fn (lambda (_info) (setq fired t)))
+             (fsm (gptel-make-fsm
+                   :handlers gptel-chat--fsm-handlers
+                   :info (list :buffer gptel-chat-send-test--buffer
+                               :post (list post-fn)))))
+        (gptel--fsm-transition fsm 'DONE)
+        (expect fired :to-be t)))
+
+    (it "fires :post callback on ERRS"
+      (let* ((fired nil)
+             (post-fn (lambda (_info) (setq fired t)))
+             (fsm (gptel-make-fsm
+                   :handlers gptel-chat--fsm-handlers
+                   :info (list :buffer gptel-chat-send-test--buffer
+                               :post (list post-fn)))))
+        (spy-on 'message)               ; silence the ERRS log
+        (gptel--fsm-transition fsm 'ERRS)
+        (expect fired :to-be t)))
+
+    (it "fires :post callback on ABRT"
+      (let* ((fired nil)
+             (post-fn (lambda (_info) (setq fired t)))
+             (fsm (gptel-make-fsm
+                   :handlers gptel-chat--fsm-handlers
+                   :info (list :buffer gptel-chat-send-test--buffer
+                               :post (list post-fn)))))
+        (spy-on 'message)               ; silence the ABRT log
+        (gptel--fsm-transition fsm 'ABRT)
+        (expect fired :to-be t))))
+
+
+  (describe "send-guard idle-state contract"
+    ;; The send-guard (introduced with task `send-command') must treat
+    ;; ABRT as idle so `gptel-abort' does not wedge the buffer.  Until
+    ;; `send-command' lands we document the contract by asserting on
+    ;; the lifecycle indicator: after an ABRT transition the value is
+    ;; `aborted', which the send-guard will include in its idle set
+    ;; alongside nil (DONE) and `error' (ERRS).
+
+    (it "treats `aborted' as a terminal, non-busy indicator value"
+      (let ((fsm (gptel-chat-send-test--make-fsm)))
+        (spy-on 'message)
+        ;; Seed busy -- streaming in flight.
+        (with-current-buffer gptel-chat-send-test--buffer
+          (setq gptel-chat--lifecycle-state 'streaming))
+        (gptel--fsm-transition fsm 'ABRT)
+        ;; After abort, the indicator must no longer signal busy.
+        (expect (gptel-chat-send-test--lifecycle) :to-equal 'aborted)
+        (expect (gptel-chat-send-test--lifecycle)
+                :not :to-equal 'streaming)
+        (expect (gptel-chat-send-test--lifecycle)
+                :not :to-equal 'waiting)
+        (expect (gptel-chat-send-test--lifecycle)
+                :not :to-equal 'tool-running))))
 
 
   (describe "gptel-chat--state accessor"

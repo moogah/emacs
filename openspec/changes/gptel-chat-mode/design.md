@@ -6,7 +6,7 @@ The proposal and architecture establish a new major mode (`gptel-chat-mode`) for
 
 | Concern | Mechanism | Lives where |
 |---|---|---|
-| Where in the request protocol are we? (`INIT` → `WAIT` → `TYPE` → {`TOOL` → `WAIT` \| `DONE` \| `ERRS`}) | Upstream `gptel-fsm` via `:fsm` + custom handlers | Decision 3 |
+| Where in the request protocol are we? (`INIT` → `WAIT` → `TYPE` → {`TOOL` → `WAIT` \| `DONE` \| `ERRS` \| `ABRT`}) | Upstream `gptel-fsm` via `:fsm` + custom handlers | Decision 3 |
 | How do we safely insert streaming text into the buffer line-by-line? | Per-request closure state (insertion marker, line holdback) | Decision 3b |
 | Is the buffer currently well-formed turns? What is the next turn? | Parser walk (Decision 1), heading-aware but structure-first | Decision 1 |
 
@@ -70,7 +70,18 @@ Decision 12 establishes that headings are organizational and do not affect turn 
 
 **Choice:** per-request lifecycle is driven by upstream gptel's public FSM abstraction. We pass `(gptel-make-fsm :handlers gptel-chat--fsm-handlers)` as `:fsm` to `gptel-request`. We do **not** build a parallel lifecycle state machine.
 
-Upstream defines the states `INIT → WAIT → TYPE → {TOOL → WAIT | ERRS | DONE}` with a transitions table (`gptel-request--transitions`) and a handler alist (`gptel-request--handlers`) where each state maps to a list of functions invoked on entry — see `gptel-request.el:1570-1636`. Callers can supply augmented handlers; this is the public extension point. `gptel-request` returns the FSM, and `gptel-fsm-state` / `gptel-fsm-info` let any caller inspect it.
+Upstream defines the states `INIT → WAIT → TYPE → {TOOL → WAIT | ERRS | DONE | ABRT}` with a transitions table (`gptel-request--transitions`) and a handler alist (`gptel-request--handlers`) where each state maps to a list of functions invoked on entry — see `gptel-request.el:1570-1636`. Callers can supply augmented handlers; this is the public extension point. `gptel-request` returns the FSM, and `gptel-fsm-state` / `gptel-fsm-info` let any caller inspect it.
+
+**Full state taxonomy observed in chat-mode's handler alist:**
+
+| State | Meaning | Upstream handler we chain |
+|---|---|---|
+| `WAIT` | Request sent; awaiting first byte | `gptel--handle-wait` (fires the network request) |
+| `TYPE` | Response body streaming in | *(none — curl/url pipeline advances)* |
+| `TOOL` | Running tool calls | `gptel--handle-tool-use` (executes queued tools) |
+| `DONE` | Request complete | `gptel--handle-post` (runs caller `:post` hooks) |
+| `ERRS` | Request failed | `gptel--handle-post` |
+| `ABRT` | User invoked `gptel-abort` (see `gptel-request.el:2124`) | `gptel--handle-post` |
 
 Our handlers chain **before** the upstream handlers — the pattern already used by `config/gptel/tools/persistent-agent.org`:
 
@@ -79,8 +90,9 @@ Our handlers chain **before** the upstream handlers — the pattern already used
   `((WAIT ,#'gptel-chat--on-wait   ,#'gptel--handle-wait)
     (TYPE ,#'gptel-chat--on-type)
     (TOOL ,#'gptel-chat--on-tool   ,#'gptel--handle-tool-use)
-    (DONE ,#'gptel-chat--on-done)
-    (ERRS ,#'gptel-chat--on-errs)))
+    (DONE ,#'gptel-chat--on-done   ,#'gptel--handle-post)
+    (ERRS ,#'gptel-chat--on-errs   ,#'gptel--handle-post)
+    (ABRT ,#'gptel-chat--on-abrt   ,#'gptel--handle-post)))
 
 (gptel-request prompt
   :fsm      (gptel-make-fsm :handlers gptel-chat--fsm-handlers)
@@ -88,7 +100,11 @@ Our handlers chain **before** the upstream handlers — the pattern already used
   :stream   t)
 ```
 
-Our handlers do UI-only work (update the display-layer overlay to reflect "waiting / streaming / tool-running / done / error"). Upstream's handlers continue to drive the actual protocol transitions — we neither fire `gptel--fsm-transition` directly nor replace the core handler list.
+Our handlers do UI-only work (update the display-layer overlay to reflect "waiting / streaming / tool-running / done / error / aborted"). Upstream's handlers continue to drive the actual protocol transitions — we neither fire `gptel--fsm-transition` directly nor replace the core handler list.
+
+**Why `gptel--handle-post` is chained on DONE / ERRS / ABRT.** Upstream's default alist maps each terminal state to `gptel--handle-post`, which iterates any caller-supplied `:post` hooks on the request's `info` plist (`gptel-request.el:1589-1594` and `:1754-1758`). If our alist replaced those entries without chaining `gptel--handle-post`, any caller passing `:post` to `gptel-request` — including future session-export, budget-tracking, or activities-integration paths — would silently never run their hook. That is precisely the "hard-to-debug silent failure" class this decision rejects; we chain to preserve upstream's contract.
+
+**Why `ABRT` is in the alist at all.** `gptel-abort` (upstream's user command, bound in chat-mode to `C-c C-k` per Decision 7 implementation) drives the FSM into `ABRT` (`gptel-request.el:2124`). Without a chat-mode handler on `ABRT`, the lifecycle indicator stays stuck at `waiting` / `streaming` / `tool-running` after a user abort. That wedges the send-guard (Decision 11) on the next send because our idle check inspects the indicator, not just `gptel--fsm-last`'s protocol state. Chaining `gptel-chat--on-abrt` clears the indicator to `'aborted`, which the send-guard treats as idle (see Decision 11 below).
 
 **Reference implementation:** `config/gptel/tools/persistent-agent.org` is the canonical worked example of this handler-augmentation pattern in this repo. Start there, not from upstream source.
 
@@ -238,7 +254,7 @@ Each element of a `tool-call` or `tool-result` list is a plist carrying `:name`,
 
 **Note on transitioning the FSM:** `gptel--fsm-transition` is the mechanism by which handlers advance state. Our callback does not call it directly — the default `WAIT` and `TOOL` handlers (still present in our chained handler list, Decision 3) drive transitions for us. If a future UX wants to intercept (e.g., confirm-before-tool-call), the intercept goes in our `TOOL` handler, not in the callback.
 
-**How `'abort` is triggered:** the upstream command `M-x gptel-abort` (`gptel-request.el:2099-2125`) operates on the current buffer, finds its active FSM, and invokes our callback with `'abort`. Chat-mode does not need a `gptel-chat-abort` wrapper — binding `C-c C-k` or similar directly to `gptel-abort` is sufficient.
+**How `'abort` is triggered:** the upstream command `M-x gptel-abort` (`gptel-request.el:2099-2125`) operates on the current buffer, finds its active FSM, invokes our callback with `'abort`, and then drives the FSM into `ABRT` via `gptel--fsm-transition` (line 2124). The FSM transition in turn fires our `gptel-chat--on-abrt` handler (chained with `gptel--handle-post`, Decision 3) — that handler sets `gptel-chat--lifecycle-state` to `'aborted` so the send-guard in Decision 11 will permit the next send. Chat-mode does not need a `gptel-chat-abort` wrapper — binding `C-c C-k` or similar directly to `gptel-abort` is sufficient.
 
 **Upstream response hooks are intentionally bypassed.** `gptel-post-response-functions` and friends are consumed by gptel-mode's default callback, not by `gptel-request`. Our callback does not invoke them, on purpose — those hooks assume gptel-mode's prompt/response-prefix insertion conventions, which we don't use. If a follow-up change needs a chat-mode-specific post-response hook (e.g., for session-save integration), add one with its own name.
 
@@ -246,7 +262,9 @@ Each element of a `tool-call` or `tool-result` list is a plist carrying `:name`,
 
 ### Decision 11: Send-during-stream protection — via upstream FSM state, not a parallel flag
 
-**Choice:** to detect an in-flight request, inspect the buffer-local `gptel--fsm-last` that upstream sets on every `gptel-request` (see `gptel.el:1104, 1328`). If it is non-nil and `(gptel-fsm-state gptel--fsm-last)` is not in `(DONE ERRS)`, signal a user-visible error. No queueing. We do **not** introduce a parallel `gptel-chat--stream-active-p` flag.
+**Choice:** to detect an in-flight request, inspect the buffer-local `gptel--fsm-last` that upstream sets on every `gptel-request` (see `gptel.el:1104, 1328`). If it is non-nil and `(gptel-fsm-state gptel--fsm-last)` is not in the idle set `(DONE ERRS ABRT)`, signal a user-visible error. No queueing. We do **not** introduce a parallel `gptel-chat--stream-active-p` flag.
+
+**Idle set includes ABRT.** An aborted request has had its process torn down and its FSM transitioned to `ABRT` by `gptel-abort` (`gptel-request.el:2124`, see Decision 3 and Decision 10). Treating `ABRT` as busy would wedge the buffer after every user abort, forcing the user to kill and recreate the session buffer to recover — a regression from upstream gptel-mode, which has no such failure mode. The send-guard MUST therefore accept `ABRT` alongside `DONE` and `ERRS`.
 
 **Rationale:** streaming inserts at a fixed marker. A concurrent send would need a second marker and a second closure; the complexity isn't worth it for v1. Users waiting on a response have the obvious option of waiting.
 

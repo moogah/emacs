@@ -54,6 +54,14 @@
 ;; - ='tool-running= — entered =TOOL= (running tool calls)
 ;; - =nil=          — entered =DONE= (request complete; indicator cleared)
 ;; - ='error=       — entered =ERRS= (request failed)
+;; - ='aborted=     — entered =ABRT= (user invoked =gptel-abort=; see
+;;   design.md §Decision 3 and §Decision 10)
+
+;; The =aborted= value is treated as *idle* by the send-guard (design.md
+;; §Decision 11 / task =send-command=), because an aborted request is no
+;; longer in flight; we distinguish it from =nil= only so a future UI can
+;; surface "last request was aborted" without the guard treating the
+;; buffer as busy.
 
 ;; The variable is *per-buffer* because each chat-mode buffer owns its
 ;; own in-flight request (via upstream's buffer-local =gptel--fsm-last=).
@@ -62,17 +70,18 @@
 ;; [[file:send.org::*Lifecycle indicator (buffer-local)][Lifecycle indicator (buffer-local):1]]
 (defvar-local gptel-chat--lifecycle-state nil
   "Most recent FSM lifecycle state for this chat-mode buffer.
-One of `waiting', `streaming', `tool-running', `error', or nil
-\(meaning idle / DONE\).  Set by the chained handlers in
-`gptel-chat--fsm-handlers'; read by the display layer.")
+One of `waiting', `streaming', `tool-running', `error', `aborted',
+or nil \(meaning idle / DONE\).  Set by the chained handlers in
+`gptel-chat--fsm-handlers'; read by the display layer and by the
+send-guard introduced with task `send-command'.")
 ;; Lifecycle indicator (buffer-local):1 ends here
 
 ;; Handler functions
 
-;; Five handlers, one per lifecycle state we care about. Each is UI-only:
+;; Six handlers, one per lifecycle state we care about. Each is UI-only:
 ;; it sets =gptel-chat--lifecycle-state= in the request's buffer (via
 ;; =gptel-fsm-info='s =:buffer= plist key — that is the buffer the user
-;; originated the request from) and, for =ERRS=, logs a message.
+;; originated the request from) and, for =ERRS=/=ABRT=, logs a message.
 
 ;; The =FSM= argument is the upstream =gptel-fsm= struct. We read its
 ;; =info= slot to find the originating buffer; we never mutate the
@@ -130,8 +139,9 @@ the queued tool calls and transitions the FSM onward.  UI-only."
 (defun gptel-chat--on-done (fsm)
   "Chained FSM handler for state DONE: clear the lifecycle indicator.
 
-No upstream handler is chained for DONE in our alist; the request
-is complete and there is no further transition work.  UI-only."
+Runs BEFORE upstream's `gptel--handle-post', which fires any
+caller-supplied `:post' hooks on the request info plist.  UI-only:
+clears the lifecycle indicator because the request is complete."
   (gptel-chat--set-lifecycle-state fsm nil))
 ;; Handler functions:5 ends here
 
@@ -139,12 +149,30 @@ is complete and there is no further transition work.  UI-only."
 (defun gptel-chat--on-errs (fsm)
   "Chained FSM handler for state ERRS: mark buffer as errored, log.
 
-Sets the lifecycle indicator to `error' and emits a message so
-the error is visible in the echo area / `*Messages*' buffer even
-if no display-layer overlay is active yet.  UI-only."
+Runs BEFORE upstream's `gptel--handle-post', which fires any
+caller-supplied `:post' hooks on the request info plist.  Sets the
+lifecycle indicator to `error' and emits a message so the error is
+visible in the echo area / `*Messages*' buffer even if no
+display-layer overlay is active yet.  UI-only."
   (gptel-chat--set-lifecycle-state fsm 'error)
   (message "gptel-chat: request failed (FSM entered ERRS)"))
 ;; Handler functions:6 ends here
+
+;; [[file:send.org::*Handler functions][Handler functions:7]]
+(defun gptel-chat--on-abrt (fsm)
+  "Chained FSM handler for state ABRT: mark buffer as aborted, log.
+
+Fires when the user invokes `gptel-abort' on an in-flight request
+\(see `gptel-request.el':2124\).  Runs BEFORE upstream's
+`gptel--handle-post', which fires any caller-supplied `:post' hooks.
+
+Sets the lifecycle indicator to `aborted' so the send-guard
+\(introduced with task `send-command') treats the buffer as idle
+and permits another send, rather than wedging on a stale busy
+state.  UI-only."
+  (gptel-chat--set-lifecycle-state fsm 'aborted)
+  (message "gptel-chat: request aborted (FSM entered ABRT)"))
+;; Handler functions:7 ends here
 
 ;; Handler alist
 
@@ -154,10 +182,29 @@ if no display-layer overlay is active yet.  UI-only."
 ;; BEFORE upstream's so UI state updates precede the
 ;; transition-driving logic (see the persistent-agent pattern).
 
-;; =TYPE=, =DONE=, =ERRS= do not need a chained upstream handler in
-;; this flow: =TYPE= has no handler-level transition work (curl/url
-;; pipeline advances from =TYPE=), and =DONE=/=ERRS= are terminal
-;; for our purposes.
+;; Upstream's default handler alist (=gptel-request--handlers= at
+;; =gptel-request.el:1589-1594=) wires:
+
+;; - =WAIT= → =gptel--handle-wait= (fires the network request)
+;; - =TOOL= → =gptel--handle-tool-use= (executes queued tool calls)
+;; - =DONE= / =ERRS= / =ABRT= → =gptel--handle-post= (runs any
+;;   caller-supplied =:post= hooks on =info=)
+
+;; We chain all four. =TYPE= has no upstream handler because the
+;; curl/url response pipeline advances from =TYPE= without one.
+
+;; Chaining =gptel--handle-post= on the three terminal states
+;; preserves upstream's contract: callers that pass =:post= through
+;; =gptel-request= expect their hooks to run whether the request
+;; completed, failed, or was aborted. If we replaced upstream's entry
+;; without re-chaining =gptel--handle-post=, those hooks would
+;; silently drop — a "hard to debug silent failure" class of bug that
+;; surfaces only once a caller actually supplies =:post=.
+
+;; Likewise, including =ABRT= ensures =gptel-abort= (see
+;; =gptel-request.el:2124=) lands in our UI: the indicator transitions
+;; to =aborted= and the send-guard in task =send-command= will not
+;; wedge the buffer on a stale in-flight state.
 
 
 ;; [[file:send.org::*Handler alist][Handler alist:1]]
@@ -165,14 +212,16 @@ if no display-layer overlay is active yet.  UI-only."
   `((WAIT ,#'gptel-chat--on-wait  ,#'gptel--handle-wait)
     (TYPE ,#'gptel-chat--on-type)
     (TOOL ,#'gptel-chat--on-tool  ,#'gptel--handle-tool-use)
-    (DONE ,#'gptel-chat--on-done)
-    (ERRS ,#'gptel-chat--on-errs))
+    (DONE ,#'gptel-chat--on-done  ,#'gptel--handle-post)
+    (ERRS ,#'gptel-chat--on-errs  ,#'gptel--handle-post)
+    (ABRT ,#'gptel-chat--on-abrt  ,#'gptel--handle-post))
   "Chained FSM handlers for `gptel-chat-mode' requests.
 Each entry is \(STATE OUR-HANDLER [UPSTREAM-HANDLER]\).  Our handler
 runs first and performs UI-only work; upstream's handler \(when
-present\) drives the actual state transition.  Pass this as
-`:handlers' to `gptel-make-fsm' when building an FSM for a
-chat-mode `gptel-request' call.")
+present\) drives the actual state transition or \(for terminal
+states DONE/ERRS/ABRT\) runs caller-supplied `:post' hooks via
+`gptel--handle-post'.  Pass this as `:handlers' to `gptel-make-fsm'
+when building an FSM for a chat-mode `gptel-request' call.")
 ;; Handler alist:1 ends here
 
 ;; State accessor
@@ -197,6 +246,13 @@ Callers — notably the `send-command' task's in-flight guard —
 use this to decide whether a new send is permitted.  Design.md
 §Decision 11: one source of truth; no parallel
 `gptel-chat--stream-active-p' flag.
+
+Idle-state contract for the send-guard: `DONE', `ERRS', `ABRT',
+and nil are all idle.  An `ABRT' state means the user invoked
+`gptel-abort' on the previous request \(see `gptel-request.el':2124\);
+the process is torn down and a fresh send is permitted.  The guard
+\(introduced with task `send-command'\) MUST treat ABRT as idle,
+otherwise the buffer wedges after every user abort.
 
 Type-dispatch note: `cl-typep' / `gptel-fsm-p' would be more
 precise, but both compile-macro-expand to references to the
