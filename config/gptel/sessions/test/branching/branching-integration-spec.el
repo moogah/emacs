@@ -15,6 +15,9 @@
 ;;     `session.org' in a real branch directory.
 ;;   - Org commentary before the first user turn is preserved verbatim
 ;;     in the new branch.
+;;   - Registry-update ordering: `jf/gptel--create-branch-session' does
+;;     NOT register the new branch; registration is a lazy side effect
+;;     of `find-file' → `jf/gptel--auto-init-session-buffer'.
 ;;
 ;; Coverage (from
 ;; openspec/changes/gptel-chat-mode/specs/gptel/sessions-branching.md):
@@ -32,6 +35,8 @@
 (require 'gptel-chat-parser)
 (require 'gptel-session-constants)
 (require 'gptel-session-filesystem)
+(require 'gptel-session-registry)
+(require 'gptel-session-commands)
 (require 'gptel-session-branching)
 
 (defvar jf-branching-integration--tempdirs nil
@@ -264,6 +269,101 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
             (expect (file-symlink-p current-link) :to-be-truthy)
             (expect (file-truename (expand-file-name "session.org" current-link))
                     :to-equal (file-truename new-ctx))))))))
+
+(describe "registry-update ordering"
+
+  ;; Finding #4: `jf/gptel--create-branch-session' does NOT register
+  ;; the new branch in `jf/gptel--session-registry'. Registration is
+  ;; a side effect of opening the new branch's `session.org' (the
+  ;; `find-file-hook' → `jf/gptel--auto-init-session-buffer' path).
+  ;; These specs pin that asymmetric behaviour.
+
+  (after-each
+    (dolist (dir jf-branching-integration--tempdirs)
+      (when (and dir (file-directory-p dir))
+        (delete-directory dir t)))
+    (setq jf-branching-integration--tempdirs nil))
+
+  (it "does NOT register the new branch during `jf/gptel--create-branch-session'"
+    (let* ((root (jf-branching-integration--make-tempdir))
+           (jf/gptel-sessions-directory root)
+           (bootstrap (jf-branching-integration--bootstrap-parent
+                       root jf-branching-integration--parent-session))
+           (session-dir (plist-get bootstrap :session-dir))
+           (session-id (jf/gptel--session-id-from-directory session-dir))
+           (branch-pos
+            (with-temp-buffer
+              (insert-file-contents (plist-get bootstrap :context-file))
+              (let* ((turns (jf/gptel--branching-user-turns))
+                     (first (nth 0 turns)))
+                (jf/gptel--branching-turn-branch-point first t))))
+           (baseline-count (hash-table-count jf/gptel--session-registry))
+           (new-branch-dir
+            (jf/gptel--create-branch-session
+             session-dir "main" "no-register" branch-pos))
+           (new-branch-name (file-name-nondirectory new-branch-dir)))
+      ;; Branch creation is purely a filesystem operation — the
+      ;; registry is untouched.
+      (expect (hash-table-count jf/gptel--session-registry)
+              :to-equal baseline-count)
+      (expect (jf/gptel-session-find session-id new-branch-name)
+              :to-be nil)))
+
+  (it "populates the registry lazily on first open via auto-init"
+    (let* ((root (jf-branching-integration--make-tempdir))
+           (jf/gptel-sessions-directory root)
+           (bootstrap (jf-branching-integration--bootstrap-parent
+                       root jf-branching-integration--parent-session))
+           (session-dir (plist-get bootstrap :session-dir))
+           (session-id (jf/gptel--session-id-from-directory session-dir))
+           (branch-pos
+            (with-temp-buffer
+              (insert-file-contents (plist-get bootstrap :context-file))
+              (let* ((turns (jf/gptel--branching-user-turns))
+                     (first (nth 0 turns)))
+                (jf/gptel--branching-turn-branch-point first t))))
+           (new-branch-dir
+            (jf/gptel--create-branch-session
+             session-dir "main" "lazy-register" branch-pos))
+           (new-branch-name (file-name-nondirectory new-branch-dir))
+           (new-ctx (jf/gptel--context-file-path new-branch-dir))
+           (registry-key (jf/gptel--registry-key session-id new-branch-name))
+           (buf (generate-new-buffer "session.org")))
+      ;; Pre-condition: create-branch-session did not register.
+      (expect (gethash registry-key jf/gptel--session-registry) :to-be nil)
+      (unwind-protect
+          ;; Simulate `find-file' → `find-file-hook' → auto-init.
+          ;; We set `buffer-file-name' and invoke the hook directly
+          ;; (same pattern as `session-restoration-spec.el'). Real
+          ;; gptel mode activation and preset application are mocked
+          ;; — this spec cares only about registry side effects.
+          (with-current-buffer buf
+            (setq buffer-file-name new-ctx)
+            (cl-letf (((symbol-function 'gptel-chat-mode)
+                       (lambda (&optional _) nil))
+                      ((symbol-function 'jf/gptel--ensure-mode-once)
+                       (lambda () nil))
+                      ((symbol-function 'gptel-get-preset)
+                       (lambda (_) nil))
+                      ((symbol-function 'gptel--apply-preset)
+                       (lambda (_name _setter) nil)))
+              (jf/gptel--auto-init-session-buffer))
+            ;; Registry entry now exists for the new branch.
+            (let ((entry (gethash registry-key jf/gptel--session-registry)))
+              (expect entry :to-be-truthy)
+              (expect (plist-get entry :session-id) :to-equal session-id)
+              (expect (plist-get entry :branch-name) :to-equal new-branch-name)
+              ;; Auto-init stores branch-dir with a trailing slash
+              ;; (from `file-name-directory'), while
+              ;; `jf/gptel--create-branch-session' returns the path
+              ;; without one. Compare as directories so the test
+              ;; pins identity, not representation.
+              (expect (file-name-as-directory (plist-get entry :branch-dir))
+                      :to-equal (file-name-as-directory new-branch-dir))
+              (expect (plist-get entry :buffer) :to-equal buf)))
+        ;; Cleanup: unregister and kill buffer.
+        (remhash registry-key jf/gptel--session-registry)
+        (kill-buffer buf)))))
 
 (provide 'branching-integration-spec)
 ;;; branching-integration-spec.el ends here
