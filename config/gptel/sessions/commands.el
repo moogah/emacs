@@ -141,11 +141,18 @@ On match:
   1. Extracts session-id and branch-name from the path.
   2. Sets the five buffer-local session variables.
   3. Registers the buffer in `jf/gptel--session-registry'.
-  4. Reads `metadata.yml' from the branch directory and applies the
+  4. Ensures `gptel-chat-mode' is the active major mode.  This is
+     done BEFORE reading `metadata.yml' so the chat-mode hook
+     (`gptel-chat--apply-declared-preset' in
+     `config/gptel/chat/menu.org') fires first and applies any preset
+     declared in the file's `:PROPERTIES:' drawer or file-local
+     `gptel--preset'.  The metadata.yml apply then runs last and
+     overwrites those buffer-local values, so `metadata.yml' wins
+     (Decision 16 point 2).
+  5. Reads `metadata.yml' from the branch directory and applies the
      named preset via `gptel--apply-preset' with a buffer-local setter.
      When `metadata.yml' names a preset, it overrides any value already
      set by a property drawer or file-local declaration (Decision 16).
-  5. Ensures `gptel-chat-mode' is the active major mode.
   6. Updates the `current' symlink to point at this branch.
 
 Runs on every file open via `find-file-hook', so fast-path guards are
@@ -194,7 +201,30 @@ critical."
                   (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
                                  session-type session-id branch-name)
 
-                  ;; Set buffer-local session variables.
+                  ;; Ensure chat-mode is the active major mode FIRST,
+                  ;; before setting any buffer-local session vars. Two
+                  ;; reasons:
+                  ;;
+                  ;; 1. Activating a major mode calls
+                  ;;    `kill-all-local-variables', which would wipe any
+                  ;;    session vars set beforehand (they are not declared
+                  ;;    `permanent-local').
+                  ;;
+                  ;; 2. Activating chat-mode fires
+                  ;;    `gptel-chat-mode-hook', which runs
+                  ;;    `gptel-chat--apply-declared-preset' and may set
+                  ;;    `gptel--preset' (plus other `gptel-*'
+                  ;;    buffer-locals) from a `:GPTEL_PRESET:' drawer or
+                  ;;    file-local variable. `metadata.yml' is
+                  ;;    authoritative (Decision 16 point 2), so its apply
+                  ;;    must run LAST below to win over the drawer-preset
+                  ;;    re-application performed by the chat-mode hook.
+                  ;;
+                  ;; Never calls (gptel-mode 1) — Decision 16.
+                  (jf/gptel--ensure-mode-once)
+
+                  ;; Set buffer-local session variables (after mode
+                  ;; activation, since mode activation wipes them).
                   (setq-local jf/gptel--session-id session-id)
                   (setq-local jf/gptel--session-dir session-dir)
                   (setq-local jf/gptel--branch-name branch-name)
@@ -203,7 +233,10 @@ critical."
                   ;; Read preset name from metadata.yml. `metadata.yml' is
                   ;; the authoritative source; when present, it overrides
                   ;; any preset already declared by a property drawer or
-                  ;; file-local variable (Decision 16).
+                  ;; file-local variable (Decision 16). This apply runs
+                  ;; AFTER chat-mode activation above, ensuring the
+                  ;; chat-mode hook's drawer-preset re-apply does not
+                  ;; clobber these values.
                   (let* ((metadata-path (jf/gptel--metadata-file-path branch-dir))
                          (preset-name nil))
                     (when (file-exists-p metadata-path)
@@ -229,10 +262,6 @@ critical."
                          'warn
                          "Preset %s from metadata.yml not registered; skipping apply-preset"
                          preset-name))))
-
-                  ;; Ensure chat-mode is the active major mode. Never
-                  ;; calls (gptel-mode 1) — Decision 16.
-                  (jf/gptel--ensure-mode-once)
 
                   ;; Register the buffer in the session registry.
                   (jf/gptel--register-session session-dir
