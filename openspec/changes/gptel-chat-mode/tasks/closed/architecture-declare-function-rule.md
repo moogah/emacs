@@ -2,7 +2,7 @@
 name: architecture-declare-function-rule
 description: Soften architecture.md no-cross-module-references rule to permit declare-function
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:mode-definition
 ---

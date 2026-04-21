@@ -133,12 +133,17 @@ The sessions subsystem is updated so session buffers use `gptel-chat-mode` as th
 The chat-mode loader (`config/gptel/chat/chat.org`) loads modules in
 the order `mode → parser → stream → send → nav → display → menu`.
 This order **mirrors the data-flow diagram above** and is a
-readability convention, not a load-time dependency. None of the
-chat-mode modules issue cross-module `require` or `declare-function`
-calls; sibling-symbol references (e.g. `gptel-chat-regenerate`
-calling `gptel-chat-send`, `gptel-chat-menu`'s rebound Send suffix
-referencing `gptel-chat-send`, the keymap in `mode` binding commands
-defined in later modules) all happen inside command bodies, transient
+readability convention, not a load-time dependency. The hard rule is
+that no chat-mode module issues a cross-module `require` — `require`
+would introduce a real load-time coupling and constrain boot order.
+`declare-function` is permitted: it is a byte-compiler hint with no
+runtime effect, and is the idiomatic way to silence compile-time
+warnings about forward-referenced sibling symbols (e.g. the `mode`
+keymap binding commands defined in later modules, or `menu` suffixes
+referencing commands from `send`/`nav`). Sibling-symbol *call sites*
+(e.g. `gptel-chat-regenerate` calling `gptel-chat-send`,
+`gptel-chat-menu`'s rebound Send suffix referencing `gptel-chat-send`,
+keymap entries in `mode`) all happen inside command bodies, transient
 suffix bodies, or keymap entries — i.e. resolved at call-time, not
 load-time. The order can be reshuffled without affecting boot
 correctness; it is preserved for human readers tracing the call

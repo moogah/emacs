@@ -22,14 +22,17 @@
 ;; Load order is partly a real load-time dependency and partly a
 ;; readability convention. Emacs resolves function symbols at *call*
 ;; time, so a load-time dependency only exists when a top-level form in
-;; module A references a symbol defined in module B. None of the
-;; chat-mode modules currently planned issue cross-module =require= or
-;; =declare-function= calls, and references to sibling symbols
-;; (=gptel-chat-send=, =gptel-chat--parse-buffer=, etc.) live inside
-;; interactive command bodies and transient suffix bodies — i.e.
-;; call-time, not load-time. The conventional order below mirrors the
-;; data-flow described in architecture.md §Interfaces so the loader
-;; reads top-down with the call graph.
+;; module A references a symbol defined in module B. The hard rule is
+;; that no chat-mode module issues a cross-module =require= (which would
+;; introduce a real load-time coupling). =declare-function= is
+;; permitted — it is a byte-compiler hint with no runtime effect, used
+;; to silence compile-time warnings about forward-referenced sibling
+;; symbols. References to sibling symbols (=gptel-chat-send=,
+;; =gptel-chat--parse-buffer=, etc.) live inside interactive command
+;; bodies and transient suffix bodies — i.e. call-time, not load-time.
+;; The conventional order below mirrors the data-flow described in
+;; architecture.md §Interfaces so the loader reads top-down with the
+;; call graph.
 
 ;; Notes (from architecture.md §Components / §Interfaces):
 
