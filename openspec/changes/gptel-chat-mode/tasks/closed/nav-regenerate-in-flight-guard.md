@@ -2,7 +2,7 @@
 name: nav-regenerate-in-flight-guard
 description: Prevent gptel-chat-regenerate from deleting an in-flight assistant response and wrap its delete+send in atomic-change-group
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:nav-commands
 ---

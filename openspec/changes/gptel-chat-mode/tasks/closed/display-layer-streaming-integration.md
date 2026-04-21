@@ -2,7 +2,7 @@
 name: display-layer-streaming-integration
 description: Skip overlay refresh during streaming TYPE, refresh once on DONE, cancel pending timer on kill-buffer, and add after-change path tests
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:display-layer
 ---

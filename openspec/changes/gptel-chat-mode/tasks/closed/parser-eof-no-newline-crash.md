@@ -2,7 +2,7 @@
 name: parser-eof-no-newline-crash
 description: Parser crashes args-out-of-range on begin_user/begin_assistant at EOF without trailing newline
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:parser
 ---
