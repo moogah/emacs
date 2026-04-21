@@ -458,7 +458,46 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
           ;; avoid invoking handler chains in this accessor test.
           (setf (gptel-fsm-state fsm) 'TYPE)
           (setq gptel--fsm-last fsm)
-          (expect (gptel-chat--state) :to-equal 'TYPE))))))
+          (expect (gptel-chat--state) :to-equal 'TYPE))))
+
+    (it "returns INIT when gptel--fsm-last is a freshly-constructed FSM"
+      ;; `gptel-make-fsm' initialises the `state' slot to `INIT'
+      ;; unconditionally (see `gptel-request.el' `cl-defstruct
+      ;; gptel-fsm').  The accessor must report `INIT' predictably so
+      ;; callers (notably `gptel-chat--in-flight-p') can classify it as
+      ;; idle without cracking open the struct themselves.
+      (with-current-buffer gptel-chat-send-test--buffer
+        (let ((fsm (gptel-make-fsm :info (list :buffer (current-buffer)))))
+          (setq gptel--fsm-last fsm)
+          (expect (gptel-chat--state) :to-equal 'INIT))))
+
+    (it "returns ABRT when the user aborted the prior request"
+      ;; `ABRT' is a terminal / idle state entered when the user
+      ;; invokes `gptel-abort' (see design.md §Decision 11).  The
+      ;; accessor must return it unchanged so the send-guard's
+      ;; idle-state contract can classify the buffer as ready for a
+      ;; fresh send — otherwise every abort wedges the buffer.
+      (with-current-buffer gptel-chat-send-test--buffer
+        (let ((fsm (gptel-make-fsm :info (list :buffer (current-buffer)))))
+          (setf (gptel-fsm-state fsm) 'ABRT)
+          (setq gptel--fsm-last fsm)
+          (expect (gptel-chat--state) :to-equal 'ABRT))))
+
+    (it "returns nil for a non-gptel-fsm cl-defstruct without signalling"
+      ;; Negative test for the tightened `gptel-fsm-p' guard (task
+      ;; `fsm-handlers-test-hardening').  The previous `cl-struct-p'
+      ;; guard would let an unrelated `cl-defstruct' through to
+      ;; `gptel-fsm-state', which signals a slot-access error.  The
+      ;; new guard rejects non-`gptel-fsm' values and returns nil
+      ;; cleanly, so a future refactor that renames `gptel-fsm' or
+      ;; introduces a sibling struct cannot silently corrupt the
+      ;; accessor's contract.
+      (cl-defstruct gptel-chat-send-test--not-an-fsm state)
+      (with-current-buffer gptel-chat-send-test--buffer
+        (setq gptel--fsm-last
+              (make-gptel-chat-send-test--not-an-fsm :state 'WAIT))
+        (expect (gptel-chat--state) :to-equal nil)
+        (expect (gptel-chat--state) :not :to-throw)))))
 
 
 (provide 'backend-invocation-spec)

@@ -259,14 +259,18 @@ precise, but both compile-macro-expand to references to the
 `gptel-fsm' struct tag that is only defined once upstream
 `gptel-request' has loaded.  Chat-mode loads before upstream
 gptel (see `init.org' module order), so macro expansion of this
-defun at tangle time would fail on a strict predicate.  We use
-the structural `cl-struct-p' — resolved at run time, accepts any
-`cl-defstruct' instance.  The only producer of `gptel--fsm-last'
-is upstream, so in practice any non-nil value passing
-`cl-struct-p' is a `gptel-fsm'."
+defun at tangle time would fail on a strict predicate.  We
+guard the `gptel-fsm-p' call with `fboundp' so the accessor
+is load-order-safe at call time — if upstream has not yet
+loaded, `gptel-fsm-p' is not bound and we return nil.  Once
+upstream is loaded the predicate narrows rejection to only
+true `gptel-fsm' instances, so a sibling `cl-defstruct' slipped
+into `gptel--fsm-last' cannot reach `gptel-fsm-state' and
+signal a slot-access error."
   (when (and (boundp 'gptel--fsm-last)
              gptel--fsm-last
-             (cl-struct-p gptel--fsm-last))
+             (fboundp 'gptel-fsm-p)
+             (gptel-fsm-p gptel--fsm-last))
     (gptel-fsm-state gptel--fsm-last)))
 ;; State accessor:1 ends here
 

@@ -2,7 +2,7 @@
 name: fsm-handlers-test-hardening
 description: Tighten gptel-chat--state accessor's struct predicate and add INIT/ABRT/unknown-state test coverage
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:fsm-handlers
 ---
