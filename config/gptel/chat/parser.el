@@ -365,7 +365,13 @@ Signals `user-error' when the buffer is structurally invalid:
               (let* ((open-start (match-beginning 1))
                      (open-line  (gptel-chat--line-of open-start))
                      (kind-str   (match-string 2))
-                     (body-start (1+ (line-end-position))))
+                     ;; Clamp to `point-max' so a `#+begin_user' or
+                     ;; `#+begin_assistant' on the buffer's last line
+                     ;; without a trailing newline dispatches into the
+                     ;; body scanners, which signal the documented
+                     ;; `unclosed <kind> block at line N' user-error
+                     ;; instead of `args-out-of-range' from `goto-char'.
+                     (body-start (min (1+ (line-end-position)) (point-max))))
                 (pcase (downcase kind-str)
                   ("user"
                    (let* ((scan (gptel-chat--scan-user-body
