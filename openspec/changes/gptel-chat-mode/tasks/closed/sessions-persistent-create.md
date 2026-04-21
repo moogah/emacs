@@ -2,7 +2,7 @@
 name: sessions-persistent-create
 description: jf/gptel-persistent-session writes session.org with chat-mode initial content
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:mode-definition
   - blocked-by:sessions-filesystem
@@ -88,3 +88,16 @@ chat-mode initial content. (Sessions-filesystem review Finding #2.)
 - specs/gptel/sessions-persistence.md §"Fresh session.org" scenario
 - architecture.md §`sessions/commands` (modified)
 - Review of sessions-filesystem (orchestrator session 2026-04-20) Finding #2
+
+## Review (orch-review-1776792000, 2026-04-21)
+
+Reviewer verified alignment with Decisions 9 and 18:
+- **Byte-identical template:** `config/gptel/mode.el:161` (standalone chat) and `config/gptel/sessions/commands.el:357` (session creation) both use the exact string literal `"#+begin_user\n\n#+end_user\n"`. New spec uses `:to-equal`, not a loose match.
+- **Removal complete:** No `gptel--save-state` calls in the creation path (only comments and the unrelated `jf/gptel--check-hook-duplicates` diagnostic helper). No `Local Variables` writes in the creation path (remaining references are in `jf/gptel--cleanup-duplicate-local-variables`). Previous `(format "# %s\n\n" session-name)` markdown heading and `"###\n"` default are gone.
+- **Buffer-activation boundary:** `jf/gptel--create-session-core` (`commands.el:327-386`) is pure filesystem I/O — no `find-file`, `switch-to-buffer`, or mode activation. Outer `jf/gptel-persistent-session` calls `find-file` at line 444, which is correct per the task ("the caller triggers auto-init").
+- **Activation coverage:** Task explicitly allowed activation to be tested in the separate `sessions-auto-init` track; existing `auto-init-chat-mode-spec.el` covers find-file → `gptel-chat-mode`, so no duplication needed here.
+- **Updated assertion:** `config/gptel/test/session-creation-spec.el:81` tightens to `:to-equal "#+begin_user\n\n#+end_user\n"`, properly replacing the wrong-in-spirit `"###\n"` check.
+- **metadata.yml untouched:** Only 4 files touched; metadata writing at `commands.el:363-371` unchanged.
+
+### Findings
+None blocking. None non-blocking worth a follow-up task.
