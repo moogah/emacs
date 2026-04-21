@@ -2,7 +2,7 @@
 name: update-architecture-md-helpers-rename
 description: Update gptel-chat-mode architecture.md to reflect helpers-spec.el → test-helpers.el rename
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:helpers-spec-naming-convention
 ---

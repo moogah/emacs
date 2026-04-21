@@ -2,7 +2,7 @@
 name: parser-multi-tool-segment-three-calls
 description: Extend parser multi-tool-segment fixture from two to three sequential tool calls per spec
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:parser-multi-tool-segment-test
 ---
