@@ -135,7 +135,10 @@ Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
 - scope.yml with file access permissions (from preset scope profile)
 - metadata.yml with session metadata and preset reference
-- session.org file for buffer to visit
+- session.org with the chat-mode empty-user-block template
+  (Decision 9 / Decision 18 — emitted unconditionally; there is no
+  longer a mode-selection choice, all activity-backed sessions use
+  `gptel-chat-mode')
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
@@ -171,13 +174,20 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                                :write raw-paths
                                :deny '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**"))))))
 
-    ;; Create session directory structure using core helper
-    ;; This creates branches/main/, scope.yml, metadata.yml, session.org, and current symlink
+    ;; Create session directory structure using core helper.
+    ;; This creates branches/main/, scope.yml, metadata.yml,
+    ;; session.org, and the current symlink.  `initial-content' is
+    ;; left nil so the core helper fills in the chat-mode
+    ;; empty-user-block template (Decision 9 / Decision 18) — a fresh
+    ;; activity-backed session looks identical to a fresh standalone
+    ;; `gptel-chat-mode' buffer.  Decision 16 is categorical: session
+    ;; buffers use chat-mode, never `gptel-mode', so this helper has no
+    ;; mode-selection parameter.
     (let* ((session-info (jf/gptel--create-session-core
                           session-id
                           session-dir
                           preset-name
-                          "###\n"          ; Minimal initial content
+                          nil              ; default chat-mode initial content
                           worktree-scope   ; Scope plist (or nil)
                           nil))            ; No project-root
            (branch-dir (plist-get session-info :branch-dir))
