@@ -2,7 +2,7 @@
 name: auto-init-simplify-org-guards
 description: Drop the redundant string-suffix-p ".org" guard in jf/gptel--auto-init-session-buffer; inner string= file-name "session.org" check is stricter
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:sessions-auto-init
 ---

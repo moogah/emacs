@@ -292,10 +292,12 @@ On match:
 
 Runs on every file open via `find-file-hook', so fast-path guards are
 critical."
-  ;; Fast-path guards (runs on every file open)
+  ;; Fast-path guards (runs on every file open).  The inner
+  ;; `string=' check against "session.org" (in both regex branches
+  ;; below) is stricter than a generic ".org" suffix test, so no
+  ;; outer suffix guard is needed here.
   (when (and (buffer-file-name)                         ; Has file?
-             (not (bound-and-true-p jf/gptel--session-id)) ; Not already initialized?
-             (string-suffix-p ".org" (buffer-file-name))) ; Is .org file?
+             (not (bound-and-true-p jf/gptel--session-id))) ; Not already initialized?
     (let* ((file-path (expand-file-name (buffer-file-name)))
            (file-name (file-name-nondirectory file-path))
            (session-id nil)
