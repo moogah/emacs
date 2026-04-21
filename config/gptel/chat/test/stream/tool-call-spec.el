@@ -353,7 +353,29 @@ ignorable function works here."
       (let ((cb (gptel-chat--stream-callback
                  gptel-chat-tool-call-test--marker)))
         (expect (funcall cb 'unexpected-sentinel nil)
-                :to-throw)))))
+                :to-throw))))
+
+
+  (describe "orphan tool-result"
+
+    (it "signals when a tool-result arrives with no pending tool-marker"
+      ;; A `(tool-result . ...)' with no prior `(tool-call . ...)'
+      ;; means the FIFO pairing is desynchronised from upstream.
+      ;; Silently dropping it would hide the regression; the
+      ;; callback raises to match the file's defensive `(_ (error
+      ;; ...))' arm and surface the drift loudly.
+      (let* ((cb (gptel-chat--stream-callback
+                  gptel-chat-tool-call-test--marker))
+             (tool (gptel-chat-tool-call-test--tool "read_file")))
+        (expect (funcall cb `(tool-result . ((,tool nil "orphan")))
+                         nil)
+                :to-throw
+                'error
+                ;; `(error "%S" "orphan")' signals (error
+                ;; "...%S"-formatted) — signal-args is a one-element
+                ;; list of the fully-formatted string, per Emacs'
+                ;; `error' function contract.
+                '("gptel-chat: orphan tool-result with no pending tool-marker: \"orphan\""))))))
 
 
 (provide 'tool-call-spec)

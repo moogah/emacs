@@ -634,8 +634,15 @@ State captured in the closure:
         (`(tool-result . ,results)
          (pcase-dolist (`(,_tool-spec ,_args ,result) results)
            (let ((marker (pop pending-tool-markers)))
-             (when marker
-               (gptel-chat--stream-close-tool-block marker result))))
+             ;; A tool-result with no matching pending marker means
+             ;; the FIFO is desynchronised from upstream's tool-call
+             ;; / tool-result pairing — silently dropping it would
+             ;; hide the regression.  Match the defensive `(_ (error
+             ;; ...))' arm at the end of the pcase and fail loudly.
+             (unless marker
+               (error "gptel-chat: orphan tool-result with no pending tool-marker: %S"
+                      result))
+             (gptel-chat--stream-close-tool-block marker result)))
          (unless pending-tool-markers
            (funcall clear-tool)))
         ;; HTTP success (`t'): upstream fires this after every
