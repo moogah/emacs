@@ -120,7 +120,7 @@
 
   (describe "agent session path"
 
-    (it "opens *.../agents/<name>/session.org: same wiring with branch-name=main"
+    (it "opens nested */branches/<branch>/agents/<name>/session.org: session-id and branch-name come from the path"
       (let ((buf (generate-new-buffer "session.org"))
             (chat-mode-called nil)
             (gptel-mode-called nil))
@@ -133,7 +133,7 @@
                         ((symbol-function 'file-exists-p) (lambda (_) t))
                         ((symbol-function 'insert-file-contents)
                          (lambda (f &rest _)
-                           (insert "session_id: \"agent-42\"\npreset: \"researcher\"\n")
+                           (insert "session_id: \"foo-20260420000000\"\npreset: \"researcher\"\n")
                            (list f 0)))
                         ((symbol-function 'gptel-get-preset)
                          (lambda (_) '((gptel-model . "test"))))
@@ -154,8 +154,92 @@
 
                 (expect chat-mode-called :to-be t)
                 (expect gptel-mode-called :to-be nil)
+                ;; session-id comes from the parent session directory
+                ;; (captured by the nested-agent regex), NOT from the
+                ;; agent's own directory name.
+                (expect jf/gptel--session-id :to-equal "foo-20260420000000")
+                ;; branch-name comes from the branches/<branch>/
+                ;; segment, NOT hardcoded.
+                (expect jf/gptel--branch-name :to-equal "main")))
+          (kill-buffer buf))))
+
+    (it "opens flat */agents/<name>/session.org (legacy): session-id from path, branch-name defaults to main"
+      (let ((buf (generate-new-buffer "session.org"))
+            (chat-mode-called nil)
+            (symlink-updated nil))
+        (unwind-protect
+            (with-current-buffer buf
+              (setq buffer-file-name
+                    (expand-file-name
+                     "~/.gptel/sessions/foo-20260420000000/agents/researcher-20260420120000-explore/session.org"))
+              (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
+                        ((symbol-function 'file-exists-p) (lambda (_) t))
+                        ((symbol-function 'insert-file-contents)
+                         (lambda (f &rest _)
+                           (insert "session_id: \"foo-20260420000000\"\npreset: \"researcher\"\n")
+                           (list f 0)))
+                        ((symbol-function 'gptel-get-preset)
+                         (lambda (_) '((gptel-model . "test"))))
+                        ((symbol-function 'gptel--apply-preset)
+                         (lambda (_name _setter) nil))
+                        ((symbol-function 'gptel-chat-mode)
+                         (lambda (&optional _) (setq chat-mode-called t)))
+                        ((symbol-function 'jf/gptel--update-current-symlink)
+                         (lambda (&rest _) (setq symlink-updated t)))
+                        ((symbol-function 'make-symbolic-link)
+                         (lambda (_t _l &optional _ok) nil))
+                        ((symbol-function 'delete-file)
+                         (lambda (_f &optional _trash) nil)))
+                (jf/gptel--auto-init-session-buffer)
+                (when jf/gptel--session-id
+                  (jf-gptel-auto-init-test--register-cleanup
+                   jf/gptel--session-id jf/gptel--branch-name))
+
+                (expect chat-mode-called :to-be t)
+                (expect jf/gptel--session-id :to-equal "foo-20260420000000")
                 (expect jf/gptel--branch-name :to-equal "main")
-                (expect jf/gptel--session-id :to-be-truthy)))
+                ;; Legacy flat layout has no branches/ directory, so
+                ;; the auto-init hook MUST NOT invoke
+                ;; jf/gptel--update-current-symlink on the agent dir
+                ;; (which would create a stray `current ->
+                ;; branches/main' dangling symlink).
+                (expect symlink-updated :to-be nil)))
+          (kill-buffer buf))))
+
+    (it "populates jf/gptel--parent-session-id from metadata.yml for a branch session"
+      (let ((buf (generate-new-buffer "session.org")))
+        (unwind-protect
+            (with-current-buffer buf
+              (setq buffer-file-name
+                    (expand-file-name
+                     "~/.gptel/sessions/bar-20260420000000/branches/feature-x/session.org"))
+              (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
+                        ((symbol-function 'file-exists-p) (lambda (_) t))
+                        ((symbol-function 'insert-file-contents)
+                         (lambda (f &rest _)
+                           (insert "session_id: \"bar-20260420000000\"\n")
+                           (insert "parent_session_id: \"foo-20260420000000\"\n")
+                           (insert "preset: \"executor\"\n")
+                           (list f 0)))
+                        ((symbol-function 'gptel-get-preset)
+                         (lambda (_) '((gptel-model . "test"))))
+                        ((symbol-function 'gptel--apply-preset)
+                         (lambda (_name _setter) nil))
+                        ((symbol-function 'gptel-chat-mode)
+                         (lambda (&optional _) nil))
+                        ((symbol-function 'make-symbolic-link)
+                         (lambda (_t _l &optional _ok) nil))
+                        ((symbol-function 'delete-file)
+                         (lambda (_f &optional _trash) nil)))
+                (jf/gptel--auto-init-session-buffer)
+                (when jf/gptel--session-id
+                  (jf-gptel-auto-init-test--register-cleanup
+                   jf/gptel--session-id jf/gptel--branch-name))
+
+                (expect jf/gptel--session-id :to-equal "bar-20260420000000")
+                (expect jf/gptel--branch-name :to-equal "feature-x")
+                (expect jf/gptel--parent-session-id
+                        :to-equal "foo-20260420000000")))
           (kill-buffer buf)))))
 
   (describe "non-session .org files"
