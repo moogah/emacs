@@ -263,7 +263,162 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
           (let ((current-link (expand-file-name "current" session-dir)))
             (expect (file-symlink-p current-link) :to-be-truthy)
             (expect (file-truename (expand-file-name "session.org" current-link))
-                    :to-equal (file-truename new-ctx))))))))
+                    :to-equal (file-truename new-ctx)))))))
+
+  (describe "dirty-buffer handling"
+
+    ;; Regression coverage for the dirty-buffer policy in
+    ;; `jf/gptel-branch-session': when the parent session buffer has
+    ;; unsaved edits, branch-point positions are computed from the
+    ;; LIVE buffer but the branch's `session.org' is truncated from
+    ;; the ON-DISK file. Policy A (save before branching) closes the
+    ;; gap by flushing the live buffer to disk before position
+    ;; selection, so position-source and content-source are the same
+    ;; file. Without the save, the new branch silently misaligns
+    ;; (missing the unsaved bytes entirely).
+    ;;
+    ;; Test shape: bootstrap a real session directory, attach a
+    ;; buffer to `session.org' with the buffer-local session vars
+    ;; that `jf/gptel--auto-init-session-buffer' would set, append
+    ;; a new user turn in-memory only (no save), and invoke
+    ;; `jf/gptel-branch-session' with the unsaved user turn
+    ;; selected INCLUDE. After branch creation:
+    ;;   (a) The parent file on disk now contains the in-memory
+    ;;       edit (save-buffer fired).
+    ;;   (b) The new branch's `session.org' includes the unsaved
+    ;;       turn — evidence that position-source and content-source
+    ;;       agree.
+
+    (it "flushes unsaved parent edits before deriving branch-point bytes"
+      (let* ((make-backup-files nil)
+             (auto-save-default nil)
+             (root (jf-branching-integration--make-tempdir))
+             (jf/gptel-sessions-directory root)
+             (bootstrap (jf-branching-integration--bootstrap-parent
+                         root jf-branching-integration--parent-session))
+             (session-dir (plist-get bootstrap :session-dir))
+             (parent-ctx  (plist-get bootstrap :context-file))
+             ;; The unsaved addition: a new user turn appended to the
+             ;; live buffer but not written to disk before the call.
+             (unsaved-turn (concat "\n"
+                                   "#+begin_user\n"
+                                   "Unsaved third question?\n"
+                                   "#+end_user\n"))
+             (parent-buf (generate-new-buffer " *dirty-parent*"))
+             (new-branch-dir nil))
+        (unwind-protect
+            (with-current-buffer parent-buf
+              ;; Bind the buffer to the parent session.org file
+              ;; without going through `find-file-noselect' (which
+              ;; would run `set-auto-mode' and pull in org-mode +
+              ;; the gptel auto-init find-file-hook). We only need
+              ;; a file-visiting buffer that `save-buffer' will
+              ;; write to the expected path.
+              (setq-local buffer-file-name parent-ctx)
+              (insert-file-contents parent-ctx)
+              (set-buffer-modified-p nil)
+
+              ;; Wire up buffer-local session vars the way
+              ;; `jf/gptel--auto-init-session-buffer' would. We
+              ;; bypass the real auto-init (and its org-mode /
+              ;; yasnippet side-effects) by stubbing the mode check
+              ;; inside the call below.
+              (setq-local jf/gptel--session-dir session-dir)
+              (setq-local jf/gptel--branch-name "main")
+              (setq-local jf/gptel--session-id
+                          (jf/gptel--session-id-from-directory session-dir))
+
+              ;; Apply the unsaved edit: append a new user turn
+              ;; in-memory only. The buffer is now dirty.
+              (goto-char (point-max))
+              (insert unsaved-turn)
+              (expect (buffer-modified-p) :to-be-truthy)
+
+              ;; Pre-assert: the on-disk parent file does NOT yet
+              ;; contain the unsaved bytes. If this ever passes
+              ;; trivially, the regression no longer distinguishes
+              ;; the dirty-buffer path from the clean-buffer path.
+              (expect (string-match-p
+                       (regexp-quote "Unsaved third question?")
+                       (jf-branching-integration--file-contents parent-ctx))
+                      :not :to-be-truthy)
+
+              (cl-letf*
+                  ;; Allow the function body past the chat-mode
+                  ;; check without actually activating
+                  ;; `gptel-chat-mode' (which pulls in org-mode and
+                  ;; a preset-hook chain unrelated to this test).
+                  (((symbol-function 'derived-mode-p)
+                    (lambda (&rest modes) (memq 'gptel-chat-mode modes)))
+                   ;; Deterministic branch-point selection: the
+                   ;; unsaved third user turn, INCLUDE. With the
+                   ;; buffer's unsaved edit the parser sees three
+                   ;; user turns (First/Second/Unsaved-third), so
+                   ;; the label for turn 3 is the unsaved prompt.
+                   ;; The format matches
+                   ;; `jf/gptel--branching-select-branch-point''s
+                   ;; "<index>. <label>" formatter.
+                   ((symbol-function 'completing-read)
+                    (lambda (_prompt _collection &rest _) "3. Unsaved third question?"))
+                   ((symbol-function 'y-or-n-p)
+                    (lambda (_prompt) t))
+                   ;; Do not open the new branch buffer — we read it
+                   ;; from disk below. `find-file' would otherwise
+                   ;; drag in `gptel-chat-mode' activation.
+                   ((symbol-function 'find-file)
+                    (lambda (_path) nil)))
+                (setq new-branch-dir
+                      (progn
+                        (jf/gptel-branch-session "dirty-buffer-regression")
+                        ;; Re-compute: `jf/gptel-branch-session' does
+                        ;; not return the new branch dir, so find
+                        ;; it via the current symlink.
+                        (file-truename
+                         (expand-file-name "current" session-dir)))))
+
+              ;; Post-assertion (a): save fired. Parent file on
+              ;; disk now contains the previously-unsaved turn.
+              (expect (string-match-p
+                       (regexp-quote "Unsaved third question?")
+                       (jf-branching-integration--file-contents parent-ctx))
+                      :to-be-truthy)
+
+              ;; Post-assertion (b): the new branch's session.org
+              ;; was truncated at a position computed against the
+              ;; live buffer AND read from a disk file that now
+              ;; includes the unsaved turn. Selecting the unsaved
+              ;; third user turn INCLUDE means the branch contains
+              ;; all three user turns (with the two original
+              ;; assistant replies interleaved) and nothing after
+              ;; the unsaved turn's `#+end_user'.
+              (let* ((new-ctx (jf/gptel--context-file-path new-branch-dir))
+                     (written (jf-branching-integration--file-contents new-ctx)))
+                ;; Parseable as a chat-mode session.
+                (let ((turns (jf-branching-integration--parse-file new-ctx)))
+                  ;; user, assistant, user, assistant, user — the
+                  ;; trailing user turn is the unsaved one, now
+                  ;; persisted via save-buffer.
+                  (expect (mapcar (lambda (tn) (plist-get tn :role)) turns)
+                          :to-equal '(user assistant user assistant user))
+                  (expect (string-trim
+                           (plist-get (nth 4 turns) :content))
+                          :to-equal "Unsaved third question?"))
+                ;; Bytes: all three original turns preserved, the
+                ;; unsaved turn present, and no content written
+                ;; beyond its `#+end_user' line.
+                (expect (string-match-p (regexp-quote "First question?")
+                                        written)
+                        :to-be-truthy)
+                (expect (string-match-p (regexp-quote "Second question?")
+                                        written)
+                        :to-be-truthy)
+                (expect (string-match-p
+                         (regexp-quote "Unsaved third question?") written)
+                        :to-be-truthy)))
+          (when (buffer-live-p parent-buf)
+            (with-current-buffer parent-buf
+              (set-buffer-modified-p nil))
+            (kill-buffer parent-buf)))))))
 
 (provide 'branching-integration-spec)
 ;;; branching-integration-spec.el ends here
