@@ -368,28 +368,77 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
 
 
   (describe "send-guard idle-state contract"
-    ;; The send-guard (introduced with task `send-command') must treat
-    ;; ABRT as idle so `gptel-abort' does not wedge the buffer.  Until
-    ;; `send-command' lands we document the contract by asserting on
-    ;; the lifecycle indicator: after an ABRT transition the value is
-    ;; `aborted', which the send-guard will include in its idle set
-    ;; alongside nil (DONE) and `error' (ERRS).
+    ;; Delivered by task `send-command': `gptel-chat-send' rejects new
+    ;; sends while a request is in flight, and does NOT reject on idle
+    ;; or terminal states.  Source of truth is the buffer-local
+    ;; `gptel--fsm-last' (design.md §Decision 11).
+    ;;
+    ;; Scope here: exercise the guard across the six terminal FSM
+    ;; states.  DONE / ERRS / ABRT must be idle so a completed,
+    ;; errored, or user-aborted request does not wedge the buffer;
+    ;; WAIT / TYPE / TOOL must block a second concurrent send.  Each
+    ;; spec seeds `gptel--fsm-last' with a real `gptel-fsm' whose
+    ;; state is set directly via `setf' (no handler chain needed —
+    ;; the guard only reads `gptel-fsm-state').
+    ;;
+    ;; Each spec also installs a populated `#+begin_user' block with
+    ;; point on its body so that, on the idle path, `gptel-chat-send'
+    ;; reaches the real `gptel-request' call.  That call is stubbed
+    ;; out via `spy-on' so no network traffic occurs.
 
-    (it "treats `aborted' as a terminal, non-busy indicator value"
-      (let ((fsm (gptel-chat-send-test--make-fsm)))
-        (spy-on 'message)
-        ;; Seed busy -- streaming in flight.
+    (defun gptel-chat-send-test--populate-user-block ()
+      "Insert a populated user block into the fixture and leave point in its body."
+      (with-current-buffer gptel-chat-send-test--buffer
+        (erase-buffer)
+        (insert "#+begin_user\nhello model\n#+end_user\n")
+        (goto-char (point-min))
+        (forward-line 1)))        ; land on the body line
+
+    (defun gptel-chat-send-test--seed-state (state)
+      "Set `gptel--fsm-last' in the fixture buffer to a fresh FSM in STATE."
+      (with-current-buffer gptel-chat-send-test--buffer
+        (let ((fsm (gptel-make-fsm :info (list :buffer (current-buffer)))))
+          (setf (gptel-fsm-state fsm) state)
+          (setq gptel--fsm-last fsm))))
+
+    (describe "idle states permit send"
+      ;; DONE / ERRS / ABRT — the three terminal states — are all
+      ;; idle.  `gptel-chat-send' must proceed to `gptel-request'
+      ;; without signalling.  The guard also treats a fresh FSM
+      ;; state of `INIT' as idle (not explicitly tested here; covered
+      ;; by the "nil gptel--fsm-last" case below where no FSM exists).
+
+      (dolist (state '(DONE ERRS ABRT))
+        (it (format "proceeds when gptel--fsm-last is in %s" state)
+          (gptel-chat-send-test--populate-user-block)
+          (gptel-chat-send-test--seed-state state)
+          (spy-on 'gptel-request :and-return-value nil)
+          (with-current-buffer gptel-chat-send-test--buffer
+            (expect (gptel-chat-send) :not :to-throw))
+          (expect 'gptel-request :to-have-been-called)))
+
+      (it "proceeds when gptel--fsm-last is nil (no prior request)"
+        (gptel-chat-send-test--populate-user-block)
         (with-current-buffer gptel-chat-send-test--buffer
-          (setq gptel-chat--lifecycle-state 'streaming))
-        (gptel--fsm-transition fsm 'ABRT)
-        ;; After abort, the indicator must no longer signal busy.
-        (expect (gptel-chat-send-test--lifecycle) :to-equal 'aborted)
-        (expect (gptel-chat-send-test--lifecycle)
-                :not :to-equal 'streaming)
-        (expect (gptel-chat-send-test--lifecycle)
-                :not :to-equal 'waiting)
-        (expect (gptel-chat-send-test--lifecycle)
-                :not :to-equal 'tool-running))))
+          (setq gptel--fsm-last nil))
+        (spy-on 'gptel-request :and-return-value nil)
+        (with-current-buffer gptel-chat-send-test--buffer
+          (expect (gptel-chat-send) :not :to-throw))
+        (expect 'gptel-request :to-have-been-called)))
+
+    (describe "in-flight states raise user-error"
+      ;; WAIT / TYPE / TOOL are the three in-flight states; a second
+      ;; `gptel-chat-send' while the FSM sits in any of them must
+      ;; raise `user-error' and MUST NOT call `gptel-request'.
+
+      (dolist (state '(WAIT TYPE TOOL))
+        (it (format "rejects send when gptel--fsm-last is in %s" state)
+          (gptel-chat-send-test--populate-user-block)
+          (gptel-chat-send-test--seed-state state)
+          (spy-on 'gptel-request)
+          (with-current-buffer gptel-chat-send-test--buffer
+            (expect (gptel-chat-send) :to-throw 'user-error))
+          (expect 'gptel-request :not :to-have-been-called)))))
 
 
   (describe "gptel-chat--state accessor"
