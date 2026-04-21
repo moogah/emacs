@@ -131,8 +131,11 @@ it is a marker object with a non-nil buffer."
 ;; [[file:stream.org::*Helper: insert one sanitized line at a marker][Helper: insert one sanitized line at a marker:1]]
 (defun gptel-chat--stream-insert-line (marker line)
   "Insert sanitized LINE followed by a newline at MARKER.
-LINE is a single complete line with no embedded newline.  The
-insertion advances MARKER so subsequent inserts append after it."
+LINE is a single complete line with no embedded newline.  MARKER
+must have insertion-type t (an \"advance\" marker) so that
+inserting at it pushes the marker forward and subsequent inserts
+append after it; the factory `gptel-chat--make-stream-closure'
+enforces that contract at construction."
   (let ((sanitized (gptel-chat--sanitize-chunk line)))
     (with-current-buffer (marker-buffer marker)
       (save-excursion
@@ -169,9 +172,19 @@ do nothing."
 (defun gptel-chat--make-stream-closure (insertion-marker)
   "Return a `gptel-chat-stream' handle for streaming assistant text.
 INSERTION-MARKER must be a live Emacs marker pointing inside the
-buffer that should receive assistant output.  Three slots of
-per-request state are captured inside the closures bound to the
-returned struct's function slots:
+buffer that should receive assistant output, and it must have
+insertion-type t (an \"advance\" marker — see
+`set-marker-insertion-type').  With insertion-type nil (the
+default for `make-marker' and `copy-marker' without the second
+argument), the marker stays put when text is inserted at its
+position, so successive line inserts would land in reverse
+order.  The factory signals an error rather than silently
+coercing the shape, so callers that construct the wrong kind of
+marker fail loudly at construction rather than producing
+garbled buffer output downstream.
+
+Three slots of per-request state are captured inside the closures
+bound to the returned struct's function slots:
 
 - INSERTION-MARKER (the argument) — where assistant text goes by
   default.
@@ -216,6 +229,9 @@ routing — no `cl-letf' surgery on captured variables."
   (unless (and (markerp insertion-marker)
                (marker-buffer insertion-marker))
     (error "INSERTION-MARKER must be a live marker"))
+  (unless (marker-insertion-type insertion-marker)
+    (error "INSERTION-MARKER must have insertion-type t \
+(advance marker); got insertion-type nil"))
   (let ((holdback "")
         (tool-marker nil))
     (make-gptel-chat-stream
