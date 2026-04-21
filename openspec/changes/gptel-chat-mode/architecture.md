@@ -113,7 +113,7 @@ The sessions subsystem is updated so session buffers use `gptel-chat-mode` as th
 | `gptel-chat--parse-buffer` | Buffer → turn list | parser |
 | `gptel-chat--turns-to-messages` | Turn list → `gptel-request` message list (un-escaping applied) | parser |
 | `gptel-chat--sanitize-chunk` | One complete line in → one line out; prepends `,` to `#+end_\(user\|assistant\|tool\)` lines. Pure. | stream |
-| `gptel-chat--make-stream-closure` | Holdback-bearing closure factory; owns partial-line state and marker-based insertion | stream |
+| `gptel-chat--make-stream-closure` | Returns a `gptel-chat-stream` handle (cl-struct) exposing `insert`, `set-tool-marker`, and `clear-tool-marker`. Owns holdback and partial-line state via the underlying closure bound to the `insert` slot. | stream |
 | `gptel-chat--install-stream-callback` | Builds the closure passed to `gptel-request` | stream |
 
 ### Data contracts

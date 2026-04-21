@@ -129,7 +129,7 @@ On each text chunk the `insert` function:
 
 1. Prepends any carry-over holdback to the new chunk.
 2. Splits at `\n`; trailing partial line (if any) becomes the new holdback.
-3. For each complete line, runs `gptel-chat--sanitize-chunk` (Decision 4) and inserts at the active marker — tool-marker if one is live, otherwise the assistant insertion marker (Decision 10). The routing choice is made per chunk via `gptel-chat--stream-active-marker`, a pure helper directly unit-testable.
+3. For each complete line, runs `gptel-chat--sanitize-chunk` (Decision 4) and inserts at the active marker — tool-marker if one is live, otherwise the assistant insertion marker (Decision 10). The routing choice is resolved **once per `insert` invocation** via `gptel-chat--stream-active-marker`, a pure helper directly unit-testable. A single `insert` call's routing applies to every complete line within that call. `stream-callback` MUST issue any `set-tool-marker` / `clear-tool-marker` call *between* distinct `insert` calls. Tool-marker changes apply from the next `insert` call onward; they never affect the routing of the in-flight call.
 4. On completion (`t` from the callback — see Decision 10), flushes the holdback (cannot be a full `#+end_*` line by construction — no newline), inserts `#+end_assistant`, and positions point per Decision 8.
 
 The markers are proper Emacs markers (not integer positions) so concurrent user edits above the insertion point don't corrupt them.
@@ -137,7 +137,7 @@ The markers are proper Emacs markers (not integer positions) so concurrent user 
 **Alternatives considered:**
 - *Bare lambda with tool-marker captured internally and no setter.* Rejected (this is what the earlier draft of Decision 3b specified). The tool-marker slot exists but is unreachable from `stream-callback` without `cl-letf` surgery on the captured environment, which is the worst-of-both-worlds: the slot is documented behaviour yet dead code under YAGNI. Tests end up doing direct surgery to exercise the routing arm — an explicit anti-pattern the review on `sanitize-chunks` flagged.
 - *Plist handle* `(:insert ... :set-tool-marker ... :clear-tool-marker ...)`. Tempting for its minimal ceremony, but a plist is the idiomatic Emacs Lisp shape for *options* (keyword-arg dictionaries), not for a typed per-request record. Accessors are untyped (`plist-get`), there is no predicate, and call sites become noisy with `(funcall (plist-get handle :insert) chunk)`. Ship cost is similar to cl-defstruct; readability at call sites is worse.
-- *Caller-owned mutable cell* (factory takes a `(list nil)` tool-marker cell, closure reads `(car cell)` each chunk). Technically works but violates Decision 3b's core premise that text-processing state is *per-send* and lives with the closure: the cell's lifetime is now the caller's to manage, and the wiring contract ("the car of this list is the routing marker") is an untyped protocol leaked across the module boundary. Also costs one `car` indirection per chunk in the hot path.
+- *Caller-owned mutable cell* (factory takes a `(list nil)` tool-marker cell, closure reads `(car cell)` each chunk). Technically works, and lifetime can be kept per-send by the caller. Rejected because the wiring contract — "the `car` of this cell is the routing marker" — is an un-named, undocumented protocol every call site must learn separately. The `cl-defstruct` alternative names the protocol explicitly via generated accessors (`gptel-chat-stream-set-tool-marker`, `gptel-chat-stream-insert`) and a generated predicate (`gptel-chat-stream-p`), so call sites and tests both get typed, self-documenting access. That is the core win, not lifetime coupling or indirection cost.
 - *Insert directly at `(point-max)`.* Fails when the buffer has content after the active assistant block (e.g., regenerate inserts into the middle of the buffer; the user edits below the cursor during stream).
 - *Buffer-local state variables.* Harder to test, easier to leak between sends — and concurrent sends are disallowed anyway (Decision 11), so per-request scope is the right granularity.
 
@@ -231,6 +231,8 @@ Per-buffer configuration (model, backend, system message, tools, temperature) is
 | `'abort` | user abort — close the block with an interruption marker |
 
 Each element of a `tool-call` or `tool-result` list is a plist carrying `:name`, `:args`, and — for results — `:result`. Our `#+begin_tool` opening line formats `:name` and `:args` as `(<name> :args <sexp>)` to match the existing session-file convention.
+
+**Sequencing invariant (cross-reference to Decision 3b):** routing changes (`set-tool-marker` / `clear-tool-marker`) MUST be interleaved *between* distinct `insert` calls on the stream handle, not within. The active marker is resolved once per `insert` invocation, so a routing change issued mid-call has no effect on the in-flight call — it applies from the next `insert` onward. See Decision 3b step 3 for the underlying rule.
 
 **Corrected from earlier draft:** an earlier version of this decision described tool events as "plists with a tool-call sentinel" — that was wrong. Upstream emits cons cells, not tagged plists; dispatch via `pcase` backquote patterns is both the upstream idiom and what `persistent-agent.org` already does.
 
