@@ -2,10 +2,40 @@
 name: parser-multi-tool-segment-three-calls
 description: Extend parser multi-tool-segment fixture from two to three sequential tool calls per spec
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:parser-multi-tool-segment-test
 ---
+
+## Review (2026-04-21, orch session `orch-review-1776796835`)
+
+Diff (`1512c5d`) extends the existing `it` block (per the task's
+"Extend the existing `it` block fixture" step-1 wording) — replacing
+the two-tool scenario with a three-tool scenario: `prose1 / tool_a /
+prose2 / tool_b / prose3 / tool_c / prose4`, seven segments. The name
+change (`"splits an assistant with two tool calls..."` → `"...three
+tool calls..."`) is consistent with the task's design rationale note
+that "the loop-advancement invariant is already pinned by the two-tool
+case," so losing the two-tool case by in-place rewrite is intended.
+
+**Verified against task intent:**
+- Segment count assertion: 5 → 7 ✓
+- Shape assertion: `(text tool-call text tool-call text)` → `(text
+  tool-call text tool-call text tool-call text)` ✓
+- Third tool-call assertions: `:name "tool_c"`, `:args '(:z 3)`,
+  `:result "result_c"` ✓
+- New `prose4` text content assertion ✓
+- `spec.md:249-252` enumerates exactly three sequential tool calls;
+  fixture now matches.
+
+**Minor observation (not a finding):** only the third tool-call
+asserts `:args`; `tool_a` / `tool_b` do not. This is additional
+coverage on the new assertion, not a regression — the pre-existing
+spec did not assert args either. Skipping.
+
+**Findings:** none.
+
+**Follow-ups:** none.
 
 ## Files to modify
 - `config/gptel/chat/test/parser/buffer-format-spec.el` (extend the

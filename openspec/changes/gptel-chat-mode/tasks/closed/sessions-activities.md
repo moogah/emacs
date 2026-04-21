@@ -2,11 +2,64 @@
 name: sessions-activities
 description: Activities integration emits session.org unconditionally
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:auto-init-metadata-preset-precedence
   - blocked-by:auto-init-agent-path-handling
 ---
+
+## Review (2026-04-21, orch session `orch-review-1776796835`)
+
+Reviewer agent (`a07eb863c909ce2bc`) inspected `git show 444f331`, the
+full `activities-integration.{org,el}`, the new 354-line
+`activity-session-chat-spec.el`, the sibling `sessions/commands.el`
+for duplication-vs-consolidation, and the `jf/gptel--auto-init-
+session-buffer` / `jf/gptel--ensure-mode-once` chain to confirm
+chat-mode is hard-wired. Compared against Decisions 16/17/18 and
+`specs/gptel/sessions-persistence.md`. Grepped for residual
+`session.md` / `"###\n"` / `gptel-mode` and verified the five-
+session-var contract on the loaded buffer.
+
+**Findings:**
+
+1. *(Inline fix applied — commit `d0e7727`)* —
+   `config/gptel/sessions/activities-integration.org:366` (tangled
+   to `:202`). Docstring of `jf/gptel-session--create-buffer` still
+   read *"preset application and gptel-mode initialization
+   automatically when the session file is opened."* Decision 16 is
+   categorical; the previous discovered-from note (sessions-
+   filesystem Finding #9) addressed `:36` and `:73` but missed
+   this third stale reference. Replaced `gptel-mode` →
+   `gptel-chat-mode`. Re-tangled; regression test identical to
+   baseline (ERT 9 pre-existing + Buttercup 3 pre-existing).
+
+Ruled out:
+- **Duplication between `jf/gptel-persistent-session` and
+  `jf/gptel-session-create-persistent`** — both call
+  `jf/gptel--create-session-core` with `nil` initial content; the
+  shared core already holds the chat-mode template default. No
+  meaningful duplication to consolidate.
+- **Mode-selection parameter drop** — prior signature never had a
+  mode-selection parameter; task item was precautionary, correctly
+  a no-op.
+- **Decision 16 hard-wiring** — `jf/gptel--ensure-mode-once`
+  unconditionally calls `gptel-chat-mode`; no fallback branch
+  reaches `gptel-mode`.
+- **Worktree tracking unchanged** — HTML-comment annotation
+  byte-identical to pre-444f331; pre-existing
+  `gptel-activity-worktrees` setq behaviour is orthogonal.
+- **5 session vars on loaded buffer** — resume test uses real
+  `jf/gptel--auto-init-session-buffer` with find-file stubs only
+  at the filesystem boundary; assertions read `setq-local`-set
+  vars on the live buffer.
+
+**Spec-level signals:** none. Decision 16's categorical stance
+composed cleanly; the helper just deleted the `"###\n"` literal and
+fell through to the shared core default.
+
+**Follow-ups:** none (the single finding was trivial and applied
+inline; the fix is a docstring-only change that does not warrant its
+own review pass).
 
 ## Files to modify
 - `config/gptel/sessions/activities-integration.org` (modify)

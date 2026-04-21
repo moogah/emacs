@@ -2,12 +2,117 @@
 name: sessions-branching
 description: Branch-point selection and truncation on chat-mode turn list
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:parser
   - blocked-by:auto-init-metadata-preset-precedence
   - blocked-by:auto-init-agent-path-handling
 ---
+
+## Review (2026-04-21, orch session `orch-review-1776796835`)
+
+Reviewer agent (`a30f5c8f9dad2e358`) read the full `branching.{org,
+el}`, all three new spec files (`branch-point-selection-spec.el`,
+`context-truncation-spec.el`, `branching-integration-spec.el`),
+traced the parser's `:start`/`:end` contract
+(`config/gptel/chat/parser.el:280-403`) against
+`jf/gptel--branching-turn-branch-point`'s arithmetic, and hand-
+verified the byte math on the "realistic branch point" sample
+(`#+begin_user\nQ1\n#+end_user\n` → INCLUDE position 28, EXCLUDE
+on turn 1 → position 1). Confirmed the integration tests use a
+real temp `jf/gptel-sessions-directory`, invoke
+`jf/gptel--create-branch-session`, re-parse the resulting
+`session.org`, and verify the `current` symlink target via
+`file-truename`. Grepped for leftover `gptel--bounds`,
+`find-user-prompts`, and `session.md`: all gone from production
+code; old bounds machinery fully retired;
+`(require 'gptel-chat-parser)` replaces `(require 'gptel)`; the
+`gptel-mode` guard is replaced with
+`(derived-mode-p 'gptel-chat-mode)`.
+
+**Findings:**
+
+1. **`branching.el:209-243` — live-buffer positions used against
+   on-disk file.** `jf/gptel-branch-session` derives
+   `branch-position` from the live source buffer via
+   `jf/gptel--branching-select-branch-point`, then passes it to
+   `jf/gptel--copy-truncated-context`, which reads
+   `parent-context` from disk via `insert-file-contents`. If the
+   user has unsaved edits, positions computed against the live
+   buffer diverge silently from the disk file's byte layout.
+   Pre-existing in the old bounds implementation — not a
+   regression — but the rewrite was a natural opportunity to fix
+   it. → **Follow-up:**
+   `openspec/changes/gptel-chat-mode/tasks/open/branching-dirty-
+   buffer-handling.md`.
+
+2. **`branching.el:46-65` — EOF INCLUDE edge case.** When the
+   selected `#+end_user` is the buffer's last line with no
+   trailing newline, `forward-line 1` lands at `point-max`
+   instead of "after the closing newline"; the whole file is
+   copied. Behaviour is correct (INCLUDE semantics preserved at
+   EOF) but neither documented nor tested. → Grouped into the
+   test-hardening follow-up below.
+
+3. **`context-truncation-spec.el:159-177` — redundant
+   "no filter/rewrite/normalize" test.** Given the new
+   `jf/gptel--copy-truncated-context` is a verbatim byte copy
+   by construction, this assertion is logically equivalent to
+   the earlier "writes bytes 1..(POS-1) verbatim" assertion and
+   adds no independent coverage. Reviewer flagged as low-value
+   rather than broken. Judgement call; per the signal/noise
+   bar, not raised as a follow-up.
+
+4. **`branching-integration-spec.el` (all describes) — no
+   registry-update assertion.** Integration tests verify
+   `current` symlink, `branch-metadata.yml`, and `session.org`
+   parseability, but do not assert that the session registry
+   was updated for the new branch. Inspection shows
+   `jf/gptel--create-branch-session` does not register
+   directly — registry entry is populated lazily by the
+   auto-init hook when `find-file` opens the new branch. The
+   test omission is technically correct, but this asymmetry
+   ("registry update is a side effect of open, not of create")
+   is worth a test or a prominent comment. → Grouped into the
+   test-hardening follow-up below.
+
+Ruled out:
+- **Decision 18 alignment** — `session.md` appears only in test
+  fixtures/comments; production branching writes `session.org`
+  via `jf/gptel--context-file-path`. Verified.
+- **Dead code** — old `jf/gptel--find-user-prompts`,
+  `jf/gptel--filter-bounds-before-position`,
+  `jf/gptel--validate-bounds` are all gone.
+- **Arithmetic correctness** — INCLUDE and EXCLUDE positions
+  match the parser's `:start`/`:end` contract on the verified
+  sample. Spec scenarios matched.
+- **Tool-block / mid-block branch points** — parser only
+  surfaces outer user turns; `seq-filter` receives no inner
+  blocks to misclassify. No additional tool-block test needed.
+
+**Spec-level signals:** none. The delta spec
+(`specs/gptel/sessions-branching.md`) composed cleanly with the
+parser's turn shape; include/exclude semantics map onto
+`:start`/`:end` markers with a single `forward-line 1` on one
+side, zero on the other. No friction that signals a spec
+problem.
+
+**Follow-ups (both `ready`; grouped per skill guidance to avoid
+finding-per-task fragmentation):**
+
+- `tasks/open/branching-dirty-buffer-handling.md` — Finding #1
+  (behavioural; picks a policy for unsaved edits and pins it
+  with a regression spec).
+- `tasks/open/branching-edge-case-test-hardening.md` — Findings
+  #2 and #4 (both are small under-tested edges in the same
+  test suite).
+
+Neither follow-up blocks any currently-ready open task in this
+change (`menu-integration` does not depend on branching;
+`verify-change` already `blocked-by: sessions-branching`
+directly, and its verification sweep naturally covers both
+follow-ups when they land). No downstream `blocked-by:`
+repoint required.
 
 ## Files to modify
 - `config/gptel/sessions/branching.org` (modify)
