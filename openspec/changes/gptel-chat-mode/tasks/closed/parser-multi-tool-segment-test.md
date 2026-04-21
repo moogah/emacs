@@ -2,7 +2,7 @@
 name: parser-multi-tool-segment-test
 description: Add parser test for assistant turn with multiple tool-call segments
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:parser
 ---

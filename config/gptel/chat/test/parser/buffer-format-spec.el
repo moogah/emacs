@@ -559,7 +559,46 @@
       (let* ((turns (gptel-chat--parse-buffer))
              (segs  (plist-get (car turns) :segments)))
         (expect (length segs) :to-equal 1)
-        (expect (plist-get (car segs) :type) :to-equal 'text)))))
+        (expect (plist-get (car segs) :type) :to-equal 'text))))
+
+  ;; Regression: the outer `while' loop in
+  ;; `gptel-chat--scan-assistant-body' must advance `text-from' past
+  ;; each `#+end_tool' it consumes.  A bug where it fails to advance
+  ;; (e.g., off-by-one on `text-from') only surfaces with >=2 tool
+  ;; calls — hence this scenario mandated by spec
+  ;; §"Tool-call rendering inside assistant blocks" → "Multiple tool
+  ;; calls in a response".
+  (it "splits an assistant with two tool calls into (text tool-call text tool-call text)"
+    (gptel-chat-test--with-buffer
+        (concat "#+begin_assistant\n"
+                "prose1\n"
+                "\n"
+                "#+begin_tool (tool_a :x 1)\n"
+                "result_a\n"
+                "#+end_tool\n"
+                "\n"
+                "prose2\n"
+                "\n"
+                "#+begin_tool (tool_b :y 2)\n"
+                "result_b\n"
+                "#+end_tool\n"
+                "\n"
+                "prose3\n"
+                "#+end_assistant\n")
+      (let* ((turns (gptel-chat--parse-buffer))
+             (assistant (car turns))
+             (segs (plist-get assistant :segments)))
+        (expect (plist-get assistant :role) :to-equal 'assistant)
+        (expect (length segs) :to-equal 5)
+        (expect (mapcar (lambda (s) (plist-get s :type)) segs)
+                :to-equal '(text tool-call text tool-call text))
+        (expect (plist-get (nth 1 segs) :name) :to-equal "tool_a")
+        (expect (plist-get (nth 1 segs) :result) :to-equal "result_a")
+        (expect (plist-get (nth 3 segs) :name) :to-equal "tool_b")
+        (expect (plist-get (nth 3 segs) :result) :to-equal "result_b")
+        (expect (plist-get (nth 0 segs) :content) :to-match "prose1")
+        (expect (plist-get (nth 2 segs) :content) :to-match "prose2")
+        (expect (plist-get (nth 4 segs) :content) :to-match "prose3")))))
 
 (provide 'buffer-format-spec)
 
