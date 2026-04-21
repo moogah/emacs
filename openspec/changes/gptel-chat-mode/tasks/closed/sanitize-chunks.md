@@ -2,11 +2,21 @@
 name: sanitize-chunks
 description: Line-level delimiter escape and line-holdback closure for streaming
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:scaffold-chat-subsystem
   - blocked-by:remove-orphan-sanitize-module
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Re-reviewed after all six follow-ups landed. Original findings adequately
+addressed. Three non-blocking findings — captured in follow-up task
+`sanitize-chunks-contract-hardening` (loud-fail branch test,
+stream-insert-flush docstring, spec encoding of insertion-type contract)
+and `sanitize-chunk-newline-guard-cr-handling` (CR-only handling + negative
+test message pinning). Neither blocks downstream dependents.
+
 
 ## Files to modify
 - `config/gptel/chat/stream.org` (new — sanitizer section)

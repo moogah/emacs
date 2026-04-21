@@ -95,3 +95,28 @@ handler depends on (they're side-effect-only UI updates).
 - design.md §State-machine taxonomy (table at the top of design.md)
 - `config/gptel/tools/persistent-agent.org` — canonical reference pattern
 - architecture.md §`gptel-chat-send` (send module)
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Implementation is faithful to Decision 3 shape but **two blocking
+findings** were discovered — both design-drift from upstream's contract
+that will surface as hard-to-debug silent failures once `send-command`
+lands:
+
+1. The handler alist REPLACES (rather than chains) upstream's
+   `gptel--handle-post` on DONE/ERRS. Any caller-supplied `:post` hook is
+   silently dropped. The persistent-agent reference cited as canonical
+   only chains WAIT/TOOL and leaves DONE/ERRS to upstream defaults, so
+   this task's pattern deviates.
+2. The ABRT state is unhandled. `gptel-abort` transitions the FSM to ABRT
+   (upstream `gptel-request.el:2124`); `gptel-chat--lifecycle-state` is
+   left stuck at `waiting` / `streaming` / `tool-running` forever,
+   wedging the send-guard that `send-command` will install.
+
+Non-blocking findings (cl-struct-p guard looseness, missing INIT/ABRT/
+unknown-state test coverage) folded in.
+
+Blocking follow-up: `fsm-handlers-upstream-integration` (stays at
+`needs-review` until that task closes; `send-command` remains blocked by
+this task).
+

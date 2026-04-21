@@ -2,10 +2,18 @@
 name: decision-3b-review-followups
 description: Tighten Decision 3b prose and reconcile related doc/spec artifacts per the revisit-decision-3b review
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:revisit-decision-3b-tool-marker
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+All five findings from the revisit review landed verbatim in the merged
+diff; prose rewrites align with the actual code. One informational note on
+stale name references in historical task files (preserved intentionally —
+frozen-history argument is sound). No follow-ups needed.
+
 
 ## Files to modify
 - `openspec/changes/gptel-chat-mode/design.md` (Decision 3b,

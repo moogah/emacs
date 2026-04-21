@@ -2,10 +2,21 @@
 name: display-layer
 description: Overlay-based role distinction with toggle command
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:mode-definition
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Overlay lifecycle is correctly wired (install/cleanup/debounce-cancel),
+tagged overlays survive toggle-off, parser `user-error` is caught so
+mid-edit states don't blow up. Two real concerns captured in follow-up
+`display-layer-streaming-integration`: O(n) full reparse on every
+after-change tick (Decision 5 already flags as a known risk; streaming
+will expose it), and absent test coverage for the streaming/after-change
+path. Kill-buffer-hook timer cancel also folded into that follow-up.
+
 
 ## Files to modify
 - `config/gptel/chat/display.org` (new)

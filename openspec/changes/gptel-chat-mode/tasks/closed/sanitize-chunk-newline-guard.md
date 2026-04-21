@@ -2,10 +2,19 @@
 name: sanitize-chunk-newline-guard
 description: Guard gptel-chat--sanitize-chunk against embedded newlines
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sanitize-chunks
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Minimal, correct guard. Consistent with the closure's upstream `split-string
+"\n"` producer. Three non-blocking findings: CR-only chunks still flow
+un-guarded (spec silent on CR handling), negative test doesn't pin the
+error message, and edge cases (newline-at-start/end/multiple) aren't
+enumerated in specs. Folded into `sanitize-chunks-contract-hardening`.
+
 
 ## Files to modify
 - `config/gptel/chat/stream.org` (sanitizer section)

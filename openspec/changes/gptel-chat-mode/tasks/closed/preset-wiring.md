@@ -2,10 +2,19 @@
 name: preset-wiring
 description: Preset detection via property drawer/file-local and buffer-local gptel--apply-preset
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:mode-definition
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Buffer-local application mirrors upstream's own `gptel--restore-state` path;
+not reinvention. Four non-blocking findings captured in follow-up task
+`preset-wiring-robustness` (hack-local-variables-hook global registration,
+org-entry-get on non-Org buffers, upstream API signal, and a design-drift
+flag for sessions-auto-init's metadata.yml-vs-drawer precedence).
+
 
 ## Files to modify
 - `config/gptel/chat/menu.org` (new — preset-parsing section)

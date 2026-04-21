@@ -2,10 +2,22 @@
 name: messages
 description: Convert turn list to gptel-request :prompt shape with comma-unescape
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:parser
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Conversion emits the correct `gptel-request :prompt` shape: `(prompt . STR)`
+/ `(response . STR)` / `(tool . PLIST)` — verified against upstream's
+`gptel--parse-list-and-insert` pcase branches and `gptel-anthropic.el` tool
+expansion. Comma-unescape applied at the right boundary for user and
+assistant turns. One non-blocking correctness gap (tool `:result` not
+un-escaped) captured in follow-up task `messages-tool-result-unescape`.
+Design.md Open Question 1 resolved by implementation — worth tightening
+when artifacts are archived.
+
 
 ## Files to modify
 - `config/gptel/chat/parser.org` (modify — add `gptel-chat--turns-to-messages`)

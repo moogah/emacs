@@ -2,10 +2,20 @@
 name: nav-commands
 description: next-turn, previous-turn, regenerate commands
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:mode-definition
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Commands delegate cleanly to `gptel-chat--parse-buffer` (single source of
+truth for turn boundaries); no regex reinvention. All spec scenarios
+covered. Real correctness concern (regenerate mid-stream) captured in
+follow-up `nav-regenerate-in-flight-guard`. Three informational findings
+(atomic-change-group wrap, test precision, parser-error propagation) folded
+into the same follow-up.
+
 
 ## Files to modify
 - `config/gptel/chat/nav.org` (new)

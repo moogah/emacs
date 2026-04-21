@@ -2,11 +2,21 @@
 name: revisit-decision-3b-tool-marker
 description: Revisit design.md Decision 3b on tool-marker ownership in the stream closure
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sanitize-chunks
   - enables:expose-tool-marker-setter
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Substantive rewrite of Decision 3b with enumerated and rejected
+alternatives. Chosen framing (`cl-defstruct` stream handle, Frame A) matches
+today's `stream.org/el`. Four informational findings about stale in-prose
+references — minor polish handled in follow-up
+`rename-make-stream-closure-cleanup` (which is blocking the sibling rename
+task). Decision is sound.
+
 
 ## Files to modify
 - `openspec/changes/gptel-chat-mode/design.md` (Decision 3b)

@@ -2,10 +2,19 @@
 name: marker-insertion-type-contract
 description: Make the stream closure's insertion-marker insertion-type contract explicit
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sanitize-chunks
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Contract pinned in three places (factory docstring, factory runtime guard,
+two Buttercup specs). Negative spec genuinely bites when guard is removed.
+Three non-blocking findings (sibling `--stream-insert-flush` docstring,
+spec-level encoding of the contract, weak positive-case assertion) folded
+into `sanitize-chunks-contract-hardening`.
+
 
 ## Files to modify
 - `config/gptel/chat/stream.org` (factory docstring + optional

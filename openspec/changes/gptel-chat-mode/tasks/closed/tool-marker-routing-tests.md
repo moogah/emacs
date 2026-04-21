@@ -2,12 +2,22 @@
 name: tool-marker-routing-tests
 description: Add tests that exercise tool-marker routing in the stream closure
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sanitize-chunks
   - blocked-by:expose-tool-marker-setter
   - enables:stream-callback
 ---
+
+## Review (2026-04-21, orch-review-1776770835)
+
+All five verification bullets satisfied. Tests use real markers in real temp
+buffers; reroute test distinguishes "setq took effect second time" from
+silent reuse via distinct buffer positions. Three informational findings
+(test comment attribution, dormant "direct surgery" commentary, lexical
+binding defense-in-depth) — none blocking, none spawned follow-ups. Unblocks
+`stream-callback`.
+
 
 ## Files to modify
 - `config/gptel/chat/test/stream/streaming-spec.el` (or a new

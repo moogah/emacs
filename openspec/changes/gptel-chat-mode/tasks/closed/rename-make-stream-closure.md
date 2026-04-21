@@ -34,3 +34,18 @@ future readers. Worth doing while the API is being refactored
 
 ## Context
 - Review of `sanitize-chunks` task Finding #7.
+
+## Review (2026-04-21, orch-review-1776770835)
+
+Rename is well-executed in source and tests (verification grep empty in
+`config/gptel/chat`). **Blocking finding**: `design.md:144` still references
+`make-stream-closure` in the Decision 3b Rationale paragraph, two lines
+below the correctly-renamed shape table. The verification grep was scoped
+to `config/gptel/chat` only and missed the artifact directory. Also two
+non-blocking findings: `stream.org` section headings ("closure factory")
+and one `describe` block name in `streaming-spec.el` still use the old
+framing.
+
+Blocking follow-up: `rename-make-stream-closure-cleanup` (stays at
+`needs-review` until that task closes).
+
