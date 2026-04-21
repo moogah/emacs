@@ -2,7 +2,7 @@
 name: preset-wiring-robustness
 description: Scope preset's hack-local-variables-hook to the buffer and drop the org-entry-get dependency for drawer parsing
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:preset-wiring
 ---
