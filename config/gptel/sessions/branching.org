@@ -5,30 +5,37 @@
 
 * Introduction
 
-Session branching support for gptel sessions. Allows users to create divergent
-conversation paths from any user prompt.
+Session branching support for =gptel-chat-mode= sessions. Allows users
+to create divergent conversation paths from any user turn in the
+current branch's =session.org= buffer.
 
 Branches are full-fledged session directories with:
-- Copied config (scope.yml, metadata.yml)
+- Copied config (=scope.yml=, =metadata.yml=)
 - Copied agent subdirectories
-- Truncated context (session.org) with filtered bounds
+- Truncated context (=session.org=) copied verbatim from =point-min= up
+  to the selected branch-point position
+
+Chat-mode buffers have no text-property annotation for turn regions —
+the =#+begin_user= / =#+end_user= block is the authoritative user-turn
+marker, and =gptel-chat--parse-buffer= is the authoritative scanner
+for branch-point selection.
 
 * Lexical Binding
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :comments no
 ;;; branching.el --- GPTEL Session Branching -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
 
 ;;; Commentary:
 
-;; Session branching support for gptel persistent sessions.
-;; Enables creating divergent conversation paths from any user prompt.
+;; Session branching support for gptel-chat-mode persistent sessions.
+;; Enables creating divergent conversation paths from any user turn.
 
 ;;; Code:
 
 (require 'cl-lib)
-(require 'gptel)
+(require 'gptel-chat-parser)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
@@ -37,212 +44,175 @@ Branches are full-fledged session directories with:
 
 * Branch Point Detection
 
-Functions for finding user prompts in the buffer to use as branch points.
+Branch-point detection enumerates outer =#+begin_user= blocks in the
+current buffer using =gptel-chat--parse-buffer=. Assistant blocks,
+nested tool blocks, and non-block content (headings, prose, drawers)
+are NOT valid branch points.
 
-** Find User Prompts
+** Find User Turns
 
 #+begin_src emacs-lisp
-(defun jf/gptel--find-user-prompts ()
-  "Find all user prompt positions in current buffer.
-Returns list of (POSITION . PROMPT-TEXT) where POSITION is start of prompt.
-User prompts are text regions without a gptel text property."
-  (save-excursion
-    (save-restriction
-      (widen)
-      (let ((prompts nil)
-            (pos (point-min)))
-        ;; Scan for regions without gptel property
-        (while (< pos (point-max))
-          (let* ((next-change (or (next-single-property-change pos 'gptel)
-                                  (point-max)))
-                 (has-property (get-text-property pos 'gptel)))
-            (unless has-property
-              ;; This region has no gptel property - might be a user prompt
-              (let* ((region-text (buffer-substring-no-properties pos next-change))
-                     (trimmed (string-trim region-text)))
-                ;; Only include non-empty, non-whitespace regions
-                (when (and (not (string-empty-p trimmed))
-                          ;; Skip if it's just newlines or whitespace
-                          (not (string-match-p "^[\s\n]*$" trimmed)))
-                  ;; Get preview text (first line, up to 60 chars)
-                  (let* ((first-line (car (split-string trimmed "\n")))
-                         (preview (if (> (length first-line) 60)
-                                     (concat (substring first-line 0 57) "...")
-                                   first-line)))
-                    (push (cons pos preview) prompts)))))
-            (setq pos next-change)))
-        (nreverse prompts)))))
+(defun jf/gptel--branching-user-turns (&optional buffer)
+  "Return the user turns from BUFFER in document order.
+BUFFER defaults to the current buffer.  Each returned element is the
+parser turn plist as produced by `gptel-chat--parse-buffer' — a plist
+with `:role', `:content', `:start', and `:end'.
+
+Only outer `#+begin_user' blocks are returned.  Assistant blocks,
+nested tool blocks, and non-block content are filtered out."
+  (let ((turns (gptel-chat--parse-buffer (or buffer (current-buffer)))))
+    (seq-filter (lambda (turn) (eq (plist-get turn :role) 'user))
+                turns)))
+#+end_src
+
+** Turn Label
+
+A short human-readable label for a user turn — used in the numbered
+selection prompt. Shows the first non-empty line of the user block's
+body, up to 60 characters, with a =...= ellipsis when truncated. Empty
+or whitespace-only user blocks are labelled =(empty)= so they are still
+distinguishable in the list.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--branching-turn-label (turn)
+  "Return a short display label for the user TURN plist.
+The label is the first non-empty line of the turn's content, trimmed
+and truncated to 60 characters with a trailing `...' when longer.  An
+empty or whitespace-only user block yields the string \"(empty)\"."
+  (let* ((content (or (plist-get turn :content) ""))
+         (trimmed (string-trim content)))
+    (if (string-empty-p trimmed)
+        "(empty)"
+      (let* ((first-line (car (split-string trimmed "\n")))
+             (flat (string-trim first-line)))
+        (if (> (length flat) 60)
+            (concat (substring flat 0 57) "...")
+          flat)))))
+#+end_src
+
+** Include / Exclude Branch-Point Position
+
+Given a selected user turn and a caller-chosen include/exclude
+decision, compute the absolute buffer position that marks the branch
+point.
+
+- Include → position immediately after the =#+end_user= line that
+  closes the turn (so the new branch ends with the selected user turn
+  complete, awaiting an assistant response).
+- Exclude → position immediately before the =#+begin_user= line that
+  opens the turn (so the new branch ends before the selected user
+  turn, awaiting a fresh user prompt).
+
+The parser stores =:start= as a marker at the column-zero start of the
+=#+begin_user= line and =:end= as a marker at the column-zero start of
+the =#+end_user= line. For the include case we advance one line past
+the =#+end_user= line; for the exclude case we simply use =:start=.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--branching-turn-branch-point (turn include-p)
+  "Return the branch-point buffer position for the user TURN.
+INCLUDE-P chooses the semantics:
+- non-nil INCLUDE-P → position immediately after the `#+end_user' line
+  (the new branch contains the selected turn);
+- nil INCLUDE-P → position immediately before the `#+begin_user' line
+  (the new branch stops before the selected turn).
+
+Positions are returned as integers in the turn's source buffer."
+  (let ((start-marker (plist-get turn :start))
+        (end-marker   (plist-get turn :end)))
+    (if include-p
+        ;; Include: skip past the `#+end_user' line.
+        (with-current-buffer (marker-buffer end-marker)
+          (save-excursion
+            (goto-char (marker-position end-marker))
+            (forward-line 1)
+            (point)))
+      ;; Exclude: stop before the `#+begin_user' line.
+      (marker-position start-marker))))
 #+end_src
 
 ** Select Branch Point Interactively
 
+Build a numbered =completing-read= list, preserving document order.
+The display string includes the turn number so the user sees =1.=,
+=2.=, =3.= ... prefixes. Picks up the user's include/exclude choice
+via =y-or-n-p= immediately after the turn selection.
+
+Signals a =user-error= with the message =no available branch points=
+when the buffer contains no outer =#+begin_user= blocks.
+
 #+begin_src emacs-lisp
-(defun jf/gptel--select-branch-point ()
-  "Interactively select a branch point from user prompts.
-Returns (POSITION . INCLUDE-P) where:
-  POSITION - buffer position of selected prompt
-  INCLUDE-P - t to include prompt in branch, nil to exclude"
-  (let ((prompts (jf/gptel--find-user-prompts)))
-    (if (null prompts)
-        (error "No user prompts found in current session")
-      ;; Build numbered list for completing-read
-      (let* ((choices (cl-loop for (pos . text) in prompts
+(defun jf/gptel--branching-select-branch-point ()
+  "Interactively select a branch point from the current buffer's user turns.
+
+Returns a cons (POSITION . INCLUDE-P) where POSITION is the buffer
+position of the branch point (see
+`jf/gptel--branching-turn-branch-point') and INCLUDE-P is non-nil when
+the user chose INCLUDE.
+
+Signals `user-error' with the message \"no available branch points\"
+when the buffer contains no outer `#+begin_user' blocks."
+  (let ((turns (jf/gptel--branching-user-turns)))
+    (unless turns
+      (user-error "No available branch points"))
+    (let* ((numbered (cl-loop for turn in turns
                               for i from 1
-                              collect (cons (format "%d. %s" i text) pos)))
-             (selected (completing-read "Select branch point: "
-                                       (mapcar #'car choices)
-                                       nil t))
-             (position (cdr (assoc selected choices)))
-             (include-p (y-or-n-p "Include this prompt in the branch? ")))
-        (cons position include-p)))))
-#+end_src
-
-* Bounds Filtering
-
-Functions for filtering gptel--bounds to only include regions before the branch point.
-
-** Filter Bounds by Position
-
-#+begin_src emacs-lisp
-(defun jf/gptel--filter-bounds-before-position (bounds-alist position)
-  "Filter BOUNDS-ALIST to only include complete regions before POSITION.
-Returns new bounds alist with only regions that START before POSITION.
-Regions that start before but end after POSITION are EXCLUDED (partial overlap)."
-  (let ((filtered nil))
-    (dolist (bounds-entry bounds-alist)
-      (let* ((type (car bounds-entry))
-             (regions (cdr bounds-entry))
-             (filtered-regions
-              (seq-filter
-               (lambda (region)
-                 ;; region is (BEG END) or (BEG END ID)
-                 ;; Only include if the region starts before the branch point
-                 (< (car region) position))
-               regions)))
-        ;; Only include this type if it has regions after filtering
-        (when filtered-regions
-          (push (cons type filtered-regions) filtered))))
-    (nreverse filtered)))
-#+end_src
-
-** Validate Bounds
-
-#+begin_src emacs-lisp
-(defun jf/gptel--validate-bounds (bounds-alist)
-  "Validate that BOUNDS-ALIST is well-formed.
-Returns t if valid, signals error with helpful message if not."
-  (dolist (bounds-entry bounds-alist)
-    (let ((type (car bounds-entry))
-          (regions (cdr bounds-entry)))
-      (unless (symbolp type)
-        (error "Invalid bounds type (expected symbol): %S" type))
-      (dolist (region regions)
-        (unless (and (listp region)
-                    (>= (length region) 2)
-                    (<= (length region) 3))
-          (error "Invalid region format (expected (BEG END) or (BEG END ID)): %S" region))
-        (let ((beg (car region))
-              (end (cadr region)))
-          (unless (and (integerp beg) (integerp end))
-            (error "Region positions must be integers: %S" region))
-          (unless (< beg end)
-            (error "Region start must be before end: %S" region))))))
-  t)
+                              collect
+                              (cons (format "%d. %s"
+                                            i
+                                            (jf/gptel--branching-turn-label turn))
+                                    turn)))
+           (choice (completing-read "Select branch point: "
+                                    (mapcar #'car numbered)
+                                    nil t))
+           (selected-turn (cdr (assoc choice numbered)))
+           (include-p (y-or-n-p "Include this turn in the branch? "))
+           (position (jf/gptel--branching-turn-branch-point
+                      selected-turn include-p)))
+      (cons position include-p))))
 #+end_src
 
 * Context Truncation
 
-Function to copy session.org with truncated text and filtered bounds.
+Copy the source branch's =session.org= to the new branch's
+=session.org=, truncated to =[point-min, BRANCH-POSITION)=.
 
-** Copy Truncated Context with Bounds
+Chat-mode has no text-property bounds annotation — the block structure
+is the authoritative turn layout — so there is no bounds-filter or
+bounds-rewrite step. The branch-point is always on a line boundary
+outside any open block (by construction of
+=jf/gptel--branching-turn-branch-point=), so block-delimiter integrity
+is preserved verbatim.
+
+** Copy Truncated Context
 
 #+begin_src emacs-lisp
 (defun jf/gptel--copy-truncated-context (source-file dest-file branch-position)
-  "Copy SOURCE-FILE to DEST-FILE, truncating at BRANCH-POSITION.
-Filters gptel--bounds in Local Variables to only include regions before branch point.
-Returns t on success, signals error on failure."
+  "Copy SOURCE-FILE to DEST-FILE truncated at BRANCH-POSITION.
+
+Writes bytes 1..(BRANCH-POSITION - 1) of SOURCE-FILE to DEST-FILE
+verbatim.  BRANCH-POSITION is a 1-based buffer position as returned by
+`jf/gptel--branching-turn-branch-point'.  A BRANCH-POSITION at or past
+the end of SOURCE-FILE copies the full file.  A BRANCH-POSITION of 1
+writes an empty file.
+
+Returns t on success."
   (with-temp-buffer
-    ;; Read source file
     (insert-file-contents source-file)
-
-    ;; Extract bounds and gptel settings from Local Variables FIRST
-    ;; (before we start modifying the buffer)
-    (let ((bounds nil)
-          (gptel-model nil)
-          (gptel-backend nil)
-          (gptel-tools nil))
-      (save-excursion
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel--bounds: \\(.*\\) -->$" nil t)
-          (setq bounds (read (match-string 1))))
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel-model: \\(.*\\) -->$" nil t)
-          (setq gptel-model (match-string 1)))
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel--backend-name: \\(.*\\) -->$" nil t)
-          (setq gptel-backend (match-string 1)))
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- gptel--tool-names: \\(.*\\) -->$" nil t)
-          (setq gptel-tools (match-string 1))))
-
-      (unless bounds
-        (error "No bounds found in source file: %s" source-file))
-
-      ;; Validate original bounds
-      (jf/gptel--validate-bounds bounds)
-
-      ;; Filter bounds to only include regions before branch point
-      (let ((filtered-bounds (jf/gptel--filter-bounds-before-position bounds branch-position)))
-
-        ;; Validate filtered bounds
-        (jf/gptel--validate-bounds filtered-bounds)
-
-        ;; Truncate text at branch position
-        (delete-region (min branch-position (point-max)) (point-max))
-
-        ;; Remove old Local Variables block
-        (goto-char (point-min))
-        (when (re-search-forward "^<!-- Local Variables: -->$" nil t)
-          (let ((start (match-beginning 0)))
-            (when (re-search-forward "^<!-- End: -->$" nil t)
-              (delete-region start (match-end 0))
-              ;; Clean up trailing whitespace
-              (when (looking-at "\n+")
-                (delete-region (match-beginning 0) (match-end 0))))))
-
-        ;; Build Local Variables block in this temp buffer (before writing)
-        (goto-char (point-max))
-        (unless (looking-back "\n\n" nil)
-          (insert "\n"))
-        (insert "\n<!-- Local Variables: -->\n")
-
-        ;; Add gptel settings to Local Variables block
-        (when gptel-model
-          (insert (format "<!-- gptel-model: %s -->\n" gptel-model)))
-        (when gptel-backend
-          (insert (format "<!-- gptel--backend-name: %s -->\n" gptel-backend)))
-        (when gptel-tools
-          (insert (format "<!-- gptel--tool-names: %s -->\n" gptel-tools)))
-
-        ;; Add filtered bounds
-        (insert (format "<!-- gptel--bounds: %S -->\n" filtered-bounds))
-        (insert "<!-- End: -->\n")
-
-        ;; Write complete file (with Local Variables) in one operation
-        (write-region (point-min) (point-max) dest-file nil 'silent)
-
-        (jf/gptel--log 'info "Copied truncated context: %d -> %d chars, bounds: %d types"
-                      (with-temp-buffer
-                        (insert-file-contents source-file)
-                        (buffer-size))
-                      branch-position
-                      (length filtered-bounds))
-        t))))
+    (let ((truncate-at (min (max branch-position (point-min)) (point-max))))
+      (delete-region truncate-at (point-max))
+      (write-region (point-min) (point-max) dest-file nil 'silent))
+    (jf/gptel--log 'info
+                   "Copied truncated context: %s -> %s (branch-position=%d)"
+                   source-file dest-file branch-position)
+    t))
 #+end_src
 
 * Agent Copying
 
-Functions for copying agent directories from parent branch to new branch.
+Copy agent subdirectories from the parent branch to the new branch.
+Unchanged across the chat-mode migration — agent directories live
+under =<branch>/agents/= and are opaque to the branch-point logic.
 
 ** Copy Branch Agents
 
@@ -271,18 +241,21 @@ Future enhancement: Only copy agents invoked before branch point."
 
 * Branch Session Creation
 
-Main function to orchestrate branch creation.
+Orchestrate branch creation. The branch point position has already been
+computed by =jf/gptel--branching-select-branch-point= in the caller's
+source buffer, so no further position adjustment happens here.
 
 ** Create Branch Session
 
 #+begin_src emacs-lisp
-(defun jf/gptel--create-branch-session (session-dir parent-branch-name branch-name branch-position include-prompt-p)
+(defun jf/gptel--create-branch-session (session-dir parent-branch-name branch-name branch-position)
   "Create new branch inside SESSION-DIR.
 SESSION-DIR - session directory containing branches
 PARENT-BRANCH-NAME - name of parent branch (e.g., \"main\")
 BRANCH-NAME - user-provided name for branch
-BRANCH-POSITION - buffer position of branch point
-INCLUDE-PROMPT-P - whether to include the branch point prompt
+BRANCH-POSITION - buffer position marking the branch point (already
+adjusted for include/exclude by the caller; see
+`jf/gptel--branching-turn-branch-point').
 
 Returns new branch directory path."
   (let* ((parent-branch-dir (jf/gptel--branch-dir-path session-dir parent-branch-name))
@@ -292,27 +265,19 @@ Returns new branch directory path."
          ;; Create new branch directory
          (branch-dir (jf/gptel--create-branch-directory session-dir new-branch-name))
          (parent-context (jf/gptel--context-file-path parent-branch-dir))
-         (branch-context (jf/gptel--context-file-path branch-dir))
-         ;; Adjust position based on include-prompt-p
-         (truncate-position (if include-prompt-p
-                               ;; Find the next property change after branch-position
-                               ;; (this skips the user prompt to just after it)
-                               (with-current-buffer (current-buffer)
-                                 (or (next-single-property-change branch-position 'gptel)
-                                     (point-max)))
-                             ;; Exclude: truncate exactly at the prompt
-                             branch-position)))
+         (branch-context (jf/gptel--context-file-path branch-dir)))
 
-    (jf/gptel--log 'info "Creating branch: %s from parent: %s" new-branch-name parent-branch-name)
+    (jf/gptel--log 'info "Creating branch: %s from parent: %s"
+                   new-branch-name parent-branch-name)
 
-    ;; Copy scope.yml from parent branch (new format)
+    ;; Copy scope.yml from parent branch
     (let ((parent-scope-yml (jf/gptel--scope-file-path parent-branch-dir))
           (branch-scope-yml (jf/gptel--scope-file-path branch-dir)))
       (when (file-exists-p parent-scope-yml)
         (copy-file parent-scope-yml branch-scope-yml t)
         (jf/gptel--log 'info "Copied scope.yml to branch")))
 
-    ;; Copy metadata.yml from parent branch (new format)
+    ;; Copy metadata.yml from parent branch
     (let ((parent-metadata (jf/gptel--metadata-file-path parent-branch-dir))
           (branch-metadata (jf/gptel--metadata-file-path branch-dir)))
       (when (file-exists-p parent-metadata)
@@ -325,8 +290,8 @@ Returns new branch directory path."
     ;; Copy agent directories from parent branch
     (jf/gptel--copy-branch-agents parent-branch-dir branch-dir)
 
-    ;; Copy and truncate context file
-    (jf/gptel--copy-truncated-context parent-context branch-context truncate-position)
+    ;; Copy and truncate session.org
+    (jf/gptel--copy-truncated-context parent-context branch-context branch-position)
 
     ;; Update current symlink to point to new branch
     (jf/gptel--update-current-symlink session-dir new-branch-name)
@@ -337,61 +302,61 @@ Returns new branch directory path."
 
 * User-Facing Command
 
-Interactive command for branching sessions.
+Interactive command for branching chat-mode sessions.
 
 ** Branch Session Command
 
 #+begin_src emacs-lisp
 (defun jf/gptel-branch-session (&optional branch-name)
-  "Create a branch from current branch at a selected user prompt.
+  "Create a branch from current branch at a selected user turn.
 
 Interactively:
-1. Prompts user to select a branch point (numbered list of user prompts)
-2. Asks whether to include or exclude the selected prompt
-3. Prompts for branch name
-4. Creates new branch directory with copied metadata and truncated context
-5. Opens new branch session buffer
+1. Prompts user to select a branch point — a numbered list of outer
+   `#+begin_user' blocks in the current buffer.
+2. Asks whether to include or exclude the selected turn.
+3. Prompts for branch name.
+4. Creates a new branch directory with copied metadata and truncated
+   context (verbatim byte copy up to the branch point position).
+5. Opens the new branch's `session.org' buffer.
 
-The new branch is created in the same session with:
+The new branch is created under the same session with:
 - Timestamped branch name: <timestamp>-<user-name>
 - Copied scope.yml and metadata.yml from parent
-- branch-metadata.yml tracking parent branch name
+- branch-metadata.yml tracking the parent branch name and branch-point position
 - Copied agent subdirectories from parent branch
-- session.org truncated at branch point with filtered bounds
-- Current symlink updated to point to new branch
+- session.org truncated at the branch-point position
+- current symlink updated to point to the new branch
 
-After creation, the branch can evolve independently from parent."
+After creation, the branch can evolve independently from the parent."
   (interactive)
 
-  ;; Verify current buffer is a branch session
+  ;; Verify current buffer is a branch session in chat-mode.
   (unless (and (boundp 'jf/gptel--session-dir) jf/gptel--session-dir
               (boundp 'jf/gptel--branch-name) jf/gptel--branch-name)
-    (error "Current buffer is not a gptel branch session"))
+    (user-error "Current buffer is not a gptel branch session"))
 
-  (unless gptel-mode
-    (error "Current buffer is not in gptel-mode"))
+  (unless (derived-mode-p 'gptel-chat-mode)
+    (user-error "Current buffer is not in gptel-chat-mode"))
 
-  ;; Select branch point
-  (let* ((branch-point-data (jf/gptel--select-branch-point))
+  ;; Select branch point.
+  (let* ((branch-point-data (jf/gptel--branching-select-branch-point))
          (branch-position (car branch-point-data))
-         (include-prompt-p (cdr branch-point-data))
-         ;; Save parent info before switching buffers
+         ;; Save parent info before switching buffers.
          (parent-branch-name jf/gptel--branch-name)
          (parent-session-id jf/gptel--session-id)
-         ;; Prompt for branch name
+         ;; Prompt for branch name.
          (user-branch-name (or branch-name
-                              (read-string "Branch name: ")))
-         ;; Create branch
+                               (read-string "Branch name: ")))
+         ;; Create branch.
          (new-branch-dir (jf/gptel--create-branch-session
-                         jf/gptel--session-dir
-                         parent-branch-name      ; parent branch name
-                         user-branch-name        ; user-provided name
-                         branch-position
-                         include-prompt-p))
+                          jf/gptel--session-dir
+                          parent-branch-name
+                          user-branch-name
+                          branch-position))
          (new-branch-file (jf/gptel--context-file-path new-branch-dir))
          (new-branch-name (file-name-nondirectory new-branch-dir)))
 
-    ;; Open new branch session buffer (auto-initializes via find-file-hook)
+    ;; Open new branch session buffer (auto-initializes via find-file-hook).
     (find-file new-branch-file)
 
     (message "Created branch: %s\nFrom parent: %s\nSession: %s"
