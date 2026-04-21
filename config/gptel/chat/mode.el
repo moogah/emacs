@@ -127,20 +127,55 @@ valid regardless of the user's global org settings (design.md §Decision 14).
   (setq-local org-adapt-indentation nil))
 ;; Major mode definition:1 ends here
 
-;; New-chat command
+;; Pure prepare helper
 
-;; Minimum viable initialization (design.md §Decision 9): a fresh buffer
-;; with a single empty =#+begin_user= / =#+end_user= block and point
-;; positioned on the empty line between the delimiters. No model, system
-;; prompt, preset, or metadata keywords are pre-populated — per-buffer
-;; configuration flows through the upstream preset system
-;; (=gptel--apply-preset=, =gptel-menu=) and is wired in by a later task.
+;; =gptel-chat--prepare-new-buffer= is the pure, side-effect-isolated
+;; half of =gptel-chat-new=: it creates the buffer, activates the mode,
+;; inserts the initial content, and positions point — but it does *not*
+;; mutate window configuration. The interactive command is a thin
+;; =switch-to-buffer= wrapper on top of this helper (§Design rationale in
+;; the corresponding task file).
 
-;; The buffer name uses =generate-new-buffer-name= so invoking the command
-;; repeatedly produces =*gptel-chat*=, =*gptel-chat*<2>=, etc.
+;; This split lets tests exercise the real initialization path without
+;; the window-config side effect =switch-to-buffer= would otherwise leak
+;; into the test environment, and opens the door to future variants such
+;; as =gptel-chat-new-other-window= that differ only in how they display
+;; the prepared buffer.
 
 
-;; [[file:mode.org::*New-chat command][New-chat command:1]]
+;; [[file:mode.org::*Pure prepare helper][Pure prepare helper:1]]
+(defun gptel-chat--prepare-new-buffer ()
+  "Create and return a fresh gptel chat buffer.
+
+The returned buffer is in `gptel-chat-mode' with initial content
+containing an empty `#+begin_user' / `#+end_user' block; point is
+positioned on the empty line inside the block so typing extends the
+user block rather than the delimiters.
+
+This is the pure half of `gptel-chat-new': it does NOT mutate window
+configuration.  Callers that want to display the buffer wrap this in
+`switch-to-buffer' (or a variant such as `pop-to-buffer',
+`display-buffer', etc.).
+
+No preset, model, system prompt, or metadata is pre-populated — see
+design.md §Decision 9."
+  (let ((buffer (generate-new-buffer "*gptel-chat*")))
+    (with-current-buffer buffer
+      (gptel-chat-mode)
+      (insert "#+begin_user\n\n#+end_user\n")
+      (goto-char (point-min))
+      ;; Move past "#+begin_user\n" to the empty line inside the block.
+      (forward-line 1))
+    buffer))
+;; Pure prepare helper:1 ends here
+
+;; Interactive switch wrapper
+
+;; =gptel-chat-new= is the interactive entry point: prepare the buffer
+;; via the pure helper, then switch to it.
+
+
+;; [[file:mode.org::*Interactive switch wrapper][Interactive switch wrapper:1]]
 ;;;###autoload
 (defun gptel-chat-new ()
   "Create a new gptel chat buffer and switch to it.
@@ -153,17 +188,17 @@ immediately.
 No preset, model, system prompt, or metadata is pre-populated — see
 design.md §Decision 9.  Users who want a preset invoke `gptel-menu',
 save the buffer with a `:GPTEL_PRESET:' property drawer, or set
-`gptel--preset' as a file-local variable."
+`gptel--preset' as a file-local variable.
+
+This command is an interactive wrapper over
+`gptel-chat--prepare-new-buffer' — all buffer-preparation logic
+lives in the helper; this command only adds the
+`switch-to-buffer' window mutation."
   (interactive)
-  (let ((buffer (generate-new-buffer "*gptel-chat*")))
+  (let ((buffer (gptel-chat--prepare-new-buffer)))
     (switch-to-buffer buffer)
-    (gptel-chat-mode)
-    (insert "#+begin_user\n\n#+end_user\n")
-    (goto-char (point-min))
-    ;; Move past "#+begin_user\n" to the empty line inside the block.
-    (forward-line 1)
     buffer))
-;; New-chat command:1 ends here
+;; Interactive switch wrapper:1 ends here
 
 ;; Provide
 

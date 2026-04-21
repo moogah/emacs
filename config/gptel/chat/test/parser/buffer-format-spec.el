@@ -177,9 +177,16 @@
           (when (file-exists-p tmpfile)
             (delete-file tmpfile))))))
 
-  (describe "gptel-chat-new"
+  ;; These specs exercise `gptel-chat--prepare-new-buffer' — the pure
+  ;; half of `gptel-chat-new' — so test assertions are scoped to
+  ;; buffer state and do not leak `switch-to-buffer' window-config
+  ;; mutations into the test environment.  The interactive
+  ;; `gptel-chat-new' wrapper is a thin `switch-to-buffer' over this
+  ;; helper; covering it here would add window-state setup/teardown
+  ;; without exercising any additional buffer-preparation logic.
+  (describe "gptel-chat--prepare-new-buffer"
     (it "creates a buffer in `gptel-chat-mode' with an empty user block"
-      (let ((buf (gptel-chat-new)))
+      (let ((buf (gptel-chat--prepare-new-buffer)))
         (unwind-protect
             (with-current-buffer buf
               (expect major-mode :to-equal 'gptel-chat-mode)
@@ -188,7 +195,7 @@
           (kill-buffer buf))))
 
     (it "positions point on the empty line inside the user block"
-      (let ((buf (gptel-chat-new)))
+      (let ((buf (gptel-chat--prepare-new-buffer)))
         (unwind-protect
             (with-current-buffer buf
               ;; Point is on line 2 (the empty line between delimiters).
@@ -198,6 +205,17 @@
                        (line-beginning-position)
                        (line-end-position))
                       :to-equal ""))
+          (kill-buffer buf))))
+
+    (it "does not mutate window configuration"
+      ;; The whole point of factoring out the pure helper: tests can
+      ;; invoke it without `switch-to-buffer' swapping the selected
+      ;; window's buffer underneath them.  Verify the selected-window
+      ;; buffer is unchanged across the call.
+      (let* ((before (window-buffer (selected-window)))
+             (buf    (gptel-chat--prepare-new-buffer)))
+        (unwind-protect
+            (expect (window-buffer (selected-window)) :to-equal before)
           (kill-buffer buf))))))
 
 (describe "gptel-chat--parse-buffer: Buffer format validation"
