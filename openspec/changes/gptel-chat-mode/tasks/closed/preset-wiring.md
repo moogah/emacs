@@ -2,7 +2,7 @@
 name: preset-wiring
 description: Preset detection via property drawer/file-local and buffer-local gptel--apply-preset
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - blocked-by:mode-definition
 ---

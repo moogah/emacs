@@ -2,7 +2,7 @@
 name: nav-commands
 description: next-turn, previous-turn, regenerate commands
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - blocked-by:mode-definition
 ---
