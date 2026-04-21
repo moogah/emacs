@@ -29,7 +29,7 @@
 
 ;; Load shared fixtures (sibling of this file's parent directory).
 (let ((helpers (expand-file-name
-                "../helpers-spec.el"
+                "../test-helpers.el"
                 (file-name-directory (or load-file-name buffer-file-name)))))
   (load helpers nil t))
 

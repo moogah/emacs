@@ -1,4 +1,4 @@
-;;; helpers-spec.el --- Shared fixtures for gptel-chat-mode buttercup tests -*- lexical-binding: t; -*-
+;;; test-helpers.el --- Shared fixtures for gptel-chat-mode buttercup tests -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -45,4 +45,4 @@ test."
 
 (provide 'gptel-chat-test-helpers)
 
-;;; helpers-spec.el ends here
+;;; test-helpers.el ends here

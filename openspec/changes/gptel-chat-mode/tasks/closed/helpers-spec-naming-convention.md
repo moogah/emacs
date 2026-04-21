@@ -2,7 +2,7 @@
 name: helpers-spec-naming-convention
 description: Reconcile helpers-spec.el naming with Buttercup discovery convention
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:parser
 ---
