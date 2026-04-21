@@ -106,6 +106,18 @@
     (it "installs the chat-mode keymap with `C-c C-c' bound to `gptel-chat-send'"
       (with-temp-buffer
         (gptel-chat-mode)
+        ;; Active-map assertions — prove `define-derived-mode' actually
+        ;; wired `gptel-chat-mode-map' onto the buffer.  A regression that
+        ;; renamed the defvar or dropped the `-map'-suffix wiring would
+        ;; leave the defvar-level lookups below green while `C-c C-c'
+        ;; does nothing in a real chat buffer.
+        (expect (eq (current-local-map) gptel-chat-mode-map)
+                :to-be-truthy)
+        (expect (lookup-key (current-local-map) (kbd "C-c C-c"))
+                :to-equal 'gptel-chat-send)
+        ;; Defvar-level assertions — exhaustively document the map's
+        ;; contents so a regression that drops an individual binding is
+        ;; caught with a per-key failure message.
         (expect (lookup-key gptel-chat-mode-map (kbd "C-c C-c"))
                 :to-equal 'gptel-chat-send)
         (expect (lookup-key gptel-chat-mode-map (kbd "C-c n"))
