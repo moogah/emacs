@@ -283,7 +283,37 @@
                   "#+begin_tool (foo :x 1)\n"
                   "result\n"
                   "#+end_assistant\n")
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error))))
+        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+
+    ;; Regression: a `#+begin_user' on the buffer's final line with no
+    ;; trailing newline must signal the documented unclosed-block
+    ;; `user-error' rather than `args-out-of-range' from `goto-char'.
+    ;; Reachable from partially-streamed or hand-edited buffers.
+    (it "signals user-error (not args-out-of-range) for #+begin_user at EOF with no newline"
+      (gptel-chat-test--with-buffer "#+begin_user"
+        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+
+    (it "reports unclosed-user at line 1 for EOF-without-newline #+begin_user"
+      (gptel-chat-test--with-buffer "#+begin_user"
+        (condition-case err
+            (progn (gptel-chat--parse-buffer)
+                   (expect nil :to-be-truthy))
+          (user-error
+           (expect (error-message-string err)
+                   :to-match "unclosed user block at line 1")))))
+
+    (it "signals user-error (not args-out-of-range) for #+begin_assistant at EOF with no newline"
+      (gptel-chat-test--with-buffer "#+begin_assistant"
+        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+
+    (it "reports unclosed-assistant at line 1 for EOF-without-newline #+begin_assistant"
+      (gptel-chat-test--with-buffer "#+begin_assistant"
+        (condition-case err
+            (progn (gptel-chat--parse-buffer)
+                   (expect nil :to-be-truthy))
+          (user-error
+           (expect (error-message-string err)
+                   :to-match "unclosed assistant block at line 1"))))))
 
   (describe "tool block outside an assistant block"
     (it "signals user-error when `#+begin_tool' appears at top level"
