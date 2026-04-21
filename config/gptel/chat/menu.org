@@ -5,38 +5,235 @@
 
 * Introduction
 
-Scaffolded stub for =gptel-chat-menu= — the transient prefix that
-reuses =gptel-menu='s configuration infixes with the Send suffix
-rebound to =gptel-chat-send=, plus preset-application wiring applied
-at chat-mode activation.
+This module delivers two related concerns for =gptel-chat-mode=:
+
+1. *Preset application at mode activation*. On =gptel-chat-mode-hook=,
+   parse the buffer for a preset declaration — either a
+   =:GPTEL_PRESET:= entry in an Org =:PROPERTIES:= drawer at point-min
+   (matching how =gptel-mode= handles the same property in
+   =gptel-org.el=) or a file-local =gptel--preset= variable — and, if
+   found, apply the preset via =gptel--apply-preset= with a buffer-
+   local setter.
+
+2. (Later) =gptel-chat-menu= — the transient prefix that reuses
+   =gptel-menu='s configuration infixes with the Send suffix rebound
+   to =gptel-chat-send=. Delivered by the =menu-integration= task.
 
 See =openspec/changes/gptel-chat-mode/architecture.md= §Components
 (subsection =gptel-chat-menu (menu, preset-wiring)=) for the full
-contract. Note: this module does *not* enable =gptel-mode= — chat-mode
-owns the buffer role exclusively (design.md Decision 16).
+contract, plus design.md §Decision 15 (preset system integration) and
+§Decision 16 (chat-mode owns the major-mode role — never enables
+=gptel-mode=).
 
 * Lexical Binding
 
+Keep =lexical-binding: t= on line 1 of =menu.el=. The =:comments no=
+header tells org-babel not to emit structural comments above this
+block during tangling (see the project memory on lexical-binding
+regressions).
+
 #+begin_src emacs-lisp :comments no
-;;; menu.el --- GPTEL Chat-Mode Menu and Preset Wiring (stub) -*- lexical-binding: t; -*-
+;;; menu.el --- GPTEL Chat-Mode Menu and Preset Wiring -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024-2026 Jeff Farr
 
 ;;; Commentary:
 
-;; Scaffolded stub for the chat-mode transient menu and
-;; preset-application hook.  Populated by a later task in the
-;; gptel-chat-mode OpenSpec change.
+;; Applies a declared preset on `gptel-chat-mode' activation and (in a
+;; later task) provides the `gptel-chat-menu' transient prefix.  See
+;; `openspec/changes/gptel-chat-mode/architecture.md' §Components
+;; (subsection `gptel-chat-menu (menu, preset-wiring)') and design.md
+;; §Decisions 15, 16.
 
 ;;; Code:
+#+end_src
+
+* Dependencies
+
+=org= provides =org-entry-get= — the canonical property-drawer
+accessor that upstream =gptel-org.el= uses (see
+=gptel-org--entry-properties= at =gptel-org.el:523-531=). Reusing it
+avoids reinventing property-drawer parsing.
+
+Load =gptel= softly (=nil t=) so this module remains load-safe in
+contexts where =gptel= has not been fully initialised yet. The
+symbols we need (=gptel--apply-preset=, =gptel-get-preset=,
+=gptel--preset=) are resolved at hook-run time, not load time.
+
+#+begin_src emacs-lisp
+(require 'org)
+(require 'gptel nil t)
+#+end_src
+
+* Forward declarations
+
+Suppress byte-compiler warnings for upstream symbols. They resolve at
+call time once =gptel= has loaded.
+
+#+begin_src emacs-lisp
+(declare-function gptel--apply-preset "gptel" (preset &optional setter))
+(declare-function gptel-get-preset "gptel" (name))
+(defvar gptel--preset)
+#+end_src
+
+* Preset resolution
+
+=gptel-chat--declared-preset= returns the preset name (a symbol)
+declared in the current buffer, or =nil= if none is declared.
+
+Resolution order (design.md §Decision 15; task =preset-wiring=):
+
+1. An Org =:PROPERTIES:= drawer at =point-min= with a =:GPTEL_PRESET:
+   name= line. Parsed via =org-entry-get= with the =selective= scope
+   — identical to upstream =gptel-org--entry-properties=
+   (=gptel-org.el:523-531=).
+2. A file-local =gptel--preset= variable, populated by Emacs's
+   standard =hack-local-variables= from the =-*- ... -*-= header or a
+   =Local Variables:= block. =gptel--preset= is already declared
+   =safe-local-variable= upstream (=gptel.el:336=), so no additional
+   authorisation is needed.
+
+Precedence rationale: the property drawer is authored into the
+buffer content, while file-locals may be inherited from a parent
+=.dir-locals.el=. Explicit drawer intent overrides inherited default.
+
+The function must be robust to non-org buffers (no drawer parse
+error) and to stringy values in the drawer (coerce to symbol).
+
+#+begin_src emacs-lisp
+(defun gptel-chat--declared-preset ()
+  "Return the preset symbol declared in the current buffer, or nil.
+
+Resolution order:
+
+  1. An Org `:PROPERTIES:' drawer at `point-min' with a
+     `:GPTEL_PRESET: name' line (parsed via `org-entry-get').
+  2. The file-local `gptel--preset' variable, if bound.
+
+The property-drawer value wins when both are present — the drawer is
+authored into the buffer content while file-locals may be inherited
+from a parent `.dir-locals.el'.
+
+A non-nil return is always a symbol; stringy drawer values are
+coerced via `intern'."
+  (let ((drawer-val
+         ;; `org-entry-get' tolerates buffers that are not in
+         ;; org-mode and returns nil when no drawer is present at
+         ;; point-min.  `selective' scope mirrors upstream usage in
+         ;; `gptel-org--entry-properties'.
+         (save-excursion
+           (goto-char (point-min))
+           (ignore-errors
+             (org-entry-get (point-min) "GPTEL_PRESET" 'selective)))))
+    (cond
+     ((and drawer-val (not (string-empty-p drawer-val)))
+      (intern drawer-val))
+     ((and (boundp 'gptel--preset) gptel--preset)
+      (if (symbolp gptel--preset)
+          gptel--preset
+        (intern (format "%s" gptel--preset)))))))
+#+end_src
+
+* Preset application hook
+
+=gptel-chat--apply-declared-preset= is the hook entry point. It
+looks up the declared preset and, if one is found, applies it with a
+buffer-local setter matching the canonical pattern in
+=config/gptel/tools/persistent-agent.org:646-650=.
+
+The setter =(lambda (sym val) (set (make-local-variable sym) val))=
+is critical: the default (global =set=) would leak preset-configured
+values into other buffers (design.md §Decision 16). The buffer-local
+setter installs =:backend=, =:model=, =:system=, =:tools=,
+=:temperature=, etc. as buffer-local values; subsequent
+=gptel-request= calls read them directly.
+
+This function does *not* enable =gptel-mode= (design.md §Decision
+16). Chat-mode owns the major-mode role exclusively; running
+=gptel-mode= on top would produce a mixed-format file that neither
+parser can read cleanly.
+
+If no preset is declared, the function is a no-op — the buffer
+inherits whatever global or dir-local configuration is in effect.
+
+=ignore-errors= around =gptel--apply-preset= mirrors upstream's
+tolerance in =gptel-org--restore-state= (=gptel-org.el:587-588=): a
+preset name that no longer resolves should warn but not break mode
+activation.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--apply-declared-preset ()
+  "Apply a buffer-declared gptel preset, if any.
+
+Intended to run from `gptel-chat-mode-hook'.  Looks up the declared
+preset via `gptel-chat--declared-preset'; when one is found, calls
+`gptel--apply-preset' with a buffer-local setter so the preset's
+keys (`:backend', `:model', `:system', `:tools', `:temperature', ...)
+are installed as buffer-local values.
+
+Does NOT enable `gptel-mode' (design.md §Decision 16).  Chat-mode
+owns the major-mode role exclusively.
+
+A preset name that does not resolve (`gptel-get-preset' returns nil)
+triggers a `display-warning' rather than an error, matching upstream
+`gptel-org--restore-state' behaviour."
+  (when-let* ((preset (gptel-chat--declared-preset)))
+    (if (and (fboundp 'gptel-get-preset) (gptel-get-preset preset))
+        (gptel--apply-preset
+         preset
+         (lambda (sym val) (set (make-local-variable sym) val)))
+      (display-warning
+       '(gptel-chat presets)
+       (format "Could not activate gptel preset `%s' in buffer \"%s\""
+               preset (buffer-name))))))
+#+end_src
+
+* Hook wiring
+
+Preset detection runs at mode activation via
+=gptel-chat-mode-hook=. This catches the common cases:
+
+- =M-x gptel-chat-mode= on an existing buffer with a property drawer.
+- =gptel-chat-new= (no preset declared; the hook is a no-op).
+- File opened with =-*- gptel-chat -*-= and a property drawer at
+  point-min.
+
+A second hook on =hack-local-variables-hook= handles the
+file-local =gptel--preset= case. =run-mode-hooks= invokes the
+mode hook *before* =hack-local-variables= (see =subr.el=
+=run-mode-hooks=: hooks, then =hack-local-variables=, then
+=after-change-major-mode-hook=), so a file-local =gptel--preset=
+declaration is not yet bound when =gptel-chat-mode-hook= runs on a
+fresh file open. The =hack-local-variables-hook= entry runs after
+file-locals are applied and re-invokes the applier, gated on the
+current major mode so it is a no-op in unrelated buffers.
+
+Calling =gptel-chat--apply-declared-preset= twice is safe —
+=gptel--apply-preset= simply re-installs the same buffer-local
+values.
+
+#+begin_src emacs-lisp
+(add-hook 'gptel-chat-mode-hook #'gptel-chat--apply-declared-preset)
+
+(defun gptel-chat--apply-declared-preset-after-locals ()
+  "Re-apply the declared preset after `hack-local-variables' runs.
+
+Gated on `gptel-chat-mode' being active in the current buffer so
+this hook is a no-op in unrelated buffers.  Catches the file-local
+`gptel--preset' case — the mode-hook entry alone cannot, because
+`run-mode-hooks' runs mode hooks *before* `hack-local-variables'."
+  (when (derived-mode-p 'gptel-chat-mode)
+    (gptel-chat--apply-declared-preset)))
+
+(add-hook 'hack-local-variables-hook
+          #'gptel-chat--apply-declared-preset-after-locals)
 #+end_src
 
 * Provide
 
 #+begin_src emacs-lisp
 ;; TODO(gptel-chat-mode): implement `gptel-chat-menu' transient prefix
-;; and the preset-application hook that runs at chat-mode activation.
-;; Tracked by the gptel-chat-mode change.
+;; — delivered by the `menu-integration' task.
 
 (provide 'gptel-chat-menu)
 
