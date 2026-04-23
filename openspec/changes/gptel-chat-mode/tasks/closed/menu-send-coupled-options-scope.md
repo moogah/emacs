@@ -2,7 +2,7 @@
 name: menu-send-coupled-options-scope
 description: Drop gptel-chat-menu's Send-coupled option groups (Prompt from / Response to / Dry Run) — displayed but silently dropped by the rebound Send suffix — and clarify Decision 15's enumeration of what lives in the chat-mode mirror
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:menu-integration
 ---
@@ -229,3 +229,70 @@ format-level decision several steps upstream.
   Rewrite and Tweak-Response groups, which are response-state-
   coupled rather than Send-coupled (dead code, not user-visible
   bug); same diff location, different rationale.
+
+## Review
+
+Reviewed 2026-04-23 (orch-review session, batched with
+`menu-rewrite-tweak-response-scope`). Reviewer-agent delegation;
+consolidated findings below.
+
+### Verification re-run
+
+- `./bin/tangle-org.sh config/gptel/chat/menu.org` — passes (9
+  blocks tangled, validation OK).
+- `./bin/run-tests.sh -d config/gptel/chat/test/menu` — 53/53 pass.
+- `grep -n ' <Prompt from\| >Response to\|Dry Run' config/gptel/chat/menu.el` —
+  no matches.
+- Broader `./bin/run-tests.sh -d config/gptel/chat` — 320/320 pass.
+
+### Findings
+
+1. **Weak behavioral coverage (follow-up).** The new behavioral spec
+   at `menu-send-rebind-spec.el:243-268` calls `gptel--set-with-scope`
+   against a synthesized probe symbol
+   (`gptel-chat-menu-test--model-probe`). The task body (Step 5)
+   explicitly permitted this variant, but the scenario the spec is
+   witnessing — "configuration actions (preset pick, model change,
+   tool selection) mutate buffer-local variables as upstream does" —
+   is better served by exercising a real `gptel-` variable along the
+   actual upstream infix path. The current spec effectively verifies
+   that Emacs primitives are buffer-local-safe in a chat-mode buffer,
+   which is not the regression class the spec scenario is targeting.
+   - Tracked as follow-up task
+     `menu-behavioral-test-real-infix`
+     (discovered-from: this task). Non-blocking.
+
+2. **Pre-existing spec scenario wording (noted, no action).**
+   `specs/gptel-chat-mode/spec.md:370-373` — the scenario
+   "Menu configuration works in chat-mode buffer" uses `M-x gptel-menu`
+   in its WHEN clause. After this task's work, `gptel-chat-menu` is
+   the primary chat-mode entry point (bound on `C-c C-,`) while
+   upstream `M-x gptel-menu` remains available but not primary. The
+   scenario is not wrong in the narrow sense (it describes upstream's
+   menu-in-chat-mode behaviour, which is separately guaranteed by the
+   preceding requirement paragraph), but the title reads as if it
+   covers both menus. Not introduced by this task; deferred to a
+   future touch of the section rather than forcing a new task or
+   inline edit.
+
+### Findings looked for and ruled out
+
+- `gptel--rewrite-overlays` `defvar` cleanup (covered by Task B) —
+  verified removed cleanly.
+- `:incompatible` declaration removal — correct; only constrained
+  the dropped `m/y/i/e/g/b/k` keys.
+- Decision 15 / Decision 18 cross-reference — consistent and
+  composes with Task B's layered edit.
+- Alternatives-considered entries ("advice on `gptel--suffix-send`"
+  and "duplicate whole layout") — retained in `design.md` as
+  expected.
+- `menu-send-rebind-spec.el` helper `gptel-chat-menu-test--flatten-strings` —
+  correctly walks vectors/strings; defensive comment about
+  byte-code-vector embedded strings is acceptable.
+
+### Blocked-by repointing
+
+None. No open tasks depend on this one. The only dependent in
+`tasks/closed/` (`menu-rewrite-tweak-response-scope`) was reviewed
+in the same batch and is also closing to `done`. The follow-up task
+`menu-behavioral-test-real-infix` is independent (no `blocked-by`).

@@ -2,7 +2,7 @@
 name: menu-rewrite-tweak-response-scope
 description: Drop gptel-chat-menu's Rewrite and Tweak-Response groups — dead code in chat-mode buffers because their :if predicates depend on gptel-mode's response-overlay and text-property infrastructure that chat-mode does not produce
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:menu-send-coupled-options-scope
   - blocked-by:menu-send-coupled-options-scope
@@ -154,3 +154,39 @@ implicit exclusion (rely on the guard never firing).
 - `design.md §Decision 18` — block-based `session.org` format;
   root cause of the response-state-coupled predicates never firing
   in chat-mode.
+
+## Review
+
+Reviewed 2026-04-23 (orch-review session, batched with
+`menu-send-coupled-options-scope`). Reviewer-agent delegation;
+consolidated findings live on the sibling task's Review section.
+No findings specific to this task.
+
+### Verification re-run
+
+- `./bin/tangle-org.sh config/gptel/chat/menu.org` — passes.
+- `./bin/run-tests.sh -d config/gptel/chat/test/menu` — 53/53 pass.
+- `grep -n 'Rewrite\|Tweak Response\|gptel--in-response-p\|gptel-rewrite' config/gptel/chat/menu.el` —
+  no matches (the dead forward-declaration was also removed).
+- Broader `./bin/run-tests.sh -d config/gptel/chat` — 320/320 pass.
+
+### Findings looked for and ruled out
+
+- Five-symbol absence list (`gptel-rewrite`, `gptel--mark-response`,
+  `gptel--regenerate`, `gptel--previous-variant`, `gptel--ediff`)
+  matches exactly the command references in the two removed vector
+  blocks. Note: upstream reuses `gptel--previous-variant` for both
+  `P` and `N` directions, so a symbol-level absence check covers
+  both keys.
+- Unused `gptel--rewrite-overlays` forward declaration removed —
+  verified.
+- Decision 15 paragraph layering — composes cleanly with Task A's
+  Send-coupled paragraph; no conflict in the diff.
+- Spec scenario `AND` clause — extends Task A's "chat-mode menu omits
+  Send-coupled groups" scenario as planned, not a duplicate scenario.
+- Layout asymmetry after removal (outer `[...]` wrapper around only
+  Logging) — transient accepts it and upstream uses the same shape.
+
+### Blocked-by repointing
+
+None. No open tasks depend on this one.
