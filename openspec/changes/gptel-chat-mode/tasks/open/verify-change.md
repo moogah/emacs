@@ -14,7 +14,7 @@ relations:
   - blocked-by:nav-commands
   - blocked-by:display-layer
   - blocked-by:preset-wiring
-  - blocked-by:menu-integration
+  - blocked-by:menu-send-coupled-options-scope
   - blocked-by:sessions-filesystem
   - blocked-by:sessions-persistent-create
   - blocked-by:auto-init-metadata-preset-precedence

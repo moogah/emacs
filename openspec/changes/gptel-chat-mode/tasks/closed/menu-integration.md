@@ -2,7 +2,7 @@
 name: menu-integration
 description: gptel-chat-menu transient with rebound Send suffix
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - blocked-by:send-command
   - blocked-by:preset-wiring
@@ -89,3 +89,63 @@ don't copy their implementations, just reference the same symbols.
   implementation
 - specs/gptel-chat-mode/spec.md §"gptel-menu integration with rebound Send"
 - architecture.md §`gptel-chat-menu`
+
+## Review
+
+Reviewed by agent 2026-04-23.
+
+**Verdict:** Implementation is solid. Option B (fresh
+`transient-define-prefix` with shared infix symbols) was correctly
+chosen and executed — upstream `gptel-menu` is not mutated, shared
+infixes (preset, provider, system prompt, tools, context) are
+referenced by symbol. Keybinding `C-c C-,` lands on
+`gptel-chat-mode-map` without clashing with existing chat-mode
+bindings.
+
+### Findings
+
+1. **Send-coupled menu groups silently drop transient-args**
+   (`config/gptel/chat/menu.el:417-486`). The fresh prefix mirrors
+   every group of upstream's layout — including "Prompt from"
+   (Minibuffer / Kill-ring / Respond in place), "Response to"
+   (Echo area / Other buffer / gptel session / Kill-ring), and
+   "Dry Run" (Inspect query Lisp / JSON). `gptel-chat--suffix-send`
+   ignores `transient-args`, so these toggles are visible but
+   dead. The Dry-Run inspector is worse: it calls
+   `(gptel--suffix-send (cons "I" (transient-args ...)))` directly,
+   leaking upstream's gptel-mode prompt-extraction semantics into
+   a chat-mode buffer. This is a real spec-signal: Decision 15
+   commits to "configuration is free, Send is rebound" but doesn't
+   address Send-coupled options that are neither configuration nor
+   Send. Severity: follow-up-task. **Opened as
+   `menu-send-coupled-options-scope` (grouped with Finding #2).**
+
+2. **Missing behavioral test for Scenario 1**
+   (`config/gptel/chat/test/menu/menu-send-rebind-spec.el:89-218`).
+   All 15 specs verify transient-layout structure (shared infix
+   symbols, keybinding presence, upstream unmutated-ness); none
+   invoke a configuration suffix from a chat-mode buffer and
+   assert a buffer-local variable changed. Spec Scenario 1
+   ("configuration actions … mutate buffer-local variables")
+   is covered only transitively. Severity: follow-up-task.
+   **Grouped into `menu-send-coupled-options-scope` (touches the
+   same test file and spec section as #1).**
+
+3. **`gptel-chat--suffix-send` interactive form computes args it
+   discards** (`config/gptel/chat/menu.org:350-361`). The
+   `(interactive (list (transient-args ...)))` form was building
+   a value that the formal parameter `_args` immediately
+   underscored-out. Cosmetic mismatch with the docstring's claim
+   that "this suffix takes no transient arguments". Severity:
+   inline-fix. **Fixed inline in commit `42ed46f`** — simplified
+   to `(interactive)` with `()` formals. 45/45 menu specs still
+   pass; no regression from the change (9 ERT + 3 Buttercup
+   failures are all pre-existing unrelated bash-parser/scope
+   tests, matching baseline).
+
+### Dependents
+
+- `verify-change`'s `blocked-by: menu-integration` was repointed to
+  `blocked-by: menu-send-coupled-options-scope`. Finding #1 is
+  user-visible (menu shows controls that silently do nothing) and
+  should resolve before the change-wide verification sweep runs.

@@ -2,7 +2,7 @@
 name: branching-edge-case-test-hardening
 description: Pin two under-tested edge cases in the branching suite (EOF INCLUDE and registry-update semantics)
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sessions-branching
 ---
@@ -92,3 +92,26 @@ unit scope, documentation otherwise.
 - `config/gptel/sessions/test/branching/
   branching-integration-spec.el` — target for any added integration
   spec.
+
+## Review
+
+Reviewed inline 2026-04-23.
+
+- Both findings addressed with specs (stronger than the
+  docstring/comment fallback option the task body permitted).
+- EOF INCLUDE spec computes `branch-pos` via the real
+  `jf/gptel--branching-turn-branch-point`, asserts the
+  `branch-pos == 1 + (length content)` invariant, then copies and
+  asserts file equality. Covers the specific EOF+no-newline case.
+- Registry-update coverage is split across two specs:
+  `jf/gptel--create-branch-session` does NOT register (baseline
+  count preserved, registry lookup returns nil), and
+  `jf/gptel--auto-init-session-buffer` registers lazily on first
+  open. The second spec mocks `gptel-chat-mode`,
+  `jf/gptel--ensure-mode-once`, `gptel-get-preset`, and
+  `gptel--apply-preset` — appropriately scoped to the registry
+  boundary, not over-reaching.
+- Trailing-slash normalisation via `file-name-as-directory` pins
+  directory identity, not representation — good judgement.
+
+Findings: none. Follow-ups: none.

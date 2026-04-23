@@ -2,7 +2,7 @@
 name: branching-dirty-buffer-handling
 description: Handle unsaved changes in source session buffer before deriving branch-point positions against on-disk file
 change: gptel-chat-mode
-status: needs-review
+status: done
 relations:
   - discovered-from:sessions-branching
 ---
@@ -89,3 +89,24 @@ positions from one source and copy bytes from another.
 - design.md §Decision 18 (session file format is `.org`) —
   unaffected; this is about source-of-truth for the copy operation,
   not the file format.
+
+## Review
+
+Reviewed inline 2026-04-23 (orch-review-1777032xxx).
+
+- Fix is minimal and correct: `(when (buffer-modified-p) (save-buffer))`
+  placed before `-select-branch-point`, ensuring the position-source
+  (live buffer) and content-source (on-disk file) are byte-identical.
+- Option A choice aligns with the sessions subsystem's persistence
+  convention (other flows treat `save-buffer` as the canonical flush
+  point rather than prompting).
+- Regression test (`branching-integration-spec.el` §dirty-buffer
+  handling) exercises the real `jf/gptel-branch-session` path with a
+  dirty buffer: pre-asserts the dirty state (so the test actually
+  distinguishes the regression from the clean-buffer path), then
+  post-asserts (a) save fired and (b) the new branch's session.org
+  includes the previously-unsaved turn.
+- `cl-letf` mocks for `derived-mode-p`, `completing-read`, `y-or-n-p`,
+  and `find-file` are scoped to the spec's function-under-test call.
+
+Findings: none. Follow-ups: none.
