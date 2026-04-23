@@ -382,6 +382,7 @@ Upstream `M-x gptel-menu` invoked directly (by key or by `M-x`) SHALL remain ava
 - **WHEN** the user invokes `gptel-chat-menu` in a `gptel-chat-mode` buffer
 - **THEN** the prefix layout shows configuration groups (system-prompt, context, tools, request-parameters), logging, and Send
 - **AND** Prompt-from, Response-to, and Dry-Run groups are not present in the layout
+- **AND** Rewrite and Tweak-Response groups are not present in the layout (their underlying predicates depend on gptel-mode response-insertion artifacts chat-mode does not produce)
 
 ### Requirement: Session-file auto-initialization
 

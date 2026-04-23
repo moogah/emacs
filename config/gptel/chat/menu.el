@@ -307,8 +307,7 @@ reads everything it needs from the current buffer (design.md
 ;; groups we keep — system-prompt/context/tools at the top,
 ;; request-parameters (preset, provider, model, max-tokens, temperature,
 ;; use-context, include-reasoning, use-tools, track-response) in the
-;; middle, rewrite/response-tweak/logging below — are identical by symbol
-;; reference.
+;; middle, logging below — are identical by symbol reference.
 
 ;; We deliberately omit upstream's Send-coupled groups (the prompt-
 ;; source selector, the response-destination selector, and the inspect-
@@ -328,6 +327,17 @@ reads everything it needs from the current buffer (design.md
 ;;   that chat-mode never emits (Decision 18 — block-based session
 ;;   format). The preview would effectively be "everything from
 ;;   point-min" for a send path that cannot run here.
+
+;; We also omit the region-rewrite group and the response-history
+;; commands. Their guard predicates test for gptel-mode's response-
+;; insertion artifacts — rewrite overlays and the =gptel= text-property
+;; on response spans. Chat-mode stores response text inside
+;; =#+begin_assistant= blocks without those artifacts (Decision 18), so
+;; the predicates never match and the groups would only be dead rows in
+;; the layout. The region-rewrite command itself also depends on the
+;; same response-overlay infrastructure downstream, so even the region-
+;; active branch of its guard cannot route to a working command in a
+;; chat-mode buffer.
 
 ;; The =:incompatible= declaration on the prefix is dropped together
 ;; with these groups — it only constrained the =m/y/i= and =e/g/b/k=
@@ -360,7 +370,6 @@ reads everything it needs from the current buffer (design.md
 (defvar gptel--known-tools)
 (defvar gptel-tools)
 (defvar gptel--fsm-last)
-(defvar gptel--rewrite-overlays)
 (defvar gptel-mode)
 (defvar gptel-track-response)
 (defvar gptel-expert-commands)
@@ -433,27 +442,7 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
     (gptel--infix-track-response
      :if (lambda () (and gptel-expert-commands (not gptel-mode))))
     (gptel--infix-track-media :if (lambda () gptel-mode))]]
-  [[:description (lambda () (concat (and gptel--rewrite-overlays "Continue ")
-                               "Rewrite"))
-    :if (lambda () (or (use-region-p)
-                  (and gptel--rewrite-overlays
-                       (gptel--rewrite-sanitize-overlays))))
-    ("r"
-     (lambda () (if (get-char-property (point) 'gptel-rewrite)
-               "Iterate" "Rewrite"))
-     gptel-rewrite)]
-   ["Tweak Response" :if gptel--in-response-p :pad-keys t
-    ("SPC" "Mark" gptel--mark-response)
-    ("M-RET" "Regenerate" gptel--regenerate :if gptel--in-response-p)
-    ("P" "Previous variant" gptel--previous-variant
-     :if gptel--at-response-history-p
-     :transient t)
-    ("N" "Next variant" gptel--previous-variant
-     :if gptel--at-response-history-p
-     :transient t)
-    ("E" "Ediff previous" gptel--ediff
-     :if gptel--at-response-history-p)]
-   ["Logging"
+  [["Logging"
     :if (lambda () (or gptel-log-level gptel-expert-commands))
     ("-l" "Log level" "-l"
      :class gptel-lisp-variable
