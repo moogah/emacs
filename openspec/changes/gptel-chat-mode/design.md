@@ -355,7 +355,11 @@ This is exactly the pattern `config/gptel/tools/persistent-agent.org:646-650` al
 
 **The menu's Send suffix (`gptel--suffix-send`) is the wrong path for chat-mode buffers.** It assumes gptel-mode's prompt/response-prefix conventions and `gptel` text-property markers. Invoking it in a chat-mode buffer would insert response text outside our block structure and ignore the canonical on-disk format.
 
-**Choice:** chat-mode provides its own transient, `gptel-chat-menu`, that reuses `gptel-menu`'s configuration layout and replaces the Send suffix with one that invokes `gptel-chat-send`. `gptel-chat-menu` is bound on the chat-mode keymap (suggested: `C-c C-,` to mirror common gptel muscle memory — exact key decided during implementation). Users who type `M-x gptel-menu` directly still get the upstream prefix; the chat-mode key gets the rebound one.
+**Choice:** chat-mode provides its own transient, `gptel-chat-menu`, that mirrors a precisely scoped subset of `gptel-menu`'s layout and replaces the Send suffix with one that invokes `gptel-chat-send`. `gptel-chat-menu` is bound on the chat-mode keymap (suggested: `C-c C-,` to mirror common gptel muscle memory — exact key decided during implementation). Users who type `M-x gptel-menu` directly still get the upstream prefix; the chat-mode key gets the rebound one.
+
+The chat-mode mirror includes: system-prompt, context, tools, request-parameters (preset, provider, model, max-tokens, temperature, use-context, include-reasoning, use-tools, track-response), logging, and the rebound Send suffix. It excludes Send-argument groups (Prompt-from, Response-to) and the Send-derived Dry-Run inspectors: all three read `transient-args` at send time and route through upstream's `gptel--suffix-send`, whose prompt extraction and response insertion depend on `gptel-mode`'s text-property contract that chat-mode does not produce (Decision 18).
+
+This exclusion follows mechanically from Decision 18 — the block-based session format makes upstream's Send I/O contract unreachable, so any transient group whose suffixes invoke `gptel--suffix-send` (Prompt-from, Response-to, Dry-Run) cannot produce correct behavior on a chat-mode buffer. The included groups above mutate buffer-local variables that any `gptel-request` caller reads; they cross the upstream/chat-mode boundary for free.
 
 **Alternatives considered:**
 
