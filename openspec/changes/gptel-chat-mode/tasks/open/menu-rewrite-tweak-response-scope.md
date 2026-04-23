@@ -2,9 +2,10 @@
 name: menu-rewrite-tweak-response-scope
 description: Drop gptel-chat-menu's Rewrite and Tweak-Response groups — dead code in chat-mode buffers because their :if predicates depend on gptel-mode's response-overlay and text-property infrastructure that chat-mode does not produce
 change: gptel-chat-mode
-status: ready
+status: blocked
 relations:
   - discovered-from:menu-send-coupled-options-scope
+  - blocked-by:menu-send-coupled-options-scope
 ---
 
 ## Files to modify

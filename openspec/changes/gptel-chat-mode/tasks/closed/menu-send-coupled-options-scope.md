@@ -2,7 +2,7 @@
 name: menu-send-coupled-options-scope
 description: Drop gptel-chat-menu's Send-coupled option groups (Prompt from / Response to / Dry Run) — displayed but silently dropped by the rebound Send suffix — and clarify Decision 15's enumeration of what lives in the chat-mode mirror
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:menu-integration
 ---
