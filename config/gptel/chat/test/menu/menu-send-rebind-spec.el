@@ -242,30 +242,35 @@ basis."
 
     (it "mutates a buffer-local variable when a configuration path is invoked in a chat-mode buffer"
       ;; Behavioral coverage for the spec scenario "Menu configuration
-      ;; works in chat-mode buffer" — previously only verified
-      ;; transitively via layout-symbol membership.  `gptel--set-with-
-      ;; scope' with scope `t' is the path every upstream configuration
-      ;; infix takes internally when the user has picked buffer-local
-      ;; scope (see `gptel-transient.el:54-75' and any infix with
-      ;; `:set-value gptel--set-with-scope' at `:variable gptel-...').
-      ;; Calling it directly in a chat-mode buffer proves the
-      ;; configuration path produces a real buffer-local mutation — no
-      ;; gptel-mode, no text-property contract required.
-      (with-temp-buffer
-        (gptel-chat-mode)
-        ;; Baseline: no buffer-local binding yet.  Setting a global
-        ;; default would leak across specs, so bind a fresh probe
-        ;; symbol rather than touching `gptel-model' directly.
-        (let ((probe 'gptel-chat-menu-test--model-probe))
-          (expect (local-variable-p probe) :to-be nil)
-          (gptel--set-with-scope probe 'sentinel-model t)
-          (expect (local-variable-p probe) :to-be t)
-          (expect (symbol-value probe) :to-equal 'sentinel-model)
+      ;; works in chat-mode buffer".  We pick one real upstream infix
+      ;; — `gptel--infix-max-tokens' — and exercise the exact
+      ;; `:set-value' path it declares internally (see
+      ;; `gptel-transient.el:1237-1250': `:variable gptel-max-tokens',
+      ;; `:set-value gptel--set-with-scope').  Invoking that path in a
+      ;; chat-mode buffer with scope `t' and asserting the buffer-
+      ;; local mutation stuck proves upstream's configuration
+      ;; machinery works here without gptel-mode and without the
+      ;; text-property contract upstream's Send parser relies on.
+      ;;
+      ;; `gptel-max-tokens' is the named gptel variable the infix
+      ;; mutates; the sentinel is an arbitrary integer unlikely to
+      ;; collide with any real default.
+      (let ((gptel-max-tokens nil))
+        (with-temp-buffer
+          (gptel-chat-mode)
+          ;; Baseline: no buffer-local binding yet.  The `let' above
+          ;; pins the global default to `nil' so the sentinel cannot
+          ;; be the existing value by accident.
+          (expect (local-variable-p 'gptel-max-tokens) :to-be nil)
+          (gptel--set-with-scope 'gptel-max-tokens 12345 t)
+          (expect (local-variable-p 'gptel-max-tokens) :to-be t)
+          (expect gptel-max-tokens :to-equal 12345)
           ;; Verify locality: the binding must NOT leak to a fresh
-          ;; buffer.  `default-value' and the other buffer's value
-          ;; would both be unbound if this worked correctly.
+          ;; buffer.  In a second temp buffer `local-variable-p' on
+          ;; the same symbol should be nil — the mutation was scoped
+          ;; to the chat-mode buffer, not global.
           (with-temp-buffer
-            (expect (local-variable-p probe) :to-be nil))))))
+            (expect (local-variable-p 'gptel-max-tokens) :to-be nil))))))
 
 
   ;; -----------------------------------------------------------------------
