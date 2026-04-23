@@ -285,7 +285,7 @@ Registering the `hack-local-variables-hook' entry buffer-locally
 ;; [[file:menu.org::*Send suffix][Send suffix:1]]
 (declare-function gptel-chat-send "gptel-chat-send" ())
 
-(transient-define-suffix gptel-chat--suffix-send (_args)
+(transient-define-suffix gptel-chat--suffix-send ()
   "Dispatch Send from `gptel-chat-menu' to `gptel-chat-send'.
 
 Replaces `gptel--suffix-send' on the chat-mode transient.  Unlike
@@ -294,8 +294,7 @@ reads everything it needs from the current buffer (design.md
 §Decision 15, architecture.md §`gptel-chat-menu')."
   :key "RET"
   :description "Send chat buffer"
-  (interactive (list (transient-args
-                      (or transient-current-command 'gptel-chat-menu))))
+  (interactive)
   (call-interactively #'gptel-chat-send))
 ;; Send suffix:1 ends here
 
