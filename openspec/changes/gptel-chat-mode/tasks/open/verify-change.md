@@ -15,6 +15,7 @@ relations:
   - blocked-by:display-layer
   - blocked-by:preset-wiring
   - blocked-by:menu-send-coupled-options-scope
+  - blocked-by:menu-rewrite-tweak-response-scope
   - blocked-by:sessions-filesystem
   - blocked-by:sessions-persistent-create
   - blocked-by:auto-init-metadata-preset-precedence

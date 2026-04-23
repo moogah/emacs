@@ -1,6 +1,6 @@
 ---
 name: menu-send-coupled-options-scope
-description: Resolve gptel-chat-menu's Send-coupled option groups (Prompt from / Response to / Dry Run) that are displayed but silently dropped by the rebound Send suffix
+description: Drop gptel-chat-menu's Send-coupled option groups (Prompt from / Response to / Dry Run) — displayed but silently dropped by the rebound Send suffix — and clarify Decision 15's enumeration of what lives in the chat-mode mirror
 change: gptel-chat-mode
 status: ready
 relations:
@@ -8,183 +8,224 @@ relations:
 ---
 
 ## Files to modify
-- `openspec/changes/gptel-chat-mode/design.md` (modify Decision 15 —
-  clarify which upstream menu groups belong in the chat-mode mirror)
+- `openspec/changes/gptel-chat-mode/design.md` (update Decision 15 —
+  explicit enumeration of included / excluded upstream groups, with
+  Decision 18 as the root-cause reference)
 - `openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md`
-  (add/clarify scenarios under "gptel-menu integration with rebound
-  Send")
-- `config/gptel/chat/menu.org` (remove or replace the Prompt-from,
-  Response-to, and Dry-Run groups — whichever direction the design
-  update commits to)
+  (tighten "gptel-menu integration with rebound Send" to pin the new
+  contract)
+- `config/gptel/chat/menu.org` (remove the Prompt-from, Response-to,
+  and Dry-Run groups from `gptel-chat-menu`)
 - `config/gptel/chat/menu.el` (tangled)
 - `config/gptel/chat/test/menu/menu-send-rebind-spec.el` (add one
-  behavioral spec: stand up a chat-mode buffer, invoke a
-  configuration infix, assert a buffer-local variable changed —
-  currently only transitively verified)
+  behavioral spec that invokes a configuration infix in a chat-mode
+  buffer and asserts a buffer-local variable changed — currently only
+  transitively verified; drop one or two redundant layout-introspection
+  specs to keep suite size stable)
 
 ## Implementation steps
 
-1. **Resolve the spec gap.** Decision 15 commits to "reuses
-   `gptel-menu`'s configuration layout and replaces the Send
-   suffix," and lists configuration suffixes explicitly
-   (preset, model, backend, system message, tools, context,
-   temperature). The current implementation (`menu.el:412-496`)
-   mirrors *every* upstream group, including:
-   - `" <Prompt from"` group (Minibuffer / Kill-ring / Respond in
-     place) — toggles that `gptel--suffix-send` reads from
-     `transient-args` but `gptel-chat-send` ignores.
-   - `" >Response to"` group (Echo area / Other buffer / gptel
-     session / Kill-ring) — same pattern; Send-coupled redirection.
-   - `"Dry Run"` group (Inspect query Lisp / JSON) — suffixes that
-     call `(gptel--suffix-send (cons "I" (transient-args ...)))`
-     directly. Invoked from a chat-mode buffer this leaks upstream's
-     gptel-mode prompt-extraction semantics into the preview
-     (chat-mode has no `gptel` text-property bounds, so the
-     extracted prompt is effectively "everything from point-min").
-   - `"Logging"` group — unaffected; logging is a global variable
-     mutation, works identically.
+1. **Commit to Option A: drop the Send-coupled groups.** Discussion on
+   2026-04-23 converged on this as the only position consistent with
+   Decision 18 (block-based session format). Explanation in the Design
+   rationale section below. The three groups being removed:
 
-   Pick a policy (add to Decision 15 and the spec):
+   - `" <Prompt from"` (Minibuffer / Kill-ring / Respond in place) —
+     transient-args `"m"/"y"/"i"` read by `gptel--suffix-send` at send
+     time. `gptel-chat--suffix-send` takes no args, so the toggles are
+     silently ignored.
+   - `" >Response to"` (Echo area / Other buffer / gptel session /
+     Kill-ring) — same pattern; transient-args `"e"/"b"/"g"/"k"`
+     silently dropped.
+   - `"Dry Run"` (Inspect query Lisp / JSON) — suffixes that directly
+     invoke `(gptel--suffix-send (cons "I" (transient-args ...)))`.
+     Executed in a chat-mode buffer, upstream's prompt extraction reads
+     the `gptel` text-property bounds that chat-mode never emits, so
+     the preview is effectively "everything from point-min" — a wrong
+     preview of a send path that can't run here anyway.
 
-   - **A. Omit Send-coupled groups from `gptel-chat-menu`.** Remove
-     the Prompt-from, Response-to, and Dry-Run groups from our
-     prefix. Keep only groups that are configuration
-     (preset/model/backend/system/tools/context/temperature/scope)
-     or global (logging). Smallest diff, clearest contract:
-     "chat-mode menu is configuration + Send; redirection and dry
-     run are upstream-only."
+   Groups that stay: system-prompt, context, tools, request-parameters
+   (preset, provider, model, max-tokens, temperature, use-context,
+   include-reasoning, use-tools, track-response), logging, and Send.
+   All of these mutate buffer-local variables that any `gptel-request`
+   caller reads — genuinely "free" reuse of upstream.
 
-   - **B. Replace the Dry-Run group with chat-mode-aware
-     inspectors** and omit Prompt-from / Response-to. Useful if
-     "Inspect query" is a feature worth keeping for chat-mode
-     (which runs its own `gptel-request` call path with its own
-     prompt construction). Requires a new inspector that understands
-     chat-mode's block-based prompt format.
+   Rewrite and Tweak-Response are covered by a separate follow-up task
+   (`menu-rewrite-tweak-response-scope`) — different root cause
+   (response-state-coupled rather than Send-coupled), different
+   urgency (dead code rather than user-visible bug).
 
-   - **C. Honor a narrow subset of transient-args in
-     `gptel-chat--suffix-send`.** Keep the groups; parse a whitelist
-     of args (`"m"`, `"y"`, `"i"` from Prompt-from) and pass them
-     through to `gptel-chat-send`. Largest surface area; every new
-     upstream arg is one we'd need to decide about. Probably wrong.
+2. **Apply the edit in `menu.org`.** Remove the three offending vector
+   blocks from the `gptel-chat-menu` prefix definition (currently
+   roughly :473-498 after the request-parameters block, and :519-536
+   for Dry Run). Also remove the `:incompatible '(("m" "y" "i") ("e"
+   "g" "b" "k"))` declaration on the prefix — it only constrains the
+   args we're dropping.
 
-   Recommended: **A** unless the Dry-Run inspector is valuable
-   enough to justify (B).
+3. **Update `design.md §Decision 15`.** Replace the current "reuses
+   `gptel-menu`'s configuration layout" wording with an explicit
+   enumeration:
 
-2. Apply the chosen policy in `menu.org`:
-   - Option A: remove the three offending vector blocks from the
-     `gptel-chat-menu` prefix definition.
-   - Option B: replace the Dry-Run suffixes with chat-mode-aware
-     variants (new suffix functions that build a query from the
-     current chat-mode buffer and feed it to `gptel--inspect-query`).
+   > The chat-mode mirror includes: system-prompt, context, tools,
+   > request-parameters (preset, provider, model, max-tokens,
+   > temperature, use-context, include-reasoning, use-tools,
+   > track-response), logging, and the rebound Send suffix. It
+   > excludes Send-argument groups (Prompt-from, Response-to) and the
+   > Send-derived Dry-Run inspectors: all three read
+   > `transient-args` at send time and route through upstream's
+   > `gptel--suffix-send`, whose prompt extraction and response
+   > insertion depend on `gptel-mode`'s text-property contract that
+   > chat-mode does not produce (Decision 18).
 
-3. Update `design.md §Decision 15` — add a subsection explicitly
-   listing which upstream groups are included in `gptel-chat-menu`
-   and why the Send-coupled groups are out of scope for the
-   chat-mode mirror.
+   Add a short cross-reference: "This exclusion follows mechanically
+   from Decision 18 — the block-based session format makes upstream's
+   Send I/O contract unreachable." Keep the "advice on
+   `gptel--suffix-send`" and "duplicate whole layout" entries in
+   Alternatives Considered.
 
-4. Update `specs/gptel-chat-mode/spec.md` under "gptel-menu
-   integration with rebound Send" — add a scenario that pins the
-   new contract. E.g. for Option A:
+4. **Update `specs/gptel-chat-mode/spec.md`** under "gptel-menu
+   integration with rebound Send". Add a scenario:
 
-   > **WHEN** the user invokes `gptel-chat-menu` in a chat-mode
-   > buffer **THEN** only configuration suffixes and Send are
-   > available; redirection options (Prompt-from, Response-to) and
-   > Dry-Run inspectors are not present in the chat-mode prefix
-   > layout.
+   > **Scenario: chat-mode menu omits Send-coupled groups**
+   > - **WHEN** the user invokes `gptel-chat-menu` in a
+   >   `gptel-chat-mode` buffer
+   > - **THEN** the prefix layout shows configuration groups
+   >   (system-prompt, context, tools, request-parameters), logging,
+   >   and Send
+   > - **AND** Prompt-from, Response-to, and Dry-Run groups are not
+   >   present in the layout
 
 5. **Add the missing behavioral test** (Review Finding #2). The
-   current `menu-send-rebind-spec.el` has 15 specs, all of which
-   are structural introspection (symbol membership in the prefix
-   layout). None invoke the menu from a chat-mode buffer and
-   verify that a configuration suffix actually mutates a
-   buffer-local variable. The spec scenario
+   current `menu-send-rebind-spec.el` has 15 specs; all are structural
+   introspection (symbol membership in the prefix layout). None
+   invoke the menu from a chat-mode buffer and verify a configuration
+   suffix actually mutates a buffer-local variable. The spec scenario
 
-   > **WHEN** point is in a `gptel-chat-mode` buffer **AND** the
-   > user invokes `M-x gptel-menu` **THEN** configuration actions
-   > (preset pick, model change, tool selection) mutate
-   > buffer-local variables as upstream does
+   > **WHEN** point is in a `gptel-chat-mode` buffer **AND** the user
+   > invokes `M-x gptel-menu` **THEN** configuration actions (preset
+   > pick, model change, tool selection) mutate buffer-local
+   > variables as upstream does
 
    is verified only transitively today. Add one spec:
 
    - In `with-temp-buffer` under `(gptel-chat-mode)`, directly set
      `gptel-model` to a known baseline, then simulate a
-     `gptel--infix-provider` or equivalent infix call (via the
-     infix's suffix function or a direct mutation path), and
-     assert `gptel-model` changed buffer-locally. Alternative: set
-     `gptel--preset` via `gptel--apply-preset` (what the preset
-     infix does under the hood) and assert a tools/model change
-     stuck in the buffer.
+     `gptel--infix-provider` or equivalent infix call (via the infix's
+     suffix function or a direct mutation path), and assert
+     `gptel-model` changed buffer-locally. Alternative: set
+     `gptel--preset` via `gptel--apply-preset` (what the preset infix
+     does under the hood) and assert a tools/model change stuck in
+     the buffer.
 
-   Drop one or two of the redundant "references the upstream X
-   infix" layout-introspection specs to keep the suite size
-   stable.
+   Drop one or two redundant "references the upstream X infix" layout-
+   introspection specs to keep the suite size stable.
+
+   Also add a spec for the Send-coupled group exclusion contract:
+
+   - Assert `gptel-chat-menu`'s flattened layout does NOT mention
+     `"m"`, `"y"`, `"i"`, `"e"`, `"g"`, `"b"`, `"k"` as transient-arg
+     keys (their absence is the machine-checkable form of the spec
+     scenario from Step 4). Flatten via the existing helper; grep the
+     argument field rather than symbol membership.
 
 ## Design rationale
 
-Two findings from the menu-integration review (2026-04-23) group
-here because both concern the scope and coverage of
-`gptel-chat-menu` — what lives in the mirror and what's actually
-exercised by tests. Addressing Finding 1 requires a spec update
-plus a menu.org edit; Finding 2 is a test addition that lives in
-the same spec file but is logically independent. Grouping keeps
-the design/spec/test change as one coherent diff rather than two
-artifacts read the same context twice.
+**Root cause of the incompatibility.** Upstream's Send path is shaped
+by gptel-mode's buffer contract: `gptel-send` → `gptel-request nil`
+→ parser reads `gptel` text-property bounds → stream callback
+inserts at point with `gptel-response-prefix-alist`. Decision 18
+commits chat-mode to a block-based on-disk format
+(`#+begin_user` / `#+begin_assistant`), which means chat-mode
+necessarily owns its parser, stream callback, FSM handlers, and a
+pre-send block-open step. Upstream's Send verb cannot be reused —
+and therefore neither can the Send-argument groups (Prompt-from,
+Response-to) nor the Send-derived Dry-Run inspectors that route
+through it.
 
-Finding 1's severity is user-visible: a chat-mode user who toggles
-"Respond in place" expects the response to be inserted in place
-(as it is in `gptel-mode`), but `gptel-chat-send` silently ignores
-the toggle. Dry-Run is more obscure but worse — it silently
-produces a wrong query preview because it calls
-`gptel--suffix-send` with the current chat-mode buffer, and
-`gptel--suffix-send`'s prompt extraction depends on
-`gptel`-text-property bounds that chat-mode doesn't emit.
+This is not an oversight in Decision 15; it is a mechanical
+consequence of Decision 18 that Decision 15 did not enumerate. The
+earlier "reuses gptel-menu's configuration layout" wording was
+ambiguous about whether "layout" meant the configuration groups
+specifically or every group present in upstream. Implementation
+read it as the latter; this task commits to the former.
 
-Finding 2 is hygiene: the menu rebind spec suite has very broad
-structural coverage and zero behavioral coverage of Scenario 1.
-That's defensible (transitive argument: if the infix symbols are
-shared, the behavior is shared), but the spec scenario says
-"configuration actions … mutate buffer-local variables" and not
-"the infix symbols match upstream" — the tests should match the
-scenario.
+**What remains "free" reuse.** Configuration infixes (preset,
+provider, model, max-tokens, temperature, tools, context, system,
+use-tools, include-reasoning, track-response) mutate buffer-local
+variables. Any `gptel-request` caller — upstream's `gptel-send`,
+our `gptel-chat-send`, a custom tool, a batch — reads those
+variables. So the configuration layer genuinely crosses the
+upstream / chat-mode boundary with zero coupling. Symbol-level
+reuse from the upstream prefix is correct.
+
+**Why Options B (chat-mode-aware Dry-Run) and C (honor a whitelist
+of transient-args) are rejected.** Both reintroduce coupling into
+upstream's Send path. Option B requires a chat-mode-native Inspect
+Query, which is a second send path to maintain and is not worth the
+cost for a feature that shipped broken and was not missed. Option C
+extends the contract across every new upstream transient-arg and
+makes the behavior of `gptel-chat-send` depend on menu state, which
+contradicts chat-mode's "Send reads from the buffer, nothing else"
+invariant.
+
+**Why this task also owns the behavioral test addition (Finding 2).**
+Both findings touch the same artifact and the same spec section:
+the scope of `gptel-chat-menu` and the coverage of the "configuration
+actions mutate buffer-local variables" scenario. Grouping keeps the
+design/spec/test update as one coherent diff. The test addition is
+small (one behavioral spec + a negative assertion for the excluded
+groups, trading off one or two redundant layout specs).
 
 ## Design pattern
 
-When mirroring an upstream UI with a narrow override, explicitly
-list what's in the mirror and what's out of scope. Silently
+When mirroring an upstream UI with a narrow override, **enumerate
+what's in the mirror and what's out of scope**, citing the design
+decision that makes the out-of-scope groups unreachable. Silently
 reusing layouts that depend on the overridden behavior is a common
-Send-button trap — the button is visible, the user presses it, and
-their configuration is silently discarded. "Configuration is free,
-Send is rebound" (Decision 15) is the right intent; the spec
-should extend that principle to Send-coupled options too.
+Send-button trap — the button is visible, the user presses it,
+their configuration is silently discarded, and the cost is
+diagnosed as a transient arg issue when the real root cause is a
+format-level decision several steps upstream.
 
 ## Verification
 
 - `./bin/tangle-org.sh config/gptel/chat/menu.org` succeeds.
 - `./bin/run-tests.sh -d config/gptel/chat/test/menu` passes,
-  including the new behavioral spec.
-- For Option A: manual check — invoke `M-x gptel-chat-menu` in a
-  chat-mode buffer; confirm only configuration groups + Send are
-  visible (no Prompt-from / Response-to / Dry-Run rows).
-- For Option B: manual check — invoke Dry-Run from
-  `gptel-chat-menu`; confirm the preview shows chat-mode's
-  block-based prompt (not upstream's gptel-prefix-extracted
-  prompt).
+  including the new behavioral spec and the negative assertion for
+  excluded transient-arg keys.
+- Manual check: invoke `M-x gptel-chat-menu` in a chat-mode buffer;
+  confirm only configuration groups + Logging + Send are visible (no
+  Prompt-from / Response-to / Dry-Run rows). Confirm `M-x gptel-menu`
+  from the same buffer still shows the full upstream layout
+  (Decision 15's upstream-preservation clause).
+- `grep -n ' <Prompt from\| >Response to\|Dry Run' config/gptel/chat/menu.el`
+  returns no matches after the edit.
 
 ## Context
 
-- Review of menu-integration (2026-04-23, orch-review session).
-  Findings #1 (Send-coupled menu options) and #2 (missing
-  behavioral test for Scenario 1).
+- Review of menu-integration (2026-04-23, orch-review session),
+  Findings #1 (Send-coupled menu options) and #2 (missing behavioral
+  test for Scenario 1).
+- Follow-up conversation 2026-04-23 on whether to pivot away from the
+  chat-mode menu mirror: converged on "shrink the mirror; Decision 18
+  is the wedge" — configuration reuse works unchanged, Send reuse
+  cannot.
 - `config/gptel/chat/menu.el:348-496` — `gptel-chat-menu` prefix
-  definition; the three offending groups live at roughly
-  :417-424 (Prompt from), :425-445 (Response to), and :466-486
-  (Dry Run).
-- `config/gptel/chat/test/menu/menu-send-rebind-spec.el:182-212`
-  — "shared configuration infixes" describe block, target for
-  replacing a layout-only spec with a behavioral one.
-- design.md §Decision 15 — "gptel-menu integration; configuration
-  is free, Send is rebound."
-- specs/gptel-chat-mode/spec.md §"Requirement: gptel-menu
-  integration with rebound Send".
-- runtime/straight/repos/gptel/gptel-transient.el `gptel-menu`
-  prefix — reference for upstream's layout.
+  definition; the three offending groups live at roughly :473-477
+  (Prompt from), :478-498 (Response to), and :519-536 (Dry Run).
+- `config/gptel/chat/test/menu/menu-send-rebind-spec.el:182-212` —
+  "shared configuration infixes" describe block, target for
+  replacing one or two layout-only specs with a behavioral one.
+- `design.md §Decision 15` — "gptel-menu integration; configuration
+  is free, Send is rebound" (to be tightened by this task).
+- `design.md §Decision 18` — block-based `session.org` format (root
+  cause of upstream-Send-path incompatibility; cross-referenced by
+  the updated Decision 15).
+- `specs/gptel-chat-mode/spec.md §"Requirement: gptel-menu
+  integration with rebound Send"`.
+- `runtime/straight/repos/gptel/gptel-transient.el` — upstream
+  `gptel-menu` prefix, authoritative layout reference.
+- Follow-up: `menu-rewrite-tweak-response-scope` — covers the
+  Rewrite and Tweak-Response groups, which are response-state-
+  coupled rather than Send-coupled (dead code, not user-visible
+  bug); same diff location, different rationale.
