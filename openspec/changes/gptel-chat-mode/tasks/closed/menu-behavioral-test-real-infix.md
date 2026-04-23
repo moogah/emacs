@@ -2,7 +2,7 @@
 name: menu-behavioral-test-real-infix
 description: Strengthen the "Menu configuration works in chat-mode buffer" behavioral test to exercise an actual upstream menu infix against a real gptel variable, instead of using a synthetic probe symbol through gptel--set-with-scope
 change: gptel-chat-mode
-status: ready
+status: needs-review
 relations:
   - discovered-from:menu-send-coupled-options-scope
 ---
