@@ -378,6 +378,11 @@ Upstream `M-x gptel-menu` invoked directly (by key or by `M-x`) SHALL remain ava
 - **THEN** `gptel-chat-send` is called (not `gptel--suffix-send`)
 - **AND** the response streams into a `#+begin_assistant` block
 
+#### Scenario: chat-mode menu omits Send-coupled groups
+- **WHEN** the user invokes `gptel-chat-menu` in a `gptel-chat-mode` buffer
+- **THEN** the prefix layout shows configuration groups (system-prompt, context, tools, request-parameters), logging, and Send
+- **AND** Prompt-from, Response-to, and Dry-Run groups are not present in the layout
+
 ### Requirement: Session-file auto-initialization
 
 When a chat-mode buffer visits a file whose absolute path matches `*/branches/<branch>/session.org` or `*/agents/<agent-name>/session.org` (the session directory layout defined in `sessions-persistence`), the session auto-initialization hook SHALL:

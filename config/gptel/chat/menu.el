@@ -300,13 +300,38 @@ reads everything it needs from the current buffer (design.md
 
 ;; Prefix definition
 
-;; =gptel-chat-menu= duplicates the layout of upstream =gptel-menu=
-;; (=runtime/straight/repos/gptel/gptel-transient.el=: the
+;; =gptel-chat-menu= mirrors the *configuration* portion of upstream
+;; =gptel-menu= (=runtime/straight/repos/gptel/gptel-transient.el=: the
 ;; =transient-define-prefix gptel-menu= form) and replaces the final
-;; =[(gptel--suffix-send)]= row with =[(gptel-chat--suffix-send)]=. All
-;; other groups — system-prompt/context/tools at the top, request-
-;; parameters/prompt-from/response-to in the middle, rewrite/response-
-;; tweak/dry-run/logging below — are identical by symbol reference.
+;; =[(gptel--suffix-send)]= row with =[(gptel-chat--suffix-send)]=. The
+;; groups we keep — system-prompt/context/tools at the top,
+;; request-parameters (preset, provider, model, max-tokens, temperature,
+;; use-context, include-reasoning, use-tools, track-response) in the
+;; middle, rewrite/response-tweak/logging below — are identical by symbol
+;; reference.
+
+;; We deliberately omit upstream's Send-coupled groups (the prompt-
+;; source selector, the response-destination selector, and the inspect-
+;; query suffixes):
+
+;; - The prompt-source selector (Minibuffer / Kill-ring / Respond-in-
+;;   place) — its transient-args =m= / =y= / =i= are read by
+;;   =gptel--suffix-send= at send time; =gptel-chat--suffix-send= takes
+;;   no args, so these toggles would be silently discarded (design.md
+;;   §Decision 15, enumerated exclusions).
+;; - The response-destination selector (Echo area / Other buffer /
+;;   gptel session / Kill-ring) — transient-args =e= / =b= / =g= / =k=
+;;   follow the same silent-drop pattern.
+;; - The inspect-query suffixes (Lisp / JSON) — they invoke
+;;   =(gptel--suffix-send (cons "I" (transient-args ...)))= directly,
+;;   so their preview reads upstream's =gptel= text-property bounds
+;;   that chat-mode never emits (Decision 18 — block-based session
+;;   format). The preview would effectively be "everything from
+;;   point-min" for a send path that cannot run here.
+
+;; The =:incompatible= declaration on the prefix is dropped together
+;; with these groups — it only constrained the =m/y/i= and =e/g/b/k=
+;; transient-args that no longer exist on this prefix.
 
 ;; We deliberately do *not* =require 'gptel-transient= at top level so
 ;; this module stays load-safe before the transient has initialised.
@@ -357,7 +382,6 @@ upstream.
 Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
 `M-x gptel-chat-menu'.  Upstream `gptel-menu' remains unchanged —
 `M-x gptel-menu' invoked directly retains its upstream Send suffix."
-  :incompatible '(("m" "y" "i") ("e" "g" "b" "k"))
   [:description gptel-system-prompt--format
    [""
     :if (lambda () (not (gptel--model-capable-p 'nosystem)))
@@ -408,33 +432,7 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
     (gptel--infix-use-tools)
     (gptel--infix-track-response
      :if (lambda () (and gptel-expert-commands (not gptel-mode))))
-    (gptel--infix-track-media :if (lambda () gptel-mode))]
-   [" <Prompt from"
-    ("m" "Minibuffer instead" "m")
-    ("y" "Kill-ring instead" "y")
-    ""
-    ("i" "Respond in place" "i")]
-   [" >Response to"
-    ("e" "Echo area" "e")
-    ("b" "Other buffer" "b"
-     :class transient-option
-     :prompt "Output to buffer: "
-     :reader (lambda (prompt _ _history)
-               (read-buffer prompt (buffer-name (other-buffer)) nil)))
-    ("g" "gptel session" "g"
-     :class transient-option
-     :prompt "Existing or new gptel session: "
-     :reader
-     (lambda (prompt _ _history)
-       (read-buffer
-        prompt (generate-new-buffer-name
-                (concat "*" (gptel-backend-name gptel-backend) "*"))
-        nil (lambda (buf-name)
-              (if (consp buf-name) (setq buf-name (car buf-name)))
-              (let ((buf (get-buffer buf-name)))
-                (and (buffer-local-value 'gptel-mode buf)
-                     (not (eq (current-buffer) buf))))))))
-    ("k" "Kill-ring" "k")]]
+    (gptel--infix-track-media :if (lambda () gptel-mode))]]
   [[:description (lambda () (concat (and gptel--rewrite-overlays "Continue ")
                                "Rewrite"))
     :if (lambda () (or (use-region-p)
@@ -455,24 +453,6 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
      :transient t)
     ("E" "Ediff previous" gptel--ediff
      :if gptel--at-response-history-p)]
-   ["Dry Run" :if (lambda () (or gptel-log-level gptel-expert-commands))
-    ("I" "Inspect query (Lisp)"
-     (lambda ()
-       "Inspect the query that will be sent as a lisp object."
-       (interactive)
-       (gptel--sanitize-model)
-       (gptel--inspect-query
-        (gptel--suffix-send
-         (cons "I" (transient-args transient-current-command))))))
-    ("J" "Inspect query (JSON)"
-     (lambda ()
-       "Inspect the query that will be sent as a JSON object."
-       (interactive)
-       (gptel--sanitize-model)
-       (gptel--inspect-query
-        (gptel--suffix-send
-         (cons "I" (transient-args transient-current-command)))
-        'json)))]
    ["Logging"
     :if (lambda () (or gptel-log-level gptel-expert-commands))
     ("-l" "Log level" "-l"
