@@ -361,6 +361,8 @@ The chat-mode mirror includes: system-prompt, context, tools, request-parameters
 
 This exclusion follows mechanically from Decision 18 — the block-based session format makes upstream's Send I/O contract unreachable, so any transient group whose suffixes invoke `gptel--suffix-send` (Prompt-from, Response-to, Dry-Run) cannot produce correct behavior on a chat-mode buffer. The included groups above mutate buffer-local variables that any `gptel-request` caller reads; they cross the upstream/chat-mode boundary for free.
 
+The mirror also excludes Rewrite and Tweak-Response. Their `:if` predicates (`gptel--rewrite-overlays`, `gptel--in-response-p`) test for gptel-mode's response-insertion artifacts — rewrite overlays and the `gptel` text-property on response spans. Chat-mode stores response text inside `#+begin_assistant` blocks without those artifacts (Decision 18), so the predicates never match and the groups would only be dead rows in the layout. `gptel-rewrite` itself depends on the same response-overlay infrastructure downstream, so even the region-active branch of the Rewrite guard cannot route to a working command in a chat-mode buffer.
+
 **Alternatives considered:**
 
 - Do nothing; let users invoke `M-x gptel-menu` for configuration and `C-c C-c` for send, never using the menu's Send entry. Rejected: the menu's Send button is too obvious a trap — a user will press it eventually and get wrong behavior inserted into their buffer.

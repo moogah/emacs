@@ -321,6 +321,52 @@ basis."
 
 
   ;; -----------------------------------------------------------------------
+  ;; 4c. Response-state groups are excluded.
+  ;;
+  ;; Upstream's Rewrite and Tweak-Response groups are guarded by
+  ;; predicates (`gptel--rewrite-overlays', `gptel--in-response-p',
+  ;; `gptel--at-response-history-p') that inspect gptel-mode's
+  ;; response-insertion artifacts: rewrite overlays and the `gptel'
+  ;; text-property on response spans.  Chat-mode stores response text
+  ;; inside `#+begin_assistant' blocks without those artifacts
+  ;; (design.md §Decision 18), so the predicates never match and the
+  ;; groups would only be dead rows in the layout.  Dropping them is
+  ;; hygiene, not bugfix — hidden groups cost the user nothing today
+  ;; but represent an implicit promise to keep the upstream infix
+  ;; references alive (design.md §Decision 15, trailing paragraph).
+  ;;
+  ;; Machine-checkable form: the command symbols wired to the removed
+  ;; groups are absent from the flattened layout.
+
+  (describe "response-state groups excluded"
+
+    (it "does not reference the region-rewrite command"
+      (expect (gptel-chat-menu-test--layout-mentions-p
+               'gptel-chat-menu 'gptel-rewrite)
+              :to-be nil))
+
+    (it "does not reference the mark-response command"
+      (expect (gptel-chat-menu-test--layout-mentions-p
+               'gptel-chat-menu 'gptel--mark-response)
+              :to-be nil))
+
+    (it "does not reference the regenerate command"
+      (expect (gptel-chat-menu-test--layout-mentions-p
+               'gptel-chat-menu 'gptel--regenerate)
+              :to-be nil))
+
+    (it "does not reference the previous-variant command"
+      (expect (gptel-chat-menu-test--layout-mentions-p
+               'gptel-chat-menu 'gptel--previous-variant)
+              :to-be nil))
+
+    (it "does not reference the ediff command"
+      (expect (gptel-chat-menu-test--layout-mentions-p
+               'gptel-chat-menu 'gptel--ediff)
+              :to-be nil)))
+
+
+  ;; -----------------------------------------------------------------------
   ;; 5. Keymap binding.
   ;;
   ;; The chat-mode keymap must bind `gptel-chat-menu' — users should be
