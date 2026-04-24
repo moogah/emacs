@@ -12,7 +12,6 @@
 (require 'gptel)
 (require 'gptel-session-constants)
 (require 'gptel-session-filesystem)
-(require 'gptel-session-metadata)
 (require 'gptel-session-registry)
 (require 'gptel-session-logging)
 
@@ -26,10 +25,7 @@ Hooked into gptel-post-response-functions.
 Only saves if buffer has associated file and session directory."
   (when (and jf/gptel--session-dir
              (buffer-file-name))
-    (save-buffer)
-    ;; Note: metadata.yml updated timestamp is managed by scope commands,
-    ;; not auto-save
-    ))
+    (save-buffer)))
 
 (defun jf/gptel-persistent-agent--create-overlay (where preset description)
   "Create status overlay in parent buffer at WHERE.
@@ -176,19 +172,6 @@ gptel--known-presets, with zero inheritance from the parent session."
             (insert (format "    - \"%s\"\n" p))))
         (jf/gptel--log 'info "Created agent scope.yml with %d read path(s)"
                       (length allowed-paths-list)))
-
-      ;; Write metadata.yml with session metadata
-      (let ((metadata-file (expand-file-name jf/gptel-session--metadata-file session-dir))
-            (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
-        (with-temp-file metadata-file
-          (insert (format "version: \"3.0\"\n"))
-          (insert (format "session_id: \"%s\"\n" session-id))
-          (insert (format "created: \"%s\"\n" timestamp))
-          (insert (format "updated: \"%s\"\n" timestamp))
-          (insert (format "type: \"agent\"\n"))
-          (insert (format "parent_session_id: \"%s\"\n" jf/gptel--session-id))
-          (insert (format "preset: \"%s\"\n" preset)))
-        (jf/gptel--log 'info "Created agent metadata.yml: %s" metadata-file))
 
       ;; Create agent buffer with session infrastructure
       (let* ((buffer-name (format "*gptel-agent:%s:%s*" preset description))
