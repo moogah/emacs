@@ -1,4 +1,4 @@
-;;; activity-session-chat-spec.el --- Activity-backed sessions emit chat-mode session.org -*- lexical-binding: t; -*-
+;;; activity-session-chat-spec.el --- Activity-backed sessions emit pre-populated session.org -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -8,23 +8,24 @@
 ;;; Commentary:
 
 ;; Behavioral tests for `jf/gptel-session-create-persistent' — the
-;; activity-backed session creation helper.  Per Decision 16 / 18, all
-;; session-creation paths (standalone `jf/gptel-persistent-session' and
-;; activity-backed `jf/gptel-session-create-persistent') emit a
-;; `session.org' file containing the chat-mode empty-user-block
-;; template.  There is no mode-selection parameter: `gptel-chat-mode' is
-;; the single session mode.
+;; activity-backed session creation helper.  Per design Decision 4 /
+;; Decision 6, activity-backed and standalone session creation paths
+;; both emit a `session.org' pre-populated with a `:PROPERTIES:' drawer
+;; (GPTEL_PRESET) followed by the chat-mode empty-user-block template,
+;; and neither writes a `metadata.yml' sidecar.  There is no
+;; mode-selection parameter: `gptel-chat-mode' is the single session
+;; mode (Decision 16).
 ;;
 ;; Invariants verified:
 ;;
 ;; 1. Activity-backed session creation writes `session.org' with the
-;;    chat-mode empty-user-block template (no markdown `###', no Local
-;;    Variables block).  The `initial-content' parameter is no longer
-;;    overridden by the activities helper (was `"###\\n"' previously).
+;;    pre-populated drawer + empty user block.  The `initial-content'
+;;    parameter is no longer overridden by the activities helper (was
+;;    `"###\\n"' previously).
 ;;
-;; 2. `metadata.yml' carries the canonical session fields: `session_id',
-;;    `created', `updated', `preset'.  The schema is unchanged from the
-;;    standalone path.
+;; 2. No `metadata.yml' sidecar is written during activity-backed
+;;    session creation.  The drawer is the authoritative session-level
+;;    configuration source.
 ;;
 ;; 3. The session file path is `.../branches/main/session.org' — the
 ;;    activity helper creates on the `main' branch only; the directory
@@ -42,8 +43,7 @@
 ;; 5. Worktree-tracking (`gptel-activity-worktrees' file-comment
 ;;    annotation in `session.org') is emitted only when the activity
 ;;    declares `PROJECT_WORKTREE' properties — that wiring is unchanged
-;;    by this rework (Decision 16's scope is the file name and mode, not
-;;    the activity infrastructure).
+;;    by this rework.
 ;;
 ;; Tests use `with-captured-io' from `persistence-test-helpers' so all
 ;; production persistence code runs for real against captured I/O;
@@ -91,20 +91,20 @@
   (push (jf/gptel--registry-key session-id branch-name)
         jf-gptel-activities-test--registry-keys))
 
-(describe "jf/gptel-session-create-persistent emits chat-mode session.org"
+(describe "jf/gptel-session-create-persistent emits pre-populated session.org"
 
   (after-each
     (dolist (key jf-gptel-activities-test--registry-keys)
       (remhash key jf/gptel--session-registry))
     (setq jf-gptel-activities-test--registry-keys nil))
 
-  (describe "session.org initial content (Decision 18)"
+  (describe "session.org initial content (Decision 4)"
 
-    (it "contains the chat-mode empty-user-block template, no markdown ###"
+    (it "contains the PROPERTIES drawer with GPTEL_PRESET and the empty user block"
       ;; Run the full helper with write-side I/O captured.  The helper
       ;; goes through `jf/gptel--create-session-core' which owns the
       ;; initial-content default; the activities path no longer
-      ;; overrides it with `"###\\n"'.
+      ;; overrides it.
       (cl-letf (((symbol-function 'gptel-backend-name)
                  (lambda (_backend) "test-backend"))
                 ((symbol-function 'jf/gptel-activities--parse-worktree-paths)
@@ -123,11 +123,18 @@
             (jf-gptel-activities-test--register-cleanup
              (plist-get info :session-id) "main")
             (expect content :to-be-truthy)
-            ;; First write contains the chat-mode empty-user-block
-            ;; template (no worktree paths in this scenario, so no
-            ;; follow-up `<!-- gptel-activity-worktrees: ... -->' line
-            ;; is appended).
-            (expect content :to-equal "#+begin_user\n\n#+end_user\n")
+            ;; First write contains the pre-populated drawer followed
+            ;; by the chat-mode empty-user-block template (no worktree
+            ;; paths in this scenario, so no follow-up
+            ;; `<!-- gptel-activity-worktrees: ... -->' line is
+            ;; appended).
+            (expect content :to-equal
+                    (concat ":PROPERTIES:\n"
+                            ":GPTEL_PRESET: executor\n"
+                            ":END:\n"
+                            "#+begin_user\n"
+                            "\n"
+                            "#+end_user\n"))
             (expect content :not :to-match "^###")
             (expect content :not :to-match "^# "))))))
 
@@ -155,9 +162,12 @@
             (expect content :not :to-match "Local Variables:")
             (expect content :not :to-match "^# Local Variables:"))))))
 
-  (describe "metadata.yml population is preserved"
+  (describe "no metadata.yml sidecar (Decision 6)"
 
-    (it "writes session_id, created, updated, preset into metadata.yml"
+    (it "does not write a metadata.yml file next to session.org"
+      ;; Post-`session-creation-drawer-prepopulate': the drawer
+      ;; embedded in `session.org' is authoritative.  Activity-backed
+      ;; creation must not emit the legacy `metadata.yml' sidecar.
       (cl-letf (((symbol-function 'gptel-backend-name)
                  (lambda (_backend) "test-backend"))
                 ((symbol-function 'jf/gptel-activities--parse-worktree-paths)
@@ -169,21 +179,36 @@
         (with-captured-io
           (let* ((jf/gptel-sessions-directory "/sessions/")
                  (info (jf/gptel-session-create-persistent
-                        "meta-coverage" nil nil 'researcher nil))
-                 (session-id (plist-get info :session-id))
-                 (branch-dir (plist-get info :branch-dir))
-                 (metadata-file (expand-file-name "metadata.yml" branch-dir))
+                        "no-metadata" nil nil 'researcher nil))
+                 (paths (hash-table-keys captured-files)))
+            (jf-gptel-activities-test--register-cleanup
+             (plist-get info :session-id) "main")
+            (expect (cl-some (lambda (p) (string-suffix-p "/metadata.yml" p))
+                             paths)
+                    :to-be nil))))))
+
+  (describe "session.org drawer encodes the preset name"
+
+    (it "writes the preset name verbatim as GPTEL_PRESET"
+      (cl-letf (((symbol-function 'gptel-backend-name)
+                 (lambda (_backend) "test-backend"))
+                ((symbol-function 'jf/gptel-activities--parse-worktree-paths)
+                 (lambda (&rest _) nil))
+                ((symbol-function 'activities-ext--slugify)
+                 (lambda (name)
+                   (replace-regexp-in-string
+                    "[^a-z0-9-]" "-" (downcase name)))))
+        (with-captured-io
+          (let* ((jf/gptel-sessions-directory "/sessions/")
+                 (info (jf/gptel-session-create-persistent
+                        "preset-coverage" nil nil 'researcher nil))
+                 (session-file (plist-get info :session-file))
                  (content (captured-file-content
-                           captured-files metadata-file)))
-            (jf-gptel-activities-test--register-cleanup session-id "main")
+                           captured-files session-file)))
+            (jf-gptel-activities-test--register-cleanup
+             (plist-get info :session-id) "main")
             (expect content :to-be-truthy)
-            (expect content :to-match
-                    (format "session_id: \"%s\"" (regexp-quote session-id)))
-            (expect content :to-match
-                    "created: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T")
-            (expect content :to-match
-                    "updated: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T")
-            (expect content :to-match "preset: \"researcher\""))))))
+            (expect content :to-match "^:GPTEL_PRESET: researcher$"))))))
 
   (describe "directory layout is unchanged"
 
@@ -215,7 +240,7 @@
     (it "does not append worktree metadata when no PROJECT_WORKTREE paths"
       ;; When the activity has no PROJECT_WORKTREE properties, the helper
       ;; must NOT append the `<!-- gptel-activity-worktrees: ... -->'
-      ;; annotation — just the chat-mode template on its own.
+      ;; annotation — just the drawer + chat-mode template on its own.
       (cl-letf (((symbol-function 'gptel-backend-name)
                  (lambda (_backend) "test-backend"))
                 ((symbol-function 'jf/gptel-activities--parse-worktree-paths)
@@ -236,11 +261,11 @@
             (expect content :not :to-match "gptel-activity-worktrees")))))
 
     (it "appends the worktree comment when PROJECT_WORKTREE paths are declared"
-      ;; The worktree-tracking side-effect is orthogonal to the mode
-      ;; rename and MUST remain intact.  Seed the parser to report one
-      ;; worktree path and assert the annotation lands in the final
-      ;; session.org content.  The `when raw-paths' branch in the
-      ;; activities helper reads+writes the session file via
+      ;; The worktree-tracking side-effect is orthogonal to the drawer
+      ;; pre-population and MUST remain intact.  Seed the parser to
+      ;; report one worktree path and assert the annotation lands in
+      ;; the final session.org content.  The `when raw-paths' branch
+      ;; in the activities helper reads+writes the session file via
       ;; `insert-file-contents' + `write-region'; `with-captured-io'
       ;; seeds the initial write into the hash, and we re-stub
       ;; `insert-file-contents' here so the follow-up read sees the
@@ -256,9 +281,10 @@
                       "[^a-z0-9-]" "-" (downcase name)))))
           (with-captured-io
             ;; After `jf/gptel--create-session-core' writes the
-            ;; template, the activities helper re-reads `session.org'
-            ;; to append the worktree annotation.  Serve the captured
-            ;; content back when the helper re-opens the file.
+            ;; pre-populated template, the activities helper re-reads
+            ;; `session.org' to append the worktree annotation.  Serve
+            ;; the captured content back when the helper re-opens the
+            ;; file.
             (cl-letf (((symbol-function 'insert-file-contents)
                        (lambda (path &rest _)
                          (let ((seeded (captured-file-content
@@ -274,9 +300,13 @@
                 (jf-gptel-activities-test--register-cleanup
                  (plist-get info :session-id) "main")
                 (expect content :to-be-truthy)
-                ;; The chat-mode template is still the leading content.
+                ;; The pre-populated drawer + chat-mode template is
+                ;; still the leading content.
                 (expect content :to-match
-                        "\\`#\\+begin_user\n\n#\\+end_user\n")
+                        (concat "\\`:PROPERTIES:\n"
+                                ":GPTEL_PRESET: executor\n"
+                                ":END:\n"
+                                "#\\+begin_user\n\n#\\+end_user\n"))
                 ;; And the worktree annotation is appended — untouched
                 ;; by this task's scope.
                 (expect content :to-match

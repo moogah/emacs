@@ -32,11 +32,10 @@
 Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
 - scope.yml with file access permissions (from preset scope profile)
-- metadata.yml with session metadata and preset reference
-- session.org with the chat-mode empty-user-block template
-  (Decision 9 / Decision 18 — emitted unconditionally; there is no
-  longer a mode-selection choice, all activity-backed sessions use
-  `gptel-chat-mode')
+- session.org pre-populated with a `:PROPERTIES:' drawer containing
+  `GPTEL_PRESET' followed by the chat-mode empty-user-block template
+  (Decision 4 / Decision 9). The drawer is authoritative — no
+  `metadata.yml' sidecar is written (Decision 6).
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
@@ -73,21 +72,25 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                                :deny '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**"))))))
 
     ;; Create session directory structure using core helper.
-    ;; This creates branches/main/, scope.yml, metadata.yml,
-    ;; session.org, and the current symlink.  `initial-content' is
-    ;; left nil so the core helper fills in the chat-mode
-    ;; empty-user-block template (Decision 9 / Decision 18) — a fresh
-    ;; activity-backed session looks identical to a fresh standalone
-    ;; `gptel-chat-mode' buffer.  Decision 16 is categorical: session
+    ;; This creates branches/main/, scope.yml, the pre-populated
+    ;; session.org (with :PROPERTIES: drawer + empty user block), and
+    ;; the current symlink.  `initial-content' is left nil so the core
+    ;; helper fills in the default drawer-prefixed template (Decision 4
+    ;; / Decision 9) — a fresh activity-backed session looks identical
+    ;; to a freshly-saved standalone `gptel-chat-mode' buffer with the
+    ;; preset applied.  No `metadata.yml' sidecar is written; the
+    ;; drawer is authoritative (Decision 6).  Activity-backed sessions
+    ;; have no parent-session-id.  Decision 16 is categorical: session
     ;; buffers use chat-mode, never `gptel-mode', so this helper has no
     ;; mode-selection parameter.
     (let* ((session-info (jf/gptel--create-session-core
                           session-id
                           session-dir
                           preset-name
-                          nil              ; default chat-mode initial content
+                          nil              ; default pre-populated content
                           worktree-scope   ; Scope plist (or nil)
-                          nil))            ; No project-root
+                          nil              ; No project-root
+                          nil))            ; No parent-session-id (activity)
            (branch-dir (plist-get session-info :branch-dir))
            (session-file (plist-get session-info :session-file)))
 
