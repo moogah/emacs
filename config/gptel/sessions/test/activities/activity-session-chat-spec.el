@@ -65,7 +65,6 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
-(require 'gptel-session-metadata)
 (require 'gptel-session-registry)
 (require 'gptel-scope-profiles)
 (require 'gptel-session-commands)

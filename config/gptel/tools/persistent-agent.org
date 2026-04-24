@@ -49,12 +49,11 @@ The PersistentAgent tool is part of a larger modular gptel configuration:
 #+begin_example
 config/gptel/
 ├── gptel.org/el           - Main loader
-├── sessions/              - 8 session management modules
+├── sessions/              - session management modules
 │   ├── constants.el       - Path constants
 │   ├── logging.el         - Debug logging
 │   ├── filesystem.el      - Directory structure, path helpers
 │   ├── registry.el        - Global session tracking (runtime state only)
-│   ├── metadata.el        - Read metadata from metadata.yml + scope.yml
 │   ├── agent-integration.el - Parent-child session linking
 │   ├── commands.el        - User-facing session commands
 │   └── activities-integration.el - Activities package integration
@@ -122,7 +121,6 @@ sequenceDiagram
 
     T->>FS: Load agent config (NO parent inheritance)
     T->>FS: Write scope.yml (includes path permissions)
-    T->>FS: Write metadata.yml (includes parent_session_id)
 
     T->>B: Create buffer with session vars
     T->>B: Insert prompt
@@ -153,13 +151,11 @@ Sessions are persisted to disk with the following structure:
 #+begin_example
 ~/gptel-sessions/
 └── parent-session-20260121143022/
-    ├── metadata.yml                 # Session metadata (session_id, timestamps, preset)
     ├── scope.yml                    # Path permissions and scope configuration
     ├── session.org                  # Parent conversation
     ├── tools.org                    # Parent tool calls
     └── agents/                      # Agent sessions
         └── researcher-20260121143245-analyze-code/
-            ├── metadata.yml         # Agent metadata (includes parent_session_id)
             ├── scope.yml            # Agent-specific scope (NO inheritance)
             ├── session.org          # Agent conversation (auto-saved)
             └── tools.org            # Agent tool calls
