@@ -2,7 +2,7 @@
 name: branching-drop-metadata-copy
 description: Remove the metadata.yml copy step from jf/gptel--branch-session-core since the new branch inherits the preset via the drawer already embedded in session.org.
 change: gptel-chat-state-persistence
-status: ready
+status: needs-review
 relations:
   - "blocked-by:session-creation-drawer-prepopulate"
 ---

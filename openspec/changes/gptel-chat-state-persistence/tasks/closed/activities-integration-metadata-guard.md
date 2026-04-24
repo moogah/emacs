@@ -2,7 +2,7 @@
 name: activities-integration-metadata-guard
 description: Replace the jf/gptel--read-session-metadata feature-detection guard in activities-integration with a check on a still-present function, and drop the require of the deleted module.
 change: gptel-chat-state-persistence
-status: ready
+status: needs-review
 relations:
   - "blocked-by:session-creation-drawer-prepopulate"
 ---
