@@ -2,7 +2,7 @@
 name: sessions-auto-init-drop-metadata
 description: Remove metadata.yml reading from jf/gptel--auto-init-session-buffer so session state comes exclusively from the session.org drawer via gptel-chat-mode activation.
 change: gptel-chat-state-persistence
-status: ready
+status: needs-review
 relations:
   - "blocked-by:chat-drawer-overrides-overlay"
 ---
