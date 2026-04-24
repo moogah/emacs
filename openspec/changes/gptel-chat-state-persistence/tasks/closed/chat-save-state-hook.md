@@ -2,7 +2,7 @@
 name: chat-save-state-hook
 description: Add buffer-local before-save-hook in gptel-chat-mode that writes a PROPERTIES drawer via gptel-org-set-properties (+ GPTEL_PARENT_SESSION_ID), excluding GPTEL_BOUNDS.
 change: gptel-chat-state-persistence
-status: ready
+status: needs-review
 relations: []
 ---
 
