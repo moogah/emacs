@@ -234,7 +234,51 @@
         ;; branches.
         (goto-char (point-min))
         (expect (search-forward ":GPTEL_BOUNDS:" nil t)
-                :to-be nil))))
+                :to-be nil)))
+
+
+    ;; -------------------------------------------------------------------
+    ;; Integration: preset-applied save path end-to-end.
+    ;;
+    ;; Registers a real preset via `gptel-make-preset', binds
+    ;; `gptel--preset' buffer-locally, and lets `gptel-chat--save-state'
+    ;; run against the real upstream `gptel-org-set-properties'.  No
+    ;; spies on the upstream helper — a future change to its signature
+    ;; (e.g. additional required args) fails this spec.  The preset is
+    ;; unregistered in `after-each' so global state stays clean between
+    ;; examples.  Pattern mirrored from
+    ;; `config/gptel/sessions/test/commands/preset-application-spec.el'.
+
+    (describe "preset-applied save path (real upstream helper)"
+
+      (let ((preset-name 'gptel-chat-save-integration-preset))
+
+        (before-each
+          (unless (fboundp 'gptel-org-set-properties)
+            (signal 'buttercup-pending nil))
+          (gptel-make-preset preset-name :temperature 0.5))
+
+        (after-each
+          (setq gptel--known-presets
+                (assq-delete-all preset-name gptel--known-presets)))
+
+        (it "writes GPTEL_PRESET and never GPTEL_BOUNDS when a preset is applied"
+          (with-temp-buffer
+            (gptel-chat-mode)
+            (insert gptel-chat-save-test--empty-chat)
+            (setq-local gptel--preset preset-name)
+            (gptel-chat--save-state)
+            ;; `:GPTEL_PRESET: <preset-name>' is present at point-min.
+            (goto-char (point-min))
+            (expect (search-forward
+                     (format ":GPTEL_PRESET: %s" preset-name) nil t)
+                    :to-be-truthy)
+            ;; `:GPTEL_BOUNDS:' is NOT present — re-asserting the
+            ;; invariant for the preset-applied path (spec §"Save path
+            ;; never writes GPTEL_BOUNDS").
+            (goto-char (point-min))
+            (expect (search-forward ":GPTEL_BOUNDS:" nil t)
+                    :to-be nil))))))
 
 
   ;; -----------------------------------------------------------------------

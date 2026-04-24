@@ -680,7 +680,55 @@
           ;; it never calls `make-local-variable'.  So the only
           ;; potential caller here is the overlay, and every overlay
           ;; field is nil → no calls expected.
-          (expect 'make-local-variable :not :to-have-been-called)))))
+          (expect 'make-local-variable :not :to-have-been-called))))
+
+
+    ;; -------------------------------------------------------------------
+    ;; Integration with the real upstream helper.
+    ;;
+    ;; The unit specs above spy on `gptel-org--entry-properties' to
+    ;; drive the overlay from a controlled tuple.  That isolates the
+    ;; overlay's decision logic from upstream's parser, but it also
+    ;; means a future upstream-signature change (e.g. adding a new
+    ;; field to the tuple) slips past the mock untouched.  This
+    ;; integration spec fills that gap: it exercises the real parser
+    ;; against a real `:PROPERTIES:' drawer and asserts the overlay
+    ;; installed the expected buffer-local binding end-to-end.
+    ;;
+    ;; We choose `GPTEL_TEMPERATURE' (and `GPTEL_SYSTEM' where
+    ;; applicable) because those keys round-trip through
+    ;; `gptel-org--entry-properties' without requiring
+    ;; `gptel--known-backends' population or preset registration —
+    ;; keeping the test self-contained.  `GPTEL_BACKEND',
+    ;; `GPTEL_MODEL', and `GPTEL_TOOLS' are intentionally avoided
+    ;; here; they are covered by the unit specs above with controlled
+    ;; tuples.
+
+    (describe "integration with real gptel-org helper"
+
+      (before-each
+        (unless (fboundp 'gptel-org--entry-properties)
+          (signal 'buttercup-pending nil)))
+
+      (it "overlays GPTEL_TEMPERATURE from a real drawer end-to-end"
+        ;; Real upstream parser, real org-mode buffer, no spies on the
+        ;; boundary.  A future change to the upstream tuple shape —
+        ;; such as adding a new leading field — fails this spec via a
+        ;; `pcase-let' destructuring mismatch, which is precisely the
+        ;; signal the overlay's unit specs cannot provide.
+        (with-temp-buffer
+          (insert ":PROPERTIES:\n"
+                  ":GPTEL_PRESET: coding\n"
+                  ":GPTEL_TEMPERATURE: 0.5\n"
+                  ":END:\n"
+                  "\n"
+                  "#+begin_user\n"
+                  "\n"
+                  "#+end_user\n")
+          (org-mode)
+          (gptel-chat--apply-drawer-overrides)
+          (expect (local-variable-p 'gptel-temperature) :to-be t)
+          (expect gptel-temperature :to-equal 0.5)))))
 
   )
 
