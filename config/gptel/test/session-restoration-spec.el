@@ -123,33 +123,10 @@
 
   (describe "New session restoration"
 
-    (it "reads preset from metadata.yml and applies it"
-      (let ((buf (generate-new-buffer "session.org"))
-            (apply-preset-called nil))
-        (unwind-protect
-            (with-current-buffer buf
-              (setq buffer-file-name "/sessions/test-sess/branches/main/session.org")
-              (let ((metadata-path (expand-file-name
-                                    "metadata.yml"
-                                    "/sessions/test-sess/branches/main/")))
-                (with-seeded-files
-                    `((,metadata-path . "session_id: \"test-sess\"\npreset: \"executor\"\ncreated: \"2026-01-01T00:00:00Z\"\n"))
-                  (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
-                            ((symbol-function 'file-exists-p) (lambda (_) t))
-                            ((symbol-function 'gptel-get-preset)
-                             (lambda (name) (when (eq name 'executor) '((gptel-model . "test")))))
-                            ((symbol-function 'gptel--apply-preset)
-                             (lambda (name _setter)
-                               (setq apply-preset-called name)))
-                            ((symbol-function 'gptel-chat-mode) (lambda (&optional _) nil))
-                            ((symbol-function 'make-symbolic-link)
-                             (lambda (_target _linkname &optional _ok) nil))
-                            ((symbol-function 'delete-file)
-                             (lambda (_f &optional _trash) nil)))
-                    (jf/gptel--auto-init-session-buffer)
-                    (expect apply-preset-called :to-equal 'executor)))))
-          (remhash (jf/gptel--registry-key "test-sess" "main") jf/gptel--session-registry)
-          (kill-buffer buf))))
+    ;; Former "reads preset from metadata.yml and applies it" spec was
+    ;; deleted when metadata.yml ceased to be authoritative — preset
+    ;; application is now the drawer's job via gptel-chat-mode hook,
+    ;; covered by config/gptel/sessions/test/commands/preset-application-spec.el.
 
     (it "sets buffer-local session variables"
       (let ((buf (generate-new-buffer "session.org")))
