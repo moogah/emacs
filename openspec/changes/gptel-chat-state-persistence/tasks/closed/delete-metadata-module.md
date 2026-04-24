@@ -2,7 +2,7 @@
 name: delete-metadata-module
 description: Delete the sessions metadata module (metadata.org, metadata.el) and supporting constants/filesystem helpers after all callers have been updated.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "blocked-by:sessions-auto-init-drop-metadata"
   - "blocked-by:session-creation-drawer-prepopulate"
@@ -50,3 +50,23 @@ Module deletion is the final step after every caller has been updated. Performin
 - proposal.md §What Changes (BREAKING module deletion)
 - architecture.md §Components (Deleted — metadata.org / metadata.el)
 - design.md §Decision 6 (rationale for removal)
+
+## Review
+
+Reviewed inline against implementation commit 5b42a02 and merge 06d4ce7. Full suite re-run after merge: identical to baseline (599 ERT/9 unexpected, 1660 Buttercup/24 failed; only timing diffs).
+
+What I checked:
+
+- **Module deletion**: `metadata.org` and `metadata.el` gone. `ls config/gptel/sessions/metadata.*` returns nothing.
+- **Constant removal**: `jf/gptel-session--metadata-file` removed from `constants.org`. Bonus: the `jf/gptel--branch-dir` docstring also updated to drop the `metadata.yml` mention — appropriate, scoped cleanup.
+- **Helper removal**: `jf/gptel--metadata-file-path` removed from `filesystem.org`; `jf/gptel--branch-metadata-file-path` correctly preserved (still used by branching).
+- **Loader cleanup**: `gptel.org` removed both the `jf/load-module` call and renumbered the prose load-order list (5/6/7/8 → 5/6/7) — careful attention.
+- **Test require**: Stale `(require 'gptel-session-metadata)` dropped from `activity-session-chat-spec.el`.
+- **Registry prose**: Updated `registry.org`'s prose to remove the dangling `jf/gptel--read-session-metadata` reference.
+- **Persistent-agent prose** (the finding folded into this task at review of the prior task): All four stale references cleaned up — module-layout diagram line, sequence diagram step, and both ASCII directory trees.
+- **Verification grep**: zero live matches for any of the six deletion symbols in `.el` files.
+- **Sole remaining `metadata.yml` mention** is `branching-integration-spec.el:283` — a deliberate negative assertion (`:not :to-be-truthy`) verifying the legacy file is NOT copied into a new branch. Exactly the right regression check to keep. Not a finding.
+
+No findings. The change's central design move — drawer is the single source of session-level state — is now fully realized in code. design.md §Decision 6 and §Risk are both honoured.
+
+`regression-sweep-and-manual-smoke` is now the only remaining task and is unblocked.
