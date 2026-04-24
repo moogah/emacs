@@ -2,7 +2,7 @@
 name: chat-real-upstream-integration-tests
 description: Add real-upstream integration tests covering the overlay restore path and the preset-applied save path so future upstream signature changes surface in our tests, not just in mocks.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "discovered-from:chat-drawer-overrides-overlay"
   - "discovered-from:chat-save-state-hook"
@@ -57,3 +57,15 @@ Both are the same kind of gap — the architecture contract is explicit about wa
 - `openspec/changes/gptel-chat-state-persistence/architecture.md` §"Test Patterns" — contract that drove the findings.
 - `openspec/changes/gptel-chat-state-persistence/specs/gptel/chat-mode.md` — scenario mapping.
 - Existing integration section in `save-state-spec.el` (lines ~166-237) is the pattern to mirror for the overlay side.
+
+## Review
+
+Reviewed inline (orch-review-1777056605).
+
+Looked at:
+- Implementation commit `ace09b5` against task body's two implementation steps.
+- Overlay fn in `config/gptel/chat/menu.el:173` confirms `_preset` is discarded in the pcase-let, so `:GPTEL_PRESET: coding` in the overlay test drawer is inert — no preset registration needed for the overlay path (consistent with design §Decision 2, 5).
+- `gptel-chat-save-test--empty-chat` fixture exists in `save-state-spec.el:67`; the new spec mirrors existing call-site patterns.
+- State captured `post_commit_buttercup_failed: 23` = baseline (no regression).
+
+Findings: none. Both specs match the task body, guards are correctly placed, after-each unregisters the preset, and the architecture §"Test Patterns / End-to-end (real upstream)" contract is now satisfied on both paths.

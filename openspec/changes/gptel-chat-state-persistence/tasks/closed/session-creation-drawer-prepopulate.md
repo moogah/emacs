@@ -2,7 +2,7 @@
 name: session-creation-drawer-prepopulate
 description: Pre-populate session.org initial content with a PROPERTIES drawer containing GPTEL_PRESET (and GPTEL_PARENT_SESSION_ID for agents), and stop writing metadata.yml during session creation.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "blocked-by:chat-drawer-overrides-overlay"
 ---
@@ -64,3 +64,20 @@ Threading `parent-session-id` through `jf/gptel--create-session-core` keeps the 
 - specs/gptel/sessions-persistence.md §"Session creation" (MODIFIED), §"session.org as authoritative session file" (ADDED)
 - architecture.md §"`jf/gptel--create-session-core` (modified)"
 - design.md §Decisions 4, 6
+
+## Review
+
+Reviewed inline (orch-review-1777056605).
+
+Looked at:
+- Implementation commit `c457181` across `commands.org`, `activities-integration.org`, `session-org-creation-spec.el`, `activity-session-chat-spec.el`, older `config/gptel/test/session-creation-spec.el`.
+- `jf/gptel--initial-session-content` helper: treats both nil and empty-string `parent-session-id` as absent, builds drawer via raw `format` per design rationale.
+- `jf/gptel--create-session-core` signature: added optional `parent-session-id` at the end, default initial-content now wraps via helper when caller omits.
+- Both existing callers (`jf/gptel-persistent-session`, `jf/gptel-session-create-persistent`) correctly thread `nil` for `parent-session-id`; neither is an agent path.
+- Test coverage: agent-branch (non-empty parent), standalone, empty-string parent, nil parent, caller-provided initial-content override, preset-name symbol rendering, and a helper-level spec independent of filesystem capture. No metadata.yml write remains in captured write set.
+- `(require 'gptel-session-metadata)` dropped from `commands.org`. It still appears in `activities-integration.el:14`, which is correctly scoped to the already-queued follow-up `activities-integration-metadata-guard` (blocked-by this task).
+- state.json records `post_merge_buttercup_failed: 23` = baseline.
+
+Findings: none. The activities-integration.el residue and the `metadata.org` module itself remain as-designed deferrals to the follow-up tasks (`activities-integration-metadata-guard`, `delete-metadata-module`).
+
+Note: the task's Verification step says `grep ... commands.el — no matches`, but 4 comment-level matches remain (docstrings / code comments explaining *why* metadata.yml is no longer written). A thoughtful maintainer would keep those — removing them would hurt future discoverability. Not raised as a finding.

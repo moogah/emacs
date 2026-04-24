@@ -2,7 +2,7 @@
 name: sessions-auto-init-drop-metadata
 description: Remove metadata.yml reading from jf/gptel--auto-init-session-buffer so session state comes exclusively from the session.org drawer via gptel-chat-mode activation.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "blocked-by:chat-drawer-overrides-overlay"
 ---
@@ -53,3 +53,18 @@ The "metadata.yml wins" test contract was the sole behavioral argument for keepi
 - specs/gptel/sessions-persistence.md §"Auto-initialization enables `gptel-chat-mode`" (MODIFIED)
 - architecture.md §"`jf/gptel--auto-init-session-buffer` (simplified)"
 - design.md §Decisions 6, 9
+
+## Review
+
+Reviewed inline (orch-review-1777056605).
+
+Looked at:
+- Implementation commit `d139996` + follow-up `5380d4f` (stale-spec removal).
+- `jf/gptel--auto-init-session-buffer` in `commands.el:138` — retained path detection, regex matching, directory validation, `ensure-mode-once`, path-derived buffer-locals, registry registration, `jf/gptel-autosave-enabled`, and `current` symlink update. Metadata read block, parent-session-id extraction, and post-activation `gptel--apply-preset` call all removed. The explanatory comment block explaining why the function's scope shrank is concise and grounds the reader in Decisions 5/6/9.
+- `(require 'gptel-session-metadata)` dropped from `commands.org`.
+- `preset-application-spec.el`: old "metadata.yml wins" block replaced with drawer-driven scenarios — real-mode integration (drawer preset drives apply-preset), overlay-hook-fires, GPTEL_PARENT_SESSION_ID populates `jf/gptel--parent-session-id`, negative spy that no `insert-file-contents` targets `metadata.yml$`, and a `(gptel-mode 1)` never-called assertion. Shared helper `jf-gptel-test--write-session-with-drawer` matches the task's step 4 contract.
+- `auto-init-chat-mode-spec.el`: fixtures switched from stubbed `insert-file-contents` returning metadata.yml content to either real `session.org` on disk with a drawer (parent-session-id scenario) or simple in-memory buffers (unit-level path tests).
+- The `5380d4f` follow-up correctly deleted a stale spec that lived under `config/gptel/test/` (outside the task's file-modify list) and whose sole intent was the "metadata wins" contract. Coverage is preserved in `preset-application-spec.el`.
+- state.json: `post_merge_buttercup_failed: 23` = baseline. `merge_conflict` was on `(require 'gptel-session-metadata)` removal + commentary rewrite in `commands.org`; resolution composed both commentary rewrites and re-tangled — correct outcome.
+
+Findings: none. The merge-regression recovery path (missing stale spec, caught by the regression sweep, cleaned up in a follow-up commit) is exactly the kind of signal the orchestrator pipeline is designed to surface and resolve; no process change needed.
