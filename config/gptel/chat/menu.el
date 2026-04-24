@@ -52,7 +52,7 @@
 (declare-function org-entry-put "org" (pom property value))
 (defvar gptel--preset)
 ;; Declared (not defined) here — session-local defined in
-;; `config/gptel/sessions/commands.org'.  Declaring lets this module
+;; `config/gptel/sessions/constants.org'.  Declaring lets this module
 ;; compile and write the binding without pulling sessions in.
 (defvar jf/gptel--parent-session-id)
 ;; Forward declarations:1 ends here
