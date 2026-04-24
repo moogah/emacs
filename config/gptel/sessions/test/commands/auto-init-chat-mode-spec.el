@@ -8,36 +8,40 @@
 ;;; Commentary:
 
 ;; Behavioral tests for `jf/gptel--auto-init-session-buffer' after the
-;; Decision 16/18 rename.  Verifies:
+;; drawer-authoritative rework (design.md §Decisions 5, 6, 9).
+;; Verifies:
 ;;
 ;; 1. Opening `~/.gptel/sessions/foo-20260420000000/branches/main/session.org'
-;;    activates `gptel-chat-mode', sets the five buffer-local session
-;;    vars, registers the buffer in the registry, and does NOT call
-;;    `gptel-mode'.
+;;    activates `gptel-chat-mode', sets the four path-derived
+;;    buffer-local session vars, registers the buffer in the registry,
+;;    and does NOT call `gptel-mode'.
 ;; 2. Agent-path recognition (`.../agents/<name>/session.org').
 ;; 3. A `.org' file at an unrelated path does NOT fire auto-init; no
 ;;    session vars are set; no registry entry is created.
 ;; 4. `gptel--save-state' / `gptel--restore-state' are NOT called during
 ;;    auto-init.
+;; 5. `jf/gptel--parent-session-id' is populated from the drawer via
+;;    the chat-mode hook (not from `metadata.yml').
 ;;
-;; Mocks upstream `gptel-get-preset', `gptel--apply-preset',
-;; `gptel-chat-mode', `gptel-mode', `gptel--save-state',
-;; `gptel--restore-state', and filesystem primitives so the hook runs
-;; against seeded state without touching disk or real package defs.
+;; Fixtures write a `session.org' on disk with a `:PROPERTIES:' drawer
+;; (NOT a `metadata.yml') for tests that exercise drawer-driven
+;; behaviour.  Unit-level tests that stub `gptel-chat-mode' use
+;; in-memory buffers without any on-disk session file.
 
 ;;; Code:
 
 (require 'buttercup)
 (require 'cl-lib)
-(require 'yaml)
 
 ;; Load production modules
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
-(require 'gptel-session-metadata)
 (require 'gptel-session-registry)
 (require 'gptel-session-commands)
+(require 'gptel-chat-mode)
+(require 'gptel-chat-menu)
+(require 'gptel)
 
 (defvar jf-gptel-auto-init-test--registry-keys nil
   "Registry keys to clean up after each example.")
@@ -46,6 +50,26 @@
   "Remember (SESSION-ID, BRANCH-NAME) for `after-each' registry cleanup."
   (push (jf/gptel--registry-key session-id branch-name)
         jf-gptel-auto-init-test--registry-keys))
+
+(defun jf-gptel-auto-init-test--write-session-with-drawer
+    (branch-dir preset &optional parent-id)
+  "Write a `session.org' with a PROPERTIES drawer into BRANCH-DIR.
+PRESET is a symbol written as `:GPTEL_PRESET:'.  PARENT-ID, when
+non-nil, is written as `:GPTEL_PARENT_SESSION_ID:'.  Returns the
+absolute path to the created file."
+  (make-directory branch-dir t)
+  (let ((session-file (expand-file-name "session.org" branch-dir)))
+    (with-temp-file session-file
+      (insert ":PROPERTIES:\n")
+      (insert (format ":GPTEL_PRESET: %s\n" preset))
+      (when parent-id
+        (insert (format ":GPTEL_PARENT_SESSION_ID: %s\n" parent-id)))
+      (insert ":END:\n"
+              "\n"
+              "#+begin_user\n"
+              "hello\n"
+              "#+end_user\n"))
+    session-file))
 
 (describe "jf/gptel--auto-init-session-buffer under chat-mode"
 
@@ -69,14 +93,6 @@
                      "~/.gptel/sessions/foo-20260420000000/branches/main/session.org"))
               (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                         ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest _)
-                           (insert "session_id: \"foo-20260420000000\"\npreset: \"executor\"\n")
-                           (list f 0)))
-                        ((symbol-function 'gptel-get-preset)
-                         (lambda (_) '((gptel-model . "test"))))
-                        ((symbol-function 'gptel--apply-preset)
-                         (lambda (_name _setter) nil))
                         ((symbol-function 'gptel-chat-mode)
                          (lambda (&optional _) (setq chat-mode-called t)))
                         ((symbol-function 'gptel-mode)
@@ -101,13 +117,13 @@
                 (expect save-state-called :to-be nil)
                 (expect restore-state-called :to-be nil)
 
-                ;; Five buffer-local session variables set.
+                ;; Four path-derived buffer-local session variables set.
                 (expect jf/gptel--session-id :to-equal "foo-20260420000000")
                 (expect jf/gptel--session-dir :to-be-truthy)
                 (expect jf/gptel--branch-name :to-equal "main")
                 (expect jf/gptel--branch-dir :to-be-truthy)
                 ;; Parent-session-id stays nil for top-level sessions
-                ;; (buffer-local default).
+                ;; (drawer not read because gptel-chat-mode is stubbed).
                 (expect (bound-and-true-p jf/gptel--parent-session-id)
                         :to-be nil)
 
@@ -131,14 +147,6 @@
                      "~/.gptel/sessions/foo-20260420000000/branches/feature-x/agents/researcher-20260420120000-explore/session.org"))
               (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                         ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest _)
-                           (insert "session_id: \"foo-20260420000000\"\npreset: \"researcher\"\n")
-                           (list f 0)))
-                        ((symbol-function 'gptel-get-preset)
-                         (lambda (_) '((gptel-model . "test"))))
-                        ((symbol-function 'gptel--apply-preset)
-                         (lambda (_name _setter) nil))
                         ((symbol-function 'gptel-chat-mode)
                          (lambda (&optional _) (setq chat-mode-called t)))
                         ((symbol-function 'gptel-mode)
@@ -174,14 +182,6 @@
                      "~/.gptel/sessions/foo-20260420000000/agents/researcher-20260420120000-explore/session.org"))
               (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                         ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest _)
-                           (insert "session_id: \"foo-20260420000000\"\npreset: \"researcher\"\n")
-                           (list f 0)))
-                        ((symbol-function 'gptel-get-preset)
-                         (lambda (_) '((gptel-model . "test"))))
-                        ((symbol-function 'gptel--apply-preset)
-                         (lambda (_name _setter) nil))
                         ((symbol-function 'gptel-chat-mode)
                          (lambda (&optional _) (setq chat-mode-called t)))
                         ((symbol-function 'jf/gptel--update-current-symlink)
@@ -206,41 +206,41 @@
                 (expect symlink-updated :to-be nil)))
           (kill-buffer buf))))
 
-    (it "populates jf/gptel--parent-session-id from metadata.yml for a branch session"
-      (let ((buf (generate-new-buffer "session.org")))
+    (it "populates jf/gptel--parent-session-id from drawer for a branch session"
+      ;; Under the drawer-authoritative design, parent-session-id is
+      ;; written to the session.org drawer and read by the chat-mode
+      ;; hook at activation — NOT by auto-init reading metadata.yml.
+      ;; Drive this test through the real `find-file' path with a real
+      ;; `session.org' on disk so `gptel-chat-mode-hook' fires.
+      (let ((temp-root (make-temp-file "gptel-auto-init-parent-" t))
+            (buf nil)
+            (child-preset 'auto-init-parent-preset))
         (unwind-protect
-            (with-current-buffer buf
-              (setq buffer-file-name
-                    (expand-file-name
-                     "~/.gptel/sessions/bar-20260420000000/branches/feature-x/session.org"))
-              (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
-                        ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest _)
-                           (insert "session_id: \"bar-20260420000000\"\n")
-                           (insert "parent_session_id: \"foo-20260420000000\"\n")
-                           (insert "preset: \"executor\"\n")
-                           (list f 0)))
-                        ((symbol-function 'gptel-get-preset)
-                         (lambda (_) '((gptel-model . "test"))))
-                        ((symbol-function 'gptel--apply-preset)
-                         (lambda (_name _setter) nil))
-                        ((symbol-function 'gptel-chat-mode)
-                         (lambda (&optional _) nil))
-                        ((symbol-function 'make-symbolic-link)
-                         (lambda (_t _l &optional _ok) nil))
-                        ((symbol-function 'delete-file)
-                         (lambda (_f &optional _trash) nil)))
-                (jf/gptel--auto-init-session-buffer)
-                (when jf/gptel--session-id
+            (progn
+              (gptel-make-preset child-preset :temperature 0.42)
+              (let* ((branch-dir
+                      (expand-file-name
+                       "bar-20260420000000/branches/feature-x" temp-root))
+                     (session-file
+                      (jf-gptel-auto-init-test--write-session-with-drawer
+                       branch-dir child-preset "foo-20260420000000")))
+                (setq buf (find-file-noselect session-file))
+                (with-current-buffer buf
                   (jf-gptel-auto-init-test--register-cleanup
-                   jf/gptel--session-id jf/gptel--branch-name))
-
-                (expect jf/gptel--session-id :to-equal "bar-20260420000000")
-                (expect jf/gptel--branch-name :to-equal "feature-x")
-                (expect jf/gptel--parent-session-id
-                        :to-equal "foo-20260420000000")))
-          (kill-buffer buf)))))
+                   "bar-20260420000000" "feature-x")
+                  (expect jf/gptel--session-id
+                          :to-equal "bar-20260420000000")
+                  (expect jf/gptel--branch-name :to-equal "feature-x")
+                  (expect jf/gptel--parent-session-id
+                          :to-equal "foo-20260420000000"))))
+          (when (buffer-live-p buf)
+            (with-current-buffer buf
+              (set-buffer-modified-p nil))
+            (kill-buffer buf))
+          (setq gptel--known-presets
+                (assq-delete-all child-preset gptel--known-presets))
+          (when (file-directory-p temp-root)
+            (delete-directory temp-root t))))))
 
   (describe "non-session .org files"
 
@@ -280,14 +280,6 @@
                     "/sessions/sess-abc/branches/main/session.org")
               (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                         ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest _)
-                           (insert "session_id: \"sess-abc\"\npreset: \"executor\"\n")
-                           (list f 0)))
-                        ((symbol-function 'gptel-get-preset)
-                         (lambda (_) '((gptel-model . "test"))))
-                        ((symbol-function 'gptel--apply-preset)
-                         (lambda (_name _setter) nil))
                         ((symbol-function 'gptel-chat-mode)
                          (lambda (&optional _) nil))
                         ((symbol-function 'gptel--save-state)
@@ -306,9 +298,9 @@
 
     (it "does not call gptel--save-state or gptel--restore-state for an existing session"
       ;; Even when gptel--preset is already set as a buffer-local
-      ;; (simulating a property drawer or file-local having already
-      ;; been processed by Emacs), auto-init MUST NOT go through the
-      ;; upstream restore-state round-trip. metadata.yml is authoritative.
+      ;; (simulating a property drawer having already been processed
+      ;; by the chat-mode hook), auto-init MUST NOT go through the
+      ;; upstream restore-state round-trip. The drawer is authoritative.
       (let ((buf (generate-new-buffer "session.org"))
             (save-state-called nil)
             (restore-state-called nil)
@@ -320,14 +312,6 @@
               (setq-local gptel--preset 'drawer-preset)
               (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                         ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest _)
-                           (insert "session_id: \"sess-xyz\"\npreset: \"executor\"\n")
-                           (list f 0)))
-                        ((symbol-function 'gptel-get-preset)
-                         (lambda (_) '((gptel-model . "test"))))
-                        ((symbol-function 'gptel--apply-preset)
-                         (lambda (_name _setter) nil))
                         ((symbol-function 'gptel-chat-mode)
                          (lambda (&optional _) (setq chat-mode-called t)))
                         ((symbol-function 'gptel--save-state)
