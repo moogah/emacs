@@ -2,7 +2,7 @@
 name: chat-drawer-overrides-overlay
 description: Add gptel-chat--apply-drawer-overrides overlay function and call it from gptel-chat--apply-declared-preset so drawer deltas and GPTEL_PARENT_SESSION_ID are restored on mode activation.
 change: gptel-chat-state-persistence
-status: ready
+status: needs-review
 relations: []
 ---
 
