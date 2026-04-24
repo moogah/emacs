@@ -2,7 +2,7 @@
 name: branching-drop-metadata-copy
 description: Remove the metadata.yml copy step from jf/gptel--branch-session-core since the new branch inherits the preset via the drawer already embedded in session.org.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "blocked-by:session-creation-drawer-prepopulate"
 ---
@@ -51,3 +51,34 @@ The metadata.yml copy was a legacy mechanism for propagating the preset to a new
 - specs/gptel/sessions-persistence.md §"Directory structure initialization" (MODIFIED, "Branch creation" scenario)
 - architecture.md §"`jf/gptel--branch-session-core` (modified)"
 - design.md §Decision 7
+
+## Review
+
+Reviewed inline 2026-04-24 by orchestrator. Impl commit `192c167`, merge `96a5993`.
+
+- Diff matches spec: `(require 'gptel-session-metadata)` dropped, the
+  `metadata.yml` copy block removed from `jf/gptel--branch-session-core`,
+  replaced with a Why-style comment citing Decision 7. The separate
+  `jf/gptel--write-branch-metadata` (branch-metadata.yml) is correctly
+  preserved per spec step 3. Docstring updated to describe the new
+  propagation mechanism.
+- Test changes are the strongest part of this patch:
+  - Fixture refactor: extracted `jf-branching-integration--parent-drawer`
+    defconst and prepended to both parent-session fixtures — prevents
+    drift.
+  - Negative assertion `(expect (file-exists-p "metadata.yml") :not
+    :to-be-truthy)` actively guards against regression instead of being
+    silent about the file's absence.
+  - New `"Preset drawer inheritance (Decision 7)"` describe block with
+    two specs: (1) INCLUDE-case asserts **bytewise-exact** drawer prefix
+    (`substring written 0 (length parent-drawer) :to-equal parent-drawer`)
+    — a strong contract that catches any future truncation-logic drift;
+    (2) EXCLUDE-case covers the first-turn-excluded edge where the branch
+    body is empty but the drawer must still ride along.
+- `grep -n "metadata.yml\|jf/gptel--metadata-file-path"
+  config/gptel/sessions/branching.el` — only the comment mentioning the
+  absence, as allowed by the spec.
+- Targeted tests: `./bin/run-tests.sh -d config/gptel/sessions/test/branching`
+  — 32 specs, 0 failed.
+
+Findings: none. Flipping to `done`.

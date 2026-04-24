@@ -2,7 +2,7 @@
 name: activities-integration-metadata-guard
 description: Replace the jf/gptel--read-session-metadata feature-detection guard in activities-integration with a check on a still-present function, and drop the require of the deleted module.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "blocked-by:session-creation-drawer-prepopulate"
 ---
@@ -48,3 +48,23 @@ Removing the `jf/gptel--read-session-metadata` probe prevents a future regressio
 - proposal.md §Impact (Code (modify) — activities-integration)
 - architecture.md §Components (Modified — activities-integration.el)
 - design.md §Decision 8
+
+## Review
+
+Reviewed inline 2026-04-24 by orchestrator. Impl commit `1c94e29`, merge `5aa37bf`.
+
+- Diff matches spec: `(require 'gptel-session-metadata)` dropped from both
+  `.org` and `.el`, guard simplified to `(fboundp 'jf/gptel--register-session)`
+  per design.md §Decision 8, dependencies doc line updated ("registry,
+  metadata, filesystem" → "registry, filesystem").
+- `activities-integration.el:91` already passes `nil` for `parent-session-id`
+  (spec step 4 — overlap with session-creation-drawer-prepopulate was
+  anticipated).
+- `grep -n "gptel-session-metadata\|jf/gptel--read-session-metadata"
+  config/gptel/sessions/activities-integration.el` — no matches. Docstring
+  mentions of `metadata.yml` on lines 37/79 are historical "no sidecar is
+  written" notes, explicitly permitted by the regression-sweep task.
+- Targeted tests: `./bin/run-tests.sh -d config/gptel/sessions/test/activities`
+  — 8 specs, 0 failed.
+
+Findings: none. Flipping to `done`.
