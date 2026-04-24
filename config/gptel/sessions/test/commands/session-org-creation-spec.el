@@ -1,4 +1,4 @@
-;;; session-org-creation-spec.el --- Session file creation per Decision 18 -*- lexical-binding: t; -*-
+;;; session-org-creation-spec.el --- Session file creation per Decision 4 -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -8,21 +8,24 @@
 ;;; Commentary:
 
 ;; Behavioral tests for the session creation path after the
-;; `gptel-chat-mode' rework (design Decision 9 / Decision 18).
+;; `gptel-chat-state-persistence' rework (design Decision 4 / Decision 6).
 ;;
 ;; Invariants verified:
 ;;
-;; 1. `session.org' contains EXACTLY the chat-mode empty-user-block
-;;    template (`#+begin_user\n\n#+end_user\n') — no markdown heading,
-;;    no `###' placeholder, no Local Variables block.
+;; 1. `session.org' is pre-populated with a `:PROPERTIES:' drawer
+;;    containing `GPTEL_PRESET' (and `GPTEL_PARENT_SESSION_ID' when an
+;;    agent session declares a parent) followed by the chat-mode
+;;    empty-user-block template.  The drawer shape matches what the
+;;    save hook writes on first save, so creation → open → save is a
+;;    no-op on disk.
 ;;
 ;; 2. The created session file has NO Local Variables block written
 ;;    during creation.  Chat-mode's block format is self-describing;
 ;;    persistence is plain `save-buffer' (Decision 18).
 ;;
-;; 3. `metadata.yml' still contains the canonical fields: `session_id',
-;;    `created', `updated', `preset'.  The metadata path is unchanged
-;;    by this rework — only the conversation-file contents change.
+;; 3. No `metadata.yml' sidecar is written during session creation.
+;;    The drawer embedded in `session.org' is the single authoritative
+;;    session-level configuration source (Decision 6).
 ;;
 ;; Tests use `with-captured-io' from `persistence-test-helpers' to
 ;; intercept filesystem writes so all production persistence code
@@ -47,26 +50,45 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
-(require 'gptel-session-metadata)
 (require 'gptel-scope-profiles)
 (require 'gptel-session-commands)
 
-(describe "jf/gptel--create-session-core writes chat-mode session.org"
+(describe "jf/gptel--create-session-core writes pre-populated session.org"
 
-  (describe "session.org initial content (Decision 18)"
+  (describe "session.org initial content (Decision 4)"
 
-    (it "contains exactly the chat-mode empty-user-block template"
+    (it "contains the PROPERTIES drawer with GPTEL_PRESET followed by empty user block"
       (with-captured-io
         (jf/gptel--create-session-core
-         "sess-decision18-20260421120000"
-         "/sessions/sess-decision18-20260421120000"
+         "sess-decision4-20260421120000"
+         "/sessions/sess-decision4-20260421120000"
          'executor)
         (let ((content (captured-file-content
                         captured-files
-                        (concat "/sessions/sess-decision18-20260421120000"
+                        (concat "/sessions/sess-decision4-20260421120000"
                                 "/branches/main/session.org"))))
           (expect content :to-be-truthy)
-          (expect content :to-equal "#+begin_user\n\n#+end_user\n"))))
+          (expect content :to-equal
+                  (concat ":PROPERTIES:\n"
+                          ":GPTEL_PRESET: executor\n"
+                          ":END:\n"
+                          "#+begin_user\n"
+                          "\n"
+                          "#+end_user\n")))))
+
+    (it "encodes the preset name symbol as its symbol-name in the drawer"
+      ;; A differently-named preset lands in the drawer verbatim as a
+      ;; string, not as an interned-symbol reader syntax.
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "sess-preset-name-20260421120000"
+         "/sessions/sess-preset-name-20260421120000"
+         'researcher)
+        (let ((content (captured-file-content
+                        captured-files
+                        (concat "/sessions/sess-preset-name-20260421120000"
+                                "/branches/main/session.org"))))
+          (expect content :to-match "^:GPTEL_PRESET: researcher$"))))
 
     (it "contains no markdown heading or ### placeholder"
       ;; The pre-chat-mode creation path seeded session.md with a
@@ -82,7 +104,23 @@
                         (concat "/sessions/sess-no-markdown-20260421120000"
                                 "/branches/main/session.org"))))
           (expect content :not :to-match "^###")
-          (expect content :not :to-match "^# ")))))
+          (expect content :not :to-match "^# "))))
+
+    (it "honours a caller-provided initial-content override verbatim"
+      ;; The helper still accepts a caller-supplied initial-content
+      ;; string.  When provided, the helper must use it verbatim and
+      ;; must not wrap it with a generated drawer.
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "sess-custom-content-20260421120000"
+         "/sessions/sess-custom-content-20260421120000"
+         'executor
+         "custom\nseed\n")
+        (let ((content (captured-file-content
+                        captured-files
+                        (concat "/sessions/sess-custom-content-20260421120000"
+                                "/branches/main/session.org"))))
+          (expect content :to-equal "custom\nseed\n")))))
 
   (describe "no Local Variables block during creation (Decision 18)"
 
@@ -109,61 +147,115 @@
           (expect content :not :to-match "<!-- Local Variables: -->")
           (expect content :not :to-match "^# Local Variables:")))))
 
-  (describe "metadata.yml population is preserved"
+  (describe "no metadata.yml sidecar (Decision 6)"
 
-    ;; The metadata.yml schema is explicitly unchanged by Decision 18;
-    ;; assert the canonical fields still land in it.
-
-    (it "writes session_id into metadata.yml"
+    (it "does not write any file named metadata.yml under the branch directory"
+      ;; The drawer embedded in `session.org' is now authoritative.
+      ;; Session creation MUST NOT write the legacy `metadata.yml'
+      ;; sidecar; capture the full write set and assert.
       (with-captured-io
         (jf/gptel--create-session-core
-         "sess-metadata-20260421120000"
-         "/sessions/sess-metadata-20260421120000"
+         "sess-no-metadata-20260421120000"
+         "/sessions/sess-no-metadata-20260421120000"
          'executor)
+        (let ((paths (hash-table-keys captured-files)))
+          (expect (cl-some (lambda (p) (string-suffix-p "/metadata.yml" p)) paths)
+                  :to-be nil)))))
+
+  (describe "agent-session drawer includes GPTEL_PARENT_SESSION_ID"
+
+    ;; When `jf/gptel--create-session-core' is invoked with a
+    ;; non-empty PARENT-SESSION-ID (the agent-creation path), the
+    ;; drawer gains a `:GPTEL_PARENT_SESSION_ID:' line so the
+    ;; chat-mode restore path can install
+    ;; `jf/gptel--parent-session-id' buffer-locally on first open
+    ;; (design Decision 3 / Decision 4).
+
+    (it "omits GPTEL_PARENT_SESSION_ID for standalone / branch sessions (nil parent)"
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "sess-no-parent-20260421120000"
+         "/sessions/sess-no-parent-20260421120000"
+         'executor
+         nil nil nil nil)
         (let ((content (captured-file-content
                         captured-files
-                        (concat "/sessions/sess-metadata-20260421120000"
-                                "/branches/main/metadata.yml"))))
+                        (concat "/sessions/sess-no-parent-20260421120000"
+                                "/branches/main/session.org"))))
+          (expect content :not :to-match "GPTEL_PARENT_SESSION_ID"))))
+
+    (it "omits GPTEL_PARENT_SESSION_ID when parent-session-id is an empty string"
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "sess-empty-parent-20260421120000"
+         "/sessions/sess-empty-parent-20260421120000"
+         'executor
+         nil nil nil "")
+        (let ((content (captured-file-content
+                        captured-files
+                        (concat "/sessions/sess-empty-parent-20260421120000"
+                                "/branches/main/session.org"))))
+          (expect content :not :to-match "GPTEL_PARENT_SESSION_ID"))))
+
+    (it "writes GPTEL_PARENT_SESSION_ID into the drawer for agent sessions"
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "agent-writer-20260421120000"
+         "/sessions/agent-writer-20260421120000"
+         'executor
+         nil nil nil
+         "parent-session-20260101000000")
+        (let ((content (captured-file-content
+                        captured-files
+                        (concat "/sessions/agent-writer-20260421120000"
+                                "/branches/main/session.org"))))
           (expect content :to-be-truthy)
-          (expect content :to-match "session_id: \"sess-metadata-20260421120000\""))))
-
-    (it "writes created timestamp into metadata.yml"
-      (with-captured-io
-        (jf/gptel--create-session-core
-         "sess-metadata-20260421120000"
-         "/sessions/sess-metadata-20260421120000"
-         'executor)
-        (let ((content (captured-file-content
-                        captured-files
-                        (concat "/sessions/sess-metadata-20260421120000"
-                                "/branches/main/metadata.yml"))))
+          (expect content :to-match ":GPTEL_PRESET: executor")
           (expect content :to-match
-                  "created: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T"))))
-
-    (it "writes updated timestamp into metadata.yml"
-      (with-captured-io
-        (jf/gptel--create-session-core
-         "sess-metadata-20260421120000"
-         "/sessions/sess-metadata-20260421120000"
-         'executor)
-        (let ((content (captured-file-content
-                        captured-files
-                        (concat "/sessions/sess-metadata-20260421120000"
-                                "/branches/main/metadata.yml"))))
+                  ":GPTEL_PARENT_SESSION_ID: parent-session-20260101000000")
+          ;; Both drawer lines land before the :END: marker.
           (expect content :to-match
-                  "updated: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T"))))
+                  (concat ":PROPERTIES:\n"
+                          ":GPTEL_PRESET: executor\n"
+                          ":GPTEL_PARENT_SESSION_ID: parent-session-20260101000000\n"
+                          ":END:\n")))))))
 
-    (it "writes preset name into metadata.yml"
-      (with-captured-io
-        (jf/gptel--create-session-core
-         "sess-metadata-20260421120000"
-         "/sessions/sess-metadata-20260421120000"
-         'researcher)
-        (let ((content (captured-file-content
-                        captured-files
-                        (concat "/sessions/sess-metadata-20260421120000"
-                                "/branches/main/metadata.yml"))))
-          (expect content :to-match "preset: \"researcher\""))))))
+(describe "jf/gptel--initial-session-content builds the drawer-prefixed template"
+
+  ;; Direct coverage for the helper — independent of filesystem
+  ;; mocking.  These tests exercise the string-assembly contract that
+  ;; `jf/gptel--create-session-core' relies on.
+
+  (it "returns the drawer + empty user block for a preset alone"
+    (expect (jf/gptel--initial-session-content 'executor)
+            :to-equal
+            (concat ":PROPERTIES:\n"
+                    ":GPTEL_PRESET: executor\n"
+                    ":END:\n"
+                    "#+begin_user\n"
+                    "\n"
+                    "#+end_user\n")))
+
+  (it "inserts GPTEL_PARENT_SESSION_ID between GPTEL_PRESET and :END:"
+    (expect (jf/gptel--initial-session-content 'executor "parent-abc")
+            :to-equal
+            (concat ":PROPERTIES:\n"
+                    ":GPTEL_PRESET: executor\n"
+                    ":GPTEL_PARENT_SESSION_ID: parent-abc\n"
+                    ":END:\n"
+                    "#+begin_user\n"
+                    "\n"
+                    "#+end_user\n")))
+
+  (it "treats an empty string parent-session-id as missing"
+    (expect (jf/gptel--initial-session-content 'executor "")
+            :to-equal
+            (jf/gptel--initial-session-content 'executor)))
+
+  (it "treats nil parent-session-id as missing"
+    (expect (jf/gptel--initial-session-content 'executor nil)
+            :to-equal
+            (jf/gptel--initial-session-content 'executor))))
 
 (provide 'session-org-creation-spec)
 ;;; session-org-creation-spec.el ends here

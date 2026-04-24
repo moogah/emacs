@@ -10,10 +10,24 @@
 ;; Behavioral tests verifying the write-side of session creation via
 ;; `jf/gptel--create-session-core'.
 ;;
-;; Uses `with-captured-io' macro from persistence-test-helpers to intercept
-;; all filesystem writes.  All custom persistence code runs for real;
-;; only Emacs primitives (write-region, make-directory, make-symbolic-link,
-;; etc.) are mocked.
+;; Invariants verified (post-`session-creation-drawer-prepopulate'):
+;;
+;; 1. `session.org' is pre-populated with a `:PROPERTIES:' drawer
+;;    containing `GPTEL_PRESET' (and `GPTEL_PARENT_SESSION_ID' for
+;;    agent sessions) followed by the chat-mode empty-user-block
+;;    template.  The drawer is the authoritative session-level
+;;    configuration source (design Decision 4 / Decision 6).
+;;
+;; 2. No `metadata.yml' sidecar is written during session creation.
+;;    The previous `metadata.yml'-backed path has been removed.
+;;
+;; 3. `scope.yml' is still written from the preset's scope profile
+;;    (unchanged by this task).
+;;
+;; Uses `with-captured-io' macro from persistence-test-helpers to
+;; intercept all filesystem writes.  All custom persistence code runs
+;; for real; only Emacs primitives (write-region, make-directory,
+;; make-symbolic-link, etc.) are mocked.
 
 ;;; Code:
 
@@ -28,7 +42,6 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
-(require 'gptel-session-metadata)
 (require 'gptel-scope-profiles)
 (require 'gptel-session-commands)
 
@@ -45,32 +58,22 @@
         (expect (captured-dir-p captured-dirs "/sessions/test-session-123/branches/main")
                 :to-be-truthy)))
 
-    (it "writes metadata.yml with session_id and preset name"
+    (it "does not write metadata.yml during session creation"
+      ;; Post-`session-creation-drawer-prepopulate': the drawer
+      ;; embedded in `session.org' replaces the sidecar.  Capture
+      ;; every write and assert no path ending in `metadata.yml'
+      ;; landed in the hash.
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'executor)
-        (let ((content (captured-file-content
-                        captured-files
-                        "/sessions/test-session-123/branches/main/metadata.yml")))
-          (expect content :to-be-truthy)
-          (expect content :to-match "session_id: \"test-session-123\"")
-          (expect content :to-match "preset: \"executor\""))))
+        (let ((paths (hash-table-keys captured-files)))
+          (expect (cl-some (lambda (p) (string-suffix-p "/metadata.yml" p)) paths)
+                  :to-be nil))))
 
-    (it "writes metadata.yml with created and updated timestamps"
-      (with-captured-io
-        (jf/gptel--create-session-core
-         "test-session-123" "/sessions/test-session-123" 'executor)
-        (let ((content (captured-file-content
-                        captured-files
-                        "/sessions/test-session-123/branches/main/metadata.yml")))
-          ;; ISO8601 timestamp pattern
-          (expect content :to-match "created: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T")
-          (expect content :to-match "updated: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T"))))
-
-    (it "writes session.org with chat-mode initial content by default"
-      ;; Per design Decision 9 / Decision 18, a fresh session.org
-      ;; looks identical to a fresh standalone gptel-chat-mode buffer:
-      ;; an empty #+begin_user / #+end_user block, no markdown.
+    (it "writes session.org with pre-populated PROPERTIES drawer by default"
+      ;; Per design Decision 4, a fresh `session.org' begins with a
+      ;; `:PROPERTIES:' drawer containing `GPTEL_PRESET' so the
+      ;; chat-mode restore path applies the preset on first open.
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'executor)
@@ -78,9 +81,15 @@
                         captured-files
                         "/sessions/test-session-123/branches/main/session.org")))
           (expect content :to-be-truthy)
-          (expect content :to-equal "#+begin_user\n\n#+end_user\n"))))
+          (expect content :to-equal
+                  (concat ":PROPERTIES:\n"
+                          ":GPTEL_PRESET: executor\n"
+                          ":END:\n"
+                          "#+begin_user\n"
+                          "\n"
+                          "#+end_user\n")))))
 
-    (it "writes session.org with custom initial content"
+    (it "writes session.org with custom initial content when provided"
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'executor
@@ -111,16 +120,51 @@
           (expect (plist-get result :branch-dir) :to-be-truthy)
           (expect (plist-get result :session-file) :to-be-truthy)))))
 
-  (describe "Preset metadata recording"
+  (describe "Preset is recorded in session.org drawer"
 
-    (it "records preset name as string in metadata.yml"
+    (it "encodes preset name into GPTEL_PRESET line"
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'researcher)
         (let ((content (captured-file-content
                         captured-files
-                        "/sessions/test-session-123/branches/main/metadata.yml")))
-          (expect content :to-match "preset: \"researcher\"")))))
+                        "/sessions/test-session-123/branches/main/session.org")))
+          (expect content :to-match ":GPTEL_PRESET: researcher")))))
+
+  (describe "Parent-session-id threading for agent sessions"
+
+    (it "omits GPTEL_PARENT_SESSION_ID when parent-session-id is nil"
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "test-session-123" "/sessions/test-session-123" 'executor
+         nil nil nil nil)
+        (let ((content (captured-file-content
+                        captured-files
+                        "/sessions/test-session-123/branches/main/session.org")))
+          (expect content :not :to-match "GPTEL_PARENT_SESSION_ID"))))
+
+    (it "omits GPTEL_PARENT_SESSION_ID when parent-session-id is empty string"
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "test-session-123" "/sessions/test-session-123" 'executor
+         nil nil nil "")
+        (let ((content (captured-file-content
+                        captured-files
+                        "/sessions/test-session-123/branches/main/session.org")))
+          (expect content :not :to-match "GPTEL_PARENT_SESSION_ID"))))
+
+    (it "writes GPTEL_PARENT_SESSION_ID when parent-session-id is a non-empty string"
+      (with-captured-io
+        (jf/gptel--create-session-core
+         "agent-abc-20260421120000"
+         "/sessions/agent-abc-20260421120000"
+         'executor
+         nil nil nil
+         "parent-xyz-20260101000000")
+        (let ((content (captured-file-content
+                        captured-files
+                        "/sessions/agent-abc-20260421120000/branches/main/session.org")))
+          (expect content :to-match ":GPTEL_PARENT_SESSION_ID: parent-xyz-20260101000000")))))
 
   (describe "Scope profile integration"
 
