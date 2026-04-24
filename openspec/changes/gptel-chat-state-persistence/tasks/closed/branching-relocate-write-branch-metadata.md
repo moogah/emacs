@@ -2,7 +2,7 @@
 name: branching-relocate-write-branch-metadata
 description: Move jf/gptel--write-branch-metadata out of the to-be-deleted sessions/metadata.org into sessions/branching.org so that delete-metadata-module can run without breaking branch creation.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "discovered-from:delete-metadata-module"
 ---
@@ -47,3 +47,19 @@ The other dead functions in `metadata.el` (`is-agent-session-p`, `is-branch-sess
 - `delete-metadata-module` (now blocked-by this task) — its aborted attempt produced 10 `void-function jf/gptel--write-branch-metadata` failures, all rooted at `branching.el:172`.
 - design.md §Risk ("branch-metadata.yml could be mistaken for metadata.yml...") — the mitigation was insufficient; this task is the corrective.
 - Current location: `config/gptel/sessions/metadata.el:85` defines `jf/gptel--write-branch-metadata`; `branching.el:172` calls it.
+
+## Review
+
+Reviewed inline against implementation commit 68954c5 and merge 176646f. Full test suite re-run after merge: identical to baseline (599 ERT/9 unexpected, 1660 Buttercup/24 failed; only timing diffs).
+
+What I checked:
+
+- **Function relocation is byte-identical**: defun signature and body in `branching.el:136` match the original `metadata.el:85` line-for-line — no semantic drift.
+- **Required deps present in branching.org**: `gptel-session-filesystem` (for `jf/gptel--branch-metadata-file-path`) and `gptel-session-logging` (for `jf/gptel--log`) are already in branching.el's require block; no new requires added; no `gptel-session-metadata` require introduced. ✓
+- **`jf/gptel--read-branch-metadata` deletion is safe**: `grep -rn 'jf/gptel--read-branch-metadata' config/ --include='*.el' --include='*.org'` returns zero matches after the change.
+- **Other 4 functions in `metadata.el` correctly left alone** (`read-session-metadata`, `is-agent-session-p`, `is-branch-session-p`, `get-parent-session-id`) — they get deleted with the module by `delete-metadata-module`. Correct task scoping.
+- **Section placement**: defun added before its caller in load order; the new "Branch Metadata Helpers" section in branching.org adds prose explaining what `branch-metadata.yml` is, which previously lived only in metadata.org — improves cohesion.
+- **Verification commands all pass**: defined in branching.el at line 136, gone from metadata.el, called from branching.el:185.
+- **No spec-level signal**: architecture.md's description of branching as "drops the metadata.yml copy step during branch creation. branch-metadata.yml handling is untouched" is now MORE accurate (write helper colocated with its only caller). design.md §Risk's intent is preserved.
+
+No findings. delete-metadata-module is now unblocked (5/5 prerequisites done).
