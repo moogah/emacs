@@ -2,7 +2,7 @@
 name: delete-metadata-module
 description: Delete the sessions metadata module (metadata.org, metadata.el) and supporting constants/filesystem helpers after all callers have been updated.
 change: gptel-chat-state-persistence
-status: blocked
+status: ready
 relations:
   - "blocked-by:sessions-auto-init-drop-metadata"
   - "blocked-by:session-creation-drawer-prepopulate"
@@ -19,6 +19,7 @@ relations:
 - `config/gptel/sessions/filesystem.org` (modify) — remove `jf/gptel--metadata-file-path` helper.
 - `config/gptel/gptel.org` (modify, if applicable) — remove `jf/load-module` call for `sessions/metadata.el` from the gptel loader.
 - `config/gptel/sessions/test/` — remove any dedicated metadata-module tests (if they exist) — most likely under `sessions/test/` at the top level or a `metadata/` subdir.
+- `config/gptel/tools/persistent-agent.org` (modify) — remove stale prose references to the deleted module: the `metadata.el        - Read metadata from metadata.yml + scope.yml` line in the module-layout diagram, the `T->>FS: Write metadata.yml (includes parent_session_id)` step in the sequence diagram, and the two `metadata.yml` entries in the ASCII directory trees (session and agent dirs). Re-tangle. Discovered during review of `persistent-agent-drop-metadata-write` — that task's verification grep was scoped to `.el`/spec only.
 
 ## Implementation steps
 
@@ -28,8 +29,9 @@ relations:
 4. Remove `jf/gptel--metadata-file-path` from `filesystem.org`. Tangle.
 5. If `gptel.org` (the chat/sessions loader) has an explicit `jf/load-module` call for `sessions/metadata.el`, remove it. Tangle.
 6. Search for and remove any `sessions/test/metadata/` directory or `test-metadata-*.el` files if they exist. Verify with `find config/gptel/sessions/test -name '*metadata*'`.
-7. Run `./bin/run-tests.sh -d config/gptel/sessions` — everything should still pass (all call sites are updated).
-8. Run `./bin/run-tests.sh -d config/gptel` as a broader regression check.
+7. In `config/gptel/tools/persistent-agent.org`, remove the stale `metadata.yml`/`metadata.el` mentions in the architecture diagram (around the module-layout block), the sequence diagram (the `T->>FS: Write metadata.yml ...` step), and both ASCII directory trees (session dir and agent dir entries). Re-tangle with `./bin/tangle-org.sh config/gptel/tools/persistent-agent.org`.
+8. Run `./bin/run-tests.sh -d config/gptel/sessions` — everything should still pass (all call sites are updated).
+9. Run `./bin/run-tests.sh -d config/gptel` as a broader regression check.
 
 ## Design rationale
 

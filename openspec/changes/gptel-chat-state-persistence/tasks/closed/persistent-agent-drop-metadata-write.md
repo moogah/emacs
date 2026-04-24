@@ -2,7 +2,7 @@
 name: persistent-agent-drop-metadata-write
 description: Remove the agent metadata.yml write from persistent-agent and cut its dependency on gptel-session-metadata, so delete-metadata-module can safely run.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "discovered-from:delete-metadata-module"
 ---
@@ -56,3 +56,15 @@ Retaining a single `xit`-flagged parent_session_id bug (noted in persistent-agen
 - design.md §Decision 6 (rationale for metadata.yml removal — expand in the review for this task, if tangible gap found)
 - Predecessor tasks: `sessions-auto-init-drop-metadata`, `session-creation-drawer-prepopulate`, `branching-drop-metadata-copy`, `activities-integration-metadata-guard` (all done) — same pattern, different subsystem.
 - Unblocks: `delete-metadata-module` (its `blocked-by:` is repointed to include this task).
+
+## Review
+
+Reviewed inline against implementation commit 29876d4 and merge e1122a5. Tests re-run clean (`./bin/run-tests.sh -d config/gptel/test` → 41/41).
+
+- Code changes match the task body exactly: `(require 'gptel-session-metadata)` dropped from `.org` and `.el`; `metadata.yml` write block removed; the dead "metadata.yml updated timestamp" comment in `jf/gptel--persistent-agent-auto-save` was also removed cleanly (good cleanup, not strictly required by the task but obviously correct).
+- Test cleanup is correct: the `describe "metadata.yml"` block (3 specs including the moot `xit`) is gone; `session-restoration-spec.el` deleted with sound rationale (the read path it covered no longer exists; drawer-authoritative coverage lives in `sessions/test/commands/auto-init-chat-mode-spec.el` and `preset-application-spec.el`).
+- Verification: all task-listed grep checks pass; file is gone; tests green.
+
+**Finding (folded, not split):** `config/gptel/tools/persistent-agent.org` still has 4 stale prose mentions of `metadata.yml` (architecture diagram line, sequence diagram step, two ASCII directory tree entries). The task's verification grep was scoped to `.el`/spec only, so this slipped through. The cleanup naturally clusters with `delete-metadata-module` (the diagrams describe the module being deleted there), so I added it to that task's Files-to-modify and Implementation steps rather than creating a new follow-up. No dependency repoint needed — `delete-metadata-module` was already blocked-by this task.
+
+No spec-level signal: design.md §Decision 6's premise that "metadata.yml has no remaining readers or writers" is what this task corrected, so the spec is now accurate.
