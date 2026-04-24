@@ -85,12 +85,13 @@ See [[*Create Persistent Session][Create Persistent Session]] section below for 
 ;;
 ;; ARCHITECTURE: Presets are registered in gptel--known-presets at startup.
 ;; Session creation writes scope.yml (from preset's scope profile) and
-;; metadata.yml (session metadata with preset name). Every time the
-;; session file is opened, the auto-init hook re-reads metadata.yml and
-;; calls gptel--apply-preset with a buffer-local setter. metadata.yml is
-;; the authoritative configuration source — session buffers run
-;; gptel-chat-mode exclusively (Decision 16) and do NOT round-trip
-;; through gptel--save-state / gptel--restore-state.
+;; the session.org `:PROPERTIES:' drawer. Every time the session file is
+;; opened, `gptel-chat-mode' activation reads the drawer and applies the
+;; declared preset (plus overlaying non-preset deltas and
+;; `GPTEL_PARENT_SESSION_ID') via `gptel-chat--apply-declared-preset'.
+;; The drawer is the authoritative configuration source for session
+;; buffers — they run `gptel-chat-mode' exclusively (Decision 16) and do
+;; NOT round-trip through gptel--save-state / gptel--restore-state.
 
 ;;; Code:
 
@@ -100,7 +101,6 @@ See [[*Create Persistent Session][Create Persistent Session]] section below for 
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
 (require 'gptel-session-registry)
-(require 'gptel-session-metadata)
 (require 'gptel-scope-profiles)
 
 ;; `gptel-chat-mode' is defined in `config/gptel/chat/mode.el' and is
@@ -235,10 +235,15 @@ Function that detects and auto-initializes session files when opened via any met
 
 ** Auto-Initialize Session Buffer
 
-Detects chat-mode session files by path pattern and wires them up:
-path-derived session/branch vars, registry entry, preset from
-=metadata.yml=, chat-mode activation, and =current= symlink update
+Detects chat-mode session files by path pattern and wires up path-derived
+session vars, registry entry, chat-mode activation, and =current= symlink
 (Decision 16, Decision 17).
+
+Auto-init is a *path-level* concern only. Preset application and
+=GPTEL_PARENT_SESSION_ID= wiring are driven by the session.org
+=:PROPERTIES:= drawer via =gptel-chat--apply-declared-preset=
+(installed on =gptel-chat-mode-hook= in =config/gptel/chat/menu.org=).
+The drawer is authoritative (design.md §Decisions 5, 6, 9).
 
 Key constraints:
 
@@ -247,18 +252,8 @@ Key constraints:
   =(gptel-mode 1)= is never called.
 - No =gptel--save-state= / =gptel--restore-state= round-trip. Chat-mode
   files are self-describing.
-- Precedence: if the file's =:PROPERTIES:= drawer (or a file-local
-  declaration) already set =gptel--preset= and =metadata.yml= also
-  names a preset, =metadata.yml= wins. Sessions are the authoritative
-  configuration for session files (Decision 16, point 2).
-- Ordering: =jf/gptel--ensure-mode-once= runs *before* the
-  =metadata.yml= apply. This guarantees the chat-mode hook
-  (=gptel-chat--apply-declared-preset=, installed on
-  =gptel-chat-mode-hook= in =config/gptel/chat/menu.org=) fires first
-  and applies any drawer/file-local preset; the auto-init hook then
-  applies =metadata.yml='s preset last so it wins. (Auto-init runs on
-  =find-file-hook=, after =set-auto-mode= and
-  =hack-local-variables-hook= have already fired.)
+- =metadata.yml= is NOT read by auto-init. The drawer in =session.org=
+  is the single source of truth for preset and parent-session-id.
 
 #+begin_src emacs-lisp
 (defun jf/gptel--auto-init-session-buffer ()
@@ -271,23 +266,16 @@ Detects session files by path pattern:
 On match:
   1. Extracts session-id and branch-name from the path (via
      dedicated per-layout regexes — never hardcoded).
-  2. Sets the five buffer-local session variables, including
-     `jf/gptel--parent-session-id' (pulled from the branch's
-     `metadata.yml' when present).
-  3. Registers the buffer in `jf/gptel--session-registry'.
-  4. Ensures `gptel-chat-mode' is the active major mode.  This is
-     done BEFORE reading `metadata.yml' so the chat-mode hook
-     (`gptel-chat--apply-declared-preset' in
-     `config/gptel/chat/menu.org') fires first and applies any preset
-     declared in the file's `:PROPERTIES:' drawer or file-local
-     `gptel--preset'.  The metadata.yml apply then runs last and
-     overwrites those buffer-local values, so `metadata.yml' wins
-     (Decision 16 point 2).
-  5. Reads `metadata.yml' from the branch directory and applies the
-     named preset via `gptel--apply-preset' with a buffer-local setter.
-     When `metadata.yml' names a preset, it overrides any value already
-     set by a property drawer or file-local declaration (Decision 16).
-  6. Updates the `current' symlink to point at this branch (skipped
+  2. Sets the four path-derived buffer-local session variables
+     (`jf/gptel--session-id', `jf/gptel--session-dir',
+     `jf/gptel--branch-name', `jf/gptel--branch-dir').
+  3. Ensures `gptel-chat-mode' is the active major mode.  Activating
+     chat-mode fires `gptel-chat-mode-hook', which runs
+     `gptel-chat--apply-declared-preset' to apply any preset declared
+     in the `:PROPERTIES:' drawer and to install
+     `GPTEL_PARENT_SESSION_ID' as `jf/gptel--parent-session-id'.
+  4. Registers the buffer in `jf/gptel--session-registry'.
+  5. Updates the `current' symlink to point at this branch (skipped
      for the legacy flat agent layout, which has no `branches/' dir).
 
 Runs on every file open via `find-file-hook', so fast-path guards are
@@ -366,76 +354,39 @@ critical."
                 (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
                                session-type session-id branch-name)
 
-                  ;; Ensure chat-mode is the active major mode FIRST,
-                  ;; before setting any buffer-local session vars. Two
-                  ;; reasons:
-                  ;;
-                  ;; 1. Activating a major mode calls
-                  ;;    `kill-all-local-variables', which would wipe any
-                  ;;    session vars set beforehand (they are not declared
-                  ;;    `permanent-local').
-                  ;;
-                  ;; 2. Activating chat-mode fires
-                  ;;    `gptel-chat-mode-hook', which runs
-                  ;;    `gptel-chat--apply-declared-preset' and may set
-                  ;;    `gptel--preset' (plus other `gptel-*'
-                  ;;    buffer-locals) from a `:GPTEL_PRESET:' drawer or
-                  ;;    file-local variable. `metadata.yml' is
-                  ;;    authoritative (Decision 16 point 2), so its apply
-                  ;;    must run LAST below to win over the drawer-preset
-                  ;;    re-application performed by the chat-mode hook.
-                  ;;
-                  ;; Never calls (gptel-mode 1) — Decision 16.
-                  (jf/gptel--ensure-mode-once)
+                ;; Ensure chat-mode is the active major mode FIRST,
+                ;; before setting any buffer-local session vars.
+                ;; Activating a major mode calls
+                ;; `kill-all-local-variables', which would wipe any
+                ;; session vars set beforehand (they are not declared
+                ;; `permanent-local').
+                ;;
+                ;; Activating chat-mode also fires
+                ;; `gptel-chat-mode-hook', which runs
+                ;; `gptel-chat--apply-declared-preset' to apply the
+                ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
+                ;; `:PROPERTIES:' drawer. The drawer is the
+                ;; authoritative configuration source (design.md
+                ;; §Decisions 5, 6, 9) — auto-init does not read
+                ;; metadata.yml or apply presets itself.
+                ;;
+                ;; Never calls (gptel-mode 1) — Decision 16.
+                (jf/gptel--ensure-mode-once)
 
-                  ;; Set buffer-local session variables (after mode
-                  ;; activation, since mode activation wipes them).
-                  (setq-local jf/gptel--session-id session-id)
-                  (setq-local jf/gptel--session-dir session-dir)
-                  (setq-local jf/gptel--branch-name branch-name)
-                  (setq-local jf/gptel--branch-dir branch-dir)
+                ;; Set buffer-local session variables (after mode
+                ;; activation, since mode activation wipes them).
+                (setq-local jf/gptel--session-id session-id)
+                (setq-local jf/gptel--session-dir session-dir)
+                (setq-local jf/gptel--branch-name branch-name)
+                (setq-local jf/gptel--branch-dir branch-dir)
 
-                  ;; Read metadata.yml once for both preset and parent-id.
-                  ;; `metadata.yml' is the authoritative source; when
-                  ;; present, its preset overrides any value already
-                  ;; declared by a property drawer or file-local variable
-                  ;; (Decision 16). This apply runs AFTER chat-mode
-                  ;; activation above, ensuring the chat-mode hook's
-                  ;; drawer-preset re-apply does not clobber these values.
-                  (let* ((metadata (condition-case parse-err
-                                       (jf/gptel--read-session-metadata branch-dir)
-                                     (error
-                                      (jf/gptel--log
-                                       'warn "Failed to read metadata.yml: %s"
-                                       (error-message-string parse-err))
-                                      nil)))
-                         (preset-str (plist-get metadata :preset))
-                         (preset-name (when (and preset-str (stringp preset-str))
-                                        (intern preset-str)))
-                         (parent-id (plist-get metadata :parent-session-id)))
-
-                  ;; Populate parent-session-id when metadata declares one.
-                  (when (and parent-id (stringp parent-id))
-                    (setq-local jf/gptel--parent-session-id parent-id))
-
-                    (if (and preset-name (gptel-get-preset preset-name))
-                        (gptel--apply-preset
-                         preset-name
-                         (lambda (var val)
-                           (set (make-local-variable var) val)))
-                      (when preset-name
-                        (jf/gptel--log
-                         'warn
-                         "Preset %s from metadata.yml not registered; skipping apply-preset"
-                         preset-name))))
-
-                  ;; Register the buffer in the session registry.
-                  (jf/gptel--register-session session-dir
-                                              (current-buffer)
-                                              session-id
-                                              branch-name
-                                              branch-dir)
-                  (setq-local jf/gptel-autosave-enabled t)
+                ;; Register the buffer in the session registry.
+                (jf/gptel--register-session session-dir
+                                            (current-buffer)
+                                            session-id
+                                            branch-name
+                                            branch-dir)
+                (setq-local jf/gptel-autosave-enabled t)
 
                 ;; Update current symlink to point to this branch.
                 ;; Skip for legacy flat agent layout: the agent directory
