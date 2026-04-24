@@ -2,7 +2,7 @@
 name: persistent-agent-drop-metadata-write
 description: Remove the agent metadata.yml write from persistent-agent and cut its dependency on gptel-session-metadata, so delete-metadata-module can safely run.
 change: gptel-chat-state-persistence
-status: ready
+status: needs-review
 relations:
   - "discovered-from:delete-metadata-module"
 ---
