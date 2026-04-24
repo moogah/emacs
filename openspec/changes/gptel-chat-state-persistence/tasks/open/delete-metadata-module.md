@@ -2,13 +2,14 @@
 name: delete-metadata-module
 description: Delete the sessions metadata module (metadata.org, metadata.el) and supporting constants/filesystem helpers after all callers have been updated.
 change: gptel-chat-state-persistence
-status: ready
+status: blocked
 relations:
   - "blocked-by:sessions-auto-init-drop-metadata"
   - "blocked-by:session-creation-drawer-prepopulate"
   - "blocked-by:branching-drop-metadata-copy"
   - "blocked-by:activities-integration-metadata-guard"
   - "blocked-by:persistent-agent-drop-metadata-write"
+  - "blocked-by:branching-relocate-write-branch-metadata"
 ---
 
 ## Files to modify
