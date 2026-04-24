@@ -2,7 +2,7 @@
 name: chat-drawer-overrides-overlay
 description: Add gptel-chat--apply-drawer-overrides overlay function and call it from gptel-chat--apply-declared-preset so drawer deltas and GPTEL_PARENT_SESSION_ID are restored on mode activation.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations: []
 ---
 
@@ -51,3 +51,17 @@ Calling the overlay from *both* the preset-apply branch and the no-preset branch
 - specs/gptel/chat-mode.md §"Configuration drawer overlay on restore", §"Preset system integration" (MODIFIED)
 - architecture.md §"`gptel-chat--apply-drawer-overrides` (new)"
 - design.md §Decisions 2, 3, 5
+
+## Review
+
+Reviewed 2026-04-24 (orch-1777045379). Verdict: minor findings.
+
+**Findings:**
+- `config/gptel/chat/test/menu/preset-wiring-spec.el` drawer overrides overlay describe block — all specs spy `gptel-org--entry-properties`; no real-upstream integration test. Architecture §"Test Patterns / End-to-end (real upstream)" requires one per path. **Follow-up: `chat-real-upstream-integration-tests`** (grouped with the sibling gap in `chat-save-state-hook`).
+- `config/gptel/chat/menu.org:88-90` / `menu.el:54-56` — comment pointed to `config/gptel/sessions/commands.org`, but `jf/gptel--parent-session-id` is defined in `config/gptel/sessions/constants.org:138`. **Inline-fixed** in commit 8c0fc74.
+
+**Verified ruled out:** tuple-shape drift against upstream (matches current signature), idempotent double-invocation of overlay when preset applies, `'selective` scope on `org-entry-get`, empty/nil/unbound `GPTEL_PARENT_SESSION_ID`, buffer-local hygiene, unresolvable backend no-op, preset field discard, preset-apply→overlay ordering, `fboundp` guards, `.org`↔`.el` sync, scope discipline.
+
+**Follow-up tasks created:** `chat-real-upstream-integration-tests` (`discovered-from: chat-drawer-overrides-overlay`).
+
+**Dependents repoint:** none — test-gap follow-up does not block downstream functional tasks.

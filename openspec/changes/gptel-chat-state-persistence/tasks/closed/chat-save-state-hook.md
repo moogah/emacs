@@ -2,7 +2,7 @@
 name: chat-save-state-hook
 description: Add buffer-local before-save-hook in gptel-chat-mode that writes a PROPERTIES drawer via gptel-org-set-properties (+ GPTEL_PARENT_SESSION_ID), excluding GPTEL_BOUNDS.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations: []
 ---
 
@@ -52,3 +52,19 @@ The save hook is registered buffer-locally from inside the mode-hook, mirroring 
 - specs/gptel/chat-mode.md §"Configuration drawer save on buffer save"
 - architecture.md §"`gptel-chat--save-state` (new)"
 - design.md §Decisions 1, 3, 10
+
+## Review
+
+Reviewed 2026-04-24 (orch-1777045379). Verdict: clean with one minor finding.
+
+**Findings:**
+- `config/gptel/chat/test/menu/save-state-spec.el` — "Drawer written on save when preset is applied" spec scenario is covered via the delegation contract (spies on `gptel-org-set-properties`) but no real-upstream integration test exercises the preset-applied path end-to-end. **Follow-up: `chat-real-upstream-integration-tests`** (grouped with the sibling gap in `chat-drawer-overrides-overlay`).
+
+**Considered and dropped (did not clear signal/noise bar):**
+- Missing `(when (org-at-heading-p) (org-open-line 1))` pre-step from upstream's `gptel-org--save-state`. Reviewer flagged this as pathological — real session files never have a heading at `point-min` — and explicitly noted "otherwise skip." Not a finding a thoughtful maintainer would raise in a PR review.
+
+**Verified ruled out:** correct helper choice (`gptel-org-set-properties` vs `gptel-org--save-state`), buffer-local hook registration, empty/nil/unbound `GPTEL_PARENT_SESSION_ID`, `org-with-wide-buffer` availability, GPTEL_BOUNDS invariant (covered by real integration test), `gptel-mode` never enabled (Decision 16), consistency with sibling `chat-drawer-overrides-overlay` task, scope discipline, design compliance.
+
+**Follow-up tasks created:** `chat-real-upstream-integration-tests` (`discovered-from: chat-save-state-hook`).
+
+**Dependents repoint:** none — test-gap follow-up does not block downstream functional tasks.
