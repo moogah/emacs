@@ -274,6 +274,12 @@ When the model emits a tool call during a streaming response, the system SHALL i
 - **THEN** the assistant block contains three sibling `#+begin_tool`/`#+end_tool` blocks in order
 - **AND** prose segments appear in their correct positions between tool blocks
 
+#### Scenario: Auto-approved tool surfaces only as a tool-result event
+- **WHEN** the model emits a tool call for an auto-approved tool (one that does NOT go through the upstream `:confirm` path)
+- **AND** upstream fires exactly one `(tool-result . ((TOOL-STRUCT ARGS RESULT)))` event with no preceding `(tool-call . ...)` event
+- **THEN** the assistant block contains one `#+begin_tool`/`#+end_tool` block rendered from the tool-result 3-list's TOOL-STRUCT and ARGS, with the result as the body
+- **AND** subsequent streamed prose lands at the assistant-level marker (not inside the closed tool block)
+
 ### Requirement: Turn navigation
 
 The system SHALL provide `gptel-chat-next-turn` and `gptel-chat-previous-turn` commands that move point to the beginning of the next or previous outer turn block (either `user` or `assistant`) from the current position, regardless of org heading context. When no further turn exists in the direction of travel, the command SHALL signal a user-visible message and leave point unchanged. Org heading navigation is not shadowed by these commands (see design.md Decision 7).

@@ -699,8 +699,12 @@ State captured in the closure:
   `gptel-chat--make-stream-inserter' — carries line-holdback state
   and the tool-marker routing override.
 - PENDING-TOOL-MARKERS: FIFO list of result-target markers, one
-  per open tool block awaiting its result.  Pushed on `tool-call',
-  popped in order on `tool-result'."
+  per open tool block awaiting its result.  Pushed on `tool-call'
+  events (the `:confirm' path in `gptel--handle-tool-use').  On
+  `tool-result', the FIFO is popped first; if empty (the auto-
+  approved path, where upstream fires no prior `tool-call'), the
+  block is synthesized on the fly from the 3-list's TOOL-SPEC
+  and ARGS."
   (unless (and (markerp insertion-marker)
                (marker-buffer insertion-marker))
     (error "INSERTION-MARKER must be a live marker"))
@@ -744,27 +748,26 @@ State captured in the closure:
                      last-marker m)))
            (when last-marker
              (funcall set-tool last-marker))))
-        ;; Tool-result event: match each result to the next pending
-        ;; marker in FIFO order, insert the result and close the
-        ;; block.  Once all results have been processed, clear the
-        ;; tool-marker override so subsequent streaming goes back
-        ;; to the assistant-level marker.
+        ;; Tool-result event: for each result, close the matching
+        ;; pending block (confirmation path) or synthesize a fresh
+        ;; `#+begin_tool' block (auto-approved path — upstream fires
+        ;; no prior `(tool-call . ...)' for tools executed inline
+        ;; inside `gptel--handle-tool-use', see
+        ;; `gptel-request.el:1732-1747').  After all results are
+        ;; handled, clear the tool-marker override so subsequent
+        ;; streaming routes back to the assistant-level marker.
         ;;
         ;; Upstream emits each element of RESULTS as a 3-list
         ;; `(TOOL-STRUCT ARGS RESULT)' — see `gptel-request.el:1812-1827'
         ;; and `gptel.el:1855' (`cl-loop for (tool args result) in
-        ;; tool-results').
+        ;; tool-results').  We destructure TOOL-SPEC and ARGS (not
+        ;; just RESULT) so the synthesize path has everything it
+        ;; needs to render the block header.
         (`(tool-result . ,results)
-         (pcase-dolist (`(,_tool-spec ,_args ,result) results)
-           (let ((marker (pop pending-tool-markers)))
-             ;; A tool-result with no matching pending marker means
-             ;; the FIFO is desynchronised from upstream's tool-call
-             ;; / tool-result pairing — silently dropping it would
-             ;; hide the regression.  Match the defensive `(_ (error
-             ;; ...))' arm at the end of the pcase and fail loudly.
-             (unless marker
-               (error "gptel-chat: orphan tool-result with no pending tool-marker: %S"
-                      result))
+         (pcase-dolist (`(,tool-spec ,args ,result) results)
+           (let ((marker (or (pop pending-tool-markers)
+                             (gptel-chat--stream-open-tool-block
+                              insertion-marker tool-spec args))))
              (gptel-chat--stream-close-tool-block marker result)))
          (unless pending-tool-markers
            (funcall clear-tool)))

@@ -40,6 +40,11 @@
 ;; - Tool-result containing a `#+end_tool' collision is sanitized.
 ;; - Reasoning events are ignored.
 ;; - Unknown response shape signals (defensive guard).
+;; - Auto-approved tool (no preceding tool-call event): upstream only
+;;   emits `(tool-call . ...)' for tools that go through the
+;;   `:confirm' path; auto-approved tools surface ONLY via the
+;;   terminal `(tool-result . ...)' event.  The callback must render
+;;   the block on the fly from the 3-list's (TOOL ARGS RESULT).
 ;;
 ;; Sibling specs (`streaming-spec.el') cover the completion / abort /
 ;; error terminal paths and the bypass assertion on
@@ -356,26 +361,108 @@ ignorable function works here."
                 :to-throw))))
 
 
-  (describe "orphan tool-result"
+  (describe "auto-approved tool (no preceding tool-call event)"
+    ;; Upstream `gptel--handle-tool-use' only emits
+    ;; `(tool-call . ...)' for tools whose `:confirm' path is active
+    ;; (see `gptel-request.el:1684-1752' — the `pending-calls' branch).
+    ;; Auto-approved tools execute inline and surface ONLY via the
+    ;; terminal `(tool-result . result-alist)' event; no tool-call
+    ;; ever reaches this callback.  Each 3-list in RESULTS carries
+    ;; TOOL-STRUCT and ARGS, so the callback has everything it needs
+    ;; to open and close a fresh `#+begin_tool' block on the fly.
 
-    (it "signals when a tool-result arrives with no pending tool-marker"
-      ;; A `(tool-result . ...)' with no prior `(tool-call . ...)'
-      ;; means the FIFO pairing is desynchronised from upstream.
-      ;; Silently dropping it would hide the regression; the
-      ;; callback raises to match the file's defensive `(_ (error
-      ;; ...))' arm and surface the drift loudly.
+    (it "renders one #+begin_tool block when tool-result arrives with no prior tool-call"
+      ;; Mirrors the real-world crash: model asks for `which brew',
+      ;; scope auto-approves, tool returns success, upstream fires
+      ;; (tool-result . ((TOOL ARGS RESULT))) with no preceding
+      ;; tool-call.  The callback MUST render the block rather than
+      ;; signal "orphan tool-result".
       (let* ((cb (gptel-chat--stream-callback
                   gptel-chat-tool-call-test--marker))
-             (tool (gptel-chat-tool-call-test--tool "read_file")))
-        (expect (funcall cb `(tool-result . ((,tool nil "orphan")))
-                         nil)
-                :to-throw
-                'error
-                ;; `(error "%S" "orphan")' signals (error
-                ;; "...%S"-formatted) — signal-args is a one-element
-                ;; list of the fully-formatted string, per Emacs'
-                ;; `error' function contract.
-                '("gptel-chat: orphan tool-result with no pending tool-marker: \"orphan\""))))))
+             (tool (gptel-chat-tool-call-test--tool "run_bash_command"))
+             (args '(:command "which brew"))
+             (result "/opt/homebrew/bin/brew\n"))
+        (funcall cb `(tool-result . ((,tool ,args ,result)))
+                 nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (run_bash_command :args (:command \"which brew\"))\n"
+                      "/opt/homebrew/bin/brew\n"
+                      "#+end_tool\n")))
+
+    (it "renders the block inline with surrounding prose and subsequent prose routes back to assistant"
+      ;; After an auto-approved tool-result renders its block, the
+      ;; tool-marker override MUST be cleared so further streamed
+      ;; prose lands at the assistant-level marker (not inside the
+      ;; closed tool block).
+      (let* ((cb (gptel-chat--stream-callback
+                  gptel-chat-tool-call-test--marker))
+             (tool (gptel-chat-tool-call-test--tool "run_bash_command"))
+             (args '(:command "which brew")))
+        (funcall cb "Checking path.\n" nil)
+        (funcall cb `(tool-result . ((,tool ,args "/opt/homebrew/bin/brew\n")))
+                 nil)
+        (funcall cb "Found it.\n" nil)
+        (funcall cb t nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "Checking path.\n"
+                      "#+begin_tool (run_bash_command :args (:command \"which brew\"))\n"
+                      "/opt/homebrew/bin/brew\n"
+                      "#+end_tool\n"
+                      "Found it.\n"
+                      "#+end_assistant\n"
+                      "\n#+begin_user\n\n#+end_user\n")))
+
+    (it "renders multiple auto-approved parallel calls as sibling blocks in result order"
+      ;; `gptel--handle-tool-use' batches auto-approved results into a
+      ;; single `(tool-result . ((TOOL1 ARGS1 R1) (TOOL2 ARGS2 R2) ...))'
+      ;; event.  Each triple should render its own sibling block.
+      (let* ((cb (gptel-chat--stream-callback
+                  gptel-chat-tool-call-test--marker))
+             (t1 (gptel-chat-tool-call-test--tool "list_files"))
+             (t2 (gptel-chat-tool-call-test--tool "read_file")))
+        (funcall cb `(tool-result . ((,t1 (:dir "/a") "file1\nfile2\n")
+                                     (,t2 (:path "/b") "body")))
+                 nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (list_files :args (:dir \"/a\"))\n"
+                      "file1\nfile2\n"
+                      "#+end_tool\n"
+                      "#+begin_tool (read_file :args (:path \"/b\"))\n"
+                      "body\n"
+                      "#+end_tool\n")))
+
+    (it "sanitizes a #+end_tool collision inside an auto-approved tool-result"
+      ;; Collision-escape invariant must hold on the synthesized
+      ;; block path too — a tool reading a file whose content
+      ;; happens to contain `#+end_tool' must still produce a
+      ;; well-formed containing block.
+      (let* ((cb (gptel-chat--stream-callback
+                  gptel-chat-tool-call-test--marker))
+             (tool (gptel-chat-tool-call-test--tool "cat"))
+             (args '(:f "p"))
+             (result (concat "line1\n"
+                             "#+end_tool\n"
+                             "line3")))
+        (funcall cb `(tool-result . ((,tool ,args ,result)))
+                 nil))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "#+begin_tool (cat :args (:f \"p\"))\n"
+                      "line1\n"
+                      ",#+end_tool\n"
+                      "line3\n"
+                      "#+end_tool\n")))))
 
 
 (provide 'tool-call-spec)
