@@ -46,7 +46,13 @@
 ;; [[file:menu.org::*Forward declarations][Forward declarations:1]]
 (declare-function gptel--apply-preset "gptel" (preset &optional setter))
 (declare-function gptel-get-preset "gptel" (name))
+(declare-function gptel-org--entry-properties "gptel-org" (&optional pt))
+(declare-function org-entry-get "org" (pom property &optional inherit literal-nil))
 (defvar gptel--preset)
+;; Declared (not defined) here — session-local defined in
+;; `config/gptel/sessions/commands.org'.  Declaring lets this module
+;; compile and write the binding without pulling sessions in.
+(defvar jf/gptel--parent-session-id)
 ;; Forward declarations:1 ends here
 
 ;; Preset resolution
@@ -132,6 +138,83 @@ coerced via `intern'."
         (intern (format "%s" gptel--preset)))))))
 ;; Preset resolution:1 ends here
 
+;; Drawer overrides overlay
+
+;; =gptel-chat--apply-drawer-overrides= overlays any non-preset
+;; configuration properties present in the buffer's =:PROPERTIES:=
+;; drawer at =point-min=. It is the restore-path counterpart to the
+;; save hook's call to =gptel-org-set-properties=, and is called from
+;; =gptel-chat--apply-declared-preset= after preset application.
+
+;; Upstream =gptel-org--entry-properties= already returns a structured
+;; tuple of the configuration keys
+;; (=preset=, =system=, =backend=, =model=, =temperature=, =tokens=,
+;; =num=, =tools=). Reusing it keeps the drawer shape bit-for-bit
+;; compatible with what upstream's own =gptel-org--restore-state= reads
+;; (design.md §Decision 2, 5).
+
+;; We deliberately *discard* the preset field from the tuple at this
+;; layer — the caller (=gptel-chat--apply-declared-preset=) has already
+;; applied it via =gptel--apply-preset=; re-applying would undo the
+;; preset's composite logic.
+
+;; =GPTEL_PARENT_SESSION_ID= is our chat-mode extension, not in
+;; upstream's tuple. It reads via a targeted =org-entry-get= call and,
+;; when present, installs =jf/gptel--parent-session-id= as a
+;; buffer-local value (design.md §Decision 3).
+
+;; Every overlaid value is set via =make-local-variable= so global
+;; defaults in other buffers are never touched.
+
+
+;; [[file:menu.org::*Drawer overrides overlay][Drawer overrides overlay:1]]
+(defun gptel-chat--apply-drawer-overrides ()
+  "Overlay non-preset drawer properties buffer-locally.
+
+Reads the `:PROPERTIES:' drawer at `point-min' via upstream
+`gptel-org--entry-properties' and, for each non-nil upstream-
+compatible key (`:system', `:backend', `:model', `:temperature',
+`:max-tokens', `:num-messages-to-send', `:tools'), installs the
+value as a buffer-local binding.
+
+Additionally reads the chat-mode extension key `GPTEL_PARENT_SESSION_ID'
+via `org-entry-get' and, when non-nil and non-empty, sets
+`jf/gptel--parent-session-id' buffer-locally.
+
+Absent fields are no-ops — the buffer-local setter is never called
+with a nil value, so the global (default) binding remains intact.
+
+The preset field from `gptel-org--entry-properties' is intentionally
+discarded here; it was already applied by the caller
+(`gptel-chat--apply-declared-preset').  Re-applying would undo the
+preset's composite-key logic (design.md §Decision 2, 5)."
+  (when (fboundp 'gptel-org--entry-properties)
+    (pcase-let
+        ((`(,_preset ,system ,backend ,model ,temperature ,tokens ,num ,tools)
+          (gptel-org--entry-properties (point-min))))
+      (when system
+        (set (make-local-variable 'gptel--system-message) system))
+      (when backend
+        (set (make-local-variable 'gptel-backend) backend))
+      (when model
+        (set (make-local-variable 'gptel-model) model))
+      (when temperature
+        (set (make-local-variable 'gptel-temperature) temperature))
+      (when tokens
+        (set (make-local-variable 'gptel-max-tokens) tokens))
+      (when num
+        (set (make-local-variable 'gptel--num-messages-to-send) num))
+      (when tools
+        (set (make-local-variable 'gptel-tools) tools))))
+  (let ((parent-id (and (fboundp 'org-entry-get)
+                        (org-entry-get (point-min)
+                                       "GPTEL_PARENT_SESSION_ID"
+                                       'selective))))
+    (when (and parent-id (stringp parent-id)
+               (not (string-empty-p parent-id)))
+      (set (make-local-variable 'jf/gptel--parent-session-id) parent-id))))
+;; Drawer overrides overlay:1 ends here
+
 ;; Preset application hook
 
 ;; =gptel-chat--apply-declared-preset= is the hook entry point. It
@@ -159,16 +242,30 @@ coerced via `intern'."
 ;; preset name that no longer resolves should warn but not break mode
 ;; activation.
 
+;; After preset application, the overlay
+;; =gptel-chat--apply-drawer-overrides= is invoked so any non-preset
+;; drawer properties (tools, model, tokens, etc.) and the chat-mode
+;; extension =GPTEL_PARENT_SESSION_ID= are restored on top of the
+;; preset's baseline. The overlay also fires in the no-preset branch —
+;; that covers buffers whose drawer carries only non-preset keys or
+;; only =GPTEL_PARENT_SESSION_ID= (design.md §Decisions 2, 3, 5).
+
 
 ;; [[file:menu.org::*Preset application hook][Preset application hook:1]]
 (defun gptel-chat--apply-declared-preset ()
-  "Apply a buffer-declared gptel preset, if any.
+  "Apply a buffer-declared gptel preset, if any, then overlay deltas.
 
 Intended to run from `gptel-chat-mode-hook'.  Looks up the declared
 preset via `gptel-chat--declared-preset'; when one is found, calls
 `gptel--apply-preset' with a buffer-local setter so the preset's
 keys (`:backend', `:model', `:system', `:tools', `:temperature', ...)
 are installed as buffer-local values.
+
+After preset application (or unconditionally when no preset is
+declared), calls `gptel-chat--apply-drawer-overrides' to install any
+non-preset drawer properties and `GPTEL_PARENT_SESSION_ID' as
+buffer-local bindings on top of the preset baseline (design.md
+§Decisions 2, 3, 5).
 
 Does NOT enable `gptel-mode' (design.md §Decision 16).  Chat-mode
 owns the major-mode role exclusively.
@@ -178,13 +275,20 @@ triggers a `display-warning' rather than an error, matching upstream
 `gptel-org--restore-state' behaviour."
   (when-let* ((preset (gptel-chat--declared-preset)))
     (if (and (fboundp 'gptel-get-preset) (gptel-get-preset preset))
-        (gptel--apply-preset
-         preset
-         (lambda (sym val) (set (make-local-variable sym) val)))
+        (progn
+          (gptel--apply-preset
+           preset
+           (lambda (sym val) (set (make-local-variable sym) val)))
+          (gptel-chat--apply-drawer-overrides))
       (display-warning
        '(gptel-chat presets)
        (format "Could not activate gptel preset `%s' in buffer \"%s\""
-               preset (buffer-name))))))
+               preset (buffer-name)))))
+  ;; Always run the overlay — covers no-preset buffers whose drawer
+  ;; carries only non-preset keys (e.g. `GPTEL_TOOLS' alone) or only
+  ;; `GPTEL_PARENT_SESSION_ID'.  Re-running after the preset-apply
+  ;; branch is harmless: the overlay re-installs the same values.
+  (gptel-chat--apply-drawer-overrides))
 ;; Preset application hook:1 ends here
 
 ;; Hook wiring
