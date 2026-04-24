@@ -56,7 +56,8 @@
       "Bash(make test-buttercup-directory:*)",
       "Bash(make test-buttercup-file:*)",
       "Bash(test:*)",
-      "Bash(make test-buttercup:*)"
+      "Bash(make test-buttercup:*)",
+      "WebFetch(domain:api.github.com)"
     ]
   }
 }

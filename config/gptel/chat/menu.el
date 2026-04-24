@@ -1,0 +1,484 @@
+;;; menu.el --- GPTEL Chat-Mode Menu and Preset Wiring -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Applies a declared preset on `gptel-chat-mode' activation and (in a
+;; later task) provides the `gptel-chat-menu' transient prefix.  See
+;; `openspec/changes/gptel-chat-mode/architecture.md' §Components
+;; (subsection `gptel-chat-menu (menu, preset-wiring)') and design.md
+;; §Decisions 15, 16.
+
+;;; Code:
+
+;; Dependencies
+
+;; Load =gptel= softly (=nil t=) so this module remains load-safe in
+;; contexts where =gptel= has not been fully initialised yet. The
+;; symbols we need (=gptel--apply-preset=, =gptel-get-preset=,
+;; =gptel--preset=) are resolved at hook-run time, not load time.
+
+;; We deliberately *do not* =require= =org= here. The property-drawer
+;; parser in =gptel-chat--declared-preset= is native =re-search-forward=
+;; and has no org dependency, so this module stays load-safe in minimal
+;; contexts where =org= has not been pulled in.
+
+;; =transient= is required eagerly — the =transient-define-prefix= and
+;; =transient-define-suffix= forms below expand to code that needs the
+;; transient package present at load time. =cl-lib= is required for
+;; =cl-delete-if= used inside the =gptel-chat-menu= body (mirroring
+;; upstream =gptel-menu='s context sanitisation).
+
+
+;; [[file:menu.org::*Dependencies][Dependencies:1]]
+(require 'gptel nil t)
+(require 'transient)
+(require 'cl-lib)
+;; Dependencies:1 ends here
+
+;; Forward declarations
+
+;; Suppress byte-compiler warnings for upstream symbols. They resolve at
+;; call time once =gptel= has loaded.
+
+
+;; [[file:menu.org::*Forward declarations][Forward declarations:1]]
+(declare-function gptel--apply-preset "gptel" (preset &optional setter))
+(declare-function gptel-get-preset "gptel" (name))
+(defvar gptel--preset)
+;; Forward declarations:1 ends here
+
+;; Preset resolution
+
+;; =gptel-chat--declared-preset= returns the preset name (a symbol)
+;; declared in the current buffer, or =nil= if none is declared.
+
+;; Resolution order (design.md §Decision 15; task =preset-wiring=):
+
+;; 1. An Org-style =:PROPERTIES:= drawer at =point-min= with a
+;;    =:GPTEL_PRESET: name= line. Parsed via a native regex scoped to
+;;    the first drawer at =point-min= — no dependency on =org-mode=
+;;    being loaded (task =preset-wiring-robustness=).
+;; 2. A file-local =gptel--preset= variable, populated by Emacs's
+;;    standard =hack-local-variables= from the =-*- ... -*-= header or a
+;;    =Local Variables:= block. =gptel--preset= is already declared
+;;    =safe-local-variable= upstream (=gptel.el:336=), so no additional
+;;    authorisation is needed.
+
+;; Precedence rationale: the property drawer is authored into the
+;; buffer content, while file-locals may be inherited from a parent
+;; =.dir-locals.el=. Explicit drawer intent overrides inherited default.
+
+;; The function must be robust to non-org buffers (no drawer parse
+;; error) and to stringy values in the drawer (coerce to symbol).
+
+;; Native parsing rationale (task =preset-wiring-robustness=, Finding 2):
+;; previously this used =org-entry-get=, which works on non-org buffers
+;; only because it internally falls back to regex. Using =re-search-
+;; forward= directly removes the implicit coupling to =org-mode= being
+;; loaded (chat-mode buffers derive from =text-mode= in some
+;; configurations) and decouples us from any future change to org's
+;; drawer API. We scope the search to the first =:PROPERTIES: ... :END:=
+;; block at =point-min=, matching how upstream =gptel-org--entry-
+;; properties= uses the =selective= scope.
+
+
+;; [[file:menu.org::*Preset resolution][Preset resolution:1]]
+(defun gptel-chat--declared-preset ()
+  "Return the preset symbol declared in the current buffer, or nil.
+
+Resolution order:
+
+  1. A `:PROPERTIES:' drawer at `point-min' containing a
+     `:GPTEL_PRESET: name' line (parsed with a native regex — no
+     dependency on `org-mode' being loaded).
+  2. The file-local `gptel--preset' variable, if bound.
+
+The property-drawer value wins when both are present — the drawer is
+authored into the buffer content while file-locals may be inherited
+from a parent `.dir-locals.el'.
+
+A non-nil return is always a symbol; stringy drawer values are
+coerced via `intern'."
+  (let ((drawer-val
+         (save-excursion
+           (save-restriction
+             (widen)
+             (goto-char (point-min))
+             ;; Skip leading blank lines only — the drawer must be
+             ;; the first non-blank content for us to recognise it,
+             ;; matching how upstream `gptel-org--entry-properties'
+             ;; scopes its read with `selective'.
+             (while (and (not (eobp)) (looking-at-p "^[ \t]*$"))
+               (forward-line 1))
+             (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+               (let ((drawer-end
+                      (save-excursion
+                        (when (re-search-forward
+                               "^[ \t]*:END:[ \t]*$" nil t)
+                          (line-beginning-position)))))
+                 (when drawer-end
+                   (when (re-search-forward
+                          "^[ \t]*:GPTEL_PRESET:[ \t]*\\(\\S-+\\)[ \t]*$"
+                          drawer-end t)
+                     (match-string-no-properties 1)))))))))
+    (cond
+     ((and drawer-val (not (string-empty-p drawer-val)))
+      (intern drawer-val))
+     ((and (boundp 'gptel--preset) gptel--preset)
+      (if (symbolp gptel--preset)
+          gptel--preset
+        (intern (format "%s" gptel--preset)))))))
+;; Preset resolution:1 ends here
+
+;; Preset application hook
+
+;; =gptel-chat--apply-declared-preset= is the hook entry point. It
+;; looks up the declared preset and, if one is found, applies it with a
+;; buffer-local setter matching the canonical pattern in
+;; =config/gptel/tools/persistent-agent.org:646-650=.
+
+;; The setter =(lambda (sym val) (set (make-local-variable sym) val))=
+;; is critical: the default (global =set=) would leak preset-configured
+;; values into other buffers (design.md §Decision 16). The buffer-local
+;; setter installs =:backend=, =:model=, =:system=, =:tools=,
+;; =:temperature=, etc. as buffer-local values; subsequent
+;; =gptel-request= calls read them directly.
+
+;; This function does *not* enable =gptel-mode= (design.md §Decision
+;; 16). Chat-mode owns the major-mode role exclusively; running
+;; =gptel-mode= on top would produce a mixed-format file that neither
+;; parser can read cleanly.
+
+;; If no preset is declared, the function is a no-op — the buffer
+;; inherits whatever global or dir-local configuration is in effect.
+
+;; =ignore-errors= around =gptel--apply-preset= mirrors upstream's
+;; tolerance in =gptel-org--restore-state= (=gptel-org.el:587-588=): a
+;; preset name that no longer resolves should warn but not break mode
+;; activation.
+
+
+;; [[file:menu.org::*Preset application hook][Preset application hook:1]]
+(defun gptel-chat--apply-declared-preset ()
+  "Apply a buffer-declared gptel preset, if any.
+
+Intended to run from `gptel-chat-mode-hook'.  Looks up the declared
+preset via `gptel-chat--declared-preset'; when one is found, calls
+`gptel--apply-preset' with a buffer-local setter so the preset's
+keys (`:backend', `:model', `:system', `:tools', `:temperature', ...)
+are installed as buffer-local values.
+
+Does NOT enable `gptel-mode' (design.md §Decision 16).  Chat-mode
+owns the major-mode role exclusively.
+
+A preset name that does not resolve (`gptel-get-preset' returns nil)
+triggers a `display-warning' rather than an error, matching upstream
+`gptel-org--restore-state' behaviour."
+  (when-let* ((preset (gptel-chat--declared-preset)))
+    (if (and (fboundp 'gptel-get-preset) (gptel-get-preset preset))
+        (gptel--apply-preset
+         preset
+         (lambda (sym val) (set (make-local-variable sym) val)))
+      (display-warning
+       '(gptel-chat presets)
+       (format "Could not activate gptel preset `%s' in buffer \"%s\""
+               preset (buffer-name))))))
+;; Preset application hook:1 ends here
+
+;; Hook wiring
+
+;; Preset detection runs at mode activation via
+;; =gptel-chat-mode-hook=. This catches the common cases:
+
+;; - =M-x gptel-chat-mode= on an existing buffer with a property drawer.
+;; - =gptel-chat-new= (no preset declared; the hook is a no-op).
+;; - File opened with =-*- gptel-chat -*-= and a property drawer at
+;;   point-min.
+
+;; A second hook on =hack-local-variables-hook= handles the file-local
+;; =gptel--preset= case. In the =normal-mode= sequence (files.el), the
+;; major mode is activated first (firing =gptel-chat-mode-hook=), then
+;; =hack-local-variables= runs the full local-variables pass (firing
+;; =hack-local-variables-hook=). So a file-local =gptel--preset=
+;; declaration is not yet bound when =gptel-chat-mode-hook= runs on a
+;; fresh file open, and we need a second hook that runs after locals
+;; land.
+
+;; *Registration scope (task =preset-wiring-robustness=, Finding 1).*
+;; We add the =hack-local-variables-hook= entry *buffer-locally from
+;; within the mode-hook handler* — not at module top level. Global
+;; registration would invoke =derived-mode-p= in every buffer Emacs ever
+;; opens, regardless of whether the user ever interacts with chat-mode.
+;; Registering buffer-locally from the mode hook means the registration
+;; only happens in chat-mode buffers, and the post-locals re-apply still
+;; fires because the mode hook is invoked before the full
+;; =hack-local-variables= pass.
+
+;; Calling =gptel-chat--apply-declared-preset= twice is safe —
+;; =gptel--apply-preset= simply re-installs the same buffer-local
+;; values. The post-locals invocation is load-bearing for the
+;; =gptel--preset= file-local path (drawer-only buffers see a redundant
+;; but harmless second apply; =gptel--preset=-only buffers see their
+;; one and only apply from the post-locals path).
+
+
+;; [[file:menu.org::*Hook wiring][Hook wiring:1]]
+(defun gptel-chat--apply-declared-preset-after-locals ()
+  "Re-apply the declared preset after `hack-local-variables' runs.
+
+Registered buffer-locally on `hack-local-variables-hook' from the
+`gptel-chat-mode-hook' entry, so this only fires in chat-mode
+buffers.  Catches the file-local `gptel--preset' case — the mode-
+hook entry alone cannot, because the `normal-mode' sequence runs
+mode hooks before the full `hack-local-variables' pass.
+
+The `derived-mode-p' guard is defence-in-depth: the buffer-local
+registration already scopes this to chat-mode buffers, but a direct
+caller (or a future global add-hook by mistake) should still no-op
+outside chat-mode."
+  (when (derived-mode-p 'gptel-chat-mode)
+    (gptel-chat--apply-declared-preset)))
+
+(defun gptel-chat--install-preset-hooks ()
+  "Install buffer-local preset hooks for `gptel-chat-mode'.
+
+Called from `gptel-chat-mode-hook'.  Applies any preset declared by
+the buffer's property drawer immediately, and registers a buffer-
+local entry on `hack-local-variables-hook' so file-local
+`gptel--preset' declarations are picked up after Emacs's full
+local-variables pass.
+
+Registering the `hack-local-variables-hook' entry buffer-locally
+(rather than at module top level) avoids imposing a
+`derived-mode-p' check in every unrelated buffer Emacs ever opens
+(task `preset-wiring-robustness', Finding 1)."
+  (gptel-chat--apply-declared-preset)
+  (add-hook 'hack-local-variables-hook
+            #'gptel-chat--apply-declared-preset-after-locals
+            nil t))
+
+(add-hook 'gptel-chat-mode-hook #'gptel-chat--install-preset-hooks)
+;; Hook wiring:1 ends here
+
+;; Send suffix
+
+;; =gptel-chat--suffix-send= is the narrow replacement for
+;; =gptel--suffix-send=. Its only job is to call =gptel-chat-send= —
+;; chat-mode's send command already encapsulates argument handling,
+;; prompt construction, streaming, and FSM setup (see
+;; =config/gptel/chat/send.org=). We do *not* pass =transient-args=
+;; through to it: chat-mode's send takes no arguments and always reads
+;; the current buffer as its source of truth.
+
+;; The =:key "RET"= and =:description= options mirror upstream so the
+;; rebound suffix lands in the same visual slot the user associates
+;; with Send (architecture.md §=gptel-chat-menu=).
+
+;; =gptel-chat-send= is loaded by a sibling module; we reference it at
+;; call time inside the suffix body, so this module does not require
+;; =send= to be loaded yet. =declare-function= below silences the
+;; byte-compiler.
+
+
+;; [[file:menu.org::*Send suffix][Send suffix:1]]
+(declare-function gptel-chat-send "gptel-chat-send" ())
+
+(transient-define-suffix gptel-chat--suffix-send ()
+  "Dispatch Send from `gptel-chat-menu' to `gptel-chat-send'.
+
+Replaces `gptel--suffix-send' on the chat-mode transient.  Unlike
+upstream Send, this suffix takes no transient arguments — chat-mode
+reads everything it needs from the current buffer (design.md
+§Decision 15, architecture.md §`gptel-chat-menu')."
+  :key "RET"
+  :description "Send chat buffer"
+  (interactive)
+  (call-interactively #'gptel-chat-send))
+;; Send suffix:1 ends here
+
+;; Prefix definition
+
+;; =gptel-chat-menu= mirrors the *configuration* portion of upstream
+;; =gptel-menu= (=runtime/straight/repos/gptel/gptel-transient.el=: the
+;; =transient-define-prefix gptel-menu= form) and replaces the final
+;; =[(gptel--suffix-send)]= row with =[(gptel-chat--suffix-send)]=. The
+;; groups we keep — system-prompt/context/tools at the top,
+;; request-parameters (preset, provider, model, max-tokens, temperature,
+;; use-context, include-reasoning, use-tools, track-response) in the
+;; middle, logging below — are identical by symbol reference.
+
+;; We deliberately omit upstream's Send-coupled groups (the prompt-
+;; source selector, the response-destination selector, and the inspect-
+;; query suffixes):
+
+;; - The prompt-source selector (Minibuffer / Kill-ring / Respond-in-
+;;   place) — its transient-args =m= / =y= / =i= are read by
+;;   =gptel--suffix-send= at send time; =gptel-chat--suffix-send= takes
+;;   no args, so these toggles would be silently discarded (design.md
+;;   §Decision 15, enumerated exclusions).
+;; - The response-destination selector (Echo area / Other buffer /
+;;   gptel session / Kill-ring) — transient-args =e= / =b= / =g= / =k=
+;;   follow the same silent-drop pattern.
+;; - The inspect-query suffixes (Lisp / JSON) — they invoke
+;;   =(gptel--suffix-send (cons "I" (transient-args ...)))= directly,
+;;   so their preview reads upstream's =gptel= text-property bounds
+;;   that chat-mode never emits (Decision 18 — block-based session
+;;   format). The preview would effectively be "everything from
+;;   point-min" for a send path that cannot run here.
+
+;; We also omit the region-rewrite group and the response-history
+;; commands. Their guard predicates test for gptel-mode's response-
+;; insertion artifacts — rewrite overlays and the =gptel= text-property
+;; on response spans. Chat-mode stores response text inside
+;; =#+begin_assistant= blocks without those artifacts (Decision 18), so
+;; the predicates never match and the groups would only be dead rows in
+;; the layout. The region-rewrite command itself also depends on the
+;; same response-overlay infrastructure downstream, so even the region-
+;; active branch of its guard cannot route to a working command in a
+;; chat-mode buffer.
+
+;; The =:incompatible= declaration on the prefix is dropped together
+;; with these groups — it only constrained the =m/y/i= and =e/g/b/k=
+;; transient-args that no longer exist on this prefix.
+
+;; We deliberately do *not* =require 'gptel-transient= at top level so
+;; this module stays load-safe before the transient has initialised.
+;; The infix symbols resolve at transient-setup time (when the user
+;; invokes the prefix), at which point =gptel-transient= will have been
+;; loaded by the upstream autoloads triggered by =gptel-menu= or
+;; =gptel-mode=. Should a user somehow reach =gptel-chat-menu= without
+;; =gptel-transient= loaded (unlikely in practice), =transient-setup=
+;; will surface a clear error; we do not try to pre-empt that path.
+
+;; The prefix body mirrors upstream's: sanitise the active model,
+;; prune stale buffer-local context entries, then hand off to
+;; =transient-setup=. Keeping the body identical preserves the
+;; behavioural contract of the inherited infixes — they expect
+;; =gptel-context= to be pre-cleaned and =gptel-model= to be
+;; resolvable.
+
+
+;; [[file:menu.org::*Prefix definition][Prefix definition:1]]
+(declare-function gptel--sanitize-model "gptel" (&optional backend model shoosh))
+(declare-function gptel-system-prompt--format "gptel-transient" (&optional message))
+(declare-function gptel--describe-infix-context "gptel-transient" ())
+(declare-function gptel--model-capable-p "gptel" (capability))
+(defvar gptel-context)
+(defvar gptel-use-tools)
+(defvar gptel--known-tools)
+(defvar gptel-tools)
+(defvar gptel--fsm-last)
+(defvar gptel-mode)
+(defvar gptel-track-response)
+(defvar gptel-expert-commands)
+(defvar gptel-log-level)
+(defvar gptel-backend)
+(defvar gptel--log-buffer-name)
+
+;;;###autoload (autoload 'gptel-chat-menu "gptel-chat-menu" nil t)
+(transient-define-prefix gptel-chat-menu ()
+  "Change parameters of the chat-mode prompt to send to the LLM.
+
+Mirrors the layout of upstream `gptel-menu' but replaces the Send
+suffix with `gptel-chat--suffix-send', which dispatches to
+`gptel-chat-send'.  Configuration infixes (system message, context,
+tools, preset, provider, temperature, etc.) are reused by symbol
+from `gptel-transient.el', so their behaviour is identical to
+upstream.
+
+Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
+`M-x gptel-chat-menu'.  Upstream `gptel-menu' remains unchanged —
+`M-x gptel-menu' invoked directly retains its upstream Send suffix."
+  [:description gptel-system-prompt--format
+   [""
+    :if (lambda () (not (gptel--model-capable-p 'nosystem)))
+    "Instructions"
+    ("s" "Set system message" gptel-system-prompt :transient t)
+    (gptel--infix-add-directive)]
+   [:pad-keys t ""
+    (:info #'gptel--describe-infix-context
+     :face transient-heading :format "%d")
+    (gptel--infix-context-add-current-kill)
+    (gptel--infix-context-add-region)
+    (gptel--infix-context-add-buffer)
+    (gptel--infix-context-add-file)
+    (gptel--infix-context-remove-all)
+    (gptel--suffix-context-buffer)]
+   [:pad-keys t
+    :if (lambda () (and gptel-use-tools
+                   (or gptel--known-tools (featurep 'gptel-integrations))))
+    "" (:info
+        (lambda ()
+          (concat
+           "Tools" (and gptel-tools
+                        (concat " (" (propertize (format "%d selected"
+                                                         (length gptel-tools))
+                                                 'face 'warning)
+                                ")"))))
+        :format "%d" :face transient-heading)
+    ("t" "Select tools" gptel-tools :transient t)
+    ("T" "Continue tool calls"
+     (lambda () (interactive) (gptel--handle-tool-use gptel--fsm-last))
+     :if (lambda () (and gptel--fsm-last
+                    (eq (gptel-fsm-state gptel--fsm-last) 'TOOL))))]]
+  [[(gptel--preset
+     :key "@" :format "%d"
+     :description
+     (lambda ()
+       (concat (propertize "Request Parameters" 'face 'transient-heading)
+               (gptel--format-preset-string))))
+    (gptel--infix-variable-scope)
+    (gptel--infix-provider)
+    (gptel--infix-max-tokens)
+    (gptel--infix-num-messages-to-send
+     :if (lambda () (and gptel-expert-commands
+                    (or gptel-mode gptel-track-response))))
+    (gptel--infix-temperature :if (lambda () gptel-expert-commands))
+    (gptel--infix-use-context)
+    (gptel--infix-include-reasoning)
+    (gptel--infix-use-tools)
+    (gptel--infix-track-response
+     :if (lambda () (and gptel-expert-commands (not gptel-mode))))
+    (gptel--infix-track-media :if (lambda () gptel-mode))]]
+  [["Logging"
+    :if (lambda () (or gptel-log-level gptel-expert-commands))
+    ("-l" "Log level" "-l"
+     :class gptel-lisp-variable
+     :variable gptel-log-level
+     :set-value gptel--set-with-scope
+     :display-nil "Off"
+     :prompt "Log level: "
+     :reader
+     (lambda (prompt _ _)
+       "Manage gptel's logging."
+       (let ((state (completing-read
+                     prompt '("off" "info" "debug") nil t)))
+         (message "Log level set to %s" state)
+         (if (string= state "off") nil (intern state)))))
+    ("L" "Inspect Log"
+     (lambda () (interactive)
+       (pop-to-buffer (get-buffer-create gptel--log-buffer-name)))
+     :format "  %k %d")]]
+  [(gptel-chat--suffix-send)]
+  (interactive)
+  (gptel--sanitize-model)
+  (when gptel-context
+    (setq gptel-context
+          (cl-delete-if
+           (lambda (entry)
+             (let ((first (or (car-safe entry) entry)))
+               (and (bufferp first) (not (buffer-live-p first)))))
+           gptel-context)))
+  (transient-setup 'gptel-chat-menu))
+;; Prefix definition:1 ends here
+
+;; Provide
+
+
+;; [[file:menu.org::*Provide][Provide:1]]
+(provide 'gptel-chat-menu)
+
+;;; menu.el ends here
+;; Provide:1 ends here

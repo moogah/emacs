@@ -1,0 +1,320 @@
+#+title: GPTEL Chat Mode - Turn Navigation
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle nav.el :comments both
+#+auto_tangle: y
+
+* Introduction
+
+Turn navigation commands for =gptel-chat-mode= buffers:
+
+- =gptel-chat-next-turn= / =gptel-chat-previous-turn= — move point to
+  the start of the next / previous outer turn block (user or
+  assistant), skipping anything outside a turn (headings, prose,
+  drawers, keyword lines).
+- =gptel-chat-regenerate= — when the last turn in the buffer is an
+  assistant block, delete it (including the closing =#+end_assistant=
+  line) and re-send the buffer, which re-issues the request for the
+  preceding user turn.
+
+Navigation and regenerate both use =gptel-chat--parse-buffer= as their
+source of truth. The parser already encodes the block-level state
+machine (including Decision 13, "user-block bodies are opaque") so a
+hand-rolled =re-search-forward= here would duplicate that logic and
+risk divergence.
+
+See =openspec/changes/gptel-chat-mode/architecture.md= §Components
+(subsection =gptel-chat-nav (navigation)=) and
+=openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md=
+§"Turn navigation" and §"Regenerate last response" for the full
+contract.
+
+* Lexical Binding
+
+Keep =lexical-binding: t= on line 1 of =nav.el=. The =:comments no=
+header tells org-babel not to emit structural comments above this
+block during tangling (see project memory on lexical-binding
+regressions).
+
+#+begin_src emacs-lisp :comments no
+;;; nav.el --- GPTEL Chat-Mode Turn Navigation -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Implements `gptel-chat-next-turn', `gptel-chat-previous-turn',
+;; and `gptel-chat-regenerate' for `gptel-chat-mode' buffers.
+;;
+;; The commands delegate to `gptel-chat--parse-buffer' for turn-list
+;; extraction rather than duplicating the parser state machine.  The
+;; keymap that binds these commands lives in `mode.el'
+;; (`gptel-chat-mode-map'): `C-c n' / `C-c p' for navigation and
+;; `C-c C-r' for regenerate.  Single-`C-c' navigation is deliberate
+;; so org's `C-c C-n' / `C-c C-p' heading navigation remains bound
+;; (design.md §Decision 7).
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'gptel-chat-parser)
+#+end_src
+
+* Forward declarations
+
+=gptel-chat-regenerate= calls =gptel-chat-send= (the send command,
+owned by the =send-command= task). That module may load after this
+one, and in batch/test contexts the symbol may be stubbed via a spy.
+=declare-function= suppresses byte-compiler warnings without making
+claims about a specific source library.
+
+The in-flight guard reads =gptel-chat--lifecycle-state= (buffer-local
+indicator owned by =send.el='s =fsm-handlers= subsystem).  Declaring
+the variable here with =defvar= avoids a byte-compile warning when
+=nav.el= is compiled ahead of =send.el=; the real =defvar-local=
+binding in =send.el= takes precedence at load time.
+
+#+begin_src emacs-lisp
+(declare-function gptel-chat-send "send" ())
+(defvar gptel-chat--lifecycle-state)
+#+end_src
+
+* In-flight state set
+
+A regenerate during =waiting= / =streaming= / =tool-running= would
+delete the assistant block while stream handlers are still writing
+into it (via markers inside the deleted range), corrupt the buffer,
+and double-fire a request upstream.  =error= and =aborted= are
+terminal / idle values (see =send.org= §"Send-guard idle-state
+contract") and MUST NOT block regenerate — if the prior request
+errored, regenerating is exactly what the user wants.
+
+The set is pinned as a defconst so the guard and its tests share a
+single definition.
+
+#+begin_src emacs-lisp
+(defconst gptel-chat-nav--regenerate-in-flight-states
+  '(waiting streaming tool-running)
+  "Lifecycle-state values that block `gptel-chat-regenerate'.
+Any other value — including nil, `error', and `aborted' — is
+treated as idle so the user can regenerate after a failed or
+aborted request.  See `gptel-chat--lifecycle-state' in send.el.")
+#+end_src
+
+* Turn-position helper
+
+Both navigation commands and regenerate extract turn start/end
+positions from the parser output. The parser returns markers; for
+point comparison we want integer positions. =marker-position= returns
+=nil= if a marker has been cleared, which would be surprising here —
+but a belt-and-suspenders filter keeps the comparison logic simple.
+
+#+begin_src emacs-lisp
+(defun gptel-chat-nav--turn-start (turn)
+  "Return the integer position of TURN's `:start' marker, or nil."
+  (when-let ((m (plist-get turn :start)))
+    (marker-position m)))
+
+(defun gptel-chat-nav--turn-end (turn)
+  "Return the integer position of TURN's `:end' marker, or nil."
+  (when-let ((m (plist-get turn :end)))
+    (marker-position m)))
+#+end_src
+
+* Containing-turn helper
+
+Navigation has to distinguish "inside a turn" from "outside a turn"
+because the spec requires navigation to *skip* the containing turn
+(previous-turn from inside an assistant goes to the preceding user,
+not to the assistant's own start).
+
+A turn contains point when its =:start= ≤ point ≤ end-of-closing-line.
+The parser's =:end= marker points at the start of the
+=#+end_<kind>= delimiter line, so "end of the block" for containment
+purposes is the end of that delimiter line.
+
+#+begin_src emacs-lisp
+(defun gptel-chat-nav--turn-contains-p (turn pos)
+  "Return non-nil when POS lies within TURN (inclusive of delimiter lines)."
+  (let ((start (gptel-chat-nav--turn-start turn))
+        (body-end (gptel-chat-nav--turn-end turn)))
+    (when (and start body-end)
+      (let ((block-end (save-excursion
+                         (goto-char body-end)
+                         (line-end-position))))
+        (and (<= start pos) (<= pos block-end))))))
+
+(defun gptel-chat-nav--containing-turn (turns pos)
+  "Return the element of TURNS containing POS, or nil."
+  (cl-find-if (lambda (turn) (gptel-chat-nav--turn-contains-p turn pos))
+              turns))
+#+end_src
+
+* Next turn
+
+Parse the buffer. If point is inside a turn, the next turn is the
+first turn whose start is strictly greater than that turn's end.
+Otherwise (point is in prose/headings between turns), the next turn
+is the first turn whose start is strictly greater than point. If
+none exists, emit "No next turn" and leave point unchanged.
+
+#+begin_src emacs-lisp
+;;;###autoload
+(defun gptel-chat-next-turn ()
+  "Move point to the start of the next outer turn block.
+
+Turns are identified by the chat-mode parser, so anything outside a
+turn (headings, prose, drawers, `#+keyword:' lines) is skipped.
+When point is inside a turn block, the command jumps *past* that
+turn to the next one.  Signals a user-visible `No next turn'
+message and leaves point unchanged when no further turn exists."
+  (interactive)
+  (let* ((here (point))
+         (turns (gptel-chat--parse-buffer))
+         (current (gptel-chat-nav--containing-turn turns here))
+         (threshold (if current
+                        (gptel-chat-nav--turn-end current)
+                      here))
+         (next (cl-find-if
+                (lambda (turn)
+                  (let ((start (gptel-chat-nav--turn-start turn)))
+                    (and start (> start threshold))))
+                turns)))
+    (if next
+        (goto-char (gptel-chat-nav--turn-start next))
+      (message "No next turn"))))
+#+end_src
+
+* Previous turn
+
+Symmetric to =gptel-chat-next-turn=. If point is inside a turn, the
+previous turn is the last turn whose start is strictly less than that
+turn's start. Otherwise (point outside any turn), the previous turn
+is the last turn whose start is strictly less than point. Because the
+turn list is in document order, =cl-find-if= with =:from-end t=
+returns the closest-but-before match without building a reversed list.
+
+#+begin_src emacs-lisp
+;;;###autoload
+(defun gptel-chat-previous-turn ()
+  "Move point to the start of the previous outer turn block.
+
+Turns are identified by the chat-mode parser, so anything outside a
+turn (headings, prose, drawers, `#+keyword:' lines) is skipped.
+When point is inside a turn block, the command jumps *before* that
+turn to the preceding one.  Signals a user-visible `No previous
+turn' message and leaves point unchanged when no earlier turn
+exists."
+  (interactive)
+  (let* ((here (point))
+         (turns (gptel-chat--parse-buffer))
+         (current (gptel-chat-nav--containing-turn turns here))
+         (threshold (if current
+                        (gptel-chat-nav--turn-start current)
+                      here))
+         (prev (cl-find-if
+                (lambda (turn)
+                  (let ((start (gptel-chat-nav--turn-start turn)))
+                    (and start (< start threshold))))
+                turns
+                :from-end t)))
+    (if prev
+        (goto-char (gptel-chat-nav--turn-start prev))
+      (message "No previous turn"))))
+#+end_src
+
+* Regenerate last response
+
+Parse the buffer and inspect the last turn:
+
+- Empty turn list → no response to regenerate.
+- Last turn is a user block (no response yet) → same.
+- Last turn is an assistant block → delete from its =:start= marker to
+  the end of its =#+end_assistant= line (inclusive of the trailing
+  newline, when one exists) and invoke =gptel-chat-send= which
+  re-issues the request for the preceding user turn.
+
+The parser's =:end= marker points at the start of the =#+end_assistant=
+delimiter line. We extend the deletion range to the end of that line
+(and the following newline, when present) so the block is removed
+cleanly without leaving a dangling =#+end_assistant= or an empty line.
+
+** In-flight guard
+
+Before touching the buffer we consult =gptel-chat--lifecycle-state=
+(written by =send.el='s chained FSM handlers).  If a request is
+active — =waiting=, =streaming=, or =tool-running= — we signal a
+=user-error= and leave the buffer untouched.  Without this guard the
+delete-region below would run while the stream handlers are still
+writing into markers inside the deleted range, corrupting the
+in-flight write and double-firing a request against upstream.
+
+** Atomic delete-and-send
+
+The delete + =gptel-chat-send= pair is wrapped in
+=atomic-change-group=.  If the send errors (e.g., preset missing,
+auth failure), a single =C-/= restores the pre-regenerate buffer —
+the user does not lose their prior response on top of seeing an
+error.  On success the change group simply commits; =gptel-chat-send=
+has its own undo boundary for the fresh request.
+
+#+begin_src emacs-lisp
+(defun gptel-chat-nav--delete-assistant-block (turn)
+  "Delete the assistant-block TURN from the current buffer.
+
+Removes the region from TURN's `:start' marker through the end of the
+matching `#+end_assistant' line (including the trailing newline when
+one is present)."
+  (let* ((start (gptel-chat-nav--turn-start turn))
+         (body-end (gptel-chat-nav--turn-end turn))
+         (end-line-end
+          (save-excursion
+            (goto-char body-end)
+            (line-end-position)))
+         ;; Extend past the newline after `#+end_assistant' when present,
+         ;; so the block is removed cleanly.
+         (del-end (min (point-max) (1+ end-line-end))))
+    (delete-region start del-end)
+    (goto-char start)))
+
+;;;###autoload
+(defun gptel-chat-regenerate ()
+  "Regenerate the last assistant response in the current buffer.
+
+When the buffer's last turn is an assistant block, delete it
+(including the closing `#+end_assistant' line) and re-send the
+buffer so the request for the preceding user turn is re-issued.
+
+When the buffer has no turns, or the last turn is an unanswered
+user block, emit `No response to regenerate' and leave the buffer
+unchanged.
+
+Signals `user-error' when a chat request is currently in flight
+for this buffer (see `gptel-chat--lifecycle-state').  The
+delete-and-send pair is wrapped in `atomic-change-group' so a
+single undo restores the pre-regenerate buffer if the send
+errors."
+  (interactive)
+  (when (and (boundp 'gptel-chat--lifecycle-state)
+             (memq gptel-chat--lifecycle-state
+                   gptel-chat-nav--regenerate-in-flight-states))
+    (user-error "Chat request in progress; cannot regenerate"))
+  (let* ((turns (gptel-chat--parse-buffer))
+         (last (car (last turns))))
+    (cond
+     ((null last)
+      (message "No response to regenerate"))
+     ((eq (plist-get last :role) 'assistant)
+      (atomic-change-group
+        (gptel-chat-nav--delete-assistant-block last)
+        (gptel-chat-send)))
+     (t
+      (message "No response to regenerate")))))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'gptel-chat-nav)
+
+;;; nav.el ends here
+#+end_src

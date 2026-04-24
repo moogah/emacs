@@ -35,9 +35,7 @@ patterns, shell commands) that can be referenced by presets."
 
 (defconst jf/gptel-session--context-file "session.org"
   "File name for main conversation context.
-Uses org-mode format for superior features (folding, properties, agenda).
-gptel's gptel-org-convert-response handles automatic markdown-to-org
-conversion transparently when org-mode is active.")
+Uses org-mode format with `gptel-chat-mode' block delimiters.")
 
 (defconst jf/gptel-session--tools-log-file "tools.org"
   "File name for tool call log.
@@ -84,7 +82,7 @@ Typically 'main' for the primary branch, or timestamped names for alternate bran
 
 (defvar-local jf/gptel--branch-dir nil
   "Absolute path to the current branch directory.
-This is where scope.yml, metadata.yml, and session.md files are located.
+This is where scope.yml, metadata.yml, and session.org files are located.
 For regular sessions: <session-dir>/branches/<branch-name>/
 For agents: <session-dir>/ (agents don't use branch subdirectories).")
 

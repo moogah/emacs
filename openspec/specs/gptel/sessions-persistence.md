@@ -16,7 +16,7 @@ Provides file-based persistence for gptel conversations across Emacs sessions. E
 ```
 ~/.gptel/sessions/<session-id>/
 ├── branches/<branch-name>/
-│   ├── session.md          # Conversation history (markdown)
+│   ├── session.org         # Conversation history (chat-mode block format)
 │   ├── metadata.yml        # Session metadata
 │   ├── scope.yml           # Scope configuration
 │   ├── branch-metadata.yml # Branch info (non-main only)
@@ -28,11 +28,14 @@ Provides file-based persistence for gptel conversations across Emacs sessions. E
 
 ### File Formats
 
-**session.md**:
-- Format: Markdown (gptel native format)
-- Content: Conversation history
-- Initial: `"###\n"` (markdown heading)
-- Local Variables: Added by upstream gptel on first save
+**session.org**:
+- Format: Org-mode using `gptel-chat-mode`'s symmetric special-block syntax
+  (`#+begin_user` / `#+begin_assistant` with nested `#+begin_tool` blocks;
+  delimiter lines at column 0)
+- Content: Conversation history, self-describing — no sidecar bounds or
+  Local Variables block
+- Initial: `"#+begin_user\n\n#+end_user\n"` (empty user block)
+- Persistence: plain `save-buffer`; no `gptel--save-state` round-trip
 
 **metadata.yml**:
 - Format: YAML
@@ -85,7 +88,7 @@ The system SHALL create this hierarchy for each session:
 ```
 <session-dir>/
 ├── branches/<branch-name>/
-│   ├── session.md
+│   ├── session.org
 │   ├── metadata.yml
 │   ├── scope.yml
 │   └── branch-metadata.yml (if not main)
@@ -109,7 +112,7 @@ The system SHALL create this hierarchy for each session:
 #### Scenario: Agent session creation
 - **WHEN** PersistentAgent tool creates sub-agent
 - **THEN** creates `branches/<branch-name>/agents/<preset>-<timestamp>-<desc>/`
-- **AND** agent directory has session.md, scope.yml, metadata.yml
+- **AND** agent directory has session.org, scope.yml, metadata.yml
 - **AND** metadata.yml includes `type: "agent"` and `parent_session_id`
 
 ### Requirement: Session file formats
@@ -147,19 +150,29 @@ SHALL be plain YAML (no frontmatter) with scope configuration sections generated
 - **AND** expands `${project_root}` variables
 - **AND** writes to branch directory as `scope.yml`
 
-#### session.md format
+#### session.org format
 
-SHALL be markdown format with initial content `"###\n"`. Upstream gptel writes conversation history and Local Variables block.
+SHALL be org-mode using `gptel-chat-mode`'s symmetric special-block syntax (`#+begin_user` / `#+begin_assistant` with nested `#+begin_tool`, delimiter lines at column 0). Initial content: `"#+begin_user\n\n#+end_user\n"`. The format is self-describing; no `gptel--bounds` property drawer or Local Variables block is written by the sessions subsystem. Persistence is plain `save-buffer`; `gptel--save-state` and `gptel--restore-state` are NOT invoked on session buffers.
 
-##### Scenario: Initial session.md
+Legacy `session.md` branches from before the chat-mode cutover remain on disk in their original format but are invisible to the sessions subsystem (see `jf/gptel--valid-branch-directory-p` — only branches containing `session.org` are enumerated).
+
+##### Scenario: Initial session.org
 - **WHEN** creating session
-- **THEN** session.md created with `"###\n"` content
-- **AND** file is valid markdown
+- **THEN** session.org created with content `"#+begin_user\n\n#+end_user\n"`
+- **AND** file is valid chat-mode (parseable, empty conversation)
+- **AND** no Local Variables block is present
 
 ##### Scenario: Conversation persistence
-- **WHEN** user makes requests and saves (Ctrl+S)
-- **THEN** upstream gptel's before-save-hook writes conversation
-- **AND** Local Variables block appended with preset info
+- **WHEN** user makes requests and saves (`C-x C-s`)
+- **THEN** `save-buffer` writes the chat-mode block structure to session.org
+- **AND** no `gptel--bounds` Local Variables block is appended
+- **AND** `metadata.yml`'s `:updated` field is refreshed via a separate sessions before-save-hook that writes metadata only
+
+##### Scenario: Legacy `session.md` branches are not enumerated
+- **WHEN** the sessions subsystem scans for session files (e.g., in `jf/gptel--init-registry` or `jf/gptel--find-all-branches-with-agents`)
+- **THEN** only branch directories containing `session.org` are surfaced
+- **AND** branch directories containing only legacy `session.md` are filtered out inside the enumeration helper
+- **AND** a session directory whose branches all use legacy `session.md` still passes `jf/gptel--valid-session-directory-p` but contributes zero entries to enumeration
 
 ### Requirement: Session discovery and registry
 
@@ -198,7 +211,7 @@ The system SHALL maintain global in-memory registry for active sessions.
 The system SHALL track session metadata in buffer-local variables for runtime access.
 
 #### Scenario: Buffer-local vars set on session open
-- **WHEN** user opens `branches/main/session.md`
+- **WHEN** user opens `branches/main/session.org`
 - **THEN** auto-init sets:
   - `jf/gptel--session-id` (from directory name)
   - `jf/gptel--session-dir` (absolute path to session)
@@ -211,38 +224,68 @@ The system SHALL track session metadata in buffer-local variables for runtime ac
 - **THEN** `jf/gptel--parent-session-id` set from metadata.yml
 - **AND** `jf/gptel--branch-name` set to "main" (agents don't branch)
 
-### Requirement: Auto-initialization on file open
+### Requirement: Auto-initialization enables `gptel-chat-mode`
 
-The system SHALL detect and auto-initialize session files when opened via any method (C-x C-f, dired, etc.).
+The auto-init hook (`jf/gptel--auto-init-session-buffer`) SHALL detect session files by matching the path pattern `*/branches/<branch-name>/session.org` (or the nested agent shape `*/<session-id>/branches/<branch>/agents/<agent>/session.org` and the flat legacy agent shape `*/<session-id>/agents/<agent>/session.org`). On match, it SHALL:
 
-**Implementation**: `config/gptel/sessions/commands.org` - `jf/gptel--auto-init-session-buffer` via find-file-hook
+1. Extract `session-id` and `branch-name` from the path (branch-name defaults to `"main"` for the flat legacy agent shape that has no `branches/` segment).
+2. Set the five buffer-local session variables (including `jf/gptel--parent-session-id`, populated from `metadata.yml`'s `parent_session_id` when present).
+3. Register the buffer in `jf/gptel--session-registry`.
+4. Read `metadata.yml` from the branch directory.
+5. Ensure the major mode is `gptel-chat-mode` (switching if necessary).
+6. Apply the preset named in `metadata.yml` via `gptel--apply-preset` with a buffer-local setter.
+7. Update the `current` symlink to point at this branch (suppressed for the flat legacy agent shape, which has no `branches/` directory).
+
+**Ordering is load-bearing.** `gptel-chat-mode` activation (step 5) runs before `metadata.yml` preset application (step 6) so that any `:GPTEL_PRESET:` drawer in the buffer is re-applied by the chat-mode hook first, letting the authoritative `metadata.yml` preset be applied last and win.
+
+The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--save-state`, and SHALL NOT invoke `gptel--restore-state`.
+
+**Implementation**: `config/gptel/sessions/commands.org` — `jf/gptel--auto-init-session-buffer` via find-file-hook.
 
 #### Scenario: Session file detection
-- **WHEN** file matches `*/branches/<branch-name>/session.md` pattern
+- **WHEN** file matches `*/branches/<branch-name>/session.org` pattern
 - **THEN** auto-init recognizes as branch session
 - **AND** extracts session-id and branch-name from path
+- **AND** enables `gptel-chat-mode` as the major mode
 
-#### Scenario: Agent file detection
-- **WHEN** file matches `*/agents/<agent-name>/session.md` pattern
-- **THEN** auto-init recognizes as agent session
-- **AND** sets branch-name to "main"
+#### Scenario: Agent file detection (nested)
+- **WHEN** file matches `*/<session-id>/branches/<branch>/agents/<agent>/session.org` pattern
+- **THEN** auto-init recognizes as nested agent session
+- **AND** extracts both session-id and branch-name from the path
+- **AND** enables `gptel-chat-mode` as the major mode
+- **AND** updates the `current` symlink (the `branches/` segment is present)
 
-#### Scenario: Existing session (has Local Variables)
-- **WHEN** file has `gptel--preset` in Local Variables
-- **THEN** sets buffer-local session vars first
-- **AND** calls `jf/gptel--ensure-mode-once` (enables gptel-mode)
-- **AND** upstream `gptel--restore-state` applies preset and overrides
+#### Scenario: Agent file detection (flat legacy)
+- **WHEN** file matches `*/<session-id>/agents/<agent>/session.org` pattern (no `branches/` segment)
+- **THEN** auto-init recognizes as flat legacy agent session
+- **AND** extracts session-id from the path
+- **AND** sets branch-name to `"main"` as the default
+- **AND** enables `gptel-chat-mode` as the major mode
+- **AND** suppresses the `jf/gptel--update-current-symlink` side-effect
 
-#### Scenario: New session (no Local Variables yet)
-- **WHEN** file has no Local Variables block
-- **THEN** reads preset from metadata.yml
-- **AND** applies via `gptel--apply-preset` with buffer-local setter
-- **AND** enables gptel-mode
-- **AND** on first save, upstream writes Local Variables block
+#### Scenario: Parent session id is populated from metadata.yml
+- **WHEN** auto-init reads `metadata.yml` for any agent or branch session
+- **AND** the file contains a `parent_session_id` field
+- **THEN** the buffer-local `jf/gptel--parent-session-id` is set to that value
+- **WHEN** `metadata.yml` does not contain a `parent_session_id` field
+- **THEN** `jf/gptel--parent-session-id` remains nil (its `defvar-local` default)
+
+#### Scenario: New session (preset from metadata.yml)
+- **WHEN** a freshly created `session.org` is opened for the first time
+- **THEN** auto-init reads `preset` from `metadata.yml`
+- **AND** applies it via `gptel--apply-preset` with a buffer-local setter
+- **AND** `gptel-chat-mode` is active
+- **AND** `gptel-mode` minor mode is NOT enabled
+
+#### Scenario: Existing session (no Local Variables round-trip)
+- **WHEN** a previously-saved `session.org` is reopened
+- **THEN** auto-init reads `preset` from `metadata.yml` (the authoritative source)
+- **AND** applies it buffer-locally
+- **AND** does NOT call `gptel--restore-state` or parse any Local Variables block
 
 ### Requirement: Session creation
 
-The system SHALL provide interactive command for creating persistent sessions.
+The system SHALL provide interactive command for creating persistent sessions. `jf/gptel-persistent-session` SHALL create new sessions with `session.org` as the session file, populated with chat-mode initial content (`#+begin_user\n\n#+end_user\n`).
 
 **Implementation**: `config/gptel/sessions/commands.org` - `jf/gptel-persistent-session`
 
@@ -251,8 +294,9 @@ The system SHALL provide interactive command for creating persistent sessions.
 - **THEN** prompted for name
 - **AND** generates session-id with timestamp
 - **AND** creates directory structure
-- **AND** opens session.md
-- **AND** auto-init applies executor preset
+- **AND** creates `branches/main/session.org` with the chat-mode initial content
+- **AND** `metadata.yml` is populated with `session_id`, `created`, `updated`, `preset`
+- **AND** opens session.org in `gptel-chat-mode` with the preset applied
 
 #### Scenario: Create session with selected preset
 - **WHEN** run `C-u M-x jf/gptel-persistent-session`
@@ -323,9 +367,12 @@ The system SHALL support creating sessions tied to activities with project isola
 
 ### With Upstream gptel
 - Uses `gptel--apply-preset` and `gptel-get-preset` for preset application
-- Upstream's `gptel--save-state` writes Local Variables
-- Upstream's `gptel--restore-state` restores preset on session open
-- Before-save-hook persists conversation
+- Session buffers use `gptel-chat-mode` (downstream) exclusively; upstream
+  `gptel-mode` is NOT enabled on session buffers
+- `gptel--save-state` / `gptel--restore-state` are NOT invoked on session
+  buffers — the chat-mode block format is self-describing
+- Plain `save-buffer` persists conversation; a separate before-save-hook
+  refreshes `metadata.yml`'s `:updated` timestamp (metadata only)
 
 ### With Scope Subsystem
 - Scope created via `jf/gptel-scope-profile--create-for-session`

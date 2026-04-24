@@ -42,16 +42,21 @@ Resolves to the directory containing init.el, supporting git worktrees.")
 
 ;; Function to resolve a module path to a file path
 (defun jf/resolve-module-path (module-path)
-  "Convert a MODULE-PATH like 'core/defaults' or 'transient' to a file path.
-Handles both 'dir/name' format and 'name' format."
-  (if (string-match-p "/" module-path)
-      ;; Has subdirectory: "core/defaults" -> "config/core/defaults.el"
-      (let* ((parts (split-string module-path "/"))
-             (dir (car parts))
-             (name (cadr parts)))
-        (expand-file-name (concat "config/" dir "/" name ".el") jf/emacs-dir))
-    ;; No subdirectory: "transient" -> "config/transient.el"
-    (expand-file-name (concat "config/" module-path ".el") jf/emacs-dir)))
+  "Convert a MODULE-PATH to an absolute .el file path beneath `jf/emacs-dir'.
+
+MODULE-PATH is a forward-slash separated logical module identifier
+containing zero or more `/' separators.  The final segment is the
+file basename; any preceding segments form the directory path
+beneath \"config/\".  Examples:
+
+  - \"transient\"        -> config/transient.el
+  - \"core/defaults\"    -> config/core/defaults.el
+  - \"gptel/chat/chat\"  -> config/gptel/chat/chat.el
+
+No validation is performed; pathological inputs (empty string,
+leading `/', `..', trailing `/') expand predictably but may not
+resolve to a real file."
+  (expand-file-name (concat "config/" module-path ".el") jf/emacs-dir))
 
 ;; Function to reload a specific module (useful for debugging)
 (defun jf/reload-module (module-path)
@@ -127,6 +132,10 @@ Handles both 'dir/name' format and 'name' format."
 
     ;; Bash Parser - tree-sitter based bash command parser
     ("bash-parser/bash-parser" "Bash command parser with semantic extraction")
+
+    ;; GPTEL Chat-Mode subsystem - must load before gptel/gptel so the
+    ;; sessions modules (loaded from gptel.org) can depend on chat-mode.
+    ("gptel/chat/chat"    "GPTEL chat-mode subsystem (mode, parser, send, streaming, nav, display, menu)")
 
     ;; GPTEL - LLM/AI integration (moved from major-modes)
     ("gptel/gptel"        "GPTEL LLM/AI integration")

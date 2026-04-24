@@ -37,8 +37,14 @@ Launch via macOS GUI (Emacs.app) or `./bin/emacs-isolated.sh` - both isolate to 
 ### Path Resolution
 
 - `jf/emacs-dir` - Repository root
-- Module paths use `config/` prefix: `"core/defaults"` → `config/core/defaults.el`
-- `jf/resolve-module-path` handles both `"core/defaults"` and `"transient"` formats
+- Module paths use `config/` prefix and a forward-slash separated
+  logical identifier; the final segment is the file basename, any
+  preceding segments form the directory path:
+  - `"transient"` → `config/transient.el`
+  - `"core/defaults"` → `config/core/defaults.el`
+  - `"gptel/chat/chat"` → `config/gptel/chat/chat.el`
+- `jf/resolve-module-path` accepts zero or more `/` separators
+- Authoritative contract: `openspec/specs/core/module-system.md`
 
 ### Git Worktree Architecture
 
@@ -469,6 +475,12 @@ steps, design rationale, verification commands, and context pointers.
 - List / show / create / update: `/opsx-tasks <subcmd>`
 - Implement sequentially: `/opsx-apply`
 - Implement in parallel worktrees: `/tasks-orchestrator`
+
+**Verification grep scoping:** A task's `Verification` greps should target
+the exact files the task modifies, not a broad subsystem directory. Recursive
+greps (`grep -rn <term> <dir>/`) routinely match callers owned by parallel
+tasks and read as false "incomplete" signals. Prefer explicit file lists:
+`grep -n <term> <file1> <file2>`.
 
 **Historical note:** The repo previously used the Beads CLI for tracking.
 `.beads/issues.jsonl` is kept as a history record; all other beads runtime

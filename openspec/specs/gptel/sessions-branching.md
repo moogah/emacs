@@ -13,7 +13,7 @@ The system SHALL support creating new branches from existing branches, enabling 
 A branch operation SHALL:
 1. Identify a **branch point** - a specific user prompt in the source branch
 2. Copy context from the source branch up to (and optionally including) the branch point
-3. Create a new branch directory with its own session.md, metadata, and agent state
+3. Create a new branch directory with its own session.org, metadata, and agent state
 4. Preserve lineage via branch-metadata.yml tracking parent branch and branch point
 5. Update the `current` symlink to point to the newly created branch
 
@@ -22,7 +22,7 @@ Branches SHALL be first-class session objects with independent evolution.
 #### Scenario: Branch as first-class session object
 - **WHEN** a branch is created from a parent branch
 - **THEN** the new branch SHALL have its own directory under `branches/`
-- **AND** contain a complete session.md file (not a reference or delta)
+- **AND** contain a complete session.org file (not a reference or delta)
 - **AND** contain its own scope-plan.yml, scope.yml, and branch-metadata.yml
 - **AND** be registered independently in the session registry
 - **AND** support further branching (branches can have child branches)
@@ -35,118 +35,80 @@ Branches SHALL be first-class session objects with independent evolution.
 
 ### Requirement: Branch point selection
 
-The system SHALL provide interactive branch point selection based on user prompts in the conversation.
+The system SHALL provide interactive branch point selection based on **outer `#+begin_user` blocks** in a `gptel-chat-mode` session buffer.
 
 Branch point selection SHALL:
-1. Scan the source buffer for user input regions (text without gptel properties)
-2. Present a numbered list of user prompts for selection
-3. Allow the user to choose whether to include or exclude the selected prompt in the new branch
-4. Return the buffer position marking the branch point
+1. Parse the source buffer via `gptel-chat--parse-buffer` to obtain the turn list (or equivalently: enumerate outer `#+begin_user` blocks with their buffer positions)
+2. Present a numbered list of user turns for selection (showing the first line of each user block as the display label)
+3. Allow the user to choose whether to include or exclude the selected user turn in the new branch
+4. Return a buffer position marking the branch point:
+   - **Include** → position immediately after the `#+end_user` line that closes the selected user turn (so the new branch ends with the selected user turn complete, awaiting an assistant response)
+   - **Exclude** → position immediately before the `#+begin_user` line that opens the selected user turn (so the new branch ends before the selected user turn, awaiting a fresh user prompt)
 
-Only user prompts SHALL be valid branch points. Assistant responses and tool outputs SHALL NOT be selectable as branch points.
+Only outer `#+begin_user` blocks SHALL be valid branch points. Assistant blocks (`#+begin_assistant`), nested tool blocks (`#+begin_tool`), and non-block content (headings, prose, drawers) SHALL NOT be selectable.
 
-#### Scenario: Interactive prompt selection
-- **WHEN** user invokes `jf/gptel-branch-session` in an active session buffer
-- **THEN** the system scans for all user prompts in the buffer
-- **AND** presents a numbered selection interface
-- **AND** allows the user to select a prompt by number
-- **AND** asks whether to include or exclude the selected prompt
+#### Scenario: Interactive turn selection
+- **WHEN** user invokes `jf/gptel-branch-session` in an active chat-mode session buffer
+- **THEN** the system scans for all outer `#+begin_user` blocks via `gptel-chat--parse-buffer`
+- **AND** presents a numbered selection interface showing each user block's first line
+- **AND** allows the user to select a turn by number
+- **AND** asks whether to include or exclude the selected turn
 
-#### Scenario: Include selected prompt in branch
-- **WHEN** user selects a branch point and chooses to INCLUDE the prompt
-- **THEN** the branch point position is the END of the selected prompt region
-- **AND** the new branch contains the selected prompt
-- **AND** the next assistant response would be after this prompt
+#### Scenario: Include selected turn in branch
+- **WHEN** user selects a user turn and chooses INCLUDE
+- **THEN** the branch point position is immediately after the `#+end_user` line of the selected turn
+- **AND** the new branch contains the selected turn
+- **AND** the next assistant response (if any) is truncated from the new branch
 
-#### Scenario: Exclude selected prompt from branch
-- **WHEN** user selects a branch point and chooses to EXCLUDE the prompt
-- **THEN** the branch point position is the BEGINNING of the selected prompt region
-- **AND** the new branch does NOT contain the selected prompt
-- **AND** the user can provide a different prompt to continue the conversation
+#### Scenario: Exclude selected turn from branch
+- **WHEN** user selects a user turn and chooses EXCLUDE
+- **THEN** the branch point position is immediately before the `#+begin_user` line of the selected turn
+- **AND** the new branch does NOT contain the selected turn
+- **AND** the user can author a different turn in the new branch
 
-#### Scenario: User prompt detection
-- **WHEN** scanning the buffer for user prompts
-- **THEN** the system SHALL identify regions without `gptel` text properties
-- **AND** exclude assistant responses (regions with gptel="response")
-- **AND** exclude tool outputs (regions with gptel property values)
+#### Scenario: Tool blocks and assistant blocks are not valid branch points
+- **WHEN** scanning the buffer for branch points
+- **THEN** `#+begin_assistant` and `#+begin_tool` blocks SHALL NOT appear in the selection list
+- **AND** headings and prose outside turn blocks SHALL NOT appear
 
 #### Scenario: No valid branch points
-- **WHEN** a session buffer contains only assistant responses or is empty
+- **WHEN** a chat-mode session buffer contains no outer `#+begin_user` blocks (empty conversation or only a single assistant block)
 - **THEN** the system SHALL report no available branch points
 - **AND** NOT allow branch creation
 
 ### Requirement: Context truncation
 
-The system SHALL copy conversation history from the source branch to the new branch, truncating at the selected branch point.
+The system SHALL copy conversation history from the source branch to the new branch, truncating the buffer at the selected branch point position.
 
 Context truncation SHALL:
-1. Copy all buffer content from the beginning up to the branch point position
-2. Preserve text properties and formatting
-3. Exclude content at or after the branch point position
-4. Write truncated content to the new branch's session.md file
+1. Copy buffer content from `point-min` up to the branch point position, verbatim
+2. Write the truncated content to the new branch's `session.org`
+3. Not attempt to filter, rewrite, or normalize the content — the chat-mode block structure in the source buffer is already the canonical form
 
-Context truncation SHALL operate at the buffer level, not the semantic message level.
+Context truncation operates at the buffer-content level. Because chat-mode has no `gptel--bounds` text properties, no bounds-filtering step exists. Block-delimiter integrity is guaranteed by construction: the branch point is always on a line boundary outside any open block.
 
 #### Scenario: Copying content up to branch point
-- **WHEN** creating a branch with a branch point at position 5420
-- **THEN** the new branch's session.md SHALL contain buffer content from position 1 to 5419
-- **AND** preserve all text properties (gptel markers, tool outputs)
-- **AND** exclude all content from position 5420 onward
+- **WHEN** creating a branch with a branch point at position 5420 (immediately after a `#+end_user`)
+- **THEN** the new branch's `session.org` SHALL contain buffer content from position 1 to 5419
+- **AND** the content is well-formed chat-mode (parseable by `gptel-chat--parse-buffer`)
+- **AND** no truncated / half-open block exists at the end
 
-#### Scenario: Empty branch from early branch point
-- **WHEN** the selected branch point is the first user prompt
-- **AND** the user chooses to exclude the prompt
-- **THEN** the new branch's session.md SHALL be empty or contain only initial setup
-- **AND** represent a fresh conversation starting point
+#### Scenario: Empty branch from first-turn exclude
+- **WHEN** the selected branch point is the first user turn
+- **AND** the user chooses EXCLUDE
+- **THEN** the new branch's `session.org` SHALL contain buffer content from position 1 up to the start of the first `#+begin_user`
+- **AND** the result is a valid empty chat-mode session
+
+#### Scenario: Branch preserves org commentary
+- **WHEN** the source buffer contains org headings or prose between turns
+- **AND** the branch point is after one of those commentary regions
+- **THEN** the new branch's `session.org` SHALL include the commentary verbatim
+- **AND** the chat-mode parser ignores it on message construction (per chat-mode's blocks-only model)
 
 #### Scenario: Full context copy for late branch point
 - **WHEN** the selected branch point is near the end of a long conversation
 - **THEN** the new branch SHALL contain nearly all conversation history
 - **AND** diverge only at the final exchanges
-
-### Requirement: Bounds filtering
-
-The system SHALL filter gptel--bounds to match the truncated context, ensuring consistency between conversation content and metadata.
-
-Bounds filtering SHALL:
-1. Preserve the gptel--bounds data structure (alist of type keys to region lists)
-2. Include only bounds regions that START before the branch point position
-3. Exclude regions that start at or after the branch point position
-4. Validate bounds structure before and after filtering
-
-gptel--bounds tracks positions of assistant responses, tool outputs, and other marked regions in the conversation buffer. The structure is an alist where each entry is `(type . regions)` and each region is `(start-pos end-pos)` or `(start-pos end-pos id)`.
-
-#### Scenario: Filtering bounds before branch point
-- **WHEN** creating a branch with branch point at position 5420
-- **AND** source buffer has gptel--bounds:
-  ```elisp
-  ((response . ((1000 2000) (3000 4000) (6000 7000)))
-   (tool . ((2500 2800))))
-  ```
-- **THEN** the filtered bounds SHALL be:
-  ```elisp
-  ((response . ((1000 2000) (3000 4000)))
-   (tool . ((2500 2800))))
-  ```
-- **AND** the response region (6000 7000) is excluded (starts after branch point)
-- **AND** type keys are preserved in the alist structure
-
-#### Scenario: Partial region exclusion
-- **WHEN** a bounds region overlaps the branch point (starts before, ends after)
-- **THEN** the region SHALL be INCLUDED if it starts before the branch point
-- **AND** the filtering only checks the start position, not the end position
-- **NOTE:** Current implementation includes partial overlaps (only checks start position)
-
-#### Scenario: Bounds validation
-- **WHEN** filtering bounds for a new branch
-- **THEN** the system SHALL validate bounds structure before filtering
-- **AND** validate again after filtering
-- **AND** ensure all regions are (start-pos end-pos) pairs
-
-#### Scenario: Empty bounds result
-- **WHEN** all bounds regions start at or after the branch point
-- **THEN** the filtered bounds SHALL be an empty list
-- **AND** represent a branch with no assistant responses or tool outputs yet
 
 ### Requirement: Branch naming convention
 
@@ -327,7 +289,7 @@ The command SHALL:
 2. Invoke branch point selection
 3. Prompt for a user-provided branch name
 4. Orchestrate branch creation (directory, metadata, context, agents, config)
-5. Open the new branch's session.md in a buffer
+5. Open the new branch's session.org in a buffer
 
 The command SHALL be interactive and invocable via M-x or keybinding.
 
@@ -336,7 +298,7 @@ The command SHALL be interactive and invocable via M-x or keybinding.
 - **THEN** the system prompts for branch point selection
 - **AND** prompts for a branch name
 - **AND** creates the new branch directory and files
-- **AND** opens the new branch's session.md in a buffer
+- **AND** opens the new branch's session.org in a buffer
 - **AND** logs successful branch creation at INFO level
 
 #### Scenario: Command invoked in non-session buffer
@@ -354,20 +316,20 @@ The command SHALL be interactive and invocable via M-x or keybinding.
 The system SHALL auto-initialize new branch buffers when opened via find-file-hook.
 
 Auto-initialization for branches SHALL:
-1. Detect files matching pattern `*/branches/*/session.md`
+1. Detect files matching pattern `*/branches/*/session.org`
 2. Extract session-id and branch-name from the file path
 3. Set buffer-local variables (session-id, session-dir, branch-name, branch-dir)
 4. Load preset configuration from scope.yml
-5. Enable gptel-mode and auto-save
+5. Enable gptel-chat-mode and auto-save
 
 This behavior is inherited from the persistence system's find-file-hook.
 
 #### Scenario: Opening new branch via find-file
-- **WHEN** the user opens `~/.gptel/sessions/my-session/branches/20260128153042-feature/session.md`
+- **WHEN** the user opens `~/.gptel/sessions/my-session/branches/20260128153042-feature/session.org`
 - **THEN** the find-file-hook SHALL trigger auto-initialization
 - **AND** extract session-id "my-session" and branch-name "20260128153042-feature"
 - **AND** set buffer-local session variables
-- **AND** enable gptel-mode
+- **AND** enable gptel-chat-mode
 
 #### Scenario: Opening new branch via branch creation command
 - **WHEN** `jf/gptel-branch-session` completes branch creation
@@ -386,11 +348,11 @@ Registry integration SHALL:
 
 The registry enables fast session/branch lookup without filesystem scanning.
 
-**Note:** Branch creation in `branching.el` does NOT explicitly register the branch. Registration happens implicitly when the new branch's `session.md` file is opened, triggering the find-file-hook in `commands.el` which calls auto-initialization. This ensures the buffer exists before registration and avoids race conditions.
+**Note:** Branch creation in `branching.el` does NOT explicitly register the branch. Registration happens implicitly when the new branch's `session.org` file is opened, triggering the find-file-hook in `commands.el` which calls auto-initialization. This ensures the buffer exists before registration and avoids race conditions.
 
 #### Scenario: Implicit registration via buffer opening
 - **WHEN** a new branch "20260128153042-feature" is created in session "my-session-20260205"
-- **AND** the branch's session.md file is opened via `find-file`
+- **AND** the branch's session.org file is opened via `find-file`
 - **THEN** the find-file-hook triggers auto-initialization
 - **AND** auto-initialization registers the branch with key `"my-session-20260205/20260128153042-feature"`
 - **AND** stores the branch directory path and buffer reference
@@ -476,7 +438,7 @@ Logs SHALL include session-id and branch-name for traceability.
 The system SHALL build on session persistence fundamentals, reusing core infrastructure.
 
 Branching SHALL depend on:
-- Directory structure (branches/ subdirectory, session.md, metadata files)
+- Directory structure (branches/ subdirectory, session.org, metadata files)
 - Metadata formats (scope-plan.yml, scope.yml, branch-metadata.yml)
 - Path resolution functions (branch-dir-path, context-file-path)
 - Registry for session/branch tracking

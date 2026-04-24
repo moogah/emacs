@@ -14,9 +14,12 @@
 ;;
 ;; ARCHITECTURE: Presets are registered in gptel--known-presets at startup.
 ;; Session creation writes scope.yml (from preset's scope profile) and
-;; metadata.yml (session metadata with preset name). On first open,
-;; gptel--apply-preset applies the preset; after first save, upstream's
-;; Local Variables + gptel--preset become the source of truth.
+;; metadata.yml (session metadata with preset name). Every time the
+;; session file is opened, the auto-init hook re-reads metadata.yml and
+;; calls gptel--apply-preset with a buffer-local setter. metadata.yml is
+;; the authoritative configuration source — session buffers run
+;; gptel-chat-mode exclusively (Decision 16) and do NOT round-trip
+;; through gptel--save-state / gptel--restore-state.
 
 ;;; Code:
 
@@ -28,6 +31,12 @@
 (require 'gptel-session-registry)
 (require 'gptel-session-metadata)
 (require 'gptel-scope-profiles)
+
+;; `gptel-chat-mode' is defined in `config/gptel/chat/mode.el' and is
+;; loaded earlier by `init.el' (see init.org: gptel/chat/chat loads
+;; before gptel/gptel). Declare here to silence byte-compiler warnings
+;; — the function is resolved at call time.
+(declare-function gptel-chat-mode "gptel-chat-mode" ())
 
 (defun jf/gptel--check-duplicate-hooks ()
   "Check if before-save-hook has duplicate gptel--save-state entries.
@@ -51,20 +60,11 @@ Returns the count of gptel--save-state hooks found."
     save-state-count))
 
 (defun jf/gptel--ensure-mode-once ()
-  "Ensure gptel-mode is enabled exactly once with correct hooks.
-Prevents duplicate before-save-hook entries that cause duplicate Local Variables."
-  (unless gptel-mode
-    (gptel-mode 1))
-
-  ;; Defensive: Remove any duplicate hooks that might have accumulated
-  (let ((hooks (buffer-local-value 'before-save-hook (current-buffer)))
-        (count (cl-count 'gptel--save-state
-                        (buffer-local-value 'before-save-hook (current-buffer)))))
-    (when (> count 1)
-      (jf/gptel--log 'warn "Removing %d duplicate gptel--save-state hooks" (1- count))
-      ;; Remove all instances and re-add once
-      (remove-hook 'before-save-hook #'gptel--save-state t)
-      (add-hook 'before-save-hook #'gptel--save-state nil t))))
+  "Ensure `gptel-chat-mode' is the active major mode in the current buffer.
+No-op when chat-mode is already active. Never enables `gptel-mode'
+(minor mode) — session buffers run chat-mode exclusively (Decision 16)."
+  (unless (derived-mode-p 'gptel-chat-mode)
+    (gptel-chat-mode)))
 
 (defun jf/gptel--clean-duplicate-local-vars ()
   "Remove all but the last Local Variables block in current buffer.
@@ -131,140 +131,198 @@ Scans all sessions and removes duplicate blocks without opening buffers."
     (message "Cleaned %d of %d session files" cleaned total)))
 
 (defun jf/gptel--auto-init-session-buffer ()
-  "Auto-initialize gptel session if current buffer is a session file.
+  "Auto-initialize gptel chat-mode session if current buffer is a session file.
 Detects session files by path pattern:
-  - Branch sessions: */branches/<branch-name>/session.{org,md}
-  - Agent sessions:  */agents/<agent-name>/session.{org,md}
+  - Branch sessions: */<session-id>/branches/<branch-name>/session.org
+  - Nested agents:   */<session-id>/branches/<branch-name>/agents/<agent-name>/session.org
+  - Flat agents:     */<session-id>/agents/<agent-name>/session.org (legacy)
 
-Handles two scenarios:
-  1. Existing session (has gptel--preset in Local Variables) — delegate to
-     upstream gptel--restore-state via gptel-mode.
-  2. New session (no Local Variables) — read preset name from
-     metadata.yml and apply via gptel--apply-preset.
+On match:
+  1. Extracts session-id and branch-name from the path (via
+     dedicated per-layout regexes — never hardcoded).
+  2. Sets the five buffer-local session variables, including
+     `jf/gptel--parent-session-id' (pulled from the branch's
+     `metadata.yml' when present).
+  3. Registers the buffer in `jf/gptel--session-registry'.
+  4. Ensures `gptel-chat-mode' is the active major mode.  This is
+     done BEFORE reading `metadata.yml' so the chat-mode hook
+     (`gptel-chat--apply-declared-preset' in
+     `config/gptel/chat/menu.org') fires first and applies any preset
+     declared in the file's `:PROPERTIES:' drawer or file-local
+     `gptel--preset'.  The metadata.yml apply then runs last and
+     overwrites those buffer-local values, so `metadata.yml' wins
+     (Decision 16 point 2).
+  5. Reads `metadata.yml' from the branch directory and applies the
+     named preset via `gptel--apply-preset' with a buffer-local setter.
+     When `metadata.yml' names a preset, it overrides any value already
+     set by a property drawer or file-local declaration (Decision 16).
+  6. Updates the `current' symlink to point at this branch (skipped
+     for the legacy flat agent layout, which has no `branches/' dir).
 
-This runs on every file open via find-file-hook, so performance is critical."
-  ;; Fast path guards (performance critical - runs on every file open)
-  (when (and (buffer-file-name)                      ; Has file? (fast)
-             (not (bound-and-true-p jf/gptel--session-id)) ; Not already initialized? (fast)
-             (or (string-suffix-p ".org" (buffer-file-name))  ; Is .org file? (fast)
-                 (string-suffix-p ".md" (buffer-file-name))))  ; Is .md file? (fast)
+Runs on every file open via `find-file-hook', so fast-path guards are
+critical."
+  ;; Fast-path guards (runs on every file open).  The inner
+  ;; `string=' check against "session.org" (in both regex branches
+  ;; below) is stricter than a generic ".org" suffix test, so no
+  ;; outer suffix guard is needed here.
+  (when (and (buffer-file-name)                         ; Has file?
+             (not (bound-and-true-p jf/gptel--session-id))) ; Not already initialized?
     (let* ((file-path (expand-file-name (buffer-file-name)))
            (file-name (file-name-nondirectory file-path))
-           ;; Detect session type from path pattern
+           (session-id nil)
            (branch-name nil)
            (branch-dir nil)
            (session-dir nil)
-           (session-type nil))
+           (session-type nil)
+           ;; Nested agent layout:
+           ;;   .../<session-id>/branches/<branch>/agents/<agent>/session.org
+           ;; Captures:
+           ;;   1 -> session-id
+           ;;   2 -> branch-name
+           ;;   3 -> agent-name
+           (nested-agent-re
+            "/\\([^/]+\\)/branches/\\([^/]+\\)/agents/\\([^/]+\\)/session\\.org\\'")
+           ;; Flat (legacy) agent layout:
+           ;;   .../<session-id>/agents/<agent>/session.org
+           ;; Captures:
+           ;;   1 -> session-id
+           ;;   2 -> agent-name
+           (flat-agent-re
+            "/\\([^/]+\\)/agents/\\([^/]+\\)/session\\.org\\'"))
 
-      ;; Branch session: */branches/<branch>/session.{org,md}
-      (when (and (string-match-p "\\`session\\.\\(org\\|md\\)\\'" file-name)
-                 (string-match "/branches/\\([^/]+\\)/session\\.\\(org\\|md\\)$" file-path))
+      (cond
+       ;; Branch session: */branches/<branch>/session.org
+       ;; (No agent component between branches/<branch>/ and session.org.)
+       ((and (string= file-name "session.org")
+             (string-match "/branches/\\([^/]+\\)/session\\.org\\'" file-path))
         (setq branch-name (match-string 1 file-path)
               branch-dir (file-name-directory file-path)
               session-dir (expand-file-name "../.." branch-dir)
+              session-id (jf/gptel--session-id-from-directory session-dir)
               session-type 'branch))
 
-      ;; Agent session: */agents/<agent>/session.{org,md}
-      (when (and (not session-type)
-                 (string-match-p "\\`session\\.\\(org\\|md\\)\\'" file-name)
-                 (string-match "/agents/\\([^/]+\\)/session\\.\\(org\\|md\\)$" file-path))
+       ;; Nested agent layout: agent lives under a specific branch.
+       ((and (string= file-name "session.org")
+             (string-match nested-agent-re file-path))
         (let ((agent-dir (file-name-directory file-path)))
-          (setq branch-name "main"
+          (setq session-id (match-string 1 file-path)
+                branch-name (match-string 2 file-path)
                 branch-dir agent-dir
-                session-dir agent-dir
+                ;; Walk up: agents/<agent>/ -> branches/<branch>/ -> <session-id>/
+                session-dir (expand-file-name "../../.." agent-dir)
                 session-type 'agent)))
 
+       ;; Legacy flat agent layout: no branches/ component.
+       ((and (string= file-name "session.org")
+             (string-match flat-agent-re file-path))
+        (let ((agent-dir (file-name-directory file-path)))
+          (setq session-id (match-string 1 file-path)
+                branch-name "main"
+                branch-dir agent-dir
+                ;; Walk up: agents/<agent>/ -> <session-id>/
+                session-dir (expand-file-name "../.." agent-dir)
+                session-type 'agent-flat))))
+
       (when session-type
-        (let ((session-id (jf/gptel--session-id-from-directory session-dir)))
-          ;; Validate directories (branch sessions need both checks; agent sessions just branch-dir)
-          (when (if (eq session-type 'branch)
-                    (and (jf/gptel--valid-session-directory-p session-dir)
-                         (jf/gptel--valid-branch-directory-p branch-dir))
-                  (jf/gptel--valid-branch-directory-p branch-dir))
-            (condition-case err
-                (let (;; Detect scenario: check if gptel--preset is buffer-local
-                      ;; Upstream's differential save always writes gptel--preset
-                      ;; gptel-backend may NOT be in Local Variables if it matches preset default
-                      (has-preset-var (local-variable-p 'gptel--preset)))
+        ;; Validate directories (branch sessions need both checks;
+        ;; agent sessions just need branch-dir).
+        (when (if (eq session-type 'branch)
+                  (and (jf/gptel--valid-session-directory-p session-dir)
+                       (jf/gptel--valid-branch-directory-p branch-dir))
+                (jf/gptel--valid-branch-directory-p branch-dir))
+          (condition-case err
+              (progn
+                (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
+                               session-type session-id branch-name)
 
-                  (cond
-                   ;; SCENARIO 1: Existing session with gptel--preset in Local Variables
-                   ;; Emacs already loaded Local Variables before this hook ran.
-                   ;; Delegate entirely to upstream gptel--restore-state.
-                   (has-preset-var
-                    (jf/gptel--log 'debug "Existing %s session detected (has gptel--preset): %s/%s"
-                                  session-type session-id branch-name)
-                    ;; Set buffer-local session variables FIRST
-                    (setq-local jf/gptel--session-id session-id)
-                    (setq-local jf/gptel--session-dir session-dir)
-                    (setq-local jf/gptel--branch-name branch-name)
-                    (setq-local jf/gptel--branch-dir branch-dir)
+                  ;; Ensure chat-mode is the active major mode FIRST,
+                  ;; before setting any buffer-local session vars. Two
+                  ;; reasons:
+                  ;;
+                  ;; 1. Activating a major mode calls
+                  ;;    `kill-all-local-variables', which would wipe any
+                  ;;    session vars set beforehand (they are not declared
+                  ;;    `permanent-local').
+                  ;;
+                  ;; 2. Activating chat-mode fires
+                  ;;    `gptel-chat-mode-hook', which runs
+                  ;;    `gptel-chat--apply-declared-preset' and may set
+                  ;;    `gptel--preset' (plus other `gptel-*'
+                  ;;    buffer-locals) from a `:GPTEL_PRESET:' drawer or
+                  ;;    file-local variable. `metadata.yml' is
+                  ;;    authoritative (Decision 16 point 2), so its apply
+                  ;;    must run LAST below to win over the drawer-preset
+                  ;;    re-application performed by the chat-mode hook.
+                  ;;
+                  ;; Never calls (gptel-mode 1) — Decision 16.
+                  (jf/gptel--ensure-mode-once)
 
-                    ;; Enable gptel-mode — triggers gptel--restore-state which applies
-                    ;; preset and overlays saved overrides. We do NOT call any custom
-                    ;; preset loading functions.
-                    (jf/gptel--ensure-mode-once)
+                  ;; Set buffer-local session variables (after mode
+                  ;; activation, since mode activation wipes them).
+                  (setq-local jf/gptel--session-id session-id)
+                  (setq-local jf/gptel--session-dir session-dir)
+                  (setq-local jf/gptel--branch-name branch-name)
+                  (setq-local jf/gptel--branch-dir branch-dir)
 
-                    ;; Load scope from scope.yml if it exists
-                    (when (file-exists-p (jf/gptel--scope-file-path branch-dir))
-                      (jf/gptel--log 'debug "Scope config available at %s" (jf/gptel--scope-file-path branch-dir))))
+                  ;; Read metadata.yml once for both preset and parent-id.
+                  ;; `metadata.yml' is the authoritative source; when
+                  ;; present, its preset overrides any value already
+                  ;; declared by a property drawer or file-local variable
+                  ;; (Decision 16). This apply runs AFTER chat-mode
+                  ;; activation above, ensuring the chat-mode hook's
+                  ;; drawer-preset re-apply does not clobber these values.
+                  (let* ((metadata (condition-case parse-err
+                                       (jf/gptel--read-session-metadata branch-dir)
+                                     (error
+                                      (jf/gptel--log
+                                       'warn "Failed to read metadata.yml: %s"
+                                       (error-message-string parse-err))
+                                      nil)))
+                         (preset-str (plist-get metadata :preset))
+                         (preset-name (when (and preset-str (stringp preset-str))
+                                        (intern preset-str)))
+                         (parent-id (plist-get metadata :parent-session-id)))
 
-                   ;; SCENARIO 2: New session — no Local Variables
-                   ;; Read preset name from metadata.yml and apply via gptel--apply-preset
-                   (t
-                    (jf/gptel--log 'debug "New %s session detected (no Local Variables): %s/%s"
-                                  session-type session-id branch-name)
-                    ;; Set buffer-local session variables
-                    (setq-local jf/gptel--session-id session-id)
-                    (setq-local jf/gptel--session-dir session-dir)
-                    (setq-local jf/gptel--branch-name branch-name)
-                    (setq-local jf/gptel--branch-dir branch-dir)
+                  ;; Populate parent-session-id when metadata declares one.
+                  (when (and parent-id (stringp parent-id))
+                    (setq-local jf/gptel--parent-session-id parent-id))
 
-                    ;; Read preset name from metadata.yml
-                    (let* ((metadata-path (jf/gptel--metadata-file-path branch-dir))
-                           (preset-name nil))
-                      (when (file-exists-p metadata-path)
-                        (condition-case err
-                            (with-temp-buffer
-                              (insert-file-contents metadata-path)
-                              (let* ((parsed (yaml-parse-string (buffer-string) :object-type 'plist))
-                                     (preset-str (plist-get parsed :preset)))
-                                (when preset-str
-                                  (setq preset-name (intern preset-str)))))
-                          (error
-                           (jf/gptel--log 'warn "Failed to read metadata.yml: %s" (error-message-string err)))))
+                    (if (and preset-name (gptel-get-preset preset-name))
+                        (gptel--apply-preset
+                         preset-name
+                         (lambda (var val)
+                           (set (make-local-variable var) val)))
+                      (when preset-name
+                        (jf/gptel--log
+                         'warn
+                         "Preset %s from metadata.yml not registered; skipping apply-preset"
+                         preset-name))))
 
-                      (if (and preset-name (gptel-get-preset preset-name))
-                          ;; Apply preset via upstream with buffer-local setter
-                          (progn
-                            (gptel--apply-preset preset-name
-                                                (lambda (var val) (set (make-local-variable var) val)))
-                            (jf/gptel--ensure-mode-once))
-                        ;; Fallback: enable gptel-mode without preset
-                        (jf/gptel--log 'warn "No preset found for new session %s, enabling basic gptel-mode" session-id)
-                        (jf/gptel--ensure-mode-once)))))
-
-                  ;; Common steps for all scenarios
-                  (jf/gptel--register-session session-dir (current-buffer) session-id branch-name branch-dir)
+                  ;; Register the buffer in the session registry.
+                  (jf/gptel--register-session session-dir
+                                              (current-buffer)
+                                              session-id
+                                              branch-name
+                                              branch-dir)
                   (setq-local jf/gptel-autosave-enabled t)
 
-                  ;; Load activity worktree paths if present (for activity-scoped sessions)
-                  ;; This makes worktree paths available to tools like list_activity_worktrees
-                  (when (local-variable-p 'gptel-activity-worktrees)
-                    (jf/gptel--log 'debug "Loaded %d activity worktree path(s)"
-                                  (length gptel-activity-worktrees)))
+                ;; Update current symlink to point to this branch.
+                ;; Skip for legacy flat agent layout: the agent directory
+                ;; has no `branches/' subdirectory, so pointing `current'
+                ;; at `branches/main' there would create a dangling
+                ;; symlink. Nested agents update the parent session's
+                ;; `current' symlink to the real branch name.
+                (unless (eq session-type 'agent-flat)
+                  (jf/gptel--update-current-symlink session-dir branch-name))
 
-                  ;; Update current symlink to point to this branch
-                  (jf/gptel--update-current-symlink session-dir branch-name)
-
-                  (jf/gptel--log 'info "Auto-initialized %s %s session: %s/%s"
-                                (if has-preset-var "existing" "new")
-                                session-type session-id branch-name)
-                  (message "Session initialized: %s (branch: %s)" session-id branch-name))
-              (error
-               (jf/gptel--log 'error "Failed to auto-initialize %s session: %s"
-                              session-type (error-message-string err))
-               (message "Warning: Session auto-init failed. File opened in basic mode.")))))))))
+                (jf/gptel--log 'info "Auto-initialized %s session: %s/%s"
+                               session-type session-id branch-name)
+                (message "Session initialized: %s (branch: %s)"
+                         session-id branch-name))
+            (error
+             (jf/gptel--log 'error "Failed to auto-initialize %s session: %s"
+                            session-type (error-message-string err))
+             (message "Warning: Session auto-init failed. File opened in basic mode."))))))))
 
 (defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root)
   "Create session directory structure with branching support.
@@ -272,7 +330,11 @@ This runs on every file open via find-file-hook, so performance is critical."
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
 PRESET-NAME - symbol, name of registered preset in gptel--known-presets
-INITIAL-CONTENT - optional initial content for session.md (default: \"###\\n\")
+INITIAL-CONTENT - optional initial content for session.org (default:
+  the chat-mode empty-user-block template
+  \"#+begin_user\\n\\n#+end_user\\n\", matching `gptel-chat-mode''s
+  new-chat initialization per design Decision 9 / Decision 18 so a
+  fresh session looks identical to a fresh standalone chat buffer)
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
 
@@ -280,7 +342,7 @@ Creates:
 - SESSION-DIR/branches/main/ directory structure
 - scope.yml (from preset's scope profile, or explicit worktree-paths)
 - metadata.yml (session metadata with preset name)
-- session.md (with initial content)
+- session.org (with initial content)
 - current symlink pointing to main branch
 
 Returns plist with:
@@ -288,11 +350,11 @@ Returns plist with:
   :session-dir - session directory path
   :branch-dir - main branch directory path
   :branch-name - \"main\"
-  :session-file - path to session.md"
+  :session-file - path to session.org"
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
-         (initial-content (or initial-content "###\n")))
+         (initial-content (or initial-content "#+begin_user\n\n#+end_user\n")))
 
     ;; Write scope.yml from preset's scope profile
     (jf/gptel-scope-profile--create-for-session
@@ -361,15 +423,19 @@ No special resume command needed - sessions auto-initialize when opened."
                              (jf/gptel--select-projects)))
          (project-root (when selected-projects (car selected-projects)))
          (project-names (when selected-projects
-                         (mapcar #'jf/gptel--project-display-name selected-projects)))
-         (initial-content ""))
+                         (mapcar #'jf/gptel--project-display-name selected-projects))))
 
-    ;; Create session structure using core helper
+    ;; Create session structure using core helper.
+    ;; `initial-content' is left nil so the core helper fills in the
+    ;; chat-mode empty-user-block template (Decision 9 / Decision 18).
+    ;; No `gptel--save-state' call, no Local Variables block write —
+    ;; `gptel-chat-mode''s block format is self-describing, and
+    ;; `metadata.yml' is the authoritative configuration source.
     (let* ((session-info (jf/gptel--create-session-core
                          session-id
                          session-dir
                          preset-name
-                         initial-content
+                         nil         ; default chat-mode initial content
                          nil         ; no worktree-paths for standalone
                          project-root))
            (session-file (plist-get session-info :session-file)))

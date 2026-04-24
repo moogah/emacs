@@ -155,13 +155,13 @@ Sessions are persisted to disk with the following structure:
 └── parent-session-20260121143022/
     ├── metadata.yml                 # Session metadata (session_id, timestamps, preset)
     ├── scope.yml                    # Path permissions and scope configuration
-    ├── session.md                   # Parent conversation
+    ├── session.org                  # Parent conversation
     ├── tools.org                    # Parent tool calls
     └── agents/                      # Agent sessions
         └── researcher-20260121143245-analyze-code/
             ├── metadata.yml         # Agent metadata (includes parent_session_id)
             ├── scope.yml            # Agent-specific scope (NO inheritance)
-            ├── session.md           # Agent conversation (auto-saved)
+            ├── session.org          # Agent conversation (auto-saved)
             └── tools.org            # Agent tool calls
 #+end_example
 
@@ -366,7 +366,7 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 5. Verify overlay appears in parent buffer
 6. Monitor overlay updates during tool calls
 7. Check final result returned to parent
-8. Verify session.md contains full conversation
+8. Verify session.org contains full conversation
 
 *Edge cases:*
 - Parent session doesn't exist → Error (expected)

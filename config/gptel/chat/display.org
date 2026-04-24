@@ -1,0 +1,449 @@
+#+title: GPTEL Chat Mode - Display Layer
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle display.el :comments both
+#+auto_tangle: y
+
+* Introduction
+
+Presentation layer for =gptel-chat-mode= buffers. Applies subtle,
+role-distinguishing overlays to the *body* of each user and assistant
+turn — the region between =#+begin_<role>\n= and =#+end_<role>=. The
+delimiter lines themselves remain visually plain so buffer structure
+is unchanged (architecture.md §Components → =gptel-chat-display=).
+
+Key invariants:
+
+- Overlays never alter underlying text. =buffer-substring-no-properties=
+  of the full buffer matches the on-disk file byte-for-byte.
+- Delimiter lines (=#+begin_user=, =#+end_assistant=, etc.) are NOT
+  covered by role overlays. They stay in the default face so users can
+  still see block structure at a glance.
+- The layer is toggleable with =gptel-chat-toggle-display-layer= and is
+  enabled by default on fresh buffers (spec scenario "Display layer is
+  active by default").
+- Refresh is buffer-local and debounced via =run-with-idle-timer=; the
+  debounce delay is customizable through
+  =gptel-chat-display-refresh-delay= (default 0.1s).
+
+Tagging: every overlay installed by this layer carries a
+=gptel-chat-display= property so =(remove-overlays (point-min)
+(point-max) 'gptel-chat-display t)= removes them cleanly without
+touching overlays owned by other packages (font-lock, flymake, etc.).
+
+Parser dependency: we call =gptel-chat--parse-buffer= to enumerate
+turns. The parser returns =:start= / =:end= markers pointing at the
+=#+begin_*= line and at the start of the matching =#+end_*= line
+respectively (see =parser.org= §Buffer parser). We translate those
+marker positions into a body range that excludes the delimiter lines.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; display.el --- GPTEL Chat-Mode Display Layer -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Subtle, role-distinguishing overlay layer for `gptel-chat-mode'
+;; buffers.  Overlays span the BODY of each turn block (between the
+;; `#+begin_<role>' and `#+end_<role>' delimiter lines) and carry the
+;; `gptel-chat-display' property so they can be cleanly removed.
+;;
+;; Public entry points:
+;;   `gptel-chat-toggle-display-layer'   — interactive toggle command
+;;   `gptel-chat--refresh-overlays'      — buffer refresh (called from
+;;                                          mode hook and after-change)
+;;
+;; Customization:
+;;   `gptel-chat-user-face'              — face for user turn bodies
+;;   `gptel-chat-assistant-face'         — face for assistant turn bodies
+;;   `gptel-chat-display-refresh-delay'  — debounce seconds (default 0.1)
+;;
+;; See `openspec/changes/gptel-chat-mode/architecture.md' §Components
+;; (subsection `gptel-chat-display (display)') for the module contract.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'gptel-chat-parser)
+
+;; Forward declarations for symbols that live in `gptel-chat-send'
+;; (loaded independently at mode-activation time) and in upstream
+;; gptel.  Silences byte-compiler warnings without creating a hard
+;; load-order dependency; all run-time references are guarded by
+;; `bound-and-true-p' or `fboundp'.
+(defvar gptel-chat--lifecycle-state)
+(declare-function gptel-fsm-info "gptel-request" (fsm))
+#+end_src
+
+* Customization group
+
+Reuse the parent =gptel-chat= group when it exists; otherwise create a
+minimal local group so =M-x customize-group RET gptel-chat RET= works
+in batch tests that load this module in isolation.
+
+#+begin_src emacs-lisp
+(defgroup gptel-chat nil
+  "Multi-turn gptel chat-mode buffers."
+  :group 'gptel
+  :prefix "gptel-chat-")
+#+end_src
+
+* Faces
+
+Subtle defaults: a slight background tint per role. Users who want a
+different treatment (foreground shift, line-prefix, box, etc.)
+customize via =M-x customize-face RET gptel-chat-user-face RET=.
+
+The dark/light background variants keep contrast readable under both
+theme families without hard-coding a specific theme's palette.
+
+#+begin_src emacs-lisp
+(defface gptel-chat-user-face
+  '((((background dark))  :background "#1a2030" :extend t)
+    (((background light)) :background "#f0f4ff" :extend t))
+  "Face applied to the body region of `#+begin_user' blocks.
+Delimiter lines are NOT covered by this face."
+  :group 'gptel-chat)
+
+(defface gptel-chat-assistant-face
+  '((((background dark))  :background "#1a2a1a" :extend t)
+    (((background light)) :background "#f0fff4" :extend t))
+  "Face applied to the body region of `#+begin_assistant' blocks.
+Delimiter lines are NOT covered by this face."
+  :group 'gptel-chat)
+#+end_src
+
+* Defcustoms
+
+#+begin_src emacs-lisp
+(defcustom gptel-chat-display-refresh-delay 0.1
+  "Idle-timer delay (seconds) for debounced overlay refresh.
+After a buffer change, the display layer waits this many seconds of
+idle time before recomputing role overlays.  Lower values feel more
+responsive; higher values reduce work during rapid edits."
+  :type 'number
+  :group 'gptel-chat)
+#+end_src
+
+* Buffer-local state
+
+Two buffer-local variables:
+
+- =gptel-chat--display-enabled= tracks whether the layer is active in
+  this buffer. Toggled by =gptel-chat-toggle-display-layer=. Default
+  =t= (enabled on fresh buffers per spec scenario "Display layer is
+  active by default").
+- =gptel-chat--display-refresh-timer= holds the pending idle timer so
+  rapid edits cancel the prior timer instead of stacking up.
+
+#+begin_src emacs-lisp
+(defvar-local gptel-chat--display-enabled t
+  "Non-nil when the chat-mode display layer is active in this buffer.
+Toggled by `gptel-chat-toggle-display-layer'.")
+
+(defvar-local gptel-chat--display-refresh-timer nil
+  "Pending idle timer for debounced overlay refresh, or nil.")
+#+end_src
+
+* Body-range helper
+
+The parser returns markers pointing at the start of =#+begin_*= and
+=#+end_*= delimiter lines. Translate those into a body range that
+excludes the delimiters:
+
+- =body-start= = position immediately after the =#+begin_*\n= line.
+- =body-end=   = position at start of =#+end_*= line (i.e. the parser's
+  =:end= marker).
+
+Keeping this in one helper prevents off-by-one drift between the
+user-turn and assistant-turn overlay paths.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--display-body-range (turn)
+  "Return a (BODY-START . BODY-END) cons for TURN, or nil on an empty body.
+TURN is a turn plist as returned by `gptel-chat--parse-buffer'.  The
+start position skips the `#+begin_*' delimiter line; the end position
+is the start of the `#+end_*' delimiter line.  Returns nil when the
+resulting range is empty (which would produce a zero-width overlay)."
+  (let* ((start-marker (plist-get turn :start))
+         (end-marker   (plist-get turn :end))
+         (body-end     (and end-marker (marker-position end-marker)))
+         (body-start
+          (when start-marker
+            (save-excursion
+              (goto-char (marker-position start-marker))
+              ;; Move past the `#+begin_<role>' line (and its terminating
+              ;; newline) so the overlay starts at the first body char.
+              (forward-line 1)
+              (point)))))
+    (when (and body-start body-end (< body-start body-end))
+      (cons body-start body-end))))
+#+end_src
+
+* Overlay installer
+
+Install a single overlay for one turn. Every overlay carries the
+=gptel-chat-display= property so =remove-overlays= can target them
+cleanly without touching overlays owned by other packages.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--display-make-overlay (start end face)
+  "Install a `gptel-chat-display' overlay from START to END with FACE.
+Returns the new overlay.  The overlay is tagged with the
+`gptel-chat-display' property (value t) for later removal."
+  (let ((ov (make-overlay start end nil t nil)))
+    (overlay-put ov 'gptel-chat-display t)
+    (overlay-put ov 'face face)
+    ;; Tag the role so external inspection / debugging is easy.
+    ov))
+#+end_src
+
+* Overlay cleanup
+
+Centralize the removal call so =toggle= and =refresh= both route
+through the same code path.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--display-remove-all ()
+  "Remove every `gptel-chat-display' overlay from the current buffer."
+  (remove-overlays (point-min) (point-max) 'gptel-chat-display t))
+#+end_src
+
+* Refresh — the main entry point
+
+Walk the turn list and re-install role overlays. The refresh is
+idempotent: it clears existing =gptel-chat-display= overlays before
+installing new ones, so calling it repeatedly converges on the correct
+state.
+
+If =gptel-chat--parse-buffer= raises a =user-error= (the buffer is
+structurally invalid — unclosed block, turn-inside-turn, etc.) we
+swallow it here: partial typing of a block should not blow up a
+silent background refresh. The refresh simply does nothing until the
+buffer becomes parseable again.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--refresh-overlays (&optional buffer)
+  "Refresh role overlays in BUFFER (default current).
+Removes existing `gptel-chat-display' overlays and installs fresh ones
+spanning the body of each user / assistant turn.  A `user-error' from
+the parser (mid-edit buffer with an unclosed block) is caught and
+treated as a no-op — the next refresh will reinstall overlays once
+the buffer reaches a parseable state."
+  (with-current-buffer (or buffer (current-buffer))
+    (when gptel-chat--display-enabled
+      (gptel-chat--display-remove-all)
+      (condition-case _err
+          (let ((turns (gptel-chat--parse-buffer)))
+            (dolist (turn turns)
+              (when-let* ((range (gptel-chat--display-body-range turn))
+                          (face (pcase (plist-get turn :role)
+                                  (`user      'gptel-chat-user-face)
+                                  (`assistant 'gptel-chat-assistant-face))))
+                (gptel-chat--display-make-overlay
+                 (car range) (cdr range) face))))
+        (user-error nil)))))
+#+end_src
+
+* Debounced after-change callback
+
+=after-change-functions= runs synchronously on every edit. Rather
+than reparse on each keystroke, schedule a single idle-timer refresh
+and cancel any prior pending timer so rapid edits collapse into one
+reparse. The timer callback captures the buffer so it still runs
+correctly if the user switches windows before idle kicks in.
+
+**Streaming-aware refresh** (design.md Decision 5 Risks, lines
+418/424): during an active streaming or tool-running request the
+upstream =gptel-request= pipeline fires an =after-change= event on
+every chunk inserted into the buffer. A naive O(n) full-buffer
+reparse per chunk produces visual flicker on large chats and
+monopolises idle time. The scheduler therefore skips scheduling
+while =gptel-chat--lifecycle-state= is =streaming= or
+=tool-running=; a single refresh fires from the =DONE= handler
+(=gptel-chat--display-refresh-on-done=, below) once the request
+completes.
+
+The =bound-and-true-p= check keeps display.el load-order
+independent: if =gptel-chat-send= has not been loaded yet
+(e.g. in a unit test that only requires the display layer), the
+variable is unbound and the guard falls through to the normal
+scheduling path.
+
+#+begin_src emacs-lisp
+(defconst gptel-chat--display-streaming-states
+  '(streaming tool-running)
+  "Lifecycle-state symbols during which the display layer defers refresh.
+Matches the values `gptel-chat--on-type' / `gptel-chat--on-tool' set
+on `gptel-chat--lifecycle-state' (see send.org §Handler functions).
+A single refresh is fired from `gptel-chat--display-refresh-on-done'
+once the request reaches terminal state.  design.md §Decision 5
+Risks (lines 418/424).")
+
+(defun gptel-chat--display-streaming-p ()
+  "Return non-nil when this buffer has a streaming/tool-running request.
+Reads the buffer-local `gptel-chat--lifecycle-state' that the FSM
+handlers in `send.el' write.  Returns nil when the variable is
+unbound (display layer loaded standalone in a test) or holds any
+non-streaming value (`waiting', `error', `aborted', nil)."
+  (and (boundp 'gptel-chat--lifecycle-state)
+       (memq gptel-chat--lifecycle-state
+             gptel-chat--display-streaming-states)))
+
+(defun gptel-chat--display-schedule-refresh (&rest _args)
+  "Schedule a debounced overlay refresh for the current buffer.
+Intended for `after-change-functions'; the three positional args are
+ignored.  Cancels any pending timer so rapid edits collapse into one
+refresh after `gptel-chat-display-refresh-delay' seconds of idle
+time.
+
+Skips scheduling while the buffer has a streaming or tool-running
+request in flight (see `gptel-chat--display-streaming-p').  Streaming
+chunks fire `after-change-functions' on every inserted token; a
+full-buffer reparse per chunk is expensive and causes overlay
+flicker.  The refresh is deferred until the `DONE' handler
+(`gptel-chat--display-refresh-on-done') fires one final reparse."
+  (when (and gptel-chat--display-enabled
+             (not (gptel-chat--display-streaming-p)))
+    (when (timerp gptel-chat--display-refresh-timer)
+      (cancel-timer gptel-chat--display-refresh-timer))
+    (let ((buf (current-buffer)))
+      (setq gptel-chat--display-refresh-timer
+            (run-with-idle-timer
+             gptel-chat-display-refresh-delay nil
+             (lambda ()
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (setq gptel-chat--display-refresh-timer nil)
+                   (gptel-chat--refresh-overlays)))))))))
+#+end_src
+
+* Post-stream refresh
+
+When a streaming request finishes, the display layer needs a single
+refresh to reflect all the content that arrived while scheduling was
+suppressed. =gptel-chat--on-done= (defined in =send.el=) fires on
+the terminal =DONE= transition; advising it with this helper keeps
+the coupling one-way (display depends on send — never the reverse)
+and load-order-independent via =with-eval-after-load=.
+
+The helper reads the request buffer from the FSM's =info= plist
+(the same contract =gptel-chat--set-lifecycle-state= uses) so a
+dead or detached FSM is a silent no-op.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--display-refresh-on-done (fsm)
+  "Refresh display-layer overlays once after FSM reaches DONE.
+Intended as `:after' advice on `gptel-chat--on-done'.  Reads the
+originating buffer from FSM's `info' plist (key `:buffer') — the
+same lookup `gptel-chat--set-lifecycle-state' uses — and fires a
+single overlay refresh so the buffer reflects all chunks that
+arrived while `gptel-chat--display-schedule-refresh' was
+suppressed during streaming.  design.md §Decision 5 Risks."
+  (when-let* ((info (and (fboundp 'gptel-fsm-info)
+                         (gptel-fsm-info fsm)))
+              (buf  (plist-get info :buffer))
+              ((buffer-live-p buf)))
+    (with-current-buffer buf
+      (when gptel-chat--display-enabled
+        (gptel-chat--refresh-overlays)))))
+
+(with-eval-after-load 'gptel-chat-send
+  (advice-add 'gptel-chat--on-done :after
+              #'gptel-chat--display-refresh-on-done))
+#+end_src
+
+* Hook install / uninstall
+
+Two helpers keep =after-change-functions= membership symmetric. The
+hook list is buffer-local so turning the layer off in one chat buffer
+does not affect another chat buffer.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--display-install-hooks ()
+  "Install the debounced-refresh hook on `after-change-functions' (buffer-local)."
+  (add-hook 'after-change-functions
+            #'gptel-chat--display-schedule-refresh nil t))
+
+(defun gptel-chat--display-uninstall-hooks ()
+  "Remove the debounced-refresh hook and cancel any pending timer."
+  (remove-hook 'after-change-functions
+               #'gptel-chat--display-schedule-refresh t)
+  (when (timerp gptel-chat--display-refresh-timer)
+    (cancel-timer gptel-chat--display-refresh-timer)
+    (setq gptel-chat--display-refresh-timer nil)))
+#+end_src
+
+* Mode-activation entry point
+
+=gptel-chat-mode-hook= runs at activation. The entry point installs
+the after-change hook and performs an initial pass so overlays are
+present immediately (spec scenario "Display layer is active by
+default") without waiting for the first edit.
+
+It also registers =gptel-chat--display-uninstall-hooks= on the
+buffer-local =kill-buffer-hook=. A pending idle timer captures the
+buffer in its closure; if the buffer is killed before the timer
+fires, the closure runs =buffer-live-p= and no-ops — but the timer
+itself lingers on =timer-list= until GC. Cancelling it on kill
+keeps =timer-list= tidy and matches the uninstall contract used by
+the toggle command.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--display-activate ()
+  "Activate the display layer in the current buffer.
+Installs the after-change hook, runs a full overlay refresh, and
+ensures `gptel-chat--display-enabled' starts in its default
+truthy state.  Also registers `gptel-chat--display-uninstall-hooks'
+on the buffer-local `kill-buffer-hook' so a pending idle timer is
+cancelled (and removed from `timer-list') when the buffer is
+killed — a no-op closure firing post-kill is harmless but the
+timer entry lingers until GC without this cleanup."
+  (unless gptel-chat--display-enabled
+    (setq gptel-chat--display-enabled t))
+  (gptel-chat--display-install-hooks)
+  (add-hook 'kill-buffer-hook
+            #'gptel-chat--display-uninstall-hooks nil t)
+  (gptel-chat--refresh-overlays))
+
+(add-hook 'gptel-chat-mode-hook #'gptel-chat--display-activate)
+#+end_src
+
+* Toggle command
+
+Flip =gptel-chat--display-enabled= and either install+refresh or
+uninstall+remove. The command is interactive so users can bind it (the
+mode keymap already binds =C-c C-t= to it).
+
+#+begin_src emacs-lisp
+;;;###autoload
+(defun gptel-chat-toggle-display-layer ()
+  "Toggle the `gptel-chat-mode' display layer in the current buffer.
+
+When enabled, role overlays subtly distinguish user and assistant
+turn bodies (see `gptel-chat-user-face' /
+`gptel-chat-assistant-face').  When disabled, overlays are removed
+and the after-change refresher is uninstalled — the buffer shows
+plain text.  Buffer contents are never modified by either state."
+  (interactive)
+  (setq gptel-chat--display-enabled (not gptel-chat--display-enabled))
+  (cond
+   (gptel-chat--display-enabled
+    (gptel-chat--display-install-hooks)
+    (gptel-chat--refresh-overlays)
+    (message "gptel-chat display layer enabled"))
+   (t
+    (gptel-chat--display-uninstall-hooks)
+    (gptel-chat--display-remove-all)
+    (message "gptel-chat display layer disabled"))))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'gptel-chat-display)
+
+;;; display.el ends here
+#+end_src
