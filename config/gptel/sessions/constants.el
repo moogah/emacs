@@ -55,10 +55,6 @@ Uses org-mode format for better structure.")
   "File name for session scope configuration.
 YAML format containing paths, org-roam patterns, and shell command permissions.")
 
-(defconst jf/gptel-session--metadata-file "metadata.yml"
-  "File name for session metadata.
-YAML format containing session ID, timestamps, and preset name.")
-
 (defcustom jf/gptel-autosave-idle-time 0.5
   "Idle time in seconds before auto-saving session buffer.
 Set to 0 to disable auto-save."
@@ -82,7 +78,7 @@ Typically 'main' for the primary branch, or timestamped names for alternate bran
 
 (defvar-local jf/gptel--branch-dir nil
   "Absolute path to the current branch directory.
-This is where scope.yml, metadata.yml, and session.org files are located.
+This is where scope.yml and session.org files are located.
 For regular sessions: <session-dir>/branches/<branch-name>/
 For agents: <session-dir>/ (agents don't use branch subdirectories).")
 
