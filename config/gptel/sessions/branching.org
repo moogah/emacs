@@ -240,6 +240,34 @@ Future enhancement: Only copy agents invoked before branch point."
                     (length (directory-files parent-agents-dir nil "^[^.]"))))))
 #+end_src
 
+* Branch Metadata Helpers
+
+Branch metadata tracks the relationship between a branch and its
+parent. Metadata lives in =branch-metadata.yml= inside the branch
+directory and records:
+
+- =parent_branch= — name of parent branch (e.g., =main=)
+- =created= — ISO8601 timestamp of branch creation
+- =branch_point_position= — position in parent where branch was
+  created (optional, for reference)
+
+** Write Branch Metadata
+
+#+begin_src emacs-lisp
+(defun jf/gptel--write-branch-metadata (branch-dir parent-branch-name &optional branch-point-position)
+  "Write branch metadata to BRANCH-DIR.
+PARENT-BRANCH-NAME is the name of the parent branch (e.g., \"main\").
+BRANCH-POINT-POSITION is optional position in parent where branch was created."
+  (let ((metadata-file (jf/gptel--branch-metadata-file-path branch-dir))
+        (timestamp (format-time-string "%Y-%m-%dT%H:%M:%S%z")))
+    (with-temp-file metadata-file
+      (insert "parent_branch: " parent-branch-name "\n")
+      (insert "created: " timestamp "\n")
+      (when branch-point-position
+        (insert "branch_point_position: " (number-to-string branch-point-position) "\n")))
+    (jf/gptel--log 'info "Created branch-metadata.yml with parent: %s" parent-branch-name)))
+#+end_src
+
 * Branch Session Creation
 
 Orchestrate branch creation. The branch point position has already been
