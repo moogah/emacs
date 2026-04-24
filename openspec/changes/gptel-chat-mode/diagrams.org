@@ -1,0 +1,306 @@
+#+title: gptel-chat-mode — Component and Data-Flow Diagrams
+#+author: Jeff Farr
+#+startup: overview
+
+Reading aid for the =config/gptel/chat/= subsystem. These text
+diagrams show how the seven chat-mode modules fit together and where
+they plug into upstream gptel. The authoritative contracts live in:
+
+- [[file:proposal.md]] — WHY chat-mode exists
+- [[file:architecture.md]] — component inventory and module boundaries
+- [[file:design.md]] — numbered decisions referenced throughout
+- [[file:specs/gptel-chat-mode/spec.md]] — behavioral scenarios
+
+* Module layout & load order
+
+=chat.el= loads these in this order:
+
+#+begin_example
+config/gptel/chat/
+├── chat.el      (loader)           ─┐
+├── mode.el      major mode          │  Order is a readability convention,
+├── parser.el    buffer → turns      │  NOT a load-time dependency.
+├── stream.el    streaming + tools   │  No chat-mode module does a cross-
+├── send.el      send + FSM hooks    │  module `require`. Sibling symbols
+├── nav.el       next/prev/regen     │  resolve at CALL time, so keymap
+├── display.el   overlays            │  bindings in mode.el can reference
+└── menu.el      transient + preset ─┘  gptel-chat-send before send.el loads.
+#+end_example
+
+* Data flow — the send round-trip
+
+Happy path for streamed text. Tool-call branches are shown in §4.
+
+#+begin_example
+              user types in #+begin_user block, hits C-c C-c
+                              │
+                              ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │  send.el :: gptel-chat-send                              │
+   │                                                          │
+   │  1. gptel-chat--in-flight-p     ← reads gptel--fsm-last  │
+   │  2. gptel-chat--resolve-send-turn                        │
+   │                                 │                        │
+   │                                 ▼                        │
+   │                       parser.el :: gptel-chat--parse-    │
+   │                       buffer                             │
+   │                         → turn list (plists w/ markers)  │
+   │                                 │                        │
+   │                                 ▼                        │
+   │                       parser.el :: gptel-chat--turns-    │
+   │                       to-messages                        │
+   │                         → '((prompt . "...")             │
+   │                             (response . "...")           │
+   │                             (tool . (:name :args :result))│
+   │                             (prompt . "..."))            │
+   │                                                          │
+   │  3. gptel-chat--open-assistant-block (turn)              │
+   │       inserts  "\n#+begin_assistant\n"                   │
+   │       returns  an advance marker at the empty body       │
+   │                                 │                        │
+   │                                 ▼                        │
+   │                       stream.el :: gptel-chat--stream-   │
+   │                       callback  (closure capturing       │
+   │                       insertion-marker + handle)         │
+   │                                                          │
+   │  4. (gptel-request messages                              │
+   │        :stream t                                         │
+   │        :callback <closure>                               │
+   │        :fsm (gptel-make-fsm :handlers                    │
+   │              gptel-chat--fsm-handlers))                  │
+   └──────────────────────────────┬───────────────────────────┘
+                                  ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │  UPSTREAM gptel  (runtime/straight/repos/gptel/…)        │
+   │  - curl/url pipeline                                     │
+   │  - FSM:  INIT → WAIT → TYPE → (TOOL)* → DONE | ERRS| ABRT│
+   │  - per-chunk :callback invocation                        │
+   └──────────────────────────────┬───────────────────────────┘
+                                  │  back into chat-mode on two axes:
+                 ┌────────────────┴───────────────────────┐
+                 ▼                                        ▼
+   ┌───────────────────────────┐              ┌────────────────────────────┐
+   │  :callback closure        │              │  chained FSM handlers      │
+   │  (stream.el)              │              │  (send.el)                 │
+   │                           │              │                            │
+   │  pcase on response:       │              │  WAIT  → on-wait  = waiting│
+   │    stringp  → stream-insert              │  TYPE  → on-type  = streaming
+   │    (tool-call . CALLS)    │              │  TOOL  → on-tool  = tool-running
+   │    (tool-result . RES)    │              │  DONE  → on-done  = nil    │
+   │    t        → close-asst  │              │  ERRS  → on-errs  = error  │
+   │                 (if !info:tool-use)      │  ABRT  → on-abrt  = aborted│
+   │    nil      → error marker+close         │                            │
+   │    abort    → abort marker+close         │  Each only SETS the buffer-│
+   │                           │              │  local gptel-chat--life-   │
+   │                           │              │  cycle-state — never calls │
+   │                           │              │  gptel--fsm-transition.    │
+   └──────────┬────────────────┘              └────────────────────────────┘
+              │
+              ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │ stream.el machinery (all inside the closure)             │
+   │                                                          │
+   │  gptel-chat-stream  (cl-defstruct handle)                │
+   │   ├─ insert           = line-holdback inserter closure   │
+   │   ├─ set-tool-marker  = route INSERT to a tool body      │
+   │   └─ clear-tool-marker= route back to assistant body     │
+   │                                                          │
+   │  Per chunk:                                              │
+   │    holdback || chunk → split on \n → butlast = complete  │
+   │    each complete line → gptel-chat--sanitize-chunk       │
+   │      (prepends ',' to lines matching                     │
+   │       ^#+end_(user|assistant|tool)\b  — case fold)       │
+   │    → insert at (tool-marker ?? insertion-marker) + "\n"  │
+   │    last partial → new holdback                           │
+   │                                                          │
+   │  On (tool-call . CALLS):                                 │
+   │    for each (TOOL-SPEC ARGS CB):                         │
+   │      insert "#+begin_tool (name :args ARGS)\n#+end_tool\n"
+   │      push fresh advance marker (between delimiters) onto │
+   │      pending-tool-markers FIFO                           │
+   │    set-tool-marker(last opened) so narration between     │
+   │    tool-call and tool-result lands inside the tool body  │
+   │                                                          │
+   │  On (tool-result . RESULTS):                             │
+   │    pop FIFO markers in order, insert sanitised result    │
+   │    text into each; if FIFO empty, clear-tool-marker so   │
+   │    subsequent text goes back into the assistant body     │
+   │                                                          │
+   │  On terminal t (no :tool-use) / nil / abort:             │
+   │    flush holdback, then gptel-chat--stream-close-        │
+   │    assistant appends                                     │
+   │       [error|abort marker]                               │
+   │       #+end_assistant                                    │
+   │       #+begin_user  ◀── point lands here for next send   │
+   │       #+end_user                                         │
+   └──────────────────────────────────────────────────────────┘
+#+end_example
+
+* Call graph — who talks to whom
+
+#+begin_example
+                ┌────────────────────────────────────────┐
+                │ org-mode   (parent major mode)         │
+                └────────────▲───────────────────────────┘
+                             │ define-derived-mode
+   ┌─────────────────────────┴─────────────────────────┐
+   │ mode.el   gptel-chat-mode, keymap, gptel-chat-new │
+   │   keymap binds → send / nav / display / menu      │◀─┐
+   │                → upstream gptel-abort on C-c C-k  │  │ forward
+   │   hook fan-out:                                   │  │ declare-
+   │     gptel-chat-mode-hook                          │  │ function
+   │       ├─ menu.el :: install-preset-hooks          │  │ from
+   │       └─ display.el :: display-activate           │  │ every
+   └────────────┬──────────┬──────────┬─────────┬──────┘  │ sibling
+                │          │          │         │         │
+          ┌─────▼──┐  ┌────▼───┐ ┌────▼────┐┌───▼────┐    │
+          │ send   │  │ nav    │ │ display ││ menu   │────┘
+          └──┬──┬──┘  └──┬─────┘ └────┬────┘└───┬────┘
+             │  │        │            │         │
+             │  │        │            │         └─ transient-define-prefix
+             │  │        │            │            inherits upstream infixes
+             │  │        │            │            (preset, provider, model,
+             │  │        │            │             context, tools, logging)
+             │  │        │            │            Send suffix = chat-send
+             │  │        │            │
+             │  │        │            └─── after-change-functions hook
+             │  │        │                 (skipped while lifecycle-state ∈
+             │  │        │                 streaming/tool-running; one-shot
+             │  │        │                 :after advice on on-done fires
+             │  │        │                 the final refresh)
+             │  │        │
+             │  │        └─── delegates turn boundaries to parser
+             │  │             regenerate is: atomic { delete-last-asst;
+             │  │                                     gptel-chat-send }
+             │  │
+             │  ▼
+             │ parser.el (pure, no chat-mode siblings called)
+             │   - state machine over re-search-forward
+             │   - NOT org-element-parse-buffer
+             │   - produces turn list with markers
+             │   - turns-to-messages → gptel-request :prompt shape
+             │
+             ▼
+          UPSTREAM gptel (soft require 'gptel nil t)
+           ├─ gptel-request        ── fired on C-c C-c
+           ├─ gptel-make-fsm       ── FSM with our handler alist
+           ├─ gptel-fsm-state      ── read by in-flight guard
+           ├─ gptel--handle-wait   ── chained AFTER our on-wait
+           ├─ gptel--handle-tool-use─ chained AFTER our on-tool
+           ├─ gptel--handle-post   ── chained AFTER on-done/errs/abrt
+           ├─ gptel--apply-preset  ── menu.el preset application
+           ├─ gptel-get-preset     ── preset validity check
+           ├─ gptel-tool-name      ── stream.el tool-header format
+           ├─ gptel-abort          ── bound directly on C-c C-k
+           └─ gptel--fsm-last      ── buffer-local, read by send-guard
+#+end_example
+
+* State machine — in-flight guard
+
+#+begin_example
+ upstream FSM state (gptel--fsm-last):
+   nil/INIT ── idle ───┐
+   WAIT     ── busy ──┐│
+   TYPE     ── busy ──┤│   gptel-chat--in-flight-p
+   TOOL     ── busy ──┤├─▶ returns t only for {WAIT, TYPE, TOOL}
+   DONE     ── idle ──┤│   → send-guard rejects with user-error
+   ERRS     ── idle ──┤│
+   ABRT     ── idle ──┘│   ABRT is idle so every user abort does
+                       │   NOT wedge the buffer
+                       │
+ our mirror (gptel-chat--lifecycle-state, buffer-local):
+                       │
+   waiting       ◀─ WAIT  (UI only — display layer, future mode-line)
+   streaming     ◀─ TYPE  ── display.el defers refresh
+   tool-running  ◀─ TOOL  ── display.el defers refresh,
+                             nav.el regenerate blocked
+   nil           ◀─ DONE  ── display.el fires one post-stream refresh
+   error         ◀─ ERRS
+   aborted       ◀─ ABRT
+#+end_example
+
+* Buffer format — the on-disk contract
+
+#+begin_example
+:PROPERTIES:                 ◀── optional; menu.el parses this natively
+:GPTEL_PRESET: my-preset          (NO org-mode dependency at point-min)
+:END:
+
+* Any org heading (ignored by parser)
+
+#+begin_user                 ◀── outer turn opener, column 0
+What is the capital of France?
+#+end_user
+
+#+begin_assistant            ◀── outer turn opener, column 0
+The capital is Paris.
+
+#+begin_tool (lookup :args (:country "FR"))   ◀── nested inside assistant
+{"capital": "Paris"}                              tool header is a sexp:
+#+end_tool                                        (NAME :args PLIST…)
+
+See above — wikipedia agrees.
+,#+end_assistant             ◀── escaped (stream.el prepended `,` because
+#+end_assistant                   the model tried to emit a real closer;
+                                  parser.el inverts on the send path)
+#+end_example
+
+Key invariants enforced end-to-end:
+
+- Every =#+end_user|assistant|tool= a model emits is sanitized to
+  =,#+end_…= on the way IN (=stream.el=, line-level).
+- =gptel-chat--unescape-end-delimiters= strips that =,= on the way OUT
+  (=parser.el=, inside =turn-to-messages=) — exact inverse, pinned by
+  =test/parser/escape-round-trip-spec.el=.
+- Content outside turn blocks (headings, prose, drawers) is skipped by
+  the parser, so humans can annotate freely without affecting message
+  construction.
+
+* Session subsystem integration
+
+#+begin_example
+~/org/roam/gptel/<date>/<id>/
+├── metadata.yml                        ◀── preset + machine role
+├── current → branches/main             ◀── symlink, unchanged
+└── branches/
+    └── main/
+        └── session.org   ◀── was session.md; now chat-mode format
+
+sessions/commands.el :: jf/gptel--auto-init-session-buffer
+   matches */branches/<branch>/session.org
+     → sets buffer-local session vars
+     → registers in jf/gptel--session-registry
+     → applies preset from metadata.yml via gptel--apply-preset
+        (with buffer-local setter)
+     → (gptel-chat-mode)   ◀── NOT (gptel-mode 1)
+
+sessions/branching.el :: branch-point selection
+   → (gptel-chat--parse-buffer)       ◀── replaces text-property scan
+   → enumerate turns where :role = user
+   → truncate at turn-boundary position, write new session.org
+#+end_example
+
+The four modified session modules depend on chat-mode (hence chat-mode
+is listed *before* sessions in =jf/enabled-modules=), but the
+dependency is one-way — chat-mode itself knows nothing about sessions.
+
+* Key architectural takeaway
+
+Chat-mode is a downstream consumer of =gptel-request= with three
+integration points:
+
+1. The *callback closure* — =stream.el= handles every per-chunk event
+   shape upstream emits (text, reasoning, tool-call, tool-result,
+   terminal =t=/=nil=/=abort=).
+2. The *chained FSM handler alist* — =send.el= installs a handler for
+   each state (WAIT/TYPE/TOOL/DONE/ERRS/ABRT) that runs BEFORE
+   upstream's, sets a buffer-local lifecycle indicator, and hands off.
+   Never calls =gptel--fsm-transition=.
+3. The *preset applier* — =menu.el= calls =gptel--apply-preset= with a
+   buffer-local setter so preset keys (=:backend=, =:model=, =:system=,
+   =:tools=, …) land as buffer-local values, not globals.
+
+No upstream patches. Every sibling reference inside chat-mode is
+call-time, so the seven modules are reshuffleable — the load order in
+=chat.el= is a readability convention that mirrors the data-flow
+diagram above.
