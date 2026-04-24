@@ -54,8 +54,19 @@
 
 ;;; Sample content the branch point will be computed from.
 
+;; Parent `session.org' always starts with a `:PROPERTIES:' drawer
+;; carrying `GPTEL_PRESET' (Decision 7 of gptel-chat-state-persistence:
+;; the drawer at point-min propagates the preset to new branches via
+;; plain session.org truncation — no separate metadata.yml copy).
+
+(defconst jf-branching-integration--parent-drawer
+  (concat ":PROPERTIES:\n"
+          ":GPTEL_PRESET: executor\n"
+          ":END:\n"))
+
 (defconst jf-branching-integration--parent-session
-  (concat "#+begin_user\n"
+  (concat jf-branching-integration--parent-drawer
+          "#+begin_user\n"
           "First question?\n"
           "#+end_user\n"
           "\n"
@@ -72,7 +83,8 @@
           "#+end_assistant\n"))
 
 (defconst jf-branching-integration--parent-with-prose
-  (concat "* Intro\n"
+  (concat jf-branching-integration--parent-drawer
+          "* Intro\n"
           "\n"
           "Context notes the user keeps above every turn.\n"
           "\n"
@@ -264,11 +276,84 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
           (let ((branch-metadata-path
                  (expand-file-name "branch-metadata.yml" new-branch-dir)))
             (expect (file-exists-p branch-metadata-path) :to-be-truthy))
+          ;; Legacy session-level metadata.yml is NOT copied anymore —
+          ;; the preset rides along inside the parent's `:PROPERTIES:'
+          ;; drawer at the top of session.org (Decision 7).
+          (expect (file-exists-p
+                   (expand-file-name "metadata.yml" new-branch-dir))
+                  :not :to-be-truthy)
           ;; Current symlink resolves to the new branch.
           (let ((current-link (expand-file-name "current" session-dir)))
             (expect (file-symlink-p current-link) :to-be-truthy)
             (expect (file-truename (expand-file-name "session.org" current-link))
                     :to-equal (file-truename new-ctx)))))))
+
+  (describe "Preset drawer inheritance (Decision 7)"
+
+    ;; The parent's `:PROPERTIES:' drawer at the top of session.org is
+    ;; preserved verbatim by the truncated-context copy, so the new
+    ;; branch inherits the parent's preset without a separate
+    ;; metadata.yml copy step.
+
+    (it "starts the new branch's session.org with the parent's :PROPERTIES: drawer"
+      (let* ((root (jf-branching-integration--make-tempdir))
+             (jf/gptel-sessions-directory root)
+             (bootstrap (jf-branching-integration--bootstrap-parent
+                         root jf-branching-integration--parent-session))
+             (session-dir (plist-get bootstrap :session-dir))
+             (parent-ctx (plist-get bootstrap :context-file))
+             (branch-pos
+              (with-temp-buffer
+                (insert-file-contents parent-ctx)
+                (let* ((turns (jf/gptel--branching-user-turns))
+                       (first (nth 0 turns)))
+                  ;; INCLUDE the first user turn.
+                  (jf/gptel--branching-turn-branch-point first t)))))
+        (let* ((new-branch-dir
+                (jf/gptel--create-branch-session
+                 session-dir "main" "drawer-inherit" branch-pos))
+               (new-ctx (jf/gptel--context-file-path new-branch-dir))
+               (written (jf-branching-integration--file-contents new-ctx))
+               (parent-drawer jf-branching-integration--parent-drawer))
+          ;; The new session.org starts with exactly the parent's
+          ;; drawer bytes (drawer is at point-min of parent, so
+          ;; truncation preserves it verbatim).
+          (expect (substring written 0 (length parent-drawer))
+                  :to-equal parent-drawer)
+          ;; The GPTEL_PRESET value matches the parent's.
+          (expect (string-match-p
+                   (regexp-quote ":GPTEL_PRESET: executor")
+                   written)
+                  :to-be-truthy))))
+
+    (it "preserves the drawer even when the branch body is empty (first-turn EXCLUDE)"
+      ;; When the user selects the first user turn with EXCLUDE, the
+      ;; truncated branch contains everything before the first
+      ;; `#+begin_user' — which is exactly the parent's drawer. The
+      ;; preset inheritance therefore holds for empty branches too.
+      (let* ((root (jf-branching-integration--make-tempdir))
+             (jf/gptel-sessions-directory root)
+             (bootstrap (jf-branching-integration--bootstrap-parent
+                         root jf-branching-integration--parent-session))
+             (session-dir (plist-get bootstrap :session-dir))
+             (parent-ctx (plist-get bootstrap :context-file))
+             (branch-pos
+              (with-temp-buffer
+                (insert-file-contents parent-ctx)
+                (let* ((turns (jf/gptel--branching-user-turns))
+                       (first (nth 0 turns)))
+                  (jf/gptel--branching-turn-branch-point first nil)))))
+        (let* ((new-branch-dir
+                (jf/gptel--create-branch-session
+                 session-dir "main" "drawer-empty-body" branch-pos))
+               (new-ctx (jf/gptel--context-file-path new-branch-dir))
+               (written (jf-branching-integration--file-contents new-ctx)))
+          (expect (string-match-p
+                   (regexp-quote ":GPTEL_PRESET: executor")
+                   written)
+                  :to-be-truthy)
+          (expect (string-match-p (regexp-quote ":END:") written)
+                  :to-be-truthy)))))
 
   (describe "dirty-buffer handling"
 
