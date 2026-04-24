@@ -133,6 +133,19 @@ Future enhancement: Only copy agents invoked before branch point."
       (jf/gptel--log 'info "Copied %d agent directories to branch"
                     (length (directory-files parent-agents-dir nil "^[^.]"))))))
 
+(defun jf/gptel--write-branch-metadata (branch-dir parent-branch-name &optional branch-point-position)
+  "Write branch metadata to BRANCH-DIR.
+PARENT-BRANCH-NAME is the name of the parent branch (e.g., \"main\").
+BRANCH-POINT-POSITION is optional position in parent where branch was created."
+  (let ((metadata-file (jf/gptel--branch-metadata-file-path branch-dir))
+        (timestamp (format-time-string "%Y-%m-%dT%H:%M:%S%z")))
+    (with-temp-file metadata-file
+      (insert "parent_branch: " parent-branch-name "\n")
+      (insert "created: " timestamp "\n")
+      (when branch-point-position
+        (insert "branch_point_position: " (number-to-string branch-point-position) "\n")))
+    (jf/gptel--log 'info "Created branch-metadata.yml with parent: %s" parent-branch-name)))
+
 (defun jf/gptel--create-branch-session (session-dir parent-branch-name branch-name branch-position)
   "Create new branch inside SESSION-DIR.
 SESSION-DIR - session directory containing branches
