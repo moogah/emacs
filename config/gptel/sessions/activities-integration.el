@@ -11,7 +11,6 @@
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
 (require 'gptel-session-registry)
-(require 'gptel-session-metadata)
 
 ;; Optional dependency - checked at runtime
 (defvar activities-ext--slugify)
@@ -44,8 +43,7 @@ PRESET-NAME is a symbol naming a registered preset in `gptel--known-presets'
 ORG-FILE is optional path to activity org file (for worktree parsing).
 
 Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file ...)"
-  (unless (and (fboundp 'jf/gptel--read-session-metadata)
-               (fboundp 'jf/gptel--register-session))
+  (unless (fboundp 'jf/gptel--register-session)
     (error "GPTEL session registry not available"))
 
   (let* ((slug (if (fboundp 'activities-ext--slugify)
