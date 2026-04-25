@@ -39,8 +39,8 @@ Session plist structure (minimal runtime state only):
 - :branch-dir - Absolute path to branch directory
 - :buffer - Buffer visiting the session (or nil if not open)
 
-Metadata is read from disk on-demand using jf/gptel--read-session-metadata
-and jf/gptel--read-preset-metadata. The filesystem is the source of truth.
+Session state beyond the minimal runtime plist is read from disk on-demand.
+The filesystem is the source of truth.
 
 #+begin_src emacs-lisp
 (defvar jf/gptel--session-registry (make-hash-table :test 'equal)

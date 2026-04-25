@@ -49,12 +49,11 @@ The PersistentAgent tool is part of a larger modular gptel configuration:
 #+begin_example
 config/gptel/
 ├── gptel.org/el           - Main loader
-├── sessions/              - 8 session management modules
+├── sessions/              - session management modules
 │   ├── constants.el       - Path constants
 │   ├── logging.el         - Debug logging
 │   ├── filesystem.el      - Directory structure, path helpers
 │   ├── registry.el        - Global session tracking (runtime state only)
-│   ├── metadata.el        - Read metadata from metadata.yml + scope.yml
 │   ├── agent-integration.el - Parent-child session linking
 │   ├── commands.el        - User-facing session commands
 │   └── activities-integration.el - Activities package integration
@@ -122,7 +121,6 @@ sequenceDiagram
 
     T->>FS: Load agent config (NO parent inheritance)
     T->>FS: Write scope.yml (includes path permissions)
-    T->>FS: Write metadata.yml (includes parent_session_id)
 
     T->>B: Create buffer with session vars
     T->>B: Insert prompt
@@ -153,13 +151,11 @@ Sessions are persisted to disk with the following structure:
 #+begin_example
 ~/gptel-sessions/
 └── parent-session-20260121143022/
-    ├── metadata.yml                 # Session metadata (session_id, timestamps, preset)
     ├── scope.yml                    # Path permissions and scope configuration
     ├── session.org                  # Parent conversation
     ├── tools.org                    # Parent tool calls
     └── agents/                      # Agent sessions
         └── researcher-20260121143245-analyze-code/
-            ├── metadata.yml         # Agent metadata (includes parent_session_id)
             ├── scope.yml            # Agent-specific scope (NO inheritance)
             ├── session.org          # Agent conversation (auto-saved)
             └── tools.org            # Agent tool calls
@@ -352,7 +348,6 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 *Key Dependencies:*
 - *gptel presets*: Provides preset definitions via =gptel--known-presets=
 - *gptel-session-filesystem*: Directory creation, path helpers
-- *gptel-session-metadata*: Metadata file read/write
 - *gptel-session-registry*: Global session tracking
 - *gptel-session-agent-integration*: Parent-child linking
 
@@ -362,11 +357,10 @@ Creates overlay at marker position in parent buffer, potentially modifying buffe
 1. Create parent persistent session
 2. Invoke PersistentAgent tool from parent
 3. Verify agent directory created under =agents/=
-4. Check metadata.yml includes =parent_session_id=
-5. Verify overlay appears in parent buffer
-6. Monitor overlay updates during tool calls
-7. Check final result returned to parent
-8. Verify session.org contains full conversation
+4. Verify overlay appears in parent buffer
+5. Monitor overlay updates during tool calls
+6. Check final result returned to parent
+7. Verify session.org contains full conversation
 
 *Edge cases:*
 - Parent session doesn't exist → Error (expected)
@@ -420,7 +414,6 @@ The architecture is *sound and fit for purpose*. The complexity is justified by 
 (require 'gptel)
 (require 'gptel-session-constants)
 (require 'gptel-session-filesystem)
-(require 'gptel-session-metadata)
 (require 'gptel-session-registry)
 (require 'gptel-session-logging)
 #+end_src
@@ -446,10 +439,7 @@ Hooked into gptel-post-response-functions.
 Only saves if buffer has associated file and session directory."
   (when (and jf/gptel--session-dir
              (buffer-file-name))
-    (save-buffer)
-    ;; Note: metadata.yml updated timestamp is managed by scope commands,
-    ;; not auto-save
-    ))
+    (save-buffer)))
 #+end_src
 
 * Overlay System
@@ -614,19 +604,6 @@ gptel--known-presets, with zero inheritance from the parent session."
             (insert (format "    - \"%s\"\n" p))))
         (jf/gptel--log 'info "Created agent scope.yml with %d read path(s)"
                       (length allowed-paths-list)))
-
-      ;; Write metadata.yml with session metadata
-      (let ((metadata-file (expand-file-name jf/gptel-session--metadata-file session-dir))
-            (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
-        (with-temp-file metadata-file
-          (insert (format "version: \"3.0\"\n"))
-          (insert (format "session_id: \"%s\"\n" session-id))
-          (insert (format "created: \"%s\"\n" timestamp))
-          (insert (format "updated: \"%s\"\n" timestamp))
-          (insert (format "type: \"agent\"\n"))
-          (insert (format "parent_session_id: \"%s\"\n" jf/gptel--session-id))
-          (insert (format "preset: \"%s\"\n" preset)))
-        (jf/gptel--log 'info "Created agent metadata.yml: %s" metadata-file))
 
       ;; Create agent buffer with session infrastructure
       (let* ((buffer-name (format "*gptel-agent:%s:%s*" preset description))

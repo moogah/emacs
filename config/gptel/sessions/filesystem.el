@@ -141,10 +141,6 @@ Does not check if file exists."
   "Get path to scope.yml file in BRANCH-DIR."
   (expand-file-name jf/gptel-session--scope-file branch-dir))
 
-(defun jf/gptel--metadata-file-path (branch-dir)
-  "Get path to metadata.yml file in BRANCH-DIR."
-  (expand-file-name jf/gptel-session--metadata-file branch-dir))
-
 (defun jf/gptel--list-session-directories ()
   "List all session directories in jf/gptel-sessions-directory.
 Returns list of absolute paths to session directories."

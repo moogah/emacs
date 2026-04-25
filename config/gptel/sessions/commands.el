@@ -14,12 +14,18 @@
 ;;
 ;; ARCHITECTURE: Presets are registered in gptel--known-presets at startup.
 ;; Session creation writes scope.yml (from preset's scope profile) and
-;; metadata.yml (session metadata with preset name). Every time the
-;; session file is opened, the auto-init hook re-reads metadata.yml and
-;; calls gptel--apply-preset with a buffer-local setter. metadata.yml is
-;; the authoritative configuration source — session buffers run
-;; gptel-chat-mode exclusively (Decision 16) and do NOT round-trip
-;; through gptel--save-state / gptel--restore-state.
+;; pre-populates session.org with a :PROPERTIES: drawer containing
+;; GPTEL_PRESET (and GPTEL_PARENT_SESSION_ID for agents). Every time the
+;; session file is opened, `gptel-chat-mode' activation reads the drawer
+;; and applies the declared preset (plus overlaying non-preset deltas
+;; and `GPTEL_PARENT_SESSION_ID') via `gptel-chat--apply-declared-preset';
+;; the save hook writes it back on every save. The drawer is the
+;; authoritative session-level configuration source — session buffers run
+;; `gptel-chat-mode' exclusively (Decision 16) and do NOT round-trip
+;; through gptel--save-state / gptel--restore-state. Session creation no
+;; longer writes a metadata.yml sidecar; all session-level state is
+;; either path-derivable or drawer-derived (design Decision 4 /
+;; Decision 6).
 
 ;;; Code:
 
@@ -29,7 +35,6 @@
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
 (require 'gptel-session-registry)
-(require 'gptel-session-metadata)
 (require 'gptel-scope-profiles)
 
 ;; `gptel-chat-mode' is defined in `config/gptel/chat/mode.el' and is
@@ -140,23 +145,16 @@ Detects session files by path pattern:
 On match:
   1. Extracts session-id and branch-name from the path (via
      dedicated per-layout regexes — never hardcoded).
-  2. Sets the five buffer-local session variables, including
-     `jf/gptel--parent-session-id' (pulled from the branch's
-     `metadata.yml' when present).
-  3. Registers the buffer in `jf/gptel--session-registry'.
-  4. Ensures `gptel-chat-mode' is the active major mode.  This is
-     done BEFORE reading `metadata.yml' so the chat-mode hook
-     (`gptel-chat--apply-declared-preset' in
-     `config/gptel/chat/menu.org') fires first and applies any preset
-     declared in the file's `:PROPERTIES:' drawer or file-local
-     `gptel--preset'.  The metadata.yml apply then runs last and
-     overwrites those buffer-local values, so `metadata.yml' wins
-     (Decision 16 point 2).
-  5. Reads `metadata.yml' from the branch directory and applies the
-     named preset via `gptel--apply-preset' with a buffer-local setter.
-     When `metadata.yml' names a preset, it overrides any value already
-     set by a property drawer or file-local declaration (Decision 16).
-  6. Updates the `current' symlink to point at this branch (skipped
+  2. Sets the four path-derived buffer-local session variables
+     (`jf/gptel--session-id', `jf/gptel--session-dir',
+     `jf/gptel--branch-name', `jf/gptel--branch-dir').
+  3. Ensures `gptel-chat-mode' is the active major mode.  Activating
+     chat-mode fires `gptel-chat-mode-hook', which runs
+     `gptel-chat--apply-declared-preset' to apply any preset declared
+     in the `:PROPERTIES:' drawer and to install
+     `GPTEL_PARENT_SESSION_ID' as `jf/gptel--parent-session-id'.
+  4. Registers the buffer in `jf/gptel--session-registry'.
+  5. Updates the `current' symlink to point at this branch (skipped
      for the legacy flat agent layout, which has no `branches/' dir).
 
 Runs on every file open via `find-file-hook', so fast-path guards are
@@ -235,76 +233,39 @@ critical."
                 (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
                                session-type session-id branch-name)
 
-                  ;; Ensure chat-mode is the active major mode FIRST,
-                  ;; before setting any buffer-local session vars. Two
-                  ;; reasons:
-                  ;;
-                  ;; 1. Activating a major mode calls
-                  ;;    `kill-all-local-variables', which would wipe any
-                  ;;    session vars set beforehand (they are not declared
-                  ;;    `permanent-local').
-                  ;;
-                  ;; 2. Activating chat-mode fires
-                  ;;    `gptel-chat-mode-hook', which runs
-                  ;;    `gptel-chat--apply-declared-preset' and may set
-                  ;;    `gptel--preset' (plus other `gptel-*'
-                  ;;    buffer-locals) from a `:GPTEL_PRESET:' drawer or
-                  ;;    file-local variable. `metadata.yml' is
-                  ;;    authoritative (Decision 16 point 2), so its apply
-                  ;;    must run LAST below to win over the drawer-preset
-                  ;;    re-application performed by the chat-mode hook.
-                  ;;
-                  ;; Never calls (gptel-mode 1) — Decision 16.
-                  (jf/gptel--ensure-mode-once)
+                ;; Ensure chat-mode is the active major mode FIRST,
+                ;; before setting any buffer-local session vars.
+                ;; Activating a major mode calls
+                ;; `kill-all-local-variables', which would wipe any
+                ;; session vars set beforehand (they are not declared
+                ;; `permanent-local').
+                ;;
+                ;; Activating chat-mode also fires
+                ;; `gptel-chat-mode-hook', which runs
+                ;; `gptel-chat--apply-declared-preset' to apply the
+                ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
+                ;; `:PROPERTIES:' drawer. The drawer is the
+                ;; authoritative configuration source (design.md
+                ;; §Decisions 5, 6, 9) — auto-init does not read
+                ;; metadata.yml or apply presets itself.
+                ;;
+                ;; Never calls (gptel-mode 1) — Decision 16.
+                (jf/gptel--ensure-mode-once)
 
-                  ;; Set buffer-local session variables (after mode
-                  ;; activation, since mode activation wipes them).
-                  (setq-local jf/gptel--session-id session-id)
-                  (setq-local jf/gptel--session-dir session-dir)
-                  (setq-local jf/gptel--branch-name branch-name)
-                  (setq-local jf/gptel--branch-dir branch-dir)
+                ;; Set buffer-local session variables (after mode
+                ;; activation, since mode activation wipes them).
+                (setq-local jf/gptel--session-id session-id)
+                (setq-local jf/gptel--session-dir session-dir)
+                (setq-local jf/gptel--branch-name branch-name)
+                (setq-local jf/gptel--branch-dir branch-dir)
 
-                  ;; Read metadata.yml once for both preset and parent-id.
-                  ;; `metadata.yml' is the authoritative source; when
-                  ;; present, its preset overrides any value already
-                  ;; declared by a property drawer or file-local variable
-                  ;; (Decision 16). This apply runs AFTER chat-mode
-                  ;; activation above, ensuring the chat-mode hook's
-                  ;; drawer-preset re-apply does not clobber these values.
-                  (let* ((metadata (condition-case parse-err
-                                       (jf/gptel--read-session-metadata branch-dir)
-                                     (error
-                                      (jf/gptel--log
-                                       'warn "Failed to read metadata.yml: %s"
-                                       (error-message-string parse-err))
-                                      nil)))
-                         (preset-str (plist-get metadata :preset))
-                         (preset-name (when (and preset-str (stringp preset-str))
-                                        (intern preset-str)))
-                         (parent-id (plist-get metadata :parent-session-id)))
-
-                  ;; Populate parent-session-id when metadata declares one.
-                  (when (and parent-id (stringp parent-id))
-                    (setq-local jf/gptel--parent-session-id parent-id))
-
-                    (if (and preset-name (gptel-get-preset preset-name))
-                        (gptel--apply-preset
-                         preset-name
-                         (lambda (var val)
-                           (set (make-local-variable var) val)))
-                      (when preset-name
-                        (jf/gptel--log
-                         'warn
-                         "Preset %s from metadata.yml not registered; skipping apply-preset"
-                         preset-name))))
-
-                  ;; Register the buffer in the session registry.
-                  (jf/gptel--register-session session-dir
-                                              (current-buffer)
-                                              session-id
-                                              branch-name
-                                              branch-dir)
-                  (setq-local jf/gptel-autosave-enabled t)
+                ;; Register the buffer in the session registry.
+                (jf/gptel--register-session session-dir
+                                            (current-buffer)
+                                            session-id
+                                            branch-name
+                                            branch-dir)
+                (setq-local jf/gptel-autosave-enabled t)
 
                 ;; Update current symlink to point to this branch.
                 ;; Skip for legacy flat agent layout: the agent directory
@@ -324,26 +285,63 @@ critical."
                             session-type (error-message-string err))
              (message "Warning: Session auto-init failed. File opened in basic mode."))))))))
 
-(defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root)
+(defun jf/gptel--initial-session-content (preset-name &optional parent-session-id)
+  "Return initial content for a freshly-created `session.org' file.
+
+PRESET-NAME is a symbol naming a registered preset in
+`gptel--known-presets'.
+
+PARENT-SESSION-ID, when a non-empty string, adds a
+`:GPTEL_PARENT_SESSION_ID:' line to the drawer so the chat-mode
+restore path installs `jf/gptel--parent-session-id' buffer-locally
+on first open (design Decision 3 / Decision 4).
+
+Returns a string starting with a `:PROPERTIES:' drawer followed by
+an empty `#+begin_user' / `#+end_user' block (the chat-mode
+new-chat template, Decision 9 / Decision 18). The shape is
+identical to what the save hook writes on first save with no
+overrides, so creation → open → save is a no-op."
+  (let ((parent-line
+         (if (and parent-session-id
+                  (stringp parent-session-id)
+                  (not (string-empty-p parent-session-id)))
+             (format ":GPTEL_PARENT_SESSION_ID: %s\n" parent-session-id)
+           "")))
+    (format ":PROPERTIES:\n:GPTEL_PRESET: %s\n%s:END:\n#+begin_user\n\n#+end_user\n"
+            (symbol-name preset-name)
+            parent-line)))
+
+(defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root parent-session-id)
   "Create session directory structure with branching support.
 
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
 PRESET-NAME - symbol, name of registered preset in gptel--known-presets
 INITIAL-CONTENT - optional initial content for session.org (default:
-  the chat-mode empty-user-block template
-  \"#+begin_user\\n\\n#+end_user\\n\", matching `gptel-chat-mode''s
-  new-chat initialization per design Decision 9 / Decision 18 so a
-  fresh session looks identical to a fresh standalone chat buffer)
+  a pre-populated `:PROPERTIES:' drawer containing `GPTEL_PRESET'
+  (and `GPTEL_PARENT_SESSION_ID' when PARENT-SESSION-ID is a
+  non-empty string) followed by the chat-mode empty-user-block
+  template — see `jf/gptel--initial-session-content'. The shape
+  matches what the save hook writes on first save, so a fresh
+  session looks identical to a freshly-saved standalone chat
+  buffer with a preset applied (design Decision 4).
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
+PARENT-SESSION-ID - optional string, parent session id for agent
+  sessions. When non-empty, `GPTEL_PARENT_SESSION_ID' is written
+  into the drawer so the chat-mode restore path installs
+  `jf/gptel--parent-session-id' buffer-locally on first open.
+  Branch and standalone callers leave this nil.
 
 Creates:
 - SESSION-DIR/branches/main/ directory structure
 - scope.yml (from preset's scope profile, or explicit worktree-paths)
-- metadata.yml (session metadata with preset name)
-- session.org (with initial content)
+- session.org pre-populated with the drawer + empty user block
 - current symlink pointing to main branch
+
+NOTE: No `metadata.yml' is written. The drawer embedded in
+`session.org' is the authoritative session-level configuration
+source (design Decision 6).
 
 Returns plist with:
   :session-id - session identifier
@@ -354,26 +352,20 @@ Returns plist with:
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
-         (initial-content (or initial-content "#+begin_user\n\n#+end_user\n")))
+         (initial-content (or initial-content
+                              (jf/gptel--initial-session-content
+                               preset-name parent-session-id))))
 
     ;; Write scope.yml from preset's scope profile
     (jf/gptel-scope-profile--create-for-session
      preset-name main-branch-dir project-root worktree-paths)
 
-    ;; Write metadata.yml
-    (let ((metadata-file (jf/gptel--metadata-file-path main-branch-dir))
-          (timestamp (format-time-string "%Y-%m-%dT%H:%M:%SZ")))
-      (with-temp-file metadata-file
-        (insert (format "session_id: \"%s\"\n" session-id))
-        (insert (format "created: \"%s\"\n" timestamp))
-        (insert (format "updated: \"%s\"\n" timestamp))
-        (insert (format "preset: \"%s\"\n" (symbol-name preset-name))))
-      (jf/gptel--log 'info "Created metadata.yml: %s" metadata-file))
-
     ;; Create current symlink pointing to main
     (jf/gptel--update-current-symlink session-dir "main")
 
-    ;; Create session file with initial content
+    ;; Create session file with initial content (pre-populated drawer
+    ;; + empty user block). The drawer is authoritative — no
+    ;; metadata.yml sidecar is written (design Decision 6).
     (with-temp-file session-file
       (insert initial-content))
     (jf/gptel--log 'info "Created session file: %s" session-file)
@@ -427,17 +419,19 @@ No special resume command needed - sessions auto-initialize when opened."
 
     ;; Create session structure using core helper.
     ;; `initial-content' is left nil so the core helper fills in the
-    ;; chat-mode empty-user-block template (Decision 9 / Decision 18).
-    ;; No `gptel--save-state' call, no Local Variables block write —
-    ;; `gptel-chat-mode''s block format is self-describing, and
-    ;; `metadata.yml' is the authoritative configuration source.
+    ;; pre-populated drawer + empty-user-block template (Decision 4 /
+    ;; Decision 9). No `gptel--save-state' call, no Local Variables
+    ;; block write — the drawer embedded in `session.org' is the
+    ;; authoritative session-level configuration source (Decision 6).
+    ;; Standalone sessions have no parent-session-id.
     (let* ((session-info (jf/gptel--create-session-core
                          session-id
                          session-dir
                          preset-name
-                         nil         ; default chat-mode initial content
+                         nil         ; default pre-populated content
                          nil         ; no worktree-paths for standalone
-                         project-root))
+                         project-root
+                         nil))       ; no parent-session-id (standalone)
            (session-file (plist-get session-info :session-file)))
 
       ;; Open session file - auto-initialization hook will handle the rest

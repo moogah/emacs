@@ -445,6 +445,291 @@
                 ":GPTEL_PRESET: coding\n")
         (expect (gptel-chat--declared-preset) :to-be nil))))
 
+
+  ;; -----------------------------------------------------------------------
+  ;; 7. Drawer overrides overlay
+  ;; (task `chat-drawer-overrides-overlay', design.md §Decisions 2, 3, 5).
+  ;;
+  ;; `gptel-chat--apply-drawer-overrides' overlays non-preset drawer
+  ;; properties buffer-locally.  It runs from
+  ;; `gptel-chat--apply-declared-preset' after preset application (and
+  ;; again in the no-preset branch) so drawers with tools/model/token
+  ;; overrides AND drawers containing only `GPTEL_PARENT_SESSION_ID'
+  ;; are both honored on mode activation.
+  ;;
+  ;; Tests use `spy-on' to intercept upstream
+  ;; `gptel-org--entry-properties' and drive each branch from a
+  ;; controlled tuple.  The real function depends on
+  ;; `gptel--known-backends' and `gptel-get-tool' lookups that we do
+  ;; not want to exercise at the unit-test boundary (those are covered
+  ;; by integration tests in `save-state-spec.el').
+
+  (describe "drawer overrides overlay"
+
+    (describe "gptel-chat--apply-drawer-overrides (unit)"
+
+      (it "installs gptel-tools buffer-locally from the drawer tuple"
+        ;; Simulate upstream returning a tools list.  Preset is nil
+        ;; because this is the "overlay-only" call-site — the caller
+        ;; has already applied any preset.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil nil nil nil nil nil nil '(tool-a tool-b tool-c)))
+        (with-temp-buffer
+          (org-mode)
+          (gptel-chat--apply-drawer-overrides)
+          (expect (local-variable-p 'gptel-tools) :to-be t)
+          (expect gptel-tools :to-equal '(tool-a tool-b tool-c))))
+
+      (it "installs every upstream-compatible key when present"
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil "sys-msg" 'backend-obj 'model-sym 0.5 4096 3
+                      '(tool-a)))
+        (with-temp-buffer
+          (org-mode)
+          (gptel-chat--apply-drawer-overrides)
+          (expect (local-variable-p 'gptel--system-message) :to-be t)
+          (expect gptel--system-message :to-equal "sys-msg")
+          (expect (local-variable-p 'gptel-backend) :to-be t)
+          (expect gptel-backend :to-equal 'backend-obj)
+          (expect (local-variable-p 'gptel-model) :to-be t)
+          (expect gptel-model :to-equal 'model-sym)
+          (expect (local-variable-p 'gptel-temperature) :to-be t)
+          (expect gptel-temperature :to-equal 0.5)
+          (expect (local-variable-p 'gptel-max-tokens) :to-be t)
+          (expect gptel-max-tokens :to-equal 4096)
+          (expect (local-variable-p 'gptel--num-messages-to-send) :to-be t)
+          (expect gptel--num-messages-to-send :to-equal 3)
+          (expect (local-variable-p 'gptel-tools) :to-be t)
+          (expect gptel-tools :to-equal '(tool-a))))
+
+      (it "is a no-op for each absent field"
+        ;; Tuple is all-nil (other than preset, which is discarded).
+        ;; Spy on `make-local-variable' and assert it is never called
+        ;; by the overlay — neither for the upstream keys nor for
+        ;; `jf/gptel--parent-session-id' (since the drawer does not
+        ;; supply one).
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil nil nil nil nil nil nil nil))
+        (spy-on 'make-local-variable :and-call-through)
+        (with-temp-buffer
+          (org-mode)
+          ;; Drawer does not contain `GPTEL_PARENT_SESSION_ID'.
+          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n")
+          (gptel-chat--apply-drawer-overrides)
+          ;; The overlay must never invoke `make-local-variable' for
+          ;; an absent key.  Everything about the overlay is no-op
+          ;; in this scenario.
+          (expect 'make-local-variable :not :to-have-been-called)))
+
+      (it "discards the preset field from the upstream tuple"
+        ;; `gptel--preset' is not overlayed — the caller (apply-
+        ;; declared-preset) owns that assignment.  Even if upstream
+        ;; returns a preset symbol, this overlay does not write
+        ;; `gptel--preset'.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding nil nil nil nil nil nil nil))
+        (with-temp-buffer
+          (org-mode)
+          (gptel-chat--apply-drawer-overrides)
+          ;; `gptel--preset' was never assigned locally.
+          (expect (local-variable-p 'gptel--preset) :to-be nil)))
+
+      (it "installs jf/gptel--parent-session-id from GPTEL_PARENT_SESSION_ID"
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil nil nil nil nil nil nil nil))
+        (with-temp-buffer
+          (org-mode)
+          (insert ":PROPERTIES:\n"
+                  ":GPTEL_PARENT_SESSION_ID: parent-abc-20260424000000\n"
+                  ":END:\n")
+          (gptel-chat--apply-drawer-overrides)
+          (expect (local-variable-p 'jf/gptel--parent-session-id) :to-be t)
+          (expect jf/gptel--parent-session-id
+                  :to-equal "parent-abc-20260424000000")))
+
+      (it "is a no-op when GPTEL_PARENT_SESSION_ID is absent"
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil nil nil nil nil nil nil nil))
+        (with-temp-buffer
+          (org-mode)
+          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n")
+          (gptel-chat--apply-drawer-overrides)
+          (expect (local-variable-p 'jf/gptel--parent-session-id)
+                  :to-be nil)))
+
+      (it "is a no-op when GPTEL_PARENT_SESSION_ID is empty"
+        ;; A drawer key with no value (common in Org property drawers
+        ;; that were authored by hand) must not install an empty
+        ;; parent-session-id.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil nil nil nil nil nil nil nil))
+        (with-temp-buffer
+          (org-mode)
+          (insert ":PROPERTIES:\n"
+                  ":GPTEL_PARENT_SESSION_ID:\n"
+                  ":END:\n")
+          (gptel-chat--apply-drawer-overrides)
+          (expect (local-variable-p 'jf/gptel--parent-session-id)
+                  :to-be nil)))
+
+      (it "every overlaid value is buffer-local, not global"
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil "sys-msg" 'backend-obj 'model-sym 0.5 4096 3
+                      '(tool-a)))
+        (let ((global-tools (default-value 'gptel-tools))
+              (global-model (default-value 'gptel-model))
+              (global-backend (default-value 'gptel-backend))
+              (global-sys (default-value 'gptel--system-message)))
+          (with-temp-buffer
+            (org-mode)
+            (insert ":PROPERTIES:\n"
+                    ":GPTEL_PARENT_SESSION_ID: pid\n"
+                    ":END:\n")
+            (gptel-chat--apply-drawer-overrides)
+            (expect (local-variable-p 'gptel-tools) :to-be t)
+            (expect (local-variable-p 'gptel-model) :to-be t)
+            (expect (local-variable-p 'gptel-backend) :to-be t)
+            (expect (local-variable-p 'gptel--system-message) :to-be t)
+            (expect (local-variable-p 'jf/gptel--parent-session-id) :to-be t))
+          ;; Defaults unchanged after the buffer closes.
+          (expect (default-value 'gptel-tools) :to-equal global-tools)
+          (expect (default-value 'gptel-model) :to-equal global-model)
+          (expect (default-value 'gptel-backend) :to-equal global-backend)
+          (expect (default-value 'gptel--system-message) :to-equal global-sys))))
+
+
+    ;; -------------------------------------------------------------------
+    ;; Overlay firing from `gptel-chat--apply-declared-preset'.
+    ;;
+    ;; Covers the integration points in spec §"Preset system
+    ;; integration" (MODIFIED): after preset apply AND in the no-
+    ;; preset branch.
+
+    (describe "apply-declared-preset invokes the overlay"
+
+      (before-each
+        (spy-on 'gptel-get-preset :and-call-fake
+                (lambda (name) (memq name '(coding research))))
+        (spy-on 'gptel--apply-preset :and-return-value nil)
+        (spy-on 'gptel-mode :and-return-value nil))
+
+      (it "overlays GPTEL_TOOLS on top of the applied preset"
+        ;; Real drawer → overlay reads tools from upstream tuple; we
+        ;; spy on `gptel-org--entry-properties' to return a controlled
+        ;; tools list (mirroring what upstream would return for a
+        ;; drawer with both `GPTEL_PRESET: coding' and `GPTEL_TOOLS:
+        ;; tool-a tool-b tool-c').
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding nil nil nil nil nil nil
+                      '(tool-a tool-b tool-c)))
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          (expect (local-variable-p 'gptel-tools) :to-be t)
+          (expect gptel-tools :to-equal '(tool-a tool-b tool-c))))
+
+      (it "overlays GPTEL_PARENT_SESSION_ID even when no preset is declared"
+        ;; Upstream tuple is all-nil (no `GPTEL_PRESET' → resolver
+        ;; returns nil, preset branch is skipped).  The unconditional
+        ;; overlay call at the end of `apply-declared-preset' must
+        ;; still fire and install the parent-session-id.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil nil nil nil nil nil nil nil))
+        (with-temp-buffer
+          (org-mode)
+          ;; Drawer with NO `GPTEL_PRESET' — resolver returns nil.
+          (insert ":PROPERTIES:\n"
+                  ":GPTEL_PARENT_SESSION_ID: parent-xyz\n"
+                  ":END:\n")
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :not :to-have-been-called)
+          (expect (local-variable-p 'jf/gptel--parent-session-id) :to-be t)
+          (expect jf/gptel--parent-session-id :to-equal "parent-xyz")))
+
+      (it "does not overlay anything when the buffer has no drawer"
+        ;; No drawer → no `GPTEL_PRESET' → preset branch skipped.
+        ;; Upstream tuple is all-nil → overlay is a no-op for every
+        ;; upstream key.  `GPTEL_PARENT_SESSION_ID' is absent too.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list nil nil nil nil nil nil nil nil))
+        (spy-on 'make-local-variable :and-call-through)
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--no-preset)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :not :to-have-been-called)
+          (expect 'make-local-variable :not :to-have-been-called)))
+
+      (it "does not overlay absent upstream keys even when preset applies"
+        ;; Drawer with `GPTEL_PRESET: coding' only — overlay tuple has
+        ;; only the preset set; every other field is nil.  The overlay
+        ;; MUST NOT call the buffer-local setter for absent keys.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding nil nil nil nil nil nil nil))
+        (spy-on 'make-local-variable :and-call-through)
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          ;; The preset-apply path invokes the setter lambda, which
+          ;; calls `make-local-variable' for preset-provided keys.
+          ;; But our apply-preset spy is a no-op setter (no args) —
+          ;; it never calls `make-local-variable'.  So the only
+          ;; potential caller here is the overlay, and every overlay
+          ;; field is nil → no calls expected.
+          (expect 'make-local-variable :not :to-have-been-called))))
+
+
+    ;; -------------------------------------------------------------------
+    ;; Integration with the real upstream helper.
+    ;;
+    ;; The unit specs above spy on `gptel-org--entry-properties' to
+    ;; drive the overlay from a controlled tuple.  That isolates the
+    ;; overlay's decision logic from upstream's parser, but it also
+    ;; means a future upstream-signature change (e.g. adding a new
+    ;; field to the tuple) slips past the mock untouched.  This
+    ;; integration spec fills that gap: it exercises the real parser
+    ;; against a real `:PROPERTIES:' drawer and asserts the overlay
+    ;; installed the expected buffer-local binding end-to-end.
+    ;;
+    ;; We choose `GPTEL_TEMPERATURE' (and `GPTEL_SYSTEM' where
+    ;; applicable) because those keys round-trip through
+    ;; `gptel-org--entry-properties' without requiring
+    ;; `gptel--known-backends' population or preset registration —
+    ;; keeping the test self-contained.  `GPTEL_BACKEND',
+    ;; `GPTEL_MODEL', and `GPTEL_TOOLS' are intentionally avoided
+    ;; here; they are covered by the unit specs above with controlled
+    ;; tuples.
+
+    (describe "integration with real gptel-org helper"
+
+      (before-each
+        (unless (fboundp 'gptel-org--entry-properties)
+          (signal 'buttercup-pending nil)))
+
+      (it "overlays GPTEL_TEMPERATURE from a real drawer end-to-end"
+        ;; Real upstream parser, real org-mode buffer, no spies on the
+        ;; boundary.  A future change to the upstream tuple shape —
+        ;; such as adding a new leading field — fails this spec via a
+        ;; `pcase-let' destructuring mismatch, which is precisely the
+        ;; signal the overlay's unit specs cannot provide.
+        (with-temp-buffer
+          (insert ":PROPERTIES:\n"
+                  ":GPTEL_PRESET: coding\n"
+                  ":GPTEL_TEMPERATURE: 0.5\n"
+                  ":END:\n"
+                  "\n"
+                  "#+begin_user\n"
+                  "\n"
+                  "#+end_user\n")
+          (org-mode)
+          (gptel-chat--apply-drawer-overrides)
+          (expect (local-variable-p 'gptel-temperature) :to-be t)
+          (expect gptel-temperature :to-equal 0.5)))))
+
   )
 
 (provide 'gptel-chat-preset-wiring-spec)

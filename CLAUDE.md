@@ -482,6 +482,33 @@ greps (`grep -rn <term> <dir>/`) routinely match callers owned by parallel
 tasks and read as false "incomplete" signals. Prefer explicit file lists:
 `grep -n <term> <file1> <file2>`.
 
+**Cross-cutting follow-ups (`.tasks/`):** Sometimes work on a change
+surfaces a finding that is genuinely external to the change's scope —
+pre-existing failures in an unrelated subsystem, a stale TODO uncovered
+in passing, a defect that pre-dates the change. Putting it in
+`openspec/changes/<change>/tasks/open/` would either bury it inside the
+parent change at archive time or keep that change open longer than its
+own work warrants. Park such items in `.tasks/` (active) and
+`.tasks/done/` (archive) at repo root. File format mirrors openspec
+tasks (YAML frontmatter + body), with two adjustments:
+
+- Drop `change:`; add `source:` pointing at the change (or other
+  context) where the finding originated, so provenance survives the
+  source's archival.
+- `relations: discovered-from:<task-name>` is interpreted relative to
+  `source:`.
+
+When a `.tasks/` item grows large enough to need its own design /
+spec / multi-task plan, promote it to a full openspec change at that
+point. The bar for `.tasks/` is "self-contained backlog item"; the bar
+for an openspec change is "needs design discussion."
+
+In-scope follow-ups (verification of the current change's own
+behavior, deferred work that is still part of this change's contract)
+stay in `openspec/changes/<change>/tasks/`. Use `.tasks/` only for
+work the *next* maintainer of the affected subsystem should pick up,
+not for in-progress work on the current change.
+
 **Historical note:** The repo previously used the Beads CLI for tracking.
 `.beads/issues.jsonl` is kept as a history record; all other beads runtime
 state has been removed.

@@ -31,7 +31,6 @@
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
-(require 'gptel-session-metadata)
 (require 'gptel-session-registry)
 (require 'gptel-persistent-agent)
 
@@ -165,56 +164,6 @@
                                (hash-table-keys captured-files))))
               (let ((content (gethash scope-file captured-files)))
                 (expect content :to-match "read:\n    \\[\\]"))))))))
-
-  (describe "metadata.yml"
-
-    (it "writes version, session_id, and timestamps"
-      (with-parent-session "/sessions/parent" "parent-123" "/sessions/parent/branches/main"
-        (with-captured-io
-          (with-gptel-boundary-mocks
-            (jf/gptel-persistent-agent--task
-             #'ignore "researcher" "test task" "Do work")
-            (let ((meta-file (cl-find-if
-                              (lambda (k) (string-suffix-p "metadata.yml" k))
-                              (hash-table-keys captured-files))))
-              (expect meta-file :to-be-truthy)
-              (let ((content (gethash meta-file captured-files)))
-                (expect content :to-match "version: \"3.0\"")
-                (expect content :to-match "session_id:")
-                (expect content :to-match "created: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T")
-                (expect content :to-match "updated: \"[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}T")))))))
-
-    ;; BUG: parent_session_id is "nil" because the production code evaluates
-    ;; jf/gptel--session-id inside with-temp-file, which runs in a temp buffer
-    ;; where the parent's buffer-local variable isn't visible.
-    ;; FIX: persistent-agent.el should capture parent session-id in a let
-    ;; binding before entering with-temp-file.
-    ;; When the bug is fixed, this test will pass and should be converted
-    ;; from xit back to it.
-    (xit "records parent_session_id from parent buffer"
-      (with-parent-session "/sessions/parent" "parent-123" "/sessions/parent/branches/main"
-        (with-captured-io
-          (with-gptel-boundary-mocks
-            (jf/gptel-persistent-agent--task
-             #'ignore "researcher" "test task" "Do work")
-            (let ((meta-file (cl-find-if
-                              (lambda (k) (string-suffix-p "metadata.yml" k))
-                              (hash-table-keys captured-files))))
-              (let ((content (gethash meta-file captured-files)))
-                (expect content :to-match "parent_session_id: \"parent-123\"")))))))
-
-    (it "records preset name and type as agent"
-      (with-parent-session "/sessions/parent" "parent-123" "/sessions/parent/branches/main"
-        (with-captured-io
-          (with-gptel-boundary-mocks
-            (jf/gptel-persistent-agent--task
-             #'ignore "researcher" "test task" "Do work")
-            (let ((meta-file (cl-find-if
-                              (lambda (k) (string-suffix-p "metadata.yml" k))
-                              (hash-table-keys captured-files))))
-              (let ((content (gethash meta-file captured-files)))
-                (expect content :to-match "preset: \"researcher\"")
-                (expect content :to-match "type: \"agent\""))))))))
 
   (describe "Buffer initialization"
 

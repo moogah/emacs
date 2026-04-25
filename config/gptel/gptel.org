@@ -331,10 +331,9 @@ Load session management modules in dependency order:
 2. Logging - Leveled logging system (replaces 54+ debug messages)
 3. Filesystem - Filesystem utilities for directory-based persistence
 4. Registry - Global session registry and initialization
-5. Metadata - Metadata persistence (simplified for filesystem format)
-6. Branching - Branch creation and management (requires metadata, filesystem)
-7. Commands - User-facing commands (requires branching)
-8. Activities Integration - Auto-creation and resume for activities (optional)
+5. Branching - Branch creation and management (requires filesystem)
+6. Commands - User-facing commands (requires branching)
+7. Activities Integration - Auto-creation and resume for activities (optional)
 
 #+begin_src emacs-lisp
 ;; Note: constants.el and logging.el already loaded above (before preset registration)
@@ -344,7 +343,6 @@ Load session management modules in dependency order:
 
 ;;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
 
 ;; Load scope-expansion (UI for handling scope violations)

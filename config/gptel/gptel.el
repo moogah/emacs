@@ -181,7 +181,6 @@ Run this after preset registration to inject skill content into presets."
 
 ;;; Load session modules in dependency order
 (jf/load-module (expand-file-name "config/gptel/sessions/registry.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/gptel/sessions/metadata.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/branching.el" jf/emacs-dir))
 
 ;; Load scope-expansion (UI for handling scope violations)

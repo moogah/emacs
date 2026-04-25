@@ -173,7 +173,7 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (read_file :args (:path \"/tmp/x\"))\n"
+                      "#+begin_tool (read_file :path \"/tmp/x\")\n"
                       "file contents\n"
                       "#+end_tool\n")))
 
@@ -189,7 +189,7 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (noop :args nil)\n"
+                      "#+begin_tool (noop)\n"
                       "\n"
                       "#+end_tool\n"))))
 
@@ -217,7 +217,7 @@ ignorable function works here."
                 (concat "#+begin_user\nhello\n#+end_user\n"
                         "#+begin_assistant\n"
                         "Let me check.\n"
-                        "#+begin_tool (read_file :args (:path \"/a\"))\n"
+                        "#+begin_tool (read_file :path \"/a\")\n"
                         "ok\n"
                         "#+end_tool\n"
                         "Done.\n"
@@ -259,11 +259,11 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "A\n"
-                      "#+begin_tool (t1 :args (:x 1))\nr1\n#+end_tool\n"
+                      "#+begin_tool (t1 :x 1)\nr1\n#+end_tool\n"
                       "B\n"
-                      "#+begin_tool (t2 :args (:x 2))\nr2\n#+end_tool\n"
+                      "#+begin_tool (t2 :x 2)\nr2\n#+end_tool\n"
                       "C\n"
-                      "#+begin_tool (t3 :args (:x 3))\nr3\n#+end_tool\n"
+                      "#+begin_tool (t3 :x 3)\nr3\n#+end_tool\n"
                       "D\n"
                       "#+end_assistant\n"
                       "\n#+begin_user\n\n#+end_user\n")))
@@ -286,8 +286,8 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (p1 :args (:k 1))\nfirst\n#+end_tool\n"
-                      "#+begin_tool (p2 :args (:k 2))\nsecond\n#+end_tool\n"))))
+                      "#+begin_tool (p1 :k 1)\nfirst\n#+end_tool\n"
+                      "#+begin_tool (p2 :k 2)\nsecond\n#+end_tool\n"))))
 
 
   (describe "tool-result sanitization"
@@ -312,7 +312,7 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (cat :args (:f \"p\"))\n"
+                      "#+begin_tool (cat :f \"p\")\n"
                       "line1\n"
                       ",#+end_tool\n"
                       "line3\n"
@@ -332,7 +332,7 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (cat :args (:f \"p\"))\n"
+                      "#+begin_tool (cat :f \"p\")\n"
                       ",#+end_assistant\n"
                       "#+end_tool\n"))))
 
@@ -388,7 +388,7 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (run_bash_command :args (:command \"which brew\"))\n"
+                      "#+begin_tool (run_bash_command :command \"which brew\")\n"
                       "/opt/homebrew/bin/brew\n"
                       "#+end_tool\n")))
 
@@ -411,7 +411,7 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "Checking path.\n"
-                      "#+begin_tool (run_bash_command :args (:command \"which brew\"))\n"
+                      "#+begin_tool (run_bash_command :command \"which brew\")\n"
                       "/opt/homebrew/bin/brew\n"
                       "#+end_tool\n"
                       "Found it.\n"
@@ -433,10 +433,10 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (list_files :args (:dir \"/a\"))\n"
+                      "#+begin_tool (list_files :dir \"/a\")\n"
                       "file1\nfile2\n"
                       "#+end_tool\n"
-                      "#+begin_tool (read_file :args (:path \"/b\"))\n"
+                      "#+begin_tool (read_file :path \"/b\")\n"
                       "body\n"
                       "#+end_tool\n")))
 
@@ -458,7 +458,7 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (cat :args (:f \"p\"))\n"
+                      "#+begin_tool (cat :f \"p\")\n"
                       "line1\n"
                       ",#+end_tool\n"
                       "line3\n"

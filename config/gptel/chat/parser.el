@@ -121,15 +121,15 @@ delimiter."
 
 ;; Inside an open assistant block the parser encounters =#+begin_tool=
 ;; headers. The header contract is =#+begin_tool (<name> <plist...>)=: a
-;; single sexp whose =car= is the tool-name symbol and whose =cdr= is a
-;; plist of arguments (the plist keys are opaque to the parser — the
-;; stream-writer currently emits =(:args <sexp>)= by convention, but any
-;; plist shape round-trips). We capture:
+;; single sexp whose =car= is the tool-name symbol and whose =cdr= is the
+;; model-supplied arguments plist itself (no wrapper key — the cdr IS the
+;; args plist). We capture:
 
 ;; - =:name= — first element of the header sexp as a string (or the raw
 ;;   post-delimiter text if the header fails to parse).
-;; - =:args= — =(cdr parsed)= verbatim: the plist tail of the header
-;;   sexp (or nil if no parseable sexp / no tail).
+;; - =:args= — =(cdr parsed)= verbatim: the args plist (or nil if no
+;;   parseable sexp / no tail). Downstream consumers feed this directly
+;;   to JSON encoding via =gptel--parse-list=; no unwrapping needed.
 ;; - =:result= — everything between the header line and =#+end_tool=,
 ;;   with leading/trailing whitespace trimmed.
 
@@ -143,9 +143,10 @@ delimiter."
   "Parse HEADER-TEXT (portion of `#+begin_tool' line after the delimiter).
 
 The header contract is `(<name> <plist...>)': a single sexp whose car
-is the tool-name symbol and whose cdr is the arguments plist.  :args
-is extracted as `(cdr parsed)' verbatim — the plist keys are not
-interpreted here.
+is the tool-name symbol and whose cdr is the model-supplied args
+plist itself.  :args is `(cdr parsed)' verbatim — downstream
+consumers (`gptel-chat--segment-to-messages', `gptel--parse-list')
+feed it straight to JSON encoding without unwrapping.
 
 Returns a cons (NAME . ARGS):
 - NAME is a string (symbol-name of the first sexp element, or the
@@ -572,7 +573,17 @@ Gemini implementations in `runtime/straight/repos/gptel/').
 
 Body lines matching `^,#\\+end_\\(user\\|assistant\\|tool\\)\\b' are
 un-escaped (leading `,' stripped) before inclusion — the inverse of
-the streaming sanitizer in `gptel-chat-stream'."
+the streaming sanitizer in `gptel-chat-stream'.
+
+Note: passing a cons-list to `gptel-request' routes through
+`gptel--parse-list-and-insert' (gptel-request.el:2177), which has a
+buffer round-trip bug for tool entries — the tool `:name' is written
+unquoted and `read' returns it as a symbol, breaking JSON encode.
+Tracked and patched on our gptel fork branch
+`fix-tool-name-quoting-in-parse-list-and-insert'.  See parser.org's
+\"Upstream caveat\" section for full context and the alternative
+path (propertized-string emission, mirroring
+`gptel--display-tool-results') we may migrate to."
   (cl-loop for turn in turns
            nconc (gptel-chat--turn-to-messages turn)))
 ;; Public entry point:1 ends here
