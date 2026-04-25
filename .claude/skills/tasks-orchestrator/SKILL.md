@@ -68,6 +68,13 @@ Use **AskUserQuestion**:
 **Batch strategy**: default to parallel unless the user specifies otherwise.
 For sequential mode, spawn agents one at a time.
 
+**Note on `.tasks/`.** The repo's root-level `.tasks/` directory holds
+cross-cutting follow-ups that were externalised from prior changes
+(see CLAUDE.md §"Cross-cutting follow-ups" and §2 "In-change vs
+cross-cutting externalisation" below). These are deliberately **not**
+part of the orchestrator's batch — do not include `.tasks/` items in
+the ready set. They have their own triage cadence outside this skill.
+
 ## 2. Code Review
 
 Invoked when `status: needs-review` tasks are found in `tasks/closed/`. A
@@ -198,10 +205,18 @@ after inline fixes** — treat them like any other commit.
   new task instead.
 
 **New task (follow-up)** — for everything that isn't a trivial inline
-fix. Findings go into task files under
-`openspec/changes/<change>/tasks/open/`. **Group clustered findings
-into a single task; split only when findings are genuinely
-independent.** Specifically:
+fix. Two destinations are possible (see §"In-change vs cross-cutting
+externalisation" below for the decision rule):
+
+- **In-change** (`openspec/changes/<change>/tasks/open/`) — work that
+  belongs to the active change.
+- **Cross-cutting** (`.tasks/` at repo root) — work the finding
+  surfaced but that is genuinely external to the active change's
+  scope. See CLAUDE.md §"Cross-cutting follow-ups" for repo
+  conventions.
+
+**Group clustered findings into a single task; split only when
+findings are genuinely independent.** Specifically:
 
 - **Group** when findings share an artifact cluster (same file,
   module, spec section, or a coordinated set of `design.md` +
@@ -216,7 +231,8 @@ each fix, and produces coherent diffs instead of N small patches that
 re-read the same context. One task per distinct concern, not one per
 bullet point.
 
-Use `/opsx-tasks create` or write the file directly:
+For an in-change follow-up, use `/opsx-tasks create` or write the
+file directly:
 
 ```yaml
 ---
@@ -229,8 +245,68 @@ relations:
 ---
 ```
 
-The `discovered-from` relation is mandatory — it preserves the audit
-trail from review to remediation.
+For a cross-cutting follow-up at `.tasks/<finding-name>.md`, drop
+`change:` and replace with `source:`:
+
+```yaml
+---
+name: <finding-name>
+description: <one-line summary>
+status: ready         # or "blocked" if it has prerequisites
+source: openspec/changes/<change>     # provenance survives archive
+relations:
+  - discovered-from: <reviewed-task-name>   # interpreted relative to source
+---
+```
+
+The `discovered-from` relation is mandatory in both shapes — it
+preserves the audit trail from review to remediation.
+
+**In-change vs cross-cutting externalisation.** Default to in-change.
+Externalise to `.tasks/` only when **all** of these hold:
+
+- The finding is genuinely external to the active change's scope —
+  the active change neither caused it, would benefit from it being
+  fixed alongside, nor depends on it for its own correctness contract.
+- The work would otherwise either (a) hold the active change open
+  longer than its own work warrants, or (b) get buried inside the
+  active change at archive time.
+- The fix can stand on its own — it doesn't require the active
+  change's design context to be implemented correctly.
+
+Common externalisation triggers:
+
+- Pre-existing failures uncovered by a regression sweep that pre-date
+  the change and live in a different subsystem.
+- Stale TODOs or dead code spotted in passing while reading
+  neighbouring files.
+- Defects in unrelated subsystems that surface as side-effects of
+  the verification work.
+
+Common keep-in-change triggers (do NOT externalise):
+
+- Verification of the active change's own behaviour, even when
+  deferred (e.g. an environmental blocker prevents running the test
+  this session). The work is in-scope; it's just postponed.
+- Bugs in code the active change introduced or modified.
+- Spec / design / architecture artifact corrections that affect the
+  active change's contract.
+- Anything where the implementer needs the active change's design
+  context loaded to do the work correctly.
+
+When externalising, also update the parent (reviewed) task body's
+follow-up list to note both the destination (`relocated to .tasks/`)
+and the new path, so the audit trail stays readable. If a task was
+originally created in-change and only on review is recognised as
+out-of-scope, **move the file** (`git mv` from
+`openspec/changes/<change>/tasks/open/<task>.md` to
+`.tasks/<task>.md`) and rewrite its frontmatter from the in-change
+shape to the cross-cutting shape in the same commit.
+
+Externalised tasks are NOT picked up by the orchestrator's normal
+batch flow — `.tasks/` is a separate backlog with its own triage
+cadence. Do not include `.tasks/` items in the ready set computed in
+§1 Discovery & Selection.
 
 **Note:** `blocks:` is not a valid relation label in this repo (the
 frontmatter validator rejects it). If the finding must be resolved
@@ -678,6 +754,13 @@ Archive change: `/opsx-archive`
   dependents by editing their `blocked-by:` instead
 - Skip the worktree flow for tasks that turn out to be multi-file or
   cross-module once the agent starts working (see §4 bailout rule)
+- Pull `.tasks/` items into the orchestrator's batch — they are a
+  separate cross-cutting backlog, not part of any change's ready set
+- Externalise an in-scope follow-up — verification of the active
+  change's own behaviour (even when deferred on environmental
+  blockers), bugs in code the change introduced, and spec/design
+  corrections that affect the change's contract all stay in
+  `openspec/changes/<change>/tasks/`
 
 **ALWAYS**:
 - Triage each task into inline vs worktree before setup (§4)
@@ -695,6 +778,15 @@ Archive change: `/opsx-archive`
 - Non-trivial review findings become new tasks with `discovered-from:`
   relation; trivial ones may be fixed inline during review. Group
   clustered findings into one task instead of fragmenting them
+- Decide a follow-up task's destination at creation time: in-change
+  (`openspec/changes/<change>/tasks/open/`) by default, or `.tasks/`
+  at repo root when the finding is genuinely external to the active
+  change's scope (see §2 "In-change vs cross-cutting externalisation"
+  for the rule). When externalising a task that was originally
+  created in-change, `git mv` it to `.tasks/` and rewrite the
+  frontmatter (drop `change:`, add `source:`) in the same commit, and
+  update the parent task body's follow-up list to note the new
+  location
 - Apply the signal/noise bar to findings: raise only what a thoughtful
   maintainer would flag in a PR review and that would make the project
   meaningfully worse if shipped unchanged
