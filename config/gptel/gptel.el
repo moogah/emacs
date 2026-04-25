@@ -16,7 +16,12 @@
 ;;  ;;(setq chatgpt-shell-model-version "gpt-4o")
 
 (use-package gptel
-  :straight t
+  ;; TODO: Tracking moogah/gptel on a single-patch branch while the
+  ;; `parse-list-and-insert' fix is in flight. Switch to upstream
+  ;; (`:straight t') once it's merged, or to a longer-lived
+  ;; integration branch on the fork as more local patches accumulate.
+  :straight (gptel :type git :host github :repo "moogah/gptel"
+                   :branch "fix-tool-name-quoting-in-parse-list-and-insert")
   :custom
   (gptel-model 'claude-opus-4-6) ;; model is now a symbol, not a string
   (gptel-log-level 'debug) ;; Enable debug logging for testing
