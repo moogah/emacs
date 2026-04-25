@@ -489,6 +489,48 @@ This resolves Open Question 1 in =design.md= for the =messages= task:
 persistent-agent.org's full-tool-history pass-through works precisely
 because upstream backends implement this expansion.
 
+** Upstream caveat: =gptel--parse-list-and-insert= round-trip
+
+When =gptel-request= receives a cons-list prompt (our advanced format),
+it does NOT pass the list straight through. It materialises a temp
+buffer via =gptel--parse-list-and-insert=
+(=gptel-request.el:2177=), then re-parses that buffer via the
+backend's =gptel--parse-buffer=. Tool entries take a write-then-=read=
+trip through Lisp text.
+
+That writer (gptel-request.el:2206) emits the tool plist as bare
+string concatenation — the =:name= value is not =prin1='d:
+
+#+begin_src emacs-lisp :tangle no
+"(:name " (plist-get call :name) " :args "
+(prin1-to-string (plist-get call :args)) ")"
+#+end_src
+
+so a tool name like ="ask_user_questions"= reaches the buffer
+unquoted as =(:name ask_user_questions :args …)=. =read= then
+returns the symbol =ask_user_questions= for =:name=, and downstream
+=json-serialize= rejects it with =wrong-type-argument json-value-p
+ask_user_questions=. The same upstream codebase has the correct
+format in =gptel--display-tool-results= (=gptel.el:1882=) which uses
+=(prin1-to-string `(:name ,name :args ,args))= — strings get quoted,
+=read= recovers the string. Interactive =gptel-mode= writes via
+=display-tool-results= and never hits the buggy path.
+
+Status: patched in our gptel fork on branch
+=fix-tool-name-quoting-in-parse-list-and-insert=
+(https://github.com/moogah/gptel/tree/fix-tool-name-quoting-in-parse-list-and-insert).
+Aligning the two writers (have =parse-list-and-insert= use the same
+=prin1-to-string= form as =display-tool-results=) restores the
+round-trip.
+
+Future direction: the cleanest way to stay aligned with upstream
+gptel is to skip the cons-list contract entirely and hand
+=gptel-request= a propertized string already in
+=gptel--display-tool-results= shape — the same path interactive
+=gptel-mode= takes, which is well-tested and avoids
+=parse-list-and-insert= altogether. We chose the cons-list contract
+for this iteration; the fork patch unblocks us until we migrate.
+
 ** Comma un-escape (inverse of the stream sanitizer)
 
 The streaming sanitizer (=gptel-chat--sanitize-chunk= in =stream.el=)
@@ -653,7 +695,17 @@ Gemini implementations in `runtime/straight/repos/gptel/').
 
 Body lines matching `^,#\\+end_\\(user\\|assistant\\|tool\\)\\b' are
 un-escaped (leading `,' stripped) before inclusion — the inverse of
-the streaming sanitizer in `gptel-chat-stream'."
+the streaming sanitizer in `gptel-chat-stream'.
+
+Note: passing a cons-list to `gptel-request' routes through
+`gptel--parse-list-and-insert' (gptel-request.el:2177), which has a
+buffer round-trip bug for tool entries — the tool `:name' is written
+unquoted and `read' returns it as a symbol, breaking JSON encode.
+Tracked and patched on our gptel fork branch
+`fix-tool-name-quoting-in-parse-list-and-insert'.  See parser.org's
+\"Upstream caveat\" section for full context and the alternative
+path (propertized-string emission, mirroring
+`gptel--display-tool-results') we may migrate to."
   (cl-loop for turn in turns
            nconc (gptel-chat--turn-to-messages turn)))
 #+end_src

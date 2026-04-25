@@ -573,7 +573,17 @@ Gemini implementations in `runtime/straight/repos/gptel/').
 
 Body lines matching `^,#\\+end_\\(user\\|assistant\\|tool\\)\\b' are
 un-escaped (leading `,' stripped) before inclusion — the inverse of
-the streaming sanitizer in `gptel-chat-stream'."
+the streaming sanitizer in `gptel-chat-stream'.
+
+Note: passing a cons-list to `gptel-request' routes through
+`gptel--parse-list-and-insert' (gptel-request.el:2177), which has a
+buffer round-trip bug for tool entries — the tool `:name' is written
+unquoted and `read' returns it as a symbol, breaking JSON encode.
+Tracked and patched on our gptel fork branch
+`fix-tool-name-quoting-in-parse-list-and-insert'.  See parser.org's
+\"Upstream caveat\" section for full context and the alternative
+path (propertized-string emission, mirroring
+`gptel--display-tool-results') we may migrate to."
   (cl-loop for turn in turns
            nconc (gptel-chat--turn-to-messages turn)))
 ;; Public entry point:1 ends here
