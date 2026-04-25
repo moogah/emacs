@@ -57,7 +57,7 @@ A purely behavioral task: once module deletion is complete, we must confirm the 
 
 Steps 1–7 PASS, step 8 deferred to follow-up. One bug found and fixed inline (separate task).
 
-- **Step 1 — full suite (`./bin/run-tests.sh`)**: 1660 specs, 24 buttercup failed (post-fix: 1661 specs, 24 failed; +1 spec is the new cold-load regression test added by `save-hook-require-gptel-org`). All 24 failures pre-date this change — same set was present in `test-report.txt` from 2026-04-24 21:10 (before any of this change's merges landed). They cluster in `gptel/scope/` (parallel-callback FSM, bash-tool integration, add-to-scope) and one bash-parser corpus case — none on code paths this change modifies. Tracked in follow-up task `scope-and-bash-tool-test-failures-followup` (see `tasks/open/`).
+- **Step 1 — full suite (`./bin/run-tests.sh`)**: 1660 specs, 24 buttercup failed (post-fix: 1661 specs, 24 failed; +1 spec is the new cold-load regression test added by `save-hook-require-gptel-org`). All 24 failures pre-date this change — same set was present in `test-report.txt` from 2026-04-24 21:10 (before any of this change's merges landed). They cluster in `gptel/scope/` (parallel-callback FSM, bash-tool integration, add-to-scope) and one bash-parser corpus case — none on code paths this change modifies. Tracked in follow-up task `scope-and-bash-tool-test-failures-followup` — originally placed in this change's `tasks/open/`, relocated to repo-root `.tasks/` once recognised as external to this change's scope.
 - **Step 2 — gptel suite (`./bin/run-tests.sh -d config/gptel`)**: 1017 specs, 23 failed. Subset of step 1 (excludes the bash-parser corpus failure). Same disposition — pre-existing, captured in the same follow-up.
 - **Step 3 — `grep -rn "metadata\.yml" config/`**: clean. All hits are negative-assertion tests ("does not write metadata.yml"), removal comments, `branch-metadata.yml` references (different file, preserved by design), and archived bash-parser research corpus. No live readers or writers of `metadata.yml`.
 - **Step 4 — `grep -rn "metadata\.yml" openspec/`**: clean. Hits are this change's own removal docs, archived change directories, and main specs that still describe pre-change behavior pending the post-archive sync. Acceptable per the task's own criterion.
@@ -69,7 +69,7 @@ Steps 1–7 PASS, step 8 deferred to follow-up. One bug found and fixed inline (
 ### Follow-up tasks discovered
 
 - `save-hook-require-gptel-org` — implemented and merged this session; status: `needs-review`. Closes the void-function regression caught at step 6.
-- `scope-and-bash-tool-test-failures-followup` — pre-existing 24 buttercup failures in `gptel/scope/` parallel-callback / bash-tool integration / add-to-scope flows. Status: `ready`. Out of scope for this change — surfaced by the sweep, not caused by it.
+- `scope-and-bash-tool-test-failures-followup` — pre-existing 24 buttercup failures in `gptel/scope/` parallel-callback / bash-tool integration / add-to-scope flows. Status: `ready`. Out of scope for this change — surfaced by the sweep, not caused by it. Relocated post-review to `.tasks/scope-and-bash-tool-test-failures-followup.md` (see CLAUDE.md §"Cross-cutting follow-ups").
 - `regression-sweep-step-8-agent-verification` — deferred step 8. Status: `blocked` on resolving the unrelated agent infrastructure issue.
 
 ### Disposition
@@ -89,7 +89,7 @@ This is a verification-only contract — no code changes, so the review focuses 
 - *Smoke result accuracy.* Steps 1–4 outcomes match what the orchestration session captured (parsed test summaries; two greps with classification). Step 5 PASS reflects the user reaching step 6 with a working session. Step 6 records "found bug → fixed inline → retry passed" with commit refs (`358b9424`, `7c3c305`). Step 7 PASS matches user-reported "also passing." Step 8 DEFERRED matches user-reported environmental blocker.
 - *Follow-up scoping.* Three follow-ups, each `discovered-from: regression-sweep-and-manual-smoke`:
   - `save-hook-require-gptel-org` — closed and at `done` after its own review; scoped to the cold-load gap.
-  - `scope-and-bash-tool-test-failures-followup` — `ready`; groups the 24 pre-existing failures into one task per the skill's "group when artifacts cluster" rule, with explicit cluster naming for future bisect.
+  - `scope-and-bash-tool-test-failures-followup` — `ready`; groups the 24 pre-existing failures into one task per the skill's "group when artifacts cluster" rule, with explicit cluster naming for future bisect. (Relocated to `.tasks/` post-review — out of scope for this change.)
   - `regression-sweep-step-8-agent-verification` — `blocked` (not `ready`), because the precondition is environmental rather than dependency on another task. Frontmatter `relations` lists only `discovered-from`; no `blocked-by` because no other task gates it.
 - *Disposition coherence.* The "Disposition" paragraph correctly distinguishes between (a) what this change verified, (b) what was deferred and why, and (c) what was surfaced but pre-existing. No conflation.
 
