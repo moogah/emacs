@@ -2,7 +2,7 @@
 name: save-hook-require-gptel-org
 description: gptel-chat--save-state calls gptel-org-set-properties without ensuring gptel-org is loaded; first save in a real session aborts with void-function. One-line fix plus a behavioral test that reproduces without test-only loading.
 change: gptel-chat-state-persistence
-status: ready
+status: needs-review
 relations:
   - "discovered-from:regression-sweep-and-manual-smoke"
 ---
