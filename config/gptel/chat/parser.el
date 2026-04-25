@@ -121,15 +121,15 @@ delimiter."
 
 ;; Inside an open assistant block the parser encounters =#+begin_tool=
 ;; headers. The header contract is =#+begin_tool (<name> <plist...>)=: a
-;; single sexp whose =car= is the tool-name symbol and whose =cdr= is a
-;; plist of arguments (the plist keys are opaque to the parser — the
-;; stream-writer currently emits =(:args <sexp>)= by convention, but any
-;; plist shape round-trips). We capture:
+;; single sexp whose =car= is the tool-name symbol and whose =cdr= is the
+;; model-supplied arguments plist itself (no wrapper key — the cdr IS the
+;; args plist). We capture:
 
 ;; - =:name= — first element of the header sexp as a string (or the raw
 ;;   post-delimiter text if the header fails to parse).
-;; - =:args= — =(cdr parsed)= verbatim: the plist tail of the header
-;;   sexp (or nil if no parseable sexp / no tail).
+;; - =:args= — =(cdr parsed)= verbatim: the args plist (or nil if no
+;;   parseable sexp / no tail). Downstream consumers feed this directly
+;;   to JSON encoding via =gptel--parse-list=; no unwrapping needed.
 ;; - =:result= — everything between the header line and =#+end_tool=,
 ;;   with leading/trailing whitespace trimmed.
 
@@ -143,9 +143,10 @@ delimiter."
   "Parse HEADER-TEXT (portion of `#+begin_tool' line after the delimiter).
 
 The header contract is `(<name> <plist...>)': a single sexp whose car
-is the tool-name symbol and whose cdr is the arguments plist.  :args
-is extracted as `(cdr parsed)' verbatim — the plist keys are not
-interpreted here.
+is the tool-name symbol and whose cdr is the model-supplied args
+plist itself.  :args is `(cdr parsed)' verbatim — downstream
+consumers (`gptel-chat--segment-to-messages', `gptel--parse-list')
+feed it straight to JSON encoding without unwrapping.
 
 Returns a cons (NAME . ARGS):
 - NAME is a string (symbol-name of the first sexp element, or the

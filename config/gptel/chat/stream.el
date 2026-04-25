@@ -296,12 +296,10 @@ routing — no `cl-letf' surgery on captured variables."
 ;; The header contract is =#+begin_tool (<name> <plist...>)= (see
 ;; design.md Decision 10 and =gptel-chat--parse-tool-header=): a single
 ;; sexp whose =car= is the tool-name symbol and whose =cdr= is the
-;; arguments plist. The parser returns =(cdr parsed)= verbatim — it
-;; does not privilege any particular keyword. This writer currently
-;; emits =(:args <sexp>)= as the one plist shape, but that is a writer
-;; choice, not a parser contract. Formatting on write and reading on
-;; parse share the header shape, so tool blocks round-trip through disk
-;; unchanged.
+;; model-supplied arguments plist itself (no wrapper key). The parser
+;; returns =(cdr parsed)= verbatim, so the buffer text round-trips
+;; into the same plist downstream consumers (=segment-to-messages=,
+;; =gptel--parse-list=) feed to the model as JSON arguments.
 
 
 ;; [[file:stream.org::*Helper: format a tool-block header][Helper: format a tool-block header:1]]
@@ -309,13 +307,14 @@ routing — no `cl-letf' surgery on captured variables."
   "Format a `#+begin_tool' header line.
 NAME is a string — the tool name extracted via `gptel-tool-name'
 from the TOOL-STRUCT upstream passes in the tool-call 3-list.
-ARGS is a plist-or-list (model-supplied tool arguments) rendered
-via `prin1-to-string' so the parser's `read-from-string'
-round-trips it intact.  Returns the full header line without a
-trailing newline."
-  (format "#+begin_tool (%s :args %s)"
-          name
-          (prin1-to-string args)))
+ARGS is a plist (model-supplied tool arguments) emitted as the
+plist tail of the header sexp via `prin1-to-string', so the
+parser's `read-from-string' round-trips it intact and the
+parser's `:args' segment field IS the model's args (no
+unwrapping needed downstream).  Returns the full header line
+without a trailing newline."
+  (format "#+begin_tool %s"
+          (prin1-to-string (cons (intern name) args))))
 ;; Helper: format a tool-block header:1 ends here
 
 ;; Helper: insert a sanitized multi-line block at a marker
