@@ -2,7 +2,7 @@
 name: save-hook-require-gptel-org
 description: gptel-chat--save-state calls gptel-org-set-properties without ensuring gptel-org is loaded; first save in a real session aborts with void-function. One-line fix plus a behavioral test that reproduces without test-only loading.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "discovered-from:regression-sweep-and-manual-smoke"
 ---
@@ -55,3 +55,20 @@ The test gap is the more important finding. Both existing test paths — unit (s
     save-buffer (1)
   ```
 - Surfaced by: `regression-sweep-and-manual-smoke` step 6, immediately after `gptel-menu` toggle + `C-x C-s`.
+
+## Review (2026-04-25, orch-1777061557, inline)
+
+**Reviewer mindset applied:** rigorous, not contrarian — would a thoughtful maintainer flag this in a PR, and would shipping unchanged make the project meaningfully worse?
+
+**Findings:**
+
+- *(Minor, doc-only — no follow-up task created.)* The architecture / design artifacts for this change don't explicitly state that chat-mode owns the `(require 'gptel-org)` responsibility because chat-mode bypasses every upstream gptel feature path that would otherwise require it. Future maintainers reading the design top-down won't see why the require lives in the save hook rather than at module load or in a more central place. Worth a one-sentence note in `design.md` §Decisions or `architecture.md` §"gptel-chat-mode loading" if/when those artifacts are revisited (e.g. during the post-archive spec sync). Not raising as a follow-up because it's a minor clarification, the inline comment in `menu.org` already documents the immediate why, and the test name + commit message preserve the audit trail.
+
+**Verified clean:**
+
+- *Code quality.* `(require 'gptel-org)` placement is correct: inside the `(when (derived-mode-p 'gptel-chat-mode) ...)` guard so non-chat-mode buffers never pay the load cost, before `save-excursion` so the call site can rely on the symbol being bound. Idempotent. The accompanying comment is short, points at why-not-where, and references the surfacing tasks for traceability.
+- *Test design.* The cold-load describe uses `unload-feature ... t` (force) in `before-each` and `(require 'gptel-org nil t)` in `after-each` — robust against ordering with the other describes in the file. Asserts the precondition (`featurep` nil, `fboundp` nil) before exercising the hook, and the postcondition (`featurep` t, `fboundp` t) after — proving the production code did the require, not test setup. The describe-level commentary explicitly warns future maintainers not to "fix" the test by pre-loading `gptel-org` — that comment is load-bearing because doing so would re-introduce the original masking gap.
+- *Design alignment.* No drift from the follow-up task body's specified approach (require inside hook, behavioral spec with cold-load framing). No drift from the change's spec / architecture / design — nothing in those artifacts contradicts owning the require here.
+- *Spec gaps.* No spec-level finding worth raising. The one observation is the doc clarification noted above, which is a quality-of-life note, not a load-bearing spec correction.
+
+**Outcome:** Flip `status: needs-review` → `status: done`. No follow-up tasks created from this review.

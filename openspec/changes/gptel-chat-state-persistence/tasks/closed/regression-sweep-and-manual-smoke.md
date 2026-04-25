@@ -2,7 +2,7 @@
 name: regression-sweep-and-manual-smoke
 description: End-to-end regression of all gptel tests plus manual smoke test of create, save-with-menu-change, reopen, branch, and agent creation.
 change: gptel-chat-state-persistence
-status: needs-review
+status: done
 relations:
   - "blocked-by:delete-metadata-module"
 ---
@@ -75,3 +75,22 @@ Steps 1–7 PASS, step 8 deferred to follow-up. One bug found and fixed inline (
 ### Disposition
 
 The change's session-creation, save-on-menu (post-fix), branching, drawer, and metadata-removal paths are verified end-to-end. The agent-shape verification (step 8) is genuinely deferred but its blocker is environmental and unrelated to this change. The pre-existing test failures are tracked separately and do not implicate any code path this change modifies. Closing this task.
+
+## Review (2026-04-25, orch-1777061557, inline)
+
+This is a verification-only contract — no code changes, so the review focuses on whether the smoke results are accurately reported, the dispositions are sound, and the follow-ups are correctly scoped.
+
+**Findings:**
+
+- *(Procedural, not a follow-up.)* Step 8 remains genuinely uncovered for this change — there is no end-to-end verification of the agent path's drawer contents post-metadata-removal. Tracking via `regression-sweep-step-8-agent-verification` (`blocked` on environmental fix) is the correct framing, but if the unrelated agent-infrastructure issue takes more than a week or two to resolve, consider whether the change should be archived in the meantime or held. This is a judgment call left to the user, not a defect of this task.
+
+**Verified clean:**
+
+- *Smoke result accuracy.* Steps 1–4 outcomes match what the orchestration session captured (parsed test summaries; two greps with classification). Step 5 PASS reflects the user reaching step 6 with a working session. Step 6 records "found bug → fixed inline → retry passed" with commit refs (`358b9424`, `7c3c305`). Step 7 PASS matches user-reported "also passing." Step 8 DEFERRED matches user-reported environmental blocker.
+- *Follow-up scoping.* Three follow-ups, each `discovered-from: regression-sweep-and-manual-smoke`:
+  - `save-hook-require-gptel-org` — closed and at `done` after its own review; scoped to the cold-load gap.
+  - `scope-and-bash-tool-test-failures-followup` — `ready`; groups the 24 pre-existing failures into one task per the skill's "group when artifacts cluster" rule, with explicit cluster naming for future bisect.
+  - `regression-sweep-step-8-agent-verification` — `blocked` (not `ready`), because the precondition is environmental rather than dependency on another task. Frontmatter `relations` lists only `discovered-from`; no `blocked-by` because no other task gates it.
+- *Disposition coherence.* The "Disposition" paragraph correctly distinguishes between (a) what this change verified, (b) what was deferred and why, and (c) what was surfaced but pre-existing. No conflation.
+
+**Outcome:** Flip `status: needs-review` → `status: done`. No additional follow-ups created from this review. The two open follow-ups keep loose ends visible without blocking this task or its `done` state.
