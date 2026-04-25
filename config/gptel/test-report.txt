@@ -1,13 +1,33 @@
 Test Report
 ===========
 
-ERT: 2 ran, 2 passed
+ERT: 23 ran, 23 passed
 
-Buttercup: 612 ran, 568 passed (1 pending)
+Buttercup: 993 ran, 970 passed (1 pending)
 
 Buttercup failures:
+  Bug 4: end-to-end add-to-scope should enable retry success gptel callback receives success after add-to-scope correctly expands scope
+  Bug 4: end-to-end add-to-scope should enable retry success scope.yml contains valid path pattern after add-to-scope (not garbage)
+  Bug: multi-violation add-to-scope leaks subsequent denials real-world session case: ls ABSPATH 2>/dev/null adds both paths
+  Bug: multi-violation add-to-scope leaks subsequent denials scope.yml contains every denied path after user approves Add to scope
+  Parallel tool callback: mixed allowed/denied both callbacks fire when one tool passes and one triggers expansion
+  Parallel tool callback: session stuck reproduction single tool call works (baseline) one denied tool fires callback when user denies expansion
+  Parallel tool callback: session stuck reproduction two tools fired via mapc (the production scenario) both callbacks fire when expansion UI auto-denies both
+  Parallel tool callback: transient collision CORRECT: both callbacks fire via queue when user responds to each prompt
+  Parallel tool callback: transient collision when second transient-setup clobbers first, only last callback fires (characterizes bug)
+  run_bash_command integration: "which brew" (no-op) full tool invocation through macro expansion UI is NOT triggered for allowed no-op
+  run_bash_command integration: "which brew" (no-op) full tool invocation through macro real validate-bash-tool is called (not bypassed)
+  run_bash_command integration: "which brew" (no-op) full tool invocation through macro tool body executes and callback receives success
+  run_bash_command integration: denied command triggers expansion UI for denied command through macro
+  run_bash_command integration: denied command user deny returns error to gptel callback
+  run_bash_command integration: file operation out of scope add-to-scope approves and runs the body
+  run_bash_command integration: file operation out of scope allow-once approves and tool body executes
+  run_bash_command integration: file operation out of scope triggers expansion UI through macro for out-of-scope read
+  run_bash_command integration: gptel callback contract callback receives exactly one string argument
+  run_bash_command integration: gptel callback contract no_scope_config returns JSON through callback
+  run_bash_command integration: gptel callback contract tool is registered as async in gptel--known-tools
   run_bash_command: Timeout and resource limits suggests filters in truncation notice
   run_bash_command: Timeout and resource limits warns when long-running command is terminated
 
 ===========
-Total: 614 ran, 570 passed
+Total: 1016 ran, 993 passed
