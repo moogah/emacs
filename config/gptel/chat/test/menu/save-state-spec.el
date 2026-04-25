@@ -282,6 +282,56 @@
 
 
   ;; -----------------------------------------------------------------------
+  ;; 2b. Cold-load regression: `gptel-org' is NOT pre-loaded.
+  ;;
+  ;; The unit and integration describes above pre-load `gptel-org' at
+  ;; spec-file top-level (`(require 'gptel-org nil t)' near line 62) so
+  ;; `gptel-org-set-properties' is already bound when those tests run.
+  ;; In production, nothing on the chat-mode load path requires
+  ;; `gptel-org' — chat-mode derives from `org-mode', not from any
+  ;; upstream gptel feature path that does the require.  First save in
+  ;; a fresh Emacs would therefore signal `(void-function
+  ;; gptel-org-set-properties)' (manual-smoke reproduction, 2026-04-25).
+  ;;
+  ;; This describe forces a cold-load by `unload-feature'-ing
+  ;; `gptel-org' before each example, asserts the precondition (feature
+  ;; gone, function unbound), then runs the save hook.  Success
+  ;; demonstrates that the save hook itself is responsible for pulling
+  ;; `gptel-org' in.  The `after-each' restores the load so subsequent
+  ;; describes are unaffected.
+  ;;
+  ;; Do NOT "fix" this test by adding `(require 'gptel-org)' to
+  ;; `before-each' — that re-introduces the regression by masking the
+  ;; production load path with a test-only setup, which is exactly the
+  ;; failure mode that originally hid the bug.
+
+  (describe "cold-load of gptel-org (regression)"
+
+    (before-each
+      (when (featurep 'gptel-org)
+        (unload-feature 'gptel-org t)))
+
+    (after-each
+      ;; Restore for subsequent describes / specs that depend on the
+      ;; pre-loaded state.  `nil t' matches the spec file's top-level
+      ;; soft-require pattern.
+      (require 'gptel-org nil t))
+
+    (it "save hook succeeds without pre-loading gptel-org"
+      ;; Precondition: cold.
+      (expect (featurep 'gptel-org) :to-be nil)
+      (expect (fboundp 'gptel-org-set-properties) :to-be nil)
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert gptel-chat-save-test--empty-chat)
+        ;; Must not signal `(void-function gptel-org-set-properties)'.
+        (gptel-chat--save-state))
+      ;; Postcondition: the save hook itself loaded `gptel-org'.
+      (expect (featurep 'gptel-org) :to-be-truthy)
+      (expect (fboundp 'gptel-org-set-properties) :to-be t)))
+
+
+  ;; -----------------------------------------------------------------------
   ;; 3. Hook registration scope (design.md §Decision 10).
   ;;
   ;; The save hook must be registered buffer-locally from the mode-hook

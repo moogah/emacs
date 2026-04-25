@@ -385,6 +385,13 @@ excluded (spec §\"Save path never writes GPTEL_BOUNDS\").
 Does NOT enable `gptel-mode'.  Chat-mode owns the major-mode role
 exclusively (design.md §Decision 16)."
   (when (derived-mode-p 'gptel-chat-mode)
+    ;; `gptel-org' is not pulled in by anything else on the chat-mode
+    ;; load path — chat-mode derives from `org-mode', not from any
+    ;; gptel feature path that upstream `(require 'gptel-org)`s.  Pull
+    ;; it in lazily on first save so `gptel-org-set-properties' is
+    ;; bound (regression caught by `save-hook-require-gptel-org' /
+    ;; `regression-sweep-and-manual-smoke', 2026-04-25).
+    (require 'gptel-org)
     (save-excursion
       (org-with-wide-buffer
        (gptel-org-set-properties (point-min) nil)
