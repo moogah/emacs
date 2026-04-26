@@ -2,7 +2,7 @@
 name: rename-chat-mode-internals
 description: Rename 5 chat-mode --prefixed internals to public symbols and update all in-tree callers
 change: persistent-agent-rebuild
-status: ready
+status: done
 relations: []
 ---
 
@@ -87,3 +87,47 @@ This is layer 1 of the change. Layer 2 (the agent rebuild) depends on the new sy
 
 design.md § "Layer 1: Chat-mode public-API rename"
 specs/chat-mode/spec.md (delta) § "Public programmatic-send API"
+
+## Review
+
+Reviewed by reviewer agent against `proposal.md`, `design.md § "Layer 1"`,
+`architecture.md`, and `specs/chat-mode/spec.md (delta)`. Implementation
+commit: `dad64de`. Merge commit: `be4fc91`.
+
+### Verified clean
+
+- All five renames landed across `config/`; verification grep returns
+  zero matches.
+- No `defalias` shims.
+- Five renamed symbols remain `defun`/`defvar` (not `cl-defun`/`defmacro`)
+  with original arities preserved.
+- Docstrings promoted to public-API style (contract-first sentence;
+  implementation notes moved to `;;` body comments). Spot-checked at
+  `parser.el:335-354`, `parser.el:556-586`, `send.el:218-224`,
+  `send.el:408-416`, `stream.el:556-583`.
+- `gptel-chat-send` body (`send.el:523-531`) now invokes the renamed
+  primitives.
+- `.org`/`.el` pairs in sync.
+- Tests exercise the real renamed functions (no spy-on / cl-letf
+  stubs of the renamed surface).
+- Five-symbol public surface matches what `architecture.md` and
+  `design.md` promise downstream tasks; no missing surface.
+- Other `--`-prefixed chat-mode internals (`--lifecycle-state`,
+  `--blank-content-p`, `--declared-preset`, `--turn-to-messages`)
+  are legitimate internals out of scope.
+
+### Findings
+
+- **Stale references in `openspec/specs/gptel/sessions-branching.md`**
+  (lines 41, 52, 93). The task's verification grep was scoped to
+  `config/` only and missed live behavioural specs. Three occurrences
+  of `gptel-chat--parse-buffer` referencing the renamed symbol.
+  - **Fix applied inline**: replaced all three with
+    `gptel-chat-parse-buffer`. Verification grep across `openspec/specs/`
+    and `config/` now returns empty. Doc-only change; no regression run
+    needed.
+
+### Verdict
+
+Clean review with one inline fix. Flipping `status: needs-review` →
+`status: done`. No follow-up tasks created; no dependents to repoint.
