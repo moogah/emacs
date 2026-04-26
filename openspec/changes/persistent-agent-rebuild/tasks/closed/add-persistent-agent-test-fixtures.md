@@ -2,7 +2,7 @@
 name: add-persistent-agent-test-fixtures
 description: Add shared Buttercup fixtures for persistent-agent tests (mock parent session, mock preset, mock gptel-request)
 change: persistent-agent-rebuild
-status: ready
+status: needs-review
 relations: []
 ---
 

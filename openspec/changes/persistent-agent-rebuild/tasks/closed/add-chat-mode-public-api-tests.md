@@ -2,7 +2,7 @@
 name: add-chat-mode-public-api-tests
 description: Add Buttercup specs asserting the chat-mode public API contract for parser, send, and stream
 change: persistent-agent-rebuild
-status: ready
+status: needs-review
 relations: []
 ---
 
