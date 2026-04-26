@@ -2,7 +2,7 @@
 name: add-agent-auto-init-reload-tests
 description: Buttercup specs verifying agent buffer activates chat-mode and saved files reload as interactive sessions
 change: persistent-agent-rebuild
-status: blocked
+status: done
 relations:
   - blocked-by:add-persistent-agent-test-fixtures
   - blocked-by:rebuild-persistent-agent-module
@@ -89,3 +89,39 @@ For the reload test, kill-and-reopen mirrors the user's experience: they close t
 specs/persistent-agent/spec.md (delta) § "Agent session creation" (auto-init scenario), "Persistence and resumption"
 design.md § "Decision 3" (find-file-noselect choice and find-file-hook semantics)
 architecture.md § "Boundaries" → "Out of scope" (migration of pre-existing files; this test confirms NEW files reload, not OLD files)
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported minor
+findings; one was load-bearing for the upcoming `fix-agent-flat-layout`
+task and was fixed inline:
+
+- `auto-init-reload-spec.el:164` (inline-fix): the assertion
+  `(expect agent-sid :not :to-equal mock-session-id)` happened to
+  pass against the doubly-nested layout (the branch-session regex
+  captured the agent-dir basename). After the layout fix lands, the
+  nested-agent regex captures the parent's session-id and the
+  inequality flips. Replaced the negative-equality with a layout-
+  agnostic assertion: agent-sid is a non-empty string AND
+  default-directory of the agent buffer is under
+  `<branch-dir>/agents/`. This pins the spec contract — auto-init
+  ran on the agent's session.org — without coupling to which regex
+  matched. Also relaxed the branch-name `:to-equal "main"` to
+  `:to-be-truthy` for the same reason (the flat layout's nested-agent
+  regex returns the parent's branch name "main" too, but the
+  pinning shouldn't assume that).
+
+Not fixed (deferred):
+- The local helper macro `jf-pa-auto-init-test--with-parent-buffer`
+  works around a fixture-inheritance issue (let-bound session vars
+  visible to find-file-hook in fresh buffers) that any future spec
+  using `with-mock-parent-session + find-file-noselect` will hit.
+  Promoting the workaround into the shared `helpers-spec.el` would
+  prevent rediscovery; left for a future maintainer to pick up if
+  more agent specs are added.
+- The reload test's backend assertion compares against the global
+  default values because `with-mock-preset` registers with those
+  same values. The preset-application path is exercised, but a
+  preset with synthetic non-default values would distinguish "preset
+  applied" from "default happened to match." Minor; observable
+  contract is met.

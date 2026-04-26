@@ -4,8 +4,7 @@ description: Buttercup specs for agent directory + drawer + scope.yml creation, 
 change: persistent-agent-rebuild
 status: blocked
 relations:
-  - blocked-by:add-persistent-agent-test-fixtures
-  - blocked-by:rebuild-persistent-agent-module
+  - blocked-by:fix-agent-flat-layout
 ---
 
 ## Files to modify

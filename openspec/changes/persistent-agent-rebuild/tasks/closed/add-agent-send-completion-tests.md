@@ -2,7 +2,7 @@
 name: add-agent-send-completion-tests
 description: Buttercup specs for FSM composition, gptel-request invocation shape, and final-text extraction
 change: persistent-agent-rebuild
-status: blocked
+status: done
 relations:
   - blocked-by:add-persistent-agent-test-fixtures
   - blocked-by:rebuild-persistent-agent-module
@@ -161,3 +161,25 @@ specs/persistent-agent/spec.md (delta) § "Execution lifecycle", "Parent-child c
 design.md § "Decisions" 2 (empty-text), § "Layer 2" (handler builder, extractor)
 design.md § "Test Strategy" → "Mock pattern for `gptel-request`" — exact mock recipe
 architecture.md § "Interfaces" → "FSM handler composition (request lifecycle)" — exact handler ordering
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported clean
+work with one minor finding fixed inline:
+
+- `send-and-completion-spec.el:39-44` (inline-fix): the comment about
+  the `featurep`-guarded helpers load order asserted that re-running
+  the directory does not duplicate-execute helpers' smoke tests.
+  Empirically false: Buttercup discovery's `load-file` re-executes
+  top-level forms regardless of `featurep` state, so each helper
+  smoke `describe` runs twice in the directory pass. Rewrote the
+  comment to describe the actual behavior accurately and reference
+  the architectural fix path (split helpers into a pure provider +
+  a separate smoke-test spec) for future maintainers. Did NOT fix
+  the underlying duplication — cost is <40ms/run; the cleanup
+  belongs to a separate refactor task.
+
+Other reviewed details (handler-chain granularity, empty-text
+fallback path coverage, prompt round-trip via `cl-find-if` +
+`string-trim`, DONE handler overlay-deletion specificity, stream
+callback wiring assertion, lexical binding) all passed scrutiny.

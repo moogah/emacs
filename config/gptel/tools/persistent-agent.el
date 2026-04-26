@@ -25,9 +25,7 @@
 (require 'gptel-chat-stream)        ; gptel-chat-stream-callback
 (require 'gptel-session-constants)
 (require 'gptel-session-filesystem) ; jf/gptel--create-agent-directory,
-                                    ;   jf/gptel--context-file-path,
-                                    ;   jf/gptel--session-id-from-directory
-(require 'gptel-session-commands)   ; jf/gptel--create-session-core
+                                    ;   jf/gptel--context-file-path
 (require 'gptel-session-logging)
 
 (defconst jf/gptel-persistent-agent--hrule
@@ -245,16 +243,14 @@ FSM handlers composed for parent overlay feedback and final-text return."
                                  allowed-paths))
            (session-dir (jf/gptel--create-agent-directory
                          jf/gptel--branch-dir preset description))
-           (session-id  (jf/gptel--session-id-from-directory session-dir))
            (initial-content
             (jf/gptel-persistent-agent--initial-content
              preset-sym parent-id prompt)))
       (jf/gptel-persistent-agent--write-scope-file session-dir allowed-paths-list)
-      (let* ((session-info
-              (jf/gptel--create-session-core
-               session-id session-dir preset-sym initial-content
-               nil nil parent-id))
-             (session-file (plist-get session-info :session-file))
+      (let* ((session-file (jf/gptel--context-file-path session-dir))
+             (_ (with-temp-file session-file
+                  (insert initial-content)))
+             (_ (jf/gptel--log 'info "Created agent session file: %s" session-file))
              (agent-buffer (find-file-noselect session-file))
              (overlay (jf/gptel-persistent-agent--task-overlay
                        where preset description)))
