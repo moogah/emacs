@@ -2,7 +2,7 @@
 name: scrub-denied-paths-references
 description: Remove denied_paths references from in-tree agent prompts and any remaining docs; delete the stale legacy persistent-agent spec file
 change: persistent-agent-rebuild
-status: needs-review
+status: done
 relations:
   - blocked-by:rebuild-persistent-agent-module
 ---
@@ -84,3 +84,19 @@ This is a small grep-and-edit cleanup, separated from the main rebuild task (tas
 
 proposal.md § "What Changes" — `denied_paths` removal flagged BREAKING
 specs/persistent-agent/spec.md (delta) § "Tool invocation and validation" → "Tool argument schema"
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported clean
+work: legacy spec deleted; inventory grep shows only the expected
+hit in `openspec/specs/gptel/persistent-agent.md:77` (main spec,
+deferred to archive-time sync). No active code or tests reference
+the removed symbols. `persistence-test-helpers.{el,org}` correctly
+preserved (still required by `session-creation-spec.el`).
+
+One spec-signal worth recording (no inline action needed): this
+task body refers to the main spec at
+`openspec/specs/persistent-agent/spec.md`, but the actual main spec
+lives at `openspec/specs/gptel/persistent-agent.md` (gptel specs are
+in their own subdirectory per the change's spec organization). At
+archive time, the sync target needs to be the `gptel/` location.

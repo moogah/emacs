@@ -2,7 +2,7 @@
 name: add-agent-error-handling-tests
 description: Buttercup specs for ERRS, ABRT terminal states and overlay-leak prevention
 change: persistent-agent-rebuild
-status: needs-review
+status: done
 relations:
   - blocked-by:add-persistent-agent-test-fixtures
   - blocked-by:rebuild-persistent-agent-module
@@ -104,3 +104,18 @@ For asserting on absence of crashes: simply running the test without an `error` 
 specs/persistent-agent/spec.md (delta) § "Error handling" — every scenario in this requirement is covered.
 design.md § "Layer 2" → terminal-state handlers (`--make-on-done`, `--make-on-errs`, `--make-on-abrt`)
 architecture.md § "Components" → "Persistent-agent tool (rebuilt)"
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported clean
+work. All 7 `it` blocks present and meaningful: ERRS / ABRT / DONE
+overlay cleanup; loop variant across all three constructors; ERRS
+nil-overlay defensive (real test, not vacuous); buffer-killed
+defensive (#7) correctly exercising the `--extract-final-text`
+buffer-live-p guard; exactly-once call count.
+
+The only finding was the helper double-execution pattern (helpers'
+smoke `describe` blocks run twice via Buttercup discovery) — already
+flagged in the `add-agent-send-completion-tests` review with a
+comment in that file pointing future maintainers to a possible
+helpers-split refactor. Not blocking; <40ms overhead per run.

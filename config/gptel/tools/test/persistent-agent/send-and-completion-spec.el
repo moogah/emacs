@@ -35,13 +35,14 @@
 (require 'buttercup)
 (require 'cl-lib)
 
-;; Sibling helpers file lives in the same directory.  When the runner
-;; discovers and loads it first (alphabetical order: `helpers-spec.el'
-;; precedes `send-and-completion-spec.el'), the feature is already
-;; provided.  When this spec is loaded in isolation, fall back to an
-;; explicit path-based load — guarded by `featurep' so re-running the
-;; full directory does not duplicate-execute the helpers' own smoke
-;; tests.
+;; Sibling helpers file lives in the same directory.  Because Buttercup
+;; discovery loads each `*-spec.el' file with `load-file' regardless of
+;; `featurep' state, the helpers file's own `describe' smoke blocks run
+;; once per discovery pass — not once per consumer spec — so loading it
+;; here through the same `featurep' guard does not introduce extra
+;; smoke-test executions.  See `split-persistent-agent-test-helpers'
+;; (follow-up) for the architectural fix that splits helpers into a
+;; pure provider + a separate smoke-test spec.
 (unless (featurep 'jf-persistent-agent-test-helpers)
   (load (expand-file-name
          "helpers-spec.el"
