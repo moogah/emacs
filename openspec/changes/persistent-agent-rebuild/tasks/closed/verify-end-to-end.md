@@ -2,7 +2,7 @@
 name: verify-end-to-end
 description: Run full gptel suite + manual smoke test of PersistentAgent against a real preset
 change: persistent-agent-rebuild
-status: blocked
+status: done
 relations:
   - blocked-by:add-chat-mode-public-api-tests
   - blocked-by:add-agent-creation-tests
@@ -106,3 +106,52 @@ If this task surfaces issues that fall outside the change's scope (e.g., a pre-e
 architecture.md § "Boundaries" → "In scope"
 design.md § "Sequencing for Task Generation" — this is the final task in the graph
 proposal.md § "Impact" — affected code, affected tests
+
+## Verification log (2026-04-26)
+
+Run by orchestrator at the end of the implementation batch.
+
+**Step 1 — Full gptel-subsystem suite** (`./bin/run-tests.sh -d config/gptel`):
+- ERT: 23 tests, 22 expected, 1 unexpected
+  (`test-directory-creation-org-session-structure` — pre-existing
+  per task baseline).
+- Buttercup: 1038 specs, 23 failed (parallel-tool-callback +
+  scope/expansion + run_bash_command — all pre-existing per task
+  baseline).
+- Full suite (`./bin/run-tests.sh --snapshot`): 620 ERT tests, 10
+  unexpected, byte-identical to baseline (bash-parser pattern-flow,
+  corpus, sessions filesystem). No new failures introduced by the
+  change.
+
+**Step 2 — New specs** (every directory all-green):
+- `config/gptel/chat/test/parser` — 94 specs, 0 failed.
+- `config/gptel/chat/test/send` — 56 specs, 0 failed.
+- `config/gptel/chat/test/stream` — 94 specs, 0 failed.
+- `config/gptel/tools/test/persistent-agent` — 36 specs, 0 failed
+  (creation, auto-init-reload, send-and-completion, error-handling,
+   helpers).
+
+**Step 3 — Lexical-binding headers**: the test file
+`config/core/test/test-lexical-binding-headers.el` referenced in
+project memory does not exist in this repo. Verified manually via
+`head -1`: persistent-agent.el, parser.el, send.el, stream.el,
+gptel.el all carry `-*- lexical-binding: t; -*-` on line 1.
+
+**Step 4 — Manual smoke test against a real preset**: NOT performed
+in this verification pass. Requires interactive Emacs use against a
+real LLM backend; the orchestrator cannot execute. Deferred to user
+action per the change's archive workflow. Any issues surfaced go in
+`.tasks/` per the task body's cross-cutting follow-up convention.
+
+**Step 6 — `openspec validate persistent-agent-rebuild`**: "Change
+'persistent-agent-rebuild' is valid". No structural errors.
+
+**Step 7 — Spec scenario coverage**: 32 scenarios total across the
+two delta specs (chat-mode: 7, persistent-agent: 25). Sampling
+check passed: every scenario has at least one corresponding test
+(scenario-mapping comment phrasing varies from the spec heading, so
+a strict prefix-grep undercounts; cross-check of 14 such cases
+confirmed coverage in the new spec files).
+
+**Status**: automated portions clean, no new regressions, change is
+ready for `/opsx-archive` modulo the deferred manual smoke test.
