@@ -712,10 +712,10 @@ Returns the marker."
         (expect (funcall setter nil) :to-throw)))))
 
 
-;;; gptel-chat--stream-callback terminal paths -----------------------------
+;;; gptel-chat-stream-callback terminal paths -----------------------------
 ;;
 ;; These specs exercise the completion / abort / error branches of
-;; `gptel-chat--stream-callback' (design.md §Decision 10).  The
+;; `gptel-chat-stream-callback' (design.md §Decision 10).  The
 ;; callback closes the active assistant block, optionally records a
 ;; visible marker for abort/error, and appends a fresh empty
 ;; `#+begin_user' / `#+end_user' block with point positioned on the
@@ -727,7 +727,7 @@ Returns the marker."
 ;; — which chat-mode deliberately does not use (Decision 10, "Upstream
 ;; response hooks are intentionally bypassed").
 
-(describe "gptel-chat--stream-callback terminal paths"
+(describe "gptel-chat-stream-callback terminal paths"
 
   (let (test-buffer test-marker)
 
@@ -753,7 +753,7 @@ Returns the marker."
       (describe "normal completion (response `t')"
 
         (it "flushes holdback, closes block, appends a fresh user block"
-          (let ((cb (gptel-chat--stream-callback test-marker)))
+          (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "Hello.\n" nil)
             (funcall cb t nil))
           (expect (buffer-string-no-props)
@@ -769,7 +769,7 @@ Returns the marker."
           ;; that has no trailing newline.  The holdback-aware inserter
           ;; flushes that partial without adding a newline; the
           ;; callback then adds one before `#+end_assistant'.
-          (let ((cb (gptel-chat--stream-callback test-marker)))
+          (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "trailing partial" nil)
             (funcall cb t nil))
           (expect (buffer-string-no-props)
@@ -781,7 +781,7 @@ Returns the marker."
                           "\n#+begin_user\n\n#+end_user\n")))
 
         (it "positions point on the blank line inside the new user block"
-          (let ((cb (gptel-chat--stream-callback test-marker)))
+          (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "Done.\n" nil)
             (funcall cb t nil))
           ;; Point should be on the empty line inside the appended
@@ -805,7 +805,7 @@ Returns the marker."
           ;; Spec §"Stream abort": the assistant block is closed with
           ;; `#+end_assistant' and a visible marker records that the
           ;; response was interrupted.
-          (let ((cb (gptel-chat--stream-callback test-marker)))
+          (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "Partial before abort.\n" nil)
             (funcall cb 'abort nil))
           (expect (buffer-string-no-props)
@@ -818,7 +818,7 @@ Returns the marker."
                           "\n#+begin_user\n\n#+end_user\n")))
 
         (it "closes cleanly when no prior content has been streamed"
-          (let ((cb (gptel-chat--stream-callback test-marker)))
+          (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb 'abort nil))
           (expect (buffer-string-no-props)
                   :to-equal
@@ -831,7 +831,7 @@ Returns the marker."
       (describe "network / API error (response `nil')"
 
         (it "closes block with error marker and appends a user block"
-          (let ((cb (gptel-chat--stream-callback test-marker)))
+          (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "Some content.\n" nil)
             (funcall cb nil nil))
           (expect (buffer-string-no-props)
@@ -853,7 +853,7 @@ Returns the marker."
                 (call-count 0))
             (add-hook 'gptel-post-response-functions
                       (lambda (&rest _) (cl-incf call-count)))
-            (let ((cb (gptel-chat--stream-callback test-marker)))
+            (let ((cb (gptel-chat-stream-callback test-marker)))
               (funcall cb "text\n" nil)
               (funcall cb t nil))
             (expect call-count :to-equal 0)))
@@ -863,7 +863,7 @@ Returns the marker."
                 (call-count 0))
             (add-hook 'gptel-pre-response-hook
                       (lambda (&rest _) (cl-incf call-count)))
-            (let ((cb (gptel-chat--stream-callback test-marker)))
+            (let ((cb (gptel-chat-stream-callback test-marker)))
               (funcall cb "text\n" nil)
               (funcall cb t nil))
             (expect call-count :to-equal 0)))
@@ -873,7 +873,7 @@ Returns the marker."
                 (call-count 0))
             (add-hook 'gptel-post-response-functions
                       (lambda (&rest _) (cl-incf call-count)))
-            (let ((cb (gptel-chat--stream-callback test-marker)))
+            (let ((cb (gptel-chat-stream-callback test-marker)))
               (funcall cb 'abort nil))
             (expect call-count :to-equal 0)))
 
@@ -882,7 +882,7 @@ Returns the marker."
                 (call-count 0))
             (add-hook 'gptel-post-response-functions
                       (lambda (&rest _) (cl-incf call-count)))
-            (let ((cb (gptel-chat--stream-callback test-marker)))
+            (let ((cb (gptel-chat-stream-callback test-marker)))
               (funcall cb nil nil))
             (expect call-count :to-equal 0)))))))
 

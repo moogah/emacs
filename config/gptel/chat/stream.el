@@ -518,17 +518,17 @@ well-formed state: one closed assistant block followed by one open
   "# gptel-chat: request failed"
   "Visible marker line inserted at the end of an assistant block on
 error (network failure / `nil' response).  See
-`gptel-chat--stream-callback'.")
+`gptel-chat-stream-callback'.")
 
 (defconst gptel-chat--stream-abort-marker
   "# gptel-chat: interrupted"
   "Visible marker line inserted at the end of an assistant block on
-user abort (`M-x gptel-abort').  See `gptel-chat--stream-callback'.")
+user abort (`M-x gptel-abort').  See `gptel-chat-stream-callback'.")
 ;; Constants: visible error and abort markers:1 ends here
 
 ;; The callback factory
 
-;; =gptel-chat--stream-callback= is the entry point. Given an advance
+;; =gptel-chat-stream-callback= is the entry point. Given an advance
 ;; marker at the end of the open =#+begin_assistant= block, it returns
 ;; the =:callback= closure for =gptel-request=. The closure ignores
 ;; its second argument (=info=) except to extract no currently-used
@@ -552,7 +552,7 @@ user abort (`M-x gptel-abort').  See `gptel-chat--stream-callback'.")
 
 
 ;; [[file:stream.org::*The callback factory][The callback factory:1]]
-(defun gptel-chat--stream-callback (insertion-marker)
+(defun gptel-chat-stream-callback (insertion-marker)
   "Return a `gptel-request' :callback closure for INSERTION-MARKER.
 INSERTION-MARKER is an advance marker (insertion-type t) at the
 end of an open `#+begin_assistant' block; the returned closure

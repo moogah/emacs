@@ -191,14 +191,14 @@ invoked inside the buffer and is free to call `re-search-forward',
           ;; :stream t
           (expect (plist-get keys :stream) :to-be t)
           ;; :callback is a function (closure from
-          ;; `gptel-chat--stream-callback').
+          ;; `gptel-chat-stream-callback').
           (expect (functionp (plist-get keys :callback)) :to-be-truthy)
           ;; :buffer is NOT passed — upstream defaults to
           ;; current-buffer, which is what chat-mode wants
           ;; (design Decision 11 / send.org invocation).
           (expect (plist-member keys :buffer) :to-be nil))))
 
-    (it "passes :fsm built with gptel-chat--fsm-handlers"
+    (it "passes :fsm built with gptel-chat-fsm-handlers"
       (gptel-chat-send-cmd-test--setup
        "#+begin_user\nhi\n#+end_user\n"
        (lambda () (forward-line 1)))
@@ -209,9 +209,9 @@ invoked inside the buffer and is free to call `re-search-forward',
                (fsm  (plist-get (cdr args) :fsm)))
           (expect (gptel-fsm-p fsm) :to-be-truthy)
           (expect (gptel-fsm-handlers fsm)
-                  :to-equal gptel-chat--fsm-handlers))))
+                  :to-equal gptel-chat-fsm-handlers))))
 
-    (it "passes a :prompt derived from gptel-chat--turns-to-messages"
+    (it "passes a :prompt derived from gptel-chat-turns-to-messages"
       (gptel-chat-send-cmd-test--setup
        (concat "#+begin_user\nhello\n#+end_user\n"
                "#+begin_assistant\nhi back\n#+end_assistant\n"
@@ -254,7 +254,7 @@ invoked inside the buffer and is free to call `re-search-forward',
 
   (describe "error propagation"
 
-    (it "lets parse errors from gptel-chat--parse-buffer surface"
+    (it "lets parse errors from gptel-chat-parse-buffer surface"
       ;; An unclosed `#+begin_tool' inside an assistant block is one
       ;; of the parser's `user-error' shapes.  `gptel-chat-send'
       ;; should not swallow it.

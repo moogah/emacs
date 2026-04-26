@@ -296,7 +296,7 @@ synchronously."
        ;; Build an FSM whose info points at this buffer so the advice
        ;; can locate us.
        (let ((fsm (gptel-make-fsm
-                   :handlers gptel-chat--fsm-handlers
+                   :handlers gptel-chat-fsm-handlers
                    :info     (list :buffer target-buf))))
          (spy-on 'gptel-chat--refresh-overlays :and-call-through)
          ;; Simulate the upstream transition into DONE; the chained
@@ -314,7 +314,7 @@ synchronously."
     ;; signal (e.g. `wrong-type-argument' from `with-current-buffer').
     (let* ((buf (generate-new-buffer " *gptel-chat-display-test-dead*"))
            (fsm (gptel-make-fsm
-                 :handlers gptel-chat--fsm-handlers
+                 :handlers gptel-chat-fsm-handlers
                  :info     (list :buffer buf))))
       (kill-buffer buf)
       (expect (gptel-chat--display-refresh-on-done fsm)

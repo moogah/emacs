@@ -28,7 +28,7 @@
 ;; permitted — it is a byte-compiler hint with no runtime effect, used
 ;; to silence compile-time warnings about forward-referenced sibling
 ;; symbols. References to sibling symbols (=gptel-chat-send=,
-;; =gptel-chat--parse-buffer=, etc.) live inside interactive command
+;; =gptel-chat-parse-buffer=, etc.) live inside interactive command
 ;; bodies and transient suffix bodies — i.e. call-time, not load-time.
 ;; The conventional order below mirrors the data-flow described in
 ;; architecture.md §Interfaces so the loader reads top-down with the
@@ -53,7 +53,7 @@
 ;; 5. =nav= ordering after =send= is *convention*, not a load-time
 ;;    dependency. =gptel-chat-regenerate= invokes =gptel-chat-send=
 ;;    from inside its interactive body, and the navigation commands
-;;    call =gptel-chat--parse-buffer= the same way. Architecture.md
+;;    call =gptel-chat-parse-buffer= the same way. Architecture.md
 ;;    §=gptel-chat-nav= explicitly denies coupling to parser internals.
 ;;    Nav can safely load before send; the order here just mirrors the
 ;;    "send pipeline first, ergonomic wrappers next" reading order.

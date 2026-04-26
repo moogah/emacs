@@ -39,7 +39,7 @@ offending block. Validated error shapes:
   =#+begin_assistant= opened while another user/assistant block is
   open.
 
-The parser also ships =gptel-chat--turns-to-messages=, a pure converter
+The parser also ships =gptel-chat-turns-to-messages=, a pure converter
 from the turn list to the shape =gptel-request= documents for its
 =:prompt= keyword (a list of cons cells dispatched by
 =gptel--parse-list-and-insert= and its backend-specific companions —
@@ -63,8 +63,8 @@ the turn list without round-tripping through the API message shape.
 ;; and is indifferent to org heading depth (design.md Decision 12).
 ;;
 ;; Public entry points:
-;;   `gptel-chat--parse-buffer'       — buffer -> turn list
-;;   `gptel-chat--turns-to-messages'  — turn list -> `gptel-request' :prompt
+;;   `gptel-chat-parse-buffer'       — buffer -> turn list
+;;   `gptel-chat-turns-to-messages'  — turn list -> `gptel-request' :prompt
 
 ;;; Code:
 
@@ -363,7 +363,7 @@ not require a dedicated error shape for them.")
 
 * Buffer parser — public entry point
 
-=gptel-chat--parse-buffer= walks the current buffer (or BUFFER, when
+=gptel-chat-parse-buffer= walks the current buffer (or BUFFER, when
 supplied) and returns a list of turn plists in document order.
 
 Behaviour:
@@ -375,7 +375,7 @@ Behaviour:
 - Malformed structure signals =user-error= at the offending line.
 
 #+begin_src emacs-lisp
-(defun gptel-chat--parse-buffer (&optional buffer)
+(defun gptel-chat-parse-buffer (&optional buffer)
   "Parse BUFFER (default current) as a `gptel-chat-mode' buffer.
 
 Returns a list of turn plists in document order.  Each element has
@@ -450,7 +450,7 @@ Signals `user-error' when the buffer is structurally invalid:
 
 * Turn list → =gptel-request= =:prompt= conversion
 
-=gptel-chat--turns-to-messages= converts the parser's turn list into
+=gptel-chat-turns-to-messages= converts the parser's turn list into
 the shape =gptel-request= accepts for its =:prompt= keyword.
 
 ** Target shape (upstream contract)
@@ -650,7 +650,7 @@ one message per non-empty segment in document order.
 #+begin_src emacs-lisp
 (defun gptel-chat--turn-to-messages (turn)
   "Convert TURN (a parser turn plist) into a list of messages.
-See `gptel-chat--turns-to-messages' for the message-shape contract.
+See `gptel-chat-turns-to-messages' for the message-shape contract.
 Returns nil for an empty user turn or an assistant turn whose
 segments are all empty."
   (pcase (plist-get turn :role)
@@ -668,16 +668,16 @@ segments are all empty."
 
 ** Public entry point
 
-=gptel-chat--turns-to-messages= is the public converter. It accepts
+=gptel-chat-turns-to-messages= is the public converter. It accepts
 either a buffer's parsed turn list directly, or the result of an
-earlier call to =gptel-chat--parse-buffer=. Empty input yields an
+earlier call to =gptel-chat-parse-buffer=. Empty input yields an
 empty message list.
 
 #+begin_src emacs-lisp
-(defun gptel-chat--turns-to-messages (turns)
+(defun gptel-chat-turns-to-messages (turns)
   "Convert TURNS into a `gptel-request' `:prompt' message list.
 
-TURNS is the return value of `gptel-chat--parse-buffer' — an ordered
+TURNS is the return value of `gptel-chat-parse-buffer' — an ordered
 list of turn plists.  Returns an ordered list of cons cells suitable
 for passing as `gptel-request''s `:prompt' keyword:
 

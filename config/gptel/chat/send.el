@@ -72,7 +72,7 @@
   "Most recent FSM lifecycle state for this chat-mode buffer.
 One of `waiting', `streaming', `tool-running', `error', `aborted',
 or nil \(meaning idle / DONE\).  Set by the chained handlers in
-`gptel-chat--fsm-handlers'; read by the display layer and by the
+`gptel-chat-fsm-handlers'; read by the display layer and by the
 send-guard introduced with task `send-command'.")
 ;; Lifecycle indicator (buffer-local):1 ends here
 
@@ -208,7 +208,7 @@ state.  UI-only."
 
 
 ;; [[file:send.org::*Handler alist][Handler alist:1]]
-(defvar gptel-chat--fsm-handlers
+(defvar gptel-chat-fsm-handlers
   `((WAIT ,#'gptel-chat--on-wait  ,#'gptel--handle-wait)
     (TYPE ,#'gptel-chat--on-type)
     (TOOL ,#'gptel-chat--on-tool  ,#'gptel--handle-tool-use)
@@ -335,13 +335,13 @@ idle (including the user-abort state `ABRT')."
 
 ;; : (:turn nil :reason assistant)        ;; point inside assistant block
 
-;; Parse errors propagate out of =gptel-chat--parse-buffer= as
+;; Parse errors propagate out of =gptel-chat-parse-buffer= as
 ;; =user-error=; the caller (=gptel-chat-send=) simply lets them
 ;; surface to the user.
 
 
 ;; [[file:send.org::*User-block resolution][User-block resolution:1]]
-(declare-function gptel-chat--parse-buffer "gptel-chat-parser")
+(declare-function gptel-chat-parse-buffer "gptel-chat-parser")
 (declare-function gptel-chat-nav--containing-turn "gptel-chat-nav")
 
 (defun gptel-chat--resolve-send-turn ()
@@ -356,9 +356,9 @@ Shape: =(:turn TURN :reason REASON)= where REASON is one of
   none       — no user block exists in the buffer; TURN is nil.
 
 The returned TURN is a parser turn plist (:role :content :start :end)
-or nil.  Parse errors propagate from `gptel-chat--parse-buffer' as
+or nil.  Parse errors propagate from `gptel-chat-parse-buffer' as
 `user-error'."
-  (let* ((turns (gptel-chat--parse-buffer))
+  (let* ((turns (gptel-chat-parse-buffer))
          (containing (gptel-chat-nav--containing-turn turns (point))))
     (cond
      ((and containing (eq (plist-get containing :role) 'assistant))
@@ -384,7 +384,7 @@ or nil.  Parse errors propagate from `gptel-chat--parse-buffer' as
 ;; insertion point for streamed tokens.
 
 ;; Input contract: TURN is a populated user-turn plist as returned by
-;; =gptel-chat--parse-buffer=. Its =:end= marker points at the START
+;; =gptel-chat-parse-buffer=. Its =:end= marker points at the START
 ;; of the =#+end_user= delimiter line.
 
 ;; Output contract: an /advance/ marker (insertion-type t) positioned
@@ -404,9 +404,9 @@ or nil.  Parse errors propagate from `gptel-chat--parse-buffer' as
 
 
 ;; [[file:send.org::*Assistant-block opener][Assistant-block opener:1]]
-(defun gptel-chat--open-assistant-block (turn)
+(defun gptel-chat-open-assistant-block (turn)
   "Open a fresh `#+begin_assistant' block after TURN's `#+end_user'.
-TURN is a populated user-turn plist from `gptel-chat--parse-buffer'
+TURN is a populated user-turn plist from `gptel-chat-parse-buffer'
 whose `:end' marker points at the start of its `#+end_user' line.
 
 Inserts a blank line and `#+begin_assistant\\n' immediately after
@@ -450,8 +450,8 @@ callback to use as its insertion point."
 ;; 2. User-block resolution (=gptel-chat--resolve-send-turn=).
 ;; 3. Empty-prompt check — a blank or whitespace-only user body
 ;;    yields a =message= (no =user-error=) and nil return.
-;; 4. Parse + messages construction via =gptel-chat--parse-buffer=
-;;    and =gptel-chat--turns-to-messages=. An empty message list
+;; 4. Parse + messages construction via =gptel-chat-parse-buffer=
+;;    and =gptel-chat-turns-to-messages=. An empty message list
 ;;    (e.g., a lone empty user block that slipped past the blank
 ;;    check for some reason) is treated the same as an empty prompt.
 ;; 5. Open the assistant block, grab the insertion marker.
@@ -467,9 +467,9 @@ callback to use as its insertion point."
 
 
 ;; [[file:send.org::*Interactive send command][Interactive send command:1]]
-(declare-function gptel-chat--turns-to-messages "gptel-chat-parser")
+(declare-function gptel-chat-turns-to-messages "gptel-chat-parser")
 (declare-function gptel-chat--blank-content-p   "gptel-chat-parser")
-(declare-function gptel-chat--stream-callback   "gptel-chat-stream")
+(declare-function gptel-chat-stream-callback   "gptel-chat-stream")
 
 ;;;###autoload
 (defun gptel-chat-send ()
@@ -493,10 +493,10 @@ On success, parses the buffer, converts the turn list into a
 `gptel-request' `:prompt' message list, opens a fresh
 `#+begin_assistant' block after the user's `#+end_user', and
 invokes `gptel-request' with `:stream t', the chat-mode stream
-callback, and an FSM wired with `gptel-chat--fsm-handlers'.
+callback, and an FSM wired with `gptel-chat-fsm-handlers'.
 
 An unclosed `#+begin_user' block (rare: user mid-edit) surfaces
-as a parser `user-error' from `gptel-chat--parse-buffer' rather
+as a parser `user-error' from `gptel-chat-parse-buffer' rather
 than being auto-closed here.
 
 Returns the value of `gptel-request' on success, or nil on the
@@ -520,15 +520,15 @@ empty-prompt no-op path."
        (if (gptel-chat--blank-content-p (plist-get turn :content))
            (progn (message "gptel-chat: prompt is empty") nil)
          ;; 4. Parse + messages.
-         (let* ((turns    (gptel-chat--parse-buffer))
-                (messages (gptel-chat--turns-to-messages turns)))
+         (let* ((turns    (gptel-chat-parse-buffer))
+                (messages (gptel-chat-turns-to-messages turns)))
            (if (null messages)
                (progn (message "gptel-chat: prompt is empty") nil)
              ;; 5. Open assistant block, grab insertion marker.
-             (let* ((insertion (gptel-chat--open-assistant-block turn))
-                    (callback  (gptel-chat--stream-callback insertion))
+             (let* ((insertion (gptel-chat-open-assistant-block turn))
+                    (callback  (gptel-chat-stream-callback insertion))
                     (fsm       (gptel-make-fsm
-                                :handlers gptel-chat--fsm-handlers)))
+                                :handlers gptel-chat-fsm-handlers)))
                ;; 6. Invoke gptel-request.
                (gptel-request messages
                               :stream   t
