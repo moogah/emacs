@@ -2,7 +2,7 @@
 name: add-agent-error-handling-tests
 description: Buttercup specs for ERRS, ABRT terminal states and overlay-leak prevention
 change: persistent-agent-rebuild
-status: blocked
+status: needs-review
 relations:
   - blocked-by:add-persistent-agent-test-fixtures
   - blocked-by:rebuild-persistent-agent-module

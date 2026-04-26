@@ -2,7 +2,7 @@
 name: add-agent-send-completion-tests
 description: Buttercup specs for FSM composition, gptel-request invocation shape, and final-text extraction
 change: persistent-agent-rebuild
-status: blocked
+status: needs-review
 relations:
   - blocked-by:add-persistent-agent-test-fixtures
   - blocked-by:rebuild-persistent-agent-module

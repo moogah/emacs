@@ -2,7 +2,7 @@
 name: add-agent-auto-init-reload-tests
 description: Buttercup specs verifying agent buffer activates chat-mode and saved files reload as interactive sessions
 change: persistent-agent-rebuild
-status: blocked
+status: needs-review
 relations:
   - blocked-by:add-persistent-agent-test-fixtures
   - blocked-by:rebuild-persistent-agent-module

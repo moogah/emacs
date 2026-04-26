@@ -2,7 +2,7 @@
 name: scrub-denied-paths-references
 description: Remove denied_paths references from in-tree agent prompts and any remaining docs; delete the stale legacy persistent-agent spec file
 change: persistent-agent-rebuild
-status: blocked
+status: needs-review
 relations:
   - blocked-by:rebuild-persistent-agent-module
 ---
