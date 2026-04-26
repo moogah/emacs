@@ -22,7 +22,7 @@ None (verification-only task).
    ```
    ./bin/run-tests.sh -d config/gptel
    ```
-   Expect: zero failures across chat, scope, sessions, tools, parser, etc. If any pre-existing tests now fail because of a rename ripple effect, fix in the originating task (1, 4, etc.) and rerun.
+   Expect: the failure count matches the established baseline. As of the rebuild's start point (commit `4e641c7`), the baseline was 10 ERT failures (bash-parser pattern-flow / corpus / a sessions filesystem test) and 24 Buttercup failures (scope/expansion + parallel-tool-callback + run_bash_command), totalling 34 pre-existing failures unrelated to this change. The post-change run must show no NEW failures relative to that baseline — fail counts equal or lower, every still-failing test traceable to the baseline list. Any new failure indicates a rename ripple or an integration regression and must be fixed in the originating task (rename-chat-mode-internals, rebuild-persistent-agent-module, add-chat-mode-public-api-tests) before re-running.
 
 2. **Buttercup-specific run** for the new specs (sanity check that they're discovered):
    ```

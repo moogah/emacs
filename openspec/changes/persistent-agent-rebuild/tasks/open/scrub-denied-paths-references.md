@@ -10,7 +10,7 @@ relations:
 ## Files to modify
 
 - Anywhere `denied_paths` (or `denied-paths` as a kebab-case variant) appears outside the persistent-agent module rewrite scope. Likely candidates:
-  - `config/gptel/agents/*.md` (5 agent definition files — the prompts may instruct the LLM to set `denied_paths`)
+  - `config/gptel/presets/*.md` (preset definition files — instructions to the LLM may tell it to set `denied_paths` when calling `PersistentAgent`). Note: the legacy directory `config/gptel/agents/` was consolidated into `presets/` in commit `f9ca5be` (Jan 25); the `presets/*.md` files are the in-tree agent/preset prompts now.
   - `config/gptel/tools/persistent-agent.org` itself (any leftover references in docstrings or commentary that the rewrite missed)
   - `config/gptel/tools/README.org` (if present and discusses tool args)
   - Top-level docs (CLAUDE.md, README.md) — verify with grep
@@ -29,7 +29,7 @@ The exact list comes from the grep in step 1.
    Exclude the change's own openspec directory (the proposal/specs/design intentionally reference `denied_paths` as the parameter being removed).
 
 2. **For each hit, decide**:
-   - **In-tree agent prompt files** (`config/gptel/agents/*.md`): if the prompt tells the LLM to consider `denied_paths` when calling `PersistentAgent`, remove that instruction. The argument no longer exists.
+   - **In-tree preset prompt files** (`config/gptel/presets/*.md`): if the prompt tells the LLM to consider `denied_paths` when calling `PersistentAgent`, remove that instruction. The argument no longer exists.
    - **In source code** (`.org` / `.el`): if the rewrite somehow left a reference, delete it. The grep should be empty here after task 4 lands; if not, that's a bug in task 4.
    - **In docs** (READMEs, CLAUDE.md, etc.): update wording to reflect the new tool surface (4 args, not 5). For CLAUDE.md, since it's project-level guidance, only update if a specific section discusses the tool's argument schema.
    - **In `openspec/specs/persistent-agent/spec.md`** (the *main* spec, not the delta): leave it alone. The main spec is updated when this change archives, not in this task.
@@ -37,14 +37,19 @@ The exact list comes from the grep in step 1.
 
 3. **Re-run the grep** after edits. The non-openspec hits should all be resolved.
 
-4. **Sanity-check agent prompt files**: `config/gptel/agents/*.md` are loaded by the `gptel-agent` package's `gptel-agent-update` to register agent definitions. Removing `denied_paths` from instructions doesn't change file load semantics, but verify by tangling and loading the agents directory in a fresh Emacs:
+4. **Sanity-check preset prompt files**: `config/gptel/presets/*.md` are loaded at init by `jf/gptel-preset-register-all` (in `config/gptel/preset-registration.el`), which populates `gptel--known-presets`. Removing `denied_paths` from instructions doesn't change file load semantics, but verify by running the gptel test suite (which exercises init):
    ```
-   emacs --batch -L runtime/straight/build/gptel \
-                 -L runtime/straight/build/gptel-agent \
-                 -l gptel-agent \
-                 --eval "(progn (gptel-agent-update) (message \"agents loaded ok\"))"
+   ./bin/run-tests.sh -d config/gptel
    ```
-   The output should be `agents loaded ok` without errors.
+   The pre-existing baseline failure count (10 ERT in bash-parser, 24 Buttercup in scope/expansion) is unaffected by preset prompt edits — any new failure relative to baseline indicates a load problem.
+
+   For a more targeted check, count the registered presets in batch mode:
+   ```
+   make emacs-test-eval EVAL_CMD='(message "presets: %d" (length gptel--known-presets))'
+   ```
+   The number should match `ls config/gptel/presets/*.md | wc -l` (currently 8).
+
+   Do NOT add `runtime/straight/build/gptel-agent` to the load path — `gptel-agent` is intentionally not a project dependency (commit `eebbc18`, Feb 27).
 
 ## Design rationale
 
@@ -62,7 +67,7 @@ This is a small grep-and-edit cleanup, separated from the main rebuild task (tas
 ## Verification
 
 - `grep -rn '\bdenied[_-]paths\b' . --exclude-dir=runtime --exclude-dir=.git --exclude-dir=openspec/changes/persistent-agent-rebuild` returns no hits OR only hits in `openspec/specs/persistent-agent/spec.md` (the main spec, updated at archive time) or `.tasks/` / `.beads/` (historical).
-- Agent prompt files in `config/gptel/agents/` load without error after the edit.
+- Preset prompt files in `config/gptel/presets/` load without error after the edit (verified via `./bin/run-tests.sh -d config/gptel` matching the established baseline failure count).
 - No new test failures in `./bin/run-tests.sh -d config/gptel/tools`.
 
 **Done means**: grep is clean (modulo the explicitly-excluded targets), agents still load, no test regressions.
