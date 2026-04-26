@@ -56,6 +56,18 @@ This file is written before `find-file-noselect` runs. By the time auto-init fir
 
 **Cross-reference comment**: the agent's format-string call site links to `jf/gptel--initial-session-content` so a future maintainer sees both places.
 
+### Decision 5 — Local overlay helpers stay (no `gptel-agent` dependency)
+
+The rebuild keeps the existing `jf/gptel-persistent-agent--hrule`, `--indicate-wait`, `--indicate-tool-call`, and `--task-overlay` (renamed from `--create-overlay`) inside `persistent-agent.org`. No `(require 'gptel-agent)`.
+
+**Rationale**: The upstream `gptel-agent` package was removed from this project in commit `eebbc18` (Feb 27) when local preset registration replaced gptel-agent's preset system. There is no live function call into `gptel-agent` anywhere in `config/`. Adding the dependency back for one feature would partially reverse a deliberate prior decision and risk re-introducing other gptel-agent surface (preset registry, agent definitions, ancillary tools) at require time.
+
+The local helpers are functionally equivalent to upstream's `gptel-agent--{indicate-wait,indicate-tool-call,task-overlay}` (verified by diffing against `runtime/straight/build/gptel-agent/gptel-agent-tools.el:1112-1180`). They use the overlay marker property `'gptel-persistent-agent` (not `'gptel-agent`) so future code can distinguish agent overlays cleanly.
+
+**Trade-off**: ~50 lines of overlay logic stay in this module (instead of being deleted in favour of upstream symbols). The rebuild's structural wins — chat-mode pipeline integration, drop `denied_paths`, drop the dual-duty `:callback`, drop the manual auto-save hook, drop the static `--fsm-handlers` defvar — are independent of this decision and all still apply.
+
+**Cross-reference**: this decision overrides the earlier draft's "Reused upstream symbols" framing in `architecture.md`. See "Trade-off: keep local overlay helpers" below for context on why the original framing was wrong.
+
 ## Implementation Approach
 
 ### Layer 1: Chat-mode public-API rename
@@ -103,7 +115,7 @@ These specs assert *only* on the public contract, not implementation:
 | `jf/gptel-persistent-agent--on-abrt` | ABRT handler: format abort, delete overlay, `main-cb` |
 | `jf/gptel-persistent-agent--extract-final-text` | reads agent buffer, returns last assistant text segment (Decision 2) |
 
-The old `--create-overlay`, `--indicate-wait`, `--indicate-tool-call`, `--fsm-handlers` (defvar), and `jf/gptel--auto-save-session-buffer` are removed.
+The local overlay helpers stay (Decision 5): `jf/gptel-persistent-agent--hrule`, `jf/gptel-persistent-agent--indicate-wait`, `jf/gptel-persistent-agent--indicate-tool-call`, and `jf/gptel-persistent-agent--task-overlay` (renamed from `--create-overlay` for parity with upstream's naming). Only `jf/gptel--auto-save-session-buffer` and the `--fsm-handlers` defvar are removed (the latter replaced by the programmatic `--build-fsm-handlers` builder).
 
 **Tool registration** uses the new argument schema (no `denied_paths`).
 
@@ -111,8 +123,6 @@ The old `--create-overlay`, `--indicate-wait`, `--indicate-tool-call`, `--fsm-ha
 
 ```elisp
 (require 'gptel)
-(require 'gptel-agent)            ; for gptel-agent--task-overlay,
-                                  ; --indicate-wait, --indicate-tool-call
 (require 'gptel-chat-parser)      ; for gptel-chat-parse-buffer,
                                   ; gptel-chat-turns-to-messages
 (require 'gptel-chat-send)        ; for gptel-chat-open-assistant-block,
@@ -125,6 +135,8 @@ The old `--create-overlay`, `--indicate-wait`, `--indicate-tool-call`, `--fsm-ha
 (require 'gptel-session-commands)   ; for jf/gptel--create-session-core
 (require 'gptel-session-logging)
 ```
+
+**No `(require 'gptel-agent)`.** The upstream `gptel-agent` package is not a project dependency (removed Feb 27 in commit `eebbc18`). The overlay/indicator helpers used by the agent live in this same file under `jf/gptel-persistent-agent--*`.
 
 **Orchestration body** (sketch — final form in implementation):
 
@@ -169,7 +181,8 @@ The old `--create-overlay`, `--indicate-wait`, `--indicate-tool-call`, `--fsm-ha
            (agent-buffer (find-file-noselect session-file))
 
            ;; 5. Build overlay in the parent buffer.
-           (overlay (gptel-agent--task-overlay where preset description)))
+           (overlay (jf/gptel-persistent-agent--task-overlay
+                     where preset description)))
 
       ;; 6. Send: parse, messages, open assistant, request.
       (with-current-buffer agent-buffer
@@ -201,8 +214,8 @@ AGENT-BUF is the agent's session buffer (for final-text extraction)."
   (mapcar
    (lambda (entry)
      (pcase (car entry)
-       ('WAIT `(WAIT ,#'gptel-agent--indicate-wait ,@(cdr entry)))
-       ('TOOL `(TOOL ,#'gptel-agent--indicate-tool-call ,@(cdr entry)))
+       ('WAIT `(WAIT ,#'jf/gptel-persistent-agent--indicate-wait ,@(cdr entry)))
+       ('TOOL `(TOOL ,#'jf/gptel-persistent-agent--indicate-tool-call ,@(cdr entry)))
        ('DONE `(DONE ,(jf/gptel-persistent-agent--make-on-done main-cb agent-buf)
                      ,@(cdr entry)))
        ('ERRS `(ERRS ,(jf/gptel-persistent-agent--make-on-errs main-cb)
@@ -332,9 +345,15 @@ Handler-by-handler invocation lets each test assert on overlay state and `main-c
 
 ## Trade-offs and Risks
 
-### Trade-off: hard dependency on `gptel-agent--`-prefixed upstream symbols
+### Trade-off: keep local overlay helpers (Decision 5)
 
-Architecture flagged this. Decision: accept the dependency. Mitigation: a load-time check and a single-line fallback comment in the agent module noting that if upstream renames these, we copy them locally as a stop-gap. Not adding the fallback code in this change — YAGNI.
+Earlier drafts of this design proposed dropping the local `jf/gptel-persistent-agent--{create-overlay,indicate-wait,indicate-tool-call}` helpers in favour of upstream `gptel-agent--{task-overlay,indicate-wait,indicate-tool-call}` to reduce reinvented infrastructure.
+
+This was wrong: the upstream `gptel-agent` package was removed as a project dependency in commit `eebbc18` (Feb 27) when local preset registration replaced gptel-agent's preset system. Adding `(require 'gptel-agent)` would either fail at init or require re-wiring the package via `use-package`/`straight` — partially reversing a deliberate prior decision for the sake of one feature.
+
+Decision: keep the local copies. Costs: ~50 lines of overlay logic stay in `persistent-agent.org`. Benefits: zero new dependencies; alignment with the project's "self-contained gptel layer" trajectory; no risk of incidentally re-introducing other gptel-agent surface (preset registry, agent definitions, web-search tools) at require time. The helpers are renamed `--create-overlay` → `--task-overlay` for naming parity with upstream as a soft signal of the parallel, but the symbol stays in this module.
+
+The rebuild's other structural wins — chat-mode pipeline integration, drop `denied_paths`, drop the dual-duty `:callback`, drop the manual auto-save hook, drop the `--fsm-handlers` defvar in favour of a programmatic builder — all stand independently of this decision.
 
 ### Risk: order-dependence of FSM handler list
 

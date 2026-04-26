@@ -11,7 +11,7 @@ The current `PersistentAgent` tool is broken (calling it appears to hang) and ha
   - Replace hand-written YAML with scope-module helpers for `scope.yml` creation.
 - Promote the chat-mode send pipeline from `gptel-chat--`-prefixed internals to a documented public programmatic-send API (`gptel-chat-` prefix). The agent is the first non-interactive caller and shouldn't depend on internal-by-naming functions. New public surface: `gptel-chat-parse-buffer`, `gptel-chat-turns-to-messages`, `gptel-chat-open-assistant-block`, `gptel-chat-stream-callback`, `gptel-chat-fsm-handlers`.
 - Replace the custom `:callback` with the chat-mode public stream callback plus an extended FSM handler alist. Our overlay-update handlers chain on `WAIT`/`TOOL`; new completion handlers chain on `DONE`/`ERRS`/`ABRT` to read the agent buffer's last assistant block, extract the trailing text segment (skipping tool blocks), and call `main-cb` with that text. Final text only — no streaming accumulator.
-- Reuse upstream `gptel-agent--indicate-wait`, `gptel-agent--indicate-tool-call`, and `gptel-agent--task-overlay` directly. Remove the byte-identical local copies.
+- Keep the existing local overlay helpers under `jf/gptel-persistent-agent--*` (`--hrule`, `--indicate-wait`, `--indicate-tool-call`, plus `--create-overlay` renamed to `--task-overlay`). Drop the static `--fsm-handlers` defvar in favour of a programmatic builder. (The upstream `gptel-agent` package was removed as a project dependency in commit `eebbc18`, Feb 27; the rebuild does not re-add it. See design.md §Decision 5.)
 - **BREAKING**: Drop the unused `denied_paths` tool argument. The current implementation advertises it but ignores it.
 
 ## Capabilities
@@ -44,7 +44,7 @@ None. This change rebuilds and extends two existing capabilities.
 - `openspec/specs/chat-mode/spec.md` — add public programmatic-send API section.
 
 **Dependencies / external systems**:
-- Adds a hard dependency on the `gptel-agent` package's `gptel-agent--indicate-wait` / `--indicate-tool-call` / `--task-overlay` symbols (currently duplicated, soon shared). These are still `--`-prefixed upstream — accepting them as a soft external dependency is a deliberate trade-off; the alternative is keeping our own copies.
+- No new external dependencies. The upstream `gptel-agent` package is not re-added; the local overlay helpers stay (Decision 5). The change consumes only existing in-tree modules (chat, sessions, scope) plus core `gptel`.
 
 **Migration**:
 - Existing on-disk agent sessions will not auto-init under the new code (no drawer). Users who want to preserve them should convert by hand or accept them as archive. No automated migration script.

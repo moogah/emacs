@@ -44,8 +44,8 @@ relations:
      > Scenarios: specs/persistent-agent/spec.md (delta) § "Execution lifecycle" → "WAIT state updates the parent overlay" + "TOOL state updates the parent overlay with cumulative count"
      - Same setup. Capture the FSM via `with-mock-gptel-request`.
      - Call `(gptel-fsm-handlers fsm)` to get the handler alist (or look up via the struct accessor — verify the right way with `grep gptel-fsm`).
-     - For the `WAIT` entry: expect the handler chain (after the state symbol) is `(gptel-agent--indicate-wait gptel-chat--on-wait gptel--handle-wait)` in that order. (`gptel-chat--on-wait` is *not* renamed in this change — only the five public-API symbols are. The chat-mode lifecycle handlers stay private. Verify by grep.)
-     - For the `TOOL` entry: chain is `(gptel-agent--indicate-tool-call gptel-chat--on-tool gptel--handle-tool-use)`.
+     - For the `WAIT` entry: expect the handler chain (after the state symbol) is `(jf/gptel-persistent-agent--indicate-wait gptel-chat--on-wait gptel--handle-wait)` in that order. (`gptel-chat--on-wait` is *not* renamed in this change — only the five public-API symbols are. The chat-mode lifecycle handlers stay private. Verify by grep.)
+     - For the `TOOL` entry: chain is `(jf/gptel-persistent-agent--indicate-tool-call gptel-chat--on-tool gptel--handle-tool-use)`.
      - For the `DONE` entry: chain is `(<closure> gptel-chat--on-done gptel--handle-post)` — the `<closure>` is the agent's done-handler. Assert it's a `byte-code-function-p` or `functionp` (not a symbol).
      - For the `ERRS` entry: chain is `(<closure> gptel-chat--on-errs gptel--handle-post)`.
      - For the `ABRT` entry: chain is `(<closure> gptel-chat--on-abrt gptel--handle-post)`.

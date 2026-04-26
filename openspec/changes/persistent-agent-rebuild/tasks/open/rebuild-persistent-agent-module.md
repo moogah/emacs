@@ -1,6 +1,6 @@
 ---
 name: rebuild-persistent-agent-module
-description: Full rewrite of persistent-agent.org/el on chat-mode pipeline; drop denied_paths and byte-identical overlay copies
+description: Full rewrite of persistent-agent.org/el on chat-mode pipeline; drop denied_paths, drop reinvented infrastructure, keep local overlay helpers
 change: persistent-agent-rebuild
 status: ready
 relations: []
@@ -13,11 +13,9 @@ relations: []
 
 ## Implementation steps
 
-1. **Replace the file header `require` list** with the new dependency set:
+1. **Replace the file header `require` list** with the new dependency set. Note: do NOT add `(require 'gptel-agent)` — the upstream `gptel-agent` package was removed from this project in commit `eebbc18` (Feb 27); the overlay helpers stay local. See design.md §Decision 5.
    ```elisp
    (require 'gptel)
-   (require 'gptel-agent)            ; gptel-agent--task-overlay,
-                                     ;   --indicate-wait, --indicate-tool-call
    (require 'gptel-chat-parser)      ; gptel-chat-parse-buffer,
                                      ;   gptel-chat-turns-to-messages
    (require 'gptel-chat-send)        ; gptel-chat-open-assistant-block,
@@ -32,14 +30,16 @@ relations: []
    ```
 
 2. **Delete obsolete code**. Remove the following from the source `.org`:
-   - `jf/gptel-persistent-agent--hrule` constant (no longer needed; upstream owns the overlay rendering)
    - `jf/gptel--auto-save-session-buffer` function and any hook installation of it
-   - `jf/gptel-persistent-agent--create-overlay`
-   - `jf/gptel-persistent-agent--indicate-wait`
-   - `jf/gptel-persistent-agent--indicate-tool-call`
-   - `jf/gptel-persistent-agent--fsm-handlers` (the defvar)
-   - The current `jf/gptel-persistent-agent--task` body
-   - The current `gptel-make-tool` registration
+   - `jf/gptel-persistent-agent--fsm-handlers` (the static defvar; replaced by the programmatic `--build-fsm-handlers` builder added in step 7)
+   - The current `jf/gptel-persistent-agent--task` body (replaced by the new orchestrator in step 8)
+   - The current `gptel-make-tool` registration (replaced by the new one in step 9, which drops `denied_paths`)
+
+   **Keep**:
+   - `jf/gptel-persistent-agent--hrule` constant — used by the overlay helpers below
+   - `jf/gptel-persistent-agent--indicate-wait` — local overlay helper for WAIT (Decision 5)
+   - `jf/gptel-persistent-agent--indicate-tool-call` — local overlay helper for TOOL (Decision 5)
+   - `jf/gptel-persistent-agent--create-overlay` — but **rename it** to `jf/gptel-persistent-agent--task-overlay` for naming parity with upstream's `gptel-agent--task-overlay`. The signature and body stay the same; just rename the symbol and update its sole caller (the new orchestrator in step 8).
 
 3. **Add `jf/gptel-persistent-agent--write-scope-file`**. Hand-format the YAML behind a named function. Decision 1 of design.md: this is intentionally a private wrapper, not a public scope-module API. The output shape matches what the current implementation produces:
    ```elisp
@@ -122,18 +122,19 @@ relations: []
          (funcall main-cb "Error: agent aborted by user"))))
    ```
 
-7. **Add `jf/gptel-persistent-agent--build-fsm-handlers`**. Composes our handlers atop the chat-mode base. Order: agent first, then chat-mode lifecycle, then upstream:
+7. **Add `jf/gptel-persistent-agent--build-fsm-handlers`**. Composes our handlers atop the chat-mode base. Order: agent first, then chat-mode lifecycle, then upstream. The WAIT/TOOL handlers reference our local overlay helpers (kept per Decision 5):
    ```elisp
    (defun jf/gptel-persistent-agent--build-fsm-handlers (base main-cb agent-buffer)
      "Return an FSM handler alist composing agent handlers atop BASE.
    BASE is the chat-mode handler alist `gptel-chat-fsm-handlers`.
-   For WAIT and TOOL: prepend the upstream gptel-agent overlay updater.
+   For WAIT and TOOL: prepend the local overlay updater
+     (jf/gptel-persistent-agent--indicate-wait, --indicate-tool-call).
    For DONE/ERRS/ABRT: prepend the agent's terminal handler returning to MAIN-CB."
      (mapcar
       (lambda (entry)
         (pcase (car entry)
-          ('WAIT `(WAIT ,#'gptel-agent--indicate-wait ,@(cdr entry)))
-          ('TOOL `(TOOL ,#'gptel-agent--indicate-tool-call ,@(cdr entry)))
+          ('WAIT `(WAIT ,#'jf/gptel-persistent-agent--indicate-wait ,@(cdr entry)))
+          ('TOOL `(TOOL ,#'jf/gptel-persistent-agent--indicate-tool-call ,@(cdr entry)))
           ('DONE `(DONE ,(jf/gptel-persistent-agent--make-on-done main-cb agent-buffer)
                         ,@(cdr entry)))
           ('ERRS `(ERRS ,(jf/gptel-persistent-agent--make-on-errs main-cb)
@@ -189,7 +190,8 @@ relations: []
                   nil nil parent-id))
                 (session-file (plist-get session-info :session-file))
                 (agent-buffer (find-file-noselect session-file))
-                (overlay (gptel-agent--task-overlay where preset description)))
+                (overlay (jf/gptel-persistent-agent--task-overlay
+                          where preset description)))
            (with-current-buffer agent-buffer
              (let* ((turns     (gptel-chat-parse-buffer))
                     (user-turn (cl-loop for turn in (reverse turns)
@@ -254,28 +256,36 @@ relations: []
     ./bin/tangle-org.sh config/gptel/tools/persistent-agent.org
     ```
 
-12. **Byte-compile clean**: load the tangled `.el` in a fresh Emacs and confirm no warnings:
+12. **Byte-compile clean**: load the tangled `.el` in a fresh Emacs and confirm no warnings. Note: the in-tree `(require 'gptel-chat-parser)` etc. resolve via files whose basenames don't match the feature names (e.g. `parser.el` provides `gptel-chat-parser`), so the simple `batch-byte-compile` form may need preloading. Verify via the project's normal init path:
+    ```
+    ./bin/run-tests.sh -d config/gptel/chat   # smoke check that the module loads
+    grep -nE "Warning|Error" runtime/straight/build/.../persistent-agent*.el
+    ```
+    If you do invoke `batch-byte-compile` directly, supply only the dirs that actually exist on the load-path:
     ```
     emacs --batch -L runtime/straight/build/gptel \
-                  -L runtime/straight/build/gptel-agent \
                   -L config/gptel \
                   -L config/gptel/sessions \
                   -L config/gptel/chat \
                   -L config/gptel/tools \
                   -f batch-byte-compile config/gptel/tools/persistent-agent.el
     ```
+    Do NOT add `runtime/straight/build/gptel-agent` to the load path — `gptel-agent` is intentionally not a project dependency.
 
 ## Design rationale
 
 The persistent-agent rebuild is layer 2 of the change. Its core insight: an agent session is just a chat-mode session whose first user turn is provided programmatically and whose final assistant text is returned to a callback. Everything else — buffer creation, mode setup, drawer parsing, registry, autosave, streaming — is shared infrastructure that activates automatically when the session file is opened with `find-file-noselect`.
 
-This rewrites away ~130 lines of reinvented infrastructure: hand-formatted YAML, manual buffer creation via `generate-new-buffer`, direct preset application, manual `set-visited-file-name`, custom auto-save hook, dual-duty `:callback` that re-implements `gptel--insert-response`, byte-identical local copies of upstream overlay handlers.
+This rewrites away substantial reinvented infrastructure: manual buffer creation via `generate-new-buffer`, direct preset application, manual `set-visited-file-name`, custom auto-save hook, dual-duty `:callback` that re-implements `gptel--insert-response`, and the static `--fsm-handlers` defvar (replaced by a programmatic builder that composes chat-mode's FSM with our terminal-state handlers).
+
+The local overlay helpers (`--hrule`, `--indicate-wait`, `--indicate-tool-call`, `--task-overlay`) stay (Decision 5) — earlier drafts proposed dropping them in favour of upstream `gptel-agent--` symbols, but that package was removed as a project dependency in commit `eebbc18` (Feb 27); reversing that decision for one feature isn't justified.
 
 Decision points captured in design.md:
 - Decision 1: scope.yml writing stays in this module (private wrapper, not promoted).
 - Decision 2: empty final-text returns `""`; no sentinel, no error.
 - Decision 3: `find-file-noselect` not `find-file` (parent retains focus).
 - Decision 4: prompt embedded in `initial-content` passed to `create-session-core` (no post-creation buffer mutation).
+- Decision 5: keep local overlay helpers; no `(require 'gptel-agent)`.
 
 ## Design pattern
 
@@ -287,12 +297,14 @@ The closure-returning constructors (`--make-on-done` etc.) are an Emacs idiom fo
 
 - `./bin/tangle-org.sh config/gptel/tools/persistent-agent.org` succeeds (paren validation passes).
 - Tangled `.el` byte-compiles without warnings (command above).
-- The rewritten file does NOT contain any of: `jf/gptel--auto-save-session-buffer`, `jf/gptel-persistent-agent--create-overlay`, `jf/gptel-persistent-agent--indicate-wait`, `jf/gptel-persistent-agent--indicate-tool-call`, `jf/gptel-persistent-agent--hrule`, `denied-paths`, `denied_paths`. (`grep` to confirm.)
+- The rewritten file does NOT contain any of: `jf/gptel--auto-save-session-buffer`, `jf/gptel-persistent-agent--create-overlay` (renamed to `--task-overlay`), `denied-paths`, `denied_paths`, `(require 'gptel-agent)`. (`grep` to confirm.)
+- The rewritten file DOES contain (kept per Decision 5): `jf/gptel-persistent-agent--hrule`, `jf/gptel-persistent-agent--indicate-wait`, `jf/gptel-persistent-agent--indicate-tool-call`, `jf/gptel-persistent-agent--task-overlay`. (`grep` to confirm.)
 - The tool args list contains exactly four entries: `preset`, `description`, `prompt`, `allowed_paths`.
 - After loading, calling `(gptel-get-tool "PersistentAgent")` returns a non-nil tool struct.
-- The agent module's tests (tasks 5–8) will exercise the actual behavior; this task confirms the module compiles and registers.
+- **Init smoke test**: `./bin/run-tests.sh -d config/gptel/chat` succeeds without aborting (a regression where init aborts at `(require 'gptel-agent)` is the specific failure mode this task previously hit; this check guards against it).
+- The agent module's tests (tasks 5–8) will exercise the actual behavior; this task confirms the module compiles, loads, and registers.
 
-**Done means**: file rewritten with the eight new functions and updated tool registration, all obsolete code removed, byte-compile clean, ready for the dependent test tasks to exercise behavior.
+**Done means**: file rewritten with five new functions (`--write-scope-file`, `--initial-content`, `--extract-final-text`, `--build-fsm-handlers`, plus the three terminal-state handler builders `--make-on-done`/`--make-on-errs`/`--make-on-abrt`) and a new orchestrator (`--task`) replacing the old body, four overlay helpers preserved (`--hrule`, `--indicate-wait`, `--indicate-tool-call`, `--task-overlay`), the static `--fsm-handlers` defvar replaced by the programmatic builder, `denied_paths` and the auto-save hook removed, byte-compile clean, init load-test green, ready for the dependent test tasks to exercise behavior.
 
 ## Context
 

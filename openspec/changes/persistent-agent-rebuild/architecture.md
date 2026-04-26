@@ -43,15 +43,19 @@
 - `jf/gptel-persistent-agent--on-done`, `--on-errs`, `--on-abrt` — completion handlers per terminal FSM state
 - `jf/gptel-persistent-agent--extract-final-text` — reads the agent buffer's last `#+begin_assistant` block, returns the trailing text segment
 
-### Reused upstream symbols
+### Local overlay helpers (kept)
 
-Three symbols from the `gptel-agent` package are used directly instead of being copied:
+The current persistent-agent has its own copies of three overlay helpers, renamed under the `jf/` prefix:
 
-- `gptel-agent--indicate-wait` — overlay update for WAIT state
-- `gptel-agent--indicate-tool-call` — overlay update for TOOL state with tool-call rendering
-- `gptel-agent--task-overlay` — creates the parent overlay at a marker position
+- `jf/gptel-persistent-agent--indicate-wait` — overlay update for WAIT state
+- `jf/gptel-persistent-agent--indicate-tool-call` — overlay update for TOOL state with tool-call rendering
+- `jf/gptel-persistent-agent--task-overlay` — creates the parent overlay at a marker position (currently named `--create-overlay`; renamed to `--task-overlay` in this change for naming parity with the upstream pattern)
 
-These are upstream internals (`--`-prefixed). Accepting that as a soft dependency is a deliberate trade-off; the alternative is keeping byte-identical local copies. The design document records the trade-off and the fallback if upstream renames or removes them.
+Plus the supporting `jf/gptel-persistent-agent--hrule` constant.
+
+These stay local. The upstream `gptel-agent` package is not a dependency of this project (commit `eebbc18`, Feb 27, removed it when local preset registration replaced gptel-agent's preset system; no live function call into gptel-agent remains in `config/`). The rebuild keeps the project's "self-contained gptel layer" trajectory rather than reversing that decision for one feature.
+
+The functions are functionally equivalent to upstream's `gptel-agent--{indicate-wait,indicate-tool-call,task-overlay}` (verified by diffing the inlined sources against `runtime/straight/build/gptel-agent/gptel-agent-tools.el:1112-1180`). They are NOT byte-identical — the project's copies use the overlay marker property `'gptel-persistent-agent` (not `'gptel-agent`) and have minor control-flow rewrites.
 
 ### Reused codebase infrastructure (no changes)
 
@@ -67,12 +71,15 @@ The agent code does not reach into these — it relies on the `find-file` → au
 
 The following local code is removed entirely:
 
-- `jf/gptel-persistent-agent--create-overlay` (replaced by `gptel-agent--task-overlay`)
-- `jf/gptel-persistent-agent--indicate-wait` (replaced by `gptel-agent--indicate-wait`)
-- `jf/gptel-persistent-agent--indicate-tool-call` (replaced by `gptel-agent--indicate-tool-call`)
 - `jf/gptel--auto-save-session-buffer` (auto-init owns autosave; this hook is no longer added by the agent)
 - The dual-duty `:callback` lambda (replaced by chat-mode's stream callback + DONE/ERRS/ABRT handlers)
 - The hand-formatted YAML emission for `scope.yml` (replaced by scope-module helper — see "Open question" below)
+- The `denied-paths` argument and any code paths handling it
+- The `jf/gptel-persistent-agent--fsm-handlers` defvar (replaced by the programmatic `--build-fsm-handlers` builder; the local overlay helpers it referenced are kept and called from the builder)
+
+### Renamed (local overlay helpers, kept)
+
+- `jf/gptel-persistent-agent--create-overlay` → `jf/gptel-persistent-agent--task-overlay` (naming parity with upstream's `--task-overlay`; signature unchanged)
 
 ## Interfaces
 
@@ -116,7 +123,7 @@ in agent-buffer:
 
 in parent-buffer:
   where         = (or :tracking-marker :position) of gptel--fsm-last
-  overlay       = gptel-agent--task-overlay(where preset description)
+  overlay       = jf/gptel-persistent-agent--task-overlay(where preset description)
 
 in agent-buffer:
   fsm           = gptel-make-fsm
@@ -135,13 +142,13 @@ in agent-buffer:
 ### FSM handler composition (request lifecycle)
 
 ```
-WAIT  : gptel-agent--indicate-wait               ; overlay UI (parent)
+WAIT  : jf/gptel-persistent-agent--indicate-wait ; overlay UI (parent)
         gptel-chat--on-wait                      ; lifecycle indicator (agent)
         gptel--handle-wait                       ; upstream: fire request
 
 TYPE  : gptel-chat--on-type                      ; lifecycle indicator (agent)
 
-TOOL  : gptel-agent--indicate-tool-call          ; overlay UI (parent)
+TOOL  : jf/gptel-persistent-agent--indicate-tool-call ; overlay UI (parent)
         gptel-chat--on-tool                      ; lifecycle indicator (agent)
         gptel--handle-tool-use                   ; upstream: run tools
 
@@ -192,7 +199,7 @@ jf/gptel-persistent-agent--extract-final-text(agent-buffer) → string
 - **Migration of pre-existing on-disk agent sessions.** Files written by the old implementation are not auto-init-compatible (no drawer); they are archive-only. No migration script.
 - **Promoting scope-module YAML writers to public API.** A small helper for "write a fresh scope.yml from a path-spec plist" is needed; whether to add it as a public symbol or keep the wrapper inside persistent-agent is decided in design.md (see Open Questions). Either way, the broader scope module's API surface is not refactored in this change.
 - **Cleanup of `denied_paths` references in agent prompts.** The argument is removed from the tool surface; in-tree agent prompt files (`config/gptel/agents/*.md`) are scanned and any references removed, but documentation site / external docs are out of scope.
-- **`gptel-agent` upstream coordination.** We continue using upstream's `--`-prefixed overlay symbols. If upstream renames them, that's a future maintenance task, not part of this change.
+- **`gptel-agent` upstream coordination.** Not a dependency. The project removed the `gptel-agent` package in commit `eebbc18` (Feb 27) when local preset registration replaced it; no live function call into `gptel-agent` remains. The rebuild keeps local copies of the three overlay helpers under `jf/gptel-persistent-agent--*` rather than reversing that decision.
 
 ### Internal vs external
 
@@ -291,7 +298,7 @@ make test-report DIR=config/gptel
   - `gptel-request` — stubbed to capture args and synthesize FSM transitions.
   - `gptel-make-fsm` — let through, but the resulting FSM is inspected for handler composition.
   - `find-file-noselect` — let through (real file I/O against a temp directory) so auto-init runs.
-  - `gptel-agent--task-overlay`, `--indicate-wait`, `--indicate-tool-call` — let through (they're pure overlay manipulation; tests assert on overlay text).
+  - `jf/gptel-persistent-agent--task-overlay`, `--indicate-wait`, `--indicate-tool-call` — let through (they're pure overlay manipulation; tests assert on overlay text).
   - Network / API calls — never reached; the mocked `gptel-request` short-circuits before any backend is hit.
 - **Real file I/O for auto-init paths**: tests that exercise the `find-file` → auto-init contract create real session directories under a `make-temp-file 'directory` root and clean up in `after-each`. This is the only practical way to verify that the agent layout's regex matches and the hook fires.
 - **FSM composition tests**: build a fake FSM via `gptel-make-fsm` with the agent's composed handlers, drive it with synthesized state transitions (`gptel--fsm-transition` or direct `funcall` of the handler entries in order), and assert on overlay text + `main-cb` invocations.
@@ -312,8 +319,10 @@ For scenarios that are about *FSM ordering* (e.g., "WAIT state updates the paren
 ### Direct dependencies (existing)
 
 - `gptel` — `gptel-make-fsm`, `gptel-request`, `gptel-make-tool`, `gptel--known-presets`, `gptel-get-preset`.
-- `gptel-agent` (upstream package) — `gptel-agent--indicate-wait`, `gptel-agent--indicate-tool-call`, `gptel-agent--task-overlay`. **These are upstream internals.** Trade-off recorded above.
 - In-tree session/scope/chat modules — see "Reused codebase infrastructure" above.
+- Local overlay helpers in `persistent-agent.org` itself — see "Local overlay helpers (kept)" above.
+
+**No dependency on the upstream `gptel-agent` package.** Removed Feb 27; see the boundary note above.
 
 ### New direct dependencies
 
