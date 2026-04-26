@@ -106,10 +106,14 @@
                 (funcall cb t info)
                 (let ((content (buffer-substring-no-properties
                                 (point-min) (point-max))))
-                  ;; `#+end_assistant' now appears after the
-                  ;; inserted `"hello"' text.
+                  ;; `#+end_assistant' now appears after the inserted
+                  ;; `"hello"' text, AND a fresh empty user block is
+                  ;; appended after it (the post-completion append
+                  ;; flow documented in the spec scenario).
                   (expect (string-match-p
-                           "#\\+begin_assistant\nhello\n#\\+end_assistant\n"
+                           (concat "#\\+begin_assistant\nhello\n"
+                                   "#\\+end_assistant\n\n"
+                                   "#\\+begin_user\n\n#\\+end_user\n")
                            content)
                           :to-be-truthy))))
           (when (buffer-live-p buf) (kill-buffer buf)))))

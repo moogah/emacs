@@ -2,7 +2,7 @@
 name: add-persistent-agent-test-fixtures
 description: Add shared Buttercup fixtures for persistent-agent tests (mock parent session, mock preset, mock gptel-request)
 change: persistent-agent-rebuild
-status: needs-review
+status: done
 relations: []
 ---
 
@@ -149,3 +149,23 @@ architecture.md § "Testing Approach" → "Test Patterns" (mock-pattern decision
 design.md § "Test Strategy" → "Mock pattern for `gptel-request`"
 existing fixture: `config/gptel/chat/test/test-helpers.el`
 existing fixture: `config/gptel/scope/test/helpers-spec.el`
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported a clean
+review with one minor docstring inaccuracy, fixed inline:
+
+- `helpers-spec.el:67-70`: `with-mock-gptel-request` docstring claimed
+  the captured plist contained `:buffer BUF`, but `gptel-request`'s
+  signature is `(prompt &rest plist-args)` — `:buffer` only appears in
+  the captured cdr if the caller passes it explicitly (the function
+  defaults the buffer at call time, not as an argument). Rewrote the
+  docstring to describe the actual capture shape: a cons of `:prompt`
+  with `(PROMPT . PLIST-ARGS)`, noting that `:buffer` is opt-in.
+
+Cleanup discipline (unwind-protect on every alloc), `let`-binding of
+session vars (consistent with `defvar-local` reads), preset cleanup
+correctness, smoke tests covering each macro — all verified clean.
+
+Affected tests: `./bin/run-tests.sh -d config/gptel/tools/test/persistent-agent`
+→ 4 specs, 0 failed.

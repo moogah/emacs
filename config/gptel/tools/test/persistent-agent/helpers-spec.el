@@ -64,10 +64,14 @@ On exit, the temp tree is removed."
              (assq-delete-all preset-name gptel--known-presets)))))
 
 (defmacro jf/persistent-agent-test--with-mock-gptel-request (capture-var &rest body)
-  "Stub `gptel-request' to push its args (as a plist) onto CAPTURE-VAR.
-CAPTURE-VAR is a symbol naming a list variable in the surrounding scope.
-Each captured invocation is a plist:
-  (:prompt PROMPT :buffer BUF :callback CB :context CTX :fsm FSM ...)"
+  "Stub `gptel-request' to push its args onto CAPTURE-VAR.
+CAPTURE-VAR is a symbol naming a list variable in the surrounding
+scope.  Each captured invocation is a cons whose car is `:prompt'
+and whose cdr is `(PROMPT . PLIST-ARGS)' — i.e. the prompt
+followed by the keyword arguments `gptel-request' was called with
+(`:callback', `:context', `:fsm', etc.).  `gptel-request'
+defaults `:buffer' to `current-buffer' at call time, so it only
+appears in PLIST-ARGS when the caller passed it explicitly."
   (declare (indent 1) (debug t))
   `(cl-letf (((symbol-function 'gptel-request)
               (lambda (prompt &rest args)

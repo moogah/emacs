@@ -119,7 +119,7 @@
                ((eq tag 'tool)
                 ;; A tool entry carries a plist with the documented
                 ;; keys; round-trip into `plist-get' must succeed.
-                (expect (or (listp val) (plistp val)) :to-be-truthy))))))))
+                (expect (plistp val) :to-be-truthy))))))))
 
     (it "exposes no double-dash aliases after load"
       ;; Scenario: specs/chat-mode/spec.md (delta) § "Public
@@ -128,6 +128,6 @@
       (expect (fboundp 'gptel-chat--parse-buffer)      :to-be nil)
       (expect (fboundp 'gptel-chat--turns-to-messages) :to-be nil))))
 
-(provide 'public-api-spec)
+(provide 'parser-public-api-spec)
 
 ;;; public-api-spec.el ends here

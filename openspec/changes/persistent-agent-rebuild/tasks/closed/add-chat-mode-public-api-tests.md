@@ -2,7 +2,7 @@
 name: add-chat-mode-public-api-tests
 description: Add Buttercup specs asserting the chat-mode public API contract for parser, send, and stream
 change: persistent-agent-rebuild
-status: needs-review
+status: done
 relations: []
 ---
 
@@ -103,3 +103,25 @@ Existing pattern for buffer-content fixtures: `gptel-chat-test--with-buffer "...
 architecture.md § "Testing Approach" → "Test Organization" and "Scenario Mapping"
 specs/chat-mode/spec.md (delta) § "Public programmatic-send API" — every scenario in this requirement is covered.
 design.md § "Layer 1: Chat-mode public-API rename" → "Public-contract test"
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported a clean
+review with three minor stylistic findings; all fixed inline:
+
+- `parser/public-api-spec.el:131`: `(provide 'public-api-spec)` was
+  generic and would collide with sibling provide names. Renamed to
+  `parser-public-api-spec` for consistency with `send-public-api-spec`
+  / `stream-public-api-spec`.
+- `parser/public-api-spec.el:122`: `(or (listp val) (plistp val))`
+  was redundant (every plist is a list). Tightened to `(plistp val)`,
+  which is the actual contract for tool entries.
+- `stream/public-api-spec.el:99-114`: spec scenario "Public
+  stream-callback usable with gptel-request" requires both
+  `#+end_assistant` AND a fresh empty `#+begin_user`/`#+end_user`
+  block to be appended on the `t` completion sentinel. The test only
+  asserted on `#+end_assistant`. Strengthened the regex to assert
+  both, matching what `stream.el:498` actually inserts.
+
+Affected tests: `./bin/run-tests.sh -d config/gptel/chat` → 358 specs,
+0 failed.
