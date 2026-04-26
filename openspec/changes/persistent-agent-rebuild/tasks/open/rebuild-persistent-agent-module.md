@@ -2,9 +2,8 @@
 name: rebuild-persistent-agent-module
 description: Full rewrite of persistent-agent.org/el on chat-mode pipeline; drop denied_paths and byte-identical overlay copies
 change: persistent-agent-rebuild
-status: blocked
-relations:
-  - blocked-by:rename-chat-mode-internals
+status: ready
+relations: []
 ---
 
 ## Files to modify

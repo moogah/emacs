@@ -2,9 +2,8 @@
 name: add-chat-mode-public-api-tests
 description: Add Buttercup specs asserting the chat-mode public API contract for parser, send, and stream
 change: persistent-agent-rebuild
-status: blocked
-relations:
-  - blocked-by:rename-chat-mode-internals
+status: ready
+relations: []
 ---
 
 ## Files to modify

@@ -2,9 +2,8 @@
 name: add-persistent-agent-test-fixtures
 description: Add shared Buttercup fixtures for persistent-agent tests (mock parent session, mock preset, mock gptel-request)
 change: persistent-agent-rebuild
-status: blocked
-relations:
-  - blocked-by:rename-chat-mode-internals
+status: ready
+relations: []
 ---
 
 ## Files to modify
