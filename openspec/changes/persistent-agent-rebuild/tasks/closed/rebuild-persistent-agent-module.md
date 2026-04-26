@@ -2,7 +2,7 @@
 name: rebuild-persistent-agent-module
 description: Full rewrite of persistent-agent.org/el on chat-mode pipeline; drop denied_paths, drop reinvented infrastructure, keep local overlay helpers
 change: persistent-agent-rebuild
-status: ready
+status: needs-review
 relations: []
 ---
 
