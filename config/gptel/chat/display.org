@@ -30,7 +30,7 @@ Tagging: every overlay installed by this layer carries a
 (point-max) 'gptel-chat-display t)= removes them cleanly without
 touching overlays owned by other packages (font-lock, flymake, etc.).
 
-Parser dependency: we call =gptel-chat--parse-buffer= to enumerate
+Parser dependency: we call =gptel-chat-parse-buffer= to enumerate
 turns. The parser returns =:start= / =:end= markers pointing at the
 =#+begin_*= line and at the start of the matching =#+end_*= line
 respectively (see =parser.org= §Buffer parser). We translate those
@@ -163,7 +163,7 @@ user-turn and assistant-turn overlay paths.
 #+begin_src emacs-lisp
 (defun gptel-chat--display-body-range (turn)
   "Return a (BODY-START . BODY-END) cons for TURN, or nil on an empty body.
-TURN is a turn plist as returned by `gptel-chat--parse-buffer'.  The
+TURN is a turn plist as returned by `gptel-chat-parse-buffer'.  The
 start position skips the `#+begin_*' delimiter line; the end position
 is the start of the `#+end_*' delimiter line.  Returns nil when the
 resulting range is empty (which would produce a zero-width overlay)."
@@ -218,7 +218,7 @@ idempotent: it clears existing =gptel-chat-display= overlays before
 installing new ones, so calling it repeatedly converges on the correct
 state.
 
-If =gptel-chat--parse-buffer= raises a =user-error= (the buffer is
+If =gptel-chat-parse-buffer= raises a =user-error= (the buffer is
 structurally invalid — unclosed block, turn-inside-turn, etc.) we
 swallow it here: partial typing of a block should not blow up a
 silent background refresh. The refresh simply does nothing until the
@@ -236,7 +236,7 @@ the buffer reaches a parseable state."
     (when gptel-chat--display-enabled
       (gptel-chat--display-remove-all)
       (condition-case _err
-          (let ((turns (gptel-chat--parse-buffer)))
+          (let ((turns (gptel-chat-parse-buffer)))
             (dolist (turn turns)
               (when-let* ((range (gptel-chat--display-body-range turn))
                           (face (pcase (plist-get turn :role)

@@ -126,7 +126,7 @@ Toggled by `gptel-chat-toggle-display-layer'.")
 ;; [[file:display.org::*Body-range helper][Body-range helper:1]]
 (defun gptel-chat--display-body-range (turn)
   "Return a (BODY-START . BODY-END) cons for TURN, or nil on an empty body.
-TURN is a turn plist as returned by `gptel-chat--parse-buffer'.  The
+TURN is a turn plist as returned by `gptel-chat-parse-buffer'.  The
 start position skips the `#+begin_*' delimiter line; the end position
 is the start of the `#+end_*' delimiter line.  Returns nil when the
 resulting range is empty (which would produce a zero-width overlay)."
@@ -183,7 +183,7 @@ Returns the new overlay.  The overlay is tagged with the
 ;; installing new ones, so calling it repeatedly converges on the correct
 ;; state.
 
-;; If =gptel-chat--parse-buffer= raises a =user-error= (the buffer is
+;; If =gptel-chat-parse-buffer= raises a =user-error= (the buffer is
 ;; structurally invalid — unclosed block, turn-inside-turn, etc.) we
 ;; swallow it here: partial typing of a block should not blow up a
 ;; silent background refresh. The refresh simply does nothing until the
@@ -202,7 +202,7 @@ the buffer reaches a parseable state."
     (when gptel-chat--display-enabled
       (gptel-chat--display-remove-all)
       (condition-case _err
-          (let ((turns (gptel-chat--parse-buffer)))
+          (let ((turns (gptel-chat-parse-buffer)))
             (dolist (turn turns)
               (when-let* ((range (gptel-chat--display-body-range turn))
                           (face (pcase (plist-get turn :role)

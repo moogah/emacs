@@ -387,7 +387,7 @@ routing — no `cl-letf' surgery on captured variables."
 
 * Callback dispatch
 
-=gptel-chat--stream-callback= is the factory that returns the closure
+=gptel-chat-stream-callback= is the factory that returns the closure
 passed to =gptel-request= as =:callback=. It wraps the text-processing
 handle built by =gptel-chat--make-stream-inserter= with a
 =pcase=-based dispatcher on upstream's documented response shapes
@@ -642,17 +642,17 @@ body).
   "# gptel-chat: request failed"
   "Visible marker line inserted at the end of an assistant block on
 error (network failure / `nil' response).  See
-`gptel-chat--stream-callback'.")
+`gptel-chat-stream-callback'.")
 
 (defconst gptel-chat--stream-abort-marker
   "# gptel-chat: interrupted"
   "Visible marker line inserted at the end of an assistant block on
-user abort (`M-x gptel-abort').  See `gptel-chat--stream-callback'.")
+user abort (`M-x gptel-abort').  See `gptel-chat-stream-callback'.")
 #+end_src
 
 ** The callback factory
 
-=gptel-chat--stream-callback= is the entry point. Given an advance
+=gptel-chat-stream-callback= is the entry point. Given an advance
 marker at the end of the open =#+begin_assistant= block, it returns
 the =:callback= closure for =gptel-request=. The closure ignores
 its second argument (=info=) except to extract no currently-used
@@ -675,7 +675,7 @@ Design invariants:
    hooks are intentionally bypassed").
 
 #+begin_src emacs-lisp
-(defun gptel-chat--stream-callback (insertion-marker)
+(defun gptel-chat-stream-callback (insertion-marker)
   "Return a `gptel-request' :callback closure for INSERTION-MARKER.
 INSERTION-MARKER is an advance marker (insertion-type t) at the
 end of an open `#+begin_assistant' block; the returned closure

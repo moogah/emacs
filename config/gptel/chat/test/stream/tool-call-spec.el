@@ -7,7 +7,7 @@
 
 ;;; Commentary:
 
-;; Exercises `gptel-chat--stream-callback', the factory that returns
+;; Exercises `gptel-chat-stream-callback', the factory that returns
 ;; the closure passed to `gptel-request' as `:callback' (design.md
 ;; §Decision 10).  The callback dispatches on upstream's documented
 ;; response shapes via `pcase' and renders tool calls as nested
@@ -118,9 +118,9 @@ ignorable function works here."
   nil)
 
 
-;;; gptel-chat--stream-callback — argument validation ---------------------
+;;; gptel-chat-stream-callback — argument validation ---------------------
 
-(describe "gptel-chat--stream-callback"
+(describe "gptel-chat-stream-callback"
 
   (before-each
     (gptel-chat-tool-call-test--fresh-buffer))
@@ -131,27 +131,27 @@ ignorable function works here."
   (describe "argument validation"
 
     (it "rejects a non-marker argument"
-      (expect (gptel-chat--stream-callback 42) :to-throw))
+      (expect (gptel-chat-stream-callback 42) :to-throw))
 
     (it "rejects a marker with no buffer"
       (let ((dead (make-marker)))
-        (expect (gptel-chat--stream-callback dead) :to-throw)))
+        (expect (gptel-chat-stream-callback dead) :to-throw)))
 
     (it "rejects a marker with insertion-type nil"
       (let ((default-type-marker
              (with-current-buffer gptel-chat-tool-call-test--buffer
                (copy-marker (point-max)))))
         (expect (marker-insertion-type default-type-marker) :to-equal nil)
-        (expect (gptel-chat--stream-callback default-type-marker)
+        (expect (gptel-chat-stream-callback default-type-marker)
                 :to-throw)))
 
     (it "returns a callable closure when given a valid marker"
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-tool-call-test--marker)))
         (expect (functionp cb) :to-be-truthy))))
 
 
-  ;;; gptel-chat--stream-callback — tool-call / tool-result ---------------
+  ;;; gptel-chat-stream-callback — tool-call / tool-result ---------------
 
   (describe "single tool call"
 
@@ -161,7 +161,7 @@ ignorable function works here."
       ;;
       ;; Upstream shape per `gptel.el:1855':
       ;;   (tool-result . ((TOOL ARGS RESULT) ...))
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "read_file"))
              (args '(:path "/tmp/x")))
@@ -178,7 +178,7 @@ ignorable function works here."
                       "#+end_tool\n")))
 
     (it "renders an empty result when result is nil"
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "noop")))
         (funcall cb `(tool-call . ((,tool nil ,#'gptel-chat-tool-call-test--ignore-cb)))
@@ -200,7 +200,7 @@ ignorable function works here."
       ;; Scenario: prose streams before and after the tool event.
       ;; After tool-result, `tool-marker' is cleared, so subsequent
       ;; streamed prose routes back to the assistant-level marker.
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "read_file"))
              (args '(:path "/a")))
@@ -232,7 +232,7 @@ ignorable function works here."
       ;; sequential tool calls interleaved with prose produce three
       ;; sibling blocks in document order, with prose in its correct
       ;; positions.
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (t1 (gptel-chat-tool-call-test--tool "t1"))
              (t2 (gptel-chat-tool-call-test--tool "t2"))
@@ -272,7 +272,7 @@ ignorable function works here."
       ;; Two calls arrive in one tool-call event (parallel), then two
       ;; results in one tool-result event in matching order.  Both
       ;; blocks must be in-order siblings with the correct results.
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (p1 (gptel-chat-tool-call-test--tool "p1"))
              (p2 (gptel-chat-tool-call-test--tool "p2")))
@@ -297,7 +297,7 @@ ignorable function works here."
       ;; (e.g. the tool read a file that contains one), that line must
       ;; be rewritten to `,#+end_tool' before insertion — otherwise it
       ;; would prematurely close the containing block.
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "cat"))
              (args '(:f "p"))
@@ -320,7 +320,7 @@ ignorable function works here."
 
     (it "escapes a #+end_assistant line inside a tool result"
       ;; Same protection for an outer-block collision.
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "cat"))
              (args '(:f "p")))
@@ -342,7 +342,7 @@ ignorable function works here."
     (it "ignores a reasoning chunk"
       ;; Decision 10: v1 ignores `(reasoning . CHUNK)`.  The buffer
       ;; must be unchanged after a reasoning event.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-tool-call-test--marker)))
         (funcall cb `(reasoning . "I should check the file first.") nil))
       (expect (gptel-chat-tool-call-test--buffer-string)
@@ -355,7 +355,7 @@ ignorable function works here."
     (it "signals on an unexpected response shape"
       ;; The default `pcase' arm surfaces drift from upstream's
       ;; callback protocol so it cannot silently corrupt the buffer.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-tool-call-test--marker)))
         (expect (funcall cb 'unexpected-sentinel nil)
                 :to-throw))))
@@ -377,7 +377,7 @@ ignorable function works here."
       ;; (tool-result . ((TOOL ARGS RESULT))) with no preceding
       ;; tool-call.  The callback MUST render the block rather than
       ;; signal "orphan tool-result".
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "run_bash_command"))
              (args '(:command "which brew"))
@@ -397,7 +397,7 @@ ignorable function works here."
       ;; tool-marker override MUST be cleared so further streamed
       ;; prose lands at the assistant-level marker (not inside the
       ;; closed tool block).
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "run_bash_command"))
              (args '(:command "which brew")))
@@ -422,7 +422,7 @@ ignorable function works here."
       ;; `gptel--handle-tool-use' batches auto-approved results into a
       ;; single `(tool-result . ((TOOL1 ARGS1 R1) (TOOL2 ARGS2 R2) ...))'
       ;; event.  Each triple should render its own sibling block.
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (t1 (gptel-chat-tool-call-test--tool "list_files"))
              (t2 (gptel-chat-tool-call-test--tool "read_file")))
@@ -445,7 +445,7 @@ ignorable function works here."
       ;; block path too — a tool reading a file whose content
       ;; happens to contain `#+end_tool' must still produce a
       ;; well-formed containing block.
-      (let* ((cb (gptel-chat--stream-callback
+      (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "cat"))
              (args '(:f "p"))

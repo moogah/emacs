@@ -160,8 +160,8 @@ bodies are expected to be newline-terminated."
            ;; Step 2-3: parse + message-construct the starting buffer.
            (msgs-original
             (gptel-chat-test--with-buffer buffer-text
-              (gptel-chat--turns-to-messages
-               (gptel-chat--parse-buffer))))
+              (gptel-chat-turns-to-messages
+               (gptel-chat-parse-buffer))))
            (message-text (cdr (car msgs-original)))
            ;; Step 4: sanitize the message text line-by-line.
            (resanitized (gptel-chat-test--sanitize-body message-text))
@@ -174,8 +174,8 @@ bodies are expected to be newline-terminated."
                     "#+end_assistant\n"))
            (msgs-roundtripped
             (gptel-chat-test--with-buffer buffer-text-2
-              (gptel-chat--turns-to-messages
-               (gptel-chat--parse-buffer)))))
+              (gptel-chat-turns-to-messages
+               (gptel-chat-parse-buffer)))))
       ;; The un-escaped text has the bare delimiter.
       (expect message-text :to-match "^#\\+end_assistant$")
       ;; After re-sanitizing, the comma is back.
@@ -194,8 +194,8 @@ bodies are expected to be newline-terminated."
                                 user-body
                                 "#+end_user\n"))
            (msgs (gptel-chat-test--with-buffer buffer-text
-                   (gptel-chat--turns-to-messages
-                    (gptel-chat--parse-buffer))))
+                   (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer))))
            (text (cdr (car msgs))))
       (expect (car (car msgs)) :to-equal 'prompt)
       (expect text :to-match "^#\\+end_user$")
@@ -207,8 +207,8 @@ bodies are expected to be newline-terminated."
                       (unless (string-suffix-p "\n" resanitized) "\n")
                       "#+end_user\n"))
              (msgs-2 (gptel-chat-test--with-buffer buffer-text-2
-                       (gptel-chat--turns-to-messages
-                        (gptel-chat--parse-buffer)))))
+                       (gptel-chat-turns-to-messages
+                        (gptel-chat-parse-buffer)))))
         (expect msgs-2 :to-equal msgs))))
 
   (it "round-trips all three delimiter variants in a single assistant body"
@@ -224,8 +224,8 @@ bodies are expected to be newline-terminated."
                                 body
                                 "#+end_assistant\n"))
            (msgs (gptel-chat-test--with-buffer buffer-text
-                   (gptel-chat--turns-to-messages
-                    (gptel-chat--parse-buffer))))
+                   (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer))))
            (text (cdr (car msgs))))
       (expect text :to-match "^#\\+end_user$")
       (expect text :to-match "^#\\+end_assistant$")
@@ -240,8 +240,8 @@ bodies are expected to be newline-terminated."
                                 body
                                 "#+end_assistant\n"))
            (msgs (gptel-chat-test--with-buffer buffer-text
-                   (gptel-chat--turns-to-messages
-                    (gptel-chat--parse-buffer))))
+                   (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer))))
            (text (cdr (car msgs))))
       (expect text :to-match "^,#\\+end_src$"))))
 

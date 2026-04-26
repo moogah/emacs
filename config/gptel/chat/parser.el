@@ -10,8 +10,8 @@
 ;; and is indifferent to org heading depth (design.md Decision 12).
 ;;
 ;; Public entry points:
-;;   `gptel-chat--parse-buffer'       — buffer -> turn list
-;;   `gptel-chat--turns-to-messages'  — turn list -> `gptel-request' :prompt
+;;   `gptel-chat-parse-buffer'       — buffer -> turn list
+;;   `gptel-chat-turns-to-messages'  — turn list -> `gptel-request' :prompt
 
 ;;; Code:
 
@@ -318,7 +318,7 @@ not require a dedicated error shape for them.")
 
 ;; Buffer parser — public entry point
 
-;; =gptel-chat--parse-buffer= walks the current buffer (or BUFFER, when
+;; =gptel-chat-parse-buffer= walks the current buffer (or BUFFER, when
 ;; supplied) and returns a list of turn plists in document order.
 
 ;; Behaviour:
@@ -331,7 +331,7 @@ not require a dedicated error shape for them.")
 
 
 ;; [[file:parser.org::*Buffer parser — public entry point][Buffer parser — public entry point:1]]
-(defun gptel-chat--parse-buffer (&optional buffer)
+(defun gptel-chat-parse-buffer (&optional buffer)
   "Parse BUFFER (default current) as a `gptel-chat-mode' buffer.
 
 Returns a list of turn plists in document order.  Each element has
@@ -527,7 +527,7 @@ across every content type before the message reaches the model."
 ;; [[file:parser.org::*Turn → messages][Turn → messages:1]]
 (defun gptel-chat--turn-to-messages (turn)
   "Convert TURN (a parser turn plist) into a list of messages.
-See `gptel-chat--turns-to-messages' for the message-shape contract.
+See `gptel-chat-turns-to-messages' for the message-shape contract.
 Returns nil for an empty user turn or an assistant turn whose
 segments are all empty."
   (pcase (plist-get turn :role)
@@ -545,17 +545,17 @@ segments are all empty."
 
 ;; Public entry point
 
-;; =gptel-chat--turns-to-messages= is the public converter. It accepts
+;; =gptel-chat-turns-to-messages= is the public converter. It accepts
 ;; either a buffer's parsed turn list directly, or the result of an
-;; earlier call to =gptel-chat--parse-buffer=. Empty input yields an
+;; earlier call to =gptel-chat-parse-buffer=. Empty input yields an
 ;; empty message list.
 
 
 ;; [[file:parser.org::*Public entry point][Public entry point:1]]
-(defun gptel-chat--turns-to-messages (turns)
+(defun gptel-chat-turns-to-messages (turns)
   "Convert TURNS into a `gptel-request' `:prompt' message list.
 
-TURNS is the return value of `gptel-chat--parse-buffer' — an ordered
+TURNS is the return value of `gptel-chat-parse-buffer' — an ordered
 list of turn plists.  Returns an ordered list of cons cells suitable
 for passing as `gptel-request''s `:prompt' keyword:
 
