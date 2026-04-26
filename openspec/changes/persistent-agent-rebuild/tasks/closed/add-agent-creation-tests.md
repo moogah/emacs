@@ -2,7 +2,7 @@
 name: add-agent-creation-tests
 description: Buttercup specs for agent directory + drawer + scope.yml creation, including validation errors
 change: persistent-agent-rebuild
-status: needs-review
+status: done
 relations:
   - blocked-by:fix-agent-flat-layout
 ---
@@ -99,3 +99,21 @@ For file-content assertions against drawer + user-block layout, use full-string 
 specs/persistent-agent/spec.md (delta) § "Tool invocation and validation", "Agent session creation", "Error handling"
 design.md § "Decisions" 1, 4
 architecture.md § "Testing Approach" → "Scenario Mapping"
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported a clean
+review with no findings against the test file itself. All 7 `it`
+blocks faithfully pin spec scenarios; fixtures are tight; cleanup
+verified; the implementer's accommodations (curly-quote tolerant
+regex, `condition-case` instead of `:to-throw`, prefixed fixture
+names) are all correct.
+
+Spec drifts that surfaced during this review were addressed in the
+sibling `fix-agent-flat-layout` task's review (spec.md text
+correction for Decision 1's hand-formatted scope.yml and removal of
+the `jf/gptel--create-session-core` binding from the requirement
+statement).
+
+Verification (orchestrator): `./bin/run-tests.sh -d
+config/gptel/tools/test/persistent-agent` runs 36 specs, 0 failed.

@@ -32,7 +32,7 @@ PersistentAgent SHALL only operate within persistent session buffers and SHALL a
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions as standard gptel-chat-mode sessions, using the same session-creation infrastructure as standalone interactive sessions. Specifically, the agent's session file SHALL be created via `jf/gptel--create-session-core` so that the resulting `session.org` carries a `:PROPERTIES:` drawer declaring the agent's preset (and `GPTEL_PARENT_SESSION_ID` linking to the parent), and SHALL be opened with `find-file` (or equivalent) so that the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the preset from the drawer, registers the buffer in the session registry, and enables autosave. The agent's `scope.yml` SHALL be written via the existing scope-module helper, not by hand-formatted YAML strings.
+The system SHALL create agent sessions as standard gptel-chat-mode sessions, sharing the same drawer-driven configuration and auto-init pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer declaring the agent's preset (and `GPTEL_PARENT_SESSION_ID` linking to the parent), followed by the initial `#+begin_user` / `#+end_user` block. The session file SHALL be opened with `find-file-noselect` so that the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the preset from the drawer, registers the buffer in the session registry, and enables autosave. The agent's `scope.yml` SHALL be written by a private wrapper inside the persistent-agent module — fixed-shape YAML with variable read paths, constant write and deny lists — rather than going through the scope subsystem's general path-validation pipeline (design.md §Decision 1).
 
 The agent's directory SHALL live under the parent branch's `agents/` subdirectory and SHALL be named `<preset>-<timestamp>-<slug>`. Agents SHALL NOT have a `branches/` subdirectory or a `current` symlink — they remain single-timeline sessions.
 
@@ -49,12 +49,11 @@ The agent's directory SHALL live under the parent branch's `agents/` subdirector
 - **AND** the drawer contains `:GPTEL_PARENT_SESSION_ID: parent-20260425100000`
 - **AND** the drawer is followed by an empty `#+begin_user` / `#+end_user` block (the chat-mode template)
 
-#### Scenario: scope.yml written via scope-module helper
+#### Scenario: scope.yml written with explicit allowed paths
 - **WHEN** an agent is created with `allowed_paths ["/path/to/project/**"]`
-- **THEN** the agent's `scope.yml` is created using the scope-module's public yaml helper, not hand-formatted strings
-- **AND** the file declares `paths.read` containing exactly the supplied patterns
+- **THEN** the agent's `scope.yml` declares `paths.read` containing exactly the supplied patterns
 - **AND** the file declares `paths.write: ["/tmp/**"]`
-- **AND** the file declares the codebase's default deny patterns
+- **AND** the file declares the codebase's default deny patterns (`**/.git/**`, `**/runtime/**`, `**/.env`, `**/node_modules/**`)
 
 #### Scenario: Agent buffer auto-initializes via find-file-hook
 - **WHEN** the agent's `session.org` is opened (whether at agent creation time or by a later `find-file`)

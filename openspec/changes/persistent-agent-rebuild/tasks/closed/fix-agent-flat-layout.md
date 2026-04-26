@@ -2,7 +2,7 @@
 name: fix-agent-flat-layout
 description: Fix --task to write flat agent layout (no branches/main/ subdirectory) per spec
 change: persistent-agent-rebuild
-status: needs-review
+status: done
 relations:
   - discovered-from:add-agent-creation-tests
 ---
@@ -78,3 +78,30 @@ specs/persistent-agent/spec.md (delta) § "Agent session creation"
 design.md § "Decisions" 4 (initial-content shape — unchanged)
 config/gptel/sessions/commands.el — `jf/gptel--create-session-core` (the function the rebuild routed through)
 config/gptel/sessions/filesystem.el — `jf/gptel--context-file-path`, `jf/gptel--create-agent-directory`
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported the fix
+is correct, minimal, and the spec contract (flat agent layout) is
+achieved. Surfaced one in-change spec drift — `specs/persistent-agent/spec.md:35`
+mandated routing through `jf/gptel--create-session-core`, which is
+mutually inconsistent with the same paragraph's "no `branches/`
+subdirectory" requirement. Fixed inline by rewriting the requirement
+to describe the actual contract (drawer + auto-init + flat layout)
+without binding to a specific helper function.
+
+Reviewer also flagged a related pre-existing spec/design drift: the
+spec's "scope.yml written via scope-module helper" scenario (lines
+52-58) conflicted with design.md Decision 1 ("hand-format the agent's
+scope.yml"). Fixed inline: renamed the scenario "scope.yml written
+with explicit allowed paths" and removed the helper-coupling clause.
+Both spec corrections are now consistent with the implementation
+behavior the test suite pins.
+
+One stylistic finding (`(_ ...)` `let*` bindings purely for
+sequencing in the new `--task` block) was deferred — not blocking,
+not idiomatic but works.
+
+Verification (orchestrator): persistent-agent suite 36 specs / 0
+failed; full suite vs baseline byte-identical at 10 unexpected
+ERT failures.
