@@ -1,6 +1,6 @@
 ---
 name: scrub-denied-paths-references
-description: Remove denied_paths references from in-tree agent prompts and any remaining docs
+description: Remove denied_paths references from in-tree agent prompts and any remaining docs; delete the stale legacy persistent-agent spec file
 change: persistent-agent-rebuild
 status: blocked
 relations:
@@ -14,6 +14,7 @@ relations:
   - `config/gptel/tools/persistent-agent.org` itself (any leftover references in docstrings or commentary that the rewrite missed)
   - `config/gptel/tools/README.org` (if present and discusses tool args)
   - Top-level docs (CLAUDE.md, README.md) — verify with grep
+- `config/gptel/test/persistent-agent-spec.el` — DELETE. This legacy Buttercup spec asserts on removed symbols (`*gptel-agent:` buffer naming, `jf/gptel--auto-save-session-buffer` hook, `jf/gptel-persistent-agent--create-overlay`); produces 24 failures after the rebuild. The replacement test suite lives in `config/gptel/tools/test/persistent-agent/` (introduced by `add-persistent-agent-test-fixtures` and tasks 5-8). Keep `config/gptel/test/persistence-test-helpers.{el,org}` — they're shared with `session-creation-spec.el` which is unrelated to this change.
 
 The exact list comes from the grep in step 1.
 
@@ -35,9 +36,15 @@ The exact list comes from the grep in step 1.
    - **In `openspec/specs/persistent-agent/spec.md`** (the *main* spec, not the delta): leave it alone. The main spec is updated when this change archives, not in this task.
    - **In `.tasks/` or `.beads/`**: leave it alone. Those are historical records.
 
-3. **Re-run the grep** after edits. The non-openspec hits should all be resolved.
+3. **Delete the legacy spec file**:
+   ```
+   rm config/gptel/test/persistent-agent-spec.el
+   ```
+   Verify the deletion fixes the failure count: `./bin/run-tests.sh -d config/gptel/test` should now run only `session-creation-spec.el` (and any other unrelated specs). Do NOT delete `persistence-test-helpers.{el,org}`; those are shared with `session-creation-spec.el`.
 
-4. **Sanity-check preset prompt files**: `config/gptel/presets/*.md` are loaded at init by `jf/gptel-preset-register-all` (in `config/gptel/preset-registration.el`), which populates `gptel--known-presets`. Removing `denied_paths` from instructions doesn't change file load semantics, but verify by running the gptel test suite (which exercises init):
+4. **Re-run the grep** after edits. The non-openspec hits should all be resolved.
+
+5. **Sanity-check preset prompt files**: `config/gptel/presets/*.md` are loaded at init by `jf/gptel-preset-register-all` (in `config/gptel/preset-registration.el`), which populates `gptel--known-presets`. Removing `denied_paths` from instructions doesn't change file load semantics, but verify by running the gptel test suite (which exercises init):
    ```
    ./bin/run-tests.sh -d config/gptel
    ```
@@ -69,8 +76,9 @@ This is a small grep-and-edit cleanup, separated from the main rebuild task (tas
 - `grep -rn '\bdenied[_-]paths\b' . --exclude-dir=runtime --exclude-dir=.git --exclude-dir=openspec/changes/persistent-agent-rebuild` returns no hits OR only hits in `openspec/specs/persistent-agent/spec.md` (the main spec, updated at archive time) or `.tasks/` / `.beads/` (historical).
 - Preset prompt files in `config/gptel/presets/` load without error after the edit (verified via `./bin/run-tests.sh -d config/gptel` matching the established baseline failure count).
 - No new test failures in `./bin/run-tests.sh -d config/gptel/tools`.
+- `config/gptel/test/persistent-agent-spec.el` is gone; `./bin/run-tests.sh -d config/gptel/test` no longer reports the 24 stale-symbol failures.
 
-**Done means**: grep is clean (modulo the explicitly-excluded targets), agents still load, no test regressions.
+**Done means**: grep is clean (modulo the explicitly-excluded targets), legacy spec file deleted, agents still load, no test regressions.
 
 ## Context
 

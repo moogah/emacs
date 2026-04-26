@@ -2,7 +2,7 @@
 name: rebuild-persistent-agent-module
 description: Full rewrite of persistent-agent.org/el on chat-mode pipeline; drop denied_paths, drop reinvented infrastructure, keep local overlay helpers
 change: persistent-agent-rebuild
-status: needs-review
+status: done
 relations: []
 ---
 
@@ -312,3 +312,35 @@ design.md § "Layer 2: Persistent-agent rebuild" (function inventory + sketches)
 design.md § "Decisions" 1-4
 specs/persistent-agent/spec.md (delta) — every MODIFIED requirement maps to a piece of this implementation
 architecture.md § "Components" → "Persistent-agent tool (rebuilt)"
+
+## Review
+
+Reviewed 2026-04-26 (orchestrator). Reviewer agent reported clean
+work: every Decision 1-5 reflected at the expected file:line, no
+`(require 'gptel-agent)` regression, validation order correct, no
+overlay leak across terminal handlers. Two findings, both addressed:
+
+- **`config/gptel/test/persistent-agent-spec.el` is stale**
+  (`follow-up`): the legacy Buttercup spec asserts on now-removed
+  symbols (`*gptel-agent:` buffer naming, `--auto-save-session-buffer`
+  hook, `--create-overlay`) and produces 24 failures. Folded into
+  `scrub-denied-paths-references` (its scope already covered
+  post-rebuild cleanup); that task now also deletes this file.
+  `persistence-test-helpers.{el,org}` stay — they're shared with the
+  unrelated `session-creation-spec.el`.
+- **`--extract-final-text` lacked a `buffer-live-p` guard** on
+  `agent-buffer` (`inline-fix`): if the agent buffer is killed before
+  DONE fires, the handler signals `wrong-type-argument`. Fixed inline:
+  the function now returns `""` (per Decision 2 fallback) when the
+  buffer is dead, before the `with-current-buffer`. Trivial defensive
+  fix; `add-agent-error-handling-tests` (task 8) should cover the
+  buffer-killed scenario when the spec is written.
+
+Implementation also included a load-order fix in `gptel.org` (move
+persistent-agent loading to after `sessions/commands.el`) which the
+reviewer confirmed is minimal and correct, not scope creep.
+
+Affected tests: `./bin/run-tests.sh -d config/gptel/chat` → 358
+specs, 0 failed; `./bin/run-tests.sh -d config/gptel/tools` → 21
+specs, 0 failed; full suite vs baseline → 10 unexpected failures,
+byte-identical to baseline (pre-existing bash-parser).

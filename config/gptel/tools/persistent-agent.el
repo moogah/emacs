@@ -143,18 +143,21 @@ on the full layout, so format drift in either function fails the test."
 
 (defun jf/gptel-persistent-agent--extract-final-text (agent-buffer)
   "Return trailing text of the last assistant turn in AGENT-BUFFER.
-Returns the empty string when the last assistant turn has no text
-segment (Decision 2 of design.md: empty-text fallback)."
-  (with-current-buffer agent-buffer
-    (let* ((turns     (gptel-chat-parse-buffer))
-           (last-asst (cl-loop for turn in (reverse turns)
-                               when (eq (plist-get turn :role) 'assistant)
-                               return turn))
-           (segments  (and last-asst (plist-get last-asst :segments)))
-           (last-text (cl-loop for seg in (reverse (or segments '()))
-                               when (eq (plist-get seg :type) 'text)
-                               return (plist-get seg :content))))
-      (or last-text ""))))
+Returns the empty string when AGENT-BUFFER has been killed before
+DONE fires, or when the last assistant turn has no text segment
+\(Decision 2 of design.md: empty-text fallback)."
+  (if (not (buffer-live-p agent-buffer))
+      ""
+    (with-current-buffer agent-buffer
+      (let* ((turns     (gptel-chat-parse-buffer))
+             (last-asst (cl-loop for turn in (reverse turns)
+                                 when (eq (plist-get turn :role) 'assistant)
+                                 return turn))
+             (segments  (and last-asst (plist-get last-asst :segments)))
+             (last-text (cl-loop for seg in (reverse (or segments '()))
+                                 when (eq (plist-get seg :type) 'text)
+                                 return (plist-get seg :content))))
+        (or last-text "")))))
 
 (defun jf/gptel-persistent-agent--make-on-done (main-cb agent-buffer)
   "Return a DONE FSM handler that returns the final assistant text to MAIN-CB.
