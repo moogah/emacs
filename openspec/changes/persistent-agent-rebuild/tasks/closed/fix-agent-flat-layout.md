@@ -2,7 +2,7 @@
 name: fix-agent-flat-layout
 description: Fix --task to write flat agent layout (no branches/main/ subdirectory) per spec
 change: persistent-agent-rebuild
-status: ready
+status: needs-review
 relations:
   - discovered-from:add-agent-creation-tests
 ---

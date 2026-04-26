@@ -2,7 +2,7 @@
 name: add-agent-creation-tests
 description: Buttercup specs for agent directory + drawer + scope.yml creation, including validation errors
 change: persistent-agent-rebuild
-status: blocked
+status: needs-review
 relations:
   - blocked-by:fix-agent-flat-layout
 ---
