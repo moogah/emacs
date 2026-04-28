@@ -7,7 +7,7 @@
 
 ;;; Commentary:
 
-;; Buttercup specs for `gptel-chat--turns-to-messages' — the converter
+;; Buttercup specs for `gptel-chat-turns-to-messages' — the converter
 ;; that shapes the parser's turn list into the `gptel-request' `:prompt'
 ;; advanced-format message list.
 ;;
@@ -55,7 +55,7 @@
 ;;; Tests
 ;;; ---------------------------------------------------------------
 
-(describe "gptel-chat--turns-to-messages: Message construction from buffer"
+(describe "gptel-chat-turns-to-messages: Message construction from buffer"
 
   (describe "Single user-assistant turn"
     (it "emits [(prompt . user-text) (response . assistant-text)]"
@@ -66,8 +66,8 @@
                   "#+begin_assistant\n"
                   "Paris.\n"
                   "#+end_assistant\n")
-        (let* ((turns (gptel-chat--parse-buffer))
-               (msgs  (gptel-chat--turns-to-messages turns)))
+        (let* ((turns (gptel-chat-parse-buffer))
+               (msgs  (gptel-chat-turns-to-messages turns)))
           (expect msgs :to-equal
                   '((prompt   . "What's the capital of France?\n")
                     (response . "Paris.\n"))))))
@@ -78,8 +78,8 @@
                   "#+begin_assistant\na1\n#+end_assistant\n"
                   "#+begin_user\nq2\n#+end_user\n"
                   "#+begin_assistant\na2\n#+end_assistant\n")
-        (let ((msgs (gptel-chat--turns-to-messages
-                     (gptel-chat--parse-buffer))))
+        (let ((msgs (gptel-chat-turns-to-messages
+                     (gptel-chat-parse-buffer))))
           (expect (mapcar #'car msgs)
                   :to-equal '(prompt response prompt response))
           (expect (mapcar #'cdr msgs)
@@ -97,8 +97,8 @@
                   "\n"
                   "You're on Darwin.\n"
                   "#+end_assistant\n")
-        (let ((msgs (gptel-chat--turns-to-messages
-                     (gptel-chat--parse-buffer))))
+        (let ((msgs (gptel-chat-turns-to-messages
+                     (gptel-chat-parse-buffer))))
           ;; Three messages total: response, tool, response.
           (expect (length msgs) :to-equal 3)
           (expect (car (nth 0 msgs)) :to-equal 'response)
@@ -132,8 +132,8 @@
                   "#+end_tool\n"
                   "Done.\n"
                   "#+end_assistant\n")
-        (let ((msgs (gptel-chat--turns-to-messages
-                     (gptel-chat--parse-buffer))))
+        (let ((msgs (gptel-chat-turns-to-messages
+                     (gptel-chat-parse-buffer))))
           (expect (mapcar #'car msgs)
                   :to-equal
                   '(response tool response tool response tool response))
@@ -155,8 +155,8 @@
                   ",#+end_assistant\n"
                   "and more prose.\n"
                   "#+end_assistant\n")
-        (let* ((msgs (gptel-chat--turns-to-messages
-                      (gptel-chat--parse-buffer)))
+        (let* ((msgs (gptel-chat-turns-to-messages
+                      (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
           (expect (length msgs) :to-equal 1)
           (expect (car (car msgs)) :to-equal 'response)
@@ -170,8 +170,8 @@
                   ",#+end_user\n"
                   "to show it to the model.\n"
                   "#+end_user\n")
-        (let* ((msgs (gptel-chat--turns-to-messages
-                      (gptel-chat--parse-buffer)))
+        (let* ((msgs (gptel-chat-turns-to-messages
+                      (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
           (expect (car (car msgs)) :to-equal 'prompt)
           (expect text :to-match "^#\\+end_user$")
@@ -183,8 +183,8 @@
                   "Inside a src block example:\n"
                   ",#+end_src\n"
                   "#+end_user\n")
-        (let* ((msgs (gptel-chat--turns-to-messages
-                      (gptel-chat--parse-buffer)))
+        (let* ((msgs (gptel-chat-turns-to-messages
+                      (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
           (expect text :to-match "^,#\\+end_src$"))))
 
@@ -193,8 +193,8 @@
           (concat "#+begin_assistant\n"
                   ",#+End_Assistant\n"
                   "#+end_assistant\n")
-        (let* ((msgs (gptel-chat--turns-to-messages
-                      (gptel-chat--parse-buffer)))
+        (let* ((msgs (gptel-chat-turns-to-messages
+                      (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
           (expect text :to-match "^#\\+End_Assistant$")
           (expect text :not :to-match "^,#"))))
@@ -209,35 +209,35 @@
           (concat "#+begin_assistant\n"
                   ",,#+end_assistant\n"
                   "#+end_assistant\n")
-        (let* ((msgs (gptel-chat--turns-to-messages
-                      (gptel-chat--parse-buffer)))
+        (let* ((msgs (gptel-chat-turns-to-messages
+                      (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
           (expect text :to-match "^,,#\\+end_assistant$")))))
 
   (describe "Empty blocks are skipped"
     (it "emits no message for an empty user block"
       (gptel-chat-test--with-buffer "#+begin_user\n#+end_user\n"
-        (expect (gptel-chat--turns-to-messages
-                 (gptel-chat--parse-buffer))
+        (expect (gptel-chat-turns-to-messages
+                 (gptel-chat-parse-buffer))
                 :to-equal nil)))
 
     (it "emits no message for a whitespace-only user block"
       (gptel-chat-test--with-buffer "#+begin_user\n   \n\t\n#+end_user\n"
-        (expect (gptel-chat--turns-to-messages
-                 (gptel-chat--parse-buffer))
+        (expect (gptel-chat-turns-to-messages
+                 (gptel-chat-parse-buffer))
                 :to-equal nil)))
 
     (it "emits no message for an empty assistant block"
       (gptel-chat-test--with-buffer "#+begin_assistant\n#+end_assistant\n"
-        (expect (gptel-chat--turns-to-messages
-                 (gptel-chat--parse-buffer))
+        (expect (gptel-chat-turns-to-messages
+                 (gptel-chat-parse-buffer))
                 :to-equal nil)))
 
     (it "emits no message for a whitespace-only assistant block"
       (gptel-chat-test--with-buffer
           "#+begin_assistant\n\n  \n\n#+end_assistant\n"
-        (expect (gptel-chat--turns-to-messages
-                 (gptel-chat--parse-buffer))
+        (expect (gptel-chat-turns-to-messages
+                 (gptel-chat-parse-buffer))
                 :to-equal nil)))
 
     (it "keeps a tool-call assistant turn even with blank surrounding prose"
@@ -249,8 +249,8 @@
                   "#+end_tool\n"
                   "\n"
                   "#+end_assistant\n")
-        (let ((msgs (gptel-chat--turns-to-messages
-                     (gptel-chat--parse-buffer))))
+        (let ((msgs (gptel-chat-turns-to-messages
+                     (gptel-chat-parse-buffer))))
           (expect (length msgs) :to-equal 1)
           (expect (car (car msgs)) :to-equal 'tool))))
 
@@ -259,8 +259,8 @@
           (concat "#+begin_user\nq1\n#+end_user\n"
                   "#+begin_user\n\n#+end_user\n"
                   "#+begin_user\nq2\n#+end_user\n")
-        (expect (gptel-chat--turns-to-messages
-                 (gptel-chat--parse-buffer))
+        (expect (gptel-chat-turns-to-messages
+                 (gptel-chat-parse-buffer))
                 :to-equal
                 '((prompt . "q1\n") (prompt . "q2\n"))))))
 
@@ -279,8 +279,8 @@
                   "#+begin_user\n"
                   "Follow-up.\n"
                   "#+end_user\n")
-        (expect (gptel-chat--turns-to-messages
-                 (gptel-chat--parse-buffer))
+        (expect (gptel-chat-turns-to-messages
+                 (gptel-chat-parse-buffer))
                 :to-equal
                 '((prompt   . "First question.\n")
                   (response . "First answer.\n")
@@ -293,8 +293,8 @@
                   "#+begin_user\n"
                   "Just the question.\n"
                   "#+end_user\n")
-        (let ((msgs (gptel-chat--turns-to-messages
-                     (gptel-chat--parse-buffer))))
+        (let ((msgs (gptel-chat-turns-to-messages
+                     (gptel-chat-parse-buffer))))
           (expect msgs :to-equal
                   '((prompt . "Just the question.\n")))
           (expect (cdr (car msgs))
@@ -319,8 +319,8 @@
                   "\n"
                   "The /emphasis/ on *bold* matters.\n"
                   "#+end_user\n")
-        (let* ((msgs (gptel-chat--turns-to-messages
-                      (gptel-chat--parse-buffer)))
+        (let* ((msgs (gptel-chat-turns-to-messages
+                      (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
           (expect (length msgs) :to-equal 1)
           (expect (car (car msgs)) :to-equal 'prompt)
@@ -340,8 +340,8 @@
                   "#+begin_assistant\n"
                   "(that is quoted in the user's prose)\n"
                   "#+end_user\n")
-        (let ((msgs (gptel-chat--turns-to-messages
-                     (gptel-chat--parse-buffer))))
+        (let ((msgs (gptel-chat-turns-to-messages
+                     (gptel-chat-parse-buffer))))
           (expect (length msgs) :to-equal 1)
           (expect (car (car msgs)) :to-equal 'prompt)
           (expect (cdr (car msgs))
@@ -351,10 +351,10 @@
 
   (describe "Empty input"
     (it "yields nil for an empty turn list"
-      (expect (gptel-chat--turns-to-messages nil)
+      (expect (gptel-chat-turns-to-messages nil)
               :to-equal nil))))
 
-(describe "gptel-chat--turns-to-messages: tool-call plist shape"
+(describe "gptel-chat-turns-to-messages: tool-call plist shape"
 
   ;; The plist we emit is the /compact/ advanced-format encoding that
   ;; `gptel--parse-list' (per backend) expands into tool_use / tool_result
@@ -382,8 +382,8 @@
                 "RESULT-STRING\n"
                 "#+end_tool\n"
                 "#+end_assistant\n")
-      (let* ((msgs (gptel-chat--turns-to-messages
-                    (gptel-chat--parse-buffer)))
+      (let* ((msgs (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer)))
              (tool-msg (car msgs))
              (call (cdr tool-msg)))
         (expect (car tool-msg) :to-equal 'tool)
@@ -398,8 +398,8 @@
                 "r\n"
                 "#+end_tool\n"
                 "#+end_assistant\n")
-      (let* ((msgs (gptel-chat--turns-to-messages
-                    (gptel-chat--parse-buffer)))
+      (let* ((msgs (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer)))
              (call (cdr (car msgs))))
         (expect (plist-member call :id) :to-equal nil))))
 
@@ -409,8 +409,8 @@
                 "#+begin_tool (empty_tool)\n"
                 "#+end_tool\n"
                 "#+end_assistant\n")
-      (let* ((msgs (gptel-chat--turns-to-messages
-                    (gptel-chat--parse-buffer)))
+      (let* ((msgs (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer)))
              (call (cdr (car msgs))))
         (expect (plist-get call :result) :to-equal ""))))
 

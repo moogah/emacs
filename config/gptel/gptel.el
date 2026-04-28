@@ -194,11 +194,12 @@ Run this after preset registration to inject skill content into presets."
 ;; Load scope-shell-tools (tool definitions: run_bash_command, request_scope_expansion)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-shell-tools.el" jf/emacs-dir))
 
-;; Load PersistentAgent tool (requires session modules to be loaded first)
-(jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
-
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
+
+;; Load PersistentAgent tool (requires session modules + commands to be loaded first;
+;; depends on `jf/gptel--create-session-core' from sessions/commands.el)
+(jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
 
 ;; Load scope-aware filesystem tools (read_file_in_scope, write_file_in_scope, edit_file_in_scope)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))

@@ -38,7 +38,7 @@ Branches SHALL be first-class session objects with independent evolution.
 The system SHALL provide interactive branch point selection based on **outer `#+begin_user` blocks** in a `gptel-chat-mode` session buffer.
 
 Branch point selection SHALL:
-1. Parse the source buffer via `gptel-chat--parse-buffer` to obtain the turn list (or equivalently: enumerate outer `#+begin_user` blocks with their buffer positions)
+1. Parse the source buffer via `gptel-chat-parse-buffer` to obtain the turn list (or equivalently: enumerate outer `#+begin_user` blocks with their buffer positions)
 2. Present a numbered list of user turns for selection (showing the first line of each user block as the display label)
 3. Allow the user to choose whether to include or exclude the selected user turn in the new branch
 4. Return a buffer position marking the branch point:
@@ -49,7 +49,7 @@ Only outer `#+begin_user` blocks SHALL be valid branch points. Assistant blocks 
 
 #### Scenario: Interactive turn selection
 - **WHEN** user invokes `jf/gptel-branch-session` in an active chat-mode session buffer
-- **THEN** the system scans for all outer `#+begin_user` blocks via `gptel-chat--parse-buffer`
+- **THEN** the system scans for all outer `#+begin_user` blocks via `gptel-chat-parse-buffer`
 - **AND** presents a numbered selection interface showing each user block's first line
 - **AND** allows the user to select a turn by number
 - **AND** asks whether to include or exclude the selected turn
@@ -90,7 +90,7 @@ Context truncation operates at the buffer-content level. Because chat-mode has n
 #### Scenario: Copying content up to branch point
 - **WHEN** creating a branch with a branch point at position 5420 (immediately after a `#+end_user`)
 - **THEN** the new branch's `session.org` SHALL contain buffer content from position 1 to 5419
-- **AND** the content is well-formed chat-mode (parseable by `gptel-chat--parse-buffer`)
+- **AND** the content is well-formed chat-mode (parseable by `gptel-chat-parse-buffer`)
 - **AND** no truncated / half-open block exists at the end
 
 #### Scenario: Empty branch from first-turn exclude

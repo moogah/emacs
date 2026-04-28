@@ -18,12 +18,12 @@
 (defun jf/gptel--branching-user-turns (&optional buffer)
   "Return the user turns from BUFFER in document order.
 BUFFER defaults to the current buffer.  Each returned element is the
-parser turn plist as produced by `gptel-chat--parse-buffer' — a plist
+parser turn plist as produced by `gptel-chat-parse-buffer' — a plist
 with `:role', `:content', `:start', and `:end'.
 
 Only outer `#+begin_user' blocks are returned.  Assistant blocks,
 nested tool blocks, and non-block content are filtered out."
-  (let ((turns (gptel-chat--parse-buffer (or buffer (current-buffer)))))
+  (let ((turns (gptel-chat-parse-buffer (or buffer (current-buffer)))))
     (seq-filter (lambda (turn) (eq (plist-get turn :role) 'user))
                 turns)))
 

@@ -111,10 +111,10 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
           :context-file ctx)))
 
 (defun jf-branching-integration--parse-file (path)
-  "Parse PATH with `gptel-chat--parse-buffer' and return the turn list."
+  "Parse PATH with `gptel-chat-parse-buffer' and return the turn list."
   (with-temp-buffer
     (insert-file-contents path)
-    (gptel-chat--parse-buffer (current-buffer))))
+    (gptel-chat-parse-buffer (current-buffer))))
 
 (describe "Session branching integration (chat-mode turn list)"
 
