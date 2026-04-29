@@ -120,3 +120,59 @@ Cycle-2's full-suite count grew to 1707 specs / 92-95 failed. Of those, 5 expect
 
 - `add-test-helper-with-scope-drawer` (closed cycle-1).
 - `rewire-session-creation` (closed cycle-2).
+
+## Observations
+
+- Confirmed cycle-2 `rewire-session-creation` (commit `be6b80c`):
+  `jf/gptel--create-session-core` now composes `session.org`'s initial
+  content as `(concat drawer-text body)` where `drawer-text` is the
+  `register/shape/drawer-text-block` string returned by
+  `jf/gptel-scope-profile--create-for-session` (Mode 2a). No `scope.yml`
+  is written; the renderer is the sole route from a profile-resolved
+  scope-plist to drawer state. The brief's framing matched production.
+- Test infrastructure choice: rather than depending on
+  `config/gptel/scope/test/helpers-spec.el` (which lives in a sibling
+  test directory and pulls in unrelated contract/bash-parser deps), the
+  migration introduces two thin local helpers
+  (`jf/gptel-test--drawer-multi-value`,
+  `jf/gptel-test--drawer-scalar`) that wrap
+  `org-entry-get-multivalued-property` / `org-entry-get` against the
+  raw `session.org` content captured by `with-captured-io`. This keeps
+  `session-creation-spec.el` self-contained on the `persistence-test-
+  helpers` infrastructure it already imports.
+- Negative assertion coverage: the dedicated `it "does not write
+  scope.yml..."` test pairs a hash-table scan (`cl-some
+  string-suffix-p` over `(hash-table-keys captured-files)`) with the
+  `with-captured-io`-mocked `(file-exists-p ...) :to-be nil` form.
+  Both fire from a preset that resolves to a non-empty scope-plist, so
+  the case where a regression *would* re-introduce the YAML write is
+  the case the test exercises.
+- Empty-drawer renderer assertion: with
+  `jf/gptel-preset--scope-defaults` bound to nil and the preset
+  unregistered, `--resolve` returns nil, `--render-drawer-text` emits
+  only `:GPTEL_PRESET:`, and the test verifies absence of every
+  `:GPTEL_SCOPE_*:` key (both via the org-mode parser and a raw-text
+  regex). This matches the renderer-side invariant pinned in the task
+  body and is independent of the loader's deny-all-on-empty-drawer
+  resolution from `disposition-empty-drawer-collapse`.
+- Pre-existing exact-match test for the `executor` preset's drawer
+  (lines 108-125) continues to assert the bare drawer shape
+  (`:PROPERTIES:`/`:GPTEL_PRESET: executor`/`:END:`). This holds
+  because the test environment has no registered scope-defaults for
+  `executor`, so resolution returns nil and the renderer emits no
+  `:GPTEL_SCOPE_*:` keys. The "Profile file missing for preset
+  executor, profile: coding" warnings observed in test logs confirm
+  the resolver's nil branch is the active path.
+- Targeted test run (`./bin/run-tests.sh -d config/gptel/test`): 15
+  specs, 0 failed (was 5 failed before migration). The 5 previously
+  expected-to-fail "Scope profile integration" specs now pass under
+  drawer-based assertions.
+- Broader gptel run (`./bin/run-tests.sh -d config/gptel`): 1007 ran,
+  924 passed. Remaining failures are in unrelated subsystems
+  (bash-parser, contract layer, `run_bash_command` integration,
+  `PersistentAgent creation flow`); none are in
+  `session-creation-spec.el`.
+
+## Discoveries
+
+(none)

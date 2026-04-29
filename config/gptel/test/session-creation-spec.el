@@ -10,7 +10,7 @@
 ;; Behavioral tests verifying the write-side of session creation via
 ;; `jf/gptel--create-session-core'.
 ;;
-;; Invariants verified (post-`session-creation-drawer-prepopulate'):
+;; Invariants verified (post-`gptel-scope-in-org-properties'):
 ;;
 ;; 1. `session.org' is pre-populated with a `:PROPERTIES:' drawer
 ;;    containing `GPTEL_PRESET' (and `GPTEL_PARENT_SESSION_ID' for
@@ -21,13 +21,22 @@
 ;; 2. No `metadata.yml' sidecar is written during session creation.
 ;;    The previous `metadata.yml'-backed path has been removed.
 ;;
-;; 3. `scope.yml' is still written from the preset's scope profile
-;;    (unchanged by this task).
+;; 3. No `scope.yml' sidecar is written during session creation.
+;;    The preset's scope profile is rendered into the `session.org'
+;;    drawer via `jf/gptel-scope-profile--render-drawer-text' as
+;;    `:GPTEL_SCOPE_*:' multi-value keys (cycle-2 rewire-session-creation;
+;;    `register/boundary/scope-profile-applicator' Mode 2a).
 ;;
 ;; Uses `with-captured-io' macro from persistence-test-helpers to
 ;; intercept all filesystem writes.  All custom persistence code runs
 ;; for real; only Emacs primitives (write-region, make-directory,
 ;; make-symbolic-link, etc.) are mocked.
+;;
+;; Drawer assertions read the captured `session.org' content into a
+;; temp org buffer and use `org-entry-get-multivalued-property' so the
+;; assertion exercises the same parsing path the loader uses
+;; (`register/shape/drawer-text-block' / line-shape parity with
+;; `org-entry-put-multivalued-property').
 
 ;;; Code:
 
@@ -44,6 +53,32 @@
 (require 'gptel-session-filesystem)
 (require 'gptel-scope-profiles)
 (require 'gptel-session-commands)
+(require 'org)
+
+(defun jf/gptel-test--drawer-multi-value (content key)
+  "Read multi-value drawer property KEY from session.org CONTENT.
+CONTENT is the raw string written by `with-temp-file' inside
+`jf/gptel--create-session-core'.  KEY is a string naming a drawer
+property (without leading colon), e.g. \"GPTEL_SCOPE_READ\".
+
+Returns the list of values stored under KEY, using the same
+`org-entry-get-multivalued-property' path the production loader uses
+to parse `:KEY:' lines emitted by
+`jf/gptel-scope-profile--render-drawer-text'."
+  (with-temp-buffer
+    (insert content)
+    (org-mode)
+    (org-entry-get-multivalued-property (point-min) key)))
+
+(defun jf/gptel-test--drawer-scalar (content key)
+  "Read scalar drawer property KEY from session.org CONTENT.
+Like `jf/gptel-test--drawer-multi-value' but for single-valued keys
+\(e.g. `GPTEL_PRESET', `GPTEL_SCOPE_CLOUD_AUTH').  Returns the string
+value or nil when KEY is absent."
+  (with-temp-buffer
+    (insert content)
+    (org-mode)
+    (org-entry-get (point-min) key)))
 
 (describe "Session creation (write-side)"
 
@@ -168,17 +203,34 @@
 
   (describe "Scope profile integration"
 
-    (it "writes scope.yml via scope profile system"
-      (with-captured-io
-        (jf/gptel--create-session-core
-         "test-session-123" "/sessions/test-session-123" 'executor)
-        ;; scope.yml should always be written (even if minimal)
-        (let ((content (captured-file-content
-                        captured-files
-                        "/sessions/test-session-123/branches/main/scope.yml")))
-          (expect content :to-be-truthy))))
+    ;; Post-`rewire-session-creation' (cycle-2 commit be6b80c): the
+    ;; preset's resolved scope profile is rendered into `session.org's
+    ;; `:PROPERTIES:' drawer via Mode 2a
+    ;; (`jf/gptel-scope-profile--render-drawer-text'). No `scope.yml'
+    ;; sidecar is written. Each test below asserts on drawer content
+    ;; via `org-entry-get-multivalued-property' (the same parsing path
+    ;; the production loader uses) and verifies absence of `scope.yml'.
 
-    (it "writes scope.yml with preset scope configuration when available"
+    (it "does not write scope.yml during session creation"
+      ;; Negative invariant: `register/boundary/scope-profile-applicator'
+      ;; Mode 2a is now the sole route from a profile-resolved scope-plist
+      ;; to drawer state. The legacy `scope.yml' write path was removed
+      ;; in cycle-2; this test catches regressions where the YAML write
+      ;; step is accidentally re-introduced.
+      (let ((jf/gptel-preset--scope-defaults
+             `((test-preset . (:paths (:read ("/home/user/project")))))))
+        (with-captured-io
+          (jf/gptel--create-session-core
+           "test-session-123" "/sessions/test-session-123" 'test-preset)
+          (let ((paths (hash-table-keys captured-files)))
+            (expect (cl-some (lambda (p) (string-suffix-p "/scope.yml" p)) paths)
+                    :to-be nil)
+            ;; Symmetric file-exists-p check via the captured-files mock.
+            (expect (file-exists-p
+                     "/sessions/test-session-123/branches/main/scope.yml")
+                    :to-be nil)))))
+
+    (it "renders preset scope into session.org drawer when available"
       ;; Set up a preset with inline scope defaults
       (let ((jf/gptel-preset--scope-defaults
              `((test-preset . (:paths (:read ("/home/user/project")))))))
@@ -187,11 +239,15 @@
            "test-session-123" "/sessions/test-session-123" 'test-preset)
           (let ((content (captured-file-content
                           captured-files
-                          "/sessions/test-session-123/branches/main/scope.yml")))
+                          "/sessions/test-session-123/branches/main/session.org")))
             (expect content :to-be-truthy)
-            (expect content :to-match "/home/user/project")))))
+            (expect (jf/gptel-test--drawer-multi-value content "GPTEL_SCOPE_READ")
+                    :to-equal '("/home/user/project"))
+            ;; Preset name remains in the drawer alongside scope keys
+            (expect (jf/gptel-test--drawer-scalar content "GPTEL_PRESET")
+                    :to-equal "test-preset")))))
 
-    (it "expands ${project_root} in scope.yml paths when project-root provided"
+    (it "expands ${project_root} into the drawer when project-root provided"
       (let ((jf/gptel-preset--scope-defaults
              `((test-preset . (:paths (:read ("${project_root}/src")))))))
         (with-captured-io
@@ -200,12 +256,14 @@
            nil nil "/home/user/my-project")
           (let ((content (captured-file-content
                           captured-files
-                          "/sessions/test-session-123/branches/main/scope.yml")))
+                          "/sessions/test-session-123/branches/main/session.org")))
             (expect content :to-be-truthy)
-            (expect content :to-match "/home/user/my-project/src")
+            (expect (jf/gptel-test--drawer-multi-value content "GPTEL_SCOPE_READ")
+                    :to-equal '("/home/user/my-project/src"))
+            ;; Unexpanded variable should not appear anywhere in the file.
             (expect content :not :to-match "\\${project_root}")))))
 
-    (it "deep-merges worktree-paths with preset scope when both provided"
+    (it "deep-merges worktree-paths with preset scope into the drawer"
       (let ((jf/gptel-preset--scope-defaults
              `((test-preset . (:paths (:read ("/base/path")))))))
         (with-captured-io
@@ -214,24 +272,47 @@
            nil
            '(:paths (:read ("/extra/path")))
            nil)
-          (let ((content (captured-file-content
-                          captured-files
-                          "/sessions/test-session-123/branches/main/scope.yml")))
+          (let* ((content (captured-file-content
+                           captured-files
+                           "/sessions/test-session-123/branches/main/session.org"))
+                 (read-paths (jf/gptel-test--drawer-multi-value
+                              content "GPTEL_SCOPE_READ")))
             (expect content :to-be-truthy)
-            ;; Both paths should be present after deep merge
-            (expect content :to-match "/base/path")
-            (expect content :to-match "/extra/path")))))
+            ;; Both paths should be present after deep merge.
+            ;; Order is preset-first then worktree (per
+            ;; `jf/gptel-scope-profile--merge-lists').
+            (expect read-paths :to-equal '("/base/path" "/extra/path"))))))
 
-    (it "writes minimal scope.yml when preset has no scope configuration"
+    (it "renders a minimal drawer with no GPTEL_SCOPE_* keys when preset has no scope configuration"
+      ;; Per `jf/gptel-scope-profile--render-drawer-text', an empty
+      ;; scope-plist (the resolver returns nil for a preset with no
+      ;; scope defaults) yields a drawer carrying only `:GPTEL_PRESET:'.
+      ;; This is the renderer-side invariant; it is independent of the
+      ;; loader's empty-drawer behaviour, which `disposition-empty-
+      ;; drawer-collapse' resolved separately to deny-all defaults.
       (let ((jf/gptel-preset--scope-defaults nil))
         (with-captured-io
           (jf/gptel--create-session-core
            "test-session-123" "/sessions/test-session-123" 'no-scope-preset)
           (let ((content (captured-file-content
                           captured-files
-                          "/sessions/test-session-123/branches/main/scope.yml")))
-            ;; Should still write a scope.yml, even if minimal
-            (expect content :to-be-truthy)))))))
+                          "/sessions/test-session-123/branches/main/session.org")))
+            (expect content :to-be-truthy)
+            ;; Preset is recorded.
+            (expect (jf/gptel-test--drawer-scalar content "GPTEL_PRESET")
+                    :to-equal "no-scope-preset")
+            ;; No GPTEL_SCOPE_* keys are present.
+            (dolist (key '("GPTEL_SCOPE_READ"
+                           "GPTEL_SCOPE_WRITE"
+                           "GPTEL_SCOPE_MODIFY"
+                           "GPTEL_SCOPE_EXECUTE"
+                           "GPTEL_SCOPE_DENY"
+                           "GPTEL_SCOPE_CLOUD_AUTH"
+                           "GPTEL_SCOPE_CLOUD_PROVIDERS"))
+              (expect (jf/gptel-test--drawer-scalar content key) :to-be nil)
+              (expect (jf/gptel-test--drawer-multi-value content key) :to-be nil))
+            ;; Belt-and-braces: regex check the raw text.
+            (expect content :not :to-match ":GPTEL_SCOPE_")))))))
 
 (provide 'session-creation-spec)
 ;;; session-creation-spec.el ends here
