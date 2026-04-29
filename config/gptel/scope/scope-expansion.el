@@ -8,15 +8,15 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+(require 'org)
 (require 'transient)
 (require 'jf-gptel-scope-validation)
-(require 'jf-gptel-scope-yaml)
-(require 'yaml)
 
 (defvar-local jf/gptel-scope--expansion-queue nil
   "Queue of pending expansion prompts waiting to be shown.
-Each entry is a plist with :violation, :callback, :patterns, :tool-name.
-Buffer-local so concurrent gptel sessions don't interfere.")
+Each entry is a plist with :violation, :callback, :patterns, :tool-name,
+:chat-buffer.  Buffer-local so concurrent gptel sessions don't interfere.")
 
 (defvar-local jf/gptel-scope--expansion-active nil
   "Non-nil when an expansion transient menu is currently displayed.
@@ -33,12 +33,14 @@ If queue is empty, clears the active flag."
              (violation (plist-get next :violation))
              (callback (plist-get next :callback))
              (patterns (plist-get next :patterns))
-             (tool-name (plist-get next :tool-name)))
+             (tool-name (plist-get next :tool-name))
+             (chat-buffer (plist-get next :chat-buffer)))
         (transient-setup 'jf/gptel-scope-expansion-menu nil nil
                          :scope (list :violation violation
                                       :callback callback
                                       :patterns patterns
-                                      :tool-name tool-name)))
+                                      :tool-name tool-name
+                                      :chat-buffer chat-buffer)))
     ;; Queue empty — clear active flag
     (setq jf/gptel-scope--expansion-active nil)))
 
@@ -47,71 +49,74 @@ If queue is empty, clears the active flag."
 Examples: ~/foo/bar.txt → ~/foo/** | /a/b/src/init.el → /a/b/src/**"
   (concat (string-remove-suffix "/" (file-name-directory resource)) "/**"))
 
-(defun jf/gptel-scope--write-pattern-to-scope (pattern validation-type tool scope-file &optional denied-operation)
-  "Route PATTERN to appropriate scope updater based on VALIDATION-TYPE.
-TOOL is the tool name.  SCOPE-FILE is the path to scope.yml.
-DENIED-OPERATION is the bash-parser operation type of the violation
-(e.g. :read, :write) and lets add-path/add-bash target the correct
-scope.yml section."
+(defun jf/gptel-scope--current-chat-buffer ()
+  "Return the chat buffer associated with the active expansion, or nil.
+Reads `:chat-buffer' from the transient scope plist captured at
+expansion-trigger time. Falls back to `(current-buffer)' when no transient
+scope is available (defensive — production callers always go through the
+transient).  Returns nil when the captured buffer has been killed."
+  (let* ((scope (and (fboundp 'transient-scope) (transient-scope)))
+         (buffer (or (and scope (plist-get scope :chat-buffer))
+                     (current-buffer))))
+    (and (bufferp buffer) (buffer-live-p buffer) buffer)))
+
+(defun jf/gptel-scope--write-pattern-to-scope (pattern validation-type tool denied-operation)
+  "Route PATTERN to the drawer writer based on VALIDATION-TYPE.
+TOOL is the tool name (passed for diagnostic context only).
+DENIED-OPERATION is the operation keyword from the validation error
+(e.g. :read, :write) collapsed by the writer to the matching drawer key
+via `jf/gptel-scope--map-operation-to-drawer-key'.
+
+Returns the result of the underlying drawer writer (the pattern string
+when the buffer was modified, nil on dedup short-circuit, or nil on the
+bare-command branch of bash routing — see `--add-bash-to-scope')."
   (pcase validation-type
     ('path
-     (jf/gptel-scope--add-path-to-scope scope-file pattern tool denied-operation))
+     (jf/gptel-scope--add-path-to-scope pattern tool denied-operation))
     ('bash
-     (jf/gptel-scope--add-bash-to-scope scope-file pattern tool denied-operation))
+     (jf/gptel-scope--add-bash-to-scope pattern tool denied-operation))
     (_
      (user-error "Unknown validation type: %s" validation-type))))
-
-(defun jf/gptel-scope--get-scope-file-path ()
-  "Get the path to scope.yml for the current buffer context.
-Returns absolute path to scope.yml, or nil if context cannot be determined."
-  (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                         (and (buffer-file-name)
-                              (file-name-directory (buffer-file-name))))))
-    (when context-dir
-      (expand-file-name jf/gptel-session--scope-file context-dir))))
-
-(defun jf/gptel-scope--validate-scope-file-writable (scope-file)
-  "Validate SCOPE-FILE exists and is writable.
-Signals user-error if any check fails."
-  (unless scope-file
-    (user-error "No scope.yml found - unable to determine context directory"))
-  (unless (file-exists-p scope-file)
-    (user-error "No scope.yml found at %s" scope-file))
-  (unless (file-writable-p scope-file)
-    (user-error "scope.yml is not writable: %s" scope-file)))
-
-(defun jf/gptel-scope--read-scope-file-as-yaml (scope-file)
-  "Read and parse SCOPE-FILE as YAML.
-Delegates to scope-yaml module. Returns parsed plist."
-  (condition-case err
-      (jf/gptel-scope-yaml--parse-file scope-file)
-    (error
-     (user-error "Failed to parse scope.yml (%s): %s"
-                 scope-file (error-message-string err)))))
 
 (defun jf/gptel-scope--map-operation-to-drawer-key (operation)
   "Map a denied OPERATION keyword to the matching drawer key string.
 
-The input domain is the eleven `:operation' values declared by
+The input domain is the ten `:operation' values declared by
 `register/vocabulary/operation-to-drawer-key' (read-like collapse to
-GPTEL_SCOPE_READ; write-like collapse to GPTEL_SCOPE_WRITE; `:modify' →
-MODIFY; `:execute' → EXECUTE).  Returns the bare key form (e.g.
+GPTEL_SCOPE_READ; `:read-metadata' → GPTEL_SCOPE_READ_METADATA;
+write-like collapse to GPTEL_SCOPE_WRITE; `:modify' → MODIFY;
+`:execute' → EXECUTE).  Returns the bare key form (e.g.
 \"GPTEL_SCOPE_READ\") suitable for the `org-entry-*' property API; the
 colonised drawer literal \":GPTEL_SCOPE_READ:\" only appears in drawer
 text.
 
 Signals an error on any operation outside the closed input set, including
-nil — silent fall-through would grant read access on every typo or upstream
-nil-operation case.  Callers receiving violations with `:operation nil'
-(cloud-auth, parse-incomplete) must intercept at the action layer rather
-than relying on this function to choose a default."
+nil and `:match-pattern' — silent fall-through would grant read access on
+every typo or upstream nil-operation case, and routing a glob pattern
+into GPTEL_SCOPE_READ would grant reads on every filesystem match.
+Callers receiving violations with `:operation nil' (cloud-auth,
+parse-incomplete) or `:match-pattern' must intercept at the action layer
+rather than relying on this function to choose a default — see
+`harden-add-to-scope-action-handler' (cycle-3)."
   (cond
-   ((memq operation '(:read :read-directory :read-metadata :match-pattern))
+   ;; Read-like ops — :read-directory still collapses to READ since the
+   ;; whole directory is the resource and granting it as a read scope is
+   ;; the user's intent. :read-metadata gets its own bucket per ask 10A.
+   ((memq operation '(:read :read-directory))
     "GPTEL_SCOPE_READ")
+   ((eq operation :read-metadata)
+    "GPTEL_SCOPE_READ_METADATA")
+   ;; Write-like ops — :delete is intentionally kept under WRITE rather
+   ;; than getting its own bucket (cycle-2 ask 10C disposition).
    ((memq operation '(:write :create :create-or-modify :append :delete))
     "GPTEL_SCOPE_WRITE")
    ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
    ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
+   ;; Action-handler-only operations.  :match-pattern (cycle-2 ask 10B)
+   ;; must be redirected to its sibling :read-directory before reaching
+   ;; the writer; if it lands here, the upstream redirect is broken.
+   ((eq operation :match-pattern)
+    (error "scope-expansion: :match-pattern reached the writer — action handler should have redirected to :read-directory"))
    ((null operation)
     (error "scope-expansion: cannot map nil :operation to a drawer key — handle at the action layer"))
    (t
@@ -219,7 +224,7 @@ must already exist; this is true for any session created by
      (jf/gptel-scope--process-expansion-queue))))
 
 (defun jf/gptel-scope--add-to-scope ()
-  "Add violated resource to scope.yml permanently."
+  "Add violated resource to the chat buffer's scope drawer permanently."
   (interactive)
   (let* ((scope (transient-scope))
          (violation (plist-get scope :violation))
@@ -227,13 +232,11 @@ must already exist; this is true for any session created by
          (validation-type (plist-get violation :validation-type))
          (resource (plist-get violation :resource))
          (tool (plist-get violation :tool))
-         (denied-operation (plist-get violation :operation))
-         (scope-file (jf/gptel-scope--get-scope-file-path)))
+         (denied-operation (plist-get violation :operation)))
 
-    (jf/gptel-scope--validate-scope-file-writable scope-file)
-    ;; Route to the appropriate scope-section updater. denied-operation lets
-    ;; the helper target the correct paths.{read,write,execute,modify} section.
-    (jf/gptel-scope--write-pattern-to-scope resource validation-type tool scope-file denied-operation)
+    ;; Route to the drawer writer. denied-operation is collapsed to a
+    ;; :GPTEL_SCOPE_<KEY>: drawer key by --map-operation-to-drawer-key.
+    (jf/gptel-scope--write-pattern-to-scope resource validation-type tool denied-operation)
 
     ;; Notify callback with JSON response
     (condition-case err
@@ -255,7 +258,7 @@ must already exist; this is true for any session created by
     (jf/gptel-scope--process-expansion-queue)))
 
 (defun jf/gptel-scope--allow-once-action ()
-  "Authorize the pending tool invocation without modifying scope.yml.
+  "Authorize the pending tool invocation without modifying the scope drawer.
 Signals success to the wrapper's callback. The wrapper treats this the
 same as a passed validation and runs the tool body once. No state is
 persisted — a subsequent invocation of the same resource will prompt
@@ -281,7 +284,7 @@ again."
     (jf/gptel-scope--process-expansion-queue)))
 
 (defun jf/gptel-scope--add-wildcard-to-scope ()
-  "Add parent-directory wildcard pattern to scope.yml permanently."
+  "Add parent-directory wildcard pattern to the scope drawer permanently."
   (interactive)
   (let* ((scope (transient-scope))
          (violation (plist-get scope :violation))
@@ -290,11 +293,9 @@ again."
          (resource (plist-get violation :resource))
          (tool (plist-get violation :tool))
          (denied-operation (plist-get violation :operation))
-         (pattern (jf/gptel-scope--parent-wildcard-for resource))
-         (scope-file (jf/gptel-scope--get-scope-file-path)))
+         (pattern (jf/gptel-scope--parent-wildcard-for resource)))
 
-    (jf/gptel-scope--validate-scope-file-writable scope-file)
-    (jf/gptel-scope--write-pattern-to-scope pattern validation-type tool scope-file denied-operation)
+    (jf/gptel-scope--write-pattern-to-scope pattern validation-type tool denied-operation)
 
     (condition-case err
         (if callback
@@ -308,10 +309,11 @@ again."
        (message "Error invoking callback: %s" (error-message-string err))))
 
     (message "Added %s to scope" pattern)
-    (transient-quit-one)))
+    (transient-quit-one)
+    (jf/gptel-scope--process-expansion-queue)))
 
 (defun jf/gptel-scope--add-custom-to-scope ()
-  "Prompt for a custom pattern and add it to scope.yml permanently."
+  "Prompt for a custom pattern and add it to the scope drawer permanently."
   (interactive)
   (let* ((scope (transient-scope))
          (violation (plist-get scope :violation))
@@ -319,7 +321,7 @@ again."
          (validation-type (plist-get violation :validation-type))
          (resource (plist-get violation :resource))
          (tool (plist-get violation :tool))
-         (scope-file (jf/gptel-scope--get-scope-file-path))
+         (denied-operation (plist-get violation :operation))
          (custom-pattern (condition-case nil
                              (read-string (format "Add pattern [%s]: " resource) resource)
                            (quit nil))))
@@ -337,8 +339,7 @@ again."
            (message "Error invoking callback: %s" (error-message-string err))))
 
       ;; User provided a pattern — write it
-      (jf/gptel-scope--validate-scope-file-writable scope-file)
-      (jf/gptel-scope--write-pattern-to-scope custom-pattern validation-type tool scope-file)
+      (jf/gptel-scope--write-pattern-to-scope custom-pattern validation-type tool denied-operation)
 
       (condition-case err
           (if callback
@@ -353,65 +354,57 @@ again."
 
       (message "Added %s to scope" custom-pattern))
 
-    (transient-quit-one)))
+    (transient-quit-one)
+    (jf/gptel-scope--process-expansion-queue)))
 
 (defun jf/gptel-scope--edit-scope ()
-  "Open scope.yml for manual editing."
+  "Bring the chat buffer's session.org into focus and unfold the
+:PROPERTIES: drawer at point-min, then quit the transient."
   (interactive)
-  (let ((scope-file (jf/gptel-scope--get-scope-file-path)))
-    (if (and scope-file (file-exists-p scope-file))
-        (progn
-          (find-file scope-file)
-          (transient-quit-one))
-      (user-error "No scope.yml found - unable to determine context directory"))))
+  (let ((buffer (jf/gptel-scope--current-chat-buffer)))
+    (unless buffer
+      (user-error "No chat buffer associated with this expansion"))
+    (switch-to-buffer buffer)
+    (goto-char (point-min))
+    (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+      (org-cycle))
+    (transient-quit-one)))
 
-(defun jf/gptel-scope--add-path-to-scope
-    (scope-file path tool &optional denied-operation)
-  "Add PATH to scope.yml under appropriate section.
-SCOPE-FILE is the path to scope.yml.
-PATH is the file/directory path to add.
-TOOL is the tool name (used to determine read vs write if DENIED-OPERATION not given).
-DENIED-OPERATION, when non-nil, is the operation keyword from the validation error
-\(e.g., :read, :read-metadata, :write). Used to target the correct paths section
-instead of relying on the tool category. This is important for tools like
-run_bash_command which are categorized as :write but may be denied for a :read operation."
-  (jf/gptel-scope--validate-scope-file-writable scope-file)
-  (let* (;; Route by denied-operation when we have one (bash-parser path);
-         ;; otherwise default to :read (safest for filesystem tools whose
-         ;; category the caller did not pass through).
-         (target-section
-          (if denied-operation
-              (jf/gptel-scope--map-operation-to-scope-section denied-operation)
-            :read))
-         ;; Parse YAML file
-         (parsed (jf/gptel-scope--read-scope-file-as-yaml scope-file))
-         (normalized (jf/gptel-scope-yaml--normalize-keys parsed))
-         (paths (or (plist-get normalized :paths) (list)))
-         (section-paths (or (plist-get paths target-section) '())))
+(defun jf/gptel-scope--add-path-to-scope (path tool &optional denied-operation)
+  "Add PATH to the chat buffer's scope drawer.
+TOOL is passed for diagnostic context only (the writer routes by
+DENIED-OPERATION, not by tool category).
+DENIED-OPERATION is the operation keyword from the validation error
+(e.g., :read, :read-metadata, :write). The drawer writer collapses it
+to the matching :GPTEL_SCOPE_<KEY>: drawer key via
+`jf/gptel-scope--map-operation-to-drawer-key'.
 
-    ;; Add path if not already present (with /** suffix for directories)
-    (let ((normalized-path (if (string-suffix-p "/" path)
+When DENIED-OPERATION is nil, defaults to :read (the safest choice for
+filesystem tools whose category the caller did not pass through).
+Returns the result of the underlying writer (the pattern when the
+buffer was modified, nil on dedup short-circuit)."
+  (ignore tool)
+  (let* ((operation (or denied-operation :read))
+         ;; Trailing-slash → /** suffix preserves the v3 normalization
+         ;; behavior (a directory grant means \"this dir and below\").
+         (normalized-path (if (string-suffix-p "/" path)
                               (concat (directory-file-name path) "/**")
-                            path)))
-      (unless (member normalized-path section-paths)
-        (setq section-paths (append section-paths (list normalized-path)))
-        (setq paths (plist-put paths target-section section-paths))
-        (setq normalized (plist-put normalized :paths paths))
+                            path))
+         (buffer (jf/gptel-scope--current-chat-buffer)))
+    (unless buffer
+      (user-error "No chat buffer associated with this expansion"))
+    (jf/gptel-scope--write-pattern-to-drawer buffer operation normalized-path)))
 
-        ;; Write updated content (plain YAML, no delimiters)
-        (with-temp-buffer
-          (jf/gptel-scope--write-yaml-plist normalized)
-          (write-region (point-min) (point-max) scope-file nil 'silent))))))
+(defun jf/gptel-scope--add-bash-to-scope (resource tool &optional denied-operation)
+  "Add bash command RESOURCE to the chat buffer's scope drawer.
+TOOL is passed for diagnostic context only.
+DENIED-OPERATION, when non-nil, is the denied operation keyword (e.g.,
+:read-metadata) collapsed by the writer to the matching drawer key.
 
-(defun jf/gptel-scope--add-bash-to-scope (scope-file resource tool &optional denied-operation)
-  "Add bash command resource to scope.yml.
-RESOURCE is a file path — commands are validated by the file operations they
-perform, so there is no command-name expansion path.
-TOOL is the tool name.
-DENIED-OPERATION, when non-nil, is the denied operation keyword (e.g., :read-metadata)
-passed through to `add-path-to-scope' for correct section targeting."
-  (jf/gptel-scope--validate-scope-file-writable scope-file)
-
+Path-shaped RESOURCE values (absolute, tilde-prefixed, glob, or directory)
+delegate to `jf/gptel-scope--add-path-to-scope'. Bare command names
+emit a user message and return nil — they are not expandable in the
+operation-first model."
   ;; Check if resource is a path-like pattern or a bare command name.
   ;; Path-like: absolute (/..., ~...), directory, or contains a glob wildcard
   ;; (match-pattern operations produce globs like "*.txt").
@@ -420,140 +413,12 @@ passed through to `add-path-to-scope' for correct section targeting."
           (string-prefix-p "/" resource)
           (string-prefix-p "~" resource)
           (string-match-p "[*?]" resource))
-      (jf/gptel-scope--add-path-to-scope scope-file resource tool denied-operation)
+      (jf/gptel-scope--add-path-to-scope resource tool denied-operation)
 
     ;; Bare command name — not expandable in the operation-first model
     ;; (commands are validated by their file operations, not by name).
-    (message "Cannot add command '%s' to scope — use path-based expansion instead" resource)))
-
-(defun jf/gptel-scope--kebab-to-snake (key)
-  "Convert KEY from kebab-case to snake_case for YAML output.
-Delegates to scope-yaml module."
-  (jf/gptel-scope-yaml--kebab-to-snake key))
-
-(defun jf/gptel-scope--write-yaml-nested-list (key-name value)
-  "Write KEY-NAME with nested list VALUE to current buffer.
-VALUE is a plist where each key maps to a list of strings.
-Used for paths and org_roam_patterns sections."
-  (insert (format "%s:\n" key-name))
-  (cl-loop for (subkey subvalue) on value by #'cddr
-           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
-                (insert (format "  %s:\n" subkey-name))
-                (if subvalue
-                    (dolist (item subvalue)
-                      (insert (format "    - \"%s\"\n" item)))
-                  (insert "    []\n")))))
-
-(defun jf/gptel-scope--write-yaml-tools (key-name value)
-  "Write tools section with KEY-NAME and VALUE to current buffer.
-VALUE can be either a list of strings or a plist of tool configurations."
-  (insert (format "%s:\n" key-name))
-  (cond
-   ;; List of tool names
-   ((and (listp value) (stringp (car value)))
-    (dolist (item value)
-      (insert (format "  - %s\n" item))))
-   ;; Nested map (tool-name: {allowed: true})
-   ((and (listp value) (keywordp (car value)))
-    (cl-loop for (tool-key tool-props) on value by #'cddr
-             do (let ((tool-name (jf/gptel-scope--kebab-to-snake tool-key)))
-                  (insert (format "  %s:\n" tool-name))
-                  (when (listp tool-props)
-                    (cl-loop for (prop-key prop-val) on tool-props by #'cddr
-                             do (let ((prop-name (jf/gptel-scope--kebab-to-snake prop-key)))
-                                  (insert (format "    %s: %s\n" prop-name prop-val))))))))))
-
-(defun jf/gptel-scope--write-yaml-generic-nested-plist (key-name value)
-  "Write generic nested plist VALUE with KEY-NAME to current buffer.
-VALUE is a plist where each key maps to a simple value (string, number, symbol, or list).
-Used for :cloud, :security, and other nested config sections."
-  (insert (format "%s:\n" key-name))
-  (cl-loop for (subkey subvalue) on value by #'cddr
-           do (let ((subkey-name (jf/gptel-scope--kebab-to-snake subkey)))
-                (cond
-                 ;; String value
-                 ((stringp subvalue)
-                  (insert (format "  %s: \"%s\"\n" subkey-name subvalue)))
-
-                 ;; Number value
-                 ((numberp subvalue)
-                  (insert (format "  %s: %s\n" subkey-name subvalue)))
-
-                 ;; Boolean true (elisp t → YAML true)
-                 ((eq subvalue t)
-                  (insert (format "  %s: true\n" subkey-name)))
-
-                 ;; Boolean false / empty list (elisp nil → YAML false or [])
-                 ((null subvalue)
-                  ;; Context-dependent: security booleans are false, paths are []
-                  ;; Check if this is a known boolean field
-                  (if (memq subkey '(:enforce-parse-complete :auth-enabled))
-                      (insert (format "  %s: false\n" subkey-name))
-                    (insert (format "  %s: []\n" subkey-name))))
-
-                 ;; Other symbol values (should be rare, preserve as-is)
-                 ((symbolp subvalue)
-                  (insert (format "  %s: %s\n" subkey-name subvalue)))
-
-                 ;; List of strings
-                 ((and (listp subvalue) (stringp (car subvalue)))
-                  (insert (format "  %s:\n" subkey-name))
-                  (dolist (item subvalue)
-                    (insert (format "    - \"%s\"\n" item))))
-
-                 ;; Unknown type
-                 (t
-                  (error "Unknown nested value type for key '%s.%s': %S"
-                         key-name subkey-name subvalue))))))
-
-(defun jf/gptel-scope--write-yaml-simple-value (key-name value)
-  "Write simple (non-nested) VALUE with KEY-NAME to current buffer.
-Handles strings, numbers, symbols, and lists of strings."
-  (cond
-   ;; String value
-   ((stringp value)
-    (insert (format "%s: \"%s\"\n" key-name value)))
-
-   ;; Number value
-   ((numberp value)
-    (insert (format "%s: %s\n" key-name value)))
-
-   ;; Symbol value
-   ((symbolp value)
-    (insert (format "%s: %s\n" key-name value)))
-
-   ;; List of strings
-   ((and (listp value) (stringp (car value)))
-    (insert (format "%s:\n" key-name))
-    (dolist (item value)
-      (insert (format "  - %s\n" item))))
-
-   ;; Generic nested plist (fallback for :cloud, :security, etc.)
-   ((and (listp value) (keywordp (car value)))
-    (jf/gptel-scope--write-yaml-generic-nested-plist key-name value))
-
-   ;; Unknown type
-   (t
-    (error "Unknown simple value type for key '%s': %S" key-name value))))
-
-(defun jf/gptel-scope--write-yaml-plist (plist)
-  "Write PLIST as YAML to current buffer.
-Delegates to helper functions for different structure types.
-Converts kebab-case keys to snake_case for YAML output."
-  (cl-loop for (key value) on plist by #'cddr
-           do (let ((key-name (jf/gptel-scope--kebab-to-snake key)))
-                (cond
-                 ;; Nested list structures (paths)
-                 ((memq key '(:paths))
-                  (jf/gptel-scope--write-yaml-nested-list key-name value))
-
-                 ;; Tools (list or nested map)
-                 ((eq key :tools)
-                  (jf/gptel-scope--write-yaml-tools key-name value))
-
-                 ;; Simple values (strings, numbers, symbols, lists)
-                 (t
-                  (jf/gptel-scope--write-yaml-simple-value key-name value))))))
+    (message "Cannot add command '%s' to scope — use path-based expansion instead" resource)
+    nil))
 
 (defun jf/gptel-scope-prompt-expansion (violation-info callback patterns tool-name)
   "Show expansion UI for VIOLATION-INFO, or queue if one is already active.
@@ -562,27 +427,36 @@ PATTERNS is the list of patterns to add if approved.
 TOOL-NAME is the tool requesting expansion.
 VIOLATION-INFO is a plist with :tool, :resource, :reason, :validation-type.
 
+The current buffer is captured at expansion-trigger time and stored on
+the transient scope plist as `:chat-buffer'.  Action handlers retrieve
+it via `jf/gptel-scope--current-chat-buffer' and mutate the chat
+buffer's `:PROPERTIES:' drawer in place — the writer no longer round-
+trips through a YAML file.
+
 When multiple async tools trigger expansion simultaneously (via gptel's mapc),
 the first call shows the transient immediately and subsequent calls are queued.
 After the user responds to each prompt, `jf/gptel-scope--process-expansion-queue'
 shows the next queued prompt or clears the active flag.
 
 This is a public API function used by scope-shell-tools and other modules."
-  (if jf/gptel-scope--expansion-active
-      ;; Queue this prompt — a transient is already showing
-      (setq jf/gptel-scope--expansion-queue
-            (append jf/gptel-scope--expansion-queue
-                    (list (list :violation violation-info
-                                :callback callback
-                                :patterns patterns
-                                :tool-name tool-name))))
-    ;; No active expansion — show transient immediately
-    (setq jf/gptel-scope--expansion-active t)
-    (transient-setup 'jf/gptel-scope-expansion-menu nil nil
-                     :scope (list :violation violation-info
+  (let ((chat-buffer (current-buffer)))
+    (if jf/gptel-scope--expansion-active
+        ;; Queue this prompt — a transient is already showing
+        (setq jf/gptel-scope--expansion-queue
+              (append jf/gptel-scope--expansion-queue
+                      (list (list :violation violation-info
                                   :callback callback
                                   :patterns patterns
-                                  :tool-name tool-name))))
+                                  :tool-name tool-name
+                                  :chat-buffer chat-buffer))))
+      ;; No active expansion — show transient immediately
+      (setq jf/gptel-scope--expansion-active t)
+      (transient-setup 'jf/gptel-scope-expansion-menu nil nil
+                       :scope (list :violation violation-info
+                                    :callback callback
+                                    :patterns patterns
+                                    :tool-name tool-name
+                                    :chat-buffer chat-buffer)))))
 
 (provide 'jf-gptel-scope-expansion)
 ;;; scope-expansion.el ends here

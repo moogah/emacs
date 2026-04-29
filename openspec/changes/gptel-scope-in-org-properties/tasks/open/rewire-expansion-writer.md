@@ -157,3 +157,109 @@ specs/gptel/scope-expansion/spec.md § REMOVED Requirements / "scope.yml writer 
 - `arch-cycle-1777460733-8`: `:deny → GPTEL_SCOPE_DENY` arm removed from `--map-operation-to-drawer-key` (was dead — no producer emits `:deny`). **Implication for this task**: do NOT add a `:deny` operation when invoking the writer; if "add to deny list" is needed, it's an action-layer concern (see disposition-* tasks discovered from cycle 1).
 - `arch-cycle-1777460733-9`: permissive `t`-fallback replaced with strict error + explicit `(null operation)` error arm. **Implication for this task**: `--write-pattern-to-drawer` will signal on nil/unmapped operation; the action handlers must guard or the user-visible error will be a low-context Lisp error.
 - `arch-cycle-1777460733-11`: write-side cloud-auth validation added in `scope-profiles.el` (mirrors reader's enforcement at `scope-validation.el:546`). **Implication for this task**: orthogonal to the expansion writer rewire, but the cloud-auth path is now write-validated end-to-end.
+
+## Observations
+
+- **Chat-buffer plumbing**: the task brief offered two options for resolving the chat buffer in `--edit-scope` and the action handlers — capture at trigger time or pull from `(transient-scope)`. I implemented both: `jf/gptel-scope-prompt-expansion` captures `(current-buffer)` and stores it on the transient scope as `:chat-buffer` (and on each queued entry); a new helper `jf/gptel-scope--current-chat-buffer` reads from the transient scope and falls back to `(current-buffer)`. The fallback exists for callers that bypass the transient (e.g. unit tests that stub `transient-scope` without a buffer); production callers always go through `jf/gptel-scope-prompt-expansion`. The fallback is defensive and should be revisited if it produces surprising behavior in tests.
+- **`--add-wildcard-to-scope` and `--add-custom-to-scope` did not call `jf/gptel-scope--process-expansion-queue`** in the original code. `--add-to-scope` and `--deny-expansion` did. This appears to be a pre-existing latent bug: leaving the expansion-active flag set means subsequent queued prompts never fire. I added `process-expansion-queue` calls to both wildcard and custom handlers to make queue progression uniform across all add-to-scope variants. Worth a regression test in `migrate-expansion-tests` to lock the contract.
+- **YAML helper functions removed wholesale**: while the task only explicitly named `--get-scope-file-path` and `--validate-scope-file-writable` for deletion, the YAML round-trip (`--write-yaml-plist`, `--write-yaml-nested-list`, `--write-yaml-tools`, `--write-yaml-generic-nested-plist`, `--write-yaml-simple-value`, `--kebab-to-snake`, `--read-scope-file-as-yaml`, plus the `--add-path-to-scope` body that consumed them) had no remaining callers once handlers stopped routing through `--write-pattern-to-scope`'s YAML branch. I removed the entire `* YAML Helper Functions` section. The `(require 'jf-gptel-scope-yaml ...)` and `(require 'yaml)` imports were dropped. `--add-path-to-scope` and `--add-bash-to-scope` survive as thin wrappers around `--write-pattern-to-drawer` so the validation-type → routing dispatch in `--write-pattern-to-scope` keeps a single shape for all five action handlers.
+- **Signature changes for `--add-path-to-scope` / `--add-bash-to-scope` / `--write-pattern-to-scope`**: dropped the `scope-file` parameter (no longer needed; the writer mutates the chat buffer). The 28 expansion-folder test failures in `add-to-scope-section-targeting-spec.el`, `add-bash-to-scope-routing-spec.el`, and `expansion-ui-spec.el` all stem from this signature change and the YAML-fixture orientation of those tests; they are squarely in `migrate-expansion-tests`'s scope. The 14 new `operation-to-drawer-key-spec.el` tests added by this task all pass.
+- **Spec `expansion-ui-spec.el` "creates transient scope with correct structure"** now fails because the assertion pinned the OLD scope plist shape (without `:chat-buffer`). The test will be migrated in `migrate-expansion-tests`; the production behavior is correct.
+- **Spec REMOVED Requirement "Context directory resolution"** is honored: `--add-path-to-scope` no longer signals `user-error` on missing/unwritable scope.yml. Two `expansion-ui-handlers-spec.el` tests (`handles scope file not found error`, `handles scope file not writable error`) assert the obsolete error contract. They will be migrated.
+- **Latent issue in `jf/gptel-scope--map-operation-to-scope-section`** (in `scope-validation.el`): this is the YAML-section-key analogue of the drawer-key collapse, and per the design rationale must stay in lockstep. After this task the writer side no longer uses it (production path is fully drawer-based), but it's still referenced by validator code paths. Cycle-3 should audit whether it's still load-bearing or can be deleted alongside the YAML I/O on the loader side.
+- **Spec text `specs/gptel/scope-expansion/spec.md` line 84** still reads "read-like granular operations (`:read-directory`, `:read-metadata`, `:match-pattern`) collapse to `:GPTEL_SCOPE_READ`". This contradicts the cycle-2 dispositions encoded in this task (and in `interfaces.org`). The spec text update belongs to the `opsx-sync` / archive phase; not modified here per role boundaries.
+- **`--add-bash-to-scope` bare-command branch (Bug 2 from `scope-rearch-followups`)**: I retained the existing "emit message and return nil" behavior. The callback is fired by the action handlers themselves (`--add-to-scope` etc.) regardless of the writer's return value, so the wrapper does not hang when `--add-bash-to-scope` returns nil — Bug 2's hang condition is already mitigated by the action-handler structure. I did not add a "Cannot add command 'X' to scope" callback message because the action handler emits a generic "Added X to scope" success message and the wrapper sees `:success t`. This is a behavior preservation choice; if the user-facing UX should signal "no-op" instead of "added", that's a follow-up.
+
+## Discoveries
+
+- discovery_id: disc-rewire-expansion-writer-1
+  class: shape-fragmentation
+  description: |
+    The transient scope plist shape now includes `:chat-buffer` (added by
+    this task) alongside `:violation`, `:callback`, `:patterns`,
+    `:tool-name`. This is not currently declared as a register entry. The
+    five action handlers and `--current-chat-buffer` are all consumers;
+    `jf/gptel-scope-prompt-expansion` and `--process-expansion-queue` are
+    producers. Without a register entry, future edits could accidentally
+    drop the `:chat-buffer` field.
+  affected_register_entry: register/shape/violation-info (adjacent — this
+    is a different plist, the transient-scope plist, which has no
+    register entry yet)
+  recommendation: |
+    Add a `register/shape/expansion-transient-scope` entry that pins the
+    five-key shape (`:violation`, `:callback`, `:patterns`, `:tool-name`,
+    `:chat-buffer`) and lists the producers/consumers. Status:
+    speculated until cycle-3 lands `harden-add-to-scope-action-handler`
+    which will be the largest consumer.
+
+- discovery_id: disc-rewire-expansion-writer-2
+  class: invariant-gap
+  description: |
+    `jf/gptel-scope--process-expansion-queue` was called by
+    `--add-to-scope` and `--deny-expansion` but NOT by
+    `--add-wildcard-to-scope` or `--add-custom-to-scope` in the previous
+    code. This means queued expansions could be silently dropped if the
+    user resolved the first via wildcard or custom-pattern. I added the
+    queue-progression call to both handlers in this task. The
+    invariant should be: every transient suffix that returns control
+    must call `--process-expansion-queue` (or be a no-op like
+    `transient-quit-one`).
+  affected_register_entry: (none yet — would be a new
+    `register/invariant/expansion-queue-always-progresses`)
+  recommendation: |
+    Add the invariant to `interfaces.org` and have
+    `migrate-expansion-tests` add a regression spec: queue two
+    expansions, resolve the first via wildcard, assert the second
+    transient is set up.
+
+- discovery_id: disc-rewire-expansion-writer-3
+  class: dead-branch
+  description: |
+    `jf/gptel-scope--map-operation-to-scope-section` (in
+    `scope-validation.el`) is the YAML-section analogue of
+    `--map-operation-to-drawer-key`. After this task lands, the writer
+    side has no callers of the YAML-section function. The validator may
+    still use it for diagnostics, but it should be audited.
+  affected_register_entry: register/vocabulary/operation-to-drawer-key
+    (the section-key analogue is not registered separately)
+  recommendation: |
+    Cycle-3 audit: grep `--map-operation-to-scope-section` callers; if
+    only validator-internal diagnostic, document or remove. If still
+    load-bearing for the loader side, the lockstep coupling needs a
+    register entry to track.
+
+- discovery_id: disc-rewire-expansion-writer-4
+  class: spec-signal
+  description: |
+    The spec `specs/gptel/scope-expansion/spec.md` (REQUIRED Section-
+    targeted writes scenario) still describes the pre-cycle-2 collapse
+    where `:read-metadata` and `:match-pattern` collapse to
+    `GPTEL_SCOPE_READ`. After cycle-2 dispositions 10A/10B, this is now
+    contradicted by both the implementation and `interfaces.org`. Spec
+    text was not modified here (out of role scope).
+  affected_register_entry: register/vocabulary/operation-to-drawer-key
+  recommendation: |
+    `opsx-sync` (or `delete-yaml-and-security-residue` archive prep)
+    should reconcile the spec text with the cycle-2 disposition. The
+    new wording: ":read-metadata collapses to GPTEL_SCOPE_READ_METADATA;
+    :match-pattern is action-handler-only (redirected to
+    :read-directory)."
+
+- discovery_id: disc-rewire-expansion-writer-5
+  class: deviation
+  description: |
+    `--add-bash-to-scope` bare-command branch behavior preserved
+    verbatim from before the rewire (emit message, return nil). The
+    `scope-rearch-followups` Bug 2 fix is implicitly satisfied because
+    the callback is invoked by the action handler (which always fires
+    on the success path), not by `--add-bash-to-scope` itself. The
+    user-facing message says "Added X to scope" even on the bare-
+    command no-op path because the handler doesn't differentiate. This
+    is a UX paper-cut, not a correctness issue.
+  affected_register_entry: (none — UX-only)
+  recommendation: |
+    Optional follow-up: `--add-bash-to-scope` could return a status
+    plist (`(:wrote t)` vs `(:wrote nil :reason "bare command name")`)
+    so the action handler can choose the right user-facing message and
+    the right callback shape. Park in `.tasks/` if the maintainer cares
+    about the UX.
