@@ -24,6 +24,27 @@
 (require 'bash-parser-orchestrator)
 ;; Dependencies:1 ends here
 
+;; Constants
+
+;; These are module-level structural constants that replace the former
+;; =:security= sub-plist of the loaded scope-config.  They are *not* user-
+;; tunable and *not* per-session configurable: the public contract is that
+;; parse-completeness is enforced unconditionally and the coverage warning
+;; threshold is exactly 100%.  Any caller that reaches for a per-session
+;; override here is fighting the contract — see =interfaces.org= § Scope
+;; Config Shape.
+
+
+;; [[file:scope-validation.org::*Constants][Constants:1]]
+(defconst jf/gptel-scope--enforce-parse-complete t
+  "Whether Stage 1 of the bash validation pipeline refuses commands with
+incomplete parses. Fixed at module load; not configurable per session.")
+
+(defconst jf/gptel-scope--coverage-threshold 1.0
+  "Threshold below which the bash semantic-plugin coverage check emits
+a non-blocking warning. Fixed at module load; not configurable per session.")
+;; Constants:1 ends here
+
 ;; Operation → Scope Section Mapping
 
 ;; Canonical mapping from bash-parser operation keywords to the three scope
