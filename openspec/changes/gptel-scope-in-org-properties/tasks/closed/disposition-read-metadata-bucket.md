@@ -1,12 +1,39 @@
 ---
 name: disposition-read-metadata-bucket
-description: "User-decision task (finding-10A). Choose how to handle :read-metadata violations — new READ_METADATA bucket, allow-once-only at action layer, or keep current READ collapse."
+description: "User-decision task (finding-10A). Decision recorded cycle-2 plan (2026-04-29): Path 1 — introduce GPTEL_SCOPE_READ_METADATA as a 6th list-shape drawer key. Implementation falls to rewire-expansion-writer (cycle-2)."
 change: gptel-scope-in-org-properties
-status: blocked
+status: done
 relations:
-  - blocked-by:rewire-expansion-writer
   - discovered-from:implement-drawer-writer
+  - enables:rewire-expansion-writer
 ---
+
+## Decision (recorded cycle-2 plan, 2026-04-29)
+
+**Path 1 chosen**: introduce `GPTEL_SCOPE_READ_METADATA` as a 6th
+list-shape drawer key.
+
+The deliverable for this task is the decision itself, recorded to:
+
+- `interfaces.org` :: `register/vocabulary/drawer-key-set` — added
+  `:GPTEL_SCOPE_READ_METADATA:` member (8th total; 6th list-shape);
+  `status_note` documents the cycle-2 addition pending rewires.
+- `interfaces.org` :: `register/vocabulary/operation-to-drawer-key`
+  — `:read-metadata` member's `collapses_to` flipped from
+  `GPTEL_SCOPE_READ` to `GPTEL_SCOPE_READ_METADATA`; `decision_note`
+  added; entry status reconciled → speculated pending rewire.
+- `interfaces.org` :: `register/shape/scope-config-plist` —
+  `:paths` sub-plist now documents six list-valued keys (added
+  `:read-metadata`).
+
+Implementation follow-through (writer arm, loader arm, scaffolding,
+tests) lands in **rewire-expansion-writer** (cycle-2 batch).
+Migration of test fixtures lands in **migrate-expansion-tests** and
+**migrate-validation-tests** (cycle-3).
+
+---
+
+## Original task (preserved for context)
 
 ## Cites register entries
 

@@ -1,12 +1,33 @@
 ---
 name: disposition-delete-vs-write-bucket
-description: "User-decision task (finding-10C). Decide whether :delete should remain collapsed into WRITE or get its own GPTEL_SCOPE_DELETE drawer key."
+description: "User-decision task (finding-10C). Decision recorded cycle-2 plan (2026-04-29): Path 2 — keep current WRITE collapse. Recovery-asymmetry tradeoff documented; users wanting deletion-locked-out add the file pattern to GPTEL_SCOPE_DENY explicitly."
 change: gptel-scope-in-org-properties
-status: blocked
+status: done
 relations:
-  - blocked-by:rewire-expansion-writer
   - discovered-from:implement-drawer-writer
 ---
+
+## Decision (recorded cycle-2 plan, 2026-04-29)
+
+**Path 2 chosen**: keep current WRITE collapse.
+
+Granting `:GPTEL_SCOPE_WRITE:` on `/workspace/**` continues to imply
+both overwrite and delete on matching paths. The recovery-asymmetry
+between overwrite (VCS-recoverable) and delete (often not) is
+accepted as a known limitation.
+
+The deliverable for this task is the decision itself, recorded to:
+
+- `interfaces.org` :: `register/vocabulary/operation-to-drawer-key`
+  — `:delete` `decision_note` documents the accepted tradeoff and
+  the explicit-deny escape hatch.
+
+No drawer-key-set or scope-config-plist changes (no new bucket).
+No follow-up implementation task.
+
+---
+
+## Original task (preserved for context)
 
 ## Cites register entries
 

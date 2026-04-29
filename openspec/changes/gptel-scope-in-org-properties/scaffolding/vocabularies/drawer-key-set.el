@@ -2,9 +2,10 @@
 ;;
 ;; scaffolding-of: register/vocabulary/drawer-key-set
 ;; generated-at: 2026-04-29T11:05:33Z
+;; revised-at: 2026-04-29T15:50:00Z (cycle-2 plan; ask 10A added READ_METADATA)
 ;; license: implementor-may-revise
 ;;
-;; The seven :GPTEL_SCOPE_* drawer keys and their plist-path mapping.
+;; The eight :GPTEL_SCOPE_* drawer keys and their plist-path mapping.
 ;; The arms are unimplemented `error' calls so any consumer that
 ;; accidentally feeds a key not in the canonical set fails loudly at
 ;; runtime — not at audit, not silently.
@@ -18,6 +19,8 @@ without the `+' multi-value suffix (e.g. \"GPTEL_SCOPE_READ\" not
   (pcase key
     ("GPTEL_SCOPE_READ"
      (error "speculated; not implemented — should return '(:paths :read)"))
+    ("GPTEL_SCOPE_READ_METADATA"
+     (error "speculated; not implemented — should return '(:paths :read-metadata) ; cycle-2 ask 10A"))
     ("GPTEL_SCOPE_WRITE"
      (error "speculated; not implemented — should return '(:paths :write)"))
     ("GPTEL_SCOPE_MODIFY"
@@ -39,7 +42,7 @@ without the `+' multi-value suffix (e.g. \"GPTEL_SCOPE_READ\" not
 (defun jf/gptel-scope--all-drawer-keys/scaffold ()
   "Return every drawer key the vocabulary entry declares.
 Used by audit code to enumerate the closed set without parsing YAML."
-  (error "speculated; not implemented — should return the seven keys above as strings"))
+  (error "speculated; not implemented — should return the eight keys above as strings (six list-shape + two cloud)"))
 
 (provide 'drawer-key-set/scaffold)
 ;;; drawer-key-set.el ends here

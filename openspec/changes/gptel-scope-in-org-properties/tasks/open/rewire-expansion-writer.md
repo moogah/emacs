@@ -1,26 +1,70 @@
 ---
 name: rewire-expansion-writer
-description: Switch expansion add-to-scope handlers to the drawer writer; remove scope.yml file-path resolver
+description: Switch expansion add-to-scope handlers to the drawer writer; remove scope.yml file-path resolver; honor cycle-2 dispositions (READ_METADATA bucket, action-handler-only :match-pattern, kept-WRITE :delete)
 change: gptel-scope-in-org-properties
-status: blocked
+status: ready
 relations:
-  - blocked-by:implement-drawer-writer
+  - discovered-from:implement-drawer-writer
+  - enables:harden-add-to-scope-action-handler
+  - enables:migrate-expansion-tests
+  - enables:add-drawer-corruption-regression
+  - enables:delete-yaml-and-security-residue
 ---
 
 ## Cites register entries
 
 - `register/boundary/scope-pattern-writer` — every `--add-*-to-scope` handler becomes a consumer of this boundary; no other code path is allowed to mutate drawer scope state.
 - `register/shape/violation-info` — your handlers read `:operation`, `:resource`, `:validation-type`, `:tool` from the violation-info plist.
-- `register/vocabulary/operation-to-drawer-key` — your handlers route operations through this canonical mapping; no inline `pcase` translations elsewhere.
+- `register/vocabulary/operation-to-drawer-key` — your handlers route operations through this canonical mapping; no inline `pcase` translations elsewhere. **Cycle-2 update**: `:read-metadata` now collapses to `GPTEL_SCOPE_READ_METADATA` (not READ); `:match-pattern` is removed from the writer's domain (errors loudly if it reaches the writer).
+- `register/vocabulary/drawer-key-set` — **cycle-2 update**: includes `GPTEL_SCOPE_READ_METADATA` as a 6th list-shape key.
+- `register/shape/scope-config-plist` — **cycle-2 update**: `:paths` sub-plist now has six list-valued keys (`:read-metadata` added).
 - `register/invariant/scope-add-pattern-idempotent` — preserve the contract: the same pattern twice is a no-op with empty `:patterns_added`.
 
 Scaffolds:
 - `openspec/changes/gptel-scope-in-org-properties/scaffolding/boundaries/scope-pattern-writer.el`
 - `openspec/changes/gptel-scope-in-org-properties/scaffolding/vocabularies/operation-to-drawer-key.el`
+- `openspec/changes/gptel-scope-in-org-properties/scaffolding/vocabularies/drawer-key-set.el` — **cycle-2 update**: regenerated with the 8-member set including `GPTEL_SCOPE_READ_METADATA`.
 
 ## Files to modify
-- `config/gptel/scope/scope-expansion.org` (modify) — rewire `--add-to-scope`, `--add-wildcard-to-scope`, `--add-custom-to-scope`, `--add-path-to-scope`, `--add-bash-to-scope` to use `jf/gptel-scope--write-pattern-to-drawer`; rewrite `--edit-scope` (Edit Manually action) to surface `session.org` instead of `scope.yml`; remove `--get-scope-file-path` and `--validate-scope-file-writable`; remove the `(require 'jf-gptel-scope-yaml ...)` import.
+- `config/gptel/scope/scope-expansion.org` (modify) — rewire `--add-to-scope`, `--add-wildcard-to-scope`, `--add-custom-to-scope`, `--add-path-to-scope`, `--add-bash-to-scope` to use `jf/gptel-scope--write-pattern-to-drawer`; **update `--map-operation-to-drawer-key` so `:read-metadata` collapses to `GPTEL_SCOPE_READ_METADATA` (cycle-2 ask 10A) and `:match-pattern` errors loudly (cycle-2 ask 10B; action handler is responsible for redirecting upstream)**; rewrite `--edit-scope` (Edit Manually action) to surface `session.org` instead of `scope.yml`; remove `--get-scope-file-path` and `--validate-scope-file-writable`; remove the `(require 'jf-gptel-scope-yaml ...)` import.
 - Tangle: `./bin/tangle-org.sh config/gptel/scope/scope-expansion.org`.
+
+## Cycle-2 dispositions (writer scope)
+
+This task implements the **writer-side** half of the cycle-1
+disposition tasks. The action-handler half lives in
+`harden-add-to-scope-action-handler` (cycle-3).
+
+### Ask 10A — :read-metadata gets its own bucket (Path 1)
+
+- `--map-operation-to-drawer-key` returns `"GPTEL_SCOPE_READ_METADATA"`
+  for `:read-metadata` (was `"GPTEL_SCOPE_READ"`). See
+  `interfaces.org` :: `register/vocabulary/operation-to-drawer-key`
+  for the full revised cond.
+- The writer otherwise treats `GPTEL_SCOPE_READ_METADATA` exactly
+  like the other list-shape keys (dedup, `+:` suffix, save-buffer).
+- **Out of scope for this task**: validator-side acceptance of
+  `:read-metadata` against `:paths.read-metadata` patterns. That
+  belongs to `rewire-validator-config-load` — verify on review that
+  the loader stage 1/2 collapse parses the new key into
+  `(:paths :read-metadata <list>)`.
+
+### Ask 10B — :match-pattern not in writer domain (Path 2)
+
+- `--map-operation-to-drawer-key` raises a strict error if
+  `:match-pattern` reaches it: `"scope-expansion: :match-pattern
+  reached the writer — action handler should have redirected to
+  :read-directory"`.
+- Add a buttercup spec asserting the error contract (the action
+  handler's redirect logic itself is tested in
+  `harden-add-to-scope-action-handler` cycle-3).
+
+### Ask 10C — :delete keeps WRITE (Path 2)
+
+- No code change; the existing `(memq operation '(:write :create
+  :create-or-modify :append :delete))` arm is preserved. Update
+  the inline comment to reference the disposition decision so a
+  future reader doesn't re-litigate it.
 
 ## Implementation steps
 

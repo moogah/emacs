@@ -78,9 +78,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - name: ":paths"
        type: plist
        description: |
-         Sub-plist with five list-valued keys: :read :write :modify :execute
-         :deny. Each is a list of glob patterns; missing keys default to nil
-         (empty list, i.e. "no patterns of this kind").
+         Sub-plist with six list-valued keys: :read :read-metadata :write
+         :modify :execute :deny. Each is a list of glob patterns; missing
+         keys default to nil (empty list, i.e. "no patterns of this kind").
+         :read-metadata was added in cycle-2 (ask 10A) to support the
+         GPTEL_SCOPE_READ_METADATA bucket; metadata-only paths in this list
+         permit stat-style operations but not content reads.
      - name: ":cloud"
        type: plist
        description: |
@@ -285,8 +288,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    entry_id: register/vocabulary/drawer-key-set
    tier: vocabulary
    status: speculated
+   status_note: |
+     cycle-2 plan (2026-04-29): added GPTEL_SCOPE_READ_METADATA as a
+     6th list-shape drawer key per ask 10A disposition. Pending
+     rewire-expansion-writer (writer-side emit), rewire-validator-config-
+     load (loader-side accept), and migrate-* test fixtures (read/write
+     symmetry). Until then this entry's eight-member set is speculated.
    load_bearing: true
-   title: The seven :GPTEL_SCOPE_* drawer keys and their plist field mapping
+   enforcement_loci: [reader, writer, fixture]
+   unmapped_policy: error
+   unmapped_policy_rationale: |
+     Loader is strict on unknown drawer keys: a typo like
+     :GPTEL_SCOPE_READ_META: silently widens nothing today, but as
+     cycle-1 reconciliation noted, an "unknown key" path is exactly
+     where the legacy YAML loader's silent-widening incidents lived.
+     The buffer-first config loader emits a warning on unknown
+     :GPTEL_SCOPE_* keys (or errors, behind a defcustom — see
+     register/boundary/scope-config-loader stage 2 reconciliation).
+   title: The eight :GPTEL_SCOPE_* drawer keys and their plist field mapping
    purpose: |
      The closed set of property keys this change introduces in the file-
      level :PROPERTIES: drawer of session.org, plus the canonical mapping
@@ -300,11 +319,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    members:
      - value: ":GPTEL_SCOPE_READ:" (with "+:" suffix variant)
        cardinality: list
-       description: read-allowed glob patterns
+       description: read-allowed glob patterns (content reads)
        plist_path: (:paths :read)
+     - value: ":GPTEL_SCOPE_READ_METADATA:" (with "+:" suffix variant)
+       cardinality: list
+       description: |
+         metadata-only read patterns. Permits stat-style operations
+         (test -f, which, dirname, ls -l) but not content reads.
+         Introduced cycle-2 (ask 10A) to keep `[ -f /etc/passwd ]`
+         from grant-by-side-effect to `cat /etc/passwd`. The validator
+         accepts a content-read against a path *iff* the path matches
+         GPTEL_SCOPE_READ; metadata-only paths do not satisfy the
+         content-read predicate.
+       plist_path: (:paths :read-metadata)
+       speculated_since: cycle-2 plan
      - value: ":GPTEL_SCOPE_WRITE:" (with "+:" suffix variant)
        cardinality: list
-       description: write-allowed glob patterns
+       description: write-allowed glob patterns (covers :create, :create-or-modify, :append, :delete)
        plist_path: (:paths :write)
      - value: ":GPTEL_SCOPE_MODIFY:" (with "+:" suffix variant)
        cardinality: list
@@ -338,6 +369,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      two-element plist-path list."
        (pcase key
          ("GPTEL_SCOPE_READ"            '(:paths :read))
+         ("GPTEL_SCOPE_READ_METADATA"   '(:paths :read-metadata))
          ("GPTEL_SCOPE_WRITE"           '(:paths :write))
          ("GPTEL_SCOPE_MODIFY"          '(:paths :modify))
          ("GPTEL_SCOPE_EXECUTE"         '(:paths :execute))
@@ -349,6 +381,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    validator: |
      (defun vocabulary/validate-drawer-key (key)
        (memq key '("GPTEL_SCOPE_READ"
+                   "GPTEL_SCOPE_READ_METADATA"
                    "GPTEL_SCOPE_WRITE"
                    "GPTEL_SCOPE_MODIFY"
                    "GPTEL_SCOPE_EXECUTE"
@@ -370,15 +403,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/operation-to-drawer-key
    tier: vocabulary
-   status: reconciled
+   status: speculated
+   status_note: |
+     cycle-1 reconciled the closed-set discipline, the strict-error
+     unmapped_policy, and the absence of :deny / nil-operation arms.
+     cycle-2 user dispositions (asks 10A/B/C, 2026-04-29) introduced
+     READ_METADATA as a separate collapse target for :read-metadata,
+     and removed :match-pattern from the writer's domain entirely
+     (action handler redirects to :read-directory upstream). These
+     additions are speculated until rewire-expansion-writer lands and
+     review confirms the writer/action-handler split.
    load_bearing: true
+   enforcement_loci: [writer]
    title: Granular operation → drawer-key collapse
    purpose: |
      Maps the granular :operation values produced by the validator pipeline
-     and the bash-parser semantic plugins onto the four list-shaped drawer
-     keys (READ / WRITE / MODIFY / EXECUTE). This is the structural
-     analogue of bash-parser's 11-op-to-3-section mapping that drove the
-     prior incident. The mapping lives in exactly one place —
+     and the bash-parser semantic plugins onto the five list-shaped drawer
+     keys (READ / READ_METADATA / WRITE / MODIFY / EXECUTE). This is the
+     structural analogue of bash-parser's 11-op-to-3-section mapping that
+     drove the prior incident. The mapping lives in exactly one place —
      jf/gptel-scope--map-operation-to-drawer-key — and any pcase / cond
      performing the same translation at another site is a duplication bug.
 
@@ -389,6 +432,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      conflate violation-outcome (denied) with operation-kind (read/write/
      etc) which are different axes.
 
+     :match-pattern is *also* not in the writer's collapse domain. The
+     bash-parser emits :match-pattern with the literal pattern as
+     :resource (e.g. "*.txt" from `find -name`); routing the pattern
+     into a path-allowlist drawer key would grant reads on every
+     filesystem match. Per ask 10B (cycle-2 disposition), the action
+     handler intercepts :match-pattern violations *before* the writer
+     is called and redirects the add to the sibling :read-directory
+     resource (the search root). The writer's strict-error fallback
+     therefore signals "match-pattern reached the writer" as a defect,
+     not a vocabulary gap.
+
    members:
      - value: :read
        collapses_to: GPTEL_SCOPE_READ
@@ -397,22 +451,27 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        collapses_to: GPTEL_SCOPE_READ
        producer: filesystem-tools read-directory dispatch
      - value: :read-metadata
-       collapses_to: GPTEL_SCOPE_READ
+       collapses_to: GPTEL_SCOPE_READ_METADATA
        producer: bash-parser stat / metadata plugin
-       open_question: |
-         finding-10A pending: metadata reads grant persistent read access
-         on a transient stat. Future work may introduce GPTEL_SCOPE_READ_
-         METADATA or route metadata violations to allow-once-only at the
-         action layer. Until then, collapses to READ matches current
-         behaviour.
+       decision_note: |
+         ask 10A resolved (cycle-2, 2026-04-29) to option (1): introduce
+         GPTEL_SCOPE_READ_METADATA as a 6th drawer key. Metadata stats
+         (e.g. `[ -f file ]`, `which python`, `dirname /path`) grant only
+         metadata access; they do not grant content-read on the file.
+         Implementation: rewire-expansion-writer task in cycle-2 batch.
      - value: :match-pattern
-       collapses_to: GPTEL_SCOPE_READ
+       collapses_to: NONE  # action handler redirects to :read-directory
        producer: bash-parser globbing plugin (find/ls)
-       open_question: |
-         finding-10B pending: globs (e.g. "*.txt") in :match-pattern
-         violations are not paths. Routing them into READ grants reads
-         on every match anywhere. Future work may refuse to add globs to
-         scope and prompt for search-path expansion instead.
+       redirect_target: :read-directory
+       decision_note: |
+         ask 10B resolved (cycle-2, 2026-04-29) to option (2): smart
+         redirect at the action handler. The writer never sees
+         :match-pattern; if it does, that is a defect (action handler
+         missed the redirect). The action handler examines the
+         violation cluster, finds the sibling :read-directory operation
+         (search root), and routes the add there. Implementation:
+         harden-add-to-scope-action-handler task in cycle-3 batch
+         (former: refuse-add-to-scope-on-nil-operation, broadened).
      - value: :write
        collapses_to: GPTEL_SCOPE_WRITE
        producer: validator pipeline (path), bash-parser write-ops plugin
@@ -428,11 +487,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - value: :delete
        collapses_to: GPTEL_SCOPE_WRITE
        producer: bash-parser delete-ops plugin
-       open_question: |
-         finding-10C pending: delete and overwrite have different threat
-         models. Future work may introduce GPTEL_SCOPE_DELETE as a
-         separate drawer key with no fallback to write. Until then,
-         collapses to WRITE matches current behaviour.
+       decision_note: |
+         ask 10C resolved (cycle-2, 2026-04-29) to option (2): keep
+         current WRITE collapse. Granting WRITE on a directory implies
+         delete-on-the-directory's-files. Tradeoff documented; not
+         introducing a separate GPTEL_SCOPE_DELETE bucket. The
+         recovery-asymmetry between overwrite (VCS-recoverable) and
+         delete (often not) is accepted as a known limitation; users
+         who want deletion-locked-out can add the file pattern to
+         GPTEL_SCOPE_DENY explicitly.
      - value: :modify
        collapses_to: GPTEL_SCOPE_MODIFY
        producer: filesystem-tools edit_file_in_scope dispatch
@@ -459,15 +522,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    canonical_mapping_function: |
      (defun jf/gptel-scope--map-operation-to-drawer-key (operation)
        "Map a denied OPERATION keyword to the matching drawer key string.
-     The input domain is the eleven :operation values; signals an error on
-     anything outside the closed set, including nil."
+     The writer's input domain is ten :operation values (eleven minus
+     :match-pattern, which the action handler redirects upstream).
+     Signals an error on anything outside the closed set, including nil
+     and :match-pattern."
        (cond
-        ((memq operation '(:read :read-directory :read-metadata :match-pattern))
+        ((memq operation '(:read :read-directory))
          "GPTEL_SCOPE_READ")
+        ((eq operation :read-metadata)
+         "GPTEL_SCOPE_READ_METADATA")
         ((memq operation '(:write :create :create-or-modify :append :delete))
          "GPTEL_SCOPE_WRITE")
         ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
         ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
+        ((eq operation :match-pattern)
+         (error "scope-expansion: :match-pattern reached the writer — action handler should have redirected to :read-directory"))
         ((null operation)
          (error "scope-expansion: cannot map nil :operation — handle at the action layer"))
         (t
@@ -482,13 +551,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    closed_set: true
    closed_set_note: |
-     Eleven members today. Any new bash-parser semantic op type must be
-     added here, in the canonical mapping function, and to the
-     filesystem-tools / validator-pipeline producer in the same change;
-     the architect's vocabulary-mismatch scan flags any pcase/cond that
-     mentions an op not in this entry. The unmapped_policy is `error`
-     so a producer adding a value without updating this entry surfaces
-     at the writer immediately.
+     Eleven members in the producer-vocabulary domain (validator
+     produces these); ten in the writer's collapse domain
+     (:match-pattern is action-layer-only). Any new bash-parser
+     semantic op type must be added here, in the canonical mapping
+     function (writer arm) or in the action handler (redirect arm),
+     and to the filesystem-tools / validator-pipeline producer in the
+     same change; the architect's vocabulary-mismatch scan flags any
+     pcase/cond that mentions an op not in this entry. The
+     unmapped_policy is `error` so a producer adding a value without
+     updating this entry surfaces at the writer immediately.
 
    reconciled_from:
      - speculated → divergent (cycle 1, found by reviewer of
@@ -496,6 +568,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - divergent → reconciled (cycle 1, integrate, after user-authorised
        audit produced findings 8/9/10 and inline code edits brought the
        implementation in line with this entry's strict-error contract)
+     - reconciled → speculated (cycle 2 plan, after user dispositions
+       10A/B/C added READ_METADATA as a separate collapse target and
+       removed :match-pattern from the writer's domain; pending
+       rewire-expansion-writer + harden-add-to-scope-action-handler
+       implementation in cycle-2 / cycle-3)
 
    discovered_from: gptel-scope-in-org-properties
    discovered_by: architect
@@ -660,6 +737,113 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-scope-in-org-properties
    discovered_by: architect
+   #+end_src
+
+** scope-expansion-action-handler
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-expansion-action-handler
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-expansion-action-handler
+   tier: boundary
+   status: speculated
+   status_note: |
+     New entry, cycle-2 plan (2026-04-29). Surfaced by the cycle-1
+     audit's finding-9 (writer's strict-error on nil :operation is
+     correct but user-hostile) and finding-10B (smart-redirect for
+     :match-pattern). The cycle-1 disposition tasks (refuse-add-to-
+     scope-on-nil-operation; disposition-match-pattern-handling)
+     point at this layer. Pending implementation in cycle-3 task
+     `harden-add-to-scope-action-handler` (broadens the original
+     refuse-nil task).
+   load_bearing: true
+   title: Action-layer dispatch for the expansion UI's "add to scope" key
+   purpose: |
+     The function the expansion UI calls when the user presses `a` on a
+     denied violation. It must decide what *kind* of add-to-scope action
+     applies before delegating to the writer; the writer's job is the
+     drawer mutation, not the user-intent disambiguation. Mis-placing
+     intent logic in the writer is the same class of bug as putting
+     bash-parser semantic-op routing inside the YAML mutator: it forces
+     the writer to know about the action layer's vocabulary, and it
+     erases the writer's "single closed mapping" property.
+
+     Three pre-conditions block the writer:
+       1. nil :operation (cloud-auth, parse-incomplete violations) →
+          refuse the add-to-scope action; surface the right alternative
+          (allow-once for metadata; "add provider to allow-list" for
+          cloud-auth; "request review" for parse-incomplete).
+       2. :match-pattern :operation → redirect to the sibling
+          :read-directory operation in the same violation cluster
+          (find /home -name '*.txt' emits both :read-directory /home
+          and :match-pattern '*.txt'; the user's intent on `a` is to
+          scope /home, not '*.txt').
+       3. all other valid (:operation . :resource) pairs → delegate
+          to register/boundary/scope-pattern-writer.
+
+   stages:
+     - n: 1
+       name: nil-operation refuse
+       input: violation-info plist
+       output: refuse | continue
+       can_fail_with: []
+       short_circuit_policy: terminating
+       notes: |
+         When :operation is nil, the action handler displays a
+         non-error message naming the right action ("metadata stat —
+         use allow-once instead"; "cloud-auth — add provider to allow-
+         list"; "parse-incomplete — review needed"). It does not call
+         the writer. The writer's strict-error on nil :operation
+         remains; this stage prevents that error from surfacing in
+         normal use.
+     - n: 2
+       name: match-pattern redirect
+       input: violation-info plist
+       output: redirected-violation | continue
+       can_fail_with: [no-sibling-read-directory]
+       short_circuit_policy: terminating
+       notes: |
+         When :operation is :match-pattern, the action handler scans
+         the violation cluster for a sibling :read-directory violation
+         (the search root). If found, it redirects the add-to-scope
+         action to use that sibling's :resource (path) instead of the
+         pattern. If no sibling :read-directory is in the cluster
+         (rare; e.g. `find / -name X` raises a top-level grant), the
+         handler surfaces a "scope the search root explicitly" prompt
+         rather than delegating to the writer with the pattern.
+     - n: 3
+       name: writer delegation
+       input: violation-info plist (passed-through or redirected)
+       output: side-effect (writer mutates drawer)
+       can_fail_with: [unmapped-operation]
+       short_circuit_policy: none
+       notes: |
+         Calls register/boundary/scope-pattern-writer. By stage 3 the
+         input has :operation in the writer's ten-member domain.
+
+   cross_stage_invariants:
+     - The action handler is the only producer of writer calls for
+       interactive add-to-scope. Tests assert that no other
+       expansion-UI callsite calls scope-pattern-writer's entry
+       function directly.
+
+   producers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope (and the other
+         interactive add-* dispatchers; harden task will refactor
+         to a single entry point)
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--write-pattern-to-drawer (writer)
+       reads_output_of_stage: 3
+
+   scaffolding_path: openspec/changes/gptel-scope-in-org-properties/scaffolding/boundaries/scope-expansion-action-handler.el
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect (cycle-2 plan, in response to ask-10B and
+     finding-9)
    #+end_src
 
 ** scope-pattern-writer

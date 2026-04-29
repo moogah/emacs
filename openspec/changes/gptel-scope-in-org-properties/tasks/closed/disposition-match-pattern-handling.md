@@ -1,12 +1,40 @@
 ---
 name: disposition-match-pattern-handling
-description: "User-decision task (finding-10B). Decide what add-to-scope does on :match-pattern violations — refuse to add globs, redirect to search-path, or keep current behaviour."
+description: "User-decision task (finding-10B). Decision recorded cycle-2 plan (2026-04-29): Path 2 — smart redirect at the action handler. The writer never receives :match-pattern; the action handler scans the violation cluster and redirects to the sibling :read-directory operation."
 change: gptel-scope-in-org-properties
-status: blocked
+status: done
 relations:
-  - blocked-by:rewire-expansion-writer
   - discovered-from:implement-drawer-writer
+  - enables:harden-add-to-scope-action-handler
 ---
+
+## Decision (recorded cycle-2 plan, 2026-04-29)
+
+**Path 2 chosen**: smart redirect at the action handler.
+
+When the LLM runs `find /home -name "*.txt"` and the
+`:match-pattern '*.txt'` violation is denied, pressing `a` redirects
+the add-to-scope to the sibling `:read-directory /home` operation.
+The writer never sees `:match-pattern`; if it does, the
+`canonical_mapping_function` errors loudly (defect signal).
+
+The deliverable for this task is the decision itself, recorded to:
+
+- `interfaces.org` :: NEW `register/boundary/scope-expansion-action-
+  handler` entry — stage 2 documents the match-pattern redirect.
+- `interfaces.org` :: `register/vocabulary/operation-to-drawer-key`
+  — `:match-pattern` `collapses_to` flipped from `GPTEL_SCOPE_READ`
+  to `NONE`; `redirect_target: :read-directory` added; the writer's
+  `canonical_mapping_function` raises an error if `:match-pattern`
+  reaches it.
+
+Implementation falls to **harden-add-to-scope-action-handler**
+(cycle-3 batch — formerly `refuse-add-to-scope-on-nil-operation`,
+broadened to cover both nil-refuse AND match-pattern redirect).
+
+---
+
+## Original task (preserved for context)
 
 ## Cites register entries
 

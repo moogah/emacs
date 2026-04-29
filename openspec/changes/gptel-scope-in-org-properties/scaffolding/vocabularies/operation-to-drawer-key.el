@@ -2,29 +2,41 @@
 ;;
 ;; scaffolding-of: register/vocabulary/operation-to-drawer-key
 ;; generated-at: 2026-04-29T11:05:33Z
+;; revised-at: 2026-04-29T15:50:00Z (cycle-2 plan; dispositions 10A/B/C)
 ;; license: implementor-may-revise
 ;;
 ;; Granular validator-pipeline / bash-parser :operation values collapse
-;; to one of five drawer keys. Each member of the input vocabulary is
-;; an explicit `error' arm so an unmapped op fails loudly at runtime.
+;; to one of FIVE drawer keys (READ / READ_METADATA / WRITE / MODIFY /
+;; EXECUTE). Each member of the writer's input vocabulary is an explicit
+;; `error' arm so an unmapped op fails loudly at runtime.
+;;
+;; Cycle-2 dispositions:
+;;   ask 10A: :read-metadata → GPTEL_SCOPE_READ_METADATA (separate bucket)
+;;   ask 10B: :match-pattern → not in writer domain (action handler redirects)
+;;   ask 10C: :delete → GPTEL_SCOPE_WRITE (kept; tradeoff documented)
 
 (defun jf/gptel-scope--map-operation-to-drawer-key/scaffold (operation)
   "Speculated mapping from a granular OPERATION keyword to a drawer key string.
 
-The set of accepted OPERATION values is the closed set declared in
-register/vocabulary/operation-to-drawer-key. Any OPERATION outside that
-set must signal `error' rather than silently falling through to a
-default — see the bash-parser :read-metadata-into-:paths.write incident."
+The writer's input domain is ten :operation values (eleven minus
+:match-pattern, which the action handler redirects upstream). Any
+OPERATION outside that domain — including nil, :match-pattern, or a
+typo — must signal `error' rather than silently falling through. See
+the bash-parser :read-metadata-into-:paths.write incident for why."
   (pcase operation
-    ;; Read-like granular operations → GPTEL_SCOPE_READ
+    ;; Content-read granular operations → GPTEL_SCOPE_READ
     (:read
      (error "speculated; not implemented — should return \"GPTEL_SCOPE_READ\""))
     (:read-directory
      (error "speculated; not implemented — should return \"GPTEL_SCOPE_READ\""))
+
+    ;; Metadata-read → its own bucket (cycle-2 ask 10A disposition)
     (:read-metadata
-     (error "speculated; not implemented — should return \"GPTEL_SCOPE_READ\""))
+     (error "speculated; not implemented — should return \"GPTEL_SCOPE_READ_METADATA\" (cycle-2 ask 10A)"))
+
+    ;; Match-pattern is action-layer-only; reaching the writer is a defect
     (:match-pattern
-     (error "speculated; not implemented — should return \"GPTEL_SCOPE_READ\""))
+     (error "speculated; not implemented — should signal: \"scope-expansion: :match-pattern reached the writer — action handler should have redirected to :read-directory\" (cycle-2 ask 10B)"))
 
     ;; Write-like granular operations → GPTEL_SCOPE_WRITE
     (:write
@@ -36,7 +48,7 @@ default — see the bash-parser :read-metadata-into-:paths.write incident."
     (:append
      (error "speculated; not implemented — should return \"GPTEL_SCOPE_WRITE\""))
     (:delete
-     (error "speculated; not implemented — should return \"GPTEL_SCOPE_WRITE\""))
+     (error "speculated; not implemented — should return \"GPTEL_SCOPE_WRITE\" (cycle-2 ask 10C: kept; explicit deny is the escape hatch for delete-locked-out)"))
 
     ;; One-to-one mappings
     (:modify
@@ -44,12 +56,12 @@ default — see the bash-parser :read-metadata-into-:paths.write incident."
     (:execute
      (error "speculated; not implemented — should return \"GPTEL_SCOPE_EXECUTE\""))
 
-    ;; Safe fallback: nil → READ (most-restrictive collapse)
+    ;; nil :operation: refuse loudly (action handler must guard upstream)
     ('nil
-     (error "speculated; not implemented — should return \"GPTEL_SCOPE_READ\" (safest default)"))
+     (error "speculated; not implemented — should signal: \"scope-expansion: cannot map nil :operation — handle at the action layer\""))
 
     (_
-     (error "Unmapped operation: %S — add to register/vocabulary/operation-to-drawer-key in the same change"
+     (error "Unmapped operation: %S — extend the mapping or use the deny action"
             operation))))
 
 (provide 'operation-to-drawer-key/scaffold)
