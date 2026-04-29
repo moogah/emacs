@@ -1420,7 +1420,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    status_note: |
      speculated-with-deviation: cycle-3 plan brief framed this as "every
      `--add-*-to-scope` action handler pumps the queue", but the cycle-2
-     code (commit 18e890a, scope-expansion.org `* Expansion Actions`)
+     code (commit 18e290a, scope-expansion.org `* Expansion Actions`)
      has the queue-pump call in *all five* terminal action handlers,
      including `--deny-expansion` and `--allow-once-action`, not only
      the three `--add-*` variants. Entry records the broader as-built
@@ -1451,7 +1451,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      no-op or the action was refused.
 
    why_it_matters: |
-     The cycle-2 rewire (commit 18e890a) discovered that
+     The cycle-2 rewire (commit 18e290a) discovered that
      `--add-wildcard-to-scope` and `--add-custom-to-scope` previously
      did NOT pump the queue: queued expansions resolved via wildcard
      or custom-pattern silently dropped. That was a latent bug that

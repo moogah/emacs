@@ -74,7 +74,7 @@ Typically 'main' for the primary branch, or timestamped names for alternate bran
 
 (defvar-local jf/gptel--branch-dir nil
   "Absolute path to the current branch directory.
-This is where scope.yml and session.org files are located.
+This is where session.org (with the embedded :PROPERTIES: scope drawer) is located.
 For regular sessions: <session-dir>/branches/<branch-name>/
 For agents: <session-dir>/ (agents don't use branch subdirectories).")
 

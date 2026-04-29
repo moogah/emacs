@@ -613,6 +613,7 @@ drawer is a deny-all configuration, not a config-missing signal."
   (let ((paths (plist-get config :paths))
         (cloud (plist-get config :cloud)))
     (or (plist-get paths :read)
+        (plist-get paths :read-metadata)
         (plist-get paths :write)
         (plist-get paths :modify)
         (plist-get paths :execute)

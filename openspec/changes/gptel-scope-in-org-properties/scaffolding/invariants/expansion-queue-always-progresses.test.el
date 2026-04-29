@@ -10,7 +10,7 @@
 ;; The five terminal handlers are --deny-expansion, --add-to-scope,
 ;; --allow-once-action, --add-wildcard-to-scope, --add-custom-to-scope.
 ;;
-;; Cycle-2 origin: rewire-expansion-writer (commit 18e890a) added the
+;; Cycle-2 origin: rewire-expansion-writer (commit 18e290a) added the
 ;; queue-pump call to --add-wildcard-to-scope and --add-custom-to-scope,
 ;; closing a latent bug. Cycle-3 harden-add-to-scope-action-handler
 ;; must preserve the invariant in its new refusal / redirect / no-op
