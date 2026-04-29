@@ -615,6 +615,89 @@ PATH, COMMAND, PROVIDER, OPERATION provide context for the message."
      (format "Unknown org-roam tool: %s" (or command "unknown")))
     (_ (format "Validation failed: %s" error-code))))
 
+;;; Drawer Fixture Helpers
+
+(defun jf/gptel-test--render-drawer (alist)
+  "Render an org `:PROPERTIES:' drawer block from ALIST.
+ALIST is a list of (KEY . VALUES) entries where KEY is an org property
+keyword like :GPTEL_SCOPE_READ and VALUES is either a list (multi-value:
+first emitted as bare key, rest as KEY+) or a string (scalar).  Returns
+the drawer text including a trailing newline.
+
+The closed set of acceptable keys is enumerated in
+`register/vocabulary/drawer-key-set' (the seven :GPTEL_SCOPE_* keys).
+This helper does not enforce the closed set — callers that need that
+discipline should validate input before rendering."
+  (let ((lines (list ":PROPERTIES:")))
+    (dolist (entry alist)
+      (let ((key (car entry))
+            (val (cdr entry)))
+        (cond
+         ((stringp val)
+          (push (format "%s: %s" key val) lines))
+         ((listp val)
+          (let ((first t))
+            (dolist (v val)
+              (push (format "%s%s: %s" key (if first "" "+") v) lines)
+              (setq first nil)))))))
+    (push ":END:" lines)
+    (concat (mapconcat #'identity (nreverse lines) "\n") "\n")))
+
+(defmacro jf/gptel-test--with-scope-drawer (alist &rest body)
+  "Run BODY in a temp buffer whose `:PROPERTIES:' drawer is built from ALIST.
+The buffer is in `org-mode' with point at `point-min' before BODY runs.
+After the drawer, a minimal chat-mode initial-content stub
+\(`#+begin_user' / `#+end_user') is inserted so the buffer matches the
+shape of a real session.org.  ALIST has the same shape as
+`jf/gptel-test--render-drawer'."
+  (declare (indent 1))
+  `(with-temp-buffer
+     (insert (jf/gptel-test--render-drawer ,alist))
+     (insert "#+begin_user\n\n#+end_user\n")
+     (org-mode)
+     (goto-char (point-min))
+     ,@body))
+
+;;; Self-tests for the drawer fixture helpers
+;;
+;; Exercising the helper from inside helpers-spec.el itself documents
+;; its expected behaviour and gives the suite a canary if the org-mode
+;; multi-value reader's contract drifts under us.
+
+(describe "jf/gptel-test--render-drawer"
+  (it "wraps a single multi-value entry in a :PROPERTIES:/:END: block"
+    (let ((text (jf/gptel-test--render-drawer
+                 '((:GPTEL_SCOPE_READ . ("/a" "/b"))))))
+      (expect text :to-equal
+              ":PROPERTIES:\n:GPTEL_SCOPE_READ: /a\n:GPTEL_SCOPE_READ+: /b\n:END:\n")))
+
+  (it "emits a scalar value as a single bare key line"
+    (let ((text (jf/gptel-test--render-drawer
+                 '((:GPTEL_SCOPE_CLOUD_AUTH . "warn")))))
+      (expect text :to-equal
+              ":PROPERTIES:\n:GPTEL_SCOPE_CLOUD_AUTH: warn\n:END:\n")))
+
+  (it "renders an empty alist as a bare drawer"
+    (expect (jf/gptel-test--render-drawer '())
+            :to-equal ":PROPERTIES:\n:END:\n")))
+
+(describe "jf/gptel-test--with-scope-drawer"
+  (it "round-trips a multi-value list through org-entry-get-multivalued-property"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/a" "/b")))
+      (expect (org-entry-get-multivalued-property (point-min) "GPTEL_SCOPE_READ")
+              :to-equal '("/a" "/b"))))
+
+  (it "leaves point at point-min before BODY runs"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect (point) :to-equal (point-min))))
+
+  (it "puts the buffer in org-mode"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect major-mode :to-equal 'org-mode))))
+
 ;;; Provide
 
 (provide 'helpers-spec)
