@@ -6,6 +6,7 @@ status: blocked
 relations:
   - blocked-by:add-drawer-corruption-regression
   - blocked-by:finalize-no-scope-config-removal
+  - blocked-by:reconcile-cycle-3-asks
 ---
 
 ## Cites register entries
