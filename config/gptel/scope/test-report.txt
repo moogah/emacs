@@ -3,7 +3,7 @@ Test Report
 
 ERT: 2 ran, 2 passed
 
-Buttercup: 482 ran, 364 passed
+Buttercup: 481 ran, 403 passed
 
 Buttercup failures:
   Bash-parser → scope integration (real modules, no mocks) cat /workspace/a.txt | head -10 (pipeline) is allowed by scope validation
@@ -14,15 +14,10 @@ Buttercup failures:
   Bash-parser → scope integration (real modules, no mocks) rm /etc/passwd (delete out of scope) is denied by scope validation
   Bug 4: end-to-end add-to-scope should enable retry success gptel callback receives success after add-to-scope correctly expands scope
   Contract property layers (structural invariants) Layer 3: permissive config allows everything every contract operation is allowed with all-permissive paths
-  Expansion UI Handlers (Real Implementation) Add to scope action handles callback invocation errors gracefully
-  Expansion UI Handlers (Real Implementation) Scope setup function creates transient scope with correct structure
   Filesystem scope integration: gptel flow continuity no_scope_config error returns JSON through callback (not a signal)
   run_bash_command integration: gptel callback contract no_scope_config returns JSON through callback
   run_bash_command: Timeout and resource limits suggests filters in truncation notice
   run_bash_command: Timeout and resource limits warns when long-running command is terminated
-  Transient action handlers — custom pattern add-to-scope writes edited custom pattern to scope when confirmed
-  Transient action handlers — wildcard add-to-scope derives parent directory wildcard from file path
-  Transient action handlers — wildcard add-to-scope routes through validation-type for wildcard pattern
 
 ===========
-Total: 484 ran, 366 passed
+Total: 483 ran, 405 passed

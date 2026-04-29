@@ -121,3 +121,83 @@ Cycle-2 grew the suite from 1693 → 1707 specs (+14 from `operation-to-drawer-k
 
 - `add-test-helper-with-scope-drawer` (closed cycle-1) — provides `jf/gptel-test--with-scope-drawer`.
 - `rewire-expansion-writer` (closed cycle-2) — writer is rewired and shipped.
+
+## Observations
+
+- **Baseline-vs-final.** Pre-task baseline on the expansion dir was 113
+  specs / 73 passing (40 failures). Post-task: 112 specs / 112 passing.
+  The one-spec drop is from collapsing the legacy YAML-routing tests in
+  `expansion-ui-spec.el` (which asserted on `paths.read` / `paths.write`
+  via the YAML parser) into focused drawer-key routing tests under the
+  new "--add-to-scope routing by :operation (action-handler level)"
+  describe block. Net coverage of the routing contract is the same
+  (read / read-metadata / read-directory / write / delete) and the
+  fixtures are now drawer-buffers, not on-disk YAML files.
+
+- **Scope-wide regression check.** Running the full scope suite shows
+  the 12 pre-existing failures in `bash-parser-integration`,
+  `bug-4-add-to-scope-retry`, `contract-property-layers`,
+  `filesystem-scope-integration`, and `run-bash-command-integration` —
+  none in `expansion/`. This task did not introduce new failures and
+  cleared the 28 expansion-dir failures noted in `state.json`.
+
+- **Drawer-fixture pattern.** All five rewritten specs follow the same
+  pattern: stub `transient-scope` to return a five-key plist whose
+  `:chat-buffer` is the fixture buffer, stub `transient-quit-one` and
+  `process-expansion-queue` to no-ops, stub `save-buffer` to a no-op
+  (the fixture buffer has no file backing), then assert via
+  `org-entry-get-multivalued-property`. This is captured as the macro
+  `expansion-ui-spec--with-stub-scope` in `expansion-ui-spec.el` and
+  `handlers--with-stub-scope` in `expansion-ui-handlers-spec.el` —
+  neither was lifted into `helpers-spec.el` because the two callers
+  have slightly different needs (the handlers spec stubs only what
+  the handler under test touches; the UI spec also stubs `org-cycle`
+  and `read-string` for the edit-manually / custom-pattern cases).
+
+- **Drawer writer emission form.** The "first add bare-key, subsequent
+  adds `+:` form" framing in the task brief and the spec ADDED
+  requirement is half right: org's `org-entry-get-multivalued-property`
+  *reads* both the bare and `+:` forms, but `org-entry-put-multivalued-
+  property` *writes* all values for a key on a single line separated
+  by spaces (e.g. `:GPTEL_SCOPE_READ: /first /second`). The
+  "Drawer writer preserves structure" tests now assert what the writer
+  actually emits and that the round-trip via the multi-value reader
+  works for both emission forms.
+
+- **Cycle-2 dispositions covered at the action-handler level.** The
+  three asks (10A `:read-metadata`, 10B `:match-pattern`, 10C
+  `:delete`) are pinned at the writer level by
+  `operation-to-drawer-key-spec.el` and at the action-handler level
+  by the new "--add-to-scope routing by :operation" describe block in
+  `expansion-ui-spec.el`. 10B is covered by `harden-add-to-scope-
+  spec.el` (refusal-with-guidance — the harden-task deviation from
+  the original "redirect to sibling" plan).
+
+- **register/shape/expansion-transient-scope.** The five-key plist
+  shape spec in `expansion-ui-spec.el` asserts all five required keys
+  (`:violation`, `:callback`, `:patterns`, `:tool-name`,
+  `:chat-buffer`) are present and well-formed when
+  `prompt-expansion` calls `transient-setup`. The harden-spec also
+  exercises this shape end-to-end.
+
+- **register/invariant/expansion-queue-always-progresses.** The new
+  queue-progression spec fires three prompts back-to-back, drives
+  three `process-expansion-queue` pumps, and asserts the queue
+  length monotonically decreases (1 → 0 → 0) with the active flag
+  clearing on the final pump. This locks in the "every terminal
+  action handler pumps the queue" contract.
+
+## Discoveries
+
+- **Drawer writer emission form** (see Observations) — the spec
+  delta's "subsequent adds use the `+:` form" requirement reads as a
+  contract on the *writer's emission*, but the writer delegates to
+  org's built-in `org-entry-put-multivalued-property`, which only
+  emits the single-line form. This is a documentation-vs-reality
+  finding rather than a defect: the round-trip is well-defined and
+  the multi-value reader accepts both forms. The renamed test
+  (`subsequent adds preserve all values readable via the multi-value
+  API`) reflects the actual behaviour. If the spec delta intends
+  the writer to emit the `+:` form, that's a separate task to swap
+  out the org primitive — flagging here so the architect can decide
+  whether to amend the delta or file a follow-up.
