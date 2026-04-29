@@ -4,15 +4,8 @@ description: Run full test suite, manual smoke tests, and opsx-verify; produce a
 change: gptel-scope-in-org-properties
 status: blocked
 relations:
-  - blocked-by:migrate-validation-tests
-  - blocked-by:migrate-expansion-tests
-  - blocked-by:migrate-session-creation-tests
-  - blocked-by:migrate-persistent-agent-tests
   - blocked-by:add-drawer-corruption-regression
-  - blocked-by:delete-yaml-and-security-residue
-  - blocked-by:disposition-empty-drawer-collapse
-  - blocked-by:harden-add-to-scope-action-handler
-  - blocked-by:add-expansion-transient-and-queue-register-entries
+  - blocked-by:finalize-no-scope-config-removal
 ---
 
 ## Cites register entries
@@ -176,3 +169,26 @@ After the cycle-2 rewires shipped, add a smoke test for the expansion writer's t
 - **`:read-metadata` violation → metadata bucket**: trigger a bash command that reads only metadata (e.g. `[ -f /etc/passwd ]`); add to scope; confirm the drawer's `:GPTEL_SCOPE_READ_METADATA:` carries the path, NOT `:GPTEL_SCOPE_READ:`.
 - **`:match-pattern` redirect**: trigger `find /home -name '*.txt'`; add the `:match-pattern` violation; confirm `/home` lands in `:GPTEL_SCOPE_READ:`, NOT `'*.txt'`. (Requires `harden-add-to-scope-action-handler` to be landed first; until then the writer errors loudly — that's the expected behaviour to verify pre-harden.)
 - **`:delete` → WRITE bucket**: trigger `rm /tmp/x`; add to scope; confirm `/tmp/x` lands in `:GPTEL_SCOPE_WRITE:`, NOT a separate delete bucket.
+
+## Cycle 3 updates (cycle-1777478129)
+
+Cycle-3 closing batch shipped (8 of 8 cycle-3 tasks done; commits `a8317fc` through `b5f056e`). All 16 cited register entries are dispositioned at integrate:
+
+- **Reconciled (3)**: `scope-config-loader` (Option B applied; `divergent → reconciled`), `expansion-transient-scope` (as-built 5-key shape captured; `speculated → reconciled`), `expansion-queue-always-progresses` (5-handler queue-pump invariant pinned by L1 + L2 tests; `speculated → reconciled`).
+- **Confirmed (12)**: every other cited entry; speculation matched implementation. See `.orchestrator/cycles/cycle-1777478129/reconciliations/` for individual notes.
+- **Divergent → user-resolution (1)**: `scope-expansion-action-handler` — Stage 2 shipped as refusal-with-guidance, not redirect. Cycle-3 PM digest Ask 1 routes the disposition to the user (default recommendation: Option B — update register entries). See `.orchestrator/cycles/cycle-1777478129/findings/arch-cycle-1777478129-4.md`.
+
+**Implications for this task's verification step**:
+
+1. The Stage 2 `:match-pattern` smoke-test recipe in this body (line ~"`:match-pattern` redirect") is now PARTIALLY OBSOLETED by the harden as-shipped behaviour. The expected outcome is **NOT** "redirect to `/home`" but "user-error directing the user to `c` (custom) or `e` (edit manually)". Update the smoke-test note accordingly when running verification — assert the action handler signals `user-error` and the writer is NOT invoked.
+
+2. The `:GPTEL_SCOPE_READ_METADATA:` path through `--load-from-buffer` was missing from the loader pre-cycle-3 architect-finding-2; cycle-3 commit `b5f056e` added it. The smoke test for `:read-metadata` violations should now round-trip correctly through both the loader and the validator. New regression specs at `path-validation-spec.el:436+` pin the end-to-end path.
+
+3. Three spec-signal user asks remain open (PM digest § "Asks for the user"). Verification should NOT proceed to archive until those asks are resolved or explicitly dispositioned-as-deferred:
+   - Ask 1: register entry edit for `:match-pattern` Stage 2 contract (Option B default).
+   - Ask 2: provider keyword vs string convention (Option B default — keywords + loader normaliser).
+   - Ask 3: drawer emission `+:` continuation form vs single-line (Option B default — amend spec to match writer).
+
+4. Two follow-up cycle-4 tasks remain open: `add-drawer-corruption-regression` (existing) and `finalize-no-scope-config-removal` (new — cycle-3 architect finding 3 follow-up). This task is now `blocked-by` both; remove the legacy blocked-by list of cycle-3-completed tasks (already done at cycle-3 integrate).
+
+5. Test-suite delta: 1707 specs / 95 failed → 1631 specs / 80 failed (net 15 failures resolved; 76 specs deleted with the YAML test directory). The 80 remaining failures are pre-existing in directories/tests outside cycle-3 scope (bash-parser ERT failures, pre-existing buttercup pin-failures unrelated to the scope rewire). Final verify should match this baseline; new failures vs cycle-3 close are regressions.

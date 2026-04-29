@@ -122,3 +122,24 @@ Cycle-2 confirmed that branching uses byte-copy from the parent (rather than re-
 
 - `implement-drawer-writer` (closed cycle-1)
 - `rewire-expansion-writer` (closed cycle-2)
+
+## Cycle 3 updates (cycle-1777478129)
+
+### Cited register entries — disposition flips
+
+- `register/invariant/scope-drawer-no-duplication`: speculated → **confirmed** (cycle-3 integrate). Both creation paths emit single-drawer; cycle-2 byte-copy branching preserves single-drawer; tests in `migrate-session-creation-tests` and `migrate-persistent-agent-tests` exercise this. See `.orchestrator/cycles/cycle-1777478129/reconciliations/invariant-scope-drawer-no-duplication.md`.
+- `register/boundary/scope-pattern-writer`: speculated → **confirmed** (cycle-3 integrate). Five action handlers route through `--write-pattern-to-drawer`; harden task added 4 more refusal/no-op branches that all honour the strict-error guard. See `.orchestrator/cycles/cycle-1777478129/reconciliations/boundary-scope-pattern-writer.md`.
+
+### Cycle-3 architect findings absorbed by this task
+
+- **`arch-cycle-1777478129-1` (advisory, shape-fragmentation)**: cycle-3 created three parallel drawer-test helper namespaces. **Implication for this task**: when writing the regression spec, prefer extending `config/gptel/scope/test/helpers-spec.el` (with `jf/gptel-test--render-drawer` and `jf/gptel-test--with-scope-drawer`) over inlining a fourth helper. If a new read-side parser helper is genuinely needed, lift it into `helpers-spec.el` rather than creating a per-file definition.
+
+- **`migrate-expansion-tests` reviewer Finding 2 (advisory, coverage gap)**: the spec scenario "Existing drawer keys are preserved" specifically named `:GPTEL_PRESET:` as a non-scope key that must survive a writer call. The migrate-expansion test fixtured only `:GPTEL_SCOPE_*` keys; the targeted defect class (preset-property corruption — see user's `reference_drawer_corruption_notes.md` and `~/org/roam/20260419111957-gptel_preset_property_corruption.org`) was not pinned. **This task is the natural home for that pin.** Add an `it` block that fixtures `:GPTEL_PRESET . "default"` + `:GPTEL_PARENT_SESSION_ID . "abc-123"` alongside scope keys, runs the writer through several add-to-scope cycles, and asserts (a) exactly one `:PROPERTIES: ... :END:` block (the original purpose of this task) AND (b) the non-scope keys survive verbatim.
+
+### Scaffolding disposition
+
+The cycle-2 scaffold at `scaffolding/invariants/scope-drawer-no-duplication.test.el` was dispositioned `archived` at cycle-3 integrate (the pattern-cohort migrations exercise the invariant via runtime tests; the scaffold can be archived when this regression spec lands). When this task ships, either:
+- **Promote** the scaffold to `config/gptel/scope/test/drawer/no-duplicate-drawer-spec.el` and write the regression on top of it, OR
+- **Supersede** the scaffold by writing the regression directly and deleting the scaffold file.
+
+Pick one approach and document the disposition in `## Discoveries`.
