@@ -30,11 +30,14 @@
 
 Unlike lazy initialization, this creates all resources upfront:
 - Session directory (~/gptel-sessions/ACTIVITY-NAME-TIMESTAMP/)
-- scope.yml with file access permissions (from preset scope profile)
 - session.org pre-populated with a `:PROPERTIES:' drawer containing
-  `GPTEL_PRESET' followed by the chat-mode empty-user-block template
+  `GPTEL_PRESET' and the resolved `:GPTEL_SCOPE_*:' keys (from the
+  preset's scope profile, deep-merged with WORKTREE-PATHS when
+  provided), followed by the chat-mode empty-user-block template
   (Decision 4 / Decision 9). The drawer is authoritative — no
-  `metadata.yml' sidecar is written (Decision 6).
+  `metadata.yml' sidecar and no `scope.yml' file are written
+  (Decision 6; gptel-scope-in-org-properties drawer-resident
+  scope).
 - Registers in global registry
 
 BACKEND and MODEL default to current gptel-backend and gptel-model.
@@ -70,17 +73,19 @@ Returns plist: (:session-id ... :session-dir ... :buffer-name ... :session-file 
                                :deny '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**"))))))
 
     ;; Create session directory structure using core helper.
-    ;; This creates branches/main/, scope.yml, the pre-populated
-    ;; session.org (with :PROPERTIES: drawer + empty user block), and
-    ;; the current symlink.  `initial-content' is left nil so the core
-    ;; helper fills in the default drawer-prefixed template (Decision 4
-    ;; / Decision 9) — a fresh activity-backed session looks identical
-    ;; to a freshly-saved standalone `gptel-chat-mode' buffer with the
-    ;; preset applied.  No `metadata.yml' sidecar is written; the
-    ;; drawer is authoritative (Decision 6).  Activity-backed sessions
-    ;; have no parent-session-id.  Decision 16 is categorical: session
-    ;; buffers use chat-mode, never `gptel-mode', so this helper has no
-    ;; mode-selection parameter.
+    ;; This creates branches/main/, the pre-populated session.org
+    ;; (with :PROPERTIES: drawer carrying GPTEL_PRESET + :GPTEL_SCOPE_*:
+    ;; keys + empty user block), and the current symlink.
+    ;; `initial-content' is left nil so the core helper composes the
+    ;; default drawer-prefixed template (Decision 4 / Decision 9) — a
+    ;; fresh activity-backed session looks identical to a
+    ;; freshly-saved standalone `gptel-chat-mode' buffer with the
+    ;; preset applied.  No `metadata.yml' sidecar and no `scope.yml'
+    ;; file are written; the drawer is authoritative (Decision 6;
+    ;; gptel-scope-in-org-properties drawer-resident scope).
+    ;; Activity-backed sessions have no parent-session-id.  Decision
+    ;; 16 is categorical: session buffers use chat-mode, never
+    ;; `gptel-mode', so this helper has no mode-selection parameter.
     (let* ((session-info (jf/gptel--create-session-core
                           session-id
                           session-dir

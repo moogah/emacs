@@ -168,18 +168,13 @@ Returns new branch directory path."
     (jf/gptel--log 'info "Creating branch: %s from parent: %s"
                    new-branch-name parent-branch-name)
 
-    ;; Copy scope.yml from parent branch
-    (let ((parent-scope-yml (jf/gptel--scope-file-path parent-branch-dir))
-          (branch-scope-yml (jf/gptel--scope-file-path branch-dir)))
-      (when (file-exists-p parent-scope-yml)
-        (copy-file parent-scope-yml branch-scope-yml t)
-        (jf/gptel--log 'info "Copied scope.yml to branch")))
-
-    ;; Note: metadata.yml is no longer copied. The parent's preset
-    ;; propagates to the new branch via the `:PROPERTIES:' drawer
-    ;; embedded at the top of the parent's session.org, which the
+    ;; Note: scope.yml and metadata.yml are no longer copied. The
+    ;; parent's preset AND scope (`:GPTEL_SCOPE_*:' keys) propagate
+    ;; to the new branch via the `:PROPERTIES:' drawer embedded at
+    ;; the top of the parent's session.org, which the
     ;; truncated-context copy below preserves verbatim (design
-    ;; Decision 7).
+    ;; Decision 7; gptel-scope-in-org-properties drawer-resident
+    ;; scope).
 
     ;; Create branch-metadata.yml
     (jf/gptel--write-branch-metadata branch-dir parent-branch-name branch-position)
@@ -210,12 +205,13 @@ Interactively:
 
 The new branch is created under the same session with:
 - Timestamped branch name: <timestamp>-<user-name>
-- Copied scope.yml from parent
 - branch-metadata.yml tracking the parent branch name and branch-point position
 - Copied agent subdirectories from parent branch
 - session.org truncated at the branch-point position (the parent's
   `:PROPERTIES:' drawer at point-min is preserved verbatim, so the
-  new branch inherits the parent's preset automatically)
+  new branch inherits the parent's preset AND `:GPTEL_SCOPE_*:'
+  keys automatically — gptel-scope-in-org-properties
+  drawer-resident scope)
 - current symlink updated to point to the new branch
 
 After creation, the branch can evolve independently from the parent.

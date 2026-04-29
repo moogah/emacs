@@ -90,3 +90,147 @@ specs/gptel/scope-profiles/spec.md § MODIFIED Requirements / "Integration with 
 > - 8 YAML Boolean Normalization specs
 >
 > The 5 session-creation specs become passing/obsolete once this task lands the drawer-resident replacement; the 8 YAML specs become obsolete once the YAML module is deleted (`delete-yaml-and-security-residue`).
+
+## Observations
+
+- `jf/gptel--create-session-core` now captures the drawer-text returned
+  by `jf/gptel-scope-profile--create-for-session` (Mode 2a) and composes
+  the new `session.org` content as `(concat drawer-text body)`. The
+  helper writes the file in a single `with-temp-file` call. No
+  `scope.yml` is written anywhere in the session-creation paths.
+- Body composition was extracted into a new helper
+  `jf/gptel--initial-session-body` that returns just the chat-mode empty
+  user block (`#+begin_user\n\n#+end_user\n`). The legacy
+  `jf/gptel--initial-session-content` (drawer + body, no scope keys) is
+  retained for backward compatibility because four direct helper-level
+  buttercup specs in
+  `config/gptel/sessions/test/commands/session-org-creation-spec.el`
+  pin its standalone shape contract. `--create-session-core` no longer
+  routes through it.
+- A caller-provided `initial-content` argument is still honoured
+  verbatim (existing test contract preserved). The drawer-prepend only
+  happens when the caller passes nil for `initial-content`.
+- `jf/gptel-branch-session` no longer copies `scope.yml` from parent to
+  child. The drawer-resident scope rides along automatically because
+  `--copy-truncated-context` copies the parent's `session.org` bytes
+  starting at point-min, which includes the parent's `:PROPERTIES:`
+  drawer (preset + `:GPTEL_SCOPE_*:` keys + `:END:`). No call to
+  `--render-drawer-text` is needed in the branching path — the bytes
+  ARE the drawer text. This makes the branching rewire structurally
+  simpler than the task brief anticipated.
+- The activities-integration flow goes through `--create-session-core`
+  for the file write, so the rewire carries through automatically. The
+  worktree-paths plist that activities builds is now visible in the
+  rendered drawer (as `:GPTEL_SCOPE_READ:`/`:GPTEL_SCOPE_WRITE:`/
+  `:GPTEL_SCOPE_DENY:` lines) — previously these went into a separate
+  `scope.yml` file. The worktree-comment annotation appended after the
+  initial write (the `<!-- gptel-activity-worktrees: ... -->` line) is
+  unchanged.
+- One activities behavioral test
+  (`activity-session-chat-spec.el` "appends the worktree comment when
+  PROJECT_WORKTREE paths are declared") had a regex pinned to the
+  scope-key-free drawer shape. Updated it to assert the relaxed
+  invariants (drawer carries `:GPTEL_PRESET:` and the resolved
+  `:GPTEL_SCOPE_*:` keys for the worktree paths; drawer is closed by
+  `:END:`; body is the chat-mode template; worktree comment is still
+  appended). All other activities tests passed unchanged because they
+  don't seed worktree paths and the `'executor` preset has no
+  registered scope profile in the test environment, so the rendered
+  drawer collapses to `:GPTEL_PRESET:` only.
+- `mock signature drift` hygiene fix: the pre-existing failing ERT
+  test `test-directory-creation-org-session-structure`
+  (`config/gptel/sessions/filesystem-test.el:43`) had an arity-4 stub
+  for `--create-for-session` that no longer matched the cycle-1 arity-5
+  signature. Updated the lambda to accept the fifth `_parent` arg so the
+  test's actual failure mode (asserting on `metadata.yml` existence —
+  removed in cycle-1) is preserved. The metadata.yml assertion itself
+  remains broken; that's outside this task's scope (older
+  metadata-removal task or `delete-yaml-and-security-residue` cleanup).
+- The 5 expected scope.yml session-creation-spec failures in
+  `config/gptel/test/session-creation-spec.el` are now reproducible
+  obsolete tests (no scope.yml is written, so `captured-file-content`
+  returns nil). `migrate-session-creation-tests` is the named owner.
+
+## Discoveries
+
+- discovery_id: disc-rewire-session-creation-1
+  class: dead-branch
+  description: |
+    `jf/gptel-branch-session` does not need to call `--render-drawer-text`
+    at all. The truncated-context copy already preserves the parent's
+    drawer (which now carries `:GPTEL_SCOPE_*:` keys end-to-end) byte-
+    for-byte. The task brief contemplated reading the parent's drawer
+    via the validator's loader and re-rendering for the child; that's
+    redundant work because the loader→renderer round-trip is, by the
+    cross-mode idempotency invariant in
+    `register/boundary/scope-profile-applicator`, a no-op against the
+    parent's existing drawer text.
+  affected_register_entry: register/boundary/scope-profile-applicator
+  recommendation: |
+    Integrate phase: note this as a confirmation of the cross-mode
+    idempotency invariant — it pays off in the branching path by making
+    "branch inherits parent's scope" a structural property of the byte
+    copy rather than a dedicated rewire step. No follow-up task needed.
+
+- discovery_id: disc-rewire-session-creation-2
+  class: interface-drift
+  description: |
+    The `target-dir` parameter on
+    `jf/gptel-scope-profile--create-for-session` is now unused (cycle-1
+    removed the side effect that needed it; the renderer returns a
+    string and callers write the file themselves). The argument is
+    still in the signature for compatibility. `--create-session-core`
+    passes `main-branch-dir` as the value for documentation/grep value;
+    nothing reads it.
+  affected_register_entry: register/boundary/scope-profile-applicator
+  recommendation: |
+    Future cleanup task (post-`delete-yaml-and-security-residue` once
+    all callers are confirmed migrated): drop `target-dir` from the
+    signature; or keep it documented as reserved for a future Mode-2b
+    dispatch variant. Not blocking this change.
+
+- discovery_id: disc-rewire-session-creation-3
+  class: spec-signal
+  description: |
+    The activities-integration flow's worktree-paths plist now flows
+    end-to-end into the rendered drawer (`:GPTEL_SCOPE_READ:`,
+    `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:` for the bundled
+    deny-list `("**/.git/**" "**/runtime/**" "**/.env"
+    "**/node_modules/**")`). Previously these landed in a separate
+    `scope.yml` file. This is a user-observable shape change for
+    activity-backed sessions: their `session.org` drawer is now
+    materially larger (5–6 extra lines) on first creation.
+  affected_register_entry: register/shape/drawer-text-block
+  recommendation: |
+    Integrate phase: confirm with the architect that the
+    `register/shape/drawer-text-block` cardinality bound (Shape A
+    constraint: at least `:GPTEL_PRESET:`) is preserved — it is — and
+    that an upper bound on key count is not part of the contract. If a
+    spec wants to pin "no more than N `:GPTEL_SCOPE_*:` keys" that
+    needs a new register entry; current contract is unconstrained.
+
+- discovery_id: disc-rewire-session-creation-4
+  class: invariant-gap
+  description: |
+    `register/invariant/scope-drawer-no-duplication` says the buffer
+    has exactly ONE `:PROPERTIES:` and `:END:` line for the
+    point-min drawer. The new `--create-session-core` path composes
+    the file content as `(concat drawer-text body)` where `drawer-text`
+    has its own `:PROPERTIES:`/`:END:` and `body` is just the user
+    block. The invariant holds AT FILE-CREATION TIME because
+    `--initial-session-body` does NOT include any `:PROPERTIES:`
+    string. If a future caller ever passes a non-nil `initial-content`
+    that DOES embed a drawer, AND the `drawer-text` from
+    `--render-drawer-text` is also prepended, the invariant breaks.
+    The current `(or initial-content (concat drawer-text body))`
+    code path makes that impossible because the override is exclusive
+    — but the safety property is brittle to future refactors.
+  affected_register_entry: register/invariant/scope-drawer-no-duplication
+  recommendation: |
+    Integrate phase: consider adding a structural assertion (or a
+    comment-as-contract) at the call site stating "if INITIAL-CONTENT
+    is provided, the caller is responsible for embedding any drawer
+    they want; the helper does NOT add one." A future
+    behavioral test that round-trips a custom `initial-content`
+    through the loader to confirm a single `:PROPERTIES:` exists
+    would also pin the invariant.

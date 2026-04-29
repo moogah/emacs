@@ -13,18 +13,23 @@
 ;; commands have been removed. Use standard Emacs file navigation instead.
 ;;
 ;; ARCHITECTURE: Presets are registered in gptel--known-presets at startup.
-;; Session creation writes scope.yml (from preset's scope profile) and
-;; pre-populates session.org with a :PROPERTIES: drawer containing
-;; GPTEL_PRESET (and GPTEL_PARENT_SESSION_ID for agents). Every time the
-;; session file is opened, `gptel-chat-mode' activation reads the drawer
-;; and applies the declared preset (plus overlaying non-preset deltas
-;; and `GPTEL_PARENT_SESSION_ID') via `gptel-chat--apply-declared-preset';
-;; the save hook writes it back on every save. The drawer is the
-;; authoritative session-level configuration source — session buffers run
-;; `gptel-chat-mode' exclusively (Decision 16) and do NOT round-trip
-;; through gptel--save-state / gptel--restore-state. Session creation no
-;; longer writes a metadata.yml sidecar; all session-level state is
-;; either path-derivable or drawer-derived (design Decision 4 /
+;; Session creation pre-populates session.org with a :PROPERTIES: drawer
+;; containing GPTEL_PRESET, optional GPTEL_PARENT_SESSION_ID (agent
+;; sessions), and the resolved scope keys (GPTEL_SCOPE_*). The drawer is
+;; rendered by `jf/gptel-scope-profile--render-drawer-text' (Mode 2a) and
+;; embedded in the initial content during the single `write-region' that
+;; creates session.org — there is no longer a separate `scope.yml' file
+;; (gptel-scope-in-org-properties: drawer-resident scope). Every time
+;; the session file is opened, `gptel-chat-mode' activation reads the
+;; drawer and applies the declared preset (plus overlaying non-preset
+;; deltas and `GPTEL_PARENT_SESSION_ID') via
+;; `gptel-chat--apply-declared-preset'; the save hook writes it back on
+;; every save. The drawer is the authoritative session-level
+;; configuration source — session buffers run `gptel-chat-mode'
+;; exclusively (Decision 16) and do NOT round-trip through
+;; gptel--save-state / gptel--restore-state. Session creation no longer
+;; writes a metadata.yml sidecar nor a scope.yml file; all session-level
+;; state is either path-derivable or drawer-derived (design Decision 4 /
 ;; Decision 6).
 
 ;;; Code:
@@ -285,6 +290,16 @@ critical."
                             session-type (error-message-string err))
              (message "Warning: Session auto-init failed. File opened in basic mode."))))))))
 
+(defun jf/gptel--initial-session-body ()
+  "Return the chat-mode body portion of a fresh `session.org'.
+
+The body is the empty `#+begin_user' / `#+end_user' block template
+(Decision 9 / Decision 18). Callers are expected to prepend a
+`:PROPERTIES:' drawer rendered by
+`jf/gptel-scope-profile--render-drawer-text' before writing the
+file."
+  "#+begin_user\n\n#+end_user\n")
+
 (defun jf/gptel--initial-session-content (preset-name &optional parent-session-id)
   "Return initial content for a freshly-created `session.org' file.
 
@@ -296,11 +311,15 @@ PARENT-SESSION-ID, when a non-empty string, adds a
 restore path installs `jf/gptel--parent-session-id' buffer-locally
 on first open (design Decision 3 / Decision 4).
 
-Returns a string starting with a `:PROPERTIES:' drawer followed by
-an empty `#+begin_user' / `#+end_user' block (the chat-mode
-new-chat template, Decision 9 / Decision 18). The shape is
-identical to what the save hook writes on first save with no
-overrides, so creation → open → save is a no-op."
+Returns a string starting with a `:PROPERTIES:' drawer (preset and
+optional parent-session id only — no `:GPTEL_SCOPE_*:' keys)
+followed by an empty `#+begin_user' / `#+end_user' block. NOTE:
+`jf/gptel--create-session-core' no longer routes through this
+helper; it composes the drawer via
+`jf/gptel-scope-profile--render-drawer-text' (which carries the
+resolved scope keys) and the body via
+`jf/gptel--initial-session-body'. This helper is retained for
+direct callers and helper-level tests."
   (let ((parent-line
          (if (and parent-session-id
                   (stringp parent-session-id)
@@ -317,14 +336,19 @@ overrides, so creation → open → save is a no-op."
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
 PRESET-NAME - symbol, name of registered preset in gptel--known-presets
-INITIAL-CONTENT - optional initial content for session.org (default:
-  a pre-populated `:PROPERTIES:' drawer containing `GPTEL_PRESET'
-  (and `GPTEL_PARENT_SESSION_ID' when PARENT-SESSION-ID is a
-  non-empty string) followed by the chat-mode empty-user-block
-  template — see `jf/gptel--initial-session-content'. The shape
-  matches what the save hook writes on first save, so a fresh
-  session looks identical to a freshly-saved standalone chat
-  buffer with a preset applied (design Decision 4).
+INITIAL-CONTENT - optional initial content for session.org. When
+  provided, written verbatim (the caller assumes responsibility for
+  any drawer it embeds). When nil, the helper composes the file
+  content as `(concat drawer-text body)' where:
+    - drawer-text is the
+      `register/shape/drawer-text-block' string returned by
+      `jf/gptel-scope-profile--create-for-session' (Mode 2a). It
+      carries `GPTEL_PRESET', optional `GPTEL_PARENT_SESSION_ID',
+      and the resolved `GPTEL_SCOPE_*' keys for the preset's scope
+      profile (with `WORKTREE-PATHS' deep-merged in when present
+      and `${project_root}' expanded against PROJECT-ROOT).
+    - body is the chat-mode empty-user-block template returned by
+      `jf/gptel--initial-session-body'.
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
 PARENT-SESSION-ID - optional string, parent session id for agent
@@ -335,13 +359,14 @@ PARENT-SESSION-ID - optional string, parent session id for agent
 
 Creates:
 - SESSION-DIR/branches/main/ directory structure
-- scope.yml (from preset's scope profile, or explicit worktree-paths)
-- session.org pre-populated with the drawer + empty user block
+- session.org pre-populated with the drawer-resident scope (preset
+  + scope keys) followed by the empty user block
 - current symlink pointing to main branch
 
-NOTE: No `metadata.yml' is written. The drawer embedded in
-`session.org' is the authoritative session-level configuration
-source (design Decision 6).
+NOTE: No `metadata.yml' is written. No `scope.yml' is written.
+The drawer embedded in `session.org' is the authoritative
+session-level configuration source (design Decision 6;
+gptel-scope-in-org-properties drawer-resident scope).
 
 Returns plist with:
   :session-id - session identifier
@@ -352,22 +377,30 @@ Returns plist with:
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
-         (initial-content (or initial-content
-                              (jf/gptel--initial-session-content
-                               preset-name parent-session-id))))
-
-    ;; Write scope.yml from preset's scope profile
-    (jf/gptel-scope-profile--create-for-session
-     preset-name main-branch-dir project-root worktree-paths)
+         ;; Resolve the preset's scope profile and render the
+         ;; drawer-text block (Mode 2a). The renderer carries
+         ;; `GPTEL_PRESET', optional `GPTEL_PARENT_SESSION_ID', and
+         ;; the resolved `GPTEL_SCOPE_*' keys. No `scope.yml' is
+         ;; written as a side effect (cycle-1 removed that path).
+         (drawer-text (jf/gptel-scope-profile--create-for-session
+                       preset-name
+                       main-branch-dir   ; target-dir (currently unused)
+                       project-root
+                       worktree-paths
+                       parent-session-id))
+         (final-content (or initial-content
+                            (concat drawer-text
+                                    (jf/gptel--initial-session-body)))))
 
     ;; Create current symlink pointing to main
     (jf/gptel--update-current-symlink session-dir "main")
 
-    ;; Create session file with initial content (pre-populated drawer
-    ;; + empty user block). The drawer is authoritative — no
-    ;; metadata.yml sidecar is written (design Decision 6).
+    ;; Create session file with initial content (drawer + empty
+    ;; user block). The drawer is authoritative — no metadata.yml
+    ;; sidecar and no scope.yml file are written (design Decision
+    ;; 6; gptel-scope-in-org-properties drawer-resident scope).
     (with-temp-file session-file
-      (insert initial-content))
+      (insert final-content))
     (jf/gptel--log 'info "Created session file: %s" session-file)
 
     ;; Return paths as plist

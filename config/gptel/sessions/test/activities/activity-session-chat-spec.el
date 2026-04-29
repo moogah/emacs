@@ -299,13 +299,19 @@
                 (jf-gptel-activities-test--register-cleanup
                  (plist-get info :session-id) "main")
                 (expect content :to-be-truthy)
-                ;; The pre-populated drawer + chat-mode template is
-                ;; still the leading content.
-                (expect content :to-match
-                        (concat "\\`:PROPERTIES:\n"
-                                ":GPTEL_PRESET: executor\n"
-                                ":END:\n"
-                                "#\\+begin_user\n\n#\\+end_user\n"))
+                ;; The drawer carries GPTEL_PRESET and the resolved
+                ;; :GPTEL_SCOPE_*: keys for the worktree paths
+                ;; (gptel-scope-in-org-properties drawer-resident
+                ;; scope) — the worktree-paths flow into the renderer
+                ;; via `jf/gptel-scope-profile--create-for-session'
+                ;; (Mode 2a) deep-merge. The drawer is followed by
+                ;; the chat-mode empty-user-block template.
+                (expect content :to-match "\\`:PROPERTIES:\n")
+                (expect content :to-match "^:GPTEL_PRESET: executor$")
+                (expect content :to-match "^:GPTEL_SCOPE_READ:.*/work/repo/")
+                (expect content :to-match "^:GPTEL_SCOPE_WRITE:.*/work/repo/")
+                (expect content :to-match "^:END:$")
+                (expect content :to-match "#\\+begin_user\n\n#\\+end_user\n")
                 ;; And the worktree annotation is appended — untouched
                 ;; by this task's scope.
                 (expect content :to-match
