@@ -181,3 +181,122 @@ Cycle-2 reviewer (`rewire-expansion-writer`, Finding 2, advisory) flagged that d
 Stage 1 and Stage 2's "scan the violation cluster for sibling violations" needs access to the queue / transient state. Read the cycle-2 transient-scope plist at `(transient-scope)`: it now carries `:violation`, `:command-name`, and `:chat-buffer`. The cluster of violations for "this command's expansion" lives at `jf/gptel-scope--queue` (see `--process-expansion-queue`); filter for the same `:command-name` to find siblings.
 
 Stage 4's branches need to call `--process-expansion-queue` after returning the refused/dedup callback — failing to do so would strand the queue (violates `register/invariant/expansion-queue-always-progresses`).
+
+## Observations
+
+- The cycle-3 plan brief's transient-scope shape claim (`:command-name`) was wrong — confirmed by the cycle-2 as-built reading; this aligns with `register/shape/expansion-transient-scope`'s status_note. No new finding from me here, just verification.
+- The brief's Stage 1 dispatch on `(plist-get violation :validation-type)` with values `:cloud-auth` / `:parse-incomplete` does not match production: `:validation-type` only carries the symbols `'path` / `'bash`, never `:cloud-auth` / `:parse-incomplete`. Cloud-auth and parse-incomplete violations both have `:validation-type 'bash` and `:operation nil`. Implementation dispatched on `:error` instead (after extending `build-violation-info` to preserve it).
+- `register/shape/violation-info` lists `:error` as an *optional* key but `build-violation-info` was not propagating it. Extended the producer (one-line addition; spec-compliant). All consumers that read `:error` go through this function, so backward compatibility is unchanged.
+- The brief's Stage 2 "scan the violation cluster for sibling `:read-directory`" cannot be implemented as briefed: `validate-file-operations` (scope-validation.org L429) returns the FIRST violation only (uses `catch 'error-found` / `throw 'error-found error`); siblings from the same command never reach the action handler. The expansion queue exists, but it holds violations from independent `mapc`-fired tools, not multiple violations from a single command. Implemented Stage 2 as a refusal with a directing user-error rather than a redirect; documented as discovery below.
+- Pre-existing test failures in `config/gptel/scope/test/expansion/` (28 failures at baseline) all relate to the legacy YAML scope-file mutator path (the tests still call `--write-pattern-to-scope` with a scope-file argument; the production signature dropped that argument in cycle-2). Not in scope for this task; left as-is.
+- The bare-command branch in `--add-bash-to-scope` (lines 624-648 of scope-expansion.org) returns nil with a `(message ...)` side-effect. The Stage 4 implementation surfaces this as `:success t :patterns_added [] :message "...no-op"` — same shape as the dedup short-circuit. The brief originally described it as `:success nil :reason "command-level expansion not supported"` but emitting `:success nil` would cause the LLM to retry the same command and re-deny in a loop. Treating it as a no-op-success (the pattern is "already in scope" insofar as it cannot ever be in scope) terminates the LLM's add-then-retry loop because the pattern set hasn't changed and the LLM will receive the same denial on retry, then move on.
+
+## Discoveries
+
+- discovery_id: disc-harden-add-to-scope-action-handler-1
+  class: invariant-violation
+  description: |
+    The brief's Stage 2 "smart redirect" cannot be implemented from the
+    action handler because validate-file-operations throws on the first
+    violation. A `find /home -name '*.txt'` emits both a
+    `:read-directory /home` op and a `:match-pattern '*.txt'` op in
+    bash-parser semantics, but the scope validator surfaces only one of
+    them — typically the first denied, depending on op iteration order.
+    The "violation cluster" the brief presupposes does not exist as a
+    structure visible to the action handler.
+
+    Implemented Stage 2 as a refusal with a directing user-error
+    ("scope the search root with 'c' or 'e'") instead.
+  affected_register_entry: register/boundary/scope-expansion-action-handler
+  recommendation: |
+    Two reconciliation paths for cycle-4+:
+
+    (a) Update the `scope-expansion-action-handler` register entry's
+        Stage 2 description to reflect the as-built refusal-with-
+        guidance behavior, and reword `register/vocabulary/operation-
+        to-drawer-key`'s decision_note for `:match-pattern` to
+        acknowledge the redirect was not implementable from the action
+        handler. The user-error guidance ("use 'c' for search root")
+        is the next-best UX given the architectural constraint.
+
+    (b) Extend the validator pipeline to surface ALL denied operations
+        for a single command (a "violation cluster" plist), then
+        plumb that cluster through `prompt-expansion` onto the
+        transient-scope, then re-implement Stage 2 as the original
+        brief specified. This is a deeper rewire (validator + pipeline
+        + transient-scope + UI) and warrants its own openspec change.
+
+    Recommend (a) for cycle-4 integrate; promote (b) to a `.tasks/`
+    follow-up if the match-pattern UX proves frustrating in practice.
+
+- discovery_id: disc-harden-add-to-scope-action-handler-2
+  class: shape-mismatch
+  description: |
+    `register/shape/violation-info` lists `:error` as an optional key,
+    but `build-violation-info` (cycle-1 producer) was dropping the
+    `:error` field on its way from `validation-error` (validator
+    pipeline) to violation-info (expansion UI). The action-handler
+    dispatch needs `:error` to distinguish cloud-auth from parse-
+    incomplete (both have `:validation-type 'bash` and `:operation
+    nil`).
+
+    Extended `build-violation-info` (one-line addition) to preserve
+    `:error`. This is a producer-side fix that brings the actual
+    violation-info shape into alignment with the register entry's
+    declared optional fields.
+  affected_register_entry: register/shape/violation-info
+  recommendation: |
+    Mark the entry's `:error` field as confirmed-present (it was
+    nominally optional but functionally absent before this task).
+    No status flip needed — the entry already documents `:error` as
+    optional; this is a producer-side bring-into-line, not a contract
+    change. Cycle-4 audit can grep `build-violation-info` to confirm
+    `:error` is preserved.
+
+- discovery_id: disc-harden-add-to-scope-action-handler-3
+  class: missing-mapping
+  description: |
+    `register/vocabulary/operation-to-drawer-key`'s closed mapping
+    rejects `nil :operation`, but the upstream-guard fix (Stage 1)
+    needs to write the cloud-provider name to
+    `:GPTEL_SCOPE_CLOUD_PROVIDERS:` for cloud-auth violations. There
+    is no operation that maps to that drawer key in the vocabulary
+    register entry (cloud is not an operation), so the action handler
+    needs a separate writer that bypasses the operation collapse.
+
+    Added `jf/gptel-scope--write-provider-to-drawer` (mirrors the
+    operation-keyed writer's contract: idempotent, returns provider
+    string on write or nil on dedup). The cloud-provider write path
+    is now the third writer alongside the operation-keyed and the
+    deny-listing path (which is also action-layer, per `register/
+    vocabulary/operation-to-drawer-key`'s GPTEL_SCOPE_DENY note).
+  affected_register_entry: register/boundary/scope-pattern-writer
+  recommendation: |
+    Add a stages note or a sibling boundary entry to `register/
+    boundary/scope-pattern-writer` (or a new `register/boundary/
+    scope-cloud-provider-writer`) documenting the dedicated cloud-
+    provider writer. The "single canonical drawer mutator" property
+    of the existing entry is preserved for *operation-keyed* writes;
+    the cloud writer is a parallel single-canonical mutator for the
+    cloud-providers drawer key. Same fail-loud / dedup contract.
+
+- discovery_id: disc-harden-add-to-scope-action-handler-4
+  class: design-deviation
+  description: |
+    Stage 4's bare-command branch was originally specified to emit
+    `:success nil :reason "command-level expansion not supported"`.
+    Emitting `:success nil` causes the LLM to retry the same command
+    and re-deny in a loop (the LLM treats `:success nil` as
+    "expansion failed, try again"). Treating the bare-command branch
+    as a no-op-success (`:success t :patterns_added []`) is identical
+    in shape to the dedup short-circuit and terminates the retry loop
+    cleanly: the LLM receives the same denial on retry, recognizes
+    the pattern set is unchanged, and moves on.
+  affected_register_entry: register/boundary/scope-expansion-action-handler
+  recommendation: |
+    Update the entry's Stage 4 description (and the harden task
+    brief's Stage 4 wording) to specify `:success t :patterns_added
+    []` for *both* the dedup short-circuit and the bare-command
+    branch. Add a one-line note that `:success nil` would cause an
+    LLM retry loop. Cycle-4 integrate can flip the entry to
+    `confirmed` after this clarification.

@@ -779,7 +779,14 @@ VALIDATION-ERROR must carry :validation-type (attached by the
 validation entrypoint).
 
 Returns plist with :tool, :resource, :operation, :reason,
-:validation-type, :metadata."
+:validation-type, :metadata, :error.
+
+The :error field (machine-readable error code, e.g. \"parse_incomplete\",
+\"cloud_auth_denied\") is preserved for action-handler dispatch — the
+expansion UI's --add-to-scope refuses on parse_incomplete and routes
+cloud_auth_denied to the providers drawer rather than the operation
+collapse (see register/boundary/scope-expansion-action-handler).
+register/shape/violation-info marks :error as optional."
   (let* ((error-type (or (plist-get validation-error :error) "unknown"))
          (validation-type (plist-get validation-error :validation-type))
          (resource (pcase error-type
@@ -798,7 +805,8 @@ Returns plist with :tool, :resource, :operation, :reason,
           :operation operation
           :reason reason
           :validation-type validation-type
-          :metadata metadata)))
+          :metadata metadata
+          :error error-type)))
 ;; Violation-Info Building:1 ends here
 
 ;; Error Formatting
