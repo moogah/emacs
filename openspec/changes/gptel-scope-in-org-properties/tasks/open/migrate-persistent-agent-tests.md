@@ -127,3 +127,60 @@ These three are this task's primary work.
 
 - `add-test-helper-with-scope-drawer` (closed cycle-1).
 - `rewire-persistent-agent` (closed cycle-2).
+
+## Observations
+
+- **Three tests, not two, were the migration bucket.** The brief listed
+  the `:95` and `:125` `it` blocks as the primary work. In practice
+  the `:70` test (`writes session.org with a self-describing
+  :PROPERTIES: drawer`) was also failing because cycle-2's
+  `rewire-persistent-agent` widened the agent's drawer to carry
+  `:GPTEL_SCOPE_*:` keys (standard write `/tmp/**` + standard deny
+  set), but the test still asserted on the pre-cycle-2 drawer shape
+  (`:GPTEL_PRESET:` + `:GPTEL_PARENT_SESSION_ID:` only). The state.json
+  test_output_tail cited in cycle-2 updates correctly named all three;
+  the body's `:95`/`:125` framing under-counted by one. This task
+  migrated all three.
+- **No parent `scope.yml` to retire in `helpers-spec.el`.** The
+  `with-mock-parent-session` macro was already drawer-only — it
+  writes a parent `session.org` with `:GPTEL_PRESET: dummy` and never
+  produced a parent `scope.yml`. The brief's step 5 anticipated a
+  fixture migration that wasn't needed. `helpers-spec.el` was not
+  modified.
+- **Standard deny set referenced via defconst.** Per cycle-2 commit
+  `486d09f`, `jf/gptel-persistent-agent--standard-deny-paths` is the
+  hoisted defconst. All three migrated tests reference the defconst
+  directly in their `:GPTEL_SCOPE_DENY:` assertions, so a future
+  expansion of the deny set will not require this test file to change
+  (single source of truth — `register/shape/drawer-text-block`
+  invariant on the deny key's contents).
+- **Drawer queries route through `org-entry-get-multivalued-property`.**
+  Added a small `jf/persistent-agent-test--with-agent-session-org`
+  macro local to this spec file that opens the agent's `session.org`
+  in `org-mode` and runs body inside it. Drawer queries then go
+  through the same parser the production loader uses
+  (`register/boundary/scope-profile-applicator`, Mode 2a). No use of
+  `:to-match` against raw drawer text — the `:to-equal` assertions on
+  parsed multi-value lists are stronger and survive whitespace /
+  ordering changes in the renderer.
+- **`#+begin_user` body still asserted.** The `:70` migration retains a
+  `:to-match "#\\+begin_user\nDO THE THING\n#\\+end_user"` assertion
+  on the buffer string. This documents that the user prompt becomes
+  the body of the first `#+begin_user` block — a contract that was
+  implicit in the legacy literal-string `:to-equal` assertion and is
+  worth preserving.
+- **Empty-drawer disposition is not pinned here.** The third test
+  (no allowed-paths) asserts only on the agent-side renderer's
+  output (a `:GPTEL_SCOPE_READ:`-omitted drawer). It does not touch
+  validator behaviour for the empty-allowed-paths case, per the
+  cycle-2 update on `disposition-empty-drawer-collapse`.
+- **All 36 specs in the persistent-agent suite pass.** The 3
+  migration-bucket failures resolve as expected; no other tests
+  regress.
+
+## Discoveries
+
+(none — the brief's pressure-test prompt covered the +1 test
+discrepancy, and no register entries needed expansion. The cycle-2
+defconst hoist and updated description string both held under test
+without further follow-up.)
