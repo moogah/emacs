@@ -10,17 +10,9 @@ context: |
   Tests live in config/<module>/test/ (Buttercup *-spec.el) or co-located
   config/<module>/*-test.el (ERT).
 
-# Per-artifact rules. These overlay the user-level spec-driven-tasks templates
-# at ~/.local/share/openspec/schemas/spec-driven-tasks/ — the templates ask for
-# generic "pick per ecosystem" answers; these rules pin them down for ~/emacs.
+# Per-artifact rules. These overlay the user-level spec-driven-tasks schema
+# at ~/.local/share/openspec/schemas/spec-driven-tasks/.
 rules:
-  architecture:
-    - Test Framework section MUST identify Buttercup (new) or ERT (legacy) and explain why for this change.
-    - Test Organization MUST point at config/<module>/test/ for new Buttercup suites, or co-located *-test.el for existing ERT.
-    - Naming Conventions MUST use *-spec.el for Buttercup and *-test.el for ERT.
-    - Running Tests MUST list ./bin/run-tests.sh -d <dir> (or -f buttercup / -f ert) and the matching make target (test-buttercup-directory DIR=, test-directory DIR=).
-    - Test Patterns MUST describe Buttercup before-each/after-each + (spy-on 'fn :and-return-value v) for new tests; ERT manual let-bindings for legacy.
-    - Scenario Mapping MUST translate Given/When/Then to before-each setup, action in (it ...), and expect/should assertions.
   tasks:
     - Implementation file paths use .org extensions (literate). Tangled .el files are generated; never list .el-only edits.
     - Verification steps MUST include ./bin/tangle-org.sh <file> to validate parens after .org edits.
