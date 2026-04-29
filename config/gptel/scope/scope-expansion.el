@@ -91,13 +91,20 @@ Delegates to scope-yaml module. Returns parsed plist."
 
 (defun jf/gptel-scope--map-operation-to-drawer-key (operation)
   "Map a denied OPERATION keyword to the matching drawer key string.
-Read-like granular operations collapse to GPTEL_SCOPE_READ. Write-like
-granular operations collapse to GPTEL_SCOPE_WRITE. Defaults to
-GPTEL_SCOPE_READ when OPERATION is nil (safest fallback).
 
-Returns the bare key form (e.g. \"GPTEL_SCOPE_READ\") suitable for the
-`org-entry-*' property API; the colonised drawer literal
-\":GPTEL_SCOPE_READ:\" only appears in drawer text."
+The input domain is the eleven `:operation' values declared by
+`register/vocabulary/operation-to-drawer-key' (read-like collapse to
+GPTEL_SCOPE_READ; write-like collapse to GPTEL_SCOPE_WRITE; `:modify' →
+MODIFY; `:execute' → EXECUTE).  Returns the bare key form (e.g.
+\"GPTEL_SCOPE_READ\") suitable for the `org-entry-*' property API; the
+colonised drawer literal \":GPTEL_SCOPE_READ:\" only appears in drawer
+text.
+
+Signals an error on any operation outside the closed input set, including
+nil — silent fall-through would grant read access on every typo or upstream
+nil-operation case.  Callers receiving violations with `:operation nil'
+(cloud-auth, parse-incomplete) must intercept at the action layer rather
+than relying on this function to choose a default."
   (cond
    ((memq operation '(:read :read-directory :read-metadata :match-pattern))
     "GPTEL_SCOPE_READ")
@@ -105,8 +112,11 @@ Returns the bare key form (e.g. \"GPTEL_SCOPE_READ\") suitable for the
     "GPTEL_SCOPE_WRITE")
    ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
    ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
-   ((eq operation :deny)    "GPTEL_SCOPE_DENY")
-   (t "GPTEL_SCOPE_READ")))
+   ((null operation)
+    (error "scope-expansion: cannot map nil :operation to a drawer key — handle at the action layer"))
+   (t
+    (error "scope-expansion: unmapped :operation %S — extend the mapping or use the deny action"
+           operation))))
 
 (defun jf/gptel-scope--write-pattern-to-drawer (buffer operation pattern)
   "Append PATTERN to BUFFER's drawer key for OPERATION; save the buffer.

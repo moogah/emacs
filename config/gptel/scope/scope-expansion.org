@@ -179,11 +179,17 @@ the writer happens in =rewire-expansion-writer=.
 ** Map Operation to Drawer Key
 
 Closed-set collapse from a granular validator-pipeline / bash-parser
-=:operation= keyword to one of five list-shaped drawer keys
-(=GPTEL_SCOPE_READ= / =WRITE= / =MODIFY= / =EXECUTE= / =DENY=). The bare
-form is returned (no surrounding colons) because Org's =org-entry-*=
-property API takes the bare key; the colonised =:GPTEL_SCOPE_READ:= literal
-appears only in the drawer text.
+=:operation= keyword to one of four list-shaped drawer keys (=READ= /
+=WRITE= / =MODIFY= / =EXECUTE=). The bare form is returned (no surrounding
+colons) because Org's =org-entry-*= property API takes the bare key; the
+colonised =:GPTEL_SCOPE_READ:= literal appears only in the drawer text.
+
+The input domain is the eleven =:operation= values declared by
+=register/vocabulary/operation-to-drawer-key=. Adding a value here that
+isn't in the entry is a vocabulary-mismatch finding; adding a value to the
+entry without updating this collapse is the same. =GPTEL_SCOPE_DENY= is
+*not* a collapse target — it's expressed at the action layer (=add-to-
+deny-scope=), not as an =:operation= input.
 
 This is the structural analogue of
 =jf/gptel-scope--map-operation-to-scope-section= (under § Add Path to
@@ -192,20 +198,34 @@ plist key. Both must stay in lockstep; any new bash-parser semantic op type
 must be added here, in the validator-pipeline mapper, and to
 =register/vocabulary/operation-to-drawer-key= in the same change.
 
-Fail-safe default: =nil= operation maps to =GPTEL_SCOPE_READ= (the
-most-restrictive scope). A missing-operation bug surfaces in the dedup loop
-rather than in over-permissive grants.
+*Unmapped policy: error.* Earlier drafts collapsed unmapped operations
+(typos, =nil=, future bash-parser ops) silently to =GPTEL_SCOPE_READ=. That
+inverts the fail-safe direction: =GPTEL_SCOPE_READ= is an *allowlist* —
+adding to it *grants* read access. The strict-error fallback forces the
+typo / nil-operation case to surface at the user-visible expansion UI the
+moment it happens, rather than silently bloating =GPTEL_SCOPE_READ=. For
+violations that legitimately arrive with =:operation nil= (cloud-auth,
+parse-incomplete), the upstream fix lives at the =--add-to-scope= action
+handler (which should refuse to run on nil-operation bash violations and
+prompt the user with a different action).
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--map-operation-to-drawer-key (operation)
   "Map a denied OPERATION keyword to the matching drawer key string.
-Read-like granular operations collapse to GPTEL_SCOPE_READ. Write-like
-granular operations collapse to GPTEL_SCOPE_WRITE. Defaults to
-GPTEL_SCOPE_READ when OPERATION is nil (safest fallback).
 
-Returns the bare key form (e.g. \"GPTEL_SCOPE_READ\") suitable for the
-`org-entry-*' property API; the colonised drawer literal
-\":GPTEL_SCOPE_READ:\" only appears in drawer text."
+The input domain is the eleven `:operation' values declared by
+`register/vocabulary/operation-to-drawer-key' (read-like collapse to
+GPTEL_SCOPE_READ; write-like collapse to GPTEL_SCOPE_WRITE; `:modify' →
+MODIFY; `:execute' → EXECUTE).  Returns the bare key form (e.g.
+\"GPTEL_SCOPE_READ\") suitable for the `org-entry-*' property API; the
+colonised drawer literal \":GPTEL_SCOPE_READ:\" only appears in drawer
+text.
+
+Signals an error on any operation outside the closed input set, including
+nil — silent fall-through would grant read access on every typo or upstream
+nil-operation case.  Callers receiving violations with `:operation nil'
+(cloud-auth, parse-incomplete) must intercept at the action layer rather
+than relying on this function to choose a default."
   (cond
    ((memq operation '(:read :read-directory :read-metadata :match-pattern))
     "GPTEL_SCOPE_READ")
@@ -213,8 +233,11 @@ Returns the bare key form (e.g. \"GPTEL_SCOPE_READ\") suitable for the
     "GPTEL_SCOPE_WRITE")
    ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
    ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
-   ((eq operation :deny)    "GPTEL_SCOPE_DENY")
-   (t "GPTEL_SCOPE_READ")))
+   ((null operation)
+    (error "scope-expansion: cannot map nil :operation to a drawer key — handle at the action layer"))
+   (t
+    (error "scope-expansion: unmapped :operation %S — extend the mapping or use the deny action"
+           operation))))
 #+end_src
 
 ** Write Pattern to Drawer

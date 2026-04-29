@@ -352,6 +352,37 @@ Returns a new plist with expanded values."
     result))
 #+end_src
 
+* Cloud Auth Vocabulary
+
+Closed scalar set for =:GPTEL_SCOPE_CLOUD_AUTH:=. The same three values
+that the loader (=jf/gptel-scope--load-from-buffer= at
+=config/gptel/scope/scope-validation.el=) accepts. Both writers below
+consult this vocabulary before emitting; a mis-typed value at write time
+errors immediately rather than failing later at load time with no path
+back to the writer that produced the bad value.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-scope-profile--cloud-auth-values
+  '("allow" "warn" "deny")
+  "Closed-set of accepted values for `:GPTEL_SCOPE_CLOUD_AUTH:'.
+Mirrors the loader's enforcement at
+`jf/gptel-scope--load-from-buffer'; mutating one without the other is
+a vocabulary-mismatch finding.")
+
+(defun jf/gptel-scope-profile--validate-cloud-auth (auth)
+  "Signal an error when AUTH is not in the closed cloud-auth value set.
+Returns AUTH unchanged on success.  Accepts nil (treated as `unset' —
+the renderer / applicator decide whether to omit the key)."
+  (cond
+   ((null auth) auth)
+   ((and (stringp auth)
+         (member auth jf/gptel-scope-profile--cloud-auth-values))
+    auth)
+   (t
+    (error "scope-profile: cloud :auth-detection must be one of %S, got %S"
+           jf/gptel-scope-profile--cloud-auth-values auth))))
+#+end_src
+
 * Render Drawer Text (Mode 2a)
 
 The pure renderer: given a preset name, optional parent-session id, and a
@@ -437,7 +468,8 @@ format `org-entry-get-multivalued-property' expects."
                         key
                         (mapconcat #'org-entry-protect-space vals " "))
                 lines))))
-    (let ((auth (plist-get cloud :auth-detection))
+    (let ((auth (jf/gptel-scope-profile--validate-cloud-auth
+                 (plist-get cloud :auth-detection)))
           (providers (plist-get cloud :allowed-providers)))
       (when (and (stringp auth) (not (string= auth "warn")))
         (push (format ":GPTEL_SCOPE_CLOUD_AUTH: %s" auth) lines))
@@ -494,7 +526,8 @@ SCOPE-PLIST."
                 ;; values must be spliced in via apply.
                 (apply #'org-entry-put-multivalued-property
                        (point) (cdr op) vals))))
-          (let ((auth (plist-get cloud :auth-detection))
+          (let ((auth (jf/gptel-scope-profile--validate-cloud-auth
+                       (plist-get cloud :auth-detection)))
                 (providers (plist-get cloud :allowed-providers)))
             (when (and (stringp auth) (not (string= auth "warn")))
               (org-entry-put (point) "GPTEL_SCOPE_CLOUD_AUTH" auth))

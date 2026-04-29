@@ -153,6 +153,26 @@ Returns a new plist with expanded values."
                   (setq result (plist-put result key expanded))))
     result))
 
+(defconst jf/gptel-scope-profile--cloud-auth-values
+  '("allow" "warn" "deny")
+  "Closed-set of accepted values for `:GPTEL_SCOPE_CLOUD_AUTH:'.
+Mirrors the loader's enforcement at
+`jf/gptel-scope--load-from-buffer'; mutating one without the other is
+a vocabulary-mismatch finding.")
+
+(defun jf/gptel-scope-profile--validate-cloud-auth (auth)
+  "Signal an error when AUTH is not in the closed cloud-auth value set.
+Returns AUTH unchanged on success.  Accepts nil (treated as `unset' —
+the renderer / applicator decide whether to omit the key)."
+  (cond
+   ((null auth) auth)
+   ((and (stringp auth)
+         (member auth jf/gptel-scope-profile--cloud-auth-values))
+    auth)
+   (t
+    (error "scope-profile: cloud :auth-detection must be one of %S, got %S"
+           jf/gptel-scope-profile--cloud-auth-values auth))))
+
 (defun jf/gptel-scope-profile--render-drawer-text
     (preset-name parent-session-id scope-plist)
   "Render a `:PROPERTIES:' drawer block as a string.
@@ -214,7 +234,8 @@ format `org-entry-get-multivalued-property' expects."
                         key
                         (mapconcat #'org-entry-protect-space vals " "))
                 lines))))
-    (let ((auth (plist-get cloud :auth-detection))
+    (let ((auth (jf/gptel-scope-profile--validate-cloud-auth
+                 (plist-get cloud :auth-detection)))
           (providers (plist-get cloud :allowed-providers)))
       (when (and (stringp auth) (not (string= auth "warn")))
         (push (format ":GPTEL_SCOPE_CLOUD_AUTH: %s" auth) lines))
@@ -258,7 +279,8 @@ SCOPE-PLIST."
                 ;; values must be spliced in via apply.
                 (apply #'org-entry-put-multivalued-property
                        (point) (cdr op) vals))))
-          (let ((auth (plist-get cloud :auth-detection))
+          (let ((auth (jf/gptel-scope-profile--validate-cloud-auth
+                       (plist-get cloud :auth-detection)))
                 (providers (plist-get cloud :allowed-providers)))
             (when (and (stringp auth) (not (string= auth "warn")))
               (org-entry-put (point) "GPTEL_SCOPE_CLOUD_AUTH" auth))
