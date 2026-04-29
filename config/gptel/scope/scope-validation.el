@@ -562,11 +562,19 @@ chat buffer is available for the session (e.g. programmatic
 ;; registry has not been initialised (or where =jf/gptel--branch-dir= was
 ;; set buffer-locally without going through =jf/gptel--register-session=).
 
-;; =--has-any-scope-key-p= surfaces the =no_scope_config= deny semantic:
-;; a =session.org= carrying only =:GPTEL_PRESET:= (and no =:GPTEL_SCOPE_*:=
-;; keys) is treated as "no scope configured" — the dispatcher's deny path
-;; surfaces =:error "no_scope_config"=. This preserves the historical
-;; behaviour of the YAML loader for the equivalent missing-file case.
+;; =--has-any-scope-key-p= is a pure predicate used by the loader to
+;; distinguish "drawer present but empty" (no =:GPTEL_SCOPE_*:= keys —
+;; e.g. a =session.org= carrying only =:GPTEL_PRESET:=) from "drawer
+;; populated with scope keys". When the predicate returns nil, the
+;; loader composes deny-all defaults via =--deny-all-defaults=; the
+;; dispatcher then proceeds to validation and per-violation deny is the
+;; authorisation outcome (not =no_scope_config=).
+
+;; =--deny-all-defaults= returns the canonical deny-all scope-config
+;; plist: empty =:paths= sub-lists and ="deny"= cloud-auth. An empty
+;; drawer therefore behaves as a deny-all configuration rather than a
+;; config-missing signal — see =register/boundary/scope-config-loader=
+;; for the cycle-3 disposition history.
 
 
 ;; [[file:scope-validation.org::*Helpers][Helpers:1]]
@@ -593,10 +601,15 @@ falls back to scanning the buffer list when no registry entry matches."
                   (buffer-list)))))
 
 (defun jf/gptel-scope--has-any-scope-key-p (config)
-  "Return non-nil if CONFIG carries any non-empty scope list or non-default cloud.
-Surfaces the no_scope_config deny semantic: a plist with empty list
-fields and a default \"warn\" cloud-auth is treated as \"no scope
-configured\" by the dispatcher."
+  "Return non-nil iff CONFIG has at least one populated :GPTEL_SCOPE_* key.
+Pure predicate (no side effects). Returns t when CONFIG carries any
+non-empty path list, any allowed cloud provider, or a non-default
+auth-detection value; returns nil for an empty plist (every list
+empty, auth-detection \"warn\" or unset).
+
+Callers compose deny-all defaults (via
+`jf/gptel-scope--deny-all-defaults') when this returns nil — an empty
+drawer is a deny-all configuration, not a config-missing signal."
   (let ((paths (plist-get config :paths))
         (cloud (plist-get config :cloud)))
     (or (plist-get paths :read)
@@ -608,6 +621,26 @@ configured\" by the dispatcher."
         ;; A non-default auth value also indicates intent.
         (let ((auth (plist-get cloud :auth-detection)))
           (and auth (not (string= auth "warn")))))))
+
+(defun jf/gptel-scope--deny-all-defaults ()
+  "Return the canonical deny-all scope-config plist.
+Used by `jf/gptel-scope--load-config' Stage 3 when the resolved
+drawer has no :GPTEL_SCOPE_* keys (or no drawer is found at all).
+
+Shape conforms to `register/shape/scope-config-plist': empty :paths
+sub-lists and \"deny\" cloud auth-detection. Every read/write/modify/
+execute path validation will deny against this config; cloud auth is
+denied for all providers. Replaces the historical Stage-3 collapse-
+to-nil semantic — see the cycle-3 disposition documented in
+`register/boundary/scope-config-loader'."
+  (list :paths (list :read nil
+                     :read-metadata nil
+                     :write nil
+                     :modify nil
+                     :execute nil
+                     :deny nil)
+        :cloud (list :auth-detection "deny"
+                     :allowed-providers nil)))
 ;; Helpers:1 ends here
 
 ;; Dispatcher
@@ -617,13 +650,15 @@ configured\" by the dispatcher."
 ;; just-typed edit is visible to validation before they save). The file
 ;; fallback covers programmatic callers (and headless tests).
 
-;; Stage-3 collapse: a resolved drawer with no =:GPTEL_SCOPE_*:= keys
-;; present (e.g. a =session.org= carrying only =:GPTEL_PRESET:=) returns
-;; nil, which the authorization dispatcher translates to =:error
-;; "no_scope_config"=. This preserves the historical deny semantic for
-;; the equivalent missing-file case — see
-;; =register/boundary/scope-config-loader= and the cycle-1 reconciliation
-;; note for the rationale.
+;; Stage 3 — empty-drawer composition: when neither stage 1 (buffer
+;; read) nor stage 2 (file read) yields a plist with at least one
+;; =:GPTEL_SCOPE_*:= key, =--load-config= returns the deny-all defaults
+;; plist composed by =--deny-all-defaults= (empty =:paths= sub-lists,
+;; ="deny"= cloud auth-detection). The authorization dispatcher
+;; proceeds to validation; per-violation deny is the authorisation
+;; outcome — not =no_scope_config=. See
+;; =register/boundary/scope-config-loader= for the cycle-3 disposition
+;; history (Option B).
 
 ;; A drawer with at least one scope key set returns the full plist; the
 ;; underlying buffer/file readers default missing list keys to the empty
@@ -636,9 +671,14 @@ configured\" by the dispatcher."
   "Resolve scope configuration for the current session, drawer-first.
 Buffer-first: if a chat buffer exists for BRANCH-DIR (default: buffer-local
 `jf/gptel--branch-dir', then `default-directory'), reads its drawer.
-Otherwise reads the file at <branch-dir>/session.org.  Returns nil when no
-scope keys are present in the resolved drawer (the authorization
-dispatcher treats nil as `no_scope_config').
+Otherwise reads the file at <branch-dir>/session.org.
+
+Stage 3 — empty-drawer composition: when neither stage produces a
+plist with at least one :GPTEL_SCOPE_* key (no buffer + no file, or
+file present but drawer empty), returns the deny-all defaults plist
+composed by `jf/gptel-scope--deny-all-defaults' rather than nil. The
+dispatcher proceeds to validation and per-violation deny is the
+authorisation outcome.
 
 The returned plist conforms to `register/shape/scope-config-plist':
 two top-level keys, =:paths= and =:cloud=.  Stage 1 of the bash
@@ -656,12 +696,13 @@ constant `jf/gptel-scope--enforce-parse-complete'; Stage 5 reads
                       ((and file (file-exists-p file))
                        (jf/gptel-scope--load-from-file file))
                       (t nil))))
-        (and config
-             (jf/gptel-scope--has-any-scope-key-p config)
-             config))
+        (cond
+         ((null config) (jf/gptel-scope--deny-all-defaults))
+         ((jf/gptel-scope--has-any-scope-key-p config) config)
+         (t (jf/gptel-scope--deny-all-defaults))))
     (error
      (message "Error loading scope config: %s" (error-message-string err))
-     nil)))
+     (jf/gptel-scope--deny-all-defaults))))
 ;; Dispatcher:1 ends here
 
 ;; Multi-violation expansion loop
@@ -687,12 +728,13 @@ constant `jf/gptel-scope--enforce-parse-complete'; Stage 5 reads
 (defun jf/gptel-scope--final-deny-response (tool-name args check-result)
   "Return the response plist that should be delivered for a denied call.
 TOOL-NAME is the denied tool. ARGS is the tool's normalized argument
-list. CHECK-RESULT is the validation plist. A missing scope config is
-returned verbatim; real scope violations are formatted for the LLM."
-  (if (equal (plist-get check-result :error) "no_scope_config")
-      check-result
-    (jf/gptel-scope--format-tool-error
-     tool-name (nth 0 args) check-result)))
+list. CHECK-RESULT is the validation plist. All denials are formatted
+for the LLM via `jf/gptel-scope--format-tool-error' — the historical
+no_scope_config short-circuit was removed when an empty drawer became
+a deny-all configuration (Option B; see
+register/boundary/scope-config-loader)."
+  (jf/gptel-scope--format-tool-error
+   tool-name (nth 0 args) check-result))
 
 (defun jf/gptel-scope--validate-tool-call (tool-name operation args config)
   "Dispatch TOOL-NAME's ARGS against CONFIG and return a validation plist.
@@ -728,42 +770,36 @@ the pending invocation outright.
 This function is async: expansion UI may resolve on a later turn, so
 the callbacks must be prepared to run after this function returns."
   (let ((config (jf/gptel-scope--load-config)))
-    (cond
-     ;; Missing config is not a scope violation and does not go through
-     ;; expansion. The raw plist is free of Lisp symbols so on-deny can
-     ;; json-serialize it directly.
-     ((null config)
-      (funcall on-deny
-               (list :success nil
-                     :allowed nil
-                     :error "no_scope_config"
-                     :message "No scope configuration found.")))
-     (t
-      (let ((check-result (jf/gptel-scope--validate-tool-call
-                           tool-name operation args config)))
-        (cond
-         ((plist-get check-result :allowed)
-          (funcall on-allow))
+    ;; --load-config always returns a plist (deny-all defaults when
+    ;; the drawer is missing/empty per Option B); proceed directly to
+    ;; validation. An empty drawer denies every op as a per-violation
+    ;; deny, surfaceable through the expansion UI like any other
+    ;; scope violation.
+    (let ((check-result (jf/gptel-scope--validate-tool-call
+                         tool-name operation args config)))
+      (cond
+       ((plist-get check-result :allowed)
+        (funcall on-allow))
 
-         (t
-          (jf/gptel-scope--trigger-inline-expansion
-           check-result tool-name
-           (lambda (expansion-result)
-             (cond
-              ((not (plist-get expansion-result :approved))
-               (funcall on-deny
-                        (jf/gptel-scope--final-deny-response
-                         tool-name args check-result)))
-              ;; Allow-once: single-use bypass, skip re-validation so
-              ;; remaining denials in the same command don't prompt.
-              ((plist-get expansion-result :allowed-once)
-               (funcall on-allow))
-              ;; Add-to-scope: re-validate against the updated config.
-              ;; If another op is still denied, the next iteration
-              ;; prompts for it.
-              (t
-               (jf/gptel-scope-authorize-tool-call
-                tool-name operation args on-allow on-deny))))))))))))
+       (t
+        (jf/gptel-scope--trigger-inline-expansion
+         check-result tool-name
+         (lambda (expansion-result)
+           (cond
+            ((not (plist-get expansion-result :approved))
+             (funcall on-deny
+                      (jf/gptel-scope--final-deny-response
+                       tool-name args check-result)))
+            ;; Allow-once: single-use bypass, skip re-validation so
+            ;; remaining denials in the same command don't prompt.
+            ((plist-get expansion-result :allowed-once)
+             (funcall on-allow))
+            ;; Add-to-scope: re-validate against the updated config.
+            ;; If another op is still denied, the next iteration
+            ;; prompts for it.
+            (t
+             (jf/gptel-scope-authorize-tool-call
+              tool-name operation args on-allow on-deny))))))))))
 ;; Multi-violation expansion loop:1 ends here
 
 ;; Violation-Info Building

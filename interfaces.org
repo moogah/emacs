@@ -613,11 +613,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: divergent
    status_note: |
-     cycle-2 integrate (2026-04-29): implementation honors the cycle-1
+     cycle-3 disposition-empty-drawer-collapse (2026-04-29): Option B
+     applied at the code layer. Stage 3 of --load-config now composes
+     deny-all defaults (empty :paths sub-lists, "deny" cloud auth) via
+     jf/gptel-scope--deny-all-defaults rather than collapsing to nil.
+     The dispatcher proceeds straight to validation; per-violation
+     deny replaces the historical no_scope_config short-circuit (which
+     has been removed from authorize-tool-call and final-deny-response).
+     Status remains `divergent` until cycle-3 integrate flips it to
+     `reconciled` with prior_shape (Stage 3 collapse) / new_shape
+     (Stage 3 deny-all composition) documented. Tests pinned to the
+     old semantics will be migrated by the parallel
+     `migrate-validation-tests` task.
+
+     Prior cycle-2 integrate note: implementation honored the cycle-1
      reconciliation note's "stage-3 collapse to nil" semantic; cycle-1's
      user-resolved ask-arch-cycle-1777460733-2 said the opposite ("empty
      drawer = deny-all defaults"). Both authorities cannot stand. User
-     dispositions via cycle-3 task `disposition-empty-drawer-collapse`.
+     disposition via cycle-3 task `disposition-empty-drawer-collapse`.
      See .orchestrator/cycles/cycle-1777470320/reconciliations/
      boundary-scope-config-loader.md for the divergence escalation.
    load_bearing: true
@@ -629,7 +642,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      with the session. Stage 2 (file-fallback) opens session.org head-
      lessly when no buffer is loaded. Stage 1 is the source-of-truth
      stage; stage 2 exists only for programmatic / out-of-buffer call
-     paths (e.g. request_scope_expansion).
+     paths (e.g. request_scope_expansion). Stage 3 composes deny-all
+     defaults when neither stage produces a plist with :GPTEL_SCOPE_*
+     keys, so the dispatcher always sees a usable plist.
 
    stages:
      - n: 1
@@ -653,9 +668,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          Opens the file via with-temp-buffer + insert-file-contents,
          enables org-mode for the temp buffer, runs the same drawer
          reader as stage 1. Discards the temp buffer. The plist shape
-         is identical to stage 1's output. When neither stage 1 nor
-         stage 2 yields a plist with at least one :GPTEL_SCOPE_* key,
-         the dispatcher denies with :error "no_scope_config".
+         is identical to stage 1's output.
+     - n: 3
+       name: empty-plist → deny-all defaults composition
+       input: register/shape/scope-config-plist | nil (output of stages 1/2)
+       output: register/shape/scope-config-plist (always non-nil)
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         When stages 1+2 yield nil OR a plist with no :GPTEL_SCOPE_*
+         keys, --load-config returns the deny-all defaults plist
+         composed by jf/gptel-scope--deny-all-defaults: empty :paths
+         sub-lists (:read, :read-metadata, :write, :modify, :execute,
+         :deny) and :cloud (:auth-detection "deny" :allowed-providers
+         nil). The authorization dispatcher proceeds to validation;
+         per-violation deny is the authorisation outcome. Replaces
+         the historical Stage-3 collapse-to-nil → no_scope_config
+         semantic (Option B; cycle-3).
 
    cross_stage_invariants:
      - register/invariant/scope-no-security-key-in-plist

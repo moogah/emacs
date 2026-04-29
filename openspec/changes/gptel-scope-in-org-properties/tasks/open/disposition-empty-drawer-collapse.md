@@ -83,3 +83,62 @@ Replace Stage 3 with a "deny-all defaults" composer: when the loaded plist has n
 - arch-cycle-1777470320-4 (architect end-of-cycle finding)
 - rewire-validator-config-load implementor push-back (disc-rewire-validator-config-load-1)
 - rewire-validator-config-load author-blind reviewer Finding 1 (convergent)
+
+## Observations
+
+- The `(null config)` branch in `jf/gptel-scope-authorize-tool-call` and the `no_scope_config` short-circuit in `jf/gptel-scope--final-deny-response` were no longer reachable under Option B (the loader now always returns a plist). I removed both branches rather than leave dead code. `--final-deny-response` now unconditionally formats every denial through `format-tool-error`.
+- The `condition-case` error branch in `--load-config` formerly returned `nil`; under Option B I changed it to return `--deny-all-defaults` so the dispatcher contract (always-a-plist) holds even on parse exceptions.
+- `config/gptel/scope/interfaces.org` line 179 still lists `"no_scope_config"` in the canonical-codes "lives outside this vocabulary" docstring with note "(macro, before validation runs)". Under Option B no producer emits that code anymore, so this note is now misleading. Out of scope for this task; flagged as discovery for integrate to route (likely to `migrate-validation-tests` or its own follow-up).
+- Three integration / dispatcher specs still pin the `no_scope_config` semantic and now fail or no-op:
+  - `config/gptel/scope/test/validation/authorize-tool-call-spec.el` — "no scope configuration invokes on-deny with no_scope_config and never validates"
+  - `config/gptel/scope/test/integration/filesystem-scope-integration-spec.el` — "no_scope_config error returns JSON through callback (not a signal)"
+  - `config/gptel/scope/test/integration/bash-scope-expansion-integration-spec.el` — "no_scope_config returns JSON through callback"
+  Per the brief these are owned by the parallel `migrate-validation-tests` task; not touched here. Pre-task baseline run showed 176/182 passing; post-task run shows 175/182 — the single new failure is exactly the dispatcher spec listed above. The other 4 pre-existing failures (parse-completeness permissive mode, timeout/truncation) are unrelated.
+
+## Discoveries
+
+- discovery_id: disc-disposition-empty-drawer-collapse-1
+  class: interface-drift
+  description: |
+    `config/gptel/scope/interfaces.org` § Error Codes (line 179) still
+    documents `"no_scope_config"` as a code that "lives outside this
+    vocabulary (macro, before validation runs)". Under Option B no
+    producer emits that code: `--load-config` always returns a plist,
+    `authorize-tool-call`'s `(null config)` short-circuit was deleted,
+    and `--final-deny-response` no longer special-cases it. The note is
+    a stale boundary-doc reference; an empty drawer now produces
+    canonical violation codes (`not-in-scope` / `denied-pattern`)
+    through the standard validation path.
+  affected_register_entry: register/boundary/scope-config-loader
+  recommendation: |
+    Integrate-phase reconciliation note for scope-config-loader should
+    additionally update `config/gptel/scope/interfaces.org` § Error
+    Codes — either remove the `"no_scope_config"` line from the
+    "outside this vocabulary" list, or restate it as a
+    historical/deprecated code. Either bundle this with
+    `migrate-validation-tests` (it is the spec migration's natural
+    sibling) or file a small `.tasks/` follow-up.
+
+- discovery_id: disc-disposition-empty-drawer-collapse-2
+  class: deviation
+  description: |
+    The brief instructed to swap only the Stage 3 collapse in
+    `--load-config`. In practice the change cascades to two adjacent
+    sites that became dead/incoherent under the new contract:
+    1. `jf/gptel-scope-authorize-tool-call`'s `(null config)` branch
+       returning the synthetic `no_scope_config` deny plist —
+       unreachable now (loader never returns nil), and even if reached
+       its short-circuit semantics contradict the "empty drawer = deny
+       at validation time" intent.
+    2. `jf/gptel-scope--final-deny-response`'s `(equal :error
+       "no_scope_config")` pass-through branch — also unreachable; the
+       function now unconditionally formats through `format-tool-error`.
+    Both were removed in this commit so the dispatcher reads cleanly.
+    Documenting as `deviation` because the brief was scoped to Stage 3
+    and these sit one call-frame away.
+  affected_register_entry: register/boundary/scope-config-loader
+  recommendation: |
+    Integrate-phase: include "removed authorize-tool-call no-config
+    short-circuit + final-deny-response no_scope_config branch" in the
+    `prior_shape → new_shape` reconciliation note for
+    scope-config-loader. No further action required at the code layer.
