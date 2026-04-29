@@ -34,10 +34,11 @@ The scope system SHALL load `scope.yml` fresh on every tool invocation from the 
 - **THEN** the loader uses buffer-local `jf/gptel--branch-dir` when bound
 - **AND** falls back to the current buffer's file directory when that variable is unset
 
-#### Scenario: Missing configuration denies with no_scope_config
-- **WHEN** no `scope.yml` exists at the resolved location
-- **THEN** the authorization entrypoint invokes the on-deny thunk with `:error "no_scope_config"`
-- **AND** the response bypasses the expansion UI (missing config is not a scope violation)
+#### Scenario: Empty drawer denies per-violation
+- **WHEN** the resolved session has no `:GPTEL_SCOPE_*` keys (empty drawer, missing drawer, or no `session.org`)
+- **THEN** the loader composes deny-all defaults (empty `:paths` sub-lists, `"deny"` cloud auth-detection)
+- **AND** subsequent tool calls are validated against that config
+- **AND** every operation denies with the canonical per-violation code (e.g. `not-in-scope` for filesystem reads, `cloud_auth_denied` for cloud auth) and surfaces through the expansion UI like any other scope violation
 
 #### Scenario: Configuration read fresh every call
 - **WHEN** the same tool is called twice in a session after `scope.yml` is edited
@@ -405,7 +406,7 @@ Canonical codes:
 - `cloud_auth_denied` — cloud auth detected and policy is deny
 - `cloud_provider_denied` — provider not in `allowed-providers`
 
-Macro-level codes outside the validation vocabulary: `no_scope_config`, `tool_exception`.
+Macro-level codes outside the validation vocabulary: `tool_exception`.
 
 Error-code to resource-field mapping used by `build-violation-info`:
 
@@ -420,10 +421,6 @@ Error-code to resource-field mapping used by `build-violation-info`:
 #### Scenario: Every validator denial carries a canonical code
 - **WHEN** any validator returns `(:allowed nil ...)`
 - **THEN** `:error` is a member of the canonical set
-
-#### Scenario: no_scope_config surfaces verbatim
-- **WHEN** the authorization entrypoint finds no config
-- **THEN** the on-deny plist carries `:error "no_scope_config"` and is NOT transformed by `format-tool-error`
 
 ### Requirement: Violation-info transformation
 

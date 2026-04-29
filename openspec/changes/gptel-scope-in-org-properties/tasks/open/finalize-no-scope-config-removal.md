@@ -61,3 +61,81 @@ Cycle-3 disposition Option B was implemented at the production-code layer in `di
 - Architect finding: `.orchestrator/cycles/cycle-1777478129/findings/arch-cycle-1777478129-3.md`
 - Reconciliation note: `.orchestrator/cycles/cycle-1777478129/reconciliations/boundary-scope-config-loader.md`
 - Disposition task (closed): `disposition-empty-drawer-collapse` (commit `76eeecb`)
+
+## Observations
+
+- The `config/gptel/scope/test/integration` Buttercup suite has many
+  pre-existing failures (76 failed of 153 specs at task start) that
+  are unrelated to this task: most of them surface as
+  `helpers-spec--scope-with-paths: YAML helpers removed; use
+  helpers-spec-make-scope-config` or `(void-function
+  jf/gptel-scope-yaml--merge-schema-defaults)`. The cycle-3 YAML→drawer
+  migration removed YAML helper functions, but the integration test
+  helpers (and several test bodies) still reference them. None of
+  these failures are introduced by this task and none are blocking
+  the two target tests, but they do mean a clean
+  `./bin/run-tests.sh -d config/gptel/scope/test/integration` is
+  not currently achievable. Cleaning them up is a separate task —
+  candidate for a follow-up `migrate-integration-tests-to-drawer-helpers`.
+- `openspec/specs/gptel/scope.md` still contains many `scope.yml`
+  references in prose (the Purpose paragraph, the Module Overview
+  table, the `Scope configuration loading` requirement preamble at
+  line 28, the `Scope configuration shape` requirement at line 49,
+  several scenarios), even though the cycle-3 cycle moved the
+  source-of-truth to `:GPTEL_SCOPE_*` org-properties drawer keys.
+  The scenario I added uses the new vocabulary ("no `:GPTEL_SCOPE_*`
+  keys"), so the spec is now internally inconsistent. Out of scope
+  for this `no_scope_config`-removal task — flagged as a discovery
+  for the integrate phase to consider as a follow-up cleanup.
+- The `config/gptel/scope/test-report.txt` snapshot still records
+  the two old test names (`no_scope_config returns JSON through
+  callback` and `no_scope_config error returns JSON through
+  callback (not a signal)`) under "Buttercup failures". The snapshot
+  regenerates on next `--snapshot` run, so I left it untouched.
+
+## Discoveries
+
+- discovery_id: disc-finalize-no-scope-config-removal-1
+  class: spec-signal
+  description: |
+    `openspec/specs/gptel/scope.md` retains pre-cycle-3 vocabulary —
+    "scope.yml permission file", "load `scope.yml` fresh on every tool
+    invocation", "Parsed `scope.yml` SHALL produce a plist", etc. —
+    even though cycle-3 made `:GPTEL_SCOPE_*` org-properties drawer
+    keys the source of truth. The `Empty drawer denies per-violation`
+    scenario I added speaks of "no `:GPTEL_SCOPE_*` keys", which now
+    sits next to a requirement preamble that still says "load
+    `scope.yml` fresh on every tool invocation". This is an internal
+    inconsistency, not just stale prose.
+  affected_register_entry: register/boundary/scope-config-loader
+  recommendation: |
+    File a separate cycle-4 cleanup task
+    (`reconcile-scope-spec-to-drawer-vocabulary`) that does a single
+    pass over `openspec/specs/gptel/scope.md` and rewrites every
+    "scope.yml" / "yaml file" reference to the drawer-keys vocabulary.
+    This was deliberately kept out of the present task to preserve the
+    "no_scope_config removal is atomic" intent of the architect
+    finding. Doing both at once would conflate a contract change with
+    a vocabulary sweep.
+
+- discovery_id: disc-finalize-no-scope-config-removal-2
+  class: dead-branch
+  description: |
+    The `config/gptel/scope/test/integration` Buttercup suite is in a
+    half-migrated state: many tests still call
+    `helpers-spec--scope-with-paths` (which now signals an error
+    pointing at `helpers-spec-make-scope-config`) and
+    `jf/gptel-scope-yaml--merge-schema-defaults` (now `void-function`).
+    76/153 integration specs fail on this baseline alone, before any
+    cycle-4 work. This is a pre-existing condition introduced when
+    cycle-3 removed the YAML loader, not something this task created.
+  affected_register_entry: register/boundary/scope-config-loader
+  recommendation: |
+    File a separate cycle-4 follow-up task
+    (`migrate-integration-tests-to-drawer-helpers`) that audits every
+    `config/gptel/scope/test/integration/*-spec.el` file, replaces the
+    removed YAML helpers with the drawer-based equivalents, and
+    restores the suite to green. Until that lands,
+    `final-verify-and-archive-prep` cannot rely on
+    `./bin/run-tests.sh -d config/gptel/scope/test/integration` as a
+    pass/fail gate.
