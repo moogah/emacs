@@ -2,9 +2,8 @@
 name: rewire-validator-config-load
 description: Switch scope-validation's config loader call site from scope-yaml to the drawer reader; remove :security plist reads
 change: gptel-scope-in-org-properties
-status: blocked
-relations:
-  - blocked-by:implement-drawer-reader
+status: ready
+relations: []
 ---
 
 ## Cites register entries
@@ -85,3 +84,49 @@ specs/gptel/scope/spec.md § REMOVED Requirements / ":security configuration sec
 ### Meta-discoveries
 - `other/holding-name-producer-pattern`: cycle 1 deliberately landed the new dispatcher under the holding name `--load-config-from-drawer` to defer the active rewire. **Implication**: this task's first concrete decision is rename-vs-delegate at the function-name level (rename the holding name to `--load-config`, deleting the legacy YAML body, vs. keep both and delegate). Rename is preferred per the meta-discovery's intent.
 - `invariant-gap-class/deletion-invariant-L1-L2-split`: removing `:security` from the new shape (L1) doesn't remove existing readers in `scope-validation.el` (L2). **Implication**: this task's grep-for-`:security` step (current step 6) is the L2-layer enforcement; treat it as load-bearing, not cleanup.
+
+## Observations
+
+- **Took option (a): rename, not delegate.** Renamed `jf/gptel-scope--load-config-from-drawer` to `jf/gptel-scope--load-config` and deleted the legacy YAML-shape body. Added a `condition-case` wrapper around the body to preserve the YAML loader's swallow-and-log behaviour for unexpected errors (otherwise a crash inside `org-entry-get-multivalued-property` would propagate to every tool call instead of denying with `no_scope_config`). The wrapper is new behaviour relative to cycle-1's `--load-config-from-drawer`, which had no error guard — flagging because `org-mode` errors during `with-temp-buffer` activation (e.g. on filesystems where org's autoload chain hits a missing dependency) would now be silently swallowed where they used to crash. Choose: log-and-deny (current) or propagate-and-die.
+- **Defaults interpretation.** The task brief cites `ask-arch-cycle-1777460733-2` resolving to "empty drawer = valid empty scope = deny-all defaults" but also states the stage-3 collapse via `--has-any-scope-key-p` "preserves the no_scope_config deny semantic". These are in tension: if the loader composes deny-all defaults around an empty plist, it would never collapse to nil, and the `no_scope_config` path would die. I read the second statement as authoritative: `--has-any-scope-key-p` still collapses an entirely-empty drawer to nil → `no_scope_config`. The "deny-all defaults" become operative only when *some* scope key is set (the existing `--load-from-buffer` already defaults missing list keys to nil and missing `:auth-detection` to "warn", which is the deny-fail-safe model). I did *not* change the "warn" default to "deny" because that would break `--has-any-scope-key-p`'s "non-default auth indicates intent" check (every empty drawer would suddenly be intent-bearing). Flag for integrate: the cycle-1 reconciliation note and the brief's wording need to agree on which semantic is authoritative.
+- **Signature change cascades to two test files.** `--validate-parse-completeness` now takes one arg (parse-result), not two (parse-result + security-config). The two callers in tests are:
+  - `config/gptel/scope/test/validation/comprehensive-nil-handling-spec.el:43,50` (validation tests, in scope of `migrate-validation-tests`).
+  - `config/gptel/scope/test/integration/error-code-contract-spec.el:129` (integration test, NOT in `migrate-validation-tests`'s declared scope per its file path). This is collateral damage that `migrate-validation-tests` may not pick up — confirm it covers `test/integration/` too, or file a follow-up.
+- **`--check-coverage-threshold` signature also changed** (drops the `security-config` arg). It is not directly tested, only invoked from `--validate-command-semantics`, so no test fanout — but if any future caller tries to pass two args they'll get a `wrong-number-of-arguments` error.
+- **Pre-existing failures unrelated to this task.** Two tests in `path-validation-spec.el` ("warns when long-running command terminated" and "suggests filters in truncation notice") were already failing before this task started. They appear to assert against bash-tool truncation/timeout messaging unrelated to scope config; left alone.
+- **`interfaces.org` register entry under-specified for parse_incomplete producer.** The producer comment for the canonical error code `parse_incomplete` (`config/gptel/scope/interfaces.el:19`/`interfaces.org:161`) still describes the trigger as "and security.enforce_parse_complete is true" — that condition has been promoted to a module constant. Integrate-phase territory; not modified.
+- **Test fixtures across the broader scope test suite write `scope.yml` files via `helpers-spec-make-scope-yml`.** Migration is bigger than the validation directory: every test that uses `helpers-spec-load-scope-config` is YAML-bound. Confirm `migrate-validation-tests`'s scope covers the full helper rewrite or file a follow-up.
+
+## Discoveries
+
+- discovery_id: disc-rewire-validator-config-load-1
+  class: spec-signal
+  description: |
+    The cycle-1 reconciliation for `register/boundary/scope-config-loader` and the user resolution of `ask-arch-cycle-1777460733-2` give incompatible directives at the implementation level. The user chose "empty drawer = valid empty scope = deny-all defaults" (the loader returns a populated plist), but the cycle-1 reconciliation note says the stage-3 collapse "preserves the no_scope_config deny semantic" (the loader returns nil). Implementation can satisfy at most one of these literally; I went with stage-3 collapse and treated "deny-all defaults" as the per-key default behaviour for partial drawers. The integrate phase should pick one authoritative semantic and update either the reconciliation note or the user-resolution wording so cycle-3 doesn't relitigate this.
+  affected_register_entry: register/boundary/scope-config-loader
+  recommendation: |
+    Pick one: (a) keep stage-3 collapse and downgrade "deny-all defaults" to mean "per-missing-key fail-safe defaults", or (b) remove `--has-any-scope-key-p` entirely and rely on the validator's own permission-hierarchy code to deny-by-default against an empty plist. Option (b) is the more aggressive reading of `ask-arch-cycle-1777460733-2` but means losing the `:error "no_scope_config"` exit code as a distinct signal — every empty-drawer call would surface as a regular `not-in-scope` violation instead.
+
+- discovery_id: disc-rewire-validator-config-load-2
+  class: invariant-gap
+  description: |
+    `--load-config` now wraps its body in `condition-case` to swallow unexpected errors from the buffer/file readers (e.g. an `org-entry-get-multivalued-property` failure on a malformed drawer), surfacing them as `no_scope_config`. The cycle-1 holding-name dispatcher had no such guard. This silently changes the failure mode for "drawer is malformed in a way that crashes org-mode" from "crash propagates to caller" to "deny with no_scope_config and a message in *Messages*". Whether that is desirable depends on how loud we want failures of the new schema reader to be in production.
+  affected_register_entry: register/boundary/scope-config-loader
+  recommendation: |
+    Decide whether `--load-config`'s error-swallowing is part of the boundary contract. If yes, document it on the boundary register entry (e.g. "errors during stage 1/2 reads are caught and surfaced as no_scope_config"). If no, remove the `condition-case` and let the error propagate — but then the validation pipeline needs an upstream guard or every drawer typo becomes an unhandled error.
+
+- discovery_id: disc-rewire-validator-config-load-3
+  class: interface-drift
+  description: |
+    The signature of `jf/gptel-scope--validate-parse-completeness` and `jf/gptel-scope--check-coverage-threshold` both lost their `security-config` parameter. The validation-pipeline-only caller (`--validate-command-semantics`) is updated, but `config/gptel/scope/test/integration/error-code-contract-spec.el:129` is a non-validation-directory caller that `migrate-validation-tests` may not pick up by its declared scope (validation tests, not integration). The function-signature change is an L2 invariant that the brief did not explicitly call out as separate from the L2-`:security`-removal invariant.
+  affected_register_entry: register/invariant/scope-no-security-key-in-plist
+  recommendation: |
+    Confirm `migrate-validation-tests`'s task body covers `test/integration/error-code-contract-spec.el` too, or file a follow-up task to migrate it (one-line change: drop the second arg from the call).
+
+- discovery_id: disc-rewire-validator-config-load-4
+  class: scope-question
+  description: |
+    `register/vocabulary/drawer-key-set` and the `--load-from-buffer`/`--load-from-file` readers are now the only producers of the validator's input plist, but `config/gptel/sessions/constants.el:54` still defines `jf/gptel-session--scope-file` as `"scope.yml"` and several non-scope-validation modules (`config/gptel/tools/persistent-agent.{org,el}`, `config/gptel/scope/scope-expansion.{org,el}`, `config/gptel/sessions/filesystem.{org,el}`) still consume that constant to build YAML file paths. The validator no longer references it, but the rest of the system keeps the YAML-file mental model alive. Out of scope for this task; flag for whoever owns the broader `gptel-scope-in-org-properties` change.
+  affected_register_entry: register/boundary/scope-config-loader
+  recommendation: |
+    Either tighten `register/boundary/scope-config-loader` to declare that the boundary owns *only* the validator's load path (and other modules retain their own loaders), or expand the change to migrate every `scope.yml` consumer. The current state is partial-rewire — the validator reads drawers, the persistent-agent and scope-expansion modules still read `scope.yml`.

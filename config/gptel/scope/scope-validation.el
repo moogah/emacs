@@ -18,7 +18,6 @@
 ;; [[file:scope-validation.org::*Dependencies][Dependencies:1]]
 (require 'cl-lib)
 (require 'gptel-session-constants)
-(require 'jf-gptel-scope-yaml)
 (require 'jf-gptel-scope-metadata)
 (require 'bash-parser-core)
 (require 'bash-parser-orchestrator)
@@ -26,13 +25,12 @@
 
 ;; Constants
 
-;; These are module-level structural constants that replace the former
-;; =:security= sub-plist of the loaded scope-config.  They are *not* user-
-;; tunable and *not* per-session configurable: the public contract is that
-;; parse-completeness is enforced unconditionally and the coverage warning
-;; threshold is exactly 100%.  Any caller that reaches for a per-session
-;; override here is fighting the contract — see =interfaces.org= § Scope
-;; Config Shape.
+;; These are module-level structural constants of the validator. They are
+;; *not* user-tunable and *not* per-session configurable: the public
+;; contract is that parse-completeness is enforced unconditionally and the
+;; coverage warning threshold is exactly 100%. Any caller that reaches for
+;; a per-session override here is fighting the contract — see
+;; =interfaces.org= § Scope Config Shape.
 
 
 ;; [[file:scope-validation.org::*Constants][Constants:1]]
@@ -49,11 +47,11 @@ a non-blocking warning. Fixed at module load; not configurable per session.")
 
 ;; Canonical mapping from bash-parser operation keywords to the three scope
 ;; sections (=paths.read=, =paths.write=, =paths.execute=). The bash-parser
-;; emits 11 operation types, but =scope.yml= only has three section keys; this
-;; function reduces one vocabulary to the other.
+;; emits 11 operation types, but the scope schema only has three section
+;; keys; this function reduces one vocabulary to the other.
 
 ;; Rule: every site that routes by operation — section targeting in the
-;; expansion UI, scope-file updates, etc. — must call this function rather than
+;; expansion UI, drawer updates, etc. — must call this function rather than
 ;; inlining its own =pcase=.
 
 ;; Fail-safe default: unknown operations (and =nil=) map to =:write=. Writing
@@ -303,16 +301,17 @@ inner validator (notably :resource for path errors); the wrapper adds
   "Run the bash validation pipeline and return nil on success.
 COMMAND is the bash command string.
 DIRECTORY is the working directory.
-SCOPE-CONFIG is the scope configuration plist.
+SCOPE-CONFIG is the scope configuration plist (top-level keys :paths
+and :cloud only; see
+`register/invariant/scope-no-security-key-in-plist').
 
 Returns nil if all validations pass, error plist on first failure."
   (cl-block jf/gptel-scope--validate-command-semantics
     (let* ((parsed (jf/bash-parse command))
-           (semantics (jf/bash-extract-semantics parsed))
-           (security-config (plist-get scope-config :security)))
+           (semantics (jf/bash-extract-semantics parsed)))
 
       ;; Stage 1: Parse completeness
-      (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed security-config)))
+      (when-let ((error (jf/gptel-scope--validate-parse-completeness parsed)))
         (cl-return-from jf/gptel-scope--validate-command-semantics error))
 
       ;; Stage 2: No-op gate — commands with zero file ops exit the
@@ -333,29 +332,33 @@ Returns nil if all validations pass, error plist on first failure."
           (cl-return-from jf/gptel-scope--validate-command-semantics error)))
 
       ;; Non-blocking: emit warning if parse coverage is below threshold
-      (jf/gptel-scope--check-coverage-threshold semantics security-config)
+      (jf/gptel-scope--check-coverage-threshold semantics)
 
       nil)))
 ;; Pipeline Orchestrator:1 ends here
 
 ;; Stage 1: Parse Completeness
 
+;; Reads the module-level constant =jf/gptel-scope--enforce-parse-complete=
+;; directly. The constant is fixed at =t= by contract (see =* Constants=
+;; and =register/invariant/scope-parse-complete-is-true=); the former
+;; "warn when not enforced" branch is gone with the per-session override.
+
 
 ;; [[file:scope-validation.org::*Stage 1: Parse Completeness][Stage 1: Parse Completeness:1]]
-(defun jf/gptel-scope--validate-parse-completeness (parse-result security-config)
+(defun jf/gptel-scope--validate-parse-completeness (parse-result)
   "Stage 1: Check parse completeness.
-Returns nil if valid, error plist if incomplete and enforced."
+Returns nil if valid, error plist if incomplete.
+Parse completeness is always enforced (see
+`jf/gptel-scope--enforce-parse-complete')."
   (let ((complete (plist-get parse-result :parse-complete))
-        (enforce (plist-get security-config :enforce-parse-complete))
         (errors (plist-get parse-result :parse-errors)))
-    (when (not complete)
-      (if enforce
-          (list :error "parse_incomplete"
-                :message (format "Parse incomplete: %s" errors)
-                :parse-errors errors
-                :command (plist-get parse-result :input))
-        (warn "Parse incomplete: %s" errors)
-        nil))))
+    (when (and (not complete)
+               jf/gptel-scope--enforce-parse-complete)
+      (list :error "parse_incomplete"
+            :message (format "Parse incomplete: %s" errors)
+            :parse-errors errors
+            :command (plist-get parse-result :input)))))
 ;; Stage 1: Parse Completeness:1 ends here
 
 ;; Stage 2: No-op Gate
@@ -463,52 +466,23 @@ Returns nil if passes, error plist if denied."
 
 ;; Coverage Threshold (non-blocking)
 
+;; Reads the module-level constant =jf/gptel-scope--coverage-threshold=
+;; directly. The constant is fixed at =1.0= by contract (see =* Constants=
+;; and =register/invariant/scope-coverage-threshold-is-1=).
+
 
 ;; [[file:scope-validation.org::*Coverage Threshold (non-blocking)][Coverage Threshold (non-blocking):1]]
-(defun jf/gptel-scope--check-coverage-threshold (semantics security-config)
+(defun jf/gptel-scope--check-coverage-threshold (semantics)
   "Check parse coverage ratio and emit a warning if below threshold.
-Non-blocking: returns nil always."
+Non-blocking: returns nil always.  Threshold is fixed at
+`jf/gptel-scope--coverage-threshold' by module contract."
   (when-let* ((coverage (plist-get semantics :coverage))
-              (threshold (plist-get security-config :max-coverage-threshold))
               (coverage-ratio (plist-get coverage :coverage-ratio)))
-    (when (and threshold (< coverage-ratio threshold))
+    (when (< coverage-ratio jf/gptel-scope--coverage-threshold)
       (warn "Parse coverage %.2f below threshold %.2f"
-            coverage-ratio threshold)))
+            coverage-ratio jf/gptel-scope--coverage-threshold)))
   nil)
 ;; Coverage Threshold (non-blocking):1 ends here
-
-;; Configuration Loading
-
-;; Load =scope.yml= for the current context. Uses buffer-local
-;; =jf/gptel--branch-dir= when available, else falls back to the current
-;; buffer's directory. Returns nil if no config can be found or parsed.
-
-;; This YAML-based loader is the *current* producer of the scope-config
-;; plist. The new drawer-based loader lives in =* Drawer Reader= below;
-;; its dispatcher is defined under a holding name
-;; (=jf/gptel-scope--load-config-from-drawer=) so this section's
-;; =jf/gptel-scope--load-config= remains the live entry point until the
-;; =rewire-validator-config-load= task swaps the call site (see
-;; =register/boundary/scope-config-loader= in =interfaces.org=).
-
-
-;; [[file:scope-validation.org::*Configuration Loading][Configuration Loading:1]]
-(defun jf/gptel-scope--load-config ()
-  "Load scope configuration from scope.yml.
-Uses buffer-local jf/gptel--branch-dir if available.
-Returns nil if not found or can't be parsed."
-  (condition-case err
-      (let ((context-dir (or (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                             (and (buffer-file-name)
-                                  (file-name-directory (buffer-file-name))))))
-        (when context-dir
-          (let ((scope-file (expand-file-name jf/gptel-session--scope-file context-dir)))
-            (when (file-exists-p scope-file)
-              (jf/gptel-scope-yaml--load-schema scope-file)))))
-    (error
-     (message "Error loading scope config: %s" (error-message-string err))
-     nil)))
-;; Configuration Loading:1 ends here
 
 ;; Stage 1 — buffer-first read
 
@@ -588,10 +562,11 @@ chat buffer is available for the session (e.g. programmatic
 ;; registry has not been initialised (or where =jf/gptel--branch-dir= was
 ;; set buffer-locally without going through =jf/gptel--register-session=).
 
-;; =--has-any-scope-key-p= preserves the existing =no_scope_config=
-;; semantics: a =session.org= carrying only =:GPTEL_PRESET:= (and no
-;; =:GPTEL_SCOPE_*:= keys) is treated exactly as a missing =scope.yml=
-;; was — the dispatcher's deny path surfaces =:error "no_scope_config"=.
+;; =--has-any-scope-key-p= surfaces the =no_scope_config= deny semantic:
+;; a =session.org= carrying only =:GPTEL_PRESET:= (and no =:GPTEL_SCOPE_*:=
+;; keys) is treated as "no scope configured" — the dispatcher's deny path
+;; surfaces =:error "no_scope_config"=. This preserves the historical
+;; behaviour of the YAML loader for the equivalent missing-file case.
 
 
 ;; [[file:scope-validation.org::*Helpers][Helpers:1]]
@@ -619,9 +594,9 @@ falls back to scanning the buffer list when no registry entry matches."
 
 (defun jf/gptel-scope--has-any-scope-key-p (config)
   "Return non-nil if CONFIG carries any non-empty scope list or non-default cloud.
-Mirrors the existing \"no scope.yml file\" → no_scope_config semantic: a
-plist with empty list fields and a default \"warn\" cloud-auth is treated
-as \"no scope configured\" by the dispatcher."
+Surfaces the no_scope_config deny semantic: a plist with empty list
+fields and a default \"warn\" cloud-auth is treated as \"no scope
+configured\" by the dispatcher."
   (let ((paths (plist-get config :paths))
         (cloud (plist-get config :cloud)))
     (or (plist-get paths :read)
@@ -635,48 +610,59 @@ as \"no scope configured\" by the dispatcher."
           (and auth (not (string= auth "warn")))))))
 ;; Helpers:1 ends here
 
-;; Dispatcher (held back for rewire)
-
-;; Defined under the holding name =jf/gptel-scope--load-config-from-drawer=
-;; so this task can land with the new functions defined and *unused*: the
-;; live =jf/gptel-scope--load-config= in =* Configuration Loading= still
-;; points at the YAML loader.  The =rewire-validator-config-load= task
-;; replaces the YAML body with a delegation to this function (or renames
-;; this function) and is the moment the validator switches sources.
+;; Dispatcher
 
 ;; The dispatcher is buffer-first: when a chat buffer exists for the
 ;; session's branch-dir, its drawer is the source of truth (so a user's
 ;; just-typed edit is visible to validation before they save). The file
-;; fallback covers programmatic callers.
+;; fallback covers programmatic callers (and headless tests).
+
+;; Stage-3 collapse: a resolved drawer with no =:GPTEL_SCOPE_*:= keys
+;; present (e.g. a =session.org= carrying only =:GPTEL_PRESET:=) returns
+;; nil, which the authorization dispatcher translates to =:error
+;; "no_scope_config"=. This preserves the historical deny semantic for
+;; the equivalent missing-file case — see
+;; =register/boundary/scope-config-loader= and the cycle-1 reconciliation
+;; note for the rationale.
+
+;; A drawer with at least one scope key set returns the full plist; the
+;; underlying buffer/file readers default missing list keys to the empty
+;; list and missing =:auth-detection= to ="warn"=, so consumers always
+;; see a complete shape (per =register/shape/scope-config-plist=).
 
 
-;; [[file:scope-validation.org::*Dispatcher (held back for rewire)][Dispatcher (held back for rewire):1]]
-(defun jf/gptel-scope--load-config-from-drawer (&optional branch-dir)
+;; [[file:scope-validation.org::*Dispatcher][Dispatcher:1]]
+(defun jf/gptel-scope--load-config (&optional branch-dir)
   "Resolve scope configuration for the current session, drawer-first.
 Buffer-first: if a chat buffer exists for BRANCH-DIR (default: buffer-local
 `jf/gptel--branch-dir', then `default-directory'), reads its drawer.
 Otherwise reads the file at <branch-dir>/session.org.  Returns nil when no
-scope keys are present in the resolved drawer (caller treats nil as
-`no_scope_config').
+scope keys are present in the resolved drawer (the authorization
+dispatcher treats nil as `no_scope_config').
 
-This is the staged drop-in for `jf/gptel-scope--load-config'; the rewire
-task replaces the YAML body of that function with a call to this one (or
-renames this function back to `--load-config').  Until then this function
-is intentionally not invoked from production code paths."
-  (let* ((dir (or branch-dir
-                  (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
-                  default-directory))
-         (buffer (jf/gptel-scope--find-session-buffer-for-dir dir))
-         (file (and dir (expand-file-name "session.org" dir)))
-         (config (cond
-                  (buffer (jf/gptel-scope--load-from-buffer buffer))
-                  ((and file (file-exists-p file))
-                   (jf/gptel-scope--load-from-file file))
-                  (t nil))))
-    (and config
-         (jf/gptel-scope--has-any-scope-key-p config)
-         config)))
-;; Dispatcher (held back for rewire):1 ends here
+The returned plist conforms to `register/shape/scope-config-plist':
+two top-level keys, =:paths= and =:cloud=.  Stage 1 of the bash
+pipeline reads the parse-completeness flag from the module-level
+constant `jf/gptel-scope--enforce-parse-complete'; Stage 5 reads
+`jf/gptel-scope--coverage-threshold' similarly."
+  (condition-case err
+      (let* ((dir (or branch-dir
+                      (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                      default-directory))
+             (buffer (jf/gptel-scope--find-session-buffer-for-dir dir))
+             (file (and dir (expand-file-name "session.org" dir)))
+             (config (cond
+                      (buffer (jf/gptel-scope--load-from-buffer buffer))
+                      ((and file (file-exists-p file))
+                       (jf/gptel-scope--load-from-file file))
+                      (t nil))))
+        (and config
+             (jf/gptel-scope--has-any-scope-key-p config)
+             config))
+    (error
+     (message "Error loading scope config: %s" (error-message-string err))
+     nil)))
+;; Dispatcher:1 ends here
 
 ;; Multi-violation expansion loop
 
@@ -853,9 +839,9 @@ CHECK-RESULT is the validation result plist."
 ;; chosen action — add-to-scope, allow-once, or deny — resolves the
 ;; callback with one of:
 
-;; - =(:approved t)= — user added the denied resource to =scope.yml=.
-;;   The dispatcher re-validates against the updated config; if another
-;;   op is still denied, the next iteration prompts for it.
+;; - =(:approved t)= — user added the denied resource to the session
+;;   drawer. The dispatcher re-validates against the updated config; if
+;;   another op is still denied, the next iteration prompts for it.
 ;; - =(:approved t :allowed-once t)= — user granted a single-use bypass.
 ;;   The dispatcher runs the body without re-validating.
 ;; - =(:approved nil :reason ...)= — user denied or the callback errored.
