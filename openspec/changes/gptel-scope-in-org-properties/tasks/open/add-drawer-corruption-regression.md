@@ -143,3 +143,76 @@ The cycle-2 scaffold at `scaffolding/invariants/scope-drawer-no-duplication.test
 - **Supersede** the scaffold by writing the regression directly and deleting the scaffold file.
 
 Pick one approach and document the disposition in `## Discoveries`.
+
+## Observations
+
+- The writer (`jf/gptel-scope--write-pattern-to-drawer`) calls `save-buffer` unconditionally. Test buffers from `jf/gptel-test--with-scope-drawer` are not file-backed, so the spec stubs `save-buffer` to a no-op via `cl-letf` — the same pattern used by the existing "Drawer writer preserves structure" tests in `expansion-ui-spec.el`. This is a benign test-side workaround, not a writer defect; flagging only because future readers may wonder why the new spec mocks `save-buffer`.
+- The `helpers-spec.el` self-tests (six `describe`/`it` blocks for `jf/gptel-test--render-drawer` and `jf/gptel-test--with-scope-drawer`) are re-discovered each time `helpers-spec.el` is `(require)`d in a new directory's spec. Running `./bin/run-tests.sh -d config/gptel/scope/test/drawer` therefore reports 10 specs (4 new + 6 helper self-tests), not just 4. This is pre-existing behaviour shared by every scope spec dir; not a defect introduced by this task.
+
+## Discoveries
+
+- discovery_id: disc-add-drawer-corruption-regression-1
+  class: deviation
+  description: |
+    Scaffold disposition: chose **supersede** over **promote**. The new spec
+    at `config/gptel/scope/test/drawer/no-duplicate-drawer-spec.el` is a
+    fresh regression spec; the cycle-2 scaffold at
+    `openspec/changes/gptel-scope-in-org-properties/scaffolding/invariants/scope-drawer-no-duplication.test.el`
+    has been deleted in the same commit.
+
+    Cycle-2 integrate already dispositioned the scaffold `archived` (the
+    runtime invariant is enforced by the single-producer / single-write
+    structure of both creation paths). The cycle-2 update note in the task
+    body (lines 99-101) explicitly steers toward writing a fresh regression
+    spec rather than promoting the stub. The scaffold's four `it` blocks
+    were `(error "speculated; not implemented...")` placeholders, not
+    runnable tests, so promoting would have meant rewriting them anyway.
+    Supersede is therefore the cleaner outcome: archive the scaffold AND
+    delete the file in one step.
+  affected_register_entry: register/invariant/scope-drawer-no-duplication
+  recommendation: |
+    At integrate, mark the cycle-2 scaffold reconciliation as `archived` and
+    note that the file has been deleted (not merely dispositioned). The new
+    spec is the structural regression-test enforcement of
+    `register/invariant/scope-drawer-no-duplication` going forward.
+
+- discovery_id: disc-add-drawer-corruption-regression-2
+  class: deviation
+  description: |
+    Did NOT extend `helpers-spec.el` with a new read-side parser helper.
+    Cycle-3 finding-1 advisory (in the task body) said "if a new read-side
+    parser helper is genuinely needed, lift it into `helpers-spec.el`
+    rather than creating a per-file definition." The four `it` blocks
+    needed only (a) `cl-count-if` over split lines (per the task's
+    explicit design pattern), and (b) `org-entry-get` /
+    `org-entry-get-multivalued-property` for non-scope-key survival
+    assertions — both inline forms read directly from the buffer with no
+    helper indirection. A `no-duplicate-drawer-spec--count-properties-headers`
+    function is defined inside the spec file because it is only used here
+    and naming it improves test failure messages; promoting it to
+    `helpers-spec.el` would be premature generalisation.
+  affected_register_entry: register/boundary/scope-pattern-writer
+  recommendation: |
+    No action needed. If a future spec also needs to count drawer headers
+    in a buffer, lift `--count-properties-headers` into `helpers-spec.el`
+    at that point. Until then, keeping the helper local satisfies the
+    cycle-3 advisory's "genuinely needed" qualifier.
+
+- discovery_id: disc-add-drawer-corruption-regression-3
+  class: invariant-gap
+  description: |
+    Confirmed the test bites: deliberately changed `:to-equal 1` to
+    `:to-equal 99` in the first `it` block, ran
+    `./bin/run-tests.sh -d config/gptel/scope/test/drawer`, and observed
+    `Expected (no-duplicate-drawer-spec--count-properties-headers (current-buffer))
+    to be equal to 99, but instead it was 1`. The failure-mode message is
+    clear and points directly at writer integrity, satisfying the task's
+    optional verification step. The assertion was restored to `:to-equal 1`
+    before commit; `diff` against a pre-change snapshot confirmed the
+    spec is byte-identical to the working version.
+  affected_register_entry: register/invariant/scope-drawer-no-duplication
+  recommendation: |
+    No action needed. Recording this so reviewers know the
+    deliberate-regression check was performed and the spec's failure
+    message is human-readable.
+
