@@ -54,7 +54,219 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   boundaries. Producers and consumers are listed; the canonical
   constructor (if any) is the single allowed producer.
 
-  /No entries yet. Populated by Architect forward-mode at plan phase./
+** scope-config-plist
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-scope-config-plist
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/scope-config-plist
+   tier: shape
+   status: speculated
+   load_bearing: true
+   title: Loaded scope configuration plist (post-:security-removal)
+   purpose: |
+     The plist returned by the scope-validation loader and consumed by every
+     stage of the validation pipeline (paths matcher, glob matcher, cloud-auth
+     gate). Previously the loader produced a three-key plist (:paths :cloud
+     :security); this change collapses to two keys because :security collapses
+     into module-level constants. Every consumer that read (plist-get config
+     :security ...) becomes a constant read; every consumer of :paths and
+     :cloud is unchanged in shape.
+
+   required_keys:
+     - name: ":paths"
+       type: plist
+       description: |
+         Sub-plist with five list-valued keys: :read :write :modify :execute
+         :deny. Each is a list of glob patterns; missing keys default to nil
+         (empty list, i.e. "no patterns of this kind").
+     - name: ":cloud"
+       type: plist
+       description: |
+         Sub-plist with two keys: :auth-detection (string, one of "allow" /
+         "warn" / "deny"; defaults to "warn") and :allowed-providers (list
+         of provider names; defaults to nil).
+
+   forbidden_keys:
+     - name: ":security"
+       reason: |
+         Removed in this change. The two former values
+         (:enforce-parse-complete, :max-coverage-threshold) become module-
+         level defconsts in scope-validation.el. Any (plist-get config
+         :security ...) read in implementation code is a divergence signal.
+
+   producers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-from-buffer
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-from-file
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-config
+
+   consumers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope-authorize-tool-call
+       reads_keys: [":paths", ":cloud"]
+     - file: config/gptel/scope/scope-validation.org
+       function: validate-bash (Stages 2-4)
+       reads_keys: [":paths"]
+
+   validator: |
+     (defun shape/validate-scope-config-plist (val)
+       "Returns nil on success; an error symbol otherwise."
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((plist-member val :security) 'forbidden-security-key)
+             ((not (plistp (plist-get val :paths))) 'paths-not-plist)
+             ((not (plistp (plist-get val :cloud))) 'cloud-not-plist)
+             (t nil)))
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** drawer-text-block
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-drawer-text-block
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/drawer-text-block
+   tier: shape
+   status: speculated
+   load_bearing: true
+   title: Drawer-text string returned by render-drawer-text
+   purpose: |
+     A string of the form ":PROPERTIES:\n<key-lines>\n:END:\n" that callers
+     prepend to the chat-mode initial content when writing a fresh
+     session.org. Producer is jf/gptel-scope-profile--render-drawer-text;
+     consumers are session-creation (sessions/commands.org) and persistent-
+     agent creation (tools/persistent-agent.org). The shape is "an org
+     :PROPERTIES: block as a whole string"; mis-shaping it (missing :END:,
+     stray characters before :PROPERTIES:, doubled drawer) corrupts every
+     subsequent reader on the file.
+
+   required_substring_anchors:
+     - anchor: ":PROPERTIES:"
+       must_appear: at byte 0 (or after a leading whitespace-only prefix)
+     - anchor: ":END:"
+       must_appear: exactly once, after :PROPERTIES: and after all key lines
+     - anchor: ":GPTEL_PRESET:"
+       must_appear: exactly once between :PROPERTIES: and :END:
+
+   structural_invariants:
+     - the block contains zero ":PROPERTIES:" tokens after the first one
+     - every line between :PROPERTIES: and :END: matches the regex
+       "^:[A-Z_+]+:[ \\t].*$"
+     - the trailing newline after :END: is included (so callers can simply
+       concat with the chat-mode initial content)
+
+   producers:
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--render-drawer-text
+
+   consumers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel-persistent-session
+       usage: prepend to chat-mode initial content
+     - file: config/gptel/sessions/activities-integration.org
+       function: <session-creation entrypoint>
+       usage: same
+     - file: config/gptel/tools/persistent-agent.org
+       function: <agent-creation function around persistent-agent.el:111>
+       usage: same
+
+   validator: |
+     (defun shape/validate-drawer-text-block (val)
+       (cond ((not (stringp val)) 'not-a-string)
+             ((not (string-match-p "\\`:PROPERTIES:\n" val))
+              'missing-properties-header)
+             ((not (string-match-p "\n:END:\n\\'" val))
+              'missing-end-or-trailing-newline)
+             ((/= 1 (cl-count-if (lambda (line)
+                                   (string= line ":PROPERTIES:"))
+                                 (split-string val "\n")))
+              'duplicated-properties-header)
+             (t nil)))
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** violation-info
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-violation-info
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/violation-info
+   tier: shape
+   status: speculated
+   load_bearing: true
+   title: violation-info plist returned by validator and consumed by expansion writer
+   purpose: |
+     The plist a validator-pipeline failure builds and the expansion UI
+     consumes. Listed here because this change rewires the writer that
+     consumes it (jf/gptel-scope--add-to-scope and friends switch from a
+     YAML mutator to a drawer mutator), which means the writer's reads
+     of :operation, :resource, :validation-type, and :tool become the
+     authoritative consumer-set for the new flow. Pre-existing fragmentation
+     of the shape across producer sites (validation, bash-parser branches)
+     is in scope for the on-touch architect.
+
+   required_keys:
+     - name: ":tool"
+       type: string
+       description: name of the scoped tool (e.g. "read_file_in_scope")
+     - name: ":resource"
+       type: string
+       description: the path / pattern the tool tried to access
+     - name: ":operation"
+       type: keyword
+       description: |
+         One of (:read :read-directory :read-metadata :match-pattern :write
+         :create :create-or-modify :append :delete :modify :execute). The
+         writer collapses these to one of five drawer keys via
+         jf/gptel-scope--map-operation-to-drawer-key.
+     - name: ":validation-type"
+       type: keyword
+       description: one of (:path :bash); selects the writer dispatch arm
+
+   optional_keys:
+     - name: ":reason"
+       type: string
+       description: human-readable reason; surfaced in the expansion menu
+     - name: ":error"
+       type: string
+       description: machine-readable error code (e.g. "no_scope_config")
+
+   producers:
+     - file: config/gptel/scope/scope-validation.org
+       function: build-violation-info (and the bash-pipeline variants)
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope
+       reads_keys: [":validation-type", ":operation", ":resource", ":tool"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-path-to-scope
+       reads_keys: [":operation", ":resource"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-bash-to-scope
+       reads_keys: [":operation", ":resource"]
+
+   validator: |
+     (defun shape/validate-violation-info (val)
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((not (stringp (plist-get val :tool))) 'missing-tool)
+             ((not (stringp (plist-get val :resource))) 'missing-resource)
+             ((not (memq (plist-get val :validation-type) '(:path :bash)))
+              'bad-validation-type)
+             (t nil)))
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
 
 * Vocabulary
 
@@ -64,7 +276,191 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   scope section keys: a =pcase= inlined at multiple sites, missing values
   at one of them, silently mis-routing operations.
 
-  /No entries yet. Populated by Architect forward-mode at plan phase./
+** drawer-key-set
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-drawer-key-set
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/drawer-key-set
+   tier: vocabulary
+   status: speculated
+   load_bearing: true
+   title: The seven :GPTEL_SCOPE_* drawer keys and their plist field mapping
+   purpose: |
+     The closed set of property keys this change introduces in the file-
+     level :PROPERTIES: drawer of session.org, plus the canonical mapping
+     between each drawer key (and its + suffix variant for list values)
+     and the corresponding plist path under (:paths ...) or (:cloud ...).
+     Mis-routing a drawer key into the wrong plist field is the same class
+     of bug as bash-parser's :read-metadata-into-:paths.write incident:
+     it fails silent because validation still runs, just under the wrong
+     section.
+
+   members:
+     - value: ":GPTEL_SCOPE_READ:" (with "+:" suffix variant)
+       cardinality: list
+       description: read-allowed glob patterns
+       plist_path: (:paths :read)
+     - value: ":GPTEL_SCOPE_WRITE:" (with "+:" suffix variant)
+       cardinality: list
+       description: write-allowed glob patterns
+       plist_path: (:paths :write)
+     - value: ":GPTEL_SCOPE_MODIFY:" (with "+:" suffix variant)
+       cardinality: list
+       description: modify-allowed glob patterns
+       plist_path: (:paths :modify)
+     - value: ":GPTEL_SCOPE_EXECUTE:" (with "+:" suffix variant)
+       cardinality: list
+       description: execute-allowed glob patterns
+       plist_path: (:paths :execute)
+     - value: ":GPTEL_SCOPE_DENY:" (with "+:" suffix variant)
+       cardinality: list
+       description: deny-list glob patterns; deny wins over allow
+       plist_path: (:paths :deny)
+     - value: ":GPTEL_SCOPE_CLOUD_AUTH:"
+       cardinality: scalar
+       description: cloud authentication detection mode
+       plist_path: (:cloud :auth-detection)
+       allowed_scalar_values: ["allow", "warn", "deny"]
+     - value: ":GPTEL_SCOPE_CLOUD_PROVIDERS:" (with "+:" suffix variant)
+       cardinality: list
+       description: explicitly-allowed cloud-auth provider names
+       plist_path: (:cloud :allowed-providers)
+
+   canonical_mapping_function: |
+     ;; Lives in scope-validation.org as the only translation between
+     ;; drawer keys and plist paths. If you find a similar pcase / cond
+     ;; inlined elsewhere translating drawer keys, that is a duplication
+     ;; bug.
+     (defun jf/gptel-scope--drawer-key-to-plist-path (key)
+       "Map a drawer KEY string (without the trailing colon or +) to a
+     two-element plist-path list."
+       (pcase key
+         ("GPTEL_SCOPE_READ"            '(:paths :read))
+         ("GPTEL_SCOPE_WRITE"           '(:paths :write))
+         ("GPTEL_SCOPE_MODIFY"          '(:paths :modify))
+         ("GPTEL_SCOPE_EXECUTE"         '(:paths :execute))
+         ("GPTEL_SCOPE_DENY"            '(:paths :deny))
+         ("GPTEL_SCOPE_CLOUD_AUTH"      '(:cloud :auth-detection))
+         ("GPTEL_SCOPE_CLOUD_PROVIDERS" '(:cloud :allowed-providers))
+         (_ (error "Unknown scope drawer key: %s" key))))
+
+   validator: |
+     (defun vocabulary/validate-drawer-key (key)
+       (memq key '("GPTEL_SCOPE_READ"
+                   "GPTEL_SCOPE_WRITE"
+                   "GPTEL_SCOPE_MODIFY"
+                   "GPTEL_SCOPE_EXECUTE"
+                   "GPTEL_SCOPE_DENY"
+                   "GPTEL_SCOPE_CLOUD_AUTH"
+                   "GPTEL_SCOPE_CLOUD_PROVIDERS")))
+
+   closed_set: true
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** operation-to-drawer-key
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-operation-to-drawer-key
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/operation-to-drawer-key
+   tier: vocabulary
+   status: speculated
+   load_bearing: true
+   title: Granular operation → drawer-key collapse
+   purpose: |
+     Maps the granular :operation values that appear on a violation-info
+     plist (produced by the validator pipeline and the bash-parser semantic
+     plugins) onto the five list-shaped drawer keys (READ / WRITE / MODIFY
+     / EXECUTE / DENY). This is the structural analogue of bash-parser's
+     11-op-to-3-section mapping that drove the prior incident. The mapping
+     lives in exactly one place — jf/gptel-scope--map-operation-to-drawer-
+     key — and any pcase / cond performing the same translation at another
+     site is a duplication bug.
+
+   members:
+     - value: :read
+       collapses_to: GPTEL_SCOPE_READ
+       producer: validator pipeline (path), bash-parser read-ops plugin
+     - value: :read-directory
+       collapses_to: GPTEL_SCOPE_READ
+       producer: filesystem-tools read-directory dispatch
+     - value: :read-metadata
+       collapses_to: GPTEL_SCOPE_READ
+       producer: bash-parser stat / metadata plugin
+     - value: :match-pattern
+       collapses_to: GPTEL_SCOPE_READ
+       producer: bash-parser globbing plugin (find/ls)
+     - value: :write
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: validator pipeline (path), bash-parser write-ops plugin
+     - value: :create
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser create-ops plugin (touch, mkdir)
+     - value: :create-or-modify
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser redirect plugin
+     - value: :append
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser redirect plugin (>> form)
+     - value: :delete
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser delete-ops plugin
+     - value: :modify
+       collapses_to: GPTEL_SCOPE_MODIFY
+       producer: filesystem-tools edit_file_in_scope dispatch
+     - value: :execute
+       collapses_to: GPTEL_SCOPE_EXECUTE
+       producer: validator pipeline (bash command-execution check)
+
+   fallback:
+     when_operation_is_nil: GPTEL_SCOPE_READ
+     why: |
+       Safest default. Read-only is the most-restrictive scope semantically
+       (a write or execute permission grants more than read). When the
+       caller failed to pass an :operation through, defaulting to READ
+       fails closed: the pattern lands somewhere harmless, and a missing-
+       operation bug surfaces in the dedup loop, not in over-permissive
+       grants.
+
+   canonical_mapping_function: |
+     (defun jf/gptel-scope--map-operation-to-drawer-key (operation)
+       "Map a denied OPERATION keyword to the matching drawer key string.
+     Read-like granular operations collapse to GPTEL_SCOPE_READ. Write-like
+     granular operations collapse to GPTEL_SCOPE_WRITE. Defaults to
+     GPTEL_SCOPE_READ when OPERATION is nil (safest fallback)."
+       (cond
+        ((memq operation '(:read :read-directory :read-metadata :match-pattern))
+         "GPTEL_SCOPE_READ")
+        ((memq operation '(:write :create :create-or-modify :append :delete))
+         "GPTEL_SCOPE_WRITE")
+        ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
+        ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
+        ((null operation)        "GPTEL_SCOPE_READ")
+        (t (error "Unmapped operation: %S" operation))))
+
+   validator: |
+     (defun vocabulary/validate-op-collapse (op)
+       (memq op '(:read :read-directory :read-metadata :match-pattern
+                  :write :create :create-or-modify :append :delete
+                  :modify :execute)))
+
+   closed_set: false
+   closed_set_note: |
+     Set is closed today, but bash-parser may add new semantic-op types
+     in future. Any new op type must be added to this entry and to the
+     canonical mapping in the same change. The architect's vocabulary-
+     mismatch scan flags any pcase/cond that mentions an op not in this
+     entry.
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
 
 * Boundary
 
@@ -73,7 +469,251 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   inlined at >1 site instead of going through a single canonical function;
   the inline copies drift over time.
 
-  /No entries yet. Populated by Architect forward-mode at plan phase./
+** scope-config-loader
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-config-loader
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-config-loader
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: Buffer-first / file-fallback drawer reader pipeline
+   purpose: |
+     The two-stage resolver that produces the scope-config plist for the
+     authorize-tool-call dispatcher. Stage 1 (buffer-first) reads the
+     :PROPERTIES: drawer of the live chat buffer when one is associated
+     with the session. Stage 2 (file-fallback) opens session.org head-
+     lessly when no buffer is loaded. Stage 1 is the source-of-truth
+     stage; stage 2 exists only for programmatic / out-of-buffer call
+     paths (e.g. request_scope_expansion).
+
+   stages:
+     - n: 1
+       name: buffer-first read
+       input: chat-buffer object | nil (registry's :buffer field for jf/gptel--branch-dir)
+       output: register/shape/scope-config-plist | nil
+       can_fail_with: [no-buffer-found, drawer-empty]
+       short_circuit_policy: optional
+       notes: |
+         When the registry has a buffer for the current branch-dir,
+         stage 1 returns the parsed plist and stages 2 must not run.
+         When there is no buffer (registry miss), stage 1 returns nil
+         and stage 2 takes over.
+     - n: 2
+       name: file-fallback read
+       input: session.org file path
+       output: register/shape/scope-config-plist | nil
+       can_fail_with: [file-not-found, drawer-empty, malformed-drawer]
+       short_circuit_policy: none
+       notes: |
+         Opens the file via with-temp-buffer + insert-file-contents,
+         enables org-mode for the temp buffer, runs the same drawer
+         reader as stage 1. Discards the temp buffer. The plist shape
+         is identical to stage 1's output. When neither stage 1 nor
+         stage 2 yields a plist with at least one :GPTEL_SCOPE_* key,
+         the dispatcher denies with :error "no_scope_config".
+
+   cross_stage_invariants:
+     - register/invariant/scope-no-security-key-in-plist
+     - The plist shape produced by stage 1 must equal the plist shape
+       produced by stage 2 byte-for-byte for the same drawer text. Tested
+       by a round-trip spec: write a drawer string to a temp file, read
+       it via stage 2; insert it into a temp chat buffer, read it via
+       stage 1; assert plist equality.
+
+   producers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-config
+       enters_at_stage: 1
+
+   consumers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope-authorize-tool-call
+       reads_output_of_stage: 2
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-profile-applicator
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-profile-applicator
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-profile-applicator
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: Profile resolution → drawer text or buffer-applied properties
+   purpose: |
+     The two-mode terminal step of the scope-profile pipeline. Mode A
+     (string mode, --render-drawer-text) produces a register/shape/
+     drawer-text-block string for embedding in a fresh session.org. Mode B
+     (buffer mode, --apply-to-drawer) calls org-entry-put against an
+     already-open buffer's drawer. Both modes must be the only routes
+     from a profile-resolved scope-plist to drawer state; any open-coded
+     ":PROPERTIES:" string-building or org-entry-put loop elsewhere is a
+     duplication bug.
+
+   stages:
+     - n: 1
+       name: profile resolution
+       input: preset-name | profile-template-path
+       output: register/shape/scope-config-plist
+       can_fail_with: [profile-not-found, variable-expansion-failed]
+       short_circuit_policy: none
+       notes: |
+         Loads the profile YAML template, expands ${project_root} and
+         related variables, deep-merges with defaults. Unchanged by this
+         change.
+     - n: 2a
+       name: render-drawer-text (string mode)
+       input: preset-name + parent-session-id + scope-plist
+       output: register/shape/drawer-text-block
+       can_fail_with: [malformed-plist]
+       short_circuit_policy: none
+       notes: |
+         Returns a string. Caller is responsible for prepending the result
+         to chat-mode initial content and calling write-region. No buffer
+         is opened during this mode.
+     - n: 2b
+       name: apply-to-drawer (buffer mode)
+       input: chat-buffer + preset-name + parent-session-id + scope-plist
+       output: side-effect (drawer mutated; non-scope keys preserved)
+       can_fail_with: [buffer-not-org-mode, properties-drawer-corrupted]
+       short_circuit_policy: none
+       notes: |
+         Calls org-entry-put for scalars and the multi-value helper for
+         lists. Existing :GPTEL_PRESET: and :GPTEL_PARENT_SESSION_ID: keys
+         are preserved; only :GPTEL_SCOPE_* keys are written.
+
+   cross_stage_invariants:
+     - register/invariant/scope-drawer-no-duplication
+     - mode 2a's output, if written verbatim to a fresh session.org file,
+       produces a drawer that mode 2b's apply pass would leave unchanged
+       (idempotency between the two modes for the same scope-plist).
+
+   producers:
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--render-drawer-text
+       enters_at_stage: 2a
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--apply-to-drawer
+       enters_at_stage: 2b
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--create-for-session
+       enters_at_stage: 1
+       notes: dispatches to 2a or 2b based on caller context
+
+   consumers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel-persistent-session
+       reads_output_of_stage: 2a
+     - file: config/gptel/sessions/activities-integration.org
+       function: <activities flow session creation>
+       reads_output_of_stage: 2a
+     - file: config/gptel/tools/persistent-agent.org
+       function: <agent-creation function>
+       reads_output_of_stage: 2a
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-pattern-writer
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-pattern-writer
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-pattern-writer
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: Single canonical drawer mutator (write-pattern-to-drawer)
+   purpose: |
+     The expansion UI's "add to scope" action used to write through a
+     YAML mutator (parse → modify plist → re-emit YAML → write file).
+     That pipeline is replaced by jf/gptel-scope--write-pattern-to-drawer:
+     a single function that takes a buffer, an operation keyword, and a
+     pattern; collapses the operation to a drawer key via register/
+     vocabulary/operation-to-drawer-key; reads the existing values;
+     dedups; writes via org-entry-put / multi-value helper; calls save-
+     buffer. There is exactly one canonical mutator. Any other site that
+     constructs ":GPTEL_SCOPE_<KEY>: <value>" lines, calls org-entry-put
+     against scope keys directly, or otherwise mutates drawer scope state
+     is a boundary-translation duplication bug.
+
+   stages:
+     - n: 1
+       name: operation-to-drawer-key collapse
+       input: violation-info plist (reads :operation)
+       output: drawer-key string
+       can_fail_with: [unmapped-operation]
+       short_circuit_policy: none
+       notes: |
+         Delegates to register/vocabulary/operation-to-drawer-key's
+         canonical mapping function.
+     - n: 2
+       name: dedup against existing drawer values
+       input: chat-buffer + drawer-key + new-pattern
+       output: keep | skip
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         If the pattern is already in the drawer's values for the target
+         key (case-sensitive equality after path normalization), the
+         writer returns :success t :patterns_added [] and does not call
+         org-entry-put. The skip is silent — no error, no warning — but
+         visible in the callback's empty :patterns_added list.
+     - n: 3
+       name: org-entry-put / multi-value emit + save-buffer
+       input: chat-buffer + drawer-key + new-pattern
+       output: side-effect (drawer line(s) added; buffer saved)
+       can_fail_with: [save-aborted, buffer-read-only, properties-drawer-corrupted]
+       short_circuit_policy: none
+       notes: |
+         First addition for a key uses the bare form (org-entry-put);
+         subsequent additions use the +: variant via the multi-value
+         helper. save-buffer triggers chat-mode's existing before-save-
+         hook chain (metadata-yml updater) — this writer must not add new
+         hooks.
+
+   cross_stage_invariants:
+     - register/invariant/scope-add-pattern-idempotent
+     - register/invariant/scope-drawer-no-duplication
+     - the writer does not modify any drawer key other than the one
+       computed by stage 1 (verified by the regression test in
+       add-drawer-corruption-regression.md)
+
+   producers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--write-pattern-to-drawer
+       enters_at_stage: 1
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-wildcard-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-custom-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-path-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-bash-to-scope
+       reads_output_of_stage: 3
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
 
 * Invariant
 
@@ -88,18 +728,235 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
   - =lexical-binding-on-line-1= — every tangled =.el= begins with
     =;;; <name>.el --- ... -*- lexical-binding: t; -*-= on line 1.
+    /Not in scope for gptel-scope-in-org-properties./
   - =module-load-order-transient-before-language= — module loader respects
     the documented load-order invariants (=transient= before
     =language-modes= and =major-modes/magit=; =major-modes/magit= before
-    =major-modes/org=).
-  - =scope-parse-complete-is-true= — =scope-validation.el= treats
-    =enforce-parse-complete= as constant =t=.
-  - =scope-coverage-threshold-is-1= — =scope-validation.el= treats
-    =max-coverage-threshold= as constant =1.0=.
+    =major-modes/org=). /Not in scope for gptel-scope-in-org-properties./
   - =scope-allow-once-is-single-shot= — an =allow-once= permission grants
-    the next invocation only and self-removes.
+    the next invocation only and self-removes. /Not in scope for
+    gptel-scope-in-org-properties (untouched by this change)./
 
-  /No entries yet. Populated by Architect forward-mode at plan phase./
+** scope-parse-complete-is-true
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-parse-complete-is-true
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-parse-complete-is-true
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: enforce-parse-complete is the constant t at module level
+
+   statement: |
+     scope-validation.el treats jf/gptel-scope--enforce-parse-complete as
+     a defconst whose value is exactly t. Stage 1 of the bash validation
+     pipeline reads the constant directly; no caller passes it in, no
+     plist key carries it, and no per-session override exists. Stage 1's
+     "warn when not enforced" branch is removed entirely because the
+     constant is unconditionally true.
+
+   why_it_matters: |
+     The :security plist key was the historical override mechanism;
+     removing the key without enforcing the constant would silently
+     downgrade Stage 1 to permissive mode (if a stale code path read
+     a now-undefined plist value as nil). The user explicitly directed
+     "no per-session escape hatch"; this invariant is the structural
+     enforcement of that decision, not just a default.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       scaffolding test asserts (= jf/gptel-scope--enforce-parse-complete t)
+       and the absence of any (plist-get config :security ...) read in
+       scope-validation.el. Architect's invariant-gap audit re-checks at
+       integrate.
+
+   related_entries:
+     - register/shape/scope-config-plist
+     - register/boundary/scope-config-loader
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-coverage-threshold-is-1
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-coverage-threshold-is-1
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-coverage-threshold-is-1
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: max-coverage-threshold is the constant 1.0 at module level
+
+   statement: |
+     scope-validation.el treats jf/gptel-scope--coverage-threshold as a
+     defconst whose value is exactly 1.0. Stage 5 of the bash validation
+     pipeline reads the constant directly; no plist key carries it. The
+     coverage warning fires (non-blocking) whenever bash-parser semantic-
+     plugin coverage is below 100 percent.
+
+   why_it_matters: |
+     Same class as scope-parse-complete-is-true: removing the :security
+     plist key without locking the threshold would default it to nil at
+     read sites where the old code expected a numeric, silently disabling
+     the warning. The user explicitly accepted that 1.0 will produce
+     warnings on most non-trivial commands.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       scaffolding test asserts (= jf/gptel-scope--coverage-threshold 1.0)
+       and the absence of any (plist-get config :max-coverage-threshold)
+       read.
+
+   related_entries:
+     - register/shape/scope-config-plist
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-no-security-key-in-plist
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-no-security-key-in-plist
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-no-security-key-in-plist
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Loaded scope-config plist has exactly :paths and :cloud — no :security
+
+   statement: |
+     The plist returned by jf/gptel-scope--load-config (and its two stage
+     producers, jf/gptel-scope--load-from-buffer and --load-from-file)
+     contains exactly two top-level keys: :paths and :cloud. The :security
+     key is forbidden in the loaded plist; any reader that does
+     (plist-member val :security) must observe nil; any (plist-get val
+     :security ...) read in implementation code is a divergence signal
+     from this invariant.
+
+   why_it_matters: |
+     Closing the :security removal cleanly. A key that exists "with default
+     values" is dead structure that future readers will assume is real
+     configuration. The cleanest "removed" state is "absent at the plist
+     level"; tests that pin shape behaviour catch divergence early.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Buttercup spec under config/gptel/scope/test/drawer/load-from-buffer-
+       spec.el and load-from-file-spec.el: assert (null (plist-member
+       result :security)) for every loader output.
+
+   related_entries:
+     - register/shape/scope-config-plist
+     - register/invariant/scope-parse-complete-is-true
+     - register/invariant/scope-coverage-threshold-is-1
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-drawer-no-duplication
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-drawer-no-duplication
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-drawer-no-duplication
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: After any add-to-scope sequence, the buffer has exactly one :PROPERTIES: drawer
+
+   statement: |
+     For every chat-buffer touched by jf/gptel-scope--write-pattern-to-
+     drawer (or any caller of it), the buffer's text contains exactly one
+     ":PROPERTIES:" line and exactly one ":END:" line for the file-level
+     drawer at point-min. The writer must use org-entry-put against the
+     existing drawer; it must not insert a second drawer; it must not
+     allow a second drawer to be created by any of its save-buffer-
+     triggered hooks.
+
+   why_it_matters: |
+     The gptel-org-mode-sessions change resolved a drawer-corruption bug
+     traced to duplicate gptel--save-state hooks producing a second
+     :PROPERTIES: block on save. The full root-cause analysis is
+     preserved at ~/org/roam/20260419111957-gptel_preset_property_
+     corruption.org. Adding more state to the same drawer expands the
+     surface for any regression of that bug class. This invariant is
+     the structural lockout: even if a hook regression is reintroduced,
+     the architect's audit and the regression test will catch a doubled
+     drawer immediately rather than after silent corruption.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Regression spec at config/gptel/scope/test/drawer/no-duplicate-
+       drawer-spec.el (created by add-drawer-corruption-regression task).
+       Runs an add-to-scope sequence (≥3 cycles, several distinct keys)
+       and asserts exactly one ":PROPERTIES:\n" and one "\n:END:\n"
+       remain at point-min after each save.
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/boundary/scope-pattern-writer
+     - register/boundary/scope-profile-applicator
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-add-pattern-idempotent
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-add-pattern-idempotent
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-add-pattern-idempotent
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Adding the same pattern twice is a no-op (idempotent writer)
+
+   statement: |
+     For any drawer key K and any pattern P, calling jf/gptel-scope--
+     write-pattern-to-drawer with (BUFFER, OPERATION → K, P) when P is
+     already in the drawer's values for K leaves the buffer text
+     byte-for-byte unchanged. The callback still reports :success t with
+     an empty :patterns_added list.
+
+   why_it_matters: |
+     The inline-flow trigger re-enters jf/gptel-scope-authorize-tool-call
+     after each add-to-scope, and a multi-violation tool call can pass
+     through the same pattern twice on retry. Without idempotency, the
+     drawer would accumulate duplicate values, the buffer would gain
+     spurious save events, and (under some org versions) duplicate values
+     could trigger reader edge cases.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Buttercup spec at config/gptel/scope/test/drawer/write-pattern-
+       spec.el: "duplicate pattern is a no-op" and "callback reports
+       empty patterns-added on dedup". Both assertions are part of the
+       writer's contract; failure is a contract violation, not a
+       performance regression.
+
+   related_entries:
+     - register/boundary/scope-pattern-writer
+     - register/vocabulary/operation-to-drawer-key
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
 
 * Status legend
 
