@@ -24,7 +24,7 @@ session is automatically created with:
 
 - Directory structure under =~/emacs-activities/<activity-name>/session/=
 - Branch-based session management (=branches/main/= by default)
-- Scoped file access via =scope.yml= (default: deny-all for security)
+- Scoped file access via the =:PROPERTIES:= drawer in =session.org= (default: deny-all for security)
 - Preset configuration for model, backend, and tools
 - Auto-initialization when you open session files
 - Integration with activity suspend/resume workflow
@@ -277,10 +277,7 @@ This replaces the =gptel-agent= package dependency.
 ;; After preset registration, expand skills in preset system prompts
 (jf/gptel-preset--expand-all-preset-skills)
 
-;; Load scope-yaml boundary module (required by all scope modules)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-yaml.el" jf/emacs-dir))
-
-;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
+;; Load scope-profiles (used by preset registration and session creation to render scope drawer text)
 (jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
 
 ;; Load scope-metadata (required by scope-tool-wrapper for context-aware validation)
@@ -309,7 +306,7 @@ This replaces the =gptel-agent= package dependency.
 
 Persistent gptel sessions provide file-backed, auto-saving conversation buffers with:
 - Branch-based versioning for experimental conversation threads
-- Scope-based file access controls (via =scope.yml=)
+- Scope-based file access controls (via the =:PROPERTIES:= drawer in =session.org=)
 - Preset-based configuration (backend, model, tools, system prompts)
 - Auto-initialization when opening session files (no manual resume needed)
 - Integration with activities package for activity-scoped sessions

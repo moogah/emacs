@@ -51,10 +51,6 @@ Uses org-mode format for better structure.")
 (defconst jf/gptel-session--agents-dir "agents"
   "Directory name for agent sessions within parent session.")
 
-(defconst jf/gptel-session--scope-file "scope.yml"
-  "File name for session scope configuration.
-YAML format containing paths, org-roam patterns, and shell command permissions.")
-
 (defcustom jf/gptel-autosave-idle-time 0.5
   "Idle time in seconds before auto-saving session buffer.
 Set to 0 to disable auto-save."

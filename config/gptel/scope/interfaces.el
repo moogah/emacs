@@ -15,7 +15,7 @@
 
     ;; --- Parse errors ---
     ;; Produced when bash-parser cannot fully parse the command
-    ;; and security.enforce_parse_complete is true.
+    ;; and `jf/gptel-scope--enforce-parse-complete' is non-nil.
     ;; Producer: jf/gptel-scope--validate-parse-completeness
     "parse_incomplete"
 
@@ -36,7 +36,7 @@ every code in this list.
 Codes that intentionally live outside this vocabulary:
 - \"no_scope_config\"  (macro, before validation runs)
 - \"tool_exception\"   (macro, unexpected errors caught around body)
-- \"invalid_cloud_auth_mode\" (misconfigured scope.yml, not a user action)
+- \"invalid_cloud_auth_mode\" (misconfigured drawer key, not a user action)
 - \"file_not_found\", \"string_not_found\", \"execution-failed\"
   (tool-level errors produced after validation has passed)")
 

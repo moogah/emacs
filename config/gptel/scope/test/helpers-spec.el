@@ -27,7 +27,6 @@
 
 (require 'buttercup)
 (require 'cl-lib)
-(require 'jf-gptel-scope-yaml)
 
 ;; Load contract validation for mock self-validation
 ;; config/gptel/scope/test/ -> config/test/contracts/ (3 levels up, then test/contracts)

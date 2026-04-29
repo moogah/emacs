@@ -25,10 +25,10 @@ The terminal step of profile resolution implements the
 
 The dispatcher =--create-for-session= resolves the profile, expands
 variables, deep-merges worktree paths, and returns the rendered drawer
-text (Mode 2a). The previous =scope.yml= writer has been removed; callers
-that have not yet been rewired (=sessions/commands.org=,
-=tools/persistent-agent.org=) will see loud errors until their dedicated
-rewire tasks land.
+text (Mode 2a). The previous =scope.yml= writer has been removed; all
+callers (=sessions/commands.org=, =sessions/branching.org=,
+=tools/persistent-agent.org=) have been rewired to consume the rendered
+drawer text directly.
 
 ** Scope Profile Sections
 
@@ -173,12 +173,16 @@ See =config/gptel/scope/scope-shell-tools.org= for complete documentation on the
 
 * Key Normalization Helpers
 
-Convert between snake_case (YAML on-disk format) and kebab-case (Elisp plist format).
+Convert YAML profile data (snake_case keys, =:true=/=:false=/=:null=
+boolean keywords) into the Elisp plist shape (kebab-case keys, real
+elisp booleans) used by the rest of the scope subsystem.
 
-NOTE: This implementation is duplicated in =preset-registration.org= and
-=scope-shell-tools.org=. The duplication is intentional - early-loaded modules
-(preset-registration, scope-profiles) cannot depend on late-loaded modules
-(scope-shell-tools requires scope-core and scope-expansion).
+NOTE: =preset-registration.org= has a sibling =jf/gptel-preset--normalize-keys=
+for the same shape transformation on preset plists.  These are two
+independent inlined implementations.  The previous shared
+=scope-yaml.el= boundary module was retired together with =scope.yml=
+on-disk persistence; profile YAML is now the only YAML the scope
+subsystem touches.
 
 ** Normalize YAML Boolean Values
 
@@ -199,20 +203,37 @@ Returns VALUE unchanged if it's not a boolean keyword."
 
 ** Normalize Parsed YAML Plist
 
-#+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--normalize-keys (parsed)
-  "Normalize snake_case keys in PARSED plist to kebab-case.
-Delegates to scope-yaml module."
-  (jf/gptel-scope-yaml--normalize-keys parsed))
-#+end_src
-
-** Kebab Case to Snake Case
+Recursively walks PARSED, converting underscored snake_case keys
+(e.g. =:org_roam_patterns=) to kebab-case (=:org-roam-patterns=) and
+normalizing YAML boolean keywords (=:true= / =:false= / =:null=) to
+real elisp booleans.  Profile YAML is the only remaining YAML the
+scope subsystem touches; the previous shared scope-yaml boundary
+module was removed when scope.yml was retired.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--kebab-to-snake (key)
-  "Convert KEY from kebab-case keyword to snake_case keyword.
-Delegates to scope-yaml module."
-  (intern (concat ":" (jf/gptel-scope-yaml--kebab-to-snake key))))
+(defun jf/gptel-scope-profile--normalize-keys (plist)
+  "Normalize PLIST keys from snake_case to kebab-case.
+Also normalizes YAML boolean keywords (:true, :false, :null) to elisp
+booleans.  Recursively processes nested plists."
+  (let ((result nil))
+    (while plist
+      (let* ((key (car plist))
+             (value (cadr plist))
+             (normalized-key (intern (replace-regexp-in-string
+                                      "_" "-"
+                                      (symbol-name key))))
+             (normalized-value
+              (cond
+               ;; Nested plist: recurse
+               ((and (listp value)
+                     (not (null value))
+                     (keywordp (car value)))
+                (jf/gptel-scope-profile--normalize-keys value))
+               ;; Boolean keywords: normalize via shared helper
+               (t (jf/gptel-scope-profile--normalize-boolean value)))))
+        (setq result (plist-put result normalized-key normalized-value))
+        (setq plist (cddr plist))))
+    result))
 #+end_src
 
 * Load Profile from YAML File

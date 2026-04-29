@@ -28,15 +28,29 @@ Returns VALUE unchanged if it's not a boolean keyword."
    ((eq value :null) nil)
    (t value)))
 
-(defun jf/gptel-scope-profile--normalize-keys (parsed)
-  "Normalize snake_case keys in PARSED plist to kebab-case.
-Delegates to scope-yaml module."
-  (jf/gptel-scope-yaml--normalize-keys parsed))
-
-(defun jf/gptel-scope-profile--kebab-to-snake (key)
-  "Convert KEY from kebab-case keyword to snake_case keyword.
-Delegates to scope-yaml module."
-  (intern (concat ":" (jf/gptel-scope-yaml--kebab-to-snake key))))
+(defun jf/gptel-scope-profile--normalize-keys (plist)
+  "Normalize PLIST keys from snake_case to kebab-case.
+Also normalizes YAML boolean keywords (:true, :false, :null) to elisp
+booleans.  Recursively processes nested plists."
+  (let ((result nil))
+    (while plist
+      (let* ((key (car plist))
+             (value (cadr plist))
+             (normalized-key (intern (replace-regexp-in-string
+                                      "_" "-"
+                                      (symbol-name key))))
+             (normalized-value
+              (cond
+               ;; Nested plist: recurse
+               ((and (listp value)
+                     (not (null value))
+                     (keywordp (car value)))
+                (jf/gptel-scope-profile--normalize-keys value))
+               ;; Boolean keywords: normalize via shared helper
+               (t (jf/gptel-scope-profile--normalize-boolean value)))))
+        (setq result (plist-put result normalized-key normalized-value))
+        (setq plist (cddr plist))))
+    result))
 
 (defun jf/gptel-scope-profile--load (profile-name)
   "Load scope profile PROFILE-NAME from the profiles directory.

@@ -24,11 +24,16 @@
 (require 'cl-lib)
 
 ;; Load dependencies
+;; NOTE: scope-yaml.el was deleted as part of the YAML→drawer migration.
+;; This spec is owned by migrate-expansion-tests and will be rewritten to
+;; use drawer fixtures.  The require for scope-yaml is removed so the file
+;; can still load; individual `it' blocks that reference the deleted YAML
+;; helpers will fail loudly with `void-function' at runtime, which is the
+;; expected "fail loudly" signal documented in delete-yaml-and-security-residue.
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (scope-test-dir (expand-file-name ".." test-dir))
        (scope-dir (expand-file-name ".." scope-test-dir)))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
-  (require 'jf-gptel-scope-yaml (expand-file-name "scope-yaml.el" scope-dir))
   (require 'jf-gptel-scope-expansion (expand-file-name "scope-expansion.el" scope-dir)))
 
 ;;; Test Infrastructure

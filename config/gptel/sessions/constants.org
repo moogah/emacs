@@ -88,10 +88,6 @@ Uses org-mode format for better structure.")
 (defconst jf/gptel-session--agents-dir "agents"
   "Directory name for agent sessions within parent session.")
 
-(defconst jf/gptel-session--scope-file "scope.yml"
-  "File name for session scope configuration.
-YAML format containing paths, org-roam patterns, and shell command permissions.")
-
 #+end_src
 
 
