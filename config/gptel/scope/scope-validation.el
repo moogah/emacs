@@ -483,6 +483,14 @@ Non-blocking: returns nil always."
 ;; =jf/gptel--branch-dir= when available, else falls back to the current
 ;; buffer's directory. Returns nil if no config can be found or parsed.
 
+;; This YAML-based loader is the *current* producer of the scope-config
+;; plist. The new drawer-based loader lives in =* Drawer Reader= below;
+;; its dispatcher is defined under a holding name
+;; (=jf/gptel-scope--load-config-from-drawer=) so this section's
+;; =jf/gptel-scope--load-config= remains the live entry point until the
+;; =rewire-validator-config-load= task swaps the call site (see
+;; =register/boundary/scope-config-loader= in =interfaces.org=).
+
 
 ;; [[file:scope-validation.org::*Configuration Loading][Configuration Loading:1]]
 (defun jf/gptel-scope--load-config ()
@@ -501,6 +509,174 @@ Returns nil if not found or can't be parsed."
      (message "Error loading scope config: %s" (error-message-string err))
      nil)))
 ;; Configuration Loading:1 ends here
+
+;; Stage 1 — buffer-first read
+
+;; Walks the file-level =:PROPERTIES:= drawer at =point-min= via
+;; =org-entry-get= (scalars) and =org-entry-get-multivalued-property=
+;; (lists). Follows the existing =gptel-chat--declared-preset= convention
+;; in =config/gptel/chat/menu.el= for accessing the file-level drawer
+;; (=save-excursion= + =save-restriction= + =widen=).
+
+;; Missing list keys default to nil (empty list); missing
+;; =:auth-detection= defaults to ="warn"=. An invalid scalar value for
+;; =GPTEL_SCOPE_CLOUD_AUTH= raises a structured error rather than
+;; silently falling back, since the closed value set is part of the
+;; vocabulary contract.
+
+
+;; [[file:scope-validation.org::*Stage 1 — buffer-first read][Stage 1 — buffer-first read:1]]
+(defun jf/gptel-scope--load-from-buffer (buffer)
+  "Read scope configuration from BUFFER's file-level `:PROPERTIES:' drawer.
+Returns a plist of the canonical shape (:paths (:read ... :write ... :modify
+... :execute ... :deny ...) :cloud (:auth-detection ... :allowed-providers ...))
+with empty lists for missing list keys and \"warn\" as the default for
+missing :auth-detection.  Does not consult the file on disk; the buffer is
+the source of truth.
+
+Raises an error when GPTEL_SCOPE_CLOUD_AUTH carries a scalar outside the
+closed set defined by `register/vocabulary/drawer-key-set'."
+  (with-current-buffer buffer
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (let ((auth (or (org-entry-get (point) "GPTEL_SCOPE_CLOUD_AUTH") "warn")))
+          (unless (member auth '("allow" "warn" "deny"))
+            (error "Scope schema: GPTEL_SCOPE_CLOUD_AUTH must be \"allow\", \"warn\", or \"deny\", got %S" auth))
+          (list :paths
+                (list :read    (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_READ")
+                      :write   (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_WRITE")
+                      :modify  (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_MODIFY")
+                      :execute (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_EXECUTE")
+                      :deny    (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_DENY"))
+                :cloud
+                (list :auth-detection auth
+                      :allowed-providers
+                      (org-entry-get-multivalued-property
+                       (point) "GPTEL_SCOPE_CLOUD_PROVIDERS"))))))))
+;; Stage 1 — buffer-first read:1 ends here
+
+;; Stage 2 — file-fallback read
+
+;; Same reader, but opens the file via =with-temp-buffer= +
+;; =insert-file-contents=, enables =org-mode=, and discards the temp
+;; buffer. The plist shape is *byte-for-byte identical* to the stage-1
+;; output for the same drawer text — see the round-trip invariant in
+;; =register/boundary/scope-config-loader=.
+
+
+;; [[file:scope-validation.org::*Stage 2 — file-fallback read][Stage 2 — file-fallback read:1]]
+(defun jf/gptel-scope--load-from-file (file)
+  "Read scope configuration from FILE's `:PROPERTIES:' drawer headlessly.
+Same return shape as `jf/gptel-scope--load-from-buffer'.  Used when no live
+chat buffer is available for the session (e.g. programmatic
+`request_scope_expansion' callers)."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (org-mode)
+    (jf/gptel-scope--load-from-buffer (current-buffer))))
+;; Stage 2 — file-fallback read:1 ends here
+
+;; Helpers
+
+;; =--find-session-buffer-for-dir= maps a branch-dir back to its live chat
+;; buffer. The session registry (=jf/gptel--session-registry=) is a hash
+;; table keyed by ="session-id/branch-name"= — *not* by branch-dir — so
+;; the lookup must scan registry *values* for a matching =:branch-dir=.
+;; The buffer-list scan is a redundant fallback for the case where the
+;; registry has not been initialised (or where =jf/gptel--branch-dir= was
+;; set buffer-locally without going through =jf/gptel--register-session=).
+
+;; =--has-any-scope-key-p= preserves the existing =no_scope_config=
+;; semantics: a =session.org= carrying only =:GPTEL_PRESET:= (and no
+;; =:GPTEL_SCOPE_*:= keys) is treated exactly as a missing =scope.yml=
+;; was — the dispatcher's deny path surfaces =:error "no_scope_config"=.
+
+
+;; [[file:scope-validation.org::*Helpers][Helpers:1]]
+(defun jf/gptel-scope--find-session-buffer-for-dir (dir)
+  "Find a live chat buffer whose `jf/gptel--branch-dir' equals DIR.
+Returns the buffer or nil.  Uses the session registry when available;
+falls back to scanning the buffer list when no registry entry matches."
+  (when dir
+    (or (and (boundp 'jf/gptel--session-registry)
+             (hash-table-p jf/gptel--session-registry)
+             (let ((match nil))
+               (maphash
+                (lambda (_key entry)
+                  (when (and (null match)
+                             (equal (plist-get entry :branch-dir) dir)
+                             (buffer-live-p (plist-get entry :buffer)))
+                    (setq match (plist-get entry :buffer))))
+                jf/gptel--session-registry)
+               match))
+        (seq-find (lambda (buf)
+                    (and (buffer-local-value 'jf/gptel--branch-dir buf)
+                         (string= dir
+                                  (buffer-local-value 'jf/gptel--branch-dir buf))))
+                  (buffer-list)))))
+
+(defun jf/gptel-scope--has-any-scope-key-p (config)
+  "Return non-nil if CONFIG carries any non-empty scope list or non-default cloud.
+Mirrors the existing \"no scope.yml file\" → no_scope_config semantic: a
+plist with empty list fields and a default \"warn\" cloud-auth is treated
+as \"no scope configured\" by the dispatcher."
+  (let ((paths (plist-get config :paths))
+        (cloud (plist-get config :cloud)))
+    (or (plist-get paths :read)
+        (plist-get paths :write)
+        (plist-get paths :modify)
+        (plist-get paths :execute)
+        (plist-get paths :deny)
+        (plist-get cloud :allowed-providers)
+        ;; A non-default auth value also indicates intent.
+        (let ((auth (plist-get cloud :auth-detection)))
+          (and auth (not (string= auth "warn")))))))
+;; Helpers:1 ends here
+
+;; Dispatcher (held back for rewire)
+
+;; Defined under the holding name =jf/gptel-scope--load-config-from-drawer=
+;; so this task can land with the new functions defined and *unused*: the
+;; live =jf/gptel-scope--load-config= in =* Configuration Loading= still
+;; points at the YAML loader.  The =rewire-validator-config-load= task
+;; replaces the YAML body with a delegation to this function (or renames
+;; this function) and is the moment the validator switches sources.
+
+;; The dispatcher is buffer-first: when a chat buffer exists for the
+;; session's branch-dir, its drawer is the source of truth (so a user's
+;; just-typed edit is visible to validation before they save). The file
+;; fallback covers programmatic callers.
+
+
+;; [[file:scope-validation.org::*Dispatcher (held back for rewire)][Dispatcher (held back for rewire):1]]
+(defun jf/gptel-scope--load-config-from-drawer (&optional branch-dir)
+  "Resolve scope configuration for the current session, drawer-first.
+Buffer-first: if a chat buffer exists for BRANCH-DIR (default: buffer-local
+`jf/gptel--branch-dir', then `default-directory'), reads its drawer.
+Otherwise reads the file at <branch-dir>/session.org.  Returns nil when no
+scope keys are present in the resolved drawer (caller treats nil as
+`no_scope_config').
+
+This is the staged drop-in for `jf/gptel-scope--load-config'; the rewire
+task replaces the YAML body of that function with a call to this one (or
+renames this function back to `--load-config').  Until then this function
+is intentionally not invoked from production code paths."
+  (let* ((dir (or branch-dir
+                  (and (boundp 'jf/gptel--branch-dir) jf/gptel--branch-dir)
+                  default-directory))
+         (buffer (jf/gptel-scope--find-session-buffer-for-dir dir))
+         (file (and dir (expand-file-name "session.org" dir)))
+         (config (cond
+                  (buffer (jf/gptel-scope--load-from-buffer buffer))
+                  ((and file (file-exists-p file))
+                   (jf/gptel-scope--load-from-file file))
+                  (t nil))))
+    (and config
+         (jf/gptel-scope--has-any-scope-key-p config)
+         config)))
+;; Dispatcher (held back for rewire):1 ends here
 
 ;; Multi-violation expansion loop
 
