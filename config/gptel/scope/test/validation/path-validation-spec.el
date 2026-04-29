@@ -424,6 +424,29 @@
       (expect (plist-get write-result :allowed) :to-be nil)
       (expect (plist-get write-result :error) :to-equal "not-in-scope"))))
 
+(describe "loader reads :read-metadata from the drawer (cycle-3 architect finding 2)"
+  ;; register/shape/scope-config-plist declares :paths carries six list-keys
+  ;; including :read-metadata.  --load-from-buffer was missing the extraction;
+  ;; cycle-3 architect end-of-cycle audit caught it as the end-to-end gap that
+  ;; the c4207ca review-fix (which added :read-metadata to --has-any-scope-key-p)
+  ;; was necessary-but-not-sufficient to close.
+
+  (it "loaded :paths plist carries :read-metadata when drawer has GPTEL_SCOPE_READ_METADATA"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ_METADATA . ("/etc/passwd")))
+      (let* ((result (jf/gptel-scope--load-from-buffer (current-buffer)))
+             (paths (plist-get result :paths)))
+        (expect (plist-get paths :read-metadata) :to-equal '("/etc/passwd")))))
+
+  (it "metadata-only drawer is treated as a populated config, not an empty drawer"
+    ;; Regression: pre-fix, a drawer carrying only :GPTEL_SCOPE_READ_METADATA:
+    ;; would silently pass --has-any-scope-key-p as nil and get replaced with
+    ;; deny-all defaults, losing the user's metadata-read intent.
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ_METADATA . ("/var/log/**")))
+      (let ((result (jf/gptel-scope--load-from-buffer (current-buffer))))
+        (expect (jf/gptel-scope--has-any-scope-key-p result) :not :to-be nil)))))
+
 (provide 'path-validation-spec)
 
 ;;; path-validation-spec.el ends here

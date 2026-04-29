@@ -519,11 +519,12 @@ closed set defined by `register/vocabulary/drawer-key-set'."
           (unless (member auth '("allow" "warn" "deny"))
             (error "Scope schema: GPTEL_SCOPE_CLOUD_AUTH must be \"allow\", \"warn\", or \"deny\", got %S" auth))
           (list :paths
-                (list :read    (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_READ")
-                      :write   (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_WRITE")
-                      :modify  (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_MODIFY")
-                      :execute (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_EXECUTE")
-                      :deny    (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_DENY"))
+                (list :read          (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_READ")
+                      :read-metadata (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_READ_METADATA")
+                      :write         (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_WRITE")
+                      :modify        (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_MODIFY")
+                      :execute       (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_EXECUTE")
+                      :deny          (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_DENY"))
                 :cloud
                 (list :auth-detection auth
                       :allowed-providers
