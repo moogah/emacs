@@ -554,13 +554,23 @@ PATH, COMMAND, PROVIDER, OPERATION provide context for the message."
   "Render an org `:PROPERTIES:' drawer block from ALIST.
 ALIST is a list of (KEY . VALUES) entries where KEY is an org property
 keyword like :GPTEL_SCOPE_READ and VALUES is either a list (multi-value:
-first emitted as bare key, rest as KEY+) or a string (scalar).  Returns
+emitted as a single space-separated line, mirroring
+`org-entry-put-multivalued-property') or a string (scalar).  Returns
 the drawer text including a trailing newline.
 
 The closed set of acceptable keys is enumerated in
 `register/vocabulary/drawer-key-set' (the seven :GPTEL_SCOPE_* keys).
 This helper does not enforce the closed set — callers that need that
-discipline should validate input before rendering."
+discipline should validate input before rendering.
+
+This helper canonicalises on the single-line space-separated form
+because that is what `jf/gptel-scope--write-pattern-to-drawer'
+emits via `org-entry-put-multivalued-property'.  Org's multi-value
+reader (`org-entry-get-multivalued-property') accepts both the
+single-line form and the `:KEY+:' continuation form, so the choice
+of writer-emission style is invisible to readers; matching the
+production writer keeps fixture text byte-equivalent to what real
+sessions produce."
   (let ((lines (list ":PROPERTIES:")))
     (dolist (entry alist)
       (let ((key (car entry))
@@ -569,10 +579,9 @@ discipline should validate input before rendering."
          ((stringp val)
           (push (format "%s: %s" key val) lines))
          ((listp val)
-          (let ((first t))
-            (dolist (v val)
-              (push (format "%s%s: %s" key (if first "" "+") v) lines)
-              (setq first nil)))))))
+          (push (format "%s: %s" key
+                        (mapconcat (lambda (v) (format "%s" v)) val " "))
+                lines)))))
     (push ":END:" lines)
     (concat (mapconcat #'identity (nreverse lines) "\n") "\n")))
 
@@ -598,11 +607,11 @@ shape of a real session.org.  ALIST has the same shape as
 ;; multi-value reader's contract drifts under us.
 
 (describe "jf/gptel-test--render-drawer"
-  (it "wraps a single multi-value entry in a :PROPERTIES:/:END: block"
+  (it "wraps a multi-value entry in a :PROPERTIES:/:END: block as a single space-separated line"
     (let ((text (jf/gptel-test--render-drawer
                  '((:GPTEL_SCOPE_READ . ("/a" "/b"))))))
       (expect text :to-equal
-              ":PROPERTIES:\n:GPTEL_SCOPE_READ: /a\n:GPTEL_SCOPE_READ+: /b\n:END:\n")))
+              ":PROPERTIES:\n:GPTEL_SCOPE_READ: /a /b\n:END:\n")))
 
   (it "emits a scalar value as a single bare key line"
     (let ((text (jf/gptel-test--render-drawer
@@ -612,7 +621,24 @@ shape of a real session.org.  ALIST has the same shape as
 
   (it "renders an empty alist as a bare drawer"
     (expect (jf/gptel-test--render-drawer '())
-            :to-equal ":PROPERTIES:\n:END:\n")))
+            :to-equal ":PROPERTIES:\n:END:\n"))
+
+  (it "matches the byte-for-byte output of org-entry-put-multivalued-property"
+    ;; The writer (jf/gptel-scope--write-pattern-to-drawer) goes through
+    ;; org-entry-put-multivalued-property, which emits a single space-
+    ;; separated line; the fixture helper must produce the same shape so
+    ;; round-trip tests do not diverge from production drawer text.
+    (let ((helper-text (jf/gptel-test--render-drawer
+                        '((:GPTEL_SCOPE_READ . ("/a" "/b" "/c")))))
+          (org-text
+           (with-temp-buffer
+             (insert ":PROPERTIES:\n:END:\n")
+             (org-mode)
+             (goto-char (point-min))
+             (org-entry-put-multivalued-property
+              (point) "GPTEL_SCOPE_READ" "/a" "/b" "/c")
+             (buffer-substring-no-properties (point-min) (point-max)))))
+      (expect helper-text :to-equal org-text))))
 
 (describe "jf/gptel-test--with-scope-drawer"
   (it "round-trips a multi-value list through org-entry-get-multivalued-property"
