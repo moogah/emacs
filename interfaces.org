@@ -1,0 +1,111 @@
+#+title: Interfaces register
+#+author: jefffarr
+#+startup: overview
+
+* About this register
+
+This file is the authoritative catalogue of the contracts that flow across
+module boundaries in the isolated emacs config. It is the artifact the
+opsx-orchestrator's Architect role audits against in three triggers:
+
+- *On-touch* (in execute) — when an Implementor diff modifies code cited
+  in a =load_bearing: true= entry, the Architect runs against that entry
+  only.
+- *End-of-cycle* (in integrate) — full signal-class run across the cycle's
+  diffs and the register.
+- *Between-cycle* (=/architect-audit=, on demand) — register vs. whole repo;
+  consolidation-round-as-a-button.
+
+Each entry is a YAML-fenced block under one of the four tier-headings below,
+following the templates at:
+
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-shape.md=
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-vocabulary.md=
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-boundary.md=
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-invariant.md=
+
+Per-entry =status= is one of =speculated | confirmed | divergent |
+reconciled=. =load_bearing: true= signals the entry should receive on-touch
+Architect attention whenever cited code changes. New entries land as
+=speculated= during plan-phase forward-mode and are reconciled at integrate
+based on Implementor =## Discoveries=.
+
+Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
+=scaffolding.md=, =flows/{plan,execute,integrate}.md=.
+
+* Conventions
+
+- *One entry per concept.* If two entries describe the same shape with
+  different field sets, that's drift — reconcile, don't duplicate.
+- *Tier discipline.* Before creating an invariant entry, check whether the
+  rule fits =shape=, =vocabulary=, or =boundary= — those tiers carry their
+  own enforcement; the invariant tier is the safety net for rules that
+  don't fit structurally.
+- *Cite specific files and functions.* "the validator" is not a citation;
+  =config/gptel/scope/scope-validation.org=, function
+  =jf/gptel-scope--load-config= is.
+- *Past incidents anchor entries.* The =why_it_matters= field of an
+  invariant is most credible when it names an incident this project
+  has actually paid for.
+
+* Shape
+
+  Entries describe plists, alists, structs, records that cross module
+  boundaries. Producers and consumers are listed; the canonical
+  constructor (if any) is the single allowed producer.
+
+  /No entries yet. Populated by Architect forward-mode at plan phase./
+
+* Vocabulary
+
+  Entries describe enumerations / symbol sets / value sets that span a
+  boundary, plus the canonical mapping (=pcase= / dispatch table) between
+  layers. The motivating failure is bash-parser semantic-op set ↔
+  scope section keys: a =pcase= inlined at multiple sites, missing values
+  at one of them, silently mis-routing operations.
+
+  /No entries yet. Populated by Architect forward-mode at plan phase./
+
+* Boundary
+
+  Entries describe canonical mapping functions between subsystems. The
+  motivating failure is a reshape (module A's output → module B's input)
+  inlined at >1 site instead of going through a single canonical function;
+  the inline copies drift over time.
+
+  /No entries yet. Populated by Architect forward-mode at plan phase./
+
+* Invariant
+
+  Entries describe rules that must hold across the system but don't fit
+  the structural tiers. Each entry names its =enforcement_mechanism=
+  (=test= / =runtime-check= / =lint= / =structural-audit= /
+  =review-discipline=) — an invariant whose only enforcement is review
+  discipline is fragile and flagged for migration to a stronger mechanism.
+
+  Candidate invariants for this codebase, to be entered during plan-phase
+  forward-mode of the relevant change:
+
+  - =lexical-binding-on-line-1= — every tangled =.el= begins with
+    =;;; <name>.el --- ... -*- lexical-binding: t; -*-= on line 1.
+  - =module-load-order-transient-before-language= — module loader respects
+    the documented load-order invariants (=transient= before
+    =language-modes= and =major-modes/magit=; =major-modes/magit= before
+    =major-modes/org=).
+  - =scope-parse-complete-is-true= — =scope-validation.el= treats
+    =enforce-parse-complete= as constant =t=.
+  - =scope-coverage-threshold-is-1= — =scope-validation.el= treats
+    =max-coverage-threshold= as constant =1.0=.
+  - =scope-allow-once-is-single-shot= — an =allow-once= permission grants
+    the next invocation only and self-removes.
+
+  /No entries yet. Populated by Architect forward-mode at plan phase./
+
+* Status legend
+
+| Status      | Meaning                                                                                  |
+|-------------+------------------------------------------------------------------------------------------|
+| speculated  | Architect-proposed at plan; pressure-tested by implementation; reviewer ignores.        |
+| confirmed   | Implementation matched the speculation; entry is now load-bearing for next cycles.      |
+| divergent   | Implementation revealed the speculation was wrong; awaits user disposition or rewrite.  |
+| reconciled  | Speculation absorbed an implementation discovery; carries =why_tests_missed= rationale. |
