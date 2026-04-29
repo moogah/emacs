@@ -132,3 +132,142 @@ design.md § Decision 6 (Profile templates stay YAML on disk)
 architecture.md § Components, § Interfaces
 specs/gptel/scope-profiles/spec.md § MODIFIED Requirements / "Mutable scope drawer in session.org", "Integration with session creation"
 specs/gptel/scope-profiles/spec.md § REMOVED Requirements / "scope.yml writer"
+
+## Observations
+
+- Implemented `jf/gptel-scope-profile--render-drawer-text` (Mode 2a) and
+  `jf/gptel-scope-profile--apply-to-drawer` (Mode 2b) in
+  `config/gptel/scope-profiles.org`. Tangled cleanly via
+  `./bin/tangle-org.sh`.
+- Replaced `--write-scope-yml` with a stub that signals an error referencing
+  the canonical replacements; this makes unmigrated callers fail loudly.
+- Deleted `--plist-to-yaml` (the only YAML emitter helper that existed in
+  this file — there was no separate `--scope-plist-to-yaml`/`--emit-yaml-list`
+  pair as the task scaffold suggested).
+- Removed the `(require 'jf-gptel-scope-yaml ...)` line per task step 4.
+  Added `(require 'org)` since `--apply-to-drawer` calls `org-entry-put`.
+- Updated `--create-for-session` to *return* the rendered drawer text (Mode
+  2a). Public arg list is unchanged except for an additional optional
+  `parent-session-id` argument (the renderer needs it; existing callers will
+  pass it once `rewire-session-creation` lands). This is a pure additive
+  change to a `&optional` tail and so does not break the existing call from
+  `sessions/commands.el` (which fills it with nil implicitly).
+- Smoke-tested both new functions via batch `emacs --eval` against
+  representative inputs (preset-only, preset+parent+cloud, multi-value paths,
+  spaces in values). Round-trip through `org-entry-get-multivalued-property`
+  succeeds; the cross-mode idempotency invariant holds (rendered text +
+  re-applied = identical buffer).
+
+### Renderer line shape (resolved)
+
+The illustrative scaffold suggested rendering multi-value lists as one
+line per value (`:KEY: v0\n:KEY+: v1\n…`). I switched to the single
+space-separated line shape (`:KEY: v0 v1 v2`) because that is the
+literal text `org-entry-put-multivalued-property` produces. Mixing the
+two shapes breaks the cross-mode idempotency invariant: when applied to
+text rendered in the multi-line `+:` shape, `org-entry-put` rewrites
+the *first* line in place but leaves the `:KEY+:` continuations
+untouched, so the buffer ends up with both the new collapsed line and
+stale continuation lines. Single-line rendering eliminates this drift.
+Spaces inside values are escaped via `org-entry-protect-space`,
+matching the on-the-wire format `org-entry-get-multivalued-property`
+expects.
+
+### Expected test failures (for `gptel-scope-in-org-properties` integrator)
+
+Baseline (pre-task) failure count from `./bin/run-tests.sh -d config/gptel`:
+ERT 22/23, Buttercup 1027/1050. After this task: ERT 22/23, Buttercup
+1014/1050. Net delta: 0 ERT, +13 Buttercup failures.
+
+The 13 new Buttercup failures break down as:
+
+**Five session-creation tests** (caller still expects `scope.yml` side
+effect; will be fixed by `rewire-session-creation`):
+
+- `Session creation (write-side) Scope profile integration writes scope.yml via scope profile system`
+- `Session creation (write-side) Scope profile integration writes scope.yml with preset scope configuration when available`
+- `Session creation (write-side) Scope profile integration expands ${project_root} in scope.yml paths when project-root provided`
+- `Session creation (write-side) Scope profile integration deep-merges worktree-paths with preset scope when both provided`
+- `Session creation (write-side) Scope profile integration writes minimal scope.yml when preset has no scope configuration`
+
+**Eight YAML boolean-normalization tests** (test the now-deleted
+`--plist-to-yaml`; the entire `config/gptel/scope/test/yaml/` directory
+is removed by `delete-yaml-and-security-residue`):
+
+- `YAML Boolean Normalization jf/gptel-scope-profile--plist-to-yaml with keyword booleans writes :true as 'true' in YAML`
+- `YAML Boolean Normalization jf/gptel-scope-profile--plist-to-yaml with keyword booleans writes :false as 'false' in YAML`
+- `YAML Boolean Normalization jf/gptel-scope-profile--plist-to-yaml with keyword booleans writes :null as 'false' in YAML`
+- `YAML Boolean Normalization jf/gptel-scope-profile--plist-to-yaml with keyword booleans writes t as 'true' in YAML`
+- `YAML Boolean Normalization jf/gptel-scope-profile--plist-to-yaml with keyword booleans writes nil boolean fields as 'false' in YAML`
+- `YAML Boolean Normalization jf/gptel-scope-profile--plist-to-yaml with keyword booleans handles nested plists with keyword booleans`
+- `YAML Boolean Normalization YAML round-trip with boolean values preserves YAML true through parse → normalize → write`
+- `YAML Boolean Normalization YAML round-trip with boolean values preserves YAML false through parse → normalize → write`
+
+The other 23 buttercup failures (Bug 4 / Bug multi-violation / Parallel
+tool callback / run_bash_command integration / run_bash_command Timeout)
+and the 1 ERT failure (`test-directory-creation-org-session-structure`)
+are *pre-existing* — they are present on baseline 538ed48 and unaffected
+by this task.
+
+## Discoveries
+
+- class: invariant-gap
+  signal: |
+    The `register/shape/drawer-text-block` validator (in
+    `interfaces.org`'s required_substring_anchors) lists `:GPTEL_PRESET:`
+    as a required anchor, but the test helper
+    `jf/gptel-test--render-drawer` emits a bare `:PROPERTIES:\n:END:\n`
+    block as legal output — i.e. the helper-spec tests document a case
+    where the anchor is absent and treat that as valid. The renderer in
+    this task can also emit a `:GPTEL_PRESET:`-less block when called
+    with `preset-name = nil` (defensive branch). Either the validator's
+    required-anchor list should be relaxed, or the renderer / helper
+    should reject preset-less inputs. Flagging per the task brief; not
+    resolved here because either fix touches register entries and the
+    task says don't modify the register directly.
+  recommendation: |
+    Architect should decide. If the answer is "always require
+    GPTEL_PRESET", make `(when preset-name ...)` an unconditional
+    `(if preset-name … (error …))` and tighten the helper.
+- class: deviation
+  signal: |
+    The illustrative renderer snippet in step 1 of the task body produces
+    drawer lines without a leading colon (`KEY: value` rather than
+    `:KEY: value`) and uses `+:` as the multi-value suffix prefix
+    (`KEY+:`). The actual drawer line format demands a leading colon
+    (`:KEY: value` and `:KEY+: value`), which I implemented; I also
+    deviated from the per-value-on-its-own-line approach in favour of
+    a single space-separated line per key (see Observations). Both
+    deviations are explicit in the literate org's body; integrator can
+    sanity-check.
+  recommendation: |
+    None — both deviations match the org-property reader contract and
+    keep the cross-mode idempotency invariant intact.
+- class: dead-branch
+  signal: |
+    `config/gptel/scope/test/yaml/boolean-normalization-spec.el` tests
+    `jf/gptel-scope-profile--plist-to-yaml` (deleted in this task) and
+    references `:security` (forbidden by
+    `register/shape/scope-config-plist`). Eight tests in this file fail
+    after this task. The cleanup is owned by
+    `delete-yaml-and-security-residue` (see its step 1: `git rm -r
+    config/gptel/scope/test/yaml/`). Listed under "expected failures"
+    in Observations so the integrator can confirm the cleanup task
+    picks them up.
+  recommendation: |
+    Confirm `delete-yaml-and-security-residue` runs after this task and
+    removes `config/gptel/scope/test/yaml/` wholesale.
+- class: interface-drift
+  signal: |
+    `--create-for-session`'s public signature now includes a fifth
+    optional argument `parent-session-id`. Existing callers in
+    `sessions/commands.el` and any other cite never pass it; they bind
+    by position so adding a `&optional` tail doesn't break them. But
+    the actual rewires (`rewire-session-creation`,
+    `rewire-persistent-agent`) will need to *start* passing this arg
+    so the rendered drawer carries the parent-session line for agent
+    sessions. Calling out so the rewire tasks aren't surprised.
+  recommendation: |
+    Both rewire tasks should explicitly pass parent-session-id where
+    they currently have it locally (e.g. agent creation already knows
+    its parent; standalone session creation passes nil).
