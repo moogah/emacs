@@ -67,6 +67,21 @@ or with property-key lines."
      (lambda (line) (string-match-p "^[ \t]*:PROPERTIES:[ \t]*$" line))
      (split-string content "\n"))))
 
+(defun no-duplicate-drawer-spec--count-end-lines (buffer)
+  "Count `:END:' lines in BUFFER, parallel to the `:PROPERTIES:' counter.
+
+The cited invariant `register/invariant/scope-drawer-no-duplication'
+names both lines (\"exactly one `:PROPERTIES:' line and exactly one
+`:END:' line for the file-level drawer at point-min\").  Counting
+both halves discharges the contract fully and bites a hypothetical
+narrower regression that emits a stray `:END:' without a paired
+`:PROPERTIES:'."
+  (let ((content (with-current-buffer buffer
+                   (buffer-substring-no-properties (point-min) (point-max)))))
+    (cl-count-if
+     (lambda (line) (string-match-p "^[ \t]*:END:[ \t]*$" line))
+     (split-string content "\n"))))
+
 (describe "drawer writer integrity"
 
   ;; The writer calls `save-buffer'; our temp buffers are not file-backed,
@@ -84,6 +99,9 @@ or with property-key lines."
         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :write "/output/**")
         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :execute "/usr/local/bin/**")
         (expect (no-duplicate-drawer-spec--count-properties-headers
+                 (current-buffer))
+                :to-equal 1)
+        (expect (no-duplicate-drawer-spec--count-end-lines
                  (current-buffer))
                 :to-equal 1))))
 
@@ -128,7 +146,12 @@ or with property-key lines."
         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :execute "/usr/local/bin/**")
         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :modify "/etc/local/**")
         ;; (a) Drawer-singleton invariant survives the multi-write sequence.
+        ;; Both header lines (`:PROPERTIES:' and `:END:') must remain singular
+        ;; per `register/invariant/scope-drawer-no-duplication'.
         (expect (no-duplicate-drawer-spec--count-properties-headers
+                 (current-buffer))
+                :to-equal 1)
+        (expect (no-duplicate-drawer-spec--count-end-lines
                  (current-buffer))
                 :to-equal 1)
         ;; (b) Non-scope keys survive verbatim — neither corrupted nor
