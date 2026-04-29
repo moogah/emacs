@@ -116,6 +116,52 @@ COMMAND is the command string that triggered detection."
              (result (jf/gptel-scope--validate-cloud-auth cloud-auth nil)))
         (expect (plist-get result :warning) :to-equal "cloud_auth_detected"))))
 
+  ;; === Loader normalizes provider names to keywords (cycle-4 Ask 2) ===
+  ;;
+  ;; The drawer carries provider names as bare strings
+  ;; (`:GPTEL_SCOPE_CLOUD_PROVIDERS: aws gcp'); the cloud-auth ops detector
+  ;; emits keyword providers (`:aws', `:aws-cli', etc.); the validator's
+  ;; `(member provider allowed-providers)' test in
+  ;; `jf/gptel-scope--validate-cloud-auth' compares the two.  The loader is
+  ;; the parse-boundary normalisation point: drawer strings → keywords, so
+  ;; the in-memory plist's `:allowed-providers' is a keyword list and the
+  ;; validator's check works without further coercion.  See
+  ;; `register/shape/scope-config-plist' (cycle-4 narrowing) and
+  ;; `register/boundary/scope-config-loader'.
+  (describe "loader normalizes provider names to keywords (cycle-4 Ask 2)"
+
+    (it "loads :allowed-providers as a list of keywords"
+      (jf/gptel-test--with-scope-drawer
+          '((:GPTEL_SCOPE_CLOUD_PROVIDERS . ("aws" "gcp")))
+        (let* ((config (jf/gptel-scope--load-from-buffer (current-buffer)))
+               (cloud (plist-get config :cloud))
+               (allowed (plist-get cloud :allowed-providers)))
+          (expect allowed :to-equal '(:aws :gcp))
+          (expect (seq-every-p #'keywordp allowed) :to-be-truthy))))
+
+    (it "yields nil :allowed-providers when GPTEL_SCOPE_CLOUD_PROVIDERS is absent"
+      ;; Empty drawer → no provider key → nil (not a one-element list of an
+      ;; empty keyword like `(:)' or '(""))).
+      (jf/gptel-test--with-scope-drawer '()
+        (let* ((config (jf/gptel-scope--load-from-buffer (current-buffer)))
+               (cloud (plist-get config :cloud)))
+          (expect (plist-get cloud :allowed-providers) :to-be nil))))
+
+    (it "validator's keyword-vs-keyword comparison succeeds against the loader output"
+      ;; End-to-end: a drawer with allowed-providers `aws gcp', a cloud-auth
+      ;; ops plist for `:aws', and the validator returns nil (allowed).
+      ;; Pre-normalizer this would emit a `cloud_provider_denied' error
+      ;; because `(member :aws ("aws" "gcp"))' is nil.
+      (jf/gptel-test--with-scope-drawer
+          '((:GPTEL_SCOPE_CLOUD_AUTH . "allow")
+            (:GPTEL_SCOPE_CLOUD_PROVIDERS . ("aws" "gcp")))
+        (let* ((config (jf/gptel-scope--load-from-buffer (current-buffer)))
+               (cloud (plist-get config :cloud))
+               (cloud-auth (cloud-auth-spec--make-cloud-auth-ops
+                            :aws "aws s3 ls"))
+               (result (jf/gptel-scope--validate-cloud-auth cloud-auth cloud)))
+          (expect result :to-be nil)))))
+
   ;; === Allow mode enforcement ===
 
   (describe "allow mode enforcement"

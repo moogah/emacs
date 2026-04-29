@@ -500,6 +500,16 @@ Non-blocking: returns nil always.  Threshold is fixed at
 
 
 ;; [[file:scope-validation.org::*Stage 1 — buffer-first read][Stage 1 — buffer-first read:1]]
+(defun jf/gptel-scope--normalize-provider-keyword (s)
+  "Normalize a drawer provider value S to a keyword.
+The drawer carries provider names as bare strings (e.g. \"aws\",
+\"gcp\"); the validator's `(member provider allowed-providers)' check
+compares against the cloud-auth ops detector's keyword providers
+(`:aws', `:aws-cli', etc.).  This boundary helper converts strings to
+keywords so the loader's :allowed-providers list matches the
+validator's expected shape (cycle-4 Ask 2)."
+  (intern (concat ":" (string-remove-prefix ":" s))))
+
 (defun jf/gptel-scope--load-from-buffer (buffer)
   "Read scope configuration from BUFFER's file-level `:PROPERTIES:' drawer.
 Returns a plist of the canonical shape (:paths (:read ... :write ... :modify
@@ -507,6 +517,11 @@ Returns a plist of the canonical shape (:paths (:read ... :write ... :modify
 with empty lists for missing list keys and \"warn\" as the default for
 missing :auth-detection.  Does not consult the file on disk; the buffer is
 the source of truth.
+
+Cloud provider drawer values (`GPTEL_SCOPE_CLOUD_PROVIDERS') are
+normalized to keywords at the parse boundary so the in-memory shape
+matches the cloud-auth ops detector's keyword producers
+(register/shape/scope-config-plist `:cloud.allowed-providers').
 
 Raises an error when GPTEL_SCOPE_CLOUD_AUTH carries a scalar outside the
 closed set defined by `register/vocabulary/drawer-key-set'."
@@ -528,8 +543,9 @@ closed set defined by `register/vocabulary/drawer-key-set'."
                 :cloud
                 (list :auth-detection auth
                       :allowed-providers
-                      (org-entry-get-multivalued-property
-                       (point) "GPTEL_SCOPE_CLOUD_PROVIDERS"))))))))
+                      (mapcar #'jf/gptel-scope--normalize-provider-keyword
+                              (org-entry-get-multivalued-property
+                               (point) "GPTEL_SCOPE_CLOUD_PROVIDERS")))))))))
 ;; Stage 1 — buffer-first read:1 ends here
 
 ;; Stage 2 — file-fallback read

@@ -70,6 +70,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (mapper) both honor the new shape. Fixture-locus pending in cycle-3
      migrate-* tasks. See .orchestrator/cycles/cycle-1777470320/
      reconciliations/shape-scope-config-plist.md.
+     cycle-4 (2026-04-29) Ask 2 disposition: :cloud.allowed-providers
+     sub-shape narrowed from "list of provider names" to "list of
+     keywords"; the loader at --load-from-buffer is the normalisation
+     boundary (string drawer values → keywords at parse time). The
+     cloud-auth ops detector and the validator both work in keywords;
+     the loader closes the type-mismatch.
    load_bearing: true
    title: Loaded scope configuration plist (post-:security-removal)
    purpose: |
@@ -95,8 +101,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        type: plist
        description: |
          Sub-plist with two keys: :auth-detection (string, one of "allow" /
-         "warn" / "deny"; defaults to "warn") and :allowed-providers (list
-         of provider names; defaults to nil).
+         "warn" / "deny"; defaults to "warn") and :allowed-providers
+         (list of keywords, e.g. `:aws`, `:gcp`; defaults to nil).
+         The drawer carries provider names as bare strings
+         (`:GPTEL_SCOPE_CLOUD_PROVIDERS: aws gcp`); the loader at
+         `jf/gptel-scope--load-from-buffer` normalizes those strings
+         to keywords at parse time so this plist key holds keywords
+         throughout the validation pipeline. The validator's
+         `(member provider allowed-providers)` check at
+         `jf/gptel-scope--validate-cloud-auth` therefore compares
+         keywords against keywords (the cloud-auth ops detector emits
+         keyword providers like `:aws`, `:aws-cli`).
 
    forbidden_keys:
      - name: ":security"
@@ -129,6 +144,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
              ((plist-member val :security) 'forbidden-security-key)
              ((not (plistp (plist-get val :paths))) 'paths-not-plist)
              ((not (plistp (plist-get val :cloud))) 'cloud-not-plist)
+             ;; :cloud.allowed-providers, when present, must be a
+             ;; list of keywords (cycle-4 Ask 2; loader-side normalised).
+             ((let ((ap (plist-get (plist-get val :cloud)
+                                    :allowed-providers)))
+                (and ap (not (cl-every #'keywordp ap))))
+              'allowed-providers-not-keywords)
              (t nil)))
 
    discovered_from: gptel-scope-in-org-properties
@@ -421,7 +442,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/operation-to-drawer-key
    tier: vocabulary
-   status: confirmed
+   status: reconciled
    status_note: |
      cycle-1 reconciled the closed-set discipline, the strict-error
      unmapped_policy, and the absence of :deny / nil-operation arms.
@@ -431,6 +452,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      pins all three dispositions plus the cycle-1 strict-error contract.
      See .orchestrator/cycles/cycle-1777470320/reconciliations/
      vocabulary-operation-to-drawer-key.md.
+     cycle-4 (2026-04-29) Ask 1 disposition: the :match-pattern member's
+     redirect_target is dropped; the action handler refuses with
+     directing user-error rather than redirecting. The reify-the-cluster
+     route is externalized to
+     .tasks/fix-match-pattern-parser-validator-boundary.md (the
+     `--validate-file-operations` first-denial-wins constraint at
+     scope-validation.el:412 means the action handler never sees a
+     full violation cluster, so the cycle-2 ask-10B redirect is not
+     implementable without parser/validator work).
    load_bearing: true
    enforcement_loci: [writer]
    title: Granular operation → drawer-key collapse
@@ -454,12 +484,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      bash-parser emits :match-pattern with the literal pattern as
      :resource (e.g. "*.txt" from `find -name`); routing the pattern
      into a path-allowlist drawer key would grant reads on every
-     filesystem match. Per ask 10B (cycle-2 disposition), the action
-     handler intercepts :match-pattern violations *before* the writer
-     is called and redirects the add to the sibling :read-directory
-     resource (the search root). The writer's strict-error fallback
-     therefore signals "match-pattern reached the writer" as a defect,
-     not a vocabulary gap.
+     filesystem match. Cycle-4 (Ask 1) resolved this as Option B:
+     the action handler refuses with a directing user-error
+     ("use c for custom pattern, e for manual edit") rather than
+     redirecting. The cycle-2 ask-10B "smart redirect" is not
+     implementable in cycle-3-as-shipped because
+     `--validate-file-operations` (scope-validation.el:412) throws on
+     the first denial via `(catch 'error-found ...)`, so the action
+     handler never receives a full violation cluster from which to
+     pick a sibling :read-directory resource. The writer's strict-error
+     fallback therefore signals "match-pattern reached the writer" as
+     a defect, not a vocabulary gap.
 
    members:
      - value: :read
@@ -478,18 +513,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          metadata access; they do not grant content-read on the file.
          Implementation: rewire-expansion-writer task in cycle-2 batch.
      - value: :match-pattern
-       collapses_to: NONE  # action handler redirects to :read-directory
+       collapses_to: NONE  # action handler refuses with directing user-error
        producer: bash-parser globbing plugin (find/ls)
-       redirect_target: :read-directory
        decision_note: |
-         ask 10B resolved (cycle-2, 2026-04-29) to option (2): smart
-         redirect at the action handler. The writer never sees
-         :match-pattern; if it does, that is a defect (action handler
-         missed the redirect). The action handler examines the
-         violation cluster, finds the sibling :read-directory operation
-         (search root), and routes the add there. Implementation:
+         Cycle-2 ask-10B resolved as "smart redirect at the action
+         handler"; cycle-3 implementation discovered that
+         `--validate-file-operations` (scope-validation.el:412) throws
+         on first denial via `(catch 'error-found ...)`, so the action
+         handler never receives a violation cluster. Cycle-4 plan
+         resolved Ask 1 as Option B: the action handler refuses with
+         a directing user-error ("use c for custom pattern, e for
+         manual edit") rather than redirecting. The reify-the-cluster
+         route is externalized to
+         .tasks/fix-match-pattern-parser-validator-boundary.md.
+         The writer never sees :match-pattern; if it does, that is a
+         defect (the action handler did not refuse). Implementation:
          harden-add-to-scope-action-handler task in cycle-3 batch
-         (former: refuse-add-to-scope-on-nil-operation, broadened).
+         (former: refuse-add-to-scope-on-nil-operation, broadened);
+         refusal-with-guidance contract finalised in cycle-4.
      - value: :write
        collapses_to: GPTEL_SCOPE_WRITE
        producer: validator pipeline (path), bash-parser write-ops plugin
@@ -809,16 +850,30 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/scope-expansion-action-handler
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
      New entry, cycle-2 plan (2026-04-29). Surfaced by the cycle-1
      audit's finding-9 (writer's strict-error on nil :operation is
      correct but user-hostile) and finding-10B (smart-redirect for
      :match-pattern). The cycle-1 disposition tasks (refuse-add-to-
      scope-on-nil-operation; disposition-match-pattern-handling)
-     point at this layer. Pending implementation in cycle-3 task
-     `harden-add-to-scope-action-handler` (broadens the original
-     refuse-nil task).
+     point at this layer. Implemented in cycle-3 task
+     `harden-add-to-scope-action-handler`.
+
+     cycle-4 (2026-04-29) Ask 1 disposition: Stage 2 was renamed
+     to "match-pattern refuse-with-guidance" (its prior cycle-2 name
+     held the redirect verb that no longer applies).
+     The cycle-2 ask-10B "smart redirect" was discovered to be
+     unimplementable in cycle-3-as-shipped because
+     `jf/gptel-scope--validate-file-operations` (scope-validation.el:412)
+     throws on first denial via `(catch 'error-found ...)`. The action
+     handler therefore never receives a full violation cluster from
+     which to pick a sibling :read-directory resource. Option B was
+     chosen: the handler refuses with a directing user-error ("use c
+     for custom pattern, e for manual edit") and points the user at
+     the manual-edit affordances. The reify-the-cluster route is
+     externalized to
+     .tasks/fix-match-pattern-parser-validator-boundary.md.
    load_bearing: true
    title: Action-layer dispatch for the expansion UI's "add to scope" key
    purpose: |
@@ -860,20 +915,30 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          remains; this stage prevents that error from surfacing in
          normal use.
      - n: 2
-       name: match-pattern redirect
+       name: match-pattern refuse-with-guidance
        input: violation-info plist
-       output: redirected-violation | continue
-       can_fail_with: [no-sibling-read-directory]
+       output: refuse | continue
+       can_fail_with: []
        short_circuit_policy: terminating
        notes: |
-         When :operation is :match-pattern, the action handler scans
-         the violation cluster for a sibling :read-directory violation
-         (the search root). If found, it redirects the add-to-scope
-         action to use that sibling's :resource (path) instead of the
-         pattern. If no sibling :read-directory is in the cluster
-         (rare; e.g. `find / -name X` raises a top-level grant), the
-         handler surfaces a "scope the search root explicitly" prompt
-         rather than delegating to the writer with the pattern.
+         When :operation is :match-pattern, the action handler refuses
+         the add-to-scope action with a directing user-error pointing
+         the user at the manual-edit affordances ("use c for custom
+         pattern, e for manual edit"). It does not call the writer
+         and does not attempt a sibling-:read-directory redirect.
+
+         Constraint: `jf/gptel-scope--validate-file-operations`
+         (scope-validation.el:412) throws on the first denial via
+         `(catch 'error-found ...)`, so by the time the action handler
+         is invoked the violation cluster has been narrowed to a
+         single violation — the sibling :read-directory operation that
+         a `find /home -name '*.txt'` invocation would also produce is
+         not present alongside the :match-pattern violation. The
+         cycle-2 ask-10B "smart redirect" cannot be honoured without
+         parser/validator-side work; that work is externalized to
+         .tasks/fix-match-pattern-parser-validator-boundary.md and
+         this stage's "refuse with guidance" disposition is the
+         cycle-3-as-shipped contract (Ask 1, cycle-4 plan).
      - n: 3
        name: writer delegation
        input: violation-info plist (passed-through or redirected)

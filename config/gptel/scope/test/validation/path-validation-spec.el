@@ -386,6 +386,29 @@
                                                      (symbol-name b))))
                 :to-equal '(:cloud :paths))))))
 
+(describe "loader :cloud.allowed-providers is a keyword list (cycle-4 Ask 2)"
+  ;; register/shape/scope-config-plist :cloud.allowed-providers narrowing:
+  ;; the loader normalizes drawer strings to keywords at the parse boundary
+  ;; so the in-memory shape matches the cloud-auth ops detector's keyword
+  ;; producers and the validator's `(member provider allowed-providers)'
+  ;; check is keyword-vs-keyword. See cycle-4 reconcile-cycle-3-asks.
+
+  (it "returns keywords when GPTEL_SCOPE_CLOUD_PROVIDERS is populated"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_CLOUD_PROVIDERS . ("aws" "gcp")))
+      (let* ((result (jf/gptel-scope--load-from-buffer (current-buffer)))
+             (cloud (plist-get result :cloud))
+             (allowed (plist-get cloud :allowed-providers)))
+        (expect allowed :to-equal '(:aws :gcp))
+        (expect (seq-every-p #'keywordp allowed) :to-be-truthy))))
+
+  (it "returns nil when GPTEL_SCOPE_CLOUD_PROVIDERS is absent"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/workspace")))
+      (let* ((result (jf/gptel-scope--load-from-buffer (current-buffer)))
+             (cloud (plist-get result :cloud)))
+        (expect (plist-get cloud :allowed-providers) :to-be nil)))))
+
 (describe "loader empty-drawer behaviour (cycle-3 disposition)"
   ;; register/boundary/scope-config-loader, Option B: an empty drawer
   ;; (no :GPTEL_SCOPE_* keys) yields the deny-all defaults plist; the

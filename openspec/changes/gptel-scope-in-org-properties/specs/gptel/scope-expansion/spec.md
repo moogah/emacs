@@ -102,7 +102,7 @@ The drawer writer SHALL update only the `:GPTEL_SCOPE_*` key being modified, lea
 
 #### Scenario: Existing drawer keys are preserved
 - **WHEN** the writer adds a pattern to `:GPTEL_SCOPE_READ:`
-- **THEN** any existing `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_READ+:` lines are preserved and the new pattern is appended as a `:GPTEL_SCOPE_READ+:` line
+- **THEN** the existing `:GPTEL_SCOPE_READ:` line is rewritten with the new pattern appended (single-line space-separated emission, e.g. `:GPTEL_SCOPE_READ: existing /new`)
 - **AND** `:GPTEL_PRESET:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`, etc. are emitted unchanged
 
 #### Scenario: Duplicate patterns are skipped
@@ -110,10 +110,10 @@ The drawer writer SHALL update only the `:GPTEL_SCOPE_*` key being modified, lea
 - **THEN** the drawer is not modified
 - **AND** the callback still reports `:success t` (no-op success), with `:patterns_added` reflecting the deduplicated additions (possibly empty)
 
-#### Scenario: First addition for a key uses the bare form, not `+`
-- **WHEN** the writer is asked to add a pattern to a drawer key that has no existing entry
-- **THEN** it emits `:GPTEL_SCOPE_<KEY>: <pattern>` (no `+` suffix)
-- **AND** subsequent additions use `:GPTEL_SCOPE_<KEY>+:`
+#### Scenario: Drawer values round-trip through `org-entry-get-multivalued-property`
+- **WHEN** the writer emits `:GPTEL_SCOPE_<KEY>: v1 v2 v3` as a single line and the reader consumes the same drawer
+- **THEN** `(org-entry-get-multivalued-property POINT "GPTEL_SCOPE_<KEY>")` returns `("v1" "v2" "v3")` regardless of whether the values were written across multiple add-to-scope operations or as one initial seeding
+- **AND** the writer never emits `:GPTEL_SCOPE_<KEY>+:` continuation lines (org's multi-value reader accepts both forms but the writer canonicalises on the single-line form)
 
 ## REMOVED Requirements
 
