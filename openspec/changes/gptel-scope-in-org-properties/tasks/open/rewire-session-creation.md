@@ -68,3 +68,26 @@ architecture.md § Boundaries
 specs/gptel/sessions-persistence/spec.md § MODIFIED Requirements / "Directory structure initialization", "Scope profile integration"
 specs/gptel/sessions-persistence/spec.md § REMOVED Requirements / "scope.yml file format"
 specs/gptel/scope-profiles/spec.md § MODIFIED Requirements / "Integration with session creation"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/boundary/scope-profile-applicator`: speculated → reconciled. Three reconciliations: (1) multi-value encoding is single-line space-separated form `:KEY: v0 v1 v2` (Org wire format) for cross-mode idempotency; (2) NO `derived-mode-p 'org-mode'` precondition guard in mode 2b — non-org buffer surfaces a generic org-mode error; (3) default-cloud-auth-beacon clause was dropped — empty-paths profiles produce drawers with zero `:GPTEL_SCOPE_*` lines. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-profile-applicator.md`.
+- `register/shape/drawer-text-block`: speculated → reconciled. Split into Shape A (drawer-text-block-complete: production renderer output, requires `:GPTEL_PRESET:`) and Shape B (drawer-text-block-fragment: test helper output, no `:GPTEL_PRESET:`). Production code emits Shape A. See `.orchestrator/cycles/cycle-1777460733/reconciliations/shape-drawer-text-block.md`.
+- `register/invariant/scope-drawer-no-duplication`: speculated → confirmed. Both producers (`--write-pattern-to-drawer`, `--apply-to-drawer`) operate on the existing drawer at point-min; renderer emits exactly one `:PROPERTIES:`/`:END:`. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-drawer-no-duplication.md`.
+
+### User-resolved decisions
+- `ask-arch-cycle-1777460733-2`: empty-paths beacon — user chose option (b): empty drawer = valid empty scope = deny-all defaults. `applied_via: deferred-to-cycle-2`, with this task explicitly named as a co-owner (alongside `rewire-validator-config-load`). **Implication for this task**: when this task generates initial drawer text via `--render-drawer-text`, the produced drawer for a profile with empty paths will have zero `:GPTEL_SCOPE_*` lines — the loader (revised by `rewire-validator-config-load`) is responsible for composing deny-all defaults around it. Verify the renderer-loader pair behaves correctly end-to-end.
+
+### Meta-discoveries
+- `shape-fragmentation-cluster/fragment-vs-complete-shape-ambiguity`: drawer-text-block now has two register entries (complete vs fragment). **Implication for this task**: production code MUST emit Shape A (complete with `:GPTEL_PRESET:`); test fixtures use Shape B via the helper.
+
+### Already-shipped inline fixes
+- `arch-cycle-1777460733-11`: write-side cloud-auth validation now active in `scope-profiles.el` (`--render-drawer-text` and `--apply-to-drawer` both call `--validate-cloud-auth`). **Implication for this task**: when this task calls `--render-drawer-text`, the producer signals an error if the resolved profile carries an invalid `:auth-detection` value. Profile-loading code must produce only `"allow"`/`"warn"`/`"deny"` for that field.
+
+### Open follow-up: expected test failures owned by this task
+> Cycle 1 noted in `state.json::implement-profile-drawer-applicator.execute.expected_test_failures_owner` that this task and `delete-yaml-and-security-residue` jointly own 13 expected test failures introduced by the cycle-1 profile-applicator merge:
+> - 5 session-creation specs (`Scope profile integration writes scope.yml ...`)
+> - 8 YAML Boolean Normalization specs
+>
+> The 5 session-creation specs become passing/obsolete once this task lands the drawer-resident replacement; the 8 YAML specs become obsolete once the YAML module is deleted (`delete-yaml-and-security-residue`).

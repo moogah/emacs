@@ -63,3 +63,19 @@ design.md § Decision 5 (Persistent-agent embeds drawer in initial content)
 design.md § Migration Plan step 7
 specs/gptel/persistent-agent/spec.md § MODIFIED Requirements / "Agent session creation", "Configuration isolation (zero inheritance)"
 specs/gptel/persistent-agent/spec.md § REMOVED Requirements / "scope.yml in agent directory"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/boundary/scope-profile-applicator`: speculated → reconciled. Multi-value encoding is single-line space-separated form (`:KEY: v0 v1 v2`); the brief's default-cloud-auth-beacon clause for empty-paths profiles was dropped (drawer has zero `:GPTEL_SCOPE_*` lines for empty-paths). See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-profile-applicator.md`.
+- `register/shape/drawer-text-block`: speculated → reconciled. Split into Shape A (complete, with `:GPTEL_PRESET:`) and Shape B (fragment, fixture-only). Agent's `session.org` must carry Shape A. See `.orchestrator/cycles/cycle-1777460733/reconciliations/shape-drawer-text-block.md`.
+- `register/invariant/scope-drawer-no-duplication`: speculated → confirmed. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-drawer-no-duplication.md`.
+
+### User-resolved decisions
+- `ask-arch-cycle-1777460733-2` (related): user chose "empty drawer = valid empty scope = deny-all defaults" for the loader. **Implication for this task**: agents typically have explicit `allowed-paths`, so the empty-drawer case is rare; but if `allowed-paths` is omitted, the agent's drawer will likewise carry zero `:GPTEL_SCOPE_*` lines, and the loader's deny-all default semantics apply.
+
+### Meta-discoveries
+- `shape-fragmentation-cluster/fragment-vs-complete-shape-ambiguity`: agent code must emit Shape A (complete with `:GPTEL_PRESET:` and `:GPTEL_PARENT_SESSION_ID:`).
+
+### Already-shipped inline fixes
+- `arch-cycle-1777460733-11`: write-side cloud-auth validation now active in `--render-drawer-text` / `--apply-to-drawer`. **Implication for this task**: the agent's profile must produce a valid `:auth-detection` (one of `"allow"`/`"warn"`/`"deny"`) or `--render-drawer-text` will signal an error.

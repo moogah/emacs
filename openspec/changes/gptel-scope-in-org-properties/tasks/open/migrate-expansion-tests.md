@@ -71,3 +71,24 @@ Migration follows the same per-spec pattern as `migrate-validation-tests`. Share
 architecture.md § Testing Approach
 specs/gptel/scope-expansion/spec.md § ADDED Requirements / "Drawer writer preserves structure"
 specs/gptel/scope-expansion/spec.md § MODIFIED Requirements (all action specs)
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/boundary/scope-pattern-writer`: speculated → confirmed. Writer's contract held; runtime tests for the writer land in this task. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-pattern-writer.md`.
+- `register/invariant/scope-add-pattern-idempotent`: speculated → confirmed. Buttercup spec at `config/gptel/scope/test/drawer/write-pattern-spec.el` lands here. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-add-pattern-idempotent.md`.
+- `register/shape/violation-info`: unchanged. No cycle-1 implementation modified producers/consumers; deferred to this cycle's exercise.
+
+### User-resolved decisions
+- `ask-arch-cycle-1777460733-1`: writer fallback strict-error (B). **Implication for this task**: add tests asserting:
+  - feeding `:operation nil` to `--map-operation-to-drawer-key` (or transitively `--write-pattern-to-drawer`) signals an error with the documented message
+  - feeding `:operation :foo` (an unknown operation) signals an error
+  - the legacy "permissive-route-to-READ" behaviour does NOT survive (negative regression)
+
+### Meta-discoveries
+- `vocabulary-cluster/permissive-default-vs-closed-vocabulary`: write-side writer is now strict. **Implication**: tests must reflect this — no `:deny` operation in test inputs, no expectation of silent fallback.
+- `other/asymmetric-vocabulary-enforcement-write-vs-read`: enforcement should be symmetric across read/write. **Implication**: a test that catches asymmetry would feed the same closed-set value through both producers and assert behaviour matches.
+
+### Already-shipped inline fixes
+- `arch-cycle-1777460733-8`: `:deny` arm removed from `--map-operation-to-drawer-key`. **Implication for this task**: existing tests that constructed violations with `:operation :deny` (if any) must be removed or rewritten.
+- `arch-cycle-1777460733-9`: strict-error fallback with explicit `(null operation)` arm. **Implication for this task**: add error-path tests; remove permissive-fallback expectations.

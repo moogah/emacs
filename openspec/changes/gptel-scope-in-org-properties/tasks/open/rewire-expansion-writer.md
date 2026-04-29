@@ -93,3 +93,23 @@ design.md § Decisions 4, 7
 design.md § Migration Plan step 4
 specs/gptel/scope-expansion/spec.md § MODIFIED Requirements / "Add to scope action", "Add wildcard action", "Add custom pattern action", "Edit scope manually action", "Section-targeted writes"
 specs/gptel/scope-expansion/spec.md § REMOVED Requirements / "scope.yml writer preserves structure", "Context directory resolution"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/boundary/scope-pattern-writer`: speculated → confirmed. Writer landed exactly as speculated; the five `--add-*-to-scope` consumers listed in the entry are still on the legacy YAML mutator. This task does the wiring. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-pattern-writer.md`.
+- `register/vocabulary/operation-to-drawer-key`: speculated → divergent → reconciled. The `:deny` arm was removed (was dead — no producer emits `:deny`); the permissive `t`-fallback was replaced with explicit `(null operation)` + strict-error arm; `unmapped_policy: error` was added. 11 members, not 12. See `.orchestrator/cycles/cycle-1777460733/reconciliations/vocabulary-operation-to-drawer-key.md`.
+- `register/invariant/scope-add-pattern-idempotent`: speculated → confirmed. Dedup short-circuit holds; runtime test lands in `migrate-expansion-tests`. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-add-pattern-idempotent.md`.
+- `register/shape/violation-info`: unchanged. No cycle-1 implementation modified producers/consumers; deferred to this task's exercise.
+
+### User-resolved decisions
+- `ask-arch-cycle-1777460733-1`: `:deny` arm + permissive READ fallback divergence — user chose option B (strict-error fallback). **Implication for this task**: when this task wires the action handlers, calls into `--map-operation-to-drawer-key` will now error on nil-operation or unmapped-operation cases. Cloud-auth and parse-incomplete violations carry `:operation nil` and will hit the strict-error path; the discovered-from-this-cycle companion `refuse-add-to-scope-on-nil-operation` is the upstream guard.
+
+### Meta-discoveries
+- `vocabulary-cluster/permissive-default-vs-closed-vocabulary`: closed-set vocabularies should fail loudly at producer boundaries. **Implication for this task**: when wiring action handlers, do not paper over upstream nil-operation cases inside the action handler — `refuse-add-to-scope-on-nil-operation` is the right layer for that guard.
+- `other/asymmetric-vocabulary-enforcement-write-vs-read`: closed-set enforcement should be symmetric across read/write boundaries. **Implication**: the writer is now strict on operation; verify nothing in this rewire's action paths bypasses `--map-operation-to-drawer-key` with hand-rolled translations.
+
+### Already-shipped inline fixes
+- `arch-cycle-1777460733-8`: `:deny → GPTEL_SCOPE_DENY` arm removed from `--map-operation-to-drawer-key` (was dead — no producer emits `:deny`). **Implication for this task**: do NOT add a `:deny` operation when invoking the writer; if "add to deny list" is needed, it's an action-layer concern (see disposition-* tasks discovered from cycle 1).
+- `arch-cycle-1777460733-9`: permissive `t`-fallback replaced with strict error + explicit `(null operation)` error arm. **Implication for this task**: `--write-pattern-to-drawer` will signal on nil/unmapped operation; the action handlers must guard or the user-visible error will be a low-context Lisp error.
+- `arch-cycle-1777460733-11`: write-side cloud-auth validation added in `scope-profiles.el` (mirrors reader's enforcement at `scope-validation.el:546`). **Implication for this task**: orthogonal to the expansion writer rewire, but the cloud-auth path is now write-validated end-to-end.

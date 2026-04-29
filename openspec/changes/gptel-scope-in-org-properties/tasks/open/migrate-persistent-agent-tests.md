@@ -78,3 +78,18 @@ Tmpdir + assert file content. Same as `migrate-session-creation-tests`. The agen
 architecture.md § Testing Approach
 specs/gptel/persistent-agent/spec.md § MODIFIED Requirements / "Agent session creation", "Configuration isolation (zero inheritance)"
 specs/gptel/persistent-agent/spec.md § REMOVED Requirements / "scope.yml in agent directory"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/shape/drawer-text-block`: speculated → reconciled. Agent's `session.org` carries Shape A (complete, with `:GPTEL_PRESET:` and `:GPTEL_PARENT_SESSION_ID:`); test assertions should use `org-entry-get` / `org-entry-get-multivalued-property` against the agent file. See `.orchestrator/cycles/cycle-1777460733/reconciliations/shape-drawer-text-block.md`.
+- `register/boundary/scope-profile-applicator`: speculated → reconciled. Multi-value encoding is single-line space-separated form. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-profile-applicator.md`.
+
+### User-resolved decisions
+- `ask-arch-cycle-1777460733-2` (related): empty drawer = valid empty scope = deny-all defaults. **Implication for this task**: the `:125` test ("writes scope.yml with empty read paths when allowed-paths is omitted") becomes "agent's drawer has only `:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:`, and the standard `:GPTEL_SCOPE_DENY:`" — assert via positive present-key checks; the loader composes deny-all behaviour around the rest.
+
+### Meta-discoveries
+- `shape-fragmentation-cluster/fragment-vs-complete-shape-ambiguity`: agent drawer assertions must match Shape A.
+
+### Already-shipped inline fixes
+- `arch-cycle-1777460733-11`: cloud-auth write-side validation now active. **Implication**: agent profile tests must use valid `:auth-detection` values.

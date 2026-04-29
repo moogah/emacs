@@ -22,6 +22,8 @@ Scaffolds:
 
 ## Implementation steps
 
+> Cycle 1: original example used `:deny` operation; cycle-1 inline fix (finding-8) removed the `:deny` arm from `--map-operation-to-drawer-key` — `:deny` is no longer a valid input to `--write-pattern-to-drawer`. Replaced with `:execute` to preserve the multi-key-write flow. See `.orchestrator/cycles/cycle-1777460733/findings/arch-cycle-1777460733-8.md`.
+
 1. Create the file with a single `describe` group:
 
    ```elisp
@@ -38,7 +40,7 @@ Scaffolds:
          (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :read "/added/one/**")
          (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :read "/added/two/**")
          (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :write "/output/**")
-         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :deny "**/.env")
+         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :execute "/usr/local/bin/**")
          (let* ((content (buffer-substring-no-properties (point-min) (point-max)))
                 (drawer-count (cl-count-if
                                (lambda (line) (string-match-p "^[ \t]*:PROPERTIES:[ \t]*$" line))
@@ -84,3 +86,12 @@ The test uses `cl-count-if` over split lines to count `:PROPERTIES:` headers. Th
 design.md § Risks / "Drawer corruption recurrence"
 architecture.md § Testing Approach (Edge cases)
 specs/gptel/scope-expansion/spec.md § ADDED Requirements / "Drawer writer preserves structure"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/invariant/scope-drawer-no-duplication`: speculated → confirmed. Both producers (`--write-pattern-to-drawer`, `--apply-to-drawer`) preserve drawer-singleton structure. This task is the regression-test layer. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-drawer-no-duplication.md`.
+- `register/boundary/scope-pattern-writer`: speculated → confirmed. Writer's contract held; the regression test exercises it through several add-to-scope cycles. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-pattern-writer.md`.
+
+### Already-shipped inline fixes
+- `arch-cycle-1777460733-8`: `:deny` arm removed from `--map-operation-to-drawer-key`. **Implication for this task**: the original example in step 1 used `:deny` operation; replaced with `:execute` to preserve the multi-key-write flow (see breadcrumb at top of step 1).

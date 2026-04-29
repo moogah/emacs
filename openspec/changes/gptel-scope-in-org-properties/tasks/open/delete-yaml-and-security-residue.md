@@ -98,3 +98,15 @@ Single grep-and-delete sweep, with tangle after each `.org` edit, then full test
 design.md § Migration Plan steps 9, 10
 architecture.md § Components (Components removed)
 specs/gptel/scope/spec.md § REMOVED Requirements / "scope-yaml boundary module", "scope.yml on-disk persistence", ":security configuration section"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/invariant/scope-no-security-key-in-plist`: speculated → reconciled. L1 (loader output omits `:security`) holds today. **L2 (no readers in `scope-validation.el`) is what THIS task ships** — the grep step 4 ("Search for any remaining `:security` plist reads") is the structural-audit enforcement. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-no-security-key-in-plist.md`.
+- `register/shape/scope-config-plist`: speculated → reconciled. Producers field updated; verify `interfaces.org`'s canonical shape documentation matches the new producer set (`--load-from-buffer`, `--load-from-file`, and `--load-config` post-rename). See `.orchestrator/cycles/cycle-1777460733/reconciliations/shape-scope-config-plist.md`.
+
+### Meta-discoveries
+- `invariant-gap-class/deletion-invariant-L1-L2-split`: future "X is removed" invariants should template L1+L2 from the start. **Implication for this task**: in addition to deleting YAML/`:security`, consider adding a permanent grep-based buttercup spec (per finding-6 `recommended_resolution`) that asserts `grep -rn ':security' config/gptel/scope/` returns no results. This codifies the L2 enforcement as a runtime regression check, not a one-time cleanup.
+
+### Open follow-up: expected test failures co-owned with rewire-session-creation
+> Per `state.json::implement-profile-drawer-applicator.execute.expected_test_failures_owner`, this task and `rewire-session-creation` jointly own 13 expected test failures introduced in cycle 1. The 8 YAML Boolean Normalization specs become obsolete once the YAML module + `test/yaml/` directory are deleted (this task's step 1).

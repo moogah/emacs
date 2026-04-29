@@ -53,7 +53,11 @@ relations:
 
 4. The `${project_root}` expansion test changes the same way — assert the expanded path appears under `:GPTEL_SCOPE_READ:` (or wherever the profile placed it) in the drawer.
 
-5. The "minimal scope.yml when preset has no scope configuration" test becomes "minimal drawer". Decide what "minimal" means: per `--render-drawer-text`, an empty scope plist produces a drawer with only `:GPTEL_PRESET:` (no scope keys). That's fine — assert that no `:GPTEL_SCOPE_*` keys are present and that the loader treats this as `no_scope_config`. Or, if session creation should always emit at least a deny default, encode that decision in `--render-drawer-text` and assert it.
+5. The "minimal scope.yml when preset has no scope configuration" test becomes "minimal drawer".
+
+   > Cycle 1: option-a (renderer beacon) was rejected; cycle-1 reconciliation kept renderer minimal and routed deny-all defaults through the loader. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-profile-applicator.md`.
+
+   Per `--render-drawer-text`, an empty scope plist produces a drawer with only `:GPTEL_PRESET:` (no scope keys). Assert that no `:GPTEL_SCOPE_*` keys are present. The loader (post-`rewire-validator-config-load`) treats this as "empty drawer = valid empty scope = deny-all defaults" per ask-arch-cycle-1777460733-2 (option b); the test should assert behaviour through the validator (e.g. a tool call with no path inside scope is denied with the deny-all default's `:error` shape) rather than asserting on the drawer text directly. Do NOT add a beacon to `--render-drawer-text` — the cycle-1 reconciliation explicitly dropped the beacon clause.
 
 6. Run `./bin/run-tests.sh -d config/gptel` after migration.
 
@@ -78,3 +82,15 @@ Tmpdir + assert file content. Each `it` block creates its own session dir under 
 
 architecture.md § Testing Approach
 specs/gptel/sessions-persistence/spec.md § MODIFIED Requirements / "Directory structure initialization", "Scope profile integration"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/shape/drawer-text-block`: speculated → reconciled. Production code emits Shape A (complete, with `:GPTEL_PRESET:`); test assertions should match Shape A. The fixture-helper `jf/gptel-test--render-drawer` produces Shape B (fragment) — do NOT use it to model what production drawers look like in assertions. See `.orchestrator/cycles/cycle-1777460733/reconciliations/shape-drawer-text-block.md`.
+- `register/boundary/scope-profile-applicator`: speculated → reconciled. Multi-value encoding is single-line space-separated form (`:KEY: v0 v1 v2`); assertions reading multi-value drawer keys must use `org-entry-get-multivalued-property` (not split-by-newline). See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-profile-applicator.md`.
+
+### Meta-discoveries
+- `shape-fragmentation-cluster/fragment-vs-complete-shape-ambiguity`: assertions on production-emitted drawers must check Shape A invariants (`:GPTEL_PRESET:` present, exactly one `:PROPERTIES:`/`:END:` pair).
+
+### Already-shipped inline fixes
+- `arch-cycle-1777460733-11`: write-side cloud-auth validation in `scope-profiles.el`. **Implication for this task**: any test that constructs a profile with an invalid `:auth-detection` value (e.g. `"warning"`) will now signal at session-creation time, not at first-load time. Tests should construct valid cloud-auth values; if testing the write-side validator, do so explicitly.

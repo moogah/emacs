@@ -27,11 +27,13 @@ Scaffolds:
 
 ## Implementation steps
 
-1. Locate `jf/gptel-scope-authorize-tool-call` (or whichever entrypoint resolves `scope-file` and calls into the YAML loader). Replace the `(scope-yaml-load-schema scope-file)` call with `(jf/gptel-scope--load-config)`.
+> Cycle 1: holding name introduced; see `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-config-loader.md`.
+
+1. Locate `jf/gptel-scope-authorize-tool-call` (or whichever entrypoint resolves `scope-file` and calls into the YAML loader). Replace the `(scope-yaml-load-schema scope-file)` call with `(jf/gptel-scope--load-config)`. **Note**: cycle 1 landed the new dispatcher under the holding name `jf/gptel-scope--load-config-from-drawer` to avoid silently rewiring the active validator. As part of this task, either (a) rename the holding-name function to `--load-config` (deleting the legacy YAML-shape `--load-config` body), or (b) replace the legacy `--load-config` body with `(jf/gptel-scope--load-config-from-drawer ...)` delegation. (a) is preferred — the holding name's purpose was deferral, not coexistence.
 
 2. Replace `scope-file` resolution code (anything that builds `(expand-file-name "scope.yml" ...)`) with the `branch-dir` resolution that's already inside `--load-config`. The dispatcher no longer needs to know about the file path — `--load-config` handles buffer-vs-file resolution internally.
 
-3. Update the "no scope config" branch: previously `nil` returned by the loader (file missing) means deny with `:error "no_scope_config"`. After the change, `--load-config` returns nil when (a) no buffer or file exists, or (b) the resolved drawer carries no scope keys (the `--has-any-scope-key-p` predicate). The deny path stays the same.
+3. Update the "no scope config" branch: previously `nil` returned by the loader (file missing) means deny with `:error "no_scope_config"`. Per ask-arch-cycle-1777460733-2 (option b), the user resolved this in favor of "empty drawer = valid empty scope = deny-all defaults" — the loader composes deny-all defaults around the empty plist rather than collapsing to nil. The stage-3 collapse (`--has-any-scope-key-p`) preserves the no_scope_config deny semantic, but the specific deny-all defaults the loader installs are part of THIS task's implementation. See `ask-arch-cycle-1777460733-2` for the deferral.
 
 4. In Stage 1 (parse completeness) of the bash pipeline, replace `(plist-get config :security :enforce-parse-complete)` (or however the current code reads the flag) with the constant `jf/gptel-scope--enforce-parse-complete`. Remove the "warn when not enforced" branch entirely — the constant is always `t`, so the conditional collapses to "always enforce".
 
@@ -67,3 +69,19 @@ design.md § Decisions 2, 3 (Buffer-first read; eliminate :security)
 design.md § Migration Plan steps 3, 10
 specs/gptel/scope/spec.md § MODIFIED Requirements / "Scope configuration loading", "Parse completeness gate", "Coverage threshold warning"
 specs/gptel/scope/spec.md § REMOVED Requirements / ":security configuration section"
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/boundary/scope-config-loader`: speculated → reconciled. New 3-stage shape: stage 1 always returns non-nil plist (even empty), stage 3 (`--has-any-scope-key-p` collapse) is the no_scope_config gate. The dispatcher landed under holding name `jf/gptel-scope--load-config-from-drawer`. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-config-loader.md`.
+- `register/shape/scope-config-plist`: speculated → reconciled. Shape matched byte-for-byte; producers field now lists `--load-config-from-drawer` (holding name) until this rewire renames it. See `.orchestrator/cycles/cycle-1777460733/reconciliations/shape-scope-config-plist.md`.
+- `register/invariant/scope-no-security-key-in-plist`: speculated → reconciled. Split into L1 (loader output, holds today) and L2 (no readers in `scope-validation.el`, target post-rewire). This task is the L2 transition. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-no-security-key-in-plist.md`.
+- `register/invariant/scope-parse-complete-is-true`: speculated → reconciled. Defconst `jf/gptel-scope--enforce-parse-complete` exists at `scope-validation.el:39`; pipeline at line 349 still reads YAML `(plist-get security-config :enforce-parse-complete)`. This task swaps the read. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-parse-complete-is-true.md`.
+- `register/invariant/scope-coverage-threshold-is-1`: speculated → reconciled. Defconst `jf/gptel-scope--coverage-threshold` exists at `scope-validation.el:43`; Stage 5 at line 472 still reads YAML `:max-coverage-threshold`. This task swaps the read. See `.orchestrator/cycles/cycle-1777460733/reconciliations/invariant-scope-coverage-threshold-is-1.md`.
+
+### User-resolved decisions
+- `ask-arch-cycle-1777460733-2`: empty-paths beacon decision — user chose option (b): relax loader, treat empty drawer as valid empty scope with deny-all defaults. **Implication for this task**: the loader's stage-3 collapse semantics need to change from "empty plist → nil → no_scope_config deny" to "empty plist → populated with deny-all defaults"; specifics of which defaults to install were deferred to cycle-2 and are part of this task's prescribed behaviour.
+
+### Meta-discoveries
+- `other/holding-name-producer-pattern`: cycle 1 deliberately landed the new dispatcher under the holding name `--load-config-from-drawer` to defer the active rewire. **Implication**: this task's first concrete decision is rename-vs-delegate at the function-name level (rename the holding name to `--load-config`, deleting the legacy YAML body, vs. keep both and delegate). Rename is preferred per the meta-discovery's intent.
+- `invariant-gap-class/deletion-invariant-L1-L2-split`: removing `:security` from the new shape (L1) doesn't remove existing readers in `scope-validation.el` (L2). **Implication**: this task's grep-for-`:security` step (current step 6) is the L2-layer enforcement; treat it as load-bearing, not cleanup.

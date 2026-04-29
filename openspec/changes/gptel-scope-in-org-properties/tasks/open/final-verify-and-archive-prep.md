@@ -103,3 +103,33 @@ Treat this task as a checklist, not a coding task. Each step is a verification g
 design.md § Migration Plan step 11 (manual smoke)
 architecture.md § Testing Approach (Running Tests)
 proposal.md § Impact (User impact, Code removed)
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries (snapshot at end of cycle 1)
+All 13 cited entries reached terminal disposition this cycle:
+- 9 reconciled: `scope-config-plist`, `drawer-text-block`, `drawer-key-set`, `operation-to-drawer-key`, `scope-config-loader`, `scope-profile-applicator`, `scope-parse-complete-is-true`, `scope-coverage-threshold-is-1`, `scope-no-security-key-in-plist`
+- 3 confirmed: `scope-pattern-writer`, `scope-drawer-no-duplication`, `scope-add-pattern-idempotent`
+- 1 unchanged: `violation-info` (deferred — no cycle-1 implementation touched producers/consumers)
+
+See `.orchestrator/handshake-cycle-1777460733.json::register_diff` and the reconciliation notes under `.orchestrator/cycles/cycle-1777460733/reconciliations/`.
+
+### Already-shipped inline fixes (must still hold at verify time)
+- `arch-cycle-1777460733-8`: `:deny` arm removed from `--map-operation-to-drawer-key`. **Verify**: `grep -n ':deny' config/gptel/scope/scope-expansion.el` shows no `(eq operation :deny)` arm in the mapper.
+- `arch-cycle-1777460733-9`: strict-error fallback with `(null operation)` arm. **Verify**: feeding `:operation nil` to the writer in a smoke test errors loudly with the documented message.
+- `arch-cycle-1777460733-11`: write-side cloud-auth validation in `scope-profiles.el`. **Verify**: `grep -n 'validate-cloud-auth\|cloud-auth-values' config/gptel/scope-profiles.el` returns the constant + predicate + two call sites.
+
+### User-resolved decisions to verify landed
+- `ask-arch-cycle-1777460733-1` (B applied inline): writer fallback is strict-error. Verify via test output, not just code grep.
+- `ask-arch-cycle-1777460733-2` (b deferred): empty drawer = deny-all defaults. Verify by manual smoke (create a session with empty profile; confirm validator denies tool calls outside default deny-all).
+
+### Open asks still routed to user (do NOT block archive on these)
+The next plan-phase carries three open asks routed to user (`asks_for_user_open` in handshake):
+- `ask-arch-cycle-1777460733-10A` (read-metadata bucket)
+- `ask-arch-cycle-1777460733-10B` (match-pattern handling)
+- `ask-arch-cycle-1777460733-10C` (delete vs write bucket)
+
+Each blocks `rewire-expansion-writer`. The corresponding disposition tasks (`disposition-read-metadata-bucket`, `disposition-match-pattern-handling`, `disposition-delete-vs-write-bucket`) plus `refuse-add-to-scope-on-nil-operation` exist in `tasks/open/`. **Implication for this task**: the archive-readiness check should treat the four disposition tasks as explicit gates — confirm they are either resolved (closed) or explicitly excluded from this change before flipping to archive.
+
+### Tasks/closed/ count update
+> Step 6 currently says `tasks/closed/` has 16 entries. Cycle 1 closed 5 implementor tasks. With the 11 pre-existing open + 4 new disposition follow-ups, total tasks at archive time = 5 (closed cycle-1) + 11 (in-flight) + 4 (disposition follow-ups) = 20, not 16. The "16" number predates the cycle-1 follow-up task creation; reconfirm at archive time.

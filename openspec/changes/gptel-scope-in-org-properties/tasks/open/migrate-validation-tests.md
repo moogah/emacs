@@ -77,3 +77,16 @@ Per-spec migration pattern:
 
 architecture.md § Testing Approach (Test Patterns, Fixture strategy)
 design.md § Migration Plan step 8
+
+## Cycle 1 updates (cycle-1777460733)
+
+### Cited register entries
+- `register/shape/scope-config-plist`: speculated → reconciled. Producers field updated; new shape-producers are `--load-from-buffer` and `--load-from-file`; the dispatcher (`--load-config-from-drawer`, holding name) composes them. See `.orchestrator/cycles/cycle-1777460733/reconciliations/shape-scope-config-plist.md`.
+- `register/boundary/scope-config-loader`: speculated → reconciled. New 3-stage shape with empty-plist collapse at stage 3 (`--has-any-scope-key-p`). After `rewire-validator-config-load` lands, the loader returns either a populated plist OR nil (collapsed empty); fixtures need to match. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-config-loader.md`.
+- `register/invariant/scope-no-security-key-in-plist`: speculated → reconciled. L1 holds (loader output). L2 enforcement (no `:security` reads in `scope-validation.el`) lands when `rewire-validator-config-load` does. **This task should include a buttercup spec asserting L1** (per the scaffolding's pattern), and a structural-audit-style spec asserting L2 (e.g. assert `grep -rn ':security' config/gptel/scope/scope-validation.el` returns no matches).
+
+### Meta-discoveries
+- `invariant-gap-class/deletion-invariant-L1-L2-split`: future invariants of the form "X does not exist anywhere" should template both L1 (producer omits X) and L2 (no consumer reads X). **Implication for this task**: ensure both layers are tested — it's not enough to assert the new loader's output omits `:security`; also assert no `(plist-get _ :security ...)` survives in `scope-validation.el`. The scaffolding for this invariant is L1-only.
+
+### User-resolved decisions
+- `ask-arch-cycle-1777460733-2` (indirect): empty drawer behaviour changes from "→ no_scope_config deny" to "→ deny-all defaults composed by loader". **Implication**: tests asserting validator behaviour on missing/empty scope need to be updated — the deny path may now have different `:error` keys or different deny-pattern composition.
