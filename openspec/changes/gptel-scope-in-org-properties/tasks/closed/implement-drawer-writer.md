@@ -2,7 +2,7 @@
 name: implement-drawer-writer
 description: Implement write-pattern-to-drawer and map-operation-to-drawer-key in scope-expansion.org
 change: gptel-scope-in-org-properties
-status: blocked
+status: done
 relations:
   - blocked-by:add-drawer-encoding-contract
 ---

@@ -2,7 +2,7 @@
 name: add-drawer-encoding-contract
 description: Document drawer key vocabulary in interfaces.org and add the parse-complete / coverage-threshold constants
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations: []
 ---
 

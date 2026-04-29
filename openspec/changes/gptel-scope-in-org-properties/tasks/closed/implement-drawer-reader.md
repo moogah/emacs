@@ -2,7 +2,7 @@
 name: implement-drawer-reader
 description: Implement load-from-buffer, load-from-file, and load-config in scope-validation.org
 change: gptel-scope-in-org-properties
-status: blocked
+status: done
 relations:
   - blocked-by:add-drawer-encoding-contract
 ---

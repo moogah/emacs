@@ -2,7 +2,7 @@
 name: add-test-helper-with-scope-drawer
 description: Add jf/gptel-test--with-scope-drawer macro and render-drawer helper to helpers-spec.el for unit-level drawer fixtures
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations: []
 ---
 

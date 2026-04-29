@@ -2,7 +2,7 @@
 name: implement-profile-drawer-applicator
 description: Add render-drawer-text and apply-to-drawer in scope-profiles.org; replace --write-scope-yml
 change: gptel-scope-in-org-properties
-status: blocked
+status: done
 relations:
   - blocked-by:add-drawer-encoding-contract
 ---
