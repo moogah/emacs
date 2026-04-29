@@ -151,6 +151,114 @@ Delegates to scope-yaml module. Returns parsed plist."
                  scope-file (error-message-string err)))))
 #+end_src
 
+* Drawer Writer
+
+The single canonical drawer mutator for the file-level =:PROPERTIES:= drawer.
+Replaces the YAML mutator pipeline (parse → modify plist → re-emit YAML →
+write file) with three stages:
+
+1. *Operation → drawer-key collapse* — delegates to
+   =jf/gptel-scope--map-operation-to-drawer-key=, the single closed-set
+   mapping declared in =register/vocabulary/operation-to-drawer-key=.
+2. *Dedup against existing values* — if =PATTERN= is already present under
+   the target drawer key, the writer returns nil and does not mutate the
+   buffer or call =save-buffer=. This is contractual idempotency
+   (=register/invariant/scope-add-pattern-idempotent=), not an
+   optimisation: the inline-flow trigger re-enters
+   =jf/gptel-scope-authorize-tool-call= after each add-to-scope and a
+   multi-violation tool call can pass through the same pattern twice on
+   retry.
+3. *=org-entry-put-multivalued-property= + =save-buffer=* — Org's standard
+   multi-value writer keeps a single drawer at point-min
+   (=register/invariant/scope-drawer-no-duplication=); =save-buffer=
+   triggers chat-mode's existing before-save-hook chain.
+
+These functions are landed unused; rewiring the expansion handlers to use
+the writer happens in =rewire-expansion-writer=.
+
+** Map Operation to Drawer Key
+
+Closed-set collapse from a granular validator-pipeline / bash-parser
+=:operation= keyword to one of five list-shaped drawer keys
+(=GPTEL_SCOPE_READ= / =WRITE= / =MODIFY= / =EXECUTE= / =DENY=). The bare
+form is returned (no surrounding colons) because Org's =org-entry-*=
+property API takes the bare key; the colonised =:GPTEL_SCOPE_READ:= literal
+appears only in the drawer text.
+
+This is the structural analogue of
+=jf/gptel-scope--map-operation-to-scope-section= (under § Add Path to
+Scope) — same collapsing logic, returning a drawer-key string instead of a
+plist key. Both must stay in lockstep; any new bash-parser semantic op type
+must be added here, in the validator-pipeline mapper, and to
+=register/vocabulary/operation-to-drawer-key= in the same change.
+
+Fail-safe default: =nil= operation maps to =GPTEL_SCOPE_READ= (the
+most-restrictive scope). A missing-operation bug surfaces in the dedup loop
+rather than in over-permissive grants.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--map-operation-to-drawer-key (operation)
+  "Map a denied OPERATION keyword to the matching drawer key string.
+Read-like granular operations collapse to GPTEL_SCOPE_READ. Write-like
+granular operations collapse to GPTEL_SCOPE_WRITE. Defaults to
+GPTEL_SCOPE_READ when OPERATION is nil (safest fallback).
+
+Returns the bare key form (e.g. \"GPTEL_SCOPE_READ\") suitable for the
+`org-entry-*' property API; the colonised drawer literal
+\":GPTEL_SCOPE_READ:\" only appears in drawer text."
+  (cond
+   ((memq operation '(:read :read-directory :read-metadata :match-pattern))
+    "GPTEL_SCOPE_READ")
+   ((memq operation '(:write :create :create-or-modify :append :delete))
+    "GPTEL_SCOPE_WRITE")
+   ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
+   ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
+   ((eq operation :deny)    "GPTEL_SCOPE_DENY")
+   (t "GPTEL_SCOPE_READ")))
+#+end_src
+
+** Write Pattern to Drawer
+
+Append =PATTERN= to =BUFFER='s drawer key for =OPERATION= and persist via
+=save-buffer=. Idempotent: returns =nil= and leaves the buffer
+byte-for-byte unchanged when =PATTERN= is already present under the target
+key (no =save-buffer= call, no spurious entry in the user's undo ring).
+Returns =PATTERN= when the buffer was modified.
+
+Uses =org-entry-put-multivalued-property= against point-min so the
+file-level drawer is targeted (matching the reader's positioning). The
+helper writes the bare key for the first value and =KEY+:= continuation
+lines for subsequent values, preserving the single-drawer invariant. The
+drawer must already exist; for sessions created by
+=jf/gptel-scope-profile--apply-to-drawer= this is true.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--write-pattern-to-drawer (buffer operation pattern)
+  "Append PATTERN to BUFFER's drawer key for OPERATION; save the buffer.
+Idempotent: returns nil and does not modify the buffer when PATTERN is
+already present under the target key. Returns the pattern string when the
+buffer was modified.
+
+OPERATION is collapsed to a drawer key via
+`jf/gptel-scope--map-operation-to-drawer-key'.  The drawer at point-min
+must already exist; this is true for any session created by
+`jf/gptel-scope-profile--apply-to-drawer'."
+  (with-current-buffer buffer
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (let* ((key (jf/gptel-scope--map-operation-to-drawer-key operation))
+               (existing (org-entry-get-multivalued-property (point) key)))
+          (if (member pattern existing)
+              nil
+            (let ((updated (append existing (list pattern))))
+              (apply #'org-entry-put-multivalued-property
+                     (point) key updated)
+              (save-buffer)
+              pattern)))))))
+#+end_src
+
 * Transient Menu
 
 The main UI for handling scope violations.

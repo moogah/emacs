@@ -89,6 +89,50 @@ Delegates to scope-yaml module. Returns parsed plist."
      (user-error "Failed to parse scope.yml (%s): %s"
                  scope-file (error-message-string err)))))
 
+(defun jf/gptel-scope--map-operation-to-drawer-key (operation)
+  "Map a denied OPERATION keyword to the matching drawer key string.
+Read-like granular operations collapse to GPTEL_SCOPE_READ. Write-like
+granular operations collapse to GPTEL_SCOPE_WRITE. Defaults to
+GPTEL_SCOPE_READ when OPERATION is nil (safest fallback).
+
+Returns the bare key form (e.g. \"GPTEL_SCOPE_READ\") suitable for the
+`org-entry-*' property API; the colonised drawer literal
+\":GPTEL_SCOPE_READ:\" only appears in drawer text."
+  (cond
+   ((memq operation '(:read :read-directory :read-metadata :match-pattern))
+    "GPTEL_SCOPE_READ")
+   ((memq operation '(:write :create :create-or-modify :append :delete))
+    "GPTEL_SCOPE_WRITE")
+   ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
+   ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
+   ((eq operation :deny)    "GPTEL_SCOPE_DENY")
+   (t "GPTEL_SCOPE_READ")))
+
+(defun jf/gptel-scope--write-pattern-to-drawer (buffer operation pattern)
+  "Append PATTERN to BUFFER's drawer key for OPERATION; save the buffer.
+Idempotent: returns nil and does not modify the buffer when PATTERN is
+already present under the target key. Returns the pattern string when the
+buffer was modified.
+
+OPERATION is collapsed to a drawer key via
+`jf/gptel-scope--map-operation-to-drawer-key'.  The drawer at point-min
+must already exist; this is true for any session created by
+`jf/gptel-scope-profile--apply-to-drawer'."
+  (with-current-buffer buffer
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (let* ((key (jf/gptel-scope--map-operation-to-drawer-key operation))
+               (existing (org-entry-get-multivalued-property (point) key)))
+          (if (member pattern existing)
+              nil
+            (let ((updated (append existing (list pattern))))
+              (apply #'org-entry-put-multivalued-property
+                     (point) key updated)
+              (save-buffer)
+              pattern)))))))
+
 (transient-define-prefix jf/gptel-scope-expansion-menu ()
   "Handle scope violation with 3-choice UI."
   [:description
