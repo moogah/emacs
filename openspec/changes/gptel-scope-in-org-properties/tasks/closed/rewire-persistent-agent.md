@@ -2,7 +2,7 @@
 name: rewire-persistent-agent
 description: Update persistent-agent creation to embed scope drawer in initial session.org; stop writing scope.yml for agents
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations: []
 ---
 

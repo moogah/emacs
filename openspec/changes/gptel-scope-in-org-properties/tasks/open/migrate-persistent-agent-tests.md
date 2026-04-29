@@ -2,10 +2,8 @@
 name: migrate-persistent-agent-tests
 description: Update persistent-agent creation tests to assert on agent session.org drawer instead of scope.yml
 change: gptel-scope-in-org-properties
-status: blocked
-relations:
-  - blocked-by:add-test-helper-with-scope-drawer
-  - blocked-by:rewire-persistent-agent
+status: ready
+relations: []
 ---
 
 ## Cites register entries
@@ -86,10 +84,46 @@ specs/gptel/persistent-agent/spec.md § REMOVED Requirements / "scope.yml in age
 - `register/boundary/scope-profile-applicator`: speculated → reconciled. Multi-value encoding is single-line space-separated form. See `.orchestrator/cycles/cycle-1777460733/reconciliations/boundary-scope-profile-applicator.md`.
 
 ### User-resolved decisions
-- `ask-arch-cycle-1777460733-2` (related): empty drawer = valid empty scope = deny-all defaults. **Implication for this task**: the `:125` test ("writes scope.yml with empty read paths when allowed-paths is omitted") becomes "agent's drawer has only `:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:`, and the standard `:GPTEL_SCOPE_DENY:`" — assert via positive present-key checks; the loader composes deny-all behaviour around the rest.
+- `ask-arch-cycle-1777460733-2` (related): empty drawer = valid empty scope = deny-all defaults.
+  > Cycle 2: superseded — see § Cycle 2 updates / "empty-drawer behaviour pending user disposition". The cycle-1 description below is *not* what the merged loader does; the actual behaviour is the inverse (empty drawer → nil → no_scope_config). Defer empty-drawer-specific test pins until `disposition-empty-drawer-collapse` resolves.
+
+  **Implication for this task**: the `:125` test ("writes scope.yml with empty read paths when allowed-paths is omitted") becomes "agent's drawer has only `:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:`, and the standard `:GPTEL_SCOPE_DENY:`" — assert via positive present-key checks. **Do not** pin validator behaviour on the empty-allowed-paths case until the disposition resolves.
 
 ### Meta-discoveries
 - `shape-fragmentation-cluster/fragment-vs-complete-shape-ambiguity`: agent drawer assertions must match Shape A.
 
 ### Already-shipped inline fixes
 - `arch-cycle-1777460733-11`: cloud-auth write-side validation now active. **Implication**: agent profile tests must use valid `:auth-detection` values.
+
+## Cycle 2 updates (cycle-1777470320)
+
+### Cited register entries — disposition flips
+
+- `register/shape/drawer-text-block`: speculated → **confirmed**. Agent `session.org` carries Shape A. See `.orchestrator/cycles/cycle-1777470320/reconciliations/shape-drawer-text-block.md`.
+- `register/boundary/scope-profile-applicator`: speculated → **confirmed**. Mode 2a is the sole route in both consumer paths. See `.orchestrator/cycles/cycle-1777470320/reconciliations/boundary-scope-profile-applicator.md`.
+- `register/invariant/scope-drawer-no-duplication`: speculated → **confirmed**. Single drawer in agent file. See `.orchestrator/cycles/cycle-1777470320/reconciliations/invariant-scope-drawer-no-duplication.md`.
+
+### Empty-drawer behaviour pending user disposition
+
+- `register/boundary/scope-config-loader`: **divergent**. Agent creation with `(allowed-paths nil)` produces an `:GPTEL_SCOPE_READ:`-omitted drawer; the loader's empty-drawer treatment is what's contested. The `:125` test is one of the test cases that pins this behaviour. **Implication for this task**: write the agent-side drawer assertions (these are unaffected — the renderer's behaviour is uncontested), but `xit` (skip with marker) any test that pins downstream validator behaviour for the empty-allowed-paths case until `disposition-empty-drawer-collapse` resolves.
+
+### Cycle-2 implementation details to honour
+
+- The implementor (commit `486d09f`) retained `--initial-content` legacy helper for production-dead/test-only callers. The org-tree heading explicitly marks it "legacy, test-only". **Implication**: helper-level tests pinning `--initial-content`'s shape can stay; just update them to assert on drawer-text-block invariants.
+- Standard deny set is now hoisted to a defconst in `persistent-agent.org`. **Implication**: tests asserting on the standard deny patterns should reference the defconst by name (so tests don't double-pin the literal pattern strings).
+- Agent description-string has been updated to direct the LLM at `session.org` and `:GPTEL_SCOPE_*` keys. **Implication**: any test asserting on the agent's `:description` string should be updated.
+
+### Test-suite delta this cycle
+
+State.json::tasks[3].test_output_tail says:
+- 3 expected migration-bucket failures in `creation-spec.el`:
+  - `PersistentAgent_creation_writes_session_org_with_drawer` (asserts old drawer shape)
+  - `PersistentAgent_creation_writes_scope_yml_with_allowed_paths`
+  - `PersistentAgent_creation_writes_scope_yml_empty_read_when_omitted`
+
+These three are this task's primary work.
+
+### Unblocked
+
+- `add-test-helper-with-scope-drawer` (closed cycle-1).
+- `rewire-persistent-agent` (closed cycle-2).

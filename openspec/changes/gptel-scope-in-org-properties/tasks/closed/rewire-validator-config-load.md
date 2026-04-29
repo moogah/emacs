@@ -2,7 +2,7 @@
 name: rewire-validator-config-load
 description: Switch scope-validation's config loader call site from scope-yaml to the drawer reader; remove :security plist reads
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations: []
 ---
 

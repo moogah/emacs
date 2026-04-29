@@ -2,7 +2,7 @@
 name: rewire-expansion-writer
 description: Switch expansion add-to-scope handlers to the drawer writer; remove scope.yml file-path resolver; honor cycle-2 dispositions (READ_METADATA bucket, action-handler-only :match-pattern, kept-WRITE :delete)
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations:
   - discovered-from:implement-drawer-writer
   - enables:harden-add-to-scope-action-handler

@@ -2,10 +2,8 @@
 name: migrate-expansion-tests
 description: Rewrite expansion/* test fixtures and assertions from YAML files to drawer-fixture buffers
 change: gptel-scope-in-org-properties
-status: blocked
-relations:
-  - blocked-by:add-test-helper-with-scope-drawer
-  - blocked-by:rewire-expansion-writer
+status: ready
+relations: []
 ---
 
 ## Cites register entries
@@ -92,3 +90,34 @@ specs/gptel/scope-expansion/spec.md § MODIFIED Requirements (all action specs)
 ### Already-shipped inline fixes
 - `arch-cycle-1777460733-8`: `:deny` arm removed from `--map-operation-to-drawer-key`. **Implication for this task**: existing tests that constructed violations with `:operation :deny` (if any) must be removed or rewritten.
 - `arch-cycle-1777460733-9`: strict-error fallback with explicit `(null operation)` arm. **Implication for this task**: add error-path tests; remove permissive-fallback expectations.
+
+## Cycle 2 updates (cycle-1777470320)
+
+### Cited register entries — disposition flips
+
+- `register/boundary/scope-pattern-writer`: speculated → **confirmed**. Five action handlers now route through `--write-pattern-to-drawer`; YAML serializer family deleted (commit `18e290a`). See `.orchestrator/cycles/cycle-1777470320/reconciliations/boundary-scope-pattern-writer.md`.
+- `register/vocabulary/operation-to-drawer-key`: speculated (cycle-2 dispositions) → **confirmed**. Three new behaviours from asks 10A/B/C are pinned by the new `operation-to-drawer-key-spec.el` (14 tests, all green) — but **this task should still add coverage** for the dispositions inside realistic action-handler flows, not just the bare mapping function. See `.orchestrator/cycles/cycle-1777470320/reconciliations/vocabulary-operation-to-drawer-key.md`.
+- `register/vocabulary/drawer-key-set`: speculated → **confirmed**. The eight-key set now includes `GPTEL_SCOPE_READ_METADATA`. **Implication for fixtures**: drawer fixtures should include `:GPTEL_SCOPE_READ_METADATA` examples wherever the prior YAML fixture set `paths.read_metadata` (typically nowhere — this is net-new). At minimum, add one fixture per spec file that exercises a metadata-only path.
+- `register/invariant/scope-add-pattern-idempotent`: speculated → **confirmed**. Writer's `(member pattern existing)` short-circuit holds. Per cycle-1 update, the runtime spec lands here.
+
+### Cycle-2 dispositions to test
+
+These are the cycle-2 user resolutions from `asks_for_user_resolved` 10A/10B/10C — all pinned by the new buttercup spec at the writer level, but this task should add **behavioural** coverage at the action-handler level:
+
+- **10A — `:read-metadata → GPTEL_SCOPE_READ_METADATA`**: add a spec that fires `(jf/gptel-scope--add-to-scope (:operation :read-metadata :resource "/etc/passwd"))` and asserts `org-entry-get-multivalued-property` for `GPTEL_SCOPE_READ_METADATA` returns `'("/etc/passwd")` and `GPTEL_SCOPE_READ` is unchanged.
+- **10B — `:match-pattern` redirect**: until `harden-add-to-scope-action-handler` lands, this case is broken (the writer errors with "match-pattern reached the writer"). Mark this test class `xit` and tag with `;; depends on harden-add-to-scope-action-handler`. After harden lands, flip to active.
+- **10C — `:delete → WRITE`**: add a spec that fires `(jf/gptel-scope--add-to-scope (:operation :delete :resource "/tmp/x"))` and asserts the pattern lands in `GPTEL_SCOPE_WRITE` (NOT in a separate `GPTEL_SCOPE_DELETE`).
+
+### Inline-fix to absorb
+
+- `arch-cycle-1777470320-3` discovered a missing register entry for the new `expansion-transient-scope` shape (5 keys including `:chat-buffer`). The cycle-3 task `add-expansion-transient-and-queue-register-entries` lands the entry. **Implication for this task**: once that entry exists, add one `it` block asserting the transient scope's plist shape is well-formed across at least one `--add-to-scope` invocation.
+- `arch-cycle-1777470320-3` also covers the queue-progression invariant. **Implication**: add an `it` block firing a synthetic 3-element queue and asserting it monotonically drains as add-to-scope events fire.
+
+### Test-suite delta this cycle
+
+Cycle-2 grew the suite from 1693 → 1707 specs (+14 from `operation-to-drawer-key-spec.el`). Of the 28 expansion-dir failures listed in `state.json::tasks[1].regression_note`, **all 28** are this task's primary work — they're YAML-fixture / signature-pinned tests. State-file reference: `state.json::tasks[1].regression_note`.
+
+### Unblocked
+
+- `add-test-helper-with-scope-drawer` (closed cycle-1) — provides `jf/gptel-test--with-scope-drawer`.
+- `rewire-expansion-writer` (closed cycle-2) — writer is rewired and shipped.

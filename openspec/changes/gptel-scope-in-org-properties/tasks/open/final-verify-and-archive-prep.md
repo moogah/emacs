@@ -10,16 +10,19 @@ relations:
   - blocked-by:migrate-persistent-agent-tests
   - blocked-by:add-drawer-corruption-regression
   - blocked-by:delete-yaml-and-security-residue
+  - blocked-by:disposition-empty-drawer-collapse
+  - blocked-by:harden-add-to-scope-action-handler
+  - blocked-by:add-expansion-transient-and-queue-register-entries
 ---
 
 ## Cites register entries
 
-This task is the omnibus verification before integrate. It cites every register entry the cycle touched so the integrate-phase reconciliation can enumerate dispositions:
+This task is the omnibus verification before integrate. It cites every register entry the change touched so the integrate-phase reconciliation can enumerate dispositions:
 
-- Shape: `scope-config-plist`, `drawer-text-block`, `violation-info`
+- Shape: `scope-config-plist`, `drawer-text-block`, `violation-info`, `expansion-transient-scope` (cycle-3 add)
 - Vocabulary: `drawer-key-set`, `operation-to-drawer-key`
-- Boundary: `scope-config-loader`, `scope-profile-applicator`, `scope-pattern-writer`
-- Invariant: `scope-parse-complete-is-true`, `scope-coverage-threshold-is-1`, `scope-no-security-key-in-plist`, `scope-drawer-no-duplication`, `scope-add-pattern-idempotent`
+- Boundary: `scope-config-loader`, `scope-profile-applicator`, `scope-pattern-writer`, `scope-expansion-action-handler`
+- Invariant: `scope-parse-complete-is-true`, `scope-coverage-threshold-is-1`, `scope-no-security-key-in-plist`, `scope-drawer-no-duplication`, `scope-add-pattern-idempotent`, `expansion-queue-always-progresses` (cycle-3 add)
 
 Verify by running the full suite (`./bin/run-tests.sh -d config/gptel/scope`) and grepping for any remaining `error "speculated; not implemented"` strings — every scaffolded stub must be either satisfied (test passes) or dispositioned (promoted / archived / rejected).
 
@@ -133,3 +136,43 @@ Each blocks `rewire-expansion-writer`. The corresponding disposition tasks (`dis
 
 ### Tasks/closed/ count update
 > Step 6 currently says `tasks/closed/` has 16 entries. Cycle 1 closed 5 implementor tasks. With the 11 pre-existing open + 4 new disposition follow-ups, total tasks at archive time = 5 (closed cycle-1) + 11 (in-flight) + 4 (disposition follow-ups) = 20, not 16. The "16" number predates the cycle-1 follow-up task creation; reconfirm at archive time.
+
+## Cycle 2 updates (cycle-1777470320)
+
+### Cited register entries — cycle-2 dispositions
+
+- `register/shape/scope-config-plist`: **confirmed** (cycle-2). `:read-metadata` is now part of the `:paths` sub-plist.
+- `register/boundary/scope-config-loader`: **divergent** (cycle-2). User must disposition via `disposition-empty-drawer-collapse` before this verify task can pass.
+- `register/boundary/scope-pattern-writer`: **confirmed** (cycle-2). Writer is the sole drawer-mutation path.
+- `register/boundary/scope-profile-applicator`: **confirmed** (cycle-2). Mode 2a is the sole producer; sessions and persistent-agent both consume.
+- `register/vocabulary/operation-to-drawer-key`: **confirmed** (cycle-2). Cycle-2 dispositions 10A/B/C all encoded with strict-error fallbacks.
+- `register/vocabulary/drawer-key-set`: **confirmed** (cycle-2). Eight-key set including `GPTEL_SCOPE_READ_METADATA` honored at reader and writer; fixture-locus pending in cycle-3 migrate-* tasks.
+- `register/invariant/scope-no-security-key-in-plist`: **confirmed** (cycle-2). L1+L2 hold; this task's verification step is the residual non-validation lint.
+- `register/invariant/scope-parse-complete-is-true`: **confirmed** (cycle-2). Defconst is `t`.
+- `register/invariant/scope-coverage-threshold-is-1`: **confirmed** (cycle-2). Defconst is `1.0`.
+- `register/invariant/scope-add-pattern-idempotent`: **confirmed** (cycle-2). Writer's `(member pattern existing)` short-circuit holds.
+- `register/invariant/scope-drawer-no-duplication`: **confirmed** (cycle-2). Both creation paths emit one drawer.
+- `register/boundary/scope-expansion-action-handler`: **unchanged** (cycle-2 — deferred). Cycle-3's `harden-add-to-scope-action-handler` is the implementing task; expect this entry to flip to confirmed/reconciled at cycle-3 integrate.
+
+### Cycle-2 architect findings to verify-resolved
+
+- `arch-cycle-1777470320-1` (advisory, dead-branch): folded into `delete-yaml-and-security-residue`. **Verify**: greps for `jf/gptel--scope-file-path` and `jf/gptel-session--scope-file` return no results.
+- `arch-cycle-1777470320-2` (advisory, interface-drift): folded into `delete-yaml-and-security-residue`. **Verify**: greps for `scope-yaml`, `scope.yml`, `YAML` in `config/gptel/scope/interfaces.org` and `config/gptel/scope/scope-shell-tools.org` return no results except possibly historical commit references.
+- `arch-cycle-1777470320-3` (advisory, invariant-gap): folded into `add-expansion-transient-and-queue-register-entries` (cycle-3). **Verify**: `interfaces.org` carries the new entries `register/shape/expansion-transient-scope` and `register/invariant/expansion-queue-always-progresses`.
+- `arch-cycle-1777470320-4` (blocking, interface-drift): user disposition; `disposition-empty-drawer-collapse` resolves it. **Verify**: `register/boundary/scope-config-loader` status is `confirmed` or `reconciled` (not `divergent`).
+
+### Step 6 task-count update (cycle-2)
+
+> Cycle-2 added 2 new tasks (`disposition-empty-drawer-collapse`, `add-expansion-transient-and-queue-register-entries`) and closed 4 (`rewire-validator-config-load`, `rewire-expansion-writer`, `rewire-session-creation`, `rewire-persistent-agent`). Total tasks at archive time, projected: 8 (closed cycle-1) + 4 (closed cycle-2) + 8 (open + 2 new) = 20, give or take cycle-3 follow-ups. Reconfirm at archive time.
+
+### Open asks still routed to user (cycle-2)
+
+- `ask-arch-cycle-1777470320-1` (empty-drawer collapse). The corresponding disposition task is `disposition-empty-drawer-collapse`. This task's archive gate must wait until that disposition is closed.
+
+### Add to manual smoke tests (cycle-2)
+
+After the cycle-2 rewires shipped, add a smoke test for the expansion writer's three new dispositions:
+
+- **`:read-metadata` violation → metadata bucket**: trigger a bash command that reads only metadata (e.g. `[ -f /etc/passwd ]`); add to scope; confirm the drawer's `:GPTEL_SCOPE_READ_METADATA:` carries the path, NOT `:GPTEL_SCOPE_READ:`.
+- **`:match-pattern` redirect**: trigger `find /home -name '*.txt'`; add the `:match-pattern` violation; confirm `/home` lands in `:GPTEL_SCOPE_READ:`, NOT `'*.txt'`. (Requires `harden-add-to-scope-action-handler` to be landed first; until then the writer errors loudly — that's the expected behaviour to verify pre-harden.)
+- **`:delete` → WRITE bucket**: trigger `rm /tmp/x`; add to scope; confirm `/tmp/x` lands in `:GPTEL_SCOPE_WRITE:`, NOT a separate delete bucket.

@@ -2,10 +2,8 @@
 name: migrate-validation-tests
 description: Rewrite validation/* test fixtures from scope.yml on disk to drawer-fixture buffers
 change: gptel-scope-in-org-properties
-status: blocked
-relations:
-  - blocked-by:add-test-helper-with-scope-drawer
-  - blocked-by:rewire-validator-config-load
+status: ready
+relations: []
 ---
 
 ## Cites register entries
@@ -90,3 +88,32 @@ design.md § Migration Plan step 8
 
 ### User-resolved decisions
 - `ask-arch-cycle-1777460733-2` (indirect): empty drawer behaviour changes from "→ no_scope_config deny" to "→ deny-all defaults composed by loader". **Implication**: tests asserting validator behaviour on missing/empty scope need to be updated — the deny path may now have different `:error` keys or different deny-pattern composition.
+
+## Cycle 2 updates (cycle-1777470320)
+
+### Cited register entries — disposition flips
+
+- `register/shape/scope-config-plist`: speculated → **confirmed**. The `:paths` sub-plist now carries six list-valued keys (added `:read-metadata` per ask 10A). When migrating, drawer fixtures should include `:GPTEL_SCOPE_READ_METADATA` examples wherever the legacy YAML fixture set `paths.read_metadata` (often nowhere, since this is net-new). See `.orchestrator/cycles/cycle-1777470320/reconciliations/shape-scope-config-plist.md`.
+- `register/boundary/scope-config-loader`: speculated → **divergent**. Cycle-2 implementation honors the cycle-1 reconciliation's stage-3-collapse-to-nil semantic; cycle-1's user-resolved ask (option (b)) said the opposite. The cycle-2 PM digest routes this as `ask-arch-cycle-1777470320-1` to the user. **Implication for this task**: defer the empty-drawer-specific test cases until the user dispositions (in `disposition-empty-drawer-collapse`). All other validation tests (path matching, glob, parse-completeness, coverage threshold) can land first. See `.orchestrator/cycles/cycle-1777470320/reconciliations/boundary-scope-config-loader.md`.
+- `register/invariant/scope-no-security-key-in-plist`: speculated → **confirmed**. L1+L2 both hold. The structural-audit-style spec recommended in cycle-1's update is still a good idea — write it as a guard against regression.
+- `register/invariant/scope-parse-complete-is-true`: speculated → **confirmed**. The helper now reads `jf/gptel-scope--enforce-parse-complete` defconst directly. Tests should drop any per-call `security-config` parameter and instead test against the defconst's literal value (`t`).
+- `register/invariant/scope-coverage-threshold-is-1`: speculated → **confirmed**. Same shape change — drop `security-config` from helper-call sites; the threshold defconst is `1.0`.
+
+### Inline fixes / signature changes to absorb
+
+- The validator helper signatures changed (cycle-2 commit a813d53): `--validate-parse-completeness` and `--check-coverage-threshold` no longer take a `security-config` parameter. Three cycle-2 specs now fail because they call the helpers with the old signature:
+  - `handles nil parse-complete gracefully`
+  - `handles nil security-config`
+  - `parse_incomplete when parse fails and enforce is true`
+  - `permissive mode allows incomplete parse with warning`
+  - `permissive mode allows partial syntax`
+  These five are this task's primary work — drop the parameter and the parameter-shape assertions; rely on the defconst directly.
+
+### Unblocked
+
+- `add-test-helper-with-scope-drawer` (closed cycle-1) — provides `jf/gptel-test--with-scope-drawer`.
+- `rewire-validator-config-load` (closed cycle-2) — the loader is rewired and shipped.
+
+### Re-blocked (partial)
+
+- `disposition-empty-drawer-collapse` (cycle-3 user disposition) — only the empty-drawer-specific test cases need to wait. Land everything else first; flag any empty-drawer pin with a `;; depends on disposition-empty-drawer-collapse` comment so the cycle-3 follow-up can find them.

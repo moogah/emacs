@@ -4,9 +4,10 @@ description: "Upstream guard at the --add-to-scope action handler — refuse on 
 change: gptel-scope-in-org-properties
 status: blocked
 relations:
-  - blocked-by:rewire-expansion-writer
+  - blocked-by:add-expansion-transient-and-queue-register-entries
   - discovered-from:implement-drawer-writer
   - discovered-from:disposition-match-pattern-handling
+  - discovered-from:rewire-expansion-writer
 ---
 
 ## Cites register entries
@@ -14,6 +15,8 @@ relations:
 - `register/boundary/scope-expansion-action-handler` — NEW cycle-2-plan entry; this task is the implementation of that entry's three stages.
 - `register/vocabulary/operation-to-drawer-key` — `unmapped_policy: error` documents that the writer rejects `nil` and `:match-pattern`; the upstream fix lives at the action layer (this task).
 - `register/shape/violation-info` — the `:operation` field is nil for cloud-auth and parse-incomplete violations.
+- `register/shape/expansion-transient-scope` — NEW cycle-3 entry (created by `add-expansion-transient-and-queue-register-entries`). The 5-key plist on `(transient-scope)`; cite when reading `:violation`, `:command-name`, `:chat-buffer`.
+- `register/invariant/expansion-queue-always-progresses` — NEW cycle-3 entry. Stage 4's refusal/dedup-short-circuit branches must still call `--process-expansion-queue` so a refusal doesn't strand queued expansions.
 
 ## Background
 
@@ -152,3 +155,29 @@ Add a buttercup spec asserting:
 
 The new spec runs alongside `test-expansion-menu-spec.el` (or wherever
 the existing menu specs live).
+
+## Cycle 2 updates (cycle-1777470320)
+
+### Stage 4 fold-in is now in this task's scope
+
+Cycle-2 reviewer (`rewire-expansion-writer`, Finding 2, advisory) flagged that design.md Decision 7 Bug 2 ("false-success when writer no-ops") was *partially* introduced by the rewire — `--add-bash-to-scope`'s bare-command branch now passes through outer action handlers that emit `:success t :patterns_added [<pattern>]` even when no drawer mutation happened. The integrate-phase decision (orchestrator, in cycle-1777470320 inline-fix `1cb11d9`) was to extend this task's brief with Stage 4 covering both the bare-command and dedup short-circuit branches. Stage 4 above is that extension — already in the task body; this stanza just records the lineage.
+
+### Cited entries — context
+
+- `register/vocabulary/operation-to-drawer-key`: speculated → **confirmed** (cycle-2). The writer's strict-error contract for `:match-pattern` and nil is now active; this task's Stage 1 + Stage 2 are the upstream guards that prevent users from hitting those errors.
+- `register/boundary/scope-pattern-writer`: confirmed cycle-2. Stage 3's "writer delegation" calls into `--write-pattern-to-drawer`; review its return contract (non-nil = wrote, nil = no-op) before implementing Stage 4.
+- `register/boundary/scope-expansion-action-handler`: still **speculated** until this task lands.
+
+### Now blocked on (single dependency)
+
+- `add-expansion-transient-and-queue-register-entries` (cycle-3) — must land first so this task's brief can cite the new register entries instead of inlining their contracts.
+
+### Now unblocked from
+
+- `rewire-expansion-writer` (closed cycle-2)
+
+### Implementation hint
+
+Stage 1 and Stage 2's "scan the violation cluster for sibling violations" needs access to the queue / transient state. Read the cycle-2 transient-scope plist at `(transient-scope)`: it now carries `:violation`, `:command-name`, and `:chat-buffer`. The cluster of violations for "this command's expansion" lives at `jf/gptel-scope--queue` (see `--process-expansion-queue`); filter for the same `:command-name` to find siblings.
+
+Stage 4's branches need to call `--process-expansion-queue` after returning the refused/dedup callback — failing to do so would strand the queue (violates `register/invariant/expansion-queue-always-progresses`).

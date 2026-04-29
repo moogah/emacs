@@ -62,7 +62,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/scope-config-plist
    tier: shape
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): :paths sub-plist now carries six
+     list-valued keys (:read :read-metadata :write :modify :execute :deny)
+     per ask 10A; :security removed everywhere. Reader (loader) and writer
+     (mapper) both honor the new shape. Fixture-locus pending in cycle-3
+     migrate-* tasks. See .orchestrator/cycles/cycle-1777470320/
+     reconciliations/shape-scope-config-plist.md.
    load_bearing: true
    title: Loaded scope configuration plist (post-:security-removal)
    purpose: |
@@ -136,7 +143,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/drawer-text-block
    tier: shape
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): both consumers (sessions/commands.org
+     and tools/persistent-agent.org) consume the renderer's drawer-text
+     string via (concat drawer-text body) and write in a single
+     with-temp-file. Structural anchors hold. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/shape-drawer-text-block.md.
    load_bearing: true
    title: Drawer-text string returned by render-drawer-text
    purpose: |
@@ -204,7 +217,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/violation-info
    tier: shape
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): no shape change; cycle-1 reconciliation
+     carries forward. The expansion writer reads :operation and :resource
+     only.
    load_bearing: true
    title: violation-info plist returned by validator and consumed by expansion writer
    purpose: |
@@ -287,13 +304,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/drawer-key-set
    tier: vocabulary
-   status: speculated
+   status: confirmed
    status_note: |
-     cycle-2 plan (2026-04-29): added GPTEL_SCOPE_READ_METADATA as a
-     6th list-shape drawer key per ask 10A disposition. Pending
-     rewire-expansion-writer (writer-side emit), rewire-validator-config-
-     load (loader-side accept), and migrate-* test fixtures (read/write
-     symmetry). Until then this entry's eight-member set is speculated.
+     cycle-2 integrate (2026-04-29): writer-locus (rewire-expansion-writer
+     mapping function emits READ_METADATA) and reader-locus (rewire-
+     validator-config-load loader accepts the eight-key set) both honor
+     the entry. Fixture-locus pending in cycle-3 migrate-* tasks. See
+     .orchestrator/cycles/cycle-1777470320/reconciliations/
+     vocabulary-drawer-key-set.md.
    load_bearing: true
    enforcement_loci: [reader, writer, fixture]
    unmapped_policy: error
@@ -403,16 +421,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/operation-to-drawer-key
    tier: vocabulary
-   status: speculated
+   status: confirmed
    status_note: |
      cycle-1 reconciled the closed-set discipline, the strict-error
      unmapped_policy, and the absence of :deny / nil-operation arms.
-     cycle-2 user dispositions (asks 10A/B/C, 2026-04-29) introduced
-     READ_METADATA as a separate collapse target for :read-metadata,
-     and removed :match-pattern from the writer's domain entirely
-     (action handler redirects to :read-directory upstream). These
-     additions are speculated until rewire-expansion-writer lands and
-     review confirms the writer/action-handler split.
+     cycle-2 integrate (2026-04-29): asks 10A/B/C all encoded with
+     strict-error fallbacks; the new buttercup spec at
+     config/gptel/scope/test/expansion/operation-to-drawer-key-spec.el
+     pins all three dispositions plus the cycle-1 strict-error contract.
+     See .orchestrator/cycles/cycle-1777470320/reconciliations/
+     vocabulary-operation-to-drawer-key.md.
    load_bearing: true
    enforcement_loci: [writer]
    title: Granular operation → drawer-key collapse
@@ -593,7 +611,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/scope-config-loader
    tier: boundary
-   status: speculated
+   status: divergent
+   status_note: |
+     cycle-2 integrate (2026-04-29): implementation honors the cycle-1
+     reconciliation note's "stage-3 collapse to nil" semantic; cycle-1's
+     user-resolved ask-arch-cycle-1777460733-2 said the opposite ("empty
+     drawer = deny-all defaults"). Both authorities cannot stand. User
+     dispositions via cycle-3 task `disposition-empty-drawer-collapse`.
+     See .orchestrator/cycles/cycle-1777470320/reconciliations/
+     boundary-scope-config-loader.md for the divergence escalation.
    load_bearing: true
    title: Buffer-first / file-fallback drawer reader pipeline
    purpose: |
@@ -661,7 +687,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/scope-profile-applicator
    tier: boundary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): Mode 2a (--render-drawer-text) is the
+     sole route from a profile-resolved scope-plist to drawer state in both
+     consumer paths (sessions/commands.org and tools/persistent-agent.org).
+     Branching uses byte-copy from parent (structurally equivalent to Mode
+     2a re-render given cross-mode idempotency). See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/boundary-scope-profile-applicator.md.
    load_bearing: true
    title: Profile resolution → drawer text or buffer-applied properties
    purpose: |
@@ -854,7 +887,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/scope-pattern-writer
    tier: boundary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): all five --add-*-to-scope action
+     handlers route through --write-pattern-to-drawer; YAML serializer
+     family deleted; (require 'jf-gptel-scope-yaml) gone. The boundary's
+     "single writer" property holds. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/boundary-scope-pattern-writer.md.
    load_bearing: true
    title: Single canonical drawer mutator (write-pattern-to-drawer)
    purpose: |
@@ -968,7 +1007,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/scope-parse-complete-is-true
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): --validate-parse-completeness reads
+     jf/gptel-scope--enforce-parse-complete defconst (value t) directly;
+     the plist :security :enforce-parse-complete read path is gone.
+     Invariant enforced by construction. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/invariant-scope-parse-complete-
+     is-true.md.
    load_bearing: true
    title: enforce-parse-complete is the constant t at module level
 
@@ -1012,7 +1058,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/scope-coverage-threshold-is-1
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): --check-coverage-threshold reads
+     jf/gptel-scope--coverage-threshold defconst (value 1.0) directly;
+     plist read path removed. Invariant enforced by construction. See
+     .orchestrator/cycles/cycle-1777470320/reconciliations/
+     invariant-scope-coverage-threshold-is-1.md.
    load_bearing: true
    title: max-coverage-threshold is the constant 1.0 at module level
 
@@ -1052,7 +1104,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/scope-no-security-key-in-plist
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): both layers hold. L1 — producer
+     (--load-config / --load-from-buffer / --load-from-file) emits no
+     :security key. L2 — no (plist-get _ :security ...) reads survive in
+     scope-validation.el (verified by grep). Cycle-3
+     delete-yaml-and-security-residue is the residual sweep across non-
+     validation modules. See .orchestrator/cycles/cycle-1777470320/
+     reconciliations/invariant-scope-no-security-key-in-plist.md.
    load_bearing: true
    title: Loaded scope-config plist has exactly :paths and :cloud — no :security
 
@@ -1095,7 +1155,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/scope-drawer-no-duplication
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): both creation paths (sessions,
+     persistent-agent) write exactly one drawer via single with-temp-file
+     + (concat drawer-text body); branching uses byte-copy from parent.
+     Invariant enforced by structure. Runtime regression spec lands in
+     cycle-3's add-drawer-corruption-regression. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/invariant-scope-drawer-no-duplication.md.
    load_bearing: true
    title: After any add-to-scope sequence, the buffer has exactly one :PROPERTIES: drawer
 
@@ -1145,7 +1212,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/scope-add-pattern-idempotent
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): --write-pattern-to-drawer reads
+     existing values, returns nil and skips org-entry-put-multivalued-
+     property when (member pattern existing). Invariant enforced by
+     construction. Runtime spec lands in cycle-3's migrate-expansion-tests.
+     See .orchestrator/cycles/cycle-1777470320/reconciliations/
+     invariant-scope-add-pattern-idempotent.md.
    load_bearing: true
    title: Adding the same pattern twice is a no-op (idempotent writer)
 

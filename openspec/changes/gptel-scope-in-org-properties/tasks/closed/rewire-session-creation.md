@@ -2,7 +2,7 @@
 name: rewire-session-creation
 description: Update session creation to embed drawer text in initial session.org; stop writing scope.yml
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations: []
 ---
 

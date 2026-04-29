@@ -2,10 +2,8 @@
 name: add-drawer-corruption-regression
 description: Regression test that an add-to-scope sequence produces exactly one PROPERTIES drawer with no duplication
 change: gptel-scope-in-org-properties
-status: blocked
-relations:
-  - blocked-by:implement-drawer-writer
-  - blocked-by:rewire-expansion-writer
+status: ready
+relations: []
 ---
 
 ## Cites register entries
@@ -95,3 +93,32 @@ specs/gptel/scope-expansion/spec.md § ADDED Requirements / "Drawer writer prese
 
 ### Already-shipped inline fixes
 - `arch-cycle-1777460733-8`: `:deny` arm removed from `--map-operation-to-drawer-key`. **Implication for this task**: the original example in step 1 used `:deny` operation; replaced with `:execute` to preserve the multi-key-write flow (see breadcrumb at top of step 1).
+
+## Cycle 2 updates (cycle-1777470320)
+
+### Scaffold disposition update
+
+The scaffold `scope-drawer-no-duplication.test.el` was set to `archived` at cycle-2 integrate (the runtime invariant is enforced by the single-producer / single-write structure in both creation paths). **Implication for this task**: the "promote vs supersede" choice in `## Cites register entries` is now resolved by cycle-2 — the scaffold is archived, so this task **writes its own regression spec** rather than promoting the scaffold's stub. The existing implementation steps already do this; just record the disposition for clarity.
+
+### Cited entries — confirmed
+
+- `register/invariant/scope-drawer-no-duplication`: speculated → **confirmed** (cycle-2; both creation paths emit one drawer; branching uses byte-copy). See `.orchestrator/cycles/cycle-1777470320/reconciliations/invariant-scope-drawer-no-duplication.md`.
+- `register/boundary/scope-pattern-writer`: speculated → **confirmed** (cycle-2). See `.orchestrator/cycles/cycle-1777470320/reconciliations/boundary-scope-pattern-writer.md`.
+
+### Implementation hint — extend the regression to branching
+
+Cycle-2 confirmed that branching uses byte-copy from the parent (rather than re-rendering the drawer for the child). Worth adding a 4th `it` block exercising the branch flow:
+
+```elisp
+(it "branching produces child session.org with parent's drawer verbatim and exactly one drawer"
+  ;; create parent session via Mode 2a
+  ;; create child branch via --copy-truncated-context
+  ;; assert child file has exactly one :PROPERTIES: block
+  ;; assert org-entry-get values match parent's
+  )
+```
+
+### Now unblocked
+
+- `implement-drawer-writer` (closed cycle-1)
+- `rewire-expansion-writer` (closed cycle-2)
