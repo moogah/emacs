@@ -15,7 +15,7 @@ relations:
 - `register/boundary/scope-expansion-action-handler` — NEW cycle-2-plan entry; this task is the implementation of that entry's three stages.
 - `register/vocabulary/operation-to-drawer-key` — `unmapped_policy: error` documents that the writer rejects `nil` and `:match-pattern`; the upstream fix lives at the action layer (this task).
 - `register/shape/violation-info` — the `:operation` field is nil for cloud-auth and parse-incomplete violations.
-- `register/shape/expansion-transient-scope` — NEW cycle-3 entry (created by `add-expansion-transient-and-queue-register-entries`). The 5-key plist on `(transient-scope)`; cite when reading `:violation`, `:command-name`, `:chat-buffer`.
+- `register/shape/expansion-transient-scope` — NEW cycle-3 entry (created by `add-expansion-transient-and-queue-register-entries`). The 5-key plist on `(transient-scope)` — `:violation :callback :patterns :tool-name :chat-buffer`; cite when reading any of these. (The plan brief originally proposed `:command-name`, but the as-built shape has no such key — see entry's `status_note`.)
 - `register/invariant/expansion-queue-always-progresses` — NEW cycle-3 entry. Stage 4's refusal/dedup-short-circuit branches must still call `--process-expansion-queue` so a refusal doesn't strand queued expansions.
 
 ## Background

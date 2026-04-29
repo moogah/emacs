@@ -977,6 +977,130 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** expansion-transient-scope
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-expansion-transient-scope
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/expansion-transient-scope
+   tier: shape
+   status: speculated
+   status_note: |
+     speculated-with-deviation: the cycle-3 plan brief proposed three
+     required keys (:violation :command-name :chat-buffer) plus two
+     optional UI-disabled flags. The cycle-2 implementation
+     (commit 18e290a, scope-expansion.org §State Management
+     `--process-expansion-queue`) actually constructs a five-key plist
+     of (:violation :callback :patterns :tool-name :chat-buffer); there
+     is no :command-name key and no UI-disabled flags exist. Entry
+     records the *as-built* shape; reconciliation will flip status to
+     `confirmed` when scaffolding parity is verified by the harden task.
+   load_bearing: true
+   title: Five-key plist passed as transient-scope to the add-to-scope UI
+   purpose: |
+     The plist that lives on (transient-scope) for the expansion transient
+     menu. Constructed in `jf/gptel-scope--prompt-expansion` (initial
+     transient setup) and re-emitted in `jf/gptel-scope--process-expansion-
+     queue` (subsequent queue entries; same five keys). Consumers are every
+     transient action handler under `* Expansion Actions`
+     (`--deny-expansion`, `--add-to-scope`, `--allow-once-action`,
+     `--add-wildcard-to-scope`, `--add-custom-to-scope`, `--edit-scope`)
+     and the `:description` lambda of `jf/gptel-scope-expansion-menu`.
+
+     The :chat-buffer key was added in cycle-2 (rewire-expansion-writer,
+     commit 18e290a) so action handlers can locate the chat buffer whose
+     :PROPERTIES: drawer they must mutate when the transient closes.
+
+   required_keys:
+     - name: ":violation"
+       type: plist (register/shape/violation-info)
+       description: |
+         The violation-info plist (cycle-1 reconciled shape). Action
+         handlers read :validation-type, :resource, :tool, :reason,
+         :metadata, :operation off it.
+     - name: ":callback"
+       type: function (string -> any)
+       description: |
+         The wrapper-callback closure provided by the gptel tool wrapper
+         at violation-detection time. Action handlers funcall it with a
+         JSON-serialized result plist (`:success`/`:user_denied`/
+         `:patterns_added`/`:allowed_once`/`:message`).
+     - name: ":patterns"
+       type: list of strings
+       description: |
+         The patterns that motivated this expansion prompt (the queue
+         entry's pre-computed pattern list). `--add-to-scope` echoes
+         this list into `:patterns_added` on the success callback.
+     - name: ":tool-name"
+       type: string
+       description: |
+         Human-readable tool name for callback messages (e.g.
+         "Added 1 pattern(s) to read_file").
+     - name: ":chat-buffer"
+       type: buffer
+       description: |
+         The chat buffer that hosted the violation, captured at
+         expansion-trigger time. Retrieved via
+         `jf/gptel-scope--current-chat-buffer` and used by the drawer
+         writer (`--write-pattern-to-drawer`) and the `--edit-scope`
+         handler.
+
+   forbidden_keys: []
+
+   producers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--prompt-expansion
+       constructs: initial transient-setup :scope plist
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--process-expansion-queue
+       constructs: re-emitted plist when popping next queue entry
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope-expansion-menu (:description lambda)
+       reads_keys: [":violation"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--deny-expansion
+       reads_keys: [":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope
+       reads_keys: [":violation", ":callback", ":patterns", ":tool-name"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--allow-once-action
+       reads_keys: [":violation", ":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-wildcard-to-scope
+       reads_keys: [":violation", ":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-custom-to-scope
+       reads_keys: [":violation", ":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--current-chat-buffer
+       reads_keys: [":chat-buffer"]
+
+   validator: |
+     (defun shape/validate-expansion-transient-scope (val)
+       "Returns nil on success; an error symbol otherwise."
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((not (plistp (plist-get val :violation))) 'violation-not-plist)
+             ((not (functionp (plist-get val :callback))) 'callback-not-function)
+             ((not (listp (plist-get val :patterns))) 'patterns-not-list)
+             ((not (stringp (plist-get val :tool-name))) 'tool-name-not-string)
+             ((not (and (bufferp (plist-get val :chat-buffer))
+                        (buffer-live-p (plist-get val :chat-buffer))))
+              'chat-buffer-not-live-buffer)
+             (t nil)))
+
+   related_entries:
+     - register/shape/violation-info
+     - register/boundary/scope-expansion-action-handler
+     - register/invariant/expansion-queue-always-progresses
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -1253,6 +1377,81 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-scope-in-org-properties
    discovered_by: architect
+   #+end_src
+
+** expansion-queue-always-progresses
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-expansion-queue-always-progresses
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/expansion-queue-always-progresses
+   tier: invariant
+   status: speculated
+   status_note: |
+     speculated-with-deviation: cycle-3 plan brief framed this as "every
+     `--add-*-to-scope` action handler pumps the queue", but the cycle-2
+     code (commit 18e890a, scope-expansion.org `* Expansion Actions`)
+     has the queue-pump call in *all five* terminal action handlers,
+     including `--deny-expansion` and `--allow-once-action`, not only
+     the three `--add-*` variants. Entry records the broader as-built
+     contract (every terminal action handler progresses the queue).
+     Reconciliation flips to `confirmed` after the harden task lands
+     and demonstrates that its new refusal/dedup branches also pump.
+   load_bearing: true
+   title: Every terminal expansion-menu action handler pumps the queue
+
+   statement: |
+     After `transient-quit-one`, every terminal action handler of
+     `jf/gptel-scope-expansion-menu` calls
+     `jf/gptel-scope--process-expansion-queue`. The five terminal
+     handlers are `--deny-expansion`, `--add-to-scope`,
+     `--allow-once-action`, `--add-wildcard-to-scope`, and
+     `--add-custom-to-scope`. Without the queue-pump call, queued
+     expansion prompts would silently strand: a multi-violation tool
+     call would prompt the user once, the user would resolve it (deny,
+     add, allow-once), the transient would close, and the remaining
+     queued violations would never surface — the wrapper's callbacks
+     would never fire and the LLM's tool call would hang indefinitely.
+
+     The harden task's Stage 1 refusal branches (nil-operation,
+     `:match-pattern` no-sibling, `:parse-incomplete`) and Stage 4
+     no-op success/refusal callbacks (bare-command, dedup) must
+     preserve this invariant — every branch that calls the wrapper
+     callback must also pump the queue, even when the writer was a
+     no-op or the action was refused.
+
+   why_it_matters: |
+     The cycle-2 rewire (commit 18e890a) discovered that
+     `--add-wildcard-to-scope` and `--add-custom-to-scope` previously
+     did NOT pump the queue: queued expansions resolved via wildcard
+     or custom-pattern silently dropped. That was a latent bug that
+     pre-dated the cycle-2 work; the writer rewire fixed it
+     incidentally, but no test pinned the new uniform contract. This
+     invariant is the structural lockout: any future code path that
+     adds a new terminal action handler, or any branch in an existing
+     handler that returns without pumping, regresses the queue's
+     liveness guarantee.
+
+   enforcement_mechanism:
+     kind: structural-audit + test
+     location: |
+       L1 (structural): scaffolding test grep-asserts that each of the
+       five terminal action handlers in scope-expansion.org contains a
+       call to `jf/gptel-scope--process-expansion-queue`. Architect's
+       on-touch audit re-runs whenever scope-expansion.org changes.
+       L2 (runtime): scaffolding spec fires a synthetic three-element
+       queue (three violations queued via `--prompt-expansion`),
+       drives one action-handler invocation, and asserts the queue
+       length monotonically decreases until empty.
+
+   related_entries:
+     - register/shape/expansion-transient-scope
+     - register/boundary/scope-expansion-action-handler
+     - register/boundary/scope-pattern-writer
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
    #+end_src
 
 * Status legend
