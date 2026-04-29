@@ -69,27 +69,9 @@
     ;;   * :error 'parse_incomplete'
     ;;   * :parse-errors contains 'EOF'
     ;;   * :message suggests fixing syntax
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       ;; Mock parse: Incomplete with error
       (helpers-spec-mock-bash-parse
        "function incomplete() {"
@@ -109,10 +91,7 @@ security:
                      scope-config)))
         ;; Assert: Structured error with parse errors
         (expect (plist-get result :error) :to-equal "parse_incomplete")
-        (expect (plist-get result :message) :to-be-truthy))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect (plist-get result :message) :to-be-truthy))))
 
   (it "path out of scope error includes operation details"
     ;; Test: Path out of scope error includes operation details
@@ -124,14 +103,8 @@ security:
     ;;   * :operation :execute
     ;;   * :required-scope 'paths.execute'
     ;;   * :allowed-patterns (empty list)
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       (helpers-spec--scope-with-paths
-                        '("/workspace/**")  ; read
-                        '()  ; write
-                        '()  ; execute - empty
-                        '()  ; modify
-                        '()))) ; deny
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**"))))
       ;; Mock parse
       (helpers-spec-mock-bash-parse
        "python3 /workspace/script.py"
@@ -152,10 +125,7 @@ security:
         ;; Assert: Structured error with operation details
         (expect (plist-get result :error) :to-equal "not-in-scope")
         (expect (plist-get result :resource) :to-equal "/workspace/script.py")
-        (expect (plist-get result :operation) :to-equal :execute))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect (plist-get result :operation) :to-equal :execute))))
 
   (it "path denied error distinguishes from out-of-scope"
     ;; Test: Path denied error distinguishes from out-of-scope
@@ -166,14 +136,9 @@ security:
     ;;   * :path '/etc/passwd'
     ;;   * :denied-patterns contains '/etc/**'
     ;;   * :message explains deny precedence
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       (helpers-spec--scope-with-paths
-                        '("/workspace/**" "/etc/**")  ; read
-                        '()  ; write
-                        '()  ; execute
-                        '()  ; modify
-                        '("/etc/**")))) ; deny
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**" "/etc/**")
+                         :deny '("/etc/**"))))
       ;; Mock parse
       (helpers-spec-mock-bash-parse
        "cat /etc/passwd"
@@ -193,10 +158,7 @@ security:
                      scope-config)))
         ;; Assert: Structured error for denied path
         (expect (plist-get result :error) :to-equal "denied-pattern")
-        (expect (plist-get result :resource) :to-equal "/etc/passwd"))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect (plist-get result :resource) :to-equal "/etc/passwd"))))
 
   (it "cloud auth denied includes provider details"
     ;; Test: Cloud auth denied includes provider details
@@ -204,32 +166,14 @@ security:
     ;; Mock: GCP provider denied
     ;; Assert error structure:
     ;;   * :error 'cloud_provider_denied'
-    ;;   * :provider 'gcp'
-    ;;   * :allowed-providers ['aws']
+    ;;   * :provider :gcp
+    ;;   * :allowed-providers (:aws)
     ;;   * :message suggests scope expansion
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"deny\"
-  allowed_providers:
-    - aws
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**")
+                         :auth-detection "deny"
+                         :allowed-providers '(:aws))))
       ;; Mock parse
       (helpers-spec-mock-bash-parse
        "gcloud auth login"
@@ -239,7 +183,7 @@ security:
       ;; Mock semantics: Cloud auth for GCP plus file op to avoid no-op short-circuit
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :write "/workspace/config.json" :command-name "gcloud"))
-       (list :provider "gcp" :command "gcloud auth login")
+       (list :provider :gcp :command "gcloud auth login")
        '(:ratio 1.0))
 
       ;; Validate command
@@ -249,10 +193,7 @@ security:
                      scope-config)))
         ;; Assert: Structured error with provider details
         (expect (plist-get result :error) :to-equal "cloud_provider_denied")
-        (expect (plist-get result :provider) :to-equal "gcp"))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect (plist-get result :provider) :to-equal :gcp))))
 
   (it "multiple operation failure reports first violation"
     ;; Test: Multiple operation failure reports first violation
@@ -262,14 +203,10 @@ security:
     ;;   * :error 'denied-pattern' (or not-in-scope)
     ;;   * :path '/etc/dst.txt'
     ;;   * Reports first failure, not all failures
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       (helpers-spec--scope-with-paths
-                        '("/workspace/**")  ; read
-                        '("/workspace/**")  ; write
-                        '()  ; execute
-                        '()  ; modify
-                        '("/etc/**")))) ; deny
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**")
+                         :deny '("/etc/**"))))
       ;; Mock parse
       (helpers-spec-mock-bash-parse
        "cp /workspace/src.txt /etc/dst.txt"
@@ -290,10 +227,7 @@ security:
                      scope-config)))
         ;; Assert: Reports first violation (deny pattern)
         (expect (plist-get result :error) :to-equal "denied-pattern")
-        (expect (plist-get result :resource) :to-equal "/etc/dst.txt"))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect (plist-get result :resource) :to-equal "/etc/dst.txt"))))
 
   (it "success response includes coverage metrics"
     ;; Test: Success response includes coverage metrics
@@ -303,14 +237,8 @@ security:
     ;; Assert response structure:
     ;;   * :success t (nil error)
     ;;   * Optional :coverage with metrics in validation result
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       (helpers-spec--scope-with-paths
-                        '("/workspace/**")  ; read
-                        '()  ; write
-                        '()  ; execute
-                        '()  ; modify
-                        '()))) ; deny
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**"))))
       ;; Mock parse
       (helpers-spec-mock-bash-parse
        "cat /workspace/file.txt"
@@ -329,10 +257,7 @@ security:
                      "/workspace"
                      scope-config)))
         ;; Assert: Success (no error)
-        (expect result :to-be nil))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect result :to-be nil))))
 
   (it "warning structure for cloud auth in warn mode"
     ;; Test: Warning structure for cloud auth in warn mode
@@ -340,29 +265,12 @@ security:
     ;; Mock: Cloud auth detected, warn mode
     ;; Assert response structure:
     ;;   * :warning 'cloud_auth_detected'
-    ;;   * :provider 'aws'
+    ;;   * :provider :aws
     ;;   * :message suggests scope expansion
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**")
+                         :auth-detection "warn")))
       ;; Mock parse
       (helpers-spec-mock-bash-parse
        "aws-vault exec prod -- cat /workspace/file.txt"
@@ -372,7 +280,7 @@ security:
       ;; Mock semantics: Cloud auth with file operations
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "/workspace/file.txt" :command-name "cat"))
-       (list :provider "aws" :command "aws-vault exec prod")
+       (list :provider :aws :command "aws-vault exec prod")
        '(:ratio 1.0))
 
       ;; Validate command - should succeed with warning
@@ -382,10 +290,7 @@ security:
                      scope-config)))
         ;; Assert: Warning for cloud auth
         (expect (plist-get result :warning) :to-equal "cloud_auth_detected")
-        (expect (plist-get result :provider) :to-equal "aws"))
-
-      ;; Cleanup
-      (delete-file scope-yml))))
+        (expect (plist-get result :provider) :to-equal :aws)))))
 
 (provide 'error-messages-spec)
 ;;; error-messages-spec.el ends here

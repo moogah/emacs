@@ -81,24 +81,35 @@ COMMAND is the command string that triggered detection."
              (result (jf/gptel-scope--validate-cloud-auth nil cloud-config)))
         (expect result :to-be nil))))
 
-  ;; === Configuration loading ===
+  ;; === Configuration loading (drawer reader) ===
+  ;;
+  ;; The legacy YAML loader and `jf/gptel-scope-yaml--merge-schema-defaults'
+  ;; have been deleted (cycle-3 delete-yaml-and-security-residue).  The
+  ;; auth-detection round-trip is now exercised by the drawer-fixture loader
+  ;; tests via `jf/gptel-test--with-scope-drawer'.
 
-  (describe "cloud configuration loading"
+  (describe "cloud configuration loading (drawer reader)"
 
-    (it "loads allow mode"
-      (let* ((schema (list :cloud (list :auth-detection "allow")))
-             (merged (jf/gptel-scope-yaml--merge-schema-defaults schema)))
-        (expect (plist-get (plist-get merged :cloud) :auth-detection) :to-equal "allow")))
+    (it "loads allow mode from drawer"
+      (jf/gptel-test--with-scope-drawer
+          '((:GPTEL_SCOPE_CLOUD_AUTH . "allow"))
+        (let ((config (jf/gptel-scope--load-from-buffer (current-buffer))))
+          (expect (plist-get (plist-get config :cloud) :auth-detection)
+                  :to-equal "allow"))))
 
-    (it "loads warn mode"
-      (let* ((schema (list :cloud (list :auth-detection "warn")))
-             (merged (jf/gptel-scope-yaml--merge-schema-defaults schema)))
-        (expect (plist-get (plist-get merged :cloud) :auth-detection) :to-equal "warn")))
+    (it "loads warn mode from drawer"
+      (jf/gptel-test--with-scope-drawer
+          '((:GPTEL_SCOPE_CLOUD_AUTH . "warn"))
+        (let ((config (jf/gptel-scope--load-from-buffer (current-buffer))))
+          (expect (plist-get (plist-get config :cloud) :auth-detection)
+                  :to-equal "warn"))))
 
-    (it "loads deny mode"
-      (let* ((schema (list :cloud (list :auth-detection "deny")))
-             (merged (jf/gptel-scope-yaml--merge-schema-defaults schema)))
-        (expect (plist-get (plist-get merged :cloud) :auth-detection) :to-equal "deny")))
+    (it "loads deny mode from drawer"
+      (jf/gptel-test--with-scope-drawer
+          '((:GPTEL_SCOPE_CLOUD_AUTH . "deny"))
+        (let ((config (jf/gptel-scope--load-from-buffer (current-buffer))))
+          (expect (plist-get (plist-get config :cloud) :auth-detection)
+                  :to-equal "deny"))))
 
     (it "defaults to warn when missing"
       (let* ((cloud-auth (cloud-auth-spec--make-cloud-auth-ops :aws "aws configure"))
@@ -242,27 +253,10 @@ COMMAND is the command string that triggered detection."
       (helpers-spec-teardown-session))
 
     (it "allows cloud auth with warning in warn mode"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**")
+                           :write '("/workspace/**")
+                           :auth-detection "warn")))
         (helpers-spec-mock-bash-parse
          "aws-vault exec prod -- aws s3 ls"
          '("aws-vault" "aws") t)
@@ -273,31 +267,13 @@ security:
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "aws-vault exec prod -- aws s3 ls" "/workspace" scope-config)))
           (expect (plist-get result :warning) :to-equal "cloud_auth_detected")
-          (expect (plist-get result :provider) :to-equal "aws"))
-        (delete-file scope-yml)))
+          (expect (plist-get result :provider) :to-equal "aws"))))
 
     (it "allows cloud auth silently in allow mode"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"allow\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**")
+                           :write '("/workspace/**")
+                           :auth-detection "allow")))
         (helpers-spec-mock-bash-parse
          "aws-vault exec prod -- ls"
          '("aws-vault" "ls") t)
@@ -307,31 +283,13 @@ security:
          '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "aws-vault exec prod -- ls" "/workspace" scope-config)))
-          (expect result :to-be nil))
-        (delete-file scope-yml)))
+          (expect result :to-be nil))))
 
     (it "denies cloud auth in deny mode"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"deny\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**")
+                           :write '("/workspace/**")
+                           :auth-detection "deny")))
         (helpers-spec-mock-bash-parse
          "gcloud config set project foo"
          '("gcloud") t)
@@ -342,67 +300,30 @@ security:
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "gcloud config set project foo" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "cloud_auth_denied")
-          (expect (plist-get result :provider) :to-equal "gcp"))
-        (delete-file scope-yml)))
+          (expect (plist-get result :provider) :to-equal "gcp"))))
 
     (it "denies unlisted provider even in warn mode"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-  allowed_providers:
-    - aws
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**")
+                           :write '("/workspace/**")
+                           :auth-detection "warn"
+                           :allowed-providers '(:aws))))
         (helpers-spec-mock-bash-parse
          "az login" '("az") t)
         (helpers-spec-mock-bash-semantics
          (list (helpers-spec--make-file-op :write "/workspace/auth.json" :command-name "az"))
-         (list :provider "azure" :command "az login")
+         (list :provider :azure :command "az login")
          '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "az login" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "cloud_provider_denied")
-          (expect (plist-get result :provider) :to-equal "azure"))
-        (delete-file scope-yml)))
+          (expect (plist-get result :provider) :to-equal :azure))))
 
     (it "skips cloud auth validation when no cloud auth detected"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"deny\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**")
+                           :write '("/workspace/**")
+                           :auth-detection "deny")))
         (helpers-spec-mock-bash-parse
          "ls /workspace" '("ls") t)
         (helpers-spec-mock-bash-semantics
@@ -410,8 +331,7 @@ security:
          nil '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "ls /workspace" "/workspace" scope-config)))
-          (expect result :to-be nil))
-        (delete-file scope-yml)))))
+          (expect result :to-be nil))))))
 
 (provide 'cloud-auth-spec)
 ;;; cloud-auth-spec.el ends here

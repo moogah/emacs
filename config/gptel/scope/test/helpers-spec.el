@@ -167,89 +167,42 @@ If EXIT-CODE is nil, defaults to 0 (success)."
 
 ;;; Fixture Creation Helpers
 
-(defun helpers-spec-make-scope-yml (content)
-  "Create temporary scope.yml file with CONTENT.
-Returns path to the created file."
-  (let ((scope-file (make-temp-file "scope-" nil ".yml")))
-    (with-temp-file scope-file
-      (insert content))
-    scope-file))
+(cl-defun helpers-spec-make-scope-config
+    (&key read write execute modify deny read-metadata
+          (auth-detection "warn") allowed-providers)
+  "Construct a scope-config plist directly for validator tests.
 
-(defun helpers-spec-make-minimal-scope ()
-  "Create minimal valid scope.yml for testing.
-Returns path to the created file."
-  (helpers-spec-make-scope-yml
-   "paths:
-  read:
-    - \"/workspace\"
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute:
-    - \"/workspace/scripts/**\"
-  modify:
-    - \"/workspace/config/**\"
-  deny:
-    - \"/etc/**\"
+Returns the canonical plist shape produced by
+`jf/gptel-scope--load-from-buffer' (see
+`register/shape/scope-config-plist'): top-level keys :paths and :cloud
+only.  No :security key (deleted in cycle-1; see
+`register/invariant/scope-no-security-key-in-plist').
 
-bash_tools:
-  deny:
-    - rm
-    - sudo
+This replaces the historical scope-yml-on-disk + load-schema path:
+unit tests construct the plist directly rather than round-tripping
+through a YAML file or an org drawer.  For tests that exercise the
+loader itself (drawer parsing, file fallback), use
+`jf/gptel-test--with-scope-drawer' or write a real `session.org' to a
+tmpdir."
+  (list :paths (list :read read
+                     :read-metadata read-metadata
+                     :write write
+                     :modify modify
+                     :execute execute
+                     :deny deny)
+        :cloud (list :auth-detection auth-detection
+                     :allowed-providers allowed-providers)))
 
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-
-(defun helpers-spec-make-scope-with-cloud-deny ()
-  "Create scope.yml with cloud auth denied.
-Returns path to the created file."
-  (helpers-spec-make-scope-yml
-   "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-
-bash_tools:
-  deny: [rm]
-
-cloud:
-  auth_detection: \"deny\"
-
-security:
-  enforce_parse_complete: true
-"))
-
-(defun helpers-spec-make-scope-with-allowed-providers (providers)
-  "Create scope.yml with specific allowed cloud PROVIDERS.
-PROVIDERS should be a list like (:aws :gcp).
-Returns path to the created file."
-  (let ((providers-yaml
-         (mapconcat (lambda (p) (format "    - %s" (substring (symbol-name p) 1)))
-                    providers "\n")))
-    (helpers-spec-make-scope-yml
-     (format "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-
-bash_tools:
-  deny: [rm]
-
-cloud:
-  auth_detection: \"warn\"
-  allowed_providers:
-%s
-
-security:
-  enforce_parse_complete: true
-" providers-yaml))))
+(defun helpers-spec-make-minimal-scope-config ()
+  "Construct a minimal valid scope-config plist for testing.
+Returns a plist matching `register/shape/scope-config-plist'."
+  (helpers-spec-make-scope-config
+   :read    '("/workspace" "/workspace/**")
+   :write   '("/workspace/**")
+   :execute '("/workspace/scripts/**")
+   :modify  '("/workspace/config/**")
+   :deny    '("/etc/**")
+   :auth-detection "warn"))
 
 ;;; Assertion Helpers
 
@@ -430,81 +383,62 @@ Also converts YAML boolean keywords to Emacs booleans:
       (mapcar #'helpers-spec--convert-vectors-to-lists obj)))
    (t obj)))
 
-(defun helpers-spec-load-scope-config (scope-file)
-  "Load scope configuration from SCOPE-FILE.
-Returns scope-config plist ready for validation functions."
-  (jf/gptel-scope-yaml--load-schema scope-file))
+;; Note: scope-yml fixtures and YAML-based loader helpers were retired
+;; alongside `jf/gptel-scope-yaml--load-schema' in cycle-3
+;; (delete-yaml-and-security-residue). validation/ tests now construct
+;; scope-config plists directly via `helpers-spec-make-scope-config' or
+;; — for loader tests — drawer fixtures via
+;; `jf/gptel-test--with-scope-drawer'.
+;;
+;; The legacy helpers below (`helpers-spec-make-scope-yml',
+;; `helpers-spec-load-scope-config', `helpers-spec--scope-with-paths',
+;; `helpers-spec--scope-with-cloud', `helpers-spec-make-minimal-scope',
+;; `helpers-spec-make-scope-with-cloud-deny',
+;; `helpers-spec-make-scope-with-allowed-providers') survive only as
+;; load-time defuns so that integration/expansion specs that have not
+;; yet been migrated still load.  Calling them will signal a runtime
+;; error because the underlying YAML loader is gone.
 
-(defun helpers-spec--scope-with-paths (read write execute modify deny)
-  "Build scope.yml with operation-specific paths.
-READ, WRITE, EXECUTE, MODIFY, DENY are lists of path patterns.
+(defun helpers-spec-make-scope-yml (content)
+  "Deprecated.  Returns a temp filename containing CONTENT.
 
-Returns formatted YAML string."
-  (let ((format-paths (lambda (paths)
-                        (if paths
-                            (mapconcat (lambda (p) (format "    - \"%s\"" p))
-                                       paths "\n")
-                          "    []"))))
-    (format "paths:
-  read:
-%s
-  write:
-%s
-  execute:
-%s
-  modify:
-%s
-  deny:
-%s
+The YAML loader these temp files were intended for has been deleted
+(cycle-3 delete-yaml-and-security-residue).  Use
+`helpers-spec-make-scope-config' for unit tests, or
+`jf/gptel-test--with-scope-drawer' for loader tests."
+  (let ((scope-file (make-temp-file "scope-" nil ".yml")))
+    (with-temp-file scope-file
+      (insert content))
+    scope-file))
 
-bash_tools:
-  deny: []
+(defun helpers-spec-make-minimal-scope ()
+  "Deprecated.  Use `helpers-spec-make-minimal-scope-config' instead."
+  (helpers-spec-make-scope-yml
+   "paths:\n  read:\n    - \"/workspace\"\n"))
 
-cloud:
-  auth_detection: \"warn\"
+(defun helpers-spec-load-scope-config (_scope-file)
+  "Deprecated stub: the YAML loader is gone.
 
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"
-            (funcall format-paths read)
-            (funcall format-paths write)
-            (funcall format-paths execute)
-            (funcall format-paths modify)
-            (funcall format-paths deny))))
+Tests that called `helpers-spec-load-scope-config' should be migrated
+to construct a plist directly via `helpers-spec-make-scope-config' or
+to use `jf/gptel-test--with-scope-drawer' + `jf/gptel-scope--load-from-buffer'."
+  (error "helpers-spec-load-scope-config: YAML loader removed; migrate to helpers-spec-make-scope-config or jf/gptel-test--with-scope-drawer"))
 
-(defun helpers-spec--scope-with-cloud (auth-detection allowed-providers)
-  "Build scope.yml with cloud config.
-AUTH-DETECTION is a string (\"allow\", \"warn\", or \"deny\").
-ALLOWED-PROVIDERS is a list of provider keywords (:aws, :gcp, etc.).
+(defun helpers-spec--scope-with-paths (&rest _args)
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec--scope-with-paths: YAML helpers removed; use helpers-spec-make-scope-config"))
 
-Returns formatted YAML string."
-  (let ((providers-yaml
-         (if allowed-providers
-             (format "  allowed_providers:\n%s"
-                     (mapconcat (lambda (p)
-                                  (format "    - %s"
-                                          (substring (symbol-name p) 1)))
-                                allowed-providers "\n"))
-           "")))
-    (format "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
+(defun helpers-spec--scope-with-cloud (&rest _args)
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec--scope-with-cloud: YAML helpers removed; use helpers-spec-make-scope-config"))
 
-bash_tools:
-  deny: []
+(defun helpers-spec-make-scope-with-cloud-deny ()
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec-make-scope-with-cloud-deny: YAML helpers removed; use helpers-spec-make-scope-config"))
 
-cloud:
-  auth_detection: \"%s\"
-%s
-
-security:
-  enforce_parse_complete: true
-"
-            auth-detection
-            providers-yaml)))
+(defun helpers-spec-make-scope-with-allowed-providers (_providers)
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec-make-scope-with-allowed-providers: YAML helpers removed; use helpers-spec-make-scope-config"))
 
 ;;; Additional Custom Matchers
 

@@ -2,7 +2,7 @@
 name: migrate-validation-tests
 description: Rewrite validation/* test fixtures from scope.yml on disk to drawer-fixture buffers
 change: gptel-scope-in-org-properties
-status: ready
+status: needs-review
 relations: []
 ---
 
@@ -117,3 +117,86 @@ design.md § Migration Plan step 8
 ### Re-blocked (partial)
 
 - `disposition-empty-drawer-collapse` (cycle-3 user disposition) — only the empty-drawer-specific test cases need to wait. Land everything else first; flag any empty-drawer pin with a `;; depends on disposition-empty-drawer-collapse` comment so the cycle-3 follow-up can find them.
+
+## Observations
+
+- 53 failures → 2 failures in `config/gptel/scope/test/validation/`. The two
+  remaining failures are in `resource-limits-spec.el` and were
+  already failing pre-task (output-truncation message strings, not
+  scope/YAML/drawer-related). Per the task brief contract those count
+  as pre-existing pass-throughs.
+- The validator's expected scope-config plist shape is much simpler
+  than the historical YAML-loaded plist: only `:paths` (with
+  `:read`/`:read-metadata`/`:write`/`:modify`/`:execute`/`:deny`) and
+  `:cloud` (with `:auth-detection`/`:allowed-providers`). All
+  validation tests assert against this shape; constructing the plist
+  directly via a new `helpers-spec-make-scope-config` builder is far
+  cleaner than round-tripping through a YAML fixture or even a
+  drawer fixture for tests that don't exercise the loader itself.
+- `cloud-auth` provider matching uses `member` against the
+  `:allowed-providers` list. The historical pipeline-behavioral
+  fixture passed strings (`"aws"`, `"azure"`, `"gcp"`) for both the
+  detected provider and the allowed list, while the unit-level
+  detection tests (in the same spec) used keywords (`:aws`, `:azure`,
+  `:gcp`). I unified to keywords — the unit-level detection tests are
+  the older convention and `cloud-auth-spec--make-cloud-auth-ops`
+  takes a keyword `provider` parameter, so keyword discipline is
+  internally consistent.
+- The `cloud-auth-spec` retained one drawer-fixture test for
+  auth-detection round-trip; this exercises the loader's scalar key
+  path (`GPTEL_SCOPE_CLOUD_AUTH`) rather than the validator. It's
+  the only validation/* test that uses the drawer macro, since the
+  remaining tests only need a plist input to validation functions.
+
+## Discoveries
+
+- **Validator helper signatures already drop `security-config`.**
+  The brief said five cycle-2 specs broke because helpers no longer
+  take `security-config` and the migration should drop the parameter.
+  In `comprehensive-nil-handling-spec.el` only two tests actually
+  passed `security-config`, not five — the other three named in the
+  brief (`parse_incomplete when parse fails and enforce is true`,
+  `permissive mode allows incomplete parse with warning`,
+  `permissive mode allows partial syntax`) live in
+  `parse-completeness-spec.el` and broke because of the
+  YAML-fixture/`enforce_parse_complete: false` interaction. The
+  permissive-mode tests cover behaviour that no longer exists (the
+  override is gone) and were deleted; the strict-mode tests were
+  rewritten to use the plist builder. So the brief's count of "5
+  specs" maps to "2 helper-signature changes + 3 deleted/rewritten
+  YAML+permissive tests."
+- **`jf/gptel-scope--load-config` no longer returns nil.** Per the
+  cycle-3 disposition (Option B) the loader composes the deny-all
+  defaults plist when the drawer is missing/empty. The dispatcher's
+  `no_scope_config` short-circuit was removed in
+  `--final-deny-response`, so `authorize-tool-call-spec.el`'s "no
+  scope configuration" branch had to be rewritten: feeding the
+  loader the deny-all-defaults plist drives validation to fail, which
+  routes through `--trigger-inline-expansion` like any other scope
+  violation.
+- **`helpers-spec--convert-vectors-to-lists` is now an orphan.** It
+  was only used by the deleted YAML-loader path. I left the function
+  in place rather than deleting it because removing more dead helpers
+  would expand the diff into territory that other (unmigrated)
+  integration/expansion specs may still reference indirectly. Filed
+  as a candidate cleanup for the next task that touches this file.
+- **Many integration/expansion specs still use the deleted helpers.**
+  Files like `expansion-ui-spec.el`, `expansion-roundtrip-spec.el`,
+  `bash-parser-contract-layers-spec.el`, etc. call
+  `helpers-spec-make-scope-yml`, `helpers-spec-load-scope-config`,
+  `helpers-spec--scope-with-paths`, etc. These are outside this
+  task's `validation/*` scope. To avoid breaking them at *load* time
+  (which would mask any unrelated issues), the helpers are kept as
+  stubs: `helpers-spec-make-scope-yml` still creates the temp file;
+  the `--load-scope-config` and `--scope-with-paths` helpers signal
+  with a clear migration message. Migration of those tests is
+  follow-up work tracked by `migrate-integration-tests` and
+  `migrate-expansion-tests`.
+- **Snapshot tracked at scope level, not validation level.** The
+  task's verification step references "validation/test-results.txt"
+  but the actually-tracked snapshot is `config/gptel/scope/test-report.txt`
+  (one level up). I regenerated that snapshot via `--report` rather
+  than `--snapshot`, since the former is what's tracked. The new
+  scope-level report shows the validation/ migration's downstream
+  effect on the broader scope test suite — many integration/expansion
+  specs are still red because they haven't been migrated yet.

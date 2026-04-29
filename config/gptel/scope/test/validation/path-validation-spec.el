@@ -29,7 +29,9 @@
 
 ;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (scope-dir (expand-file-name "../.." test-dir)))
+       (scope-test-dir (expand-file-name ".." test-dir))
+       (scope-dir (expand-file-name ".." scope-test-dir)))
+  (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
   (require 'jf-gptel-scope-shell-tools (expand-file-name "scope-shell-tools.el" scope-dir)))
 
 ;;; Helper Functions
@@ -139,31 +141,27 @@
         (expect (plist-get result :allowed) :to-be nil)
         (expect (plist-get result :error) :to-equal "denied-pattern")))))
 
-;;; Security Config Validation Tests (from validators-spec.el)
+;;; Security Config Validation Tests
+;;
+;; The historical `jf/gptel-scope-yaml--validate-security-config' has
+;; been deleted (cycle-3 delete-yaml-and-security-residue). The
+;; security keys it validated (`enforce_parse_complete',
+;; `max_coverage_threshold') are now module-level defconsts; the
+;; per-session override is gone. See
+;; `register/invariant/scope-parse-complete-is-true' and
+;; `register/invariant/scope-coverage-threshold-is-1'.
 
-(describe "jf/gptel-scope-yaml--validate-security-config"
+(describe "scope security defconsts"
 
-  (it "accepts valid boolean enforce-parse-complete"
-    (let ((security-config '(:enforce-parse-complete t)))
-      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-be t)))
+  (it "enforce-parse-complete defconst is fixed at t"
+    ;; register/invariant/scope-parse-complete-is-true (confirmed cycle-2):
+    ;; the validator reads this defconst directly; no per-session override.
+    (expect jf/gptel-scope--enforce-parse-complete :to-be t))
 
-  (it "accepts valid threshold in range"
-    (let ((security-config '(:max-coverage-threshold 0.8)))
-      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-be t)))
-
-  (it "rejects threshold below 0.0"
-    (let ((security-config '(:max-coverage-threshold -0.1)))
-      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-throw)))
-
-  (it "rejects threshold above 1.0"
-    (let ((security-config '(:max-coverage-threshold 1.5)))
-      (expect (jf/gptel-scope-yaml--validate-security-config security-config) :to-throw)))
-
-  (it "accepts edge values 0.0 and 1.0"
-    (let ((config-zero '(:max-coverage-threshold 0.0))
-          (config-one '(:max-coverage-threshold 1.0)))
-      (expect (jf/gptel-scope-yaml--validate-security-config config-zero) :to-be t)
-      (expect (jf/gptel-scope-yaml--validate-security-config config-one) :to-be t))))
+  (it "coverage-threshold defconst is fixed at 1.0"
+    ;; register/invariant/scope-coverage-threshold-is-1 (confirmed cycle-2):
+    ;; the validator reads this defconst directly; no per-session override.
+    (expect jf/gptel-scope--coverage-threshold :to-equal 1.0)))
 
 ;;; Error Message Structure Tests (from validators-spec.el)
 
@@ -350,30 +348,81 @@
              (list (expand-file-name "~/**")))
             :to-be t)))
 
-;;; Key Normalization Tests (from helpers-spec.el)
+;;; Loader output shape (cycle-2 reconciliation)
+;;
+;; Buttercup specs for `register/invariant/scope-no-security-key-in-plist'
+;; and `register/shape/scope-config-plist'. These exercise the loader
+;; output (L1 of the deletion invariant) directly, so the loader
+;; cannot accidentally reintroduce a `:security' key without breaking
+;; tests. The L2 layer (no `:security' reads in scope-validation.el)
+;; is exercised by a structural-audit spec elsewhere.
 
-(describe "jf/gptel-scope-yaml--normalize-keys"
+(describe "invariant: scope-no-security-key-in-plist"
 
-  (it "converts snake_case to kebab-case"
-    (let ((plist '(:auth_detection "warn" :max_coverage_threshold 0.8)))
-      (let ((result (jf/gptel-scope-yaml--normalize-keys plist)))
-        (expect (plist-get result :auth-detection) :to-equal "warn")
-        (expect (plist-get result :max-coverage-threshold) :to-equal 0.8))))
+  (it "loader output from a complete drawer omits :security at top level"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/workspace"))
+          (:GPTEL_SCOPE_WRITE . ("/workspace/**"))
+          (:GPTEL_SCOPE_MODIFY . ("/workspace/config/**"))
+          (:GPTEL_SCOPE_EXECUTE . ("/workspace/scripts/**"))
+          (:GPTEL_SCOPE_DENY . ("/etc/**"))
+          (:GPTEL_SCOPE_CLOUD_AUTH . "warn")
+          (:GPTEL_SCOPE_CLOUD_PROVIDERS . ("aws" "gcp")))
+      (let ((result (jf/gptel-scope--load-from-buffer (current-buffer))))
+        (expect (plist-member result :security) :to-be nil))))
 
-  (it "recursively normalizes nested plists"
-    (let ((plist '(:cloud (:auth_detection "warn")
-                   :security (:enforce_parse_complete t))))
-      (let* ((result (jf/gptel-scope-yaml--normalize-keys plist))
-             (cloud (plist-get result :cloud))
-             (security (plist-get result :security)))
-        (expect (plist-get cloud :auth-detection) :to-equal "warn")
-        (expect (plist-get security :enforce-parse-complete) :to-be t))))
+  (it "loader output from a minimal drawer omits :security at top level"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/workspace")))
+      (let ((result (jf/gptel-scope--load-from-buffer (current-buffer))))
+        (expect (plist-member result :security) :to-be nil))))
 
-  (it "preserves non-plist values"
-    (let ((plist '(:commands ("ls" "cat") :threshold 0.8)))
-      (let ((result (jf/gptel-scope-yaml--normalize-keys plist)))
-        (expect (plist-get result :commands) :to-equal '("ls" "cat"))
-        (expect (plist-get result :threshold) :to-equal 0.8)))))
+  (it "the loader's plist has exactly the top-level keys :paths and :cloud"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/workspace")))
+      (let* ((result (jf/gptel-scope--load-from-buffer (current-buffer)))
+             (top-keys (cl-loop for k in result by #'cddr collect k)))
+        (expect (sort top-keys (lambda (a b) (string< (symbol-name a)
+                                                     (symbol-name b))))
+                :to-equal '(:cloud :paths))))))
+
+(describe "loader empty-drawer behaviour (cycle-3 disposition)"
+  ;; register/boundary/scope-config-loader, Option B: an empty drawer
+  ;; (no :GPTEL_SCOPE_* keys) yields the deny-all defaults plist; the
+  ;; dispatcher's authorisation outcome is per-violation deny, not
+  ;; `no_scope_config'.
+
+  (it "an empty-drawer plist passes --has-any-scope-key-p as nil"
+    (jf/gptel-test--with-scope-drawer '()
+      (let ((result (jf/gptel-scope--load-from-buffer (current-buffer))))
+        (expect (jf/gptel-scope--has-any-scope-key-p result) :to-be nil))))
+
+  (it "deny-all defaults shape matches scope-config-plist contract"
+    (let* ((defaults (jf/gptel-scope--deny-all-defaults))
+           (paths (plist-get defaults :paths))
+           (cloud (plist-get defaults :cloud)))
+      (expect (plist-member defaults :security) :to-be nil)
+      (expect (plist-get paths :read) :to-be nil)
+      (expect (plist-get paths :write) :to-be nil)
+      (expect (plist-get paths :modify) :to-be nil)
+      (expect (plist-get paths :execute) :to-be nil)
+      (expect (plist-get paths :deny) :to-be nil)
+      (expect (plist-get cloud :auth-detection) :to-equal "deny")
+      (expect (plist-get cloud :allowed-providers) :to-be nil)))
+
+  (it "deny-all defaults deny every per-path operation"
+    ;; Per-path validation against the deny-all defaults always returns
+    ;; an `:allowed nil :error "not-in-scope"' outcome -- not the
+    ;; legacy `no_scope_config' short-circuit.
+    (let* ((config (jf/gptel-scope--deny-all-defaults))
+           (read-result (jf/gptel-scope--validate-path-operation
+                         "/workspace/foo" :read config))
+           (write-result (jf/gptel-scope--validate-path-operation
+                          "/workspace/foo" :write config)))
+      (expect (plist-get read-result :allowed) :to-be nil)
+      (expect (plist-get read-result :error) :to-equal "not-in-scope")
+      (expect (plist-get write-result :allowed) :to-be nil)
+      (expect (plist-get write-result :error) :to-equal "not-in-scope"))))
 
 (provide 'path-validation-spec)
 

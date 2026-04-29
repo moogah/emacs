@@ -22,7 +22,11 @@
 ;; - jf/gptel-scope--trigger-inline-expansion
 ;;
 ;; Branches covered:
-;; 1. Missing config short-circuits to on-deny with :error no_scope_config
+;; 1. Empty drawer / missing config — loader composes deny-all defaults
+;;    (cycle-3 disposition, register/boundary/scope-config-loader Option B);
+;;    the dispatcher proceeds to validation and surfaces a per-violation
+;;    deny via the expansion UI just like any other scope failure.  The
+;;    legacy `no_scope_config' short-circuit is gone.
 ;; 2. Validation :allowed t invokes on-allow and skips expansion
 ;; 3. Validation failure invokes trigger-inline-expansion with
 ;;    (check-result, tool-name, callback)
@@ -62,25 +66,37 @@
 
 (describe "jf/gptel-scope-authorize-tool-call"
 
-  (describe "no scope configuration"
+  (describe "empty / missing scope configuration"
+    ;; Cycle-3 disposition (Option B; register/boundary/scope-config-loader):
+    ;; --load-config never returns nil. When the drawer is missing or
+    ;; carries no :GPTEL_SCOPE_* keys, the loader composes deny-all
+    ;; defaults; the dispatcher proceeds to validate against those
+    ;; defaults and routes the per-violation deny through the same
+    ;; expansion UI as any other scope failure. The legacy
+    ;; `no_scope_config' short-circuit was removed alongside the
+    ;; nil-returning loader.
 
     (before-each
-      (spy-on 'jf/gptel-scope--load-config :and-return-value nil)
-      (spy-on 'jf/gptel-scope--validate-tool-call)
+      (spy-on 'jf/gptel-scope--load-config
+              :and-return-value (jf/gptel-scope--deny-all-defaults))
+      (spy-on 'jf/gptel-scope--validate-tool-call
+              :and-return-value (authorize-spec--denied-check-result
+                                 "not-in-scope" "/workspace/foo"))
       (spy-on 'jf/gptel-scope--trigger-inline-expansion))
 
-    (it "invokes on-deny with no_scope_config and never validates"
-      (let (allow-called deny-response)
+    (it "validates against deny-all defaults and routes denial through expansion"
+      (let (allow-called deny-called)
         (jf/gptel-scope-authorize-tool-call
          "read_file_in_scope" 'read (list "/workspace/foo")
          (lambda () (setq allow-called t))
-         (lambda (response) (setq deny-response response)))
+         (lambda (_response) (setq deny-called t)))
+        ;; Deny-all defaults make validation fail → trigger expansion;
+        ;; neither on-allow nor on-deny fires synchronously.
         (expect allow-called :to-be nil)
-        (expect (plist-get deny-response :error) :to-equal "no_scope_config")
-        (expect (plist-get deny-response :success) :to-be nil)
-        (expect 'jf/gptel-scope--validate-tool-call :not :to-have-been-called)
+        (expect deny-called :to-be nil)
+        (expect 'jf/gptel-scope--validate-tool-call :to-have-been-called)
         (expect 'jf/gptel-scope--trigger-inline-expansion
-                :not :to-have-been-called))))
+                :to-have-been-called))))
 
   (describe "validation passes"
 
