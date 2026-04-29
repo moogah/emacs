@@ -2,9 +2,8 @@
 name: rewire-persistent-agent
 description: Update persistent-agent creation to embed scope drawer in initial session.org; stop writing scope.yml for agents
 change: gptel-scope-in-org-properties
-status: blocked
-relations:
-  - blocked-by:implement-profile-drawer-applicator
+status: ready
+relations: []
 ---
 
 ## Cites register entries

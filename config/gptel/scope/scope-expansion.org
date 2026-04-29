@@ -609,14 +609,17 @@ buffer was modified, nil on dedup short-circuit)."
 ** Add Bash Command to Scope
 
 This function handles bash scope expansion by delegating path-shaped
-resources to =--write-pattern-to-drawer=. For command-name resources
-(bare names like "tree"), the function emits a user message and invokes
-the callback with =:success nil= — command-level expansion is not
-supported in the operation-first model (commands are validated by the
-file operations they perform, not by name). The callback invocation on
-the bare-command branch is the =scope-rearch-followups= Bug 2 fix folded
-into this rewire (per Decision 7) so the wrapper always receives a
-structured response.
+resources to =--write-pattern-to-drawer= (via =--add-path-to-scope=). For
+command-name resources (bare names like "tree"), the function emits a
+user message and returns =nil= — command-level expansion is not supported
+in the operation-first model (commands are validated by the file
+operations they perform, not by name). Note: =--add-bash-to-scope= itself
+takes no callback parameter; the structured response to the wrapper is
+emitted by the OUTER action handler (=--add-to-scope= and friends), which
+unconditionally fires the callback after this function returns. Decision
+7's =scope-rearch-followups= Bug 2 fold-in (threading a no-op signal from
+this branch through to the callback's =:success= field) is deferred to
+=harden-add-to-scope-action-handler= (cycle-3); see that task's brief.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--add-bash-to-scope (resource tool &optional denied-operation)

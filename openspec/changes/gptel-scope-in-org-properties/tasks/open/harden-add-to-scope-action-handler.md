@@ -89,6 +89,38 @@ loudly if it does.
   `:match-pattern` AND a sibling `:read-directory` exists in the
   cluster.
 
+### Stage 4: Decision 7 Bug 2 — thread no-op signal back to callback
+
+**Discovered-from**: cycle-2 reviewer finding on `rewire-expansion-writer`
+(`.orchestrator/cycles/cycle-1777470320/reviews/rewire-expansion-writer.md`,
+Finding 2, advisory). design.md Decision 7 originally scoped this fold-in
+to `rewire-expansion-writer`; integrate-phase deferred it here because
+it's an action-layer guard, not a writer-layer change.
+
+The outer action handlers (`--add-to-scope`, `--add-wildcard-to-scope`,
+`--add-custom-to-scope`) currently fire the callback unconditionally with
+`:success t :patterns_added (vconcat patterns)` after delegating to
+`--write-pattern-to-drawer`. This is wrong when the writer was a no-op:
+
+- Bare-command branch in `--add-bash-to-scope` returns `nil` without
+  writing anything, but the outer handler still claims `:success t :patterns_added [<pattern>]`.
+- Dedup branch in `--write-pattern-to-drawer` returns `nil` (pattern
+  already present), but the outer handler also claims `:success t :patterns_added [<pattern>]`.
+
+Both produce a false-success the LLM acts on (retry-and-refail or
+trust-and-proceed). Fix: inspect the writer's return value
+(non-nil → wrote; nil → no-op) and emit either:
+
+- `:success t :patterns_added [<pattern>]` when the writer wrote, or
+- `:success nil :reason "command-level expansion not supported"` (bare
+  command branch) or
+- `:success t :patterns_added []` `:message "Pattern already in scope"`
+  (dedup branch).
+
+This is a single-site fix at the outer action handlers; the writer's
+return contract (non-nil pattern on write, nil on no-op) is already
+correct as of cycle-2.
+
 ### Tests
 
 Add a buttercup spec asserting:
@@ -105,6 +137,12 @@ Add a buttercup spec asserting:
   user-error; writer not invoked.
 - `:match-pattern` violation reaching the writer (defect contract) →
   writer signals the cycle-2 strict-error message.
+- (Stage 4) Bare-command bash violation → action handler emits
+  `:success nil :reason "command-level expansion not supported"`,
+  not a false-success.
+- (Stage 4) Pattern already in scope (writer dedup short-circuit) →
+  action handler emits `:success t :patterns_added [] :message
+  "Pattern already in scope"`, not a phantom-add.
 
 ## Verification
 
