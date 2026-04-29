@@ -27,6 +27,7 @@
 (require 'gptel-session-filesystem) ; jf/gptel--create-agent-directory,
                                     ;   jf/gptel--context-file-path
 (require 'gptel-session-logging)
+(require 'gptel-scope-profiles)     ; jf/gptel-scope-profile--render-drawer-text
 
 (defconst jf/gptel-persistent-agent--hrule
   (propertize "\n" 'face '(:inherit shadow :underline t :extend t))
@@ -107,35 +108,60 @@ FSM is the finite state machine managing the request."
         (overlay-put ov 'count (+ info-count (length tool-use)))
         (overlay-put ov 'after-string new-info-msg)))))
 
-(defun jf/gptel-persistent-agent--write-scope-file (session-dir allowed-paths)
-  "Write SESSION-DIR/scope.yml with read paths from ALLOWED-PATHS.
-ALLOWED-PATHS is a normalized list (caller has converted any vector).
-Empty/nil → `paths.read: []' (zero inheritance).
+(defconst jf/gptel-persistent-agent--standard-deny-paths
+  '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**")
+  "Standard glob patterns denied for every persistent agent.
+Embedded into the agent's `:GPTEL_SCOPE_DENY:' drawer key on creation
+\(cycle-2 task `rewire-persistent-agent'). Previously hard-coded inline
+in `jf/gptel-persistent-agent--write-scope-file' before that function
+was deleted.")
 
-Side effect only; returns nil."
-  (let ((scope-file (expand-file-name jf/gptel-session--scope-file session-dir)))
-    (with-temp-file scope-file
-      (insert "paths:\n")
-      (insert "  read:\n")
-      (if allowed-paths
-          (dolist (p allowed-paths)
-            (insert (format "    - \"%s\"\n" p)))
-        (insert "    []\n"))
-      (insert "  write:\n")
-      (insert "    - \"/tmp/**\"\n")
-      (insert "  deny:\n")
-      (dolist (p '("**/.git/**" "**/runtime/**" "**/.env" "**/node_modules/**"))
-        (insert (format "    - \"%s\"\n" p))))))
+(defun jf/gptel-persistent-agent--build-scope-plist (allowed-paths)
+  "Build the agent's scope plist from ALLOWED-PATHS.
+ALLOWED-PATHS is a normalized list of glob patterns (caller has
+converted any vector). nil/empty ⇒ no read access (zero inheritance).
+
+Returns a plist of `register/shape/scope-config-plist' shape:
+  (:paths (:read (...) :write (\"/tmp/**\") :deny (<standard set>)))
+
+Caller renders this via
+`jf/gptel-scope-profile--render-drawer-text' to obtain the
+`:PROPERTIES:' drawer-text-block embedded in the agent's
+`session.org'."
+  (list :paths
+        (list :read  (or allowed-paths nil)
+              :write '("/tmp/**")
+              :deny  jf/gptel-persistent-agent--standard-deny-paths)))
+
+(defun jf/gptel-persistent-agent--initial-body (prompt)
+  "Build the user-block body of a fresh agent session.org.
+PROMPT becomes the body of the first `#+begin_user' block.
+
+Returns a string of the form
+  #+begin_user
+  <prompt>
+  #+end_user
+\\n
+
+Caller is expected to prepend a `:PROPERTIES:' drawer rendered by
+`jf/gptel-scope-profile--render-drawer-text' (Mode 2a) before
+writing the file, so that the composed
+`(concat drawer-text body)' carries exactly one `:PROPERTIES:' /
+`:END:' pair (`register/invariant/scope-drawer-no-duplication')."
+  (format "#+begin_user\n%s\n#+end_user\n" prompt))
 
 (defun jf/gptel-persistent-agent--initial-content (preset-sym parent-id prompt)
-  "Build initial session.org content for an agent: drawer + populated user block.
+  "Build initial session.org content: drawer (preset + parent only) + user block.
 PRESET-SYM is the preset name as a symbol.
 PARENT-ID is the parent session id string.
 PROMPT becomes the body of the first `#+begin_user' block.
 
-Format mirrors `jf/gptel--initial-session-content' (sessions/commands.el).
-Cross-reference: keep shapes aligned. The creation-spec test asserts
-on the full layout, so format drift in either function fails the test."
+NOTE: Production — `jf/gptel-persistent-agent--task' — no longer
+routes through this helper. It composes the drawer via
+`jf/gptel-scope-profile--render-drawer-text' (which carries the
+resolved `:GPTEL_SCOPE_*' keys) and the body via
+`jf/gptel-persistent-agent--initial-body'. This helper is retained
+for direct callers and helper-level tests."
   (format ":PROPERTIES:\n:GPTEL_PRESET: %s\n:GPTEL_PARENT_SESSION_ID: %s\n:END:\n#+begin_user\n%s\n#+end_user\n"
           (symbol-name preset-sym) parent-id prompt))
 
@@ -221,11 +247,12 @@ PROMPT is the initial user message text.
 ALLOWED-PATHS is an optional vector or list of glob patterns; nil/empty ⇒
 no read access (zero inheritance).
 
-The agent's session.org is created with a self-describing :PROPERTIES:
-drawer (preset + parent session id), opened with `find-file-noselect',
-and configured by the find-file-hook auto-init pipeline. The agent's
-request runs through chat-mode's public programmatic-send API with
-FSM handlers composed for parent overlay feedback and final-text return."
+The agent's session.org is created with a self-describing
+`:PROPERTIES:' drawer (preset + parent session id + scope keys),
+opened with `find-file-noselect', and configured by the
+find-file-hook auto-init pipeline. The agent's request runs through
+chat-mode's public programmatic-send API with FSM handlers composed
+for parent overlay feedback and final-text return."
   (unless jf/gptel--session-dir
     (user-error "PersistentAgent requires parent persistent session"))
   (let ((preset-sym (intern preset)))
@@ -243,10 +270,19 @@ FSM handlers composed for parent overlay feedback and final-text return."
                                  allowed-paths))
            (session-dir (jf/gptel--create-agent-directory
                          jf/gptel--branch-dir preset description))
-           (initial-content
-            (jf/gptel-persistent-agent--initial-content
-             preset-sym parent-id prompt)))
-      (jf/gptel-persistent-agent--write-scope-file session-dir allowed-paths-list)
+           ;; Build the scope plist from allowed-paths + standard
+           ;; denies, render the drawer-text-block (Mode 2a) carrying
+           ;; preset + parent + :GPTEL_SCOPE_*: keys, and compose the
+           ;; full session.org content as drawer + body. No scope.yml
+           ;; is written — drawer-resident scope (cycle-2 task
+           ;; rewire-persistent-agent).
+           (scope-plist
+            (jf/gptel-persistent-agent--build-scope-plist allowed-paths-list))
+           (drawer-text
+            (jf/gptel-scope-profile--render-drawer-text
+             preset-sym parent-id scope-plist))
+           (body (jf/gptel-persistent-agent--initial-body prompt))
+           (initial-content (concat drawer-text body)))
       (let* ((session-file (jf/gptel--context-file-path session-dir))
              (_ (with-temp-file session-file
                   (insert initial-content)))
@@ -280,9 +316,11 @@ Sessions persist to disk with full conversation history.
 Use for complex research, open-ended exploration, or iterative tasks.
 
 IMPORTANT: typically pass `allowed_paths' to control the agent's file access.
-Use the read_file_in_scope tool on scope.yml to get your current allowed
-paths, then pass them to the agent. If allowed_paths is omitted or empty,
-the agent has NO read access."
+Use the read_file_in_scope tool on session.org to inspect the parent
+session's :PROPERTIES: drawer (the :GPTEL_SCOPE_READ: and
+:GPTEL_SCOPE_WRITE: keys); pass relevant paths to the agent via
+allowed_paths. If allowed_paths is omitted or empty, the agent has NO
+read access."
  :function #'jf/gptel-persistent-agent--task
  :args '(( :name "preset"
            :type string

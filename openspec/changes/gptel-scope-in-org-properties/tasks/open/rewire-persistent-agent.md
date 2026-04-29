@@ -78,3 +78,96 @@ specs/gptel/persistent-agent/spec.md § REMOVED Requirements / "scope.yml in age
 
 ### Already-shipped inline fixes
 - `arch-cycle-1777460733-11`: write-side cloud-auth validation now active in `--render-drawer-text` / `--apply-to-drawer`. **Implication for this task**: the agent's profile must produce a valid `:auth-detection` (one of `"allow"`/`"warn"`/`"deny"`) or `--render-drawer-text` will signal an error.
+
+## Observations
+
+- **Two helpers introduced, one retained**: split body composition into
+  `jf/gptel-persistent-agent--initial-body (prompt)` (production) while
+  retaining the legacy `jf/gptel-persistent-agent--initial-content
+  (preset-sym parent-id prompt)` (4-arg, drawer + body, no scope keys).
+  The legacy function is no longer called from production
+  (`--task` composes drawer-text + body directly via the renderer);
+  it is kept solely to avoid churning helper-level test fixtures
+  outside this task's scope. `migrate-persistent-agent-tests` is the
+  natural home for any final cleanup.
+- **Scope-plist construction extracted**: introduced
+  `jf/gptel-persistent-agent--build-scope-plist (allowed-paths)` that
+  returns a `register/shape/scope-config-plist` with the standard
+  deny set. The deny set itself is hoisted to a defconst,
+  `jf/gptel-persistent-agent--standard-deny-paths`, both for
+  test-introspection and to make the deny vocabulary discoverable.
+- **No `:cloud` sub-plist constructed**: per the cycle-1 reconciliation
+  of `register/boundary/scope-profile-applicator`, omitting `:cloud`
+  means the rendered drawer carries zero `:GPTEL_SCOPE_CLOUD_*` keys
+  (validator nil-guard accepts a nil `:auth-detection`). This matches
+  typical agent profiles that do not declare cloud-auth. If a future
+  agent needs cloud-auth, the caller can pass an explicit `:cloud`
+  sub-plist; no scaffolding required.
+- **`--write-scope-file` deleted; `jf/gptel-session--scope-file`
+  constant unreferenced from this module** (still defined in
+  `gptel-session-constants` and removed by cycle-3
+  `delete-yaml-and-security-residue`).
+- **User-facing tool description rewritten**: the `gptel-make-tool`
+  `:description` now points the LLM at the parent's `session.org`
+  drawer (`:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:`) instead of
+  the obsolete `scope.yml` artifact.
+- **Overview docstring updated** to describe the drawer as the
+  carrier of both parent-link AND scope policy
+  (`:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:`, `:GPTEL_SCOPE_*:`),
+  and to call out that no `scope.yml` sidecar is written.
+
+## Discoveries
+
+- finding: register/shape/scope-config-plist
+  status: confirmed
+  load_bearing: true
+  description: |
+    The persistent-agent's directly-constructed scope-plist
+    (no `:cloud` sub-plist; `:paths` with `:read`/`:write`/`:deny`
+    only) is accepted by `--render-drawer-text` and produces a valid
+    `register/shape/drawer-text-block` Shape A. The omission of
+    `:modify` and `:execute` keys also collapses cleanly (the
+    renderer's `dolist` over op→key pairs only emits keys whose
+    value list is non-empty). Confirms the renderer's tolerance for
+    sparse plists.
+- finding: register/boundary/scope-profile-applicator (Mode 2a, direct call)
+  status: confirmed
+  load_bearing: true
+  description: |
+    `--render-drawer-text` is callable directly from a producer that
+    bypasses `--create-for-session` (which is the preset-resolving
+    path). The persistent-agent constructs its own scope-plist from
+    explicit per-call `allowed-paths` rather than resolving it from
+    a registered preset profile, so it routes to `--render-drawer-text`
+    directly. This is consistent with cycle-1's two-mode
+    documentation: the producer *may* skip `--create-for-session`
+    when its scope-plist is constructed elsewhere.
+- finding: persistent-agent test-fixture migration
+  status: expected_failures_documented
+  load_bearing: false
+  description: |
+    Three pre-existing tests in `creation-spec.el` fail post-rewire
+    (one drawer-shape strict-equality assertion; two `scope.yml`
+    presence assertions). All three are documented in the
+    `migrate-persistent-agent-tests` task per the cycle-2 plan. 33 of
+    36 specs continue to pass — including the directory-creation,
+    preset-validation, parent-session-requirement, FSM-handler-
+    composition, and final-text-extraction suites.
+- finding: residual `scope.yml` reference in tangled .el
+  status: confirmed_acceptable
+  load_bearing: false
+  description: |
+    A single occurrence of "scope.yml" remains in the tangled .el at
+    line 276 — it is an inline comment in `--task` that explicitly
+    states "No scope.yml is written — drawer-resident scope". This is
+    the cycle-2 transitional documentation pattern matched by the
+    rewire-session-creation precedent. Not a regression.
+- finding: register/invariant/scope-drawer-no-duplication
+  status: confirmed
+  load_bearing: true
+  description: |
+    Composition is `(concat drawer-text body)` where drawer-text
+    contains exactly one `:PROPERTIES:` / `:END:` pair (renderer
+    contract) and body
+    (`jf/gptel-persistent-agent--initial-body`) contains zero. The
+    invariant holds by construction.
