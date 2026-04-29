@@ -2,7 +2,7 @@
 name: finalize-no-scope-config-removal
 description: Migrate 2 failing integration tests, openspec/specs/gptel/scope.md, and config/gptel/scope/interfaces.org off the deleted no_scope_config error code
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations:
   - discovered-from:arch-cycle-1777478129-3
   - discovered-from:disposition-empty-drawer-collapse

@@ -192,10 +192,10 @@ C-c t    # Open test menu
 ```
 
 **Scope validation test organization:** `config/gptel/scope/test/` — mirrors the source module layout.
-- `yaml/` - `scope-yaml` module tests: schema loading, merge-schema-defaults, YAML boolean normalization, round-trip serialization
 - `validation/` - `scope-validation` module tests: path validation, cloud auth, file operations, parse completeness, path resolution, no-op allowance, resource limits, error messages, nil handling, JSON serialization warnings
 - `tool-wrapper/` - `scope-tool-wrapper` module tests: tool routing, allow-once enforcement, metadata gathering
 - `expansion/` - Expansion integration, expansion UI, expansion UI handlers
+- `drawer/` - Drawer-writer regression specs (e.g. drawer-singleton invariant)
 - `integration/` - Multi-module integration tests (scope-config, bash-parser, bash-scope-expansion, filesystem-scope, parallel-tool-callback, etc.)
 - `helpers-spec.el` - Shared test infrastructure (matchers, mocks, fixtures)
 

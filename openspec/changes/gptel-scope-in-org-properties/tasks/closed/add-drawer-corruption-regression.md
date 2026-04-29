@@ -2,7 +2,7 @@
 name: add-drawer-corruption-regression
 description: Regression test that an add-to-scope sequence produces exactly one PROPERTIES drawer with no duplication
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations: []
 ---
 

@@ -2,7 +2,7 @@
 name: reconcile-cycle-3-asks
 description: Apply cycle-3 user dispositions on Asks 1, 2, 3 — register edits, cloud-provider loader-side normalizer with round-trip test, and drawer-emission spec/fixture rewrite.
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations:
   - discovered-from:ask-arch-cycle-1777478129-1
   - discovered-from:ask-arch-cycle-1777478129-2
