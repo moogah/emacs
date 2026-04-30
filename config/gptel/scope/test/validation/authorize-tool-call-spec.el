@@ -238,7 +238,75 @@
         (expect (spy-calls-count 'jf/gptel-scope--validate-tool-call)
                 :to-equal 2)
         (expect (spy-calls-count 'jf/gptel-scope--trigger-inline-expansion)
-                :to-equal 1)))))
+                :to-equal 1))))
+
+  ;; Regression: PersistentAgent parent-drawer contamination.
+  ;;
+  ;; The first authorize-tool-call runs in the request's buffer (the
+  ;; agent's session buffer for a PA tool).  When validation fails the
+  ;; expansion UI fires, the user clicks an action in a DIFFERENT
+  ;; buffer (the parent's overlay), and the action handler runs the
+  ;; wrapper-callback in that click-buffer.  The wrapper-callback
+  ;; recursively calls authorize-tool-call to re-validate.  Without
+  ;; the with-current-buffer guard, the recursion runs in
+  ;; click-buffer's context — `--load-config' reads the wrong session's
+  ;; drawer and prompt-expansion captures `:chat-buffer = click-buffer'
+  ;; so the writer contaminates the wrong session.
+  ;;
+  ;; This spec asserts that the recursive authorize-tool-call runs with
+  ;; `current-buffer' restored to the original buffer where the first
+  ;; authorize call entered.
+  (describe "origin-buffer preservation across expansion re-entry"
+
+    (before-each
+      ;; First validate denies, second allows (after add-to-scope).
+      (let ((call-count 0))
+        (spy-on 'jf/gptel-scope--load-config
+                :and-return-value '(:config t))
+        (spy-on 'jf/gptel-scope--validate-tool-call
+                :and-call-fake
+                (lambda (&rest _)
+                  (cl-incf call-count)
+                  (if (= call-count 1)
+                      (authorize-spec--denied-check-result)
+                    (authorize-spec--allowed-check-result))))))
+
+    (it "recursive authorize runs in the original buffer, not the action's buffer"
+      (let ((origin-buf (generate-new-buffer "*authorize-origin*"))
+            (click-buf  (generate-new-buffer "*authorize-click*"))
+            (recursion-cb-buf nil))
+        (unwind-protect
+            (progn
+              ;; The expansion trigger simulates the user clicking
+              ;; from click-buf and the wrapper-callback firing from
+              ;; that buffer's stack frame (this is what the action
+              ;; handler does in production).
+              (spy-on 'jf/gptel-scope--trigger-inline-expansion
+                      :and-call-fake
+                      (lambda (_check _tool-name cb)
+                        (with-current-buffer click-buf
+                          (funcall cb (list :approved t)))))
+              ;; Capture the buffer current at the second
+              ;; --load-config call (which is the re-validation entry).
+              (spy-on 'jf/gptel-scope--load-config
+                      :and-call-fake
+                      (lambda (&rest _)
+                        (setq recursion-cb-buf (current-buffer))
+                        '(:config t)))
+
+              (with-current-buffer origin-buf
+                (jf/gptel-scope-authorize-tool-call
+                 "read_file_in_scope" 'read (list "/workspace/x")
+                 (lambda () nil)
+                 (lambda (_resp) nil)))
+
+              ;; The second --load-config (called from the recursive
+              ;; authorize-tool-call) MUST have run in origin-buf, not
+              ;; click-buf.  Without the with-current-buffer guard
+              ;; this would equal click-buf.
+              (expect recursion-cb-buf :to-equal origin-buf))
+          (kill-buffer origin-buf)
+          (kill-buffer click-buf))))))
 
 (provide 'authorize-tool-call-spec)
 

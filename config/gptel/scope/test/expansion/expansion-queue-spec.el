@@ -21,8 +21,12 @@
 ;; These tests exercise the queue API directly:
 ;; - jf/gptel-scope-prompt-expansion (entry point, queue-aware)
 ;; - jf/gptel-scope--process-expansion-queue (called after each action)
-;; - jf/gptel-scope--expansion-queue (buffer-local queue variable)
-;; - jf/gptel-scope--expansion-active (buffer-local flag)
+;; - jf/gptel-scope--expansion-queue (frame-global queue variable)
+;; - jf/gptel-scope--expansion-active (frame-global flag)
+;;
+;; The transient menu is frame-modal, so queue and active flag are
+;; frame-global (`defvar`, not `defvar-local`).  Per-entry `:chat-buffer`
+;; routes drawer writes to the session that owns each prompt.
 
 ;;; Code:
 
@@ -73,10 +77,18 @@ Returns the captured calls list (same reference as queue-test--transient-calls).
 ;;; Test Suites
 
 ;; ============================================================
-;; SUITE 1: Queue variables exist and are buffer-local
+;; SUITE 1: Queue variables are frame-global
 ;; ============================================================
 
 (describe "Expansion queue: variables"
+
+  (before-each
+    (setq jf/gptel-scope--expansion-queue nil)
+    (setq jf/gptel-scope--expansion-active nil))
+
+  (after-each
+    (setq jf/gptel-scope--expansion-queue nil)
+    (setq jf/gptel-scope--expansion-active nil))
 
   (it "jf/gptel-scope--expansion-queue is defined"
     (expect (boundp 'jf/gptel-scope--expansion-queue) :to-be t))
@@ -84,22 +96,62 @@ Returns the captured calls list (same reference as queue-test--transient-calls).
   (it "jf/gptel-scope--expansion-active is defined"
     (expect (boundp 'jf/gptel-scope--expansion-active) :to-be t))
 
-  (it "queue is buffer-local (concurrent sessions don't interfere)"
+  (it "queue is frame-global (write in any buffer, observed in any buffer)"
+    ;; The transient is frame-modal, so a single global queue suffices.
+    ;; PersistentAgents in particular need this: their session.org buffer
+    ;; is invisible (find-file-noselect), so a buffer-local queue there
+    ;; would be unreachable from the user's overlay-driven view.
     (let ((buf-a (generate-new-buffer "*queue-test-a*"))
           (buf-b (generate-new-buffer "*queue-test-b*")))
       (unwind-protect
           (progn
-            ;; Set queue in buffer A
             (with-current-buffer buf-a
-              (setq-local jf/gptel-scope--expansion-queue '(item-a)))
-            ;; Buffer B should have empty queue
+              (setq jf/gptel-scope--expansion-queue '(item-a)))
             (with-current-buffer buf-b
-              (expect jf/gptel-scope--expansion-queue :to-be nil))
-            ;; Buffer A still has its item
-            (with-current-buffer buf-a
-              (expect jf/gptel-scope--expansion-queue :to-equal '(item-a))))
+              (expect jf/gptel-scope--expansion-queue
+                      :to-equal '(item-a))))
         (kill-buffer buf-a)
-        (kill-buffer buf-b)))))
+        (kill-buffer buf-b))))
+
+  (it "active flag is frame-global (set in any buffer, observed in any)"
+    (let ((buf-a (generate-new-buffer "*queue-test-a*"))
+          (buf-b (generate-new-buffer "*queue-test-b*")))
+      (unwind-protect
+          (progn
+            (with-current-buffer buf-a
+              (setq jf/gptel-scope--expansion-active t))
+            (with-current-buffer buf-b
+              (expect jf/gptel-scope--expansion-active :to-be t)))
+        (kill-buffer buf-a)
+        (kill-buffer buf-b))))
+
+  ;; Regression: the original bug.  prompt-expansion ran in buffer A
+  ;; (e.g. an invisible PersistentAgent session), the user answered the
+  ;; transient from buffer B (the parent's overlay), the action handler
+  ;; ran process-expansion-queue in buffer B.  Under defvar-local that
+  ;; cleared B's flag without touching A's, leaving A wedged at active=t
+  ;; and the next prompt-expansion from A queued forever.  With a frame-
+  ;; global flag the pump in B clears the flag that A's prompt set.
+  (it "buffer-A flip-set is cleared by buffer-B pump (PA hang regression)"
+    (let ((agent-buf  (generate-new-buffer "*queue-regress-agent*"))
+          (parent-buf (generate-new-buffer "*queue-regress-parent*")))
+      (unwind-protect
+          (progn
+            ;; Simulate: prompt-expansion fires in agent buffer, sets flag.
+            (with-current-buffer agent-buf
+              (setq jf/gptel-scope--expansion-active t)
+              (setq jf/gptel-scope--expansion-queue nil))
+            ;; Simulate: user answers, action handler runs in parent
+            ;; buffer, calls process-expansion-queue from there.
+            (with-current-buffer parent-buf
+              (jf/gptel-scope--process-expansion-queue))
+            ;; Flag MUST be nil when read back from the agent buffer —
+            ;; otherwise the next prompt-expansion from the agent would
+            ;; queue silently and the agent would hang.
+            (with-current-buffer agent-buf
+              (expect jf/gptel-scope--expansion-active :to-be nil)))
+        (kill-buffer agent-buf)
+        (kill-buffer parent-buf)))))
 
 
 ;; ============================================================

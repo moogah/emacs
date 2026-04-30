@@ -13,14 +13,24 @@
 (require 'transient)
 (require 'jf-gptel-scope-validation)
 
-(defvar-local jf/gptel-scope--expansion-queue nil
-  "Queue of pending expansion prompts waiting to be shown.
-Each entry is a plist with :violation, :callback, :patterns, :tool-name,
-:chat-buffer.  Buffer-local so concurrent gptel sessions don't interfere.")
+(defvar jf/gptel-scope--expansion-queue nil
+  "Frame-global FIFO queue of pending expansion prompts awaiting display.
+Each entry is a plist with `:violation', `:callback', `:patterns',
+`:tool-name', `:chat-buffer'.  The transient menu is frame-modal, so a
+single global queue suffices: per-buffer queues would never enable
+concurrent UI, and PersistentAgents' invisible session buffers cannot
+host buffer-local state the user can drain.  Drawer writes for each
+entry route to the entry's `:chat-buffer' via
+`jf/gptel-scope--current-chat-buffer'.")
 
-(defvar-local jf/gptel-scope--expansion-active nil
+(defvar jf/gptel-scope--expansion-active nil
   "Non-nil when an expansion transient menu is currently displayed.
-Used to decide whether to show transient immediately or queue.")
+Frame-global: set by `jf/gptel-scope-prompt-expansion' when the queue is
+empty and a transient is shown, cleared by
+`jf/gptel-scope--process-expansion-queue' when the queue drains.  Read
+to decide between SHOW-NOW (open a new transient) and QUEUE (append to
+`jf/gptel-scope--expansion-queue').  See the section docstring above for
+the rationale behind frame-global state.")
 
 (defun jf/gptel-scope--process-expansion-queue ()
   "Process the next queued expansion prompt, or clear the active flag.

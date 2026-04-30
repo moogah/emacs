@@ -211,6 +211,12 @@ Run this after preset registration to inject skill content into presets."
 ;; contributor to the corruption. Re-enable to capture a fresh run.
 ;; (jf/load-module (expand-file-name "config/gptel/drawer-trace.el" jf/emacs-dir))
 
+;; Persistent-agent hang trace — standalone diagnostic. Loads the
+;; advice definitions but does NOT install them; activate per-session
+;; with `M-x jf/gptel-pa-trace-start' before reproducing a hang, then
+;; `M-x jf/gptel-pa-trace-stop' / `jf/gptel-pa-trace-snapshot'.
+(jf/load-module (expand-file-name "config/gptel/tools/persistent-agent-trace.el" jf/emacs-dir))
+
 (defun jf/gptel-launcher ()
   "Launch gptel session with a selected backend and model.
 Prompts for display method, then backend:model selection using

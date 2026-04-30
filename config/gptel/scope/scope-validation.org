@@ -804,6 +804,24 @@ that authorizes the whole pending invocation. Re-validating would
 prompt the user again for the remaining violations, which defeats
 the "just let this one through" intent.
 
+*Origin-buffer is preserved across re-entry.* The expansion-UI
+wrapper-callback fires from inside the action handler, whose
+=current-buffer= is the buffer the user clicked from — typically NOT
+the buffer that owns the pending tool call (e.g. for PersistentAgents
+the click happens in the parent's overlay buffer while the pending
+tool call belongs to the agent's invisible session buffer). Both
+=jf/gptel-scope--load-config= (which reads buffer-local
+=jf/gptel--branch-dir= to pick a drawer) and any subsequent
+=jf/gptel-scope-prompt-expansion= (which captures =(current-buffer)=
+as =:chat-buffer= for the writer) read =current-buffer=, so the
+re-entrant call MUST run in the request's original buffer or
+re-validation routes to the wrong session and writes contaminate
+the wrong drawer. We capture =origin-buffer= at the top of
+=authorize-tool-call= and re-establish it via =with-current-buffer=
+across the wrapper-callback so on-allow / on-deny / re-entry all run
+in the same buffer context as the original call. See
+=openspec/specs/gptel/scope.md= § Authorize-tool-call origin buffer.
+
 #+begin_src emacs-lisp
 (defun jf/gptel-scope--final-deny-response (tool-name args check-result)
   "Return the response plist that should be delivered for a denied call.
@@ -848,8 +866,15 @@ command passes.  Allow-once bypasses re-validation and authorizes
 the pending invocation outright.
 
 This function is async: expansion UI may resolve on a later turn, so
-the callbacks must be prepared to run after this function returns."
-  (let ((config (jf/gptel-scope--load-config)))
+the callbacks must be prepared to run after this function returns.
+
+The wrapper-callback re-establishes ORIGIN-BUFFER (the buffer current
+at first entry, typically the request-owning buffer) for on-allow,
+on-deny, and the re-entrant authorize-tool-call call, so re-validation
+loads the right session's drawer and any follow-up prompt-expansion
+captures the right `:chat-buffer'."
+  (let ((origin-buffer (current-buffer))
+        (config (jf/gptel-scope--load-config)))
     ;; --load-config always returns a plist (deny-all defaults when
     ;; the drawer is missing/empty per Option B); proceed directly to
     ;; validation. An empty drawer denies every op as a per-violation
@@ -865,21 +890,32 @@ the callbacks must be prepared to run after this function returns."
         (jf/gptel-scope--trigger-inline-expansion
          check-result tool-name
          (lambda (expansion-result)
-           (cond
-            ((not (plist-get expansion-result :approved))
-             (funcall on-deny
-                      (jf/gptel-scope--final-deny-response
-                       tool-name args check-result)))
-            ;; Allow-once: single-use bypass, skip re-validation so
-            ;; remaining denials in the same command don't prompt.
-            ((plist-get expansion-result :allowed-once)
-             (funcall on-allow))
-            ;; Add-to-scope: re-validate against the updated config.
-            ;; If another op is still denied, the next iteration
-            ;; prompts for it.
-            (t
-             (jf/gptel-scope-authorize-tool-call
-              tool-name operation args on-allow on-deny))))))))))
+           ;; Re-establish the origin buffer.  Without this, the
+           ;; recursive authorize-tool-call below reads
+           ;; `jf/gptel--branch-dir' from the action handler's
+           ;; current-buffer (the buffer the user clicked from),
+           ;; causing re-validation to load the wrong session's
+           ;; drawer; subsequent prompt-expansion captures the wrong
+           ;; `:chat-buffer' and the writer contaminates the wrong
+           ;; drawer.  See section commentary above.
+           (with-current-buffer (if (buffer-live-p origin-buffer)
+                                    origin-buffer
+                                  (current-buffer))
+             (cond
+              ((not (plist-get expansion-result :approved))
+               (funcall on-deny
+                        (jf/gptel-scope--final-deny-response
+                         tool-name args check-result)))
+              ;; Allow-once: single-use bypass, skip re-validation so
+              ;; remaining denials in the same command don't prompt.
+              ((plist-get expansion-result :allowed-once)
+               (funcall on-allow))
+              ;; Add-to-scope: re-validate against the updated config.
+              ;; If another op is still denied, the next iteration
+              ;; prompts for it.
+              (t
+               (jf/gptel-scope-authorize-tool-call
+                tool-name operation args on-allow on-deny)))))))))))
 #+end_src
 
 * Violation-Info Building
