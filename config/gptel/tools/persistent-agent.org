@@ -526,7 +526,11 @@ read access."
            :description "Array of glob patterns for paths the agent can access. If omitted, agent has no read access."))
  :category "gptel-persistent"
  :async t
- :confirm t
+ ;; :confirm t intentionally omitted: gptel-chat-mode lacks a
+ ;; tool-confirm UI for :confirm t tools, causing the FSM to hang in
+ ;; TOOL state with an empty rendered tool block. Tracked in
+ ;; .tasks/chat-mode-tool-confirm-ui-missing.md. Restore :confirm t
+ ;; once that .tasks/ item lands.
  :include t)
 #+end_src
 

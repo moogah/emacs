@@ -7,6 +7,8 @@ relations:
   - blocked-by:add-drawer-corruption-regression
   - blocked-by:finalize-no-scope-config-removal
   - blocked-by:reconcile-cycle-3-asks
+  - blocked-by:harden-persistent-agent-callback-on-error
+  - blocked-by:decouple-auto-init-state-from-preset-application
 ---
 
 ## Cites register entries
