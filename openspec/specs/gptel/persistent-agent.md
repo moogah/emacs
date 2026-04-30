@@ -15,22 +15,21 @@ Agent configuration comes ONLY from:
 2. **Explicit allowed_paths parameter** (scope permissions)
 
 Agents do NOT inherit:
-- Parent's scope.yml paths
+- Parent's drawer scope keys
 - Parent's backend/model/temperature
 - Parent's tools or system message
 
 **Path configuration**:
 - `allowed_paths` provided → agent uses exactly those patterns
-- `allowed_paths` nil/empty → agent gets `read: []` (no read permissions)
+- `allowed_paths` nil/empty → agent's drawer omits `:GPTEL_SCOPE_READ:` (no read permissions)
 - **Never** inherits parent's allowed paths
 
 ### Agent Session Structure
 
 ```
 <parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/
-├── session.md           # Agent conversation
+├── session.org          # Agent conversation + :PROPERTIES: drawer (preset, parent id, scope keys)
 ├── metadata.yml         # type="agent", parent_session_id
-├── scope.yml            # Explicit paths only
 └── tools.org            # Tool execution log
 ```
 
@@ -84,7 +83,7 @@ PersistentAgent SHALL only operate within persistent session buffers with preset
 
 #### Scenario: Explicit path configuration (zero inheritance)
 - **WHEN** `allowed_paths` not provided (nil)
-- **THEN** agent has no read permissions (scope.yml has `read: []`)
+- **THEN** agent has no read permissions (the drawer omits `:GPTEL_SCOPE_READ:`)
 - **AND** paths NOT inherited from parent
 - **WHEN** `allowed_paths` is empty array `[]`
 - **THEN** agent has no read permissions
@@ -94,7 +93,7 @@ PersistentAgent SHALL only operate within persistent session buffers with preset
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions under parent's branch directory with isolated configuration.
+The system SHALL create agent sessions under parent's branch directory with isolated configuration. The agent's `session.org` is written with a `:PROPERTIES:` drawer at `point-min` containing `:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:`, and the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`). No `scope.yml` is written.
 
 **Implementation**: `config/gptel/tools/persistent-agent.org`
 
@@ -103,38 +102,30 @@ The system SHALL create agent sessions under parent's branch directory with isol
 - **THEN** creates `<parent-branch-dir>/agents/researcher-<timestamp>-analyze-code/`
 - **AND** directory under parent's current branch, not session root
 
-#### Scenario: scope.yml with explicit paths only
+#### Scenario: Drawer with explicit paths only
 - **WHEN** creating agent with `allowed_paths ["/path/to/project/**"]`
-- **THEN** writes scope.yml:
-```yaml
-paths:
-  read:
-    - "/path/to/project/**"
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
+- **THEN** writes `session.org` with drawer:
+```org
+:PROPERTIES:
+:GPTEL_PRESET: researcher
+:GPTEL_PARENT_SESSION_ID: <parent-id>
+:GPTEL_SCOPE_READ: /path/to/project/**
+:GPTEL_SCOPE_WRITE: /tmp/**
+:GPTEL_SCOPE_DENY: **/.git/**
+:GPTEL_SCOPE_DENY+: **/runtime/**
+:GPTEL_SCOPE_DENY+: **/.env
+:GPTEL_SCOPE_DENY+: **/node_modules/**
+:END:
+#+begin_user
+
+#+end_user
 ```
 
 #### Scenario: Empty paths when not specified (zero inheritance)
 - **WHEN** creating agent without `allowed_paths`
-- **THEN** writes scope.yml:
-```yaml
-paths:
-  read: []
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
-```
-- **AND** agent has no read permissions
-- **AND** paths never inherited from parent (zero inheritance)
+- **THEN** the drawer omits `:GPTEL_SCOPE_READ:` entirely (the validator will load `:read nil`, i.e. no read permissions)
+- **AND** writes the standard write/deny defaults
+- **AND** paths are never inherited from parent (zero inheritance)
 
 #### Scenario: metadata.yml created
 - **WHEN** creating agent
@@ -147,9 +138,14 @@ paths:
 - **AND** no `current` symlink
 - **AND** agents are single-timeline only
 
+#### Scenario: No scope.yml written
+- **WHEN** creating any agent
+- **THEN** no `scope.yml` exists in the agent directory at any point in the lifecycle
+- **AND** the agent directory contains only `session.org`, `metadata.yml`, and (later) `tools.org`
+
 ### Requirement: Configuration isolation (zero inheritance)
 
-The system SHALL enforce zero inheritance - agent configuration ONLY from agent's scope.yml and preset definition.
+The system SHALL enforce zero inheritance — agent configuration ONLY from the agent's own `session.org` drawer and preset definition.
 
 **Buffer-local vars setup**:
 1. Set `jf/gptel--session-id` (agent's ID)
@@ -161,11 +157,11 @@ The system SHALL enforce zero inheritance - agent configuration ONLY from agent'
 Variables persist OUTSIDE preset's dynamic scope.
 
 #### Scenario: Path configuration never inherited
-- **WHEN** parent has allowed paths in scope.yml
+- **WHEN** parent has scope keys in its `session.org` drawer
 - **AND** agent created without `allowed_paths`
-- **THEN** agent gets empty read paths `[]`
-- **AND** does NOT inherit parent's paths
-- **AND** agent only accesses files explicitly in `allowed_paths` parameter
+- **THEN** the agent's drawer omits `:GPTEL_SCOPE_READ:` (empty read paths)
+- **AND** does NOT inherit parent's drawer scope keys
+- **AND** agent only accesses files explicitly in `allowed_paths` parameter (i.e. only those that the agent's drawer carries)
 
 #### Scenario: Buffer-local vars set before preset
 - **WHEN** initializing agent buffer
@@ -173,11 +169,11 @@ Variables persist OUTSIDE preset's dynamic scope.
 - **AND** then applies preset configuration
 - **AND** session vars persist outside preset's dynamic scope
 
-#### Scenario: Agent uses own scope.yml
+#### Scenario: Agent uses own drawer
 - **WHEN** agent buffer configured
-- **THEN** scope system reads from `<agent-dir>/scope.yml`
-- **AND** NOT from parent's scope.yml
-- **AND** validates agent tools against agent's scope only
+- **THEN** scope system reads from the agent buffer's `:PROPERTIES:` drawer (or, when called outside the buffer, from `<agent-dir>/session.org`'s drawer)
+- **AND** NOT from the parent's drawer or any `scope.yml`
+- **AND** validates agent tools against the agent's drawer only
 
 #### Scenario: Backend/model from preset only
 - **WHEN** agent configured
@@ -356,12 +352,12 @@ The system SHALL gracefully handle errors with consistent overlay cleanup.
 - Uses `jf/gptel--create-agent-directory` for directory creation
 - Writes metadata.yml directly (type="agent")
 - Registers via `jf/gptel--register-session`
-- Follows same file structure (session.md, scope.yml, metadata.yml)
+- Follows same file structure (session.org, metadata.yml); scope keys live inside `session.org`'s `:PROPERTIES:` drawer
 
 ### With Scope Subsystem
-- Writes scope.yml with explicit paths (from `allowed_paths` parameter)
-- NEVER reads parent's scope.yml
-- Agent tools validated against agent's scope.yml
+- Writes the agent's scope keys into `session.org`'s `:PROPERTIES:` drawer (from `allowed_paths` parameter)
+- NEVER reads parent's drawer
+- Agent tools validated against the agent's own drawer only
 - Meta tool categorization bypasses parent scope checks
 
 ### With gptel Package

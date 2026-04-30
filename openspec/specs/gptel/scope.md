@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The scope system gates gptel tool invocations against a `scope.yml` permission file living in the session's branch directory. Filesystem tools (read, write, edit) and the `run_bash_command` tool share a single authorization entrypoint that loads config, dispatches to the appropriate validator, and — on denial — routes through an inline expansion UI where the user can deny, allow for the pending invocation, or write a new pattern to `scope.yml`. Validation is semantic, not categorical: bash commands are judged by the file operations bash-parser extracts from them, not by command-name allowlists.
+The scope system gates gptel tool invocations against scope configuration stored in the session's `session.org` file-level `:PROPERTIES:` drawer. Filesystem tools (read, write, edit) and the `run_bash_command` tool share a single authorization entrypoint that loads config, dispatches to the appropriate validator, and — on denial — routes through an inline expansion UI where the user can deny, allow for the pending invocation, or write a new pattern into the drawer. Validation is semantic, not categorical: bash commands are judged by the file operations bash-parser extracts from them, not by command-name allowlists.
 
 ## Module Overview
 
@@ -11,44 +11,84 @@ All modules live under `config/gptel/scope/`.
 | File                        | Responsibilities                                                               |
 |-----------------------------|---------------------------------------------------------------------------------|
 | `scope-tool-wrapper.el`     | `gptel-make-scoped-tool` macro (always async; delegates to the authorize entry) |
-| `scope-validation.el`       | Config load, validators, bash pipeline, glob match, authorize dispatcher, violation-info, error formatter, expansion trigger |
-| `scope-yaml.el`             | YAML parse, vector→list, snake_case→kebab-case normalization, schema defaults, merge |
+| `scope-validation.el`       | Drawer config load (buffer-first), validators, bash pipeline, glob match, authorize dispatcher, violation-info, error formatter, expansion trigger; module-level `enforce-parse-complete` and `coverage-threshold` constants |
 | `scope-metadata.el`         | File metadata gathering (exists, git-tracked, git-repo, type)                   |
 | `scope-filesystem-tools.el` | `read_file_in_scope`, `write_file_in_scope`, `edit_file_in_scope`               |
 | `scope-shell-tools.el`      | `run_bash_command` tool, `request_scope_expansion` tool, command execution helpers |
-| `scope-expansion.el`        | Transient menu, `scope.yml` writer, queue (referenced here; full spec in scope-expansion) |
-| `interfaces.el`             | Executable contracts: canonical error codes, validation-result/violation-info validators, glob test cases |
+| `scope-expansion.el`        | Transient menu, drawer writer, queue (referenced here; full spec in scope-expansion) |
+| `interfaces.el`             | Executable contracts: canonical error codes, validation-result/violation-info validators, glob test cases, drawer key vocabulary |
 
-Config loading, metadata gathering, validation dispatch, expansion escalation, and error formatting all live in `scope-validation.el`. `scope-tool-wrapper.el` is a pure macro shim. `scope-shell-tools.el` contains no validation logic.
+Config loading, metadata gathering, validation dispatch, expansion escalation, and error formatting all live in `scope-validation.el`. `scope-tool-wrapper.el` is a pure macro shim. `scope-shell-tools.el` contains no validation logic. The previous `scope-yaml.el` boundary module is retired — drawer reads use `org-entry-get-multivalued-property` directly and there is no YAML parse / re-emit cycle.
 
 ## Requirements
 
+### Requirement: Scope drawer encoding
+
+Scope configuration SHALL be encoded as multi-value org properties in the file-level `:PROPERTIES:` drawer at `point-min` of `session.org`. Each list-shaped scope key uses Org's `+`-suffix multi-value convention so that one pattern occupies one drawer line. Scalar keys use single properties.
+
+**Implementation**: `config/gptel/scope/scope-validation.org` (drawer reader); `config/gptel/scope/interfaces.org` (drawer key vocabulary)
+
+The drawer key vocabulary:
+
+| Drawer key                       | Type     | Maps to plist               |
+|----------------------------------|----------|-----------------------------|
+| `:GPTEL_SCOPE_READ:` / `+:`      | list     | `(:paths (:read ...))`      |
+| `:GPTEL_SCOPE_WRITE:` / `+:`     | list     | `(:paths (:write ...))`     |
+| `:GPTEL_SCOPE_MODIFY:` / `+:`    | list     | `(:paths (:modify ...))`    |
+| `:GPTEL_SCOPE_EXECUTE:` / `+:`   | list     | `(:paths (:execute ...))`   |
+| `:GPTEL_SCOPE_DENY:` / `+:`      | list     | `(:paths (:deny ...))`      |
+| `:GPTEL_SCOPE_CLOUD_AUTH:`       | scalar   | `(:cloud (:auth-detection ...))` (`"allow"` / `"warn"` / `"deny"`) |
+| `:GPTEL_SCOPE_CLOUD_PROVIDERS:` / `+:` | list | `(:cloud (:allowed-providers ...))` |
+
+#### Scenario: Multi-value `+` form is the canonical encoding for list keys
+- **WHEN** the writer emits more than one path under `:GPTEL_SCOPE_READ`
+- **THEN** the first occurrence uses `:GPTEL_SCOPE_READ:` and subsequent occurrences use `:GPTEL_SCOPE_READ+:`
+- **AND** the reader uses `org-entry-get-multivalued-property` to recover the full list
+
+#### Scenario: Missing list key reads as empty list
+- **WHEN** the drawer omits `:GPTEL_SCOPE_MODIFY:` entirely
+- **THEN** the loaded plist carries `(:paths (:modify nil ...))` (empty list)
+- **AND** validation behaves as if the user had written zero modify-allowed patterns
+
+#### Scenario: Missing cloud-auth scalar defaults to `"warn"`
+- **WHEN** the drawer omits `:GPTEL_SCOPE_CLOUD_AUTH:`
+- **THEN** the loaded plist carries `(:cloud (:auth-detection "warn" ...))`
+
+#### Scenario: Invalid cloud-auth value rejected on load
+- **WHEN** `:GPTEL_SCOPE_CLOUD_AUTH:` is anything other than `"allow"`, `"warn"`, or `"deny"`
+- **THEN** the loader signals a schema error
+
 ### Requirement: Scope configuration loading
 
-The scope system SHALL load `scope.yml` fresh on every tool invocation from the session's branch directory. Configuration is never cached; the filesystem is the source of truth.
+The scope system SHALL load scope configuration fresh on every tool invocation from the session's `session.org` `:PROPERTIES:` drawer. Configuration is never cached; the buffer (or, when no buffer is open, the file) is the source of truth.
 
-**Implementation**: `config/gptel/scope/scope-validation.org` (loader), `config/gptel/scope/scope-yaml.org` (parser)
+**Implementation**: `config/gptel/scope/scope-validation.org` (loader)
 
-#### Scenario: Config resolved from buffer-local branch directory
-- **WHEN** a scoped tool is invoked
-- **THEN** the loader uses buffer-local `jf/gptel--branch-dir` when bound
-- **AND** falls back to the current buffer's file directory when that variable is unset
+#### Scenario: Config resolved from the chat buffer when one is loaded
+- **WHEN** a scoped tool is invoked from a chat buffer
+- **THEN** the loader reads the `:PROPERTIES:` drawer from that buffer's contents (not from disk)
+- **AND** the loader returns the same plist shape that previously came from `scope.yml`
 
-#### Scenario: Empty drawer denies per-violation
-- **WHEN** the resolved session has no `:GPTEL_SCOPE_*` keys (empty drawer, missing drawer, or no `session.org`)
-- **THEN** the loader composes deny-all defaults (empty `:paths` sub-lists, `"deny"` cloud auth-detection)
-- **AND** subsequent tool calls are validated against that config
-- **AND** every operation denies with the canonical per-violation code (e.g. `not-in-scope` for filesystem reads, `cloud_auth_denied` for cloud auth) and surfaces through the expansion UI like any other scope violation
+#### Scenario: Config falls back to the file when no buffer is loaded
+- **WHEN** the loader is invoked outside a chat buffer (e.g. a programmatic call from `request_scope_expansion`)
+- **THEN** the loader resolves the session's `session.org` path via buffer-local `jf/gptel--branch-dir` or the current buffer's file directory
+- **AND** parses the drawer headlessly via `with-temp-buffer` + `insert-file-contents` + the drawer reader
+
+#### Scenario: Missing or absent drawer denies with `no_scope_config`
+- **WHEN** the resolved `session.org` either does not exist or contains no `:PROPERTIES:` drawer with any `:GPTEL_SCOPE_*` key
+- **THEN** the authorization entrypoint invokes the on-deny thunk with `:error "no_scope_config"`
+- **AND** the response bypasses the expansion UI (missing config is not a scope violation)
 
 #### Scenario: Configuration read fresh every call
-- **WHEN** the same tool is called twice in a session after `scope.yml` is edited
-- **THEN** each call parses the file again; there is no in-memory cache
+- **WHEN** the same tool is called twice in a session after the drawer is edited
+- **THEN** each call re-reads the drawer; there is no in-memory cache
+- **AND** unsaved buffer edits are visible to the second call (buffer-first read)
 
 ### Requirement: Scope configuration shape
 
-Parsed `scope.yml` SHALL produce a plist with `:paths`, `:cloud`, and `:security` sections. Missing sections are merged with `jf/gptel-scope-yaml--schema-defaults`. YAML keys are snake_case on disk and kebab-case keywords in elisp.
+The loaded scope configuration SHALL produce a plist with `:paths` and `:cloud` sections only. Missing list entries default to nil (empty); the missing `:cloud` `:auth-detection` defaults to `"warn"`. There is no `:security` section in the configuration shape — `enforce-parse-complete` and `max-coverage-threshold` are module-level constants in `scope-validation.el`.
 
-**Implementation**: `config/gptel/scope/scope-yaml.org`
+**Implementation**: `config/gptel/scope/scope-validation.org` (drawer reader, defaults, and security constants)
 
 The canonical shape:
 
@@ -59,31 +99,25 @@ The canonical shape:
          :execute (PATTERN ...)
          :deny    (PATTERN ...))
  :cloud (:auth-detection     "allow"|"warn"|"deny"
-         :allowed-providers  (PROVIDER ...))
- :security (:enforce-parse-complete  BOOL
-            :max-coverage-threshold  FLOAT))
+         :allowed-providers  (PROVIDER ...)))
 ```
 
-#### Scenario: Snake_case keys normalized to kebab-case
-- **WHEN** YAML contains `auth_detection: warn` inside `cloud:`
-- **THEN** the elisp plist exposes `(:cloud (:auth-detection "warn" ...))`
+#### Scenario: Missing list keys default to nil
+- **WHEN** the drawer omits `:GPTEL_SCOPE_DENY:` entirely
+- **THEN** the merged config carries `(:paths (... :deny nil))`
 
-#### Scenario: YAML booleans normalized
-- **WHEN** YAML contains `enforce_parse_complete: true`
-- **THEN** the elisp plist value is `t` (not the `:true` keyword)
-- **AND** `false` or `null` become `nil`
+#### Scenario: Missing cloud-auth defaults to `"warn"`
+- **WHEN** the drawer omits `:GPTEL_SCOPE_CLOUD_AUTH:`
+- **THEN** the merged config carries `(:cloud (:auth-detection "warn" ...))`
 
-#### Scenario: Missing sections filled from defaults
-- **WHEN** `scope.yml` omits the `security` section
-- **THEN** the merged config carries `:enforce-parse-complete t` and `:max-coverage-threshold 0.8`
+#### Scenario: Invalid auth-detection rejected on load
+- **WHEN** `:GPTEL_SCOPE_CLOUD_AUTH:` is anything other than `"allow"`, `"warn"`, or `"deny"`
+- **THEN** the loader signals a schema error
 
-#### Scenario: Invalid auth_detection rejected on load
-- **WHEN** `cloud.auth_detection` is anything other than `"allow"`, `"warn"`, or `"deny"`
-- **THEN** `jf/gptel-scope-yaml--validate-cloud-config` signals a schema error
-
-#### Scenario: Invalid coverage threshold rejected on load
-- **WHEN** `security.max_coverage_threshold` is not a number in `[0.0, 1.0]`
-- **THEN** `jf/gptel-scope-yaml--validate-security-config` signals a schema error
+#### Scenario: No `:security` key in the loaded plist
+- **WHEN** the loader runs against any drawer
+- **THEN** the returned plist has exactly the keys `:paths` and `:cloud`
+- **AND** validators reading parse-complete or coverage-threshold consult module-level constants, not the plist
 
 ### Requirement: Scoped tool macro
 
@@ -120,7 +154,7 @@ The `gptel-make-scoped-tool` macro SHALL be the only way to define scope-aware t
 
 #### Scenario: Entrypoint loads config, validates, dispatches
 - **WHEN** the entrypoint is invoked with tool-name, operation, args, on-allow, on-deny
-- **THEN** it loads `scope.yml`, validates, and on success funcalls on-allow
+- **THEN** it loads scope from the session's `:PROPERTIES:` drawer, validates, and on success funcalls on-allow
 - **AND** on failure triggers the inline expansion UI
 
 #### Scenario: Entrypoint routes filesystem vs bash by :operation
@@ -136,7 +170,7 @@ The `gptel-make-scoped-tool` macro SHALL be the only way to define scope-aware t
 #### Scenario: Add-to-scope re-invokes the entrypoint
 - **WHEN** the user chooses "add to scope" in the expansion UI
 - **THEN** the dispatcher calls itself again with the same arguments
-- **AND** the pipeline re-validates against the now-updated `scope.yml`
+- **AND** the pipeline re-validates against the now-updated drawer
 - **AND** if another operation is still denied, the UI prompts again
 
 #### Scenario: Allow-once skips re-validation
@@ -251,7 +285,7 @@ The pattern vocabulary:
 | 2     | `check-no-op`                   | Zero-op commands exit the pipeline early                     |
 | 3     | `validate-file-operations`      | Route each extracted file op through `validate-path-operation` |
 | 4     | `validate-cloud-auth`           | Apply `cloud.auth-detection` mode and `allowed-providers`    |
-| —     | `check-coverage-threshold`      | Non-blocking warning below `security.max-coverage-threshold` |
+| —     | `check-coverage-threshold`      | Non-blocking warning below the fixed `1.0` coverage threshold |
 
 #### Scenario: Early exit on first failure
 - **WHEN** Stage 1 returns a parse_incomplete error
@@ -272,23 +306,19 @@ The pattern vocabulary:
 
 ### Requirement: Parse completeness gate
 
-Stage 1 SHALL refuse to validate commands when `bash-parser` reports `:parse-complete nil` and `security.enforce-parse-complete` is true.
+Stage 1 SHALL refuse to validate commands when `bash-parser` reports `:parse-complete nil`. Enforcement is unconditional; there is no per-session override.
 
 **Implementation**: `config/gptel/scope/scope-validation.org` (Stage 1)
 
-#### Scenario: Incomplete parse rejected when enforced
+#### Scenario: Incomplete parse rejected
 - **WHEN** the command has a syntax error (e.g. unclosed quote)
-- **AND** `security.enforce-parse-complete` is `t`
+- **AND** `bash-parser` reports `:parse-complete nil`
 - **THEN** Stage 1 returns `:error "parse_incomplete"` with `:parse-errors` and `:command`
-
-#### Scenario: Incomplete parse warned when not enforced
-- **WHEN** `security.enforce-parse-complete` is `nil`
-- **AND** the parse is incomplete
-- **THEN** Stage 1 emits an elisp `warn` and returns nil (pipeline continues)
+- **AND** Stages 2, 3, and 4 do not run
 
 #### Scenario: Complete parse proceeds silently
 - **WHEN** `:parse-complete` is `t`
-- **THEN** Stage 1 returns nil regardless of the enforce flag
+- **THEN** Stage 1 returns nil and the pipeline proceeds
 
 ### Requirement: No-op allowance
 
@@ -380,17 +410,16 @@ Stage 4 SHALL classify any detected cloud authentication against `cloud.auth-det
 
 ### Requirement: Coverage threshold warning
 
-The coverage check SHALL be non-blocking: it emits an elisp `warn` when `bash-parser`'s semantic plugin coverage ratio is below `security.max-coverage-threshold` and otherwise returns nil.
+The coverage check SHALL be non-blocking: it emits an elisp `warn` when `bash-parser`'s semantic plugin coverage ratio is below `1.0` (the constant `jf/gptel-scope--coverage-threshold` in `scope-validation.el`) and otherwise returns nil. The threshold is fixed at module load and is not configurable per session.
 
 **Implementation**: `config/gptel/scope/scope-validation.org`
 
 #### Scenario: Below-threshold coverage warns
-- **WHEN** `security.max-coverage-threshold` is `0.8`
-- **AND** `:coverage-ratio` is `0.5`
+- **WHEN** `:coverage-ratio` is below `1.0`
 - **THEN** the validator emits a `warn` and the pipeline still succeeds
 
 #### Scenario: At-or-above threshold silent
-- **WHEN** `:coverage-ratio` meets or exceeds the threshold
+- **WHEN** `:coverage-ratio` is `1.0`
 - **THEN** no warning is emitted
 
 ### Requirement: Canonical error codes
@@ -402,7 +431,7 @@ Validators SHALL produce only codes from the canonical set. Every consumer (`bui
 Canonical codes:
 - `denied-pattern` — path matched `paths.deny`
 - `not-in-scope` — path not covered by any allow pattern for the operation
-- `parse_incomplete` — bash-parser incomplete and enforcement is on
+- `parse_incomplete` — bash-parser incomplete (enforcement is unconditional)
 - `cloud_auth_denied` — cloud auth detected and policy is deny
 - `cloud_provider_denied` — provider not in `allowed-providers`
 
@@ -453,7 +482,7 @@ Error-code to resource-field mapping used by `build-violation-info`:
 
 #### Scenario: No persistence across invocations
 - **WHEN** a tool is allowed once and the same tool+resource is invoked again later
-- **AND** `scope.yml` has not been updated
+- **AND** the drawer has not been updated
 - **THEN** validation denies again and the expansion UI prompts again
 
 #### Scenario: Allow-once bypasses re-validation within a single prompt cycle
@@ -483,7 +512,7 @@ The metadata plist carries: `:path`, `:real-path`, `:exists`, `:git-tracked`, `:
 
 ## Integration Points
 
-- **Preset system** — scope profiles are extracted during preset registration and written into `scope.yml` at session creation; see `openspec/specs/gptel/scope-profiles.md` and `preset-registration.md`.
-- **Session persistence** — `scope.yml` lives in `~/.gptel/sessions/<id>/branches/<branch>/`; the loader resolves it via buffer-local `jf/gptel--branch-dir`. See `openspec/specs/gptel/sessions-persistence.md`.
+- **Preset system** — scope profiles are extracted during preset registration and applied to the session's `:PROPERTIES:` drawer at session creation; see `openspec/specs/gptel/scope-profiles.md` and `preset-registration.md`.
+- **Session persistence** — scope is embedded in `session.org`'s file-level `:PROPERTIES:` drawer in `~/.gptel/sessions/<id>/branches/<branch>/`; the loader resolves it via buffer-local `jf/gptel--branch-dir` (or the chat buffer's contents directly). See `openspec/specs/gptel/sessions-persistence.md`.
 - **Expansion UI** — denied calls funnel into the inline transient defined in `openspec/specs/gptel/scope-expansion.md`. `request_scope_expansion` in `scope-shell-tools.el` is a plain gptel tool (registered via `gptel-make-tool`) that the LLM invokes directly; it calls the same `jf/gptel-scope-prompt-expansion` the dispatcher uses.
 - **gptel package** — scoped tools register through `gptel-make-tool` under the `"scope"` category and run with `:async t`; `scope-tool-wrapper.el` is their only entry point.

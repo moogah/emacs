@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Defines the interactive UI that handles scope violations in gptel tool calls. The expansion UI has two entry points — **inline** (triggered by `scope-validation` when a scoped tool's validation fails) and **pre-emptive** (invoked by the LLM through the `request_scope_expansion` tool before attempting a call it expects will be denied) — that both land in the same transient menu. Every interaction resolves to exactly one of three outcomes for the pending tool call: **deny** → the tool errors back to the LLM; **allow-once** → the tool runs this one time with no persisted state; **add-to-scope** → `scope.yml` is updated and the tool runs.
+Defines the interactive UI that handles scope violations in gptel tool calls. The expansion UI has two entry points — **inline** (triggered by `scope-validation` when a scoped tool's validation fails) and **pre-emptive** (invoked by the LLM through the `request_scope_expansion` tool before attempting a call it expects will be denied) — that both land in the same transient menu. Every interaction resolves to exactly one of three outcomes for the pending tool call: **deny** → the tool errors back to the LLM; **allow-once** → the tool runs this one time with no persisted state; **add-to-scope** → the session's `:PROPERTIES:` drawer is updated and the tool runs.
 
 ## Inline vs Pre-emptive Expansion
 
 - **Inline.** `scope-validation` calls `jf/gptel-scope--trigger-inline-expansion` when `jf/gptel-scope-authorize-tool-call` receives a denial. The trigger builds a violation-info plist via `jf/gptel-scope--build-violation-info` and invokes `jf/gptel-scope-prompt-expansion`. The user's choice resolves through the wrapper's on-allow/on-deny thunks — there is no retry.
 - **Pre-emptive.** The `request_scope_expansion` gptel tool (defined in `scope-shell-tools.el`) lets the LLM construct a violation-info plist directly and call `jf/gptel-scope-prompt-expansion`, so it can ask for permission before invoking a tool it knows would be denied.
 
-Both entry points share the transient menu, the action handlers, the `scope.yml` writers, and the expansion queue.
+Both entry points share the transient menu, the action handlers, the drawer writers, and the expansion queue.
 
 ## Requirements
 
@@ -29,7 +29,7 @@ The scope validation layer SHALL route every denial through the expansion UI ins
 - **WHEN** the user chooses Add to Scope, Add Wildcard, Add Custom Pattern, or Allow Once
 - **THEN** the trigger callback receives `(:approved t)` (or `(:approved t :allowed-once t)` for Allow Once)
 - **AND** Allow Once invokes the on-allow thunk without re-validation
-- **AND** Add-to-scope variants re-enter `jf/gptel-scope-authorize-tool-call` so the updated `scope.yml` is re-validated (which may trigger another prompt if a different operation in the same command is still denied)
+- **AND** Add-to-scope variants re-enter `jf/gptel-scope-authorize-tool-call` so the updated drawer is re-validated (which may trigger another prompt if a different operation in the same command is still denied)
 
 #### Scenario: Denial resolves to a final error
 - **WHEN** the user chooses Deny (or the expansion callback errors)
@@ -55,8 +55,8 @@ The system SHALL expose a regular gptel tool that lets the LLM pre-emptively req
 
 #### Scenario: Approved pre-emptive request
 - **WHEN** the user chooses Add to Scope (or a wildcard/custom variant)
-- **THEN** `scope.yml` is updated and the LLM's response contains `:success t :patterns_added [...]`
-- **AND** the LLM may then invoke the originally intended tool, which will pass validation against the updated `scope.yml`
+- **THEN** the session's drawer is updated and the LLM's response contains `:success t :patterns_added [...]`
+- **AND** the LLM may then invoke the originally intended tool, which will pass validation against the updated drawer
 
 ### Requirement: Transient menu six-choice UI
 
@@ -92,11 +92,11 @@ Every violation-info plist produced by validation or by `request_scope_expansion
 #### Scenario: Operation keyword passes through to the UI
 - **WHEN** a path denial carries `:operation` (e.g. `:read`, `:write`, `:modify`, `:execute`)
 - **THEN** `build-violation-info` includes it in the violation-info under `:operation`
-- **AND** the Add-to-scope handlers use it to pick the target `paths.*` section in `scope.yml`
+- **AND** the Add-to-scope handlers use it to pick the target `:GPTEL_SCOPE_*` key in the session's `:PROPERTIES:` drawer
 
 ### Requirement: Deny action
 
-Selecting Deny SHALL reject the pending invocation and cause the tool to return an error to the LLM without modifying `scope.yml`.
+Selecting Deny SHALL reject the pending invocation and cause the tool to return an error to the LLM without modifying the session's drawer.
 
 **Implementation**: `config/gptel/scope/scope-expansion.org` — §Deny Expansion
 
@@ -123,14 +123,21 @@ Selecting Deny SHALL reject the pending invocation and cause the tool to return 
 
 ### Requirement: Add to scope action (exact pattern)
 
-"Add to Scope" SHALL write the exact denied resource to `scope.yml` under the section that matches the denied operation, then authorize the invocation.
+"Add to Scope" SHALL write the exact denied resource into the session's `:PROPERTIES:` drawer under the `:GPTEL_SCOPE_*` key matching the denied operation, save the buffer, then authorize the invocation.
 
 **Implementation**: `config/gptel/scope/scope-expansion.org` — §Add to Scope
 
-#### Scenario: Resource is routed by validation-type
+#### Scenario: Resource is routed by validation-type to the right drawer key
 - **WHEN** the user selects `a`
-- **THEN** `jf/gptel-scope--add-to-scope` reads `:validation-type` and routes through `jf/gptel-scope--write-pattern-to-scope` to either `jf/gptel-scope--add-path-to-scope` (for `path`) or `jf/gptel-scope--add-bash-to-scope` (for `bash`)
+- **THEN** `jf/gptel-scope--add-to-scope` reads `:validation-type` and routes through `jf/gptel-scope--write-pattern-to-drawer` to either the path-drawer-writer (for `path`) or the bash-drawer-writer (for `bash`)
+- **AND** the operation keyword (`:read`, `:write`, `:modify`, `:execute`, or `:deny`) selects the target drawer key (`:GPTEL_SCOPE_READ:`, etc.)
 - **AND** the denied resource is written verbatim (no wildcard added) except that directory paths with a trailing `/` are normalized to `.../**`
+
+#### Scenario: Drawer mutation is buffer-side and saved
+- **WHEN** the writer runs against a live chat buffer
+- **THEN** it uses `org-entry-put` (for the first value) or the multi-value helper (for subsequent values) to update the drawer at `point-min`
+- **AND** calls `save-buffer` so the on-disk `session.org` reflects the change
+- **AND** the buffer's undo history records the mutation (so `undo` can revert the add-to-scope)
 
 #### Scenario: Callback reports patterns added
 - **WHEN** the write succeeds
@@ -139,14 +146,15 @@ Selecting Deny SHALL reject the pending invocation and cause the tool to return 
 
 ### Requirement: Add wildcard action (parent directory /**)
 
-"Add Wildcard" SHALL write `<parent-directory>/**` — the parent of the denied resource with a recursive glob — to `scope.yml` and authorize the invocation. This action is hidden when the resource is itself a directory.
+"Add Wildcard" SHALL write `<parent-directory>/**` into the drawer's operation-matched key and authorize the invocation. This action is hidden when the resource is itself a directory.
 
 **Implementation**: `config/gptel/scope/scope-expansion.org` — §Add Wildcard to Scope; §Parent Wildcard For
 
-#### Scenario: Parent directory is computed and written
-- **WHEN** the user selects `w` for resource `~/foo/bar.txt`
+#### Scenario: Parent directory is computed and written to the drawer
+- **WHEN** the user selects `w` for resource `~/foo/bar.txt` with `:operation :read`
 - **THEN** `jf/gptel-scope--parent-wildcard-for` returns `~/foo/**`
-- **AND** `jf/gptel-scope--add-wildcard-to-scope` writes that pattern into the section matching `:operation`
+- **AND** the writer appends that pattern to `:GPTEL_SCOPE_READ:` (or starts a new `:GPTEL_SCOPE_READ:` line if absent)
+- **AND** the buffer is saved
 - **AND** the callback reports `:patterns_added [parent-wildcard]`
 
 #### Scenario: Wildcard option is suppressed for directory resources
@@ -155,66 +163,72 @@ Selecting Deny SHALL reject the pending invocation and cause the tool to return 
 
 ### Requirement: Add custom pattern action (user-editable)
 
-"Add Custom Pattern" SHALL prompt the user with the denied resource as the initial text, accept any edited pattern, and write it to `scope.yml`.
+"Add Custom Pattern" SHALL prompt the user with the denied resource as the initial text, accept any edited pattern, and write it to the operation-matched drawer key.
 
 **Implementation**: `config/gptel/scope/scope-expansion.org` — §Add Custom Pattern to Scope
 
-#### Scenario: User edits the pattern and it is written
+#### Scenario: User edits the pattern and it is written to the drawer
 - **WHEN** the user selects `c` and submits an edited pattern
-- **THEN** `jf/gptel-scope--add-custom-to-scope` writes that pattern via `jf/gptel-scope--write-pattern-to-scope`
+- **THEN** `jf/gptel-scope--add-custom-to-scope` writes that pattern via `jf/gptel-scope--write-pattern-to-drawer`
+- **AND** the buffer is saved
 - **AND** the callback reports `:success t :patterns_added [custom-pattern]`
 
 #### Scenario: Cancel (C-g) is treated as a silent deny
 - **WHEN** the user presses `C-g` at the prompt
 - **THEN** the callback receives `{:success nil :user_denied t}` with no error to the user
-- **AND** no write to `scope.yml` occurs
+- **AND** no drawer mutation occurs
 
 ### Requirement: Edit scope manually action
 
-"Edit Manually" SHALL open `scope.yml` in a buffer and quit the transient, leaving the pending tool call unresolved until the user drives it through another path.
+"Edit Manually" SHALL bring the chat buffer's `session.org` into focus (and unfold the `:PROPERTIES:` drawer at `point-min`) and quit the transient, leaving the pending tool call unresolved until the user drives it through another path.
 
 **Implementation**: `config/gptel/scope/scope-expansion.org` — §Edit Scope Manually
 
-#### Scenario: scope.yml is opened for editing
+#### Scenario: session.org is brought into focus
 - **WHEN** the user selects `e`
-- **THEN** `jf/gptel-scope--edit-scope` finds the context's `scope.yml`, opens it with `find-file`, and calls `transient-quit-one`
-- **AND** if no `scope.yml` can be resolved, the action signals `user-error`
+- **THEN** `jf/gptel-scope--edit-scope` switches to the chat buffer (if a different buffer is current), points at `point-min`, unfolds the `:PROPERTIES:` drawer, and calls `transient-quit-one`
+- **AND** if no chat buffer can be resolved, the action signals `user-error`
 
 ### Requirement: Section-targeted writes
 
-Add-to-scope variants SHALL use the denied operation to target the correct `paths.*` subsection of `scope.yml` (not the tool category, not the command name).
+Add-to-scope variants SHALL use the denied operation to target the correct `:GPTEL_SCOPE_*` drawer key (not the tool category, not the command name).
 
-**Implementation**: `config/gptel/scope/scope-expansion.org` — §Add Path to Scope; `config/gptel/scope/scope-validation.org` — §Operation → Scope Section Mapping
+**Implementation**: `config/gptel/scope/scope-expansion.org` — §Add Path to Scope; `config/gptel/scope/scope-validation.org` — §Operation → Drawer Key Mapping
 
-#### Scenario: Operation keyword maps to section
+#### Scenario: Operation keyword maps to drawer key
 - **WHEN** the violation carries `:operation :read`, `:write`, `:modify`, or `:execute`
-- **THEN** `jf/gptel-scope--map-operation-to-scope-section` returns `:read`, `:write`, or `:execute` and the pattern is written under `paths.<section>`
-- **AND** read-like granular operations (`:read-directory`, `:read-metadata`, `:match-pattern`) collapse to `:read`; write-like granular operations (`:create`, `:create-or-modify`, `:append`, `:delete`, `:modify`) collapse to `:write`
+- **THEN** `jf/gptel-scope--map-operation-to-drawer-key` returns `:GPTEL_SCOPE_READ`, `:GPTEL_SCOPE_WRITE`, `:GPTEL_SCOPE_MODIFY`, or `:GPTEL_SCOPE_EXECUTE` and the pattern is written under that key
+- **AND** read-like granular operations (`:read-directory`, `:read-metadata`, `:match-pattern`) collapse to `:GPTEL_SCOPE_READ`; write-like granular operations (`:create`, `:create-or-modify`, `:append`, `:delete`, `:modify`) collapse to `:GPTEL_SCOPE_WRITE`
 
-#### Scenario: Bash file-op denials route to path sections (no command-name expansion)
+#### Scenario: Bash file-op denials route to drawer keys (no command-name expansion)
 - **WHEN** a bash validation denies a file operation on an absolute path, tilde path, or glob pattern
 - **THEN** `jf/gptel-scope--add-bash-to-scope` delegates to `jf/gptel-scope--add-path-to-scope` with the denied operation
 - **AND** when the resource is a bare command name with no path characters, the handler emits a user message and does not write — there is no command-name expansion path in the operation-first model
 
 #### Scenario: Missing operation falls back safely
 - **WHEN** no `:operation` is present on the violation
-- **THEN** `jf/gptel-scope--add-path-to-scope` defaults the target section to `:read` (the safest choice for filesystem tools whose category the caller did not pass through)
+- **THEN** `jf/gptel-scope--add-path-to-scope` defaults the target drawer key to `:GPTEL_SCOPE_READ:` (the safest choice for filesystem tools whose category the caller did not pass through)
 
-### Requirement: scope.yml writer preserves structure
+### Requirement: Drawer writer preserves structure
 
-The YAML writer SHALL round-trip the parsed `scope.yml` plist, converting kebab-case Elisp keys back to snake_case for YAML output, without dropping sections or keys that the expansion action did not touch.
+The drawer writer SHALL update only the `:GPTEL_SCOPE_*` key being modified, leaving every other property in the drawer (`:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:`, other scope keys) unchanged. Mutations are append-only for list keys and idempotent (already-present patterns are not duplicated).
 
-**Implementation**: `config/gptel/scope/scope-expansion.org` — §YAML Writer Helpers, §YAML Writer Main Function
+**Implementation**: `config/gptel/scope/scope-expansion.org` — §Drawer Writer Helpers
 
-#### Scenario: Existing paths section is merged, not replaced
-- **WHEN** the writer adds a pattern to `paths.read`
-- **THEN** existing entries under `paths.read` are preserved and the new pattern is appended (deduplicated — already-present patterns are skipped)
-- **AND** other top-level sections (`paths.write`, `paths.deny`, `cloud`, `security`, `tools`) are emitted unchanged
+#### Scenario: Existing drawer keys are preserved
+- **WHEN** the writer adds a pattern to `:GPTEL_SCOPE_READ:`
+- **THEN** the existing `:GPTEL_SCOPE_READ:` line is rewritten with the new pattern appended (single-line space-separated emission, e.g. `:GPTEL_SCOPE_READ: existing /new`)
+- **AND** `:GPTEL_PRESET:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`, etc. are emitted unchanged
 
-#### Scenario: Keys are converted from kebab-case to snake_case on output
-- **WHEN** the writer emits a key like `:auth-detection` or `:enforce-parse-complete`
-- **THEN** `jf/gptel-scope-yaml--kebab-to-snake` converts it to `auth_detection` / `enforce_parse_complete`
-- **AND** simple values, nested lists, and tool maps are serialized via the structure-specific helpers without losing boolean, numeric, or list fidelity
+#### Scenario: Duplicate patterns are skipped
+- **WHEN** the writer is asked to add a pattern that already appears under the target drawer key
+- **THEN** the drawer is not modified
+- **AND** the callback still reports `:success t` (no-op success), with `:patterns_added` reflecting the deduplicated additions (possibly empty)
+
+#### Scenario: Drawer values round-trip through `org-entry-get-multivalued-property`
+- **WHEN** the writer emits `:GPTEL_SCOPE_<KEY>: v1 v2 v3` as a single line and the reader consumes the same drawer
+- **THEN** `(org-entry-get-multivalued-property POINT "GPTEL_SCOPE_<KEY>")` returns `("v1" "v2" "v3")` regardless of whether the values were written across multiple add-to-scope operations or as one initial seeding
+- **AND** the writer never emits `:GPTEL_SCOPE_<KEY>+:` continuation lines (org's multi-value reader accepts both forms but the writer canonicalises on the single-line form)
 
 ### Requirement: Expansion queue serialization
 
@@ -237,21 +251,6 @@ When multiple scoped tools fire in parallel and more than one is denied, the exp
 - **WHEN** multiple gptel buffers are running concurrent sessions
 - **THEN** each buffer has its own `jf/gptel-scope--expansion-queue` and `jf/gptel-scope--expansion-active` (both `defvar-local`) so sessions do not interfere
 
-### Requirement: Context directory resolution
-
-The UI SHALL resolve `scope.yml` from the current gptel session's context directory and fail cleanly when that cannot be determined or when the file is missing or unwritable.
-
-**Implementation**: `config/gptel/scope/scope-expansion.org` — §Get Scope File Path, §Validate Scope File Writable
-
-#### Scenario: branch-dir takes precedence over buffer directory
-- **WHEN** `jf/gptel-scope--get-scope-file-path` runs
-- **THEN** it uses `jf/gptel--branch-dir` when bound and non-nil; otherwise the current buffer's file directory
-- **AND** it joins the result with `jf/gptel-session--scope-file` and returns an absolute path (or nil if no context is resolvable)
-
-#### Scenario: Missing or unwritable scope.yml raises a user error
-- **WHEN** `jf/gptel-scope--validate-scope-file-writable` sees no file, a missing path, or a non-writable file
-- **THEN** it signals `user-error` with a message the user can act on — it does not silently fail the write
-
 ### Requirement: Callback response shapes
 
 The JSON payloads handed to the wrapper's async callback SHALL follow three canonical shapes so downstream consumers (`scope-validation`'s inline trigger, the LLM for the pre-emptive path) can discriminate without inspecting message text.
@@ -273,8 +272,7 @@ The JSON payloads handed to the wrapper's async callback SHALL follow three cano
 
 ## Integration Points
 
-- **`scope-validation`** — on denial, calls `jf/gptel-scope--trigger-inline-expansion`, which builds violation-info via `jf/gptel-scope--build-violation-info` and calls `jf/gptel-scope-prompt-expansion`. On approval-by-add-to-scope, re-enters `jf/gptel-scope-authorize-tool-call` against the updated `scope.yml`.
-- **`scope-yaml`** — the expansion writer delegates parse, key normalization, and kebab/snake conversion to `jf/gptel-scope-yaml--parse-file`, `jf/gptel-scope-yaml--normalize-keys`, and `jf/gptel-scope-yaml--kebab-to-snake`.
+- **`scope-validation`** — on denial, calls `jf/gptel-scope--trigger-inline-expansion`, which builds violation-info via `jf/gptel-scope--build-violation-info` and calls `jf/gptel-scope-prompt-expansion`. On approval-by-add-to-scope, re-enters `jf/gptel-scope-authorize-tool-call` against the updated drawer.
 - **`scope-shell-tools`** — defines the `request_scope_expansion` gptel tool, the pre-emptive entry point into `jf/gptel-scope-prompt-expansion`.
 - **gptel async callback** — every action funcalls the wrapper's callback with a JSON string; the wrapper delivers that JSON as the tool's response.
-- **`scope.yml`** on disk — the expansion writer is the only component that mutates `scope.yml`; all other modules treat it as read-only configuration.
+- **`session.org` `:PROPERTIES:` drawer** — the expansion writer is the only component that mutates the drawer's `:GPTEL_SCOPE_*` keys; all other modules treat them as read-only configuration. Drawer mutations go through `org-entry-put` and multi-value helpers — there is no parse / re-emit cycle.
