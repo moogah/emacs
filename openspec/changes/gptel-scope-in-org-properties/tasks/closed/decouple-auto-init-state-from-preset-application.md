@@ -2,9 +2,22 @@
 name: decouple-auto-init-state-from-preset-application
 description: Tighten condition-case granularity in jf/gptel--auto-init-session-buffer so a failing preset-application does not abort the buffer-local session-state setup
 change: gptel-scope-in-org-properties
-status: ready
+status: done
 relations:
   - discovered-from:final-verify-and-archive-prep
+---
+
+## Closure note (2026-04-30)
+
+Implemented inline (no worktree) during cycle-4 close-out. `commands.org` line 363 area: the broad `condition-case` was replaced with a narrow one wrapping only `--ensure-mode-once`; the four `setq-local` calls and the registry/symlink work now run unconditionally when path-shape + directory validation passed. Registry/symlink wrapped in their own narrow `condition-case` so a failure there can't abort either.
+
+Regression spec at `config/gptel/sessions/test/commands/auto-init-resilience-spec.el` covers:
+- mode-flip error → session vars still set (4 vars asserted)
+- mode-flip error → registry entry still created
+- mode-flip error → `jf/gptel-autosave-enabled` still set
+- negative control: clean mode-flip preserves all of the above
+
+`./bin/run-tests.sh -d config/gptel/sessions/test/commands` → 29 specs, 0 failed (was 25). Full suite: 2264 ran / 2175 passed; failure identities unchanged from cycle-4 baseline (still 89 pre-existing).
 ---
 
 ## Cites register entries

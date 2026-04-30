@@ -2,13 +2,46 @@
 name: final-verify-and-archive-prep
 description: Run full test suite, manual smoke tests, and opsx-verify; produce an archive-ready change
 change: gptel-scope-in-org-properties
-status: blocked
+status: done
 relations:
   - blocked-by:add-drawer-corruption-regression
   - blocked-by:finalize-no-scope-config-removal
   - blocked-by:reconcile-cycle-3-asks
-  - blocked-by:harden-persistent-agent-callback-on-error
   - blocked-by:decouple-auto-init-state-from-preset-application
+---
+
+## Cycle-4 close-out (2026-04-30)
+
+All four blockers landed (`finalize-no-scope-config-removal`, `add-drawer-corruption-regression`, `reconcile-cycle-3-asks`, `decouple-auto-init-state-from-preset-application`).
+
+**Test suite**: 2264 ran / 2175 passed. Failure identities unchanged from cycle-4 baseline (89 pre-existing failures in bash-parser ERT and unrelated buttercup pins). No regressions.
+
+**Manual smoke tests** (run by user against `~/.gptel/sessions/smoke-drawer-20260430085658/`):
+
+| Step | Result |
+|---|---|
+| 1. Drawer creation | ✓ executor preset → `:READ:`/`:DENY:` keys, no `scope.yml`, drawer-singleton invariant holds |
+| 2. Round-trip | ✓ kill + reopen, validator sees same scope |
+| 3. Add-to-scope (headline) | ✓ multiple cycles, paths appended cleanly to existing buckets, no duplication |
+| 4. `:read-metadata` bucket | ⏭ externalised — `test -e PATH` doesn't trigger violation; parser-handler gap. See `.tasks/fix-read-metadata-trigger-gap.md` |
+| 5. Write → WRITE bucket | ✓ writes routed to `:WRITE:`, not separate buckets |
+| 6. `:match-pattern` refusal | ⏭ externalised — already in `.tasks/fix-match-pattern-parser-validator-boundary.md` |
+| 7. Sub-agent drawer | ✓ drawer emission verified; PersistentAgent has unrelated bugs externalised |
+| 8. Edit Manually | ✓ |
+| 9. Empty drawer = deny-all | ✓ confirmed |
+
+**Externalisations** (cycle-4):
+- `.tasks/fix-read-metadata-trigger-gap.md` — bash-parser missing `test`/`[`/`stat` handlers; `:GPTEL_SCOPE_READ_METADATA:` bucket reachable only via custom-add until handlers land.
+- `.tasks/harden-persistent-agent-callback-on-error.md` — defense-in-depth for `:async t` contract; activation precondition is `chat-mode-tool-confirm-ui-missing` (already in `.tasks/`).
+- design.md `[Known gap]` bullet added to Risks/Trade-offs documenting both parser/validator boundary gaps.
+
+**openspec validate** (Step 4 of body): tooling gap, not content gap. CLI's `validate` reports `deltaCount: 0` because the project's nested `specs/gptel/<topic>/spec.md` layout isn't recognized by the parser (which expects flat `specs/<capability>/spec.md`). The actual delta files have correct `## ADDED/MODIFIED Requirements` + `### Requirement:` + `#### Scenario:` structure (16 deltas total across 5 spec files). Out of scope for this change.
+
+**CLAUDE.md** (Step 5): ✓ no `yaml/` references; `drawer/` referenced at line 198; matches `config/gptel/scope/test/` reality.
+
+**Task counts at close-out**: `tasks/open/` is empty after this task closes; `tasks/closed/` carries 25 entries (one per implementation task across cycles 1-4 plus this one). Two follow-ups discovered during cycle-4 final-verify were dispositioned: `decouple-auto-init` landed in-change as a closed task; `harden-persistent-agent-callback-on-error` was externalised to `.tasks/` per user decision.
+
+Ready for `opsx-archive` at user signal.
 ---
 
 ## Cites register entries

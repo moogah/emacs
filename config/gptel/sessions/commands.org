@@ -360,62 +360,61 @@ critical."
                   (and (jf/gptel--valid-session-directory-p session-dir)
                        (jf/gptel--valid-branch-directory-p branch-dir))
                 (jf/gptel--valid-branch-directory-p branch-dir))
+          (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
+                         session-type session-id branch-name)
+
+          ;; Mode flip is its own concern. A failing preset (e.g. one
+          ;; that references a tool not registered in this build) must
+          ;; not abort the buffer-local state-setting that follows.
+          ;; Activating chat-mode fires `gptel-chat-mode-hook', which
+          ;; runs `gptel-chat--apply-declared-preset' to apply the
+          ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
+          ;; `:PROPERTIES:' drawer (design.md §Decisions 5, 6, 9). If
+          ;; preset application errors (missing tool, schema drift,
+          ;; etc.), the buffer is left in whatever state mode-activation
+          ;; reached — preset NOT applied, session vars still set.
+          ;;
+          ;; Never calls (gptel-mode 1) — Decision 16.
+          (condition-case err
+              (jf/gptel--ensure-mode-once)
+            (error
+             (jf/gptel--log
+              'warn
+              "Mode activation/preset failed for %s/%s: %s; session vars set, preset NOT applied"
+              session-id branch-name (error-message-string err))))
+
+          ;; Buffer-local session vars: always set when validation
+          ;; passed. These do not depend on preset application
+          ;; succeeding. (Mode activation wipes buffer-locals via
+          ;; `kill-all-local-variables', so these run after.)
+          (setq-local jf/gptel--session-id session-id)
+          (setq-local jf/gptel--session-dir session-dir)
+          (setq-local jf/gptel--branch-name branch-name)
+          (setq-local jf/gptel--branch-dir branch-dir)
+
+          ;; Registry registration + current-symlink update: wrapped so
+          ;; a failure cannot abort the other, but independent of
+          ;; preset-application state. Skip the symlink update for
+          ;; legacy flat agent layout (no `branches/' dir).
           (condition-case err
               (progn
-                (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
-                               session-type session-id branch-name)
-
-                ;; Ensure chat-mode is the active major mode FIRST,
-                ;; before setting any buffer-local session vars.
-                ;; Activating a major mode calls
-                ;; `kill-all-local-variables', which would wipe any
-                ;; session vars set beforehand (they are not declared
-                ;; `permanent-local').
-                ;;
-                ;; Activating chat-mode also fires
-                ;; `gptel-chat-mode-hook', which runs
-                ;; `gptel-chat--apply-declared-preset' to apply the
-                ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
-                ;; `:PROPERTIES:' drawer. The drawer is the
-                ;; authoritative configuration source (design.md
-                ;; §Decisions 5, 6, 9) — auto-init does not read
-                ;; metadata.yml or apply presets itself.
-                ;;
-                ;; Never calls (gptel-mode 1) — Decision 16.
-                (jf/gptel--ensure-mode-once)
-
-                ;; Set buffer-local session variables (after mode
-                ;; activation, since mode activation wipes them).
-                (setq-local jf/gptel--session-id session-id)
-                (setq-local jf/gptel--session-dir session-dir)
-                (setq-local jf/gptel--branch-name branch-name)
-                (setq-local jf/gptel--branch-dir branch-dir)
-
-                ;; Register the buffer in the session registry.
                 (jf/gptel--register-session session-dir
                                             (current-buffer)
                                             session-id
                                             branch-name
                                             branch-dir)
                 (setq-local jf/gptel-autosave-enabled t)
-
-                ;; Update current symlink to point to this branch.
-                ;; Skip for legacy flat agent layout: the agent directory
-                ;; has no `branches/' subdirectory, so pointing `current'
-                ;; at `branches/main' there would create a dangling
-                ;; symlink. Nested agents update the parent session's
-                ;; `current' symlink to the real branch name.
                 (unless (eq session-type 'agent-flat)
-                  (jf/gptel--update-current-symlink session-dir branch-name))
-
-                (jf/gptel--log 'info "Auto-initialized %s session: %s/%s"
-                               session-type session-id branch-name)
-                (message "Session initialized: %s (branch: %s)"
-                         session-id branch-name))
+                  (jf/gptel--update-current-symlink session-dir branch-name)))
             (error
-             (jf/gptel--log 'error "Failed to auto-initialize %s session: %s"
-                            session-type (error-message-string err))
-             (message "Warning: Session auto-init failed. File opened in basic mode."))))))))
+             (jf/gptel--log 'warn
+                            "Post-init registry/symlink work failed for %s/%s: %s"
+                            session-id branch-name (error-message-string err))))
+
+          (jf/gptel--log 'info "Auto-initialized %s session: %s/%s"
+                         session-type session-id branch-name)
+          (message "Session initialized: %s (branch: %s)"
+                   session-id branch-name))))))
 #+end_src
 
 * Core Session Creation

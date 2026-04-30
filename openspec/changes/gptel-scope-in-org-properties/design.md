@@ -111,6 +111,11 @@ Existing sessions with `scope.yml` are not migrated. The user explicitly directe
 **[Trade-off] No backward compatibility** — Decision 8.
 → Accepted. Cleaner removal; smaller diff.
 
+**[Known gap] Parser/validator boundary trigger gaps for `:read-metadata` and `:match-pattern`** — Cycle-4 smoke testing surfaced two cases where the writer/drawer-bucket layer is correct end-to-end but the parser doesn't emit the right operation type, so the expansion UI never fires and the bucket is unreachable through Add-to-Scope:
+- `test -e PATH`, `[ -e PATH ]`, and `stat PATH` do not produce `:read-metadata` violations against out-of-scope paths; the calls silently succeed and `:GPTEL_SCOPE_READ_METADATA:` only populates via custom-add or edit-manually.
+- `find /home -name "*.txt"` produces a `:match-pattern` op whose `:search-scope` the validator ignores, so even after Add-to-Scope on the cluster, the `:match-pattern` op resolves the glob against cwd and re-denies.
+→ Both deferred to follow-up changes. Captured in `.tasks/fix-read-metadata-trigger-gap.md` and `.tasks/fix-match-pattern-parser-validator-boundary.md` with reproductions, evidence, and two viable fix options each. The drawer-migration change is not blocked: writer, loader, drawer schema, and round-trip all work; what's missing is the producer-side operation classification in bash-parser. Custom-add and edit-manually remain available as user-driven fallbacks until the parser handlers land.
+
 ## Migration Plan
 
 There is no user-data migration. The implementation order is:
