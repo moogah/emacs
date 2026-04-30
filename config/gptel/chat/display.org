@@ -92,25 +92,30 @@ in batch tests that load this module in isolation.
 
 * Faces
 
-Subtle defaults: a slight background tint per role. Users who want a
-different treatment (foreground shift, line-prefix, box, etc.)
-customize via =M-x customize-face RET gptel-chat-user-face RET=.
+Inherit from =org-block= so chat turn bodies pick up whatever the
+user's active org theme uses for source/quote blocks.  This avoids
+hard-coded colour palettes that fight the user's theme — a frequent
+source of unreadable light-on-light or dark-on-dark renders when the
+=(((background dark)))= matcher resolves the wrong variant (e.g. when
+=custom-set-faces= overrides =default= after the theme loads, or when
+=frame-parameter background-mode= disagrees with the theme family).
 
-The dark/light background variants keep contrast readable under both
-theme families without hard-coding a specific theme's palette.
+The =#+begin_user= / =#+begin_assistant= delimiter lines remain
+visually distinct on their own; users who want extra per-role tinting
+can customise these faces directly via =M-x customize-face=.
 
 #+begin_src emacs-lisp
 (defface gptel-chat-user-face
-  '((((background dark))  :background "#1a2030" :extend t)
-    (((background light)) :background "#f0f4ff" :extend t))
+  '((t :inherit org-block :extend t))
   "Face applied to the body region of `#+begin_user' blocks.
+Inherits from `org-block' so chat blocks match the user's org theme.
 Delimiter lines are NOT covered by this face."
   :group 'gptel-chat)
 
 (defface gptel-chat-assistant-face
-  '((((background dark))  :background "#1a2a1a" :extend t)
-    (((background light)) :background "#f0fff4" :extend t))
+  '((t :inherit org-block :extend t))
   "Face applied to the body region of `#+begin_assistant' blocks.
+Inherits from `org-block' so chat blocks match the user's org theme.
 Delimiter lines are NOT covered by this face."
   :group 'gptel-chat)
 #+end_src
