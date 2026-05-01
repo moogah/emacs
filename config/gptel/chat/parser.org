@@ -112,6 +112,13 @@ Groups:
 
 User-block bodies use a separate, stricter scanner (only `#+end_user')
 because Decision 13 allows literal turn delimiters inside user prose.")
+
+(defconst gptel-chat--re-block-delimiter
+  "^#\\+\\(begin\\|end\\)_\\(user\\|assistant\\|tool\\)\\b"
+  "Union regex matching ANY chat-block delimiter line at column 0.
+Group 1 is the side: `begin' or `end'.  Group 2 is the kind: `user',
+`assistant', or `tool'.  Used by the point-in-block-body predicate to
+walk delimiter lines without re-parsing the whole buffer.")
 #+end_src
 
 * Line-of position helper
@@ -165,6 +172,145 @@ buffer so cross-buffer uses are explicit.
   (let ((m (make-marker)))
     (set-marker m pos (or buffer (current-buffer)))
     m))
+#+end_src
+
+* Point-in-block-body predicate
+
+The chat-heading-collision-escape boundary (design.md Decisions 2 and
+3) needs a fast yes/no answer to "is point currently inside a
+chat-block body?" on every keystroke and every paste.  The predicate
+must be sub-millisecond on typical chat buffers — we cannot afford to
+=org-element-at-point= or even re-run =gptel-chat-parse-buffer=.
+
+The predicate's contract:
+
+- POS strictly inside the body of any =#+begin_user=,
+  =#+begin_assistant=, or =#+begin_tool= block (i.e., past the end of
+  the opener line and before the start of the matching closer line)
+  → return non-nil.
+- POS on a delimiter line itself (opener or closer) → return nil.
+  This is what the
+  =register/invariant/chat-block-delimiter-lines-stay-at-column-0=
+  invariant requires: the user-typed escape must never indent a
+  delimiter line.
+- POS in pre-block metadata, between blocks, or in a buffer with no
+  blocks → return nil.
+- A =#+begin_tool= block nested inside =#+begin_assistant= counts as
+  a block body for this predicate's purposes — a =*= heading inside
+  a tool body would corrupt the surrounding assistant block just as
+  surely as one in the assistant text proper.
+
+Algorithm: walk backward from POS through delimiter lines maintaining
+a closer-stack.  Each =#+end_*= encountered pushes onto the stack;
+each =#+begin_*= pops if the stack is non-empty, otherwise it is the
+"enclosing" opener and we stop.  If we reach BOB without finding an
+unmatched opener, POS is not inside any block.  Then forward-scan
+for the matching closer using a depth counter for nested same-kind
+openers.
+
+If the matching closer cannot be found (unclosed block — malformed
+buffer mid-stream) the predicate returns nil.  We pick "nil" rather
+than "non-nil" for malformed input so the user-typed escape's failure
+mode is "leave the user's text alone" — the safer of the two
+behaviours when the structure is in flux.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--point-in-block-body-p (&optional pos buffer)
+  "Return non-nil when POS is strictly inside a chat-block body.
+
+POS defaults to `(point)'; BUFFER defaults to the current buffer.
+
+\"Strictly inside\" means POS lies past the end-of-line of the
+nearest enclosing `#+begin_user', `#+begin_assistant', or
+`#+begin_tool' delimiter and before the beginning-of-line of the
+matching `#+end_*' closer.  POS on either delimiter line itself
+returns nil — the chat-block-delimiter-lines-stay-at-column-0
+invariant requires that delimiter lines never be modified by the
+heading-collision escape.
+
+A `#+begin_tool' nested inside a `#+begin_assistant' is treated as
+its own enclosing block — a `*'-prefixed line in a tool body is
+just as load-bearing as one in assistant prose, and both must be
+indented by the escape boundary.
+
+The function uses a stack-walking scan over `#+begin_*' /
+`#+end_*' delimiter lines, not `org-element-at-point' — the
+predicate is on the keystroke hot path (design.md Decisions 2 and
+3) and must stay sub-millisecond.
+
+Returns nil for any of:
+  - POS at point-min or in pre-block metadata.
+  - POS between blocks (after a closer, before the next opener).
+  - POS on a `#+begin_*' or `#+end_*' delimiter line.
+  - The buffer has an unclosed enclosing block past POS (malformed
+    structure mid-edit).  Returning nil here is deliberate: when
+    the escape boundary is uncertain whether POS is inside a block,
+    it must err on the side of leaving user input untouched."
+  (let ((target-pos (or pos (point))))
+    (with-current-buffer (or buffer (current-buffer))
+      (save-excursion
+        (save-match-data
+          (let ((case-fold-search t)
+                (orig-line-bol (save-excursion
+                                 (goto-char target-pos)
+                                 (line-beginning-position)))
+                opener-pos
+                opener-kind
+                (closer-stack 0))
+            ;; Reject immediately when the line containing POS is
+            ;; itself a delimiter line.  We use beginning-of-line
+            ;; matching to avoid distinguishing column 0 vs. mid-line
+            ;; for the caller.
+            (goto-char orig-line-bol)
+            (if (looking-at gptel-chat--re-block-delimiter)
+                nil
+              ;; Walk backward through delimiter lines.
+              (goto-char target-pos)
+              (catch 'found
+                (while (re-search-backward gptel-chat--re-block-delimiter
+                                           nil t)
+                  (let ((side (match-string 1))
+                        (kind (match-string 2)))
+                    (cond
+                     ((string-equal (downcase side) "end")
+                      (setq closer-stack (1+ closer-stack)))
+                     ((zerop closer-stack)
+                      (setq opener-pos  (match-beginning 0)
+                            opener-kind (downcase kind))
+                      (throw 'found t))
+                     (t
+                      (setq closer-stack (1- closer-stack)))))))
+              (when opener-pos
+                ;; Verify POS is past the end of the opener's line.
+                (let ((opener-eol (save-excursion
+                                    (goto-char opener-pos)
+                                    (line-end-position))))
+                  (when (> target-pos opener-eol)
+                    ;; Forward-scan for the matching closer of
+                    ;; OPENER-KIND, ignoring deeper same-kind nesting.
+                    (goto-char (1+ opener-eol))
+                    (let ((same-kind-depth 1)
+                          closer-bol)
+                      (catch 'closed
+                        (while (re-search-forward
+                                gptel-chat--re-block-delimiter nil t)
+                          (let ((side (downcase (match-string 1)))
+                                (kind (downcase (match-string 2))))
+                            (when (string-equal kind opener-kind)
+                              (cond
+                               ((string-equal side "begin")
+                                (setq same-kind-depth
+                                      (1+ same-kind-depth)))
+                               (t
+                                (setq same-kind-depth
+                                      (1- same-kind-depth))
+                                (when (zerop same-kind-depth)
+                                  (setq closer-bol
+                                        (match-beginning 0))
+                                  (throw 'closed t))))))))
+                      (when (and closer-bol
+                                 (< target-pos closer-bol))
+                        t))))))))))))
 #+end_src
 
 * Tool-block parsing
