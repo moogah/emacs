@@ -54,6 +54,8 @@
 (declare-function gptel-chat-regenerate nil ())
 (declare-function gptel-chat-toggle-display-layer nil ())
 (declare-function gptel-chat-menu nil ())
+(declare-function gptel-chat-parse-buffer "gptel-chat-parser"
+                  (&optional buffer))
 (declare-function gptel-abort "gptel" (buf))
 ;; Forward declarations:1 ends here
 
@@ -183,8 +185,121 @@ is disabled buffer-locally so the parser's `^#\\+begin_...' anchor stays
 valid regardless of the user's global org settings (design.md §Decision 14).
 
 \\{gptel-chat-mode-map}"
-  (setq-local org-adapt-indentation nil))
+  (setq-local org-adapt-indentation nil)
+  (gptel-chat--migrate-headings))
 ;; Major mode definition:1 ends here
+
+;; Migration on read
+
+;; When =gptel-chat-mode= activates on a buffer that already contains
+;; chat blocks — typically a saved session loaded from disk — any
+;; column-0 =*= lines inside chat block bodies must be escaped before
+;; =org-element-parse-buffer= or any consumer that walks org structure
+;; sees the buffer.  The "Heading-collision escape" boundary
+;; (design.md §Decision 5) is applied on read, never via a destructive
+;; on-disk rewrite.  The migration runs as the last step of mode
+;; activation (after =org-adapt-indentation= is buffer-locally pinned
+;; to nil), and is the read-side counterpart of the write-time
+;; escapes installed by stream insertion, paste-yank, and user
+;; typing.
+
+;; Behavioural contract (registered in
+;; =openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md=):
+
+;; - Walk each outer chat block (user / assistant) and indent every
+;;   =^\*+ = body line by =gptel-chat-content-indentation= spaces.
+;;   Lines inside a nested =#+begin_tool ... #+end_tool= body are
+;;   covered by the enclosing assistant scan because tool delimiters
+;;   themselves are =#+...=, not =\*=, so they pass through the body
+;;   scan untouched while their inner =\*= lines still get indented.
+;; - A buffer with no in-block =\*= lines is a no-op: the buffer's
+;;   modified state is restored, so a clean session opens clean (the
+;;   =register/invariant/chat-migration-on-read-clean-buffer-stays-clean=
+;;   invariant).
+;; - Content outside chat-block bodies — free-form headings between
+;;   blocks, =#+keyword:= lines, drawers, prose — is never modified.
+;; - Re-running on already-escaped content is a no-op (idempotence
+;;   shared with the paste-escape boundary).
+;; - =inhibit-modification-hooks= is bound non-nil while migrating so
+;;   the =after-change= hook installed by the user-typed escape
+;;   boundary (Decision 3) does not double-process freshly-inserted
+;;   spaces.
+;; - Malformed buffers (unclosed blocks etc.) signal =user-error= from
+;;   the parser; we trap that and skip migration rather than refusing
+;;   to enter the mode.  The mode still activates so the user can
+;;   repair the buffer interactively.
+
+
+;; [[file:mode.org::*Migration on read][Migration on read:1]]
+(defun gptel-chat--migrate-headings ()
+  "Apply heading-collision escape to chat-block bodies in the current buffer.
+
+Walks each outer `#+begin_user' / `#+begin_assistant' block returned
+by `gptel-chat-parse-buffer' and prefixes every `^\\*+ ' body line
+with `gptel-chat-content-indentation' spaces.  Lines inside a nested
+`#+begin_tool' body are covered transparently because the assistant
+scan ranges over the entire body, and tool delimiter lines start
+with `#+', not `*'.
+
+If the migration changes the buffer, the buffer is left marked
+modified so the next `save-buffer' persists the normalized form;
+the on-disk file is unchanged until the user explicitly saves.  If
+no rewrites are performed, the buffer's previous modified state is
+restored — a clean session opens clean
+\(`register/invariant/chat-migration-on-read-clean-buffer-stays-clean').
+
+Bound to run once at `gptel-chat-mode' activation, after
+`org-adapt-indentation' is pinned buffer-locally to nil so the
+parser's column-0 anchors hold during the walk.  Binds
+`inhibit-modification-hooks' so the user-typed-escape after-change
+hook (`openspec/changes/gptel-chat-heading-scoping/design.md'
+§Decision 3) does not double-process freshly-inserted indent
+spaces.
+
+Malformed buffers — unclosed blocks etc. — cause
+`gptel-chat-parse-buffer' to signal `user-error'.  We catch that
+here and skip the migration: the mode still activates so the user
+can repair the structure interactively.  Returns t when any
+rewrite happened, nil otherwise."
+  (let ((was-modified (buffer-modified-p))
+        (rewrites 0)
+        (indent (max 0 (or gptel-chat-content-indentation 0))))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (let* ((inhibit-modification-hooks t)
+               (turns (condition-case nil
+                          (gptel-chat-parse-buffer)
+                        (user-error nil))))
+          (when (and turns (> indent 0))
+            (let ((prefix (make-string indent ?\s)))
+              (dolist (turn turns)
+                (let* ((open-marker (plist-get turn :start))
+                       (end-marker  (plist-get turn :end))
+                       (body-start  (when open-marker
+                                      (save-excursion
+                                        (goto-char open-marker)
+                                        (min (1+ (line-end-position))
+                                             (point-max)))))
+                       (body-end    (when end-marker
+                                      (marker-position end-marker))))
+                  (when (and body-start body-end (< body-start body-end))
+                    (goto-char body-start)
+                    ;; Each rewrite shifts BODY-END forward by INDENT;
+                    ;; refresh after every insert so the bound stays
+                    ;; correct for the rest of this turn's scan.
+                    (while (re-search-forward "^\\*+ " body-end t)
+                      (let ((line-bol (match-beginning 0)))
+                        (goto-char line-bol)
+                        (insert prefix)
+                        (setq rewrites (1+ rewrites)
+                              body-end (+ body-end indent))
+                        (forward-line 1)))))))))))
+    (if (zerop rewrites)
+        (restore-buffer-modified-p was-modified)
+      (set-buffer-modified-p t))
+    (> rewrites 0)))
+;; Migration on read:1 ends here
 
 ;; Pure prepare helper
 
