@@ -39,3 +39,50 @@ The un-escape is the symmetric inverse of the sanitizer's heading rule. The robu
 - `openspec/changes/gptel-chat-heading-scoping/design.md` Decisions 1 and 8.
 - Existing inverse: `gptel-chat--unescape-end-delimiters` at `config/gptel/chat/parser.el:436`.
 - Wiring point: `gptel-chat--segment-to-messages` at `config/gptel/chat/parser.el:494`.
+
+## Observations
+
+- Implementation closely mirrors the existing `gptel-chat--unescape-end-delimiters`
+  pattern: a sibling `defconst` for documentation/discoverability
+  (`gptel-chat--escaped-heading-regexp`) plus the function itself, both
+  living in their own `parser.org` subsection ("Heading un-escape"),
+  immediately after the comma-un-escape subsection.
+- The function uses `replace-regexp-in-string` with the boundary anchor
+  `\\(\\`\\|\n\\)` to handle the first line and interior lines
+  uniformly — same pattern as `gptel-chat--unescape-end-delimiters`.
+  The match alternative has to be `[ \t]+` (NOT `[ \t]*`) so a column-0
+  star never matches and the un-escape stays idempotent on already
+  un-escaped content.
+- Wiring in `gptel-chat--segment-to-messages` and
+  `gptel-chat--turn-to-messages` composes the two un-escapers as
+  `(unescape-headings (unescape-end-delimiters x))`. They operate on
+  disjoint line shapes, so order is irrelevant in principle; I picked
+  delimiter-first (innermost) only because that's what was already
+  there. The new "composes with unescape-end-delimiters" describe block
+  in the test file explicitly verifies order-independence.
+- Test count: 173 specs in `config/gptel/chat/test/parser` (was ~140
+  before; added ~30 new heading specs covering line-level shape,
+  idempotence, indent-width robustness, sanitize/un-escape inverse pair,
+  and full-pipeline round-trips for both assistant and user content
+  plus a combined heading+delimiter body). Full chat suite still 487
+  green.
+
+## Discoveries
+
+- The cited register entries `register/boundary/chat-heading-collision-escape`
+  and `register/invariant/chat-heading-escape-roundtrip-transparent` are
+  not present in `interfaces.org` at this commit. The boundary's stage 2
+  language quoted in the briefing was apparently authored speculatively
+  but never actually written into the register file. This is not a
+  blocker for the implementation — the design.md Decision 8 text and
+  the existing `gptel-chat--unescape-end-delimiters` sibling are
+  sufficient to specify the contract — but the register entries
+  themselves should be added or reconciled by whoever owns the register
+  during integrate. Filing this as a Discovery rather than a new task,
+  per "push-backs go in Discoveries."
+- The asymmetry callout (sanitize inserts exactly N spaces; un-escape
+  strips any amount) ended up cleanly testable with a dedicated
+  "round-trip survives indent-width mismatches" describe block
+  (sanitize@1 → un-escape@2 and the reverse). This makes the design.md
+  Decision 8 robustness property a regression-pinned invariant rather
+  than just a docstring claim.

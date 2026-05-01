@@ -19,16 +19,16 @@
 ;;    parser's `gptel-chat--unescape-end-delimiters' strips that `,'
 ;;    before the body reaches the model.
 ;;
-;; 2. Heading collision (new — change `gptel-chat-heading-scoping',
-;;    design.md §Decision 4).  The sanitizer prepends
+;; 2. Heading collision (change `gptel-chat-heading-scoping',
+;;    design.md §Decisions 4 and 8).  The sanitizer prepends
 ;;    `gptel-chat-content-indentation' leading spaces to a line
 ;;    matching `^\\*+ ' so org's heading scanner does not absorb the
-;;    line into an outline subtree.  The send-path inverse — strip
-;;    leading whitespace before such a line — is added by sibling
-;;    task `add-parser-heading-unescape'.  Until that task lands, the
-;;    specs in this file pin the SANITIZE-SIDE of the heading-escape
-;;    inverse pair only; the full parse → message round-trip for
-;;    heading lines is added when the parser un-escape lands.
+;;    line into an outline subtree.  The send-path inverse —
+;;    `gptel-chat--unescape-headings' — strips ANY amount of leading
+;;    whitespace (spaces and tabs) before a `*+ ' prefix, deliberately
+;;    asymmetric with the sanitizer's fixed insert width so round-trip
+;;    is robust against `gptel-chat-content-indentation' changes and
+;;    legacy content with hand-typed indentation.
 ;;
 ;; Mechanical inverse proof (the spec scenario "Delimiter escape
 ;; round-trip" from openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md):
@@ -268,6 +268,157 @@ bodies are expected to be newline-terminated."
       (expect twice :to-equal once))))
 
 ;;; ---------------------------------------------------------------
+;;; Heading-collision un-escape (parse / send side)
+;;; ---------------------------------------------------------------
+;;
+;; Owned by task `add-parser-heading-unescape'.  Pins the line-level
+;; shape of `gptel-chat--unescape-headings': strip ANY amount of
+;; leading whitespace before a `*+ ' prefix, leave everything else
+;; verbatim, idempotent on already-unescaped column-0 headings.
+
+(describe "unescape-headings line-level behavior"
+
+  (describe "strips leading whitespace before column-0 heading lines"
+    (it "strips a single leading space before `* Heading'"
+      (expect (gptel-chat--unescape-headings " * Heading")
+              :to-equal "* Heading"))
+
+    (it "strips multiple leading spaces before `** Deep'"
+      (expect (gptel-chat--unescape-headings "  ** Deep")
+              :to-equal "** Deep"))
+
+    (it "strips arbitrary indent widths regardless of `gptel-chat-content-indentation'"
+      ;; Asymmetry: sanitize inserts exactly `gptel-chat-content-indentation'
+      ;; spaces, but un-escape strips ANY amount of `[ \t]+'.  This is the
+      ;; design.md Decision 8 robustness-against-indent-width property.
+      (let ((gptel-chat-content-indentation 1))
+        (expect (gptel-chat--unescape-headings "    *** Triple")
+                :to-equal "*** Triple"))
+      (let ((gptel-chat-content-indentation 2))
+        (expect (gptel-chat--unescape-headings " * Single")
+                :to-equal "* Single")))
+
+    (it "strips leading tabs as well as spaces"
+      (expect (gptel-chat--unescape-headings "\t* Heading")
+              :to-equal "* Heading")
+      (expect (gptel-chat--unescape-headings " \t * Mixed")
+              :to-equal "* Mixed"))
+
+    (it "strips on the first line as well as interior lines"
+      (expect (gptel-chat--unescape-headings " * First-line heading")
+              :to-equal "* First-line heading")
+      (expect (gptel-chat--unescape-headings "intro\n * Heading\nrest\n")
+              :to-equal "intro\n* Heading\nrest\n")))
+
+  (describe "is idempotent on already-unescaped content"
+    (it "leaves a column-0 `* Heading' untouched"
+      (expect (gptel-chat--unescape-headings "* Heading")
+              :to-equal "* Heading"))
+
+    (it "is a no-op when applied twice"
+      (let* ((once (gptel-chat--unescape-headings " * Heading"))
+             (twice (gptel-chat--unescape-headings once)))
+        (expect once :to-equal "* Heading")
+        (expect twice :to-equal once)))
+
+    (it "leaves a body without any escaped headings unchanged"
+      (let ((text "ordinary prose\n* Plain heading\nmore\n"))
+        (expect (gptel-chat--unescape-headings text)
+                :to-equal text))))
+
+  (describe "non-matching `*' shapes pass through untouched"
+    ;; The pattern is `^[ \t]+\\*+ ' — leading whitespace, one-or-more
+    ;; stars, then a space.  Anything else is content.
+    (dolist (line '(""
+                    "plain prose"
+                    "text* asterisk"        ; star not at column 0 / mid-line
+                    "  no-star line"        ; leading whitespace, no `*'
+                    "  *no-space"           ; leading whitespace + `*' but no following space
+                    "  *emphasis*"          ; org emphasis, no trailing space after `*'
+                    "* already at column 0" ; un-escaped already
+                    "    "                  ; whitespace only
+                    "/path/with*glob"))     ; embedded asterisk
+      (it (format "passes %S through unchanged" line)
+        (expect (gptel-chat--unescape-headings line)
+                :to-equal line))))
+
+  (describe "composes with unescape-end-delimiters"
+    ;; Both un-escapers operate on disjoint line shapes
+    ;; (`^[ \t]+\\*+ ' vs. `^,#\\+end_*'); applying them in either
+    ;; order to the same content yields the same result.
+    (it "applies both un-escapes to a body containing both shapes"
+      (let* ((text (concat "intro\n"
+                           ",#+end_assistant\n"
+                           " * Heading\n"
+                           "  ** Deep\n"
+                           "tail\n"))
+             (delim-first
+              (gptel-chat--unescape-headings
+               (gptel-chat--unescape-end-delimiters text)))
+             (heading-first
+              (gptel-chat--unescape-end-delimiters
+               (gptel-chat--unescape-headings text)))
+             (expected (concat "intro\n"
+                               "#+end_assistant\n"
+                               "* Heading\n"
+                               "** Deep\n"
+                               "tail\n")))
+        (expect delim-first :to-equal expected)
+        (expect heading-first :to-equal expected)))))
+
+
+(describe "sanitize / unescape-headings inverse pair (write-then-read)"
+  ;; Mechanical inverse proof at the line level for the heading rule.
+  ;; The sanitizer adds `gptel-chat-content-indentation' leading
+  ;; spaces; the un-escape strips them (and any other amount of
+  ;; leading whitespace) back to a column-0 star.
+
+  (describe "bare heading lines survive the write-then-read cycle"
+    (dolist (heading '("* Heading"
+                       "** Sub-heading"
+                       "*** Deep"
+                       "**** 4-deep"
+                       "***** 5-deep"
+                       "****** 6-deep"))
+      (it (format "round-trips %S at indent width 1" heading)
+        (let* ((gptel-chat-content-indentation 1)
+               (sanitized (gptel-chat--sanitize-chunk heading))
+               (restored  (gptel-chat--unescape-headings sanitized)))
+          (expect sanitized :to-match "\\` \\*+ ")
+          (expect restored  :to-equal heading)))
+
+      (it (format "round-trips %S at indent width 2" heading)
+        (let* ((gptel-chat-content-indentation 2)
+               (sanitized (gptel-chat--sanitize-chunk heading))
+               (restored  (gptel-chat--unescape-headings sanitized)))
+          (expect sanitized :to-match "\\`  \\*+ ")
+          (expect restored  :to-equal heading)))))
+
+  (describe "round-trip survives indent-width mismatches"
+    ;; Sanitize at width 1, un-escape under defcustom width 2 (or
+    ;; vice versa): un-escape's robustness property means the
+    ;; original line is recovered regardless of the prevailing
+    ;; defcustom value.
+    (it "sanitize@1 → unescape@2 still recovers the original heading"
+      (let* ((heading "** Heading")
+             (sanitized (let ((gptel-chat-content-indentation 1))
+                          (gptel-chat--sanitize-chunk heading)))
+             (restored (let ((gptel-chat-content-indentation 2))
+                         (gptel-chat--unescape-headings sanitized))))
+        (expect sanitized :to-equal " ** Heading")
+        (expect restored  :to-equal heading)))
+
+    (it "sanitize@2 → unescape@1 still recovers the original heading"
+      (let* ((heading "*** Deep")
+             (sanitized (let ((gptel-chat-content-indentation 2))
+                          (gptel-chat--sanitize-chunk heading)))
+             (restored (let ((gptel-chat-content-indentation 1))
+                         (gptel-chat--unescape-headings sanitized))))
+        (expect sanitized :to-equal "  *** Deep")
+        (expect restored  :to-equal heading)))))
+
+
+;;; ---------------------------------------------------------------
 ;;; Full pipeline: parse → message → text → sanitize → parse
 ;;; ---------------------------------------------------------------
 
@@ -384,7 +535,108 @@ bodies are expected to be newline-terminated."
                    (gptel-chat-turns-to-messages
                     (gptel-chat-parse-buffer))))
            (text (cdr (car msgs))))
-      (expect text :to-match "^,#\\+end_src$"))))
+      (expect text :to-match "^,#\\+end_src$")))
+
+  (it "round-trips a whitespace-escaped heading line through the full pipeline"
+    ;; Buffer holds an escaped heading (` * Heading') in an assistant
+    ;; body.  Parse → message text strips the leading space; then
+    ;; re-sanitize re-applies the escape; reparse yields the same
+    ;; message.
+    (let* ((gptel-chat-content-indentation 1)
+           (assistant-body
+            (concat "intro\n"
+                    " * Heading\n"
+                    "  ** Deep\n"
+                    "tail\n"))
+           (buffer-text (concat "#+begin_assistant\n"
+                                assistant-body
+                                "#+end_assistant\n"))
+           (msgs-original
+            (gptel-chat-test--with-buffer buffer-text
+              (gptel-chat-turns-to-messages
+               (gptel-chat-parse-buffer))))
+           (message-text (cdr (car msgs-original))))
+      ;; Parsed message text has bare column-0 headings.
+      (expect message-text :to-match "^\\* Heading$")
+      (expect message-text :to-match "^\\*\\* Deep$")
+      ;; Re-sanitize and re-parse — message round-trips byte-for-byte.
+      (let* ((resanitized (gptel-chat-test--sanitize-body message-text))
+             (buffer-text-2
+              (concat "#+begin_assistant\n"
+                      resanitized
+                      (unless (string-suffix-p "\n" resanitized) "\n")
+                      "#+end_assistant\n"))
+             (msgs-roundtripped
+              (gptel-chat-test--with-buffer buffer-text-2
+                (gptel-chat-turns-to-messages
+                 (gptel-chat-parse-buffer)))))
+        (expect resanitized :to-match "^ \\* Heading$")
+        (expect resanitized :to-match "^ \\*\\* Deep$")
+        (expect msgs-roundtripped :to-equal msgs-original))))
+
+  (it "applies both heading and delimiter un-escapes in the same body"
+    ;; Mixed body containing BOTH escape shapes — both un-escapes must
+    ;; apply independently to produce clean message text.
+    (let* ((gptel-chat-content-indentation 1)
+           (assistant-body
+            (concat "prose line\n"
+                    " * Heading\n"
+                    ",#+end_assistant\n"
+                    "  ** Deep\n"
+                    "tail\n"))
+           (buffer-text (concat "#+begin_assistant\n"
+                                assistant-body
+                                "#+end_assistant\n"))
+           (msgs (gptel-chat-test--with-buffer buffer-text
+                   (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer))))
+           (text (cdr (car msgs))))
+      ;; Both un-escape rules fired.
+      (expect text :to-match "^\\* Heading$")
+      (expect text :to-match "^\\*\\* Deep$")
+      (expect text :to-match "^#\\+end_assistant$")
+      ;; And no residual escape characters survive.
+      (expect text :not :to-match "^,#")
+      (expect text :not :to-match "^[ \t]+\\*+ ")))
+
+  (it "round-trips an escaped heading inside a USER body"
+    ;; User content is also routed through `gptel-chat--unescape-headings'
+    ;; via `gptel-chat--turn-to-messages'.
+    (let* ((gptel-chat-content-indentation 1)
+           (user-body
+            (concat "Quoting:\n"
+                    " * outline item\n"
+                    "to illustrate.\n"))
+           (buffer-text (concat "#+begin_user\n"
+                                user-body
+                                "#+end_user\n"))
+           (msgs (gptel-chat-test--with-buffer buffer-text
+                   (gptel-chat-turns-to-messages
+                    (gptel-chat-parse-buffer))))
+           (text (cdr (car msgs))))
+      (expect (car (car msgs)) :to-equal 'prompt)
+      (expect text :to-match "^\\* outline item$")))
+
+  (it "is idempotent on an already-unescaped column-0 heading inside a body"
+    ;; Legacy / hand-authored buffers may contain `* Heading' at
+    ;; column 0.  This is not an escaped form and the un-escape
+    ;; must be a no-op (the line passes through verbatim).
+    ;; NOTE: such a body is structurally invalid as on-disk chat
+    ;; content (a column-0 `*' is an org heading), but the un-escape
+    ;; itself is what's under test here, applied at the string layer
+    ;; via `gptel-chat--turn-to-messages'.
+    (let* ((segment (list :type 'text
+                          :content "intro\n* Heading\nrest\n"))
+           (msgs (gptel-chat--segment-to-messages segment))
+           (text (cdr (car msgs))))
+      (expect text :to-equal "intro\n* Heading\nrest\n")))
+
+  (it "ignores asterisks not at column 0 (negative case)"
+    (let* ((segment (list :type 'text
+                          :content "text* asterisk inline\n"))
+           (msgs (gptel-chat--segment-to-messages segment))
+           (text (cdr (car msgs))))
+      (expect text :to-equal "text* asterisk inline\n"))))
 
 (provide 'escape-round-trip-spec)
 

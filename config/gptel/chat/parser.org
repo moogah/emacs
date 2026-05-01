@@ -725,6 +725,74 @@ delimiter is present."
        text))))
 #+end_src
 
+** Heading un-escape (inverse of the stream sanitizer's heading rule)
+
+The streaming sanitizer (=gptel-chat--sanitize-chunk= in =stream.el=)
+prepends =gptel-chat-content-indentation= leading spaces to any body
+line matching
+
+: ^\*+
+
+so org's outline scanner does not absorb assistant content into a
+subtree (design.md Decision 4). The send-path inverse strips that
+leading whitespace before the body reaches the model: a line
+=  * Heading= on disk is presented to the model as =* Heading=.
+
+=gptel-chat--unescape-headings= is a pure string → string function
+that strips *all* leading spaces and tabs from any line matching
+=^[ \t]+\*+ =. The asymmetry with the sanitizer (which inserts
+exactly =gptel-chat-content-indentation= spaces) is intentional and
+called out in design.md Decision 8:
+
+- Robust against indent-width changes. A buffer authored under
+  =gptel-chat-content-indentation = 1= and reopened under =2= still
+  produces clean message text on send.
+- Robust against legacy content. Older buffers with hand-typed
+  indentation (any width, spaces or tabs) round-trip cleanly.
+- Idempotent. Already-unescaped =* Heading= is left alone — the
+  pattern requires =[ \t]+= leading whitespace, so a column-0 star
+  no longer matches.
+- Composes cleanly with =gptel-chat--unescape-end-delimiters=.
+  The two un-escapers operate on disjoint line shapes
+  (=^[ \t]+\*+ = vs. =^,#\+end_\(user\|assistant\|tool\)\b=) so
+  applying both to the same content is order-independent.
+
+Round-trip tests in =test/parser/escape-round-trip-spec.el= pin
+this inverse relationship line-by-line and across the full
+parse → message → re-sanitize → parse pipeline.
+
+#+begin_src emacs-lisp
+(defconst gptel-chat--escaped-heading-regexp
+  "^[ \t]+\\(\\*+ \\)"
+  "Regexp matching a whitespace-escaped column-0 org heading line.
+Group 1 is the bare heading prefix (`*+ ').  Used by
+`gptel-chat--unescape-headings' to strip the sanitizer's leading
+whitespace before the body reaches the model.")
+
+(defun gptel-chat--unescape-headings (text)
+  "Strip leading whitespace from every `^[ \\t]+\\*+ ' line in TEXT.
+Inverse of the leading-whitespace escape applied by
+`gptel-chat--sanitize-chunk' for org-heading-collision lines.
+
+Robust against indent width: strips *any* amount of leading spaces
+or tabs before the `*+ ' prefix, not exactly
+`gptel-chat-content-indentation' characters.  This keeps round-trip
+stable across defcustom changes and legacy content with hand-typed
+indentation widths (design.md Decision 8 \"Implications\").
+
+Lines are identified by `\\n' boundaries; the first line is treated
+identically to any other line in TEXT.  A line whose `*+' starts at
+column 0 (already unescaped) does not match `[ \\t]+\\*+ ' and is
+left untouched, so the un-escape is idempotent on already-unescaped
+content.  Returns TEXT unchanged when no escaped heading is present."
+  (if (or (null text) (string-empty-p text))
+      (or text "")
+    (replace-regexp-in-string
+     "\\(\\`\\|\n\\)[ \t]+\\(\\*+ \\)"
+     "\\1\\2"
+     text)))
+#+end_src
+
 ** Whitespace emptiness test
 
 Empty user/assistant turns are skipped when building the message list
@@ -768,21 +836,25 @@ Returns a list (possibly empty) of cons cells in the advanced
 `(response . STR)' cons (nil if the content is blank); tool-call
 segments yield a single `(tool . PLIST)' cons with `:name', `:args',
 and `:result' copied from the segment.  Both text content and tool
-`:result' are routed through `gptel-chat--unescape-end-delimiters' so
-that the sanitizer's `,'-prefix escape is inverted symmetrically
+`:result' are routed through both `gptel-chat--unescape-end-delimiters'
+and `gptel-chat--unescape-headings' so that every escape applied by
+`gptel-chat--sanitize-chunk' (`,'-prefix on closing delimiters and
+leading whitespace on column-0 heading lines) is inverted symmetrically
 across every content type before the message reaches the model."
   (pcase (plist-get segment :type)
     (`text
-     (let ((content (gptel-chat--unescape-end-delimiters
-                     (plist-get segment :content))))
+     (let ((content (gptel-chat--unescape-headings
+                     (gptel-chat--unescape-end-delimiters
+                      (plist-get segment :content)))))
        (if (gptel-chat--blank-content-p content)
            nil
          (list (cons 'response content)))))
     (`tool-call
      (let ((call (list :name   (plist-get segment :name)
                        :args   (plist-get segment :args)
-                       :result (gptel-chat--unescape-end-delimiters
-                                (or (plist-get segment :result) "")))))
+                       :result (gptel-chat--unescape-headings
+                                (gptel-chat--unescape-end-delimiters
+                                 (or (plist-get segment :result) ""))))))
        (list (cons 'tool call))))
     (_ nil)))
 #+end_src
@@ -798,11 +870,14 @@ one message per non-empty segment in document order.
   "Convert TURN (a parser turn plist) into a list of messages.
 See `gptel-chat-turns-to-messages' for the message-shape contract.
 Returns nil for an empty user turn or an assistant turn whose
-segments are all empty."
+segments are all empty.  User content is routed through both
+`gptel-chat--unescape-end-delimiters' and `gptel-chat--unescape-headings'
+to invert the sanitizer's two escape rules symmetrically."
   (pcase (plist-get turn :role)
     (`user
-     (let ((content (gptel-chat--unescape-end-delimiters
-                     (plist-get turn :content))))
+     (let ((content (gptel-chat--unescape-headings
+                     (gptel-chat--unescape-end-delimiters
+                      (plist-get turn :content)))))
        (if (gptel-chat--blank-content-p content)
            nil
          (list (cons 'prompt content)))))
