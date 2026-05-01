@@ -189,6 +189,88 @@ parity with `org-edit-src-content-indentation'.  See
   :group 'gptel-chat)
 #+end_src
 
+* User-typed heading escape
+
+When the user types a literal =*= at column 0 with point inside a
+chat-block body and not on a delimiter line, the org heading regex
+(=^\*+ =) would absorb that line and corrupt the surrounding
+=#+begin_user= / =#+begin_assistant= / =#+begin_tool= block. To
+prevent this, =gptel-chat--escape-typed-heading= runs from
+=post-self-insert-hook= and inserts the configured indent prefix
+(=gptel-chat-content-indentation= spaces) immediately before the typed
+=*=.
+
+Cursor-after semantics work naturally: the user typed =*= and the
+cursor moved past it; the inserted prefix appears /before/ the =*=,
+the cursor stays /after/. The user sees =[prefix]*|= where =|= is
+point.
+
+Trigger conditions (all must hold):
+1. The character that triggered =post-self-insert-hook= was =*=
+   (=last-command-event= equals =?*=).
+2. Point is now at column =1=, meaning the =*= was inserted at column
+   =0= of the current line.
+3. =gptel-chat--point-in-block-body-p= returns non-nil at the line's
+   start (column 0). The predicate is sub-millisecond on typical
+   chat buffers (=parser.org= "Block-body containment predicate";
+   design.md §Decision 2).
+
+If any condition fails the function returns without modification.
+This means typing =*= mid-line, typing =*= outside any chat block,
+and typing non-=*= characters at column 0 are all no-ops on the hot
+path (a single =eq= comparison plus column check).
+
+The predicate lives in =parser.el=, which loads /after/ =mode.el= per
+=chat.org='s feature-module load order. The predicate is referenced
+by symbol from inside the hook function, which runs at call-time
+(post-mode-activation), so the forward reference resolves naturally.
+We add a single-arg =declare-function= to silence byte-compiler
+"not known to be defined" warnings.
+
+Documented contracts:
+- =register/boundary/chat-heading-collision-escape= (stage-1 producer)
+- =register/invariant/chat-block-body-no-column-zero-stars=
+- =register/invariant/chat-block-delimiter-lines-stay-at-column-0=
+- =register/invariant/all-write-paths-apply-heading-escape=
+
+#+begin_src emacs-lisp
+(declare-function gptel-chat--point-in-block-body-p nil
+                  (&optional pos buffer))
+
+(defun gptel-chat--escape-typed-heading ()
+  "Escape a column-0 `*' just typed inside a chat-block body.
+
+Intended for `post-self-insert-hook'.  When the user typed `*' at
+column 0 and the line lies inside a `#+begin_user' /
+`#+begin_assistant' / `#+begin_tool' body (per
+`gptel-chat--point-in-block-body-p'), insert
+`gptel-chat-content-indentation' spaces at beginning-of-line so the
+line becomes `[prefix]*' instead of a column-0 `*' that would match
+org's `^\\*+ ' heading regex and corrupt the enclosing block.
+
+Point stays past the inserted `*' (cursor-after semantics) — the
+prefix is inserted /before/ the `*', so the user sees their typed
+character at the new column with point one column further right.
+
+No-op when:
+  - The triggering character was not `*'.
+  - Point is not at column 1 (i.e., the `*' was not at column 0).
+  - The line at column 0 is not strictly inside a chat-block body
+    (delimiter line, between blocks, outside any block, malformed
+    structure mid-edit).
+
+See `openspec/changes/gptel-chat-heading-scoping/design.md'
+§Decision 2 and `openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md'
+\(\"Heading-collision escape\")."
+  (when (and (eq last-command-event ?*)
+             (= (current-column) 1)
+             (gptel-chat--point-in-block-body-p
+              (line-beginning-position)))
+    (save-excursion
+      (beginning-of-line)
+      (insert (make-string gptel-chat-content-indentation ?\s)))))
+#+end_src
+
 * Major mode definition
 
 =define-derived-mode= from =org-mode= — inherit fontification, folding,
@@ -199,6 +281,11 @@ are minimal by design: only the keymap (above) and
 The =gptel-chat-mode-hook= runs at activation per Emacs convention;
 later tasks (display layer, preset wiring) register their own
 activation logic by adding to the hook.
+
+The =post-self-insert-hook= entry is added buffer-locally (the =LOCAL=
+flag of =add-hook=) so the heading-escape only fires inside chat-mode
+buffers — global hooks would penalise every keystroke in every
+buffer.
 
 #+begin_src emacs-lisp
 ;;;###autoload
@@ -219,7 +306,9 @@ is disabled buffer-locally so the parser's `^#\\+begin_...' anchor stays
 valid regardless of the user's global org settings (design.md §Decision 14).
 
 \\{gptel-chat-mode-map}"
-  (setq-local org-adapt-indentation nil))
+  (setq-local org-adapt-indentation nil)
+  (add-hook 'post-self-insert-hook
+            #'gptel-chat--escape-typed-heading nil t))
 #+end_src
 
 * New-chat command
