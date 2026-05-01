@@ -55,6 +55,8 @@
 (declare-function gptel-chat-toggle-display-layer nil ())
 (declare-function gptel-chat-menu nil ())
 (declare-function gptel-abort "gptel" (buf))
+(declare-function gptel-chat--point-in-block-body-p nil
+                  (&optional pos buffer))
 ;; Forward declarations:1 ends here
 
 ;; Keymap
@@ -273,7 +275,9 @@ valid regardless of the user's global org settings (design.md §Decision 14).
 \\{gptel-chat-mode-map}"
   (setq-local org-adapt-indentation nil)
   (add-hook 'post-self-insert-hook
-            #'gptel-chat--escape-typed-heading nil t))
+            #'gptel-chat--escape-typed-heading nil t)
+  (add-hook 'after-change-functions
+            #'gptel-chat--escape-inserted-headings nil t))
 ;; Major mode definition:1 ends here
 
 ;; Pure prepare helper
@@ -348,6 +352,92 @@ lives in the helper; this command only adds the
     (switch-to-buffer buffer)
     buffer))
 ;; Interactive switch wrapper:1 ends here
+
+;; Effect on downstream =after-change-functions=
+
+;; When this hook inserts the prefix it grows the buffer by N spaces per
+;; escaped line. Downstream =after-change-functions= entries see the
+;; buffer in its post-rewrite state but receive the *original* =BEG=,
+;; =END= arguments from Emacs. Callers that do positional arithmetic on
+;; =END= must be tolerant of this — the same caveat applies to any
+;; =after-change-functions= entry that mutates the buffer. We do not
+;; attempt to "fix up" =END= for downstream entries because Emacs does
+;; not provide a documented way to do so; we accept the standard
+;; contract.
+
+
+;; [[file:mode.org::*Effect on downstream =after-change-functions=][Effect on downstream =after-change-functions=:1]]
+(defun gptel-chat--escape-inserted-headings (beg end length)
+  "Escape column-0 `*' lines in [BEG, END) when LENGTH is 0.
+
+Intended for `after-change-functions'.  When LENGTH is 0 (pure
+insertion, not a deletion or replacement), walk the inserted range
+line by line.  For each line whose beginning-of-line position is
+>= BEG, starts with `^\\*+ ', and whose BOL lies strictly inside a
+chat-block body (per `gptel-chat--point-in-block-body-p'), insert
+`gptel-chat-content-indentation' leading spaces at that BOL.
+
+The function is idempotent: it acts only on lines that currently
+start with `*' at column 0.  An already-escaped line begins with
+whitespace, so re-running on previously-escaped content is a no-op.
+
+Re-entry guard: `inhibit-modification-hooks' is bound non-nil while
+the rewrite runs so this hook does not re-trigger on its own
+inserts.
+
+Boundary clipping: the per-line predicate returns nil for delimiter
+lines and for positions outside any chat block, so an inserted
+range that straddles a `#+end_*' line escapes only the portion that
+actually falls inside the body.
+
+Mid-line insertion: when point sits mid-line at insertion (column
+> 0), the first inserted line is concatenated onto the existing
+line and its BOL is < BEG.  Such a line is excluded from the scan
+by the BOL >= BEG guard, matching the user's mental model that the
+first segment is part of the existing line, not new content.
+
+Downstream `after-change-functions' entries see the buffer in its
+post-rewrite state but receive the original BEG/END from Emacs;
+positional arithmetic on END must tolerate the buffer having grown
+by the inserted prefix characters.  This caveat applies to any
+mutating `after-change-functions' entry, not just this one.
+
+See `openspec/changes/gptel-chat-heading-scoping/design.md'
+§Decision 3."
+  (when (and (zerop length)
+             (> end beg))
+    (let ((inhibit-modification-hooks t)
+          (indent (max 0 (or gptel-chat-content-indentation 0))))
+      (when (> indent 0)
+        (save-excursion
+          (save-match-data
+            (let ((prefix (make-string indent ?\s))
+                  ;; Use a marker so positional drift caused by our
+                  ;; own inserts does not invalidate the upper bound
+                  ;; of the scan.
+                  (end-marker (copy-marker end t)))
+              (unwind-protect
+                  (progn
+                    (goto-char beg)
+                    ;; Advance to the first BOL >= BEG.  When BEG is
+                    ;; itself at column 0, BOL = BEG and we start
+                    ;; immediately; when BEG is mid-line, the first
+                    ;; line is excluded (its BOL < BEG), matching
+                    ;; the mid-line semantics described in the
+                    ;; docstring.
+                    (unless (= (point) (line-beginning-position))
+                      (forward-line 1))
+                    (while (and (< (point) end-marker)
+                                (not (eobp)))
+                      (let ((bol (point)))
+                        (when (and (looking-at "\\*+ ")
+                                   (gptel-chat--point-in-block-body-p
+                                    bol))
+                          (goto-char bol)
+                          (insert prefix)))
+                      (forward-line 1)))
+                (set-marker end-marker nil)))))))))
+;; Effect on downstream =after-change-functions=:1 ends here
 
 ;; Provide
 
