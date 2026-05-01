@@ -187,8 +187,127 @@ the renderer / applicator decide whether to omit the key)."
     (error "scope-profile: cloud :auth-detection must be one of %S, got %S"
            jf/gptel-scope-profile--cloud-auth-values auth))))
 
+(declare-function gptel--model-name "gptel" (model))
+(declare-function gptel-backend-name "gptel" (backend))
+(declare-function gptel-tool-name "gptel" (tool))
+(declare-function gptel--modify-value "gptel" (original new-spec))
+
+(defun jf/gptel-scope-profile--resolve-tool-names (tools-spec)
+  "Resolve TOOLS-SPEC to a list of tool name strings.
+
+TOOLS-SPEC is the value of a preset's `:tools' field.  Three shapes
+are supported:
+
+- A modify-list spec (a list whose first element is one of
+  `:append', `:prepend', `:remove', `:eval', `:function', or
+  `:merge') — resolved against the current `gptel-tools' value via
+  `gptel--modify-value'.  Returns nil when `gptel-tools' is unbound,
+  since we cannot resolve a modifier without a base list.
+- A bare list of tool structs / name symbols / name strings —
+  mapped element-wise to their names.
+- A single tool struct / symbol / string — wrapped as a singleton.
+
+Per Decision 4 of gptel-drawer-as-source-of-truth: the renderer
+emits the *resolved* tool name list, mirroring the buffer-local
+state that preset application installs.  Modify-list specs are
+resolved against the current global default; this matches what
+`gptel--apply-preset' would install at session creation time."
+  (let* ((base (and (boundp 'gptel-tools) (default-value 'gptel-tools)))
+         (resolved
+          (cond
+           ;; Modify-list spec: dispatch to upstream resolver.
+           ((and (consp tools-spec)
+                 (keywordp (car tools-spec)))
+            (when base
+              (gptel--modify-value base tools-spec)))
+           ;; List of tools (or names).
+           ((listp tools-spec) tools-spec)
+           ;; Single tool / symbol / string.
+           (t (list tools-spec)))))
+    (delq nil
+          (mapcar (lambda (tool)
+                    (cond
+                     ((stringp tool) tool)
+                     ((symbolp tool) (symbol-name tool))
+                     ((and (recordp tool)
+                           (fboundp 'gptel-tool-name)
+                           (eq (type-of tool) 'gptel-tool))
+                      (gptel-tool-name tool))
+                     ;; cl-defstruct on older Emacs may produce vectors.
+                     ((and (vectorp tool) (fboundp 'gptel-tool-name))
+                      (ignore-errors (gptel-tool-name tool)))
+                     (t nil)))
+                  resolved))))
+
+(defun jf/gptel-scope-profile--snapshot-lines (preset-spec)
+  "Build the chat-mode snapshot drawer lines from PRESET-SPEC.
+
+PRESET-SPEC is the resolved preset plist returned by
+`gptel-get-preset' (e.g. (:model claude-sonnet :backend BACKEND :tools
+\(:append (...)) :temperature 0.7 ...)).  May be nil when no preset
+is in effect.
+
+Returns a list of `:KEY: VALUE' strings ready to be inserted into the
+drawer text, one per non-nil snapshot field.  The emitted keys are:
+
+- :GPTEL_MODEL: from PRESET-SPEC's `:model' (via `gptel--model-name')
+- :GPTEL_BACKEND: from `:backend' (via `gptel-backend-name'; bare
+  string accepted)
+- :GPTEL_TOOLS: from `:tools' (resolved via
+  `jf/gptel-scope-profile--resolve-tool-names'; line is omitted when
+  resolution yields the empty list)
+- :GPTEL_TEMPERATURE: from `:temperature' (number, formatted via
+  `number-to-string')
+- :GPTEL_MAX_TOKENS: from `:max-tokens' (number)
+- :GPTEL_NUM_MESSAGES_TO_SEND: from `:num-messages-to-send' (number)
+
+`:GPTEL_SYSTEM:' is *deliberately omitted* even when the preset's
+`:system' key is non-nil.  This is the write-side enforcement of
+`register/invariant/drawer-system-key-write-exclusion' (Decision 2
+of gptel-drawer-as-source-of-truth: long, multi-line, special-
+character system prompts are unwieldy as a single org property
+value, so the writer never round-trips them; the read-side overlay
+still respects manually authored entries).
+
+Returns nil when PRESET-SPEC is nil or carries none of the snapshot
+keys."
+  (when preset-spec
+    (let (lines)
+      (when-let* ((model (plist-get preset-spec :model)))
+        (push (format ":GPTEL_MODEL: %s" (gptel--model-name model)) lines))
+      (when-let* ((backend (plist-get preset-spec :backend)))
+        (push (format ":GPTEL_BACKEND: %s"
+                      (if (stringp backend) backend
+                        (gptel-backend-name backend)))
+              lines))
+      (when (plist-member preset-spec :tools)
+        (let ((names (jf/gptel-scope-profile--resolve-tool-names
+                      (plist-get preset-spec :tools))))
+          (when names
+            (push (format ":GPTEL_TOOLS: %s"
+                          (mapconcat #'identity names " "))
+                  lines))))
+      (when-let* ((temperature (plist-get preset-spec :temperature)))
+        (when (numberp temperature)
+          (push (format ":GPTEL_TEMPERATURE: %s"
+                        (number-to-string temperature))
+                lines)))
+      (when-let* ((max-tokens (plist-get preset-spec :max-tokens)))
+        (when (numberp max-tokens)
+          (push (format ":GPTEL_MAX_TOKENS: %s"
+                        (number-to-string max-tokens))
+                lines)))
+      (when-let* ((num-msgs (plist-get preset-spec :num-messages-to-send)))
+        (when (numberp num-msgs)
+          (push (format ":GPTEL_NUM_MESSAGES_TO_SEND: %s"
+                        (number-to-string num-msgs))
+                lines)))
+      ;; Note: :GPTEL_SYSTEM: is intentionally NOT emitted (Decision 2,
+      ;; register/invariant/drawer-system-key-write-exclusion).
+      (nreverse lines))))
+
 (defun jf/gptel-scope-profile--render-drawer-text
-    (preset-name parent-session-id scope-plist)
+    (preset-name parent-session-id scope-plist &optional preset-spec)
   "Render a `:PROPERTIES:' drawer block as a string.
 
 PRESET-NAME (symbol or string) becomes the value of `:GPTEL_PRESET:'.
@@ -197,6 +316,17 @@ when non-nil and non-empty.  SCOPE-PLIST has the canonical shape
 described in `register/shape/scope-config-plist' — i.e.
 \(:paths (:read (...) :write (...) :modify (...) :execute (...) :deny (...))
  :cloud (:auth-detection STRING :allowed-providers (...))).
+
+PRESET-SPEC, when non-nil, is the resolved preset plist (as returned
+by `gptel-get-preset').  Its non-nil snapshot fields are emitted as
+the upstream-compatible chat-mode keys (`:GPTEL_MODEL:',
+`:GPTEL_BACKEND:', `:GPTEL_TOOLS:', `:GPTEL_TEMPERATURE:',
+`:GPTEL_MAX_TOKENS:', `:GPTEL_NUM_MESSAGES_TO_SEND:') alongside the
+existing scope keys.  `:GPTEL_SYSTEM:' is *never* emitted, even when
+PRESET-SPEC has a non-nil `:system' (Decision 2 of gptel-drawer-as-
+source-of-truth, register/invariant/drawer-system-key-write-
+exclusion).  When PRESET-SPEC is nil, only the existing preset-name /
+parent-session-id / scope keys are emitted (legacy shape).
 
 Empty path lists are omitted from the rendered drawer.  Cloud auth-
 detection equal to \"warn\" with no allowed providers is treated as the
@@ -207,6 +337,12 @@ Returns a string of `register/shape/drawer-text-block':
   :PROPERTIES:
   :GPTEL_PRESET: <preset>
   [:GPTEL_PARENT_SESSION_ID: <parent>]
+  [:GPTEL_MODEL: <model-name>]
+  [:GPTEL_BACKEND: <backend-name>]
+  [:GPTEL_TOOLS: <tool0> <tool1> ...]
+  [:GPTEL_TEMPERATURE: <number>]
+  [:GPTEL_MAX_TOKENS: <number>]
+  [:GPTEL_NUM_MESSAGES_TO_SEND: <number>]
   [:GPTEL_SCOPE_<KEY>: value0 value1 ... valueN]
   :END:
 \\n
@@ -236,6 +372,11 @@ format `org-entry-get-multivalued-property' expects."
             lines))
     (when parent
       (push (format ":GPTEL_PARENT_SESSION_ID: %s" parent) lines))
+    ;; Chat-mode snapshot keys (Decision 4): emit before scope keys so
+    ;; the upstream-compatible block reads naturally above the scope
+    ;; block.
+    (dolist (line (jf/gptel-scope-profile--snapshot-lines preset-spec))
+      (push line lines))
     (dolist (op '((:read    . "GPTEL_SCOPE_READ")
                   (:write   . "GPTEL_SCOPE_WRITE")
                   (:modify  . "GPTEL_SCOPE_MODIFY")
@@ -260,7 +401,8 @@ format `org-entry-get-multivalued-property' expects."
     (push ":END:" lines)
     (concat (mapconcat #'identity (nreverse lines) "\n") "\n")))
 
-(defun jf/gptel-scope-profile--apply-to-drawer (buffer scope-plist)
+(defun jf/gptel-scope-profile--apply-to-drawer
+    (buffer scope-plist &optional preset-spec)
   "Apply SCOPE-PLIST to BUFFER's `:PROPERTIES:' drawer at `point-min'.
 
 Writes each `:GPTEL_SCOPE_*' key via `org-entry-put' (scalars) or
@@ -271,6 +413,15 @@ are preserved.  The buffer is saved when mutation completes.
 SCOPE-PLIST has the canonical shape `register/shape/scope-config-plist'
 \(see also `jf/gptel-scope-profile--render-drawer-text').
 
+PRESET-SPEC, when non-nil, is the resolved preset plist (as from
+`gptel-get-preset').  Its non-nil snapshot fields are written as the
+upstream-compatible chat-mode keys (`:GPTEL_MODEL:', `:GPTEL_BACKEND:',
+`:GPTEL_TOOLS:', `:GPTEL_TEMPERATURE:', `:GPTEL_MAX_TOKENS:',
+`:GPTEL_NUM_MESSAGES_TO_SEND:').  `:GPTEL_SYSTEM:' is *never* written
+here (Decision 2 of gptel-drawer-as-source-of-truth, register/
+invariant/drawer-system-key-write-exclusion).  When PRESET-SPEC is
+nil, only the scope keys are written (legacy behaviour).
+
 Empty path lists clear nothing — to remove a key, the caller should
 pass an explicit empty list and call `org-entry-delete' separately.
 This function only writes the keys that are present and non-empty in
@@ -280,6 +431,33 @@ SCOPE-PLIST."
       (save-restriction
         (widen)
         (goto-char (point-min))
+        ;; Snapshot keys first so they read above the scope block in the
+        ;; drawer (matches --render-drawer-text's emission order).
+        (when preset-spec
+          (when-let* ((model (plist-get preset-spec :model)))
+            (org-entry-put (point) "GPTEL_MODEL" (gptel--model-name model)))
+          (when-let* ((backend (plist-get preset-spec :backend)))
+            (org-entry-put (point) "GPTEL_BACKEND"
+                           (if (stringp backend) backend
+                             (gptel-backend-name backend))))
+          (when (plist-member preset-spec :tools)
+            (let ((names (jf/gptel-scope-profile--resolve-tool-names
+                          (plist-get preset-spec :tools))))
+              (when names
+                (apply #'org-entry-put-multivalued-property
+                       (point) "GPTEL_TOOLS" names))))
+          (when-let* ((temperature (plist-get preset-spec :temperature)))
+            (when (numberp temperature)
+              (org-entry-put (point) "GPTEL_TEMPERATURE"
+                             (number-to-string temperature))))
+          (when-let* ((max-tokens (plist-get preset-spec :max-tokens)))
+            (when (numberp max-tokens)
+              (org-entry-put (point) "GPTEL_MAX_TOKENS"
+                             (number-to-string max-tokens))))
+          (when-let* ((num-msgs (plist-get preset-spec :num-messages-to-send)))
+            (when (numberp num-msgs)
+              (org-entry-put (point) "GPTEL_NUM_MESSAGES_TO_SEND"
+                             (number-to-string num-msgs)))))
         (let ((paths (plist-get scope-plist :paths))
               (cloud (plist-get scope-plist :cloud)))
           (dolist (op '((:read    . "GPTEL_SCOPE_READ")
@@ -371,7 +549,7 @@ future additions to scope configuration."
       result)))
 
 (defun jf/gptel-scope-profile--create-for-session
-    (preset-name target-dir &optional project-root worktree-paths parent-session-id)
+    (preset-name target-dir &optional project-root worktree-paths parent-session-id preset-spec)
   "Resolve the scope profile for PRESET-NAME and return drawer text.
 
 Returns a `register/shape/drawer-text-block' string ready to be
@@ -383,6 +561,18 @@ to expand ${project_root} variables.  WORKTREE-PATHS, when provided, is
 deep-merged on top of the preset's resolved scope configuration.
 PARENT-SESSION-ID, when a non-empty string, becomes the
 `:GPTEL_PARENT_SESSION_ID:' line.
+
+PRESET-SPEC, when non-nil, is the resolved preset plist (as from
+`gptel-get-preset').  Its non-nil snapshot keys (`:model', `:backend',
+`:tools', `:temperature', `:max-tokens', `:num-messages-to-send') are
+threaded through to `--render-drawer-text' and emitted as the
+upstream-compatible chat-mode keys in the rendered drawer.  When
+PRESET-SPEC is omitted, the legacy preset-name-only drawer shape is
+rendered (no chat-mode snapshot keys, only `:GPTEL_PRESET:' and the
+scope keys).  Callers that want the full snapshot must pass
+PRESET-SPEC explicitly — Layer 2 of gptel-drawer-as-source-of-truth
+(task `wire-snapshot-into-session-creation') threads it from session-
+creation entrypoints.
 
 TARGET-DIR is currently unused (the renderer returns a string; callers
 write it to disk themselves).  The argument is retained so existing
@@ -419,7 +609,7 @@ drawer text will silently drop it; see the change
             (jf/gptel--log 'warn "No scope configuration available for preset: %s" preset-name)
             nil))))
     (jf/gptel-scope-profile--render-drawer-text
-     preset-name parent-session-id scope-plist)))
+     preset-name parent-session-id scope-plist preset-spec)))
 
 (provide 'gptel-scope-profiles)
 ;;; scope-profiles.el ends here
