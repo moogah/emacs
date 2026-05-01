@@ -51,6 +51,12 @@
        (chat-dir (expand-file-name "../../" spec-dir)))
   (add-to-list 'load-path chat-dir))
 
+;; `gptel-chat-mode' owns the `gptel-chat-content-indentation' defcustom
+;; consulted by `gptel-chat--sanitize-chunk' for the heading-collision
+;; escape.  In production `mode.el' loads before `stream.el'; loading it
+;; here mirrors that order so heading-escape specs see the configured
+;; default rather than the sanitizer's standalone fallback.
+(require 'gptel-chat-mode)
 (require 'gptel-chat-stream)
 
 
@@ -200,6 +206,124 @@ Returns the marker."
               :to-throw 'error '("LINE must not contain newlines")))))
 
 
+;;; gptel-chat--sanitize-chunk: heading-collision escape ---------------------
+;;
+;; Owned by task `extend-stream-sanitizer-heading-rule' (change
+;; `gptel-chat-heading-scoping', design.md §Decision 4).  A line that
+;; matches `^\\*+ ' inside a chat-block body is parsed by `org-element'
+;; as a heading and destroys the special-block AST.  The sanitizer
+;; defends the write path by prepending
+;; `gptel-chat-content-indentation' leading spaces; the parser's
+;; send-path strips any leading whitespace before such a line so
+;; round-trip is robust against config changes (see
+;; `escape-round-trip-spec.el' for the inverse-pair proof).
+;;
+;; The two collision rules (delimiter / heading) are mutually exclusive
+;; — a line cannot start with both `#+end_' and `*'.  The specs in
+;; this section pin the heading-rule positive cases, the exclusivity
+;; with delimiter content (negative on `#+end_*' would already be
+;; covered above, but a positive delimiter-line spec explicitly
+;; bypasses the heading rule), and the negative cases the heading
+;; regex must NOT match (no leading column-0 anchor, no trailing
+;; space).
+
+(describe "gptel-chat--sanitize-chunk heading-collision escape"
+
+  (describe "escapes column-0 `*' lines (positive cases)"
+
+    (it "escapes a single-level `* Heading'"
+      (expect (gptel-chat--sanitize-chunk "* Heading")
+              :to-equal " * Heading"))
+
+    (it "escapes a deep `*** Deep' with a single prefix (count-independent)"
+      ;; The escape width does not scale with star count: any leading
+      ;; whitespace breaks the heading regex, so a single
+      ;; `gptel-chat-content-indentation' prefix is sufficient
+      ;; regardless of nesting depth.
+      (expect (gptel-chat--sanitize-chunk "*** Deep")
+              :to-equal " *** Deep"))
+
+    (it "escapes a six-star `****** Even deeper' the same way"
+      ;; Org caps usable heading depth at 6 by default, but the
+      ;; collision regex `^\\*+ ' has no upper bound; verifying a
+      ;; depth-6 line pins that the rule has no off-by-one.
+      (expect (gptel-chat--sanitize-chunk "****** Even deeper")
+              :to-equal " ****** Even deeper")))
+
+  (describe "rule order: delimiter rule wins on inputs that could match both"
+    ;; The two rules are mutually exclusive (`#+end_' starts with `#',
+    ;; `*' starts with `*'), so this is a hypothetical guard rather
+    ;; than a real-world overlap.  Verifying that an `#+end_*' line
+    ;; still escapes with `,' (not the heading prefix) pins the
+    ;; documented order if the regexes are ever loosened.
+
+    (it "escapes `#+end_assistant' with `,' (delimiter rule), not heading prefix"
+      (expect (gptel-chat--sanitize-chunk "#+end_assistant")
+              :to-equal ",#+end_assistant")))
+
+  (describe "leaves non-matching `*' shapes untouched (negative cases)"
+
+    (it "passes `not* a heading' through (no column-0 anchor)"
+      (expect (gptel-chat--sanitize-chunk "not* a heading")
+              :to-equal "not* a heading"))
+
+    (it "passes `*no-space' through (heading regex requires a trailing space)"
+      ;; `^\\*+ ' anchors a SPACE after the run of `*'s.  A bareword
+      ;; like `*no-space' or `*emphasis*' is org emphasis markup, not
+      ;; a heading, and must not be escaped.
+      (expect (gptel-chat--sanitize-chunk "*no-space")
+              :to-equal "*no-space"))
+
+    (it "passes `*emphasis*' through (org emphasis, not a heading)"
+      (expect (gptel-chat--sanitize-chunk "*emphasis*")
+              :to-equal "*emphasis*"))
+
+    (it "passes `  * already-indented' through (already past column 0)"
+      ;; The heading regex anchors at column 0; pre-indented `*' lines
+      ;; are structurally safe and must not pick up additional
+      ;; whitespace each pass (idempotence).
+      (expect (gptel-chat--sanitize-chunk "  * already-indented")
+              :to-equal "  * already-indented"))
+
+    (it "passes already-escaped ` * Heading' through (idempotence)"
+      ;; The first sanitize prepends a single space; a second pass on
+      ;; the resulting ` * Heading' must not stack another space — the
+      ;; line no longer matches `^\\*+ '.  This mirrors the existing
+      ;; idempotence guarantee for `,#+end_*' inputs.
+      (expect (gptel-chat--sanitize-chunk " * Heading")
+              :to-equal " * Heading"))
+
+    (it "passes `*' with no trailing characters through"
+      ;; A bare `*' (no space) does not match `^\\*+ '.  Some prose
+      ;; uses `*' as a list bullet without text on the same line; the
+      ;; sanitizer must not escape that.
+      (expect (gptel-chat--sanitize-chunk "*")
+              :to-equal "*"))
+
+    (it "passes the empty string through (no column-0 stars to escape)"
+      (expect (gptel-chat--sanitize-chunk "")
+              :to-equal "")))
+
+  (describe "honours `gptel-chat-content-indentation'"
+
+    (it "uses 1 leading space when the defcustom is 1 (default)"
+      (let ((gptel-chat-content-indentation 1))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal " * Heading")))
+
+    (it "uses 2 leading spaces when the defcustom is set to 2"
+      ;; The user can opt into `org-edit-src-content-indentation'
+      ;; parity (default 2) by setting this defcustom.
+      (let ((gptel-chat-content-indentation 2))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal "  * Heading")))
+
+    (it "uses 4 leading spaces when the defcustom is set to 4"
+      (let ((gptel-chat-content-indentation 4))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal "    * Heading")))))
+
+
 ;;; gptel-chat--make-stream-inserter ------------------------------------------
 
 (describe "gptel-chat--make-stream-inserter"
@@ -340,6 +464,96 @@ Returns the marker."
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
               :to-equal "a\n#+begin_assistant\nb\n")))
+
+  (describe "sanitizes heading collisions on whole-line chunks"
+    ;; Owned by task `extend-stream-sanitizer-heading-rule' (change
+    ;; `gptel-chat-heading-scoping').  The inserter's holdback +
+    ;; per-line sanitize loop applies the heading rule on the same
+    ;; path as the delimiter rule; these specs pin streaming-level
+    ;; behaviour for the cases unit-tested directly above.
+
+    (it "escapes a single-line `* Heading' chunk"
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "* Heading\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal " * Heading\n"))
+
+    (it "escapes a deep `*** Deep' chunk with a single prefix"
+      ;; The escape width is independent of star count — any leading
+      ;; whitespace breaks the heading regex.
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "*** Deep\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal " *** Deep\n"))
+
+    (it "applies both rules in a mixed chunk and leaves plain prose untouched"
+      ;; Mixed payload: a heading line, an end-delimiter line, and
+      ;; ordinary prose.  Each line goes through the per-line
+      ;; sanitizer; the delimiter rule prepends `,', the heading rule
+      ;; prepends a space, prose passes through unchanged.
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "* Heading\n#+end_assistant\nplain text\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal " * Heading\n,#+end_assistant\nplain text\n"))
+
+    (it "escapes a heading split across chunks (holdback completes line first)"
+      ;; The holdback exists precisely so a line split across chunk
+      ;; boundaries reaches the sanitizer as a complete line.  Verify
+      ;; the heading rule benefits from this: the first chunk leaves
+      ;; `* He' in the holdback (no insert), the second chunk
+      ;; supplies `ading\n' which completes the line; the inserter
+      ;; sanitizes the completed `* Heading' before insertion.
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "\n* He")
+        ;; First chunk: a leading newline becomes an empty completed
+        ;; line; `* He' is held back (no embedded newline).  Buffer
+        ;; should contain only the empty line so far.
+        (expect (gptel-chat-stream-test--buffer-string)
+                :to-equal "\n")
+        (funcall cb "ading\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal "\n * Heading\n"))
+
+    (it "does NOT escape `not* a heading' (no column-0 anchor)"
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "before\nnot* a heading\nafter\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal "before\nnot* a heading\nafter\n"))
+
+    (it "does NOT escape `*no-space' (heading regex requires a trailing space)"
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "before\n*no-space\nafter\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal "before\n*no-space\nafter\n"))
+
+    (it "honours `gptel-chat-content-indentation' when streaming"
+      ;; Customising the defcustom changes the streamed escape width.
+      (let ((gptel-chat-content-indentation 2))
+        (let* ((handle (gptel-chat--make-stream-inserter
+                        gptel-chat-stream-test--marker))
+               (cb (gptel-chat-stream-insert handle)))
+          (funcall cb "* Heading\n")
+          (funcall cb t)))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal "  * Heading\n")))
 
   (describe "rejects chunk values that are neither string nor t sentinel"
     ;; Contract (design.md §Decision 10): the insert slot's dispatch
