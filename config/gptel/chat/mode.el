@@ -104,6 +104,54 @@ The single-`C-c' prefix on turn navigation avoids shadowing org's
 `C-c C-n' / `C-c C-p' heading navigation — see design.md §Decision 7.")
 ;; Keymap:1 ends here
 
+;; Buffer content indentation
+
+;; =gptel-chat-content-indentation= controls how many spaces of
+;; heading-collision escape are applied to column-0 =*= lines inside
+;; chat-block bodies. The org heading regex is =^\*+ = anchored at column
+;; 0; any leading whitespace breaks it, so a single space is the minimum
+;; escape that prevents the parser from absorbing the line into an
+;; outline subtree (=openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md=
+;; "Heading-collision escape"; =openspec/changes/gptel-chat-heading-scoping/design.md=
+;; §Decision 8).
+
+;; Default =1= minimizes visual noise. Users wanting parity with
+;; =org-edit-src-content-indentation= (default =2=) can set it to =2=.
+;; The parser un-escape strips *any* amount of leading whitespace before
+;; a =*= line, so round-trip is robust against config changes — a buffer
+;; written with =1= and re-opened under =2= is re-normalized at
+;; read-migration time.
+
+;; The defcustom lives in =mode.el= (rather than =stream.el=, =send.el=,
+;; or =parser.el=) because every write/read pipeline stage that consults
+;; it loads after =mode.el= in =chat.org='s feature-module load order.
+;; The =:group 'gptel-chat= reference resolves at customize-time, not
+;; load-time, so the forward reference to the group defined in
+;; =display.el= is harmless.
+
+
+;; [[file:mode.org::*Buffer content indentation][Buffer content indentation:1]]
+(defcustom gptel-chat-content-indentation 1
+  "Number of leading spaces used to escape column-0 `*' lines in chat blocks.
+
+Org's heading regex is `^\\*+ ' anchored at column 0; an unescaped `*'
+line inside a `#+begin_user' / `#+begin_assistant' / `#+begin_tool'
+block destroys the block in `org-element-parse-buffer' (the AST loses
+the special-block entirely; the heading absorbs subsequent content
+into its outline subtree).  The chat-mode write pipeline (streaming
+insertion, user-typed lines, paste/yank, file-read migration) prefixes
+every column-0 `*' line in a chat-block body with this many spaces;
+the parser's send path strips any leading whitespace before such a
+line so the LLM only ever sees clean message content.
+
+Default 1 is the minimum that breaks the heading regex.  Set to 2 for
+parity with `org-edit-src-content-indentation'.  See
+`openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md'
+\(\"Heading-collision escape\") and design.md §Decision 8."
+  :type 'integer
+  :group 'gptel-chat)
+;; Buffer content indentation:1 ends here
+
 ;; Major mode definition
 
 ;; =define-derived-mode= from =org-mode= — inherit fontification, folding,
