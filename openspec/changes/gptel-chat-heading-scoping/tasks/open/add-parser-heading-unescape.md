@@ -2,7 +2,8 @@
 name: add-parser-heading-unescape
 description: Add inverse-of-sanitizer un-escape for column-0 headings on send
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 75432038894bd188dcbece92cc0c510e4908cc78
 relations:
   - blocked-by:extend-stream-sanitizer-heading-rule
 ---
