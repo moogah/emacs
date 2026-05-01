@@ -297,60 +297,202 @@ triggers a `display-warning' rather than an error, matching upstream
 
 ;; =gptel-chat--save-state= is the =before-save-hook= entry that
 ;; writes a configuration =:PROPERTIES:= drawer at =point-min= before
-;; the buffer is written to disk. It delegates the upstream-compatible
-;; subset (=GPTEL_PRESET=, =GPTEL_MODEL=, =GPTEL_BACKEND=,
-;; =GPTEL_SYSTEM=, =GPTEL_TOOLS=, =GPTEL_TEMPERATURE=,
-;; =GPTEL_MAX_TOKENS=, =GPTEL_NUM_MESSAGES_TO_SEND=) to upstream's
-;; =gptel-org-set-properties=, then writes the chat-mode extension
-;; =GPTEL_PARENT_SESSION_ID= via a targeted =org-entry-put= when
-;; =jf/gptel--parent-session-id= is bound to a non-empty string.
+;; the buffer is written to disk.
 
-;; Design rationale (design.md §Decisions 1, 3, 10):
+;; The save path writes the *full snapshot* of current buffer-local
+;; configuration on every save, with no delta-from-preset deletion
+;; semantics. The drawer is the WYSIWYG source of truth — opening
+;; the file shows the configuration the chat is using right now
+;; (Decision 1 of gptel-drawer-as-source-of-truth).
 
-;; - =gptel-org-set-properties= is the narrower upstream helper.  It
-;;   does NOT write =GPTEL_BOUNDS= — that's the wrapper
-;;   =gptel-org--save-state=, which calls this narrower helper and then
-;;   additionally persists response-span bounds.  Calling the narrower
-;;   helper gives us upstream delta-from-preset semantics bit-for-bit
-;;   compatible with a =gptel-mode= org buffer, minus the one line we
-;;   don't want (chat-mode uses blocks, not text-property bounds — spec
-;;   §"Save path never writes GPTEL_BOUNDS").
-;; - =GPTEL_PARENT_SESSION_ID= is a chat-mode extension (design.md
-;;   §Decision 3).  Upstream's =gptel-org--entry-properties= ignores
-;;   unknown drawer keys, so cross-compat with a =gptel-mode= buffer is
-;;   preserved.  It's written as a targeted =org-entry-put= after the
-;;   upstream helper returns.
-;; - The =msg= argument to =gptel-org-set-properties= is =nil= so the
-;;   interactive echo ("Added gptel configuration to current
-;;   headline.") is suppressed on every save.
+;; Emitted keys (when the corresponding buffer-local variable is
+;; non-nil and well-typed):
+
+;; - =GPTEL_PRESET= — from =gptel--preset=
+;; - =GPTEL_MODEL= — from =gptel-model= via =gptel--model-name=
+;; - =GPTEL_BACKEND= — from =gptel-backend= via =gptel-backend-name=
+;;   (handles both the struct and a bare string)
+;; - =GPTEL_TEMPERATURE= — from =gptel-temperature= via
+;;   =number-to-string=
+;; - =GPTEL_MAX_TOKENS= — from =gptel-max-tokens=
+;; - =GPTEL_NUM_MESSAGES_TO_SEND= — from =gptel--num-messages-to-send=
+;; - =GPTEL_TOOLS= — from =gptel-tools= via =gptel-tool-name= →
+;;   multi-valued property
+;; - =GPTEL_PARENT_SESSION_ID= — from =jf/gptel--parent-session-id=
+
+;; Deliberate exclusions:
+
+;; - =GPTEL_SYSTEM= is *never* written (Decision 2;
+;;   =register/invariant/drawer-system-key-write-exclusion=). Long,
+;;   multi-line, special-character system prompts are unwieldy as a
+;;   single org property value, so the writer never round-trips them.
+;;   The read-side overlay (=gptel-chat--apply-drawer-overrides=)
+;;   still respects manually authored entries for back-compat.
+;; - =GPTEL_BOUNDS= is never written. Chat-mode stores response text
+;;   inside =#+begin_assistant= blocks rather than text-property-
+;;   bounded spans (spec §"Save path never writes GPTEL_BOUNDS").
+
+;; For each key, if the source variable is nil or wrong-typed, the
+;; drawer entry is *deleted* via =org-entry-delete= so the saved
+;; drawer never carries stale values. =GPTEL_SYSTEM= is the
+;; exception — it is neither written nor deleted, leaving any user-
+;; authored entry as-is.
+
+;; Design rationale (design.md §Decisions 1, 2, 3):
+
+;; - A dedicated chat-mode writer (rather than wrapping the upstream
+;;   =gptel-org-set-properties= helper) is the smallest surface that
+;;   gives the WYSIWYG contract. The upstream helper's delta-from-
+;;   preset semantics defeat the design goal — fresh sessions never
+;;   display =:GPTEL_TOOLS:= or =:GPTEL_MODEL:= when the buffer-local
+;;   values match the preset, hiding the active configuration.
+;; - =(require 'gptel-org)= is still needed: the read-side overlay
+;;   (=gptel-chat--apply-drawer-overrides=) consumes
+;;   =gptel-org--entry-properties=, so the feature must be loaded.
 ;; - =save-excursion= + =org-with-wide-buffer= mirror upstream's
-;;   =gptel-org--save-state= framing so the save is safe regardless of
-;;   buffer narrowing or point position.
-;; - The =derived-mode-p= guard is defense-in-depth.  The hook is
-;;   registered buffer-locally from =gptel-chat--install-preset-hooks=
-;;   (see below), so in practice it only fires in chat-mode buffers,
-;;   but a direct caller — or a future accidental global registration —
-;;   should still no-op outside chat-mode.
+;;   framing so the save is safe regardless of buffer narrowing or
+;;   point position.
+;; - The =derived-mode-p= guard is defense-in-depth. The hook is
+;;   registered buffer-locally from
+;;   =gptel-chat--install-preset-hooks= (see below), so in practice
+;;   it only fires in chat-mode buffers, but a direct caller — or a
+;;   future accidental global registration — should still no-op
+;;   outside chat-mode.
 
 
 ;; [[file:menu.org::*Save state hook][Save state hook:1]]
+(declare-function gptel--model-name "gptel" (model))
+(declare-function gptel-backend-name "gptel" (backend))
+(declare-function gptel-tool-name "gptel" (tool))
+(defvar gptel--preset)
+(defvar gptel-model)
+(defvar gptel-backend)
+(defvar gptel-temperature)
+(defvar gptel-max-tokens)
+(defvar gptel--num-messages-to-send)
+
+(defun gptel-chat--put-or-delete (pt key value)
+  "Write VALUE under KEY at PT via `org-entry-put', or delete the entry.
+
+When VALUE is a non-empty string, write it under property name KEY
+(KEY is the bare property name, no surrounding colons).  When VALUE
+is nil or empty, delete the property entry so the drawer never
+carries stale values across saves.  Used by
+`gptel-chat--write-config-drawer' for scalar keys."
+  (if (and (stringp value) (not (string-empty-p value)))
+      (org-entry-put pt key value)
+    (org-entry-delete pt key)))
+
+(defun gptel-chat--write-config-drawer ()
+  "Write the chat-mode configuration drawer at `point-min'.
+
+Emits the full upstream-compatible drawer key set from current
+buffer-local state (no delta-from-preset deletion).  See the
+section commentary for the full key list and exclusions
+(`:GPTEL_SYSTEM:' and `:GPTEL_BOUNDS:' are deliberately never
+written; Decision 2 of gptel-drawer-as-source-of-truth, register/
+invariant/drawer-system-key-write-exclusion).
+
+Each scalar key is written when its source variable is non-nil
+and well-typed; otherwise the drawer entry is deleted via
+`org-entry-delete' so the saved drawer reflects current buffer
+state precisely.  `:GPTEL_TOOLS:' is a multi-valued property
+written via `org-entry-put-multivalued-property'.
+
+Caller is responsible for the surrounding `save-excursion' /
+`org-with-wide-buffer' framing and for calling this only in
+chat-mode buffers.  The dedicated writer (rather than upstream
+`gptel-org-set-properties') is Decision 1 of
+gptel-drawer-as-source-of-truth: the WYSIWYG contract requires
+full-snapshot writes, not deletes-when-preset-matches."
+  (let ((pt (point-min)))
+    ;; :GPTEL_PRESET:
+    (gptel-chat--put-or-delete
+     pt "GPTEL_PRESET"
+     (and (bound-and-true-p gptel--preset)
+          (cond ((symbolp gptel--preset) (symbol-name gptel--preset))
+                ((stringp gptel--preset) gptel--preset))))
+    ;; :GPTEL_MODEL:
+    (gptel-chat--put-or-delete
+     pt "GPTEL_MODEL"
+     (and (bound-and-true-p gptel-model) gptel-model
+          (gptel--model-name gptel-model)))
+    ;; :GPTEL_BACKEND:
+    (gptel-chat--put-or-delete
+     pt "GPTEL_BACKEND"
+     (and (bound-and-true-p gptel-backend) gptel-backend
+          (cond ((stringp gptel-backend) gptel-backend)
+                ((fboundp 'gptel-backend-name)
+                 (gptel-backend-name gptel-backend)))))
+    ;; :GPTEL_TEMPERATURE:
+    (gptel-chat--put-or-delete
+     pt "GPTEL_TEMPERATURE"
+     (and (bound-and-true-p gptel-temperature)
+          (numberp gptel-temperature)
+          (number-to-string gptel-temperature)))
+    ;; :GPTEL_MAX_TOKENS:
+    (gptel-chat--put-or-delete
+     pt "GPTEL_MAX_TOKENS"
+     (and (bound-and-true-p gptel-max-tokens)
+          (numberp gptel-max-tokens)
+          (number-to-string gptel-max-tokens)))
+    ;; :GPTEL_NUM_MESSAGES_TO_SEND:
+    (gptel-chat--put-or-delete
+     pt "GPTEL_NUM_MESSAGES_TO_SEND"
+     (and (bound-and-true-p gptel--num-messages-to-send)
+          (numberp gptel--num-messages-to-send)
+          (number-to-string gptel--num-messages-to-send)))
+    ;; :GPTEL_TOOLS: — multi-valued; non-empty list writes,
+    ;; empty/unbound deletes.
+    (let ((names (and (bound-and-true-p gptel-tools)
+                      gptel-tools
+                      (delq nil
+                            (mapcar (lambda (tool)
+                                      (cond
+                                       ((stringp tool) tool)
+                                       ((symbolp tool) (symbol-name tool))
+                                       ((and (recordp tool)
+                                             (fboundp 'gptel-tool-name)
+                                             (eq (type-of tool) 'gptel-tool))
+                                        (gptel-tool-name tool))
+                                       ((and (vectorp tool)
+                                             (fboundp 'gptel-tool-name))
+                                        (ignore-errors
+                                          (gptel-tool-name tool)))))
+                                    gptel-tools)))))
+      (if names
+          (apply #'org-entry-put-multivalued-property
+                 pt "GPTEL_TOOLS" names)
+        (org-entry-delete pt "GPTEL_TOOLS")))
+    ;; :GPTEL_SYSTEM: deliberately not touched.  Writers never emit
+    ;; it (Decision 2; long multi-line strings are unwieldy as
+    ;; org property values).  Reads still honor manually authored
+    ;; entries via the chat-mode overlay for back-compat.
+    ;; :GPTEL_BOUNDS: deliberately not touched.  Chat-mode uses
+    ;; block-based response storage, not text-property bounds.
+    nil))
+
 (defun gptel-chat--save-state ()
   "Write the chat-mode configuration drawer before saving the buffer.
 
 Intended to run from a buffer-local `before-save-hook' installed by
-`gptel-chat--install-preset-hooks'.  Delegates the upstream-
-compatible subset of drawer keys (`GPTEL_PRESET', `GPTEL_MODEL',
-`GPTEL_BACKEND', `GPTEL_SYSTEM', `GPTEL_TOOLS', `GPTEL_TEMPERATURE',
-`GPTEL_MAX_TOKENS', `GPTEL_NUM_MESSAGES_TO_SEND') to upstream
-`gptel-org-set-properties' with MSG nil (suppress interactive
-echo), then writes the chat-mode extension `GPTEL_PARENT_SESSION_ID'
-via `org-entry-put' when `jf/gptel--parent-session-id' is bound to
-a non-empty string.
+`gptel-chat--install-preset-hooks'.  Delegates to
+`gptel-chat--write-config-drawer' for the upstream-compatible key set
+(no delta-from-preset deletion — Decision 1 of gptel-drawer-as-
+source-of-truth: full-snapshot writes for the WYSIWYG drawer).  Then
+writes the chat-mode extension `GPTEL_PARENT_SESSION_ID' via
+`org-entry-put' when `jf/gptel--parent-session-id' is bound to a
+non-empty string.
 
-Does NOT write `GPTEL_BOUNDS'.  The chat-mode block format stores
-response text inside `#+begin_assistant' blocks rather than text-
-property-bounded spans, so bounds persistence is intentionally
-excluded (spec §\"Save path never writes GPTEL_BOUNDS\").
+Does NOT write `GPTEL_BOUNDS'.  Chat-mode stores response text
+inside `#+begin_assistant' blocks rather than text-property-bounded
+spans, so bounds persistence is intentionally excluded.
+
+Does NOT write `GPTEL_SYSTEM'.  Decision 2: long, multi-line system
+prompts are unwieldy as a single org property value; the writer
+never round-trips them.  Read-side overlay still respects manually
+authored entries (register/invariant/drawer-system-key-write-
+exclusion).
 
 Does NOT enable `gptel-mode'.  Chat-mode owns the major-mode role
 exclusively (design.md §Decision 16)."
@@ -358,13 +500,14 @@ exclusively (design.md §Decision 16)."
     ;; `gptel-org' is not pulled in by anything else on the chat-mode
     ;; load path — chat-mode derives from `org-mode', not from any
     ;; gptel feature path that upstream `(require 'gptel-org)`s.  Pull
-    ;; it in lazily on first save so `gptel-org-set-properties' is
-    ;; bound (regression caught by `save-hook-require-gptel-org' /
+    ;; it in lazily on first save so the read-side overlay (which
+    ;; consumes `gptel-org--entry-properties') has the feature
+    ;; available (regression caught by `save-hook-require-gptel-org' /
     ;; `regression-sweep-and-manual-smoke', 2026-04-25).
     (require 'gptel-org)
     (save-excursion
       (org-with-wide-buffer
-       (gptel-org-set-properties (point-min) nil)
+       (gptel-chat--write-config-drawer)
        (when (and (bound-and-true-p jf/gptel--parent-session-id)
                   (stringp jf/gptel--parent-session-id)
                   (not (string-empty-p jf/gptel--parent-session-id)))

@@ -2,7 +2,7 @@
 name: replace-chat-save-with-full-snapshot-writer
 description: Replace the upstream `gptel-org-set-properties` call in `gptel-chat--save-state` with a chat-mode writer that emits the full configuration snapshot from buffer-local state, excluding `:GPTEL_SYSTEM:` and `:GPTEL_BOUNDS:`.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations: []
 ---
 
