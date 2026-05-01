@@ -2,7 +2,8 @@
 name: add-user-typed-heading-escape
 description: post-self-insert-hook escapes column-0 * typed inside chat blocks
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: b12d5331f9fa4cf333bcc32e4f32b1c4e412e296
 relations:
   - blocked-by:add-content-indentation-defcustom
   - blocked-by:add-point-in-block-body-predicate

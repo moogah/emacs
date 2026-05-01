@@ -2,7 +2,8 @@
 name: add-content-indentation-defcustom
 description: Add gptel-chat-content-indentation defcustom controlling escape width
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 6b3632c990a2b9276243fbd67c292df6a542e038
 relations:
   - enables:extend-stream-sanitizer-heading-rule
   - enables:add-user-typed-heading-escape

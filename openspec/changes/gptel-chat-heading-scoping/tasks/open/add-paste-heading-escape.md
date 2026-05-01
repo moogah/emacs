@@ -2,7 +2,8 @@
 name: add-paste-heading-escape
 description: after-change-functions escapes column-0 * lines in pasted/yanked content
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 8da8891c6a0345fbef259f1799d8c5aa6e844745
 relations:
   - blocked-by:add-content-indentation-defcustom
   - blocked-by:add-point-in-block-body-predicate

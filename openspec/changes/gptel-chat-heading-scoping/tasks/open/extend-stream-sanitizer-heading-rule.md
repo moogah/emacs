@@ -2,7 +2,8 @@
 name: extend-stream-sanitizer-heading-rule
 description: Add column-0 heading escape to gptel-chat--sanitize-chunk
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 89ca6c46d28146c83ba1e2cc1f2443abbec94bfd
 relations:
   - blocked-by:add-content-indentation-defcustom
   - enables:add-parser-heading-unescape

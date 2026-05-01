@@ -1195,6 +1195,104 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
    #+end_src
 
+** chat-heading-collision-escape
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-chat-heading-collision-escape
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/chat-heading-collision-escape
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: chat-mode heading-collision write/read escape pipeline
+   purpose: |
+     Symmetric pipeline that prevents a column-0 `*` line inside a chat-block
+     body from being recognised as an org heading. The escape is applied on
+     every write path (streaming insertion, user typing, paste/yank,
+     programmatic insert, file-read migration); the inverse strip runs on
+     the parser's send path so the LLM only ever sees clean message content.
+     The pipeline carves out exactly one feature ("real heading affordances
+     inside a turn") from chat-mode's "full org-mode editing experience"
+     promise, replacing it with `gptel-chat-edit-turn` (deferred) for users
+     who need real heading work. See proposal.md and design.md (Decisions
+     1, 2, 3, 4, 5, 8).
+
+   stages:
+     - n: 1
+       name: write-escape
+       input: |
+         Raw line content arriving at any chat-block body insertion site:
+           - assistant chunk via `gptel-chat--sanitize-chunk` (stream)
+           - typed `*` via `post-self-insert-hook` (Decision 2)
+           - inserted region via `after-change-functions` (Decision 3)
+           - existing on-disk content via mode-activation migration (Decision 5)
+       output: |
+         Same content with every `^\*+ ` line prefixed by
+         `(make-string gptel-chat-content-indentation ?\s)` (default 1 space)
+         when the line falls inside an outer chat-block body and is not
+         itself a `#+begin_*` / `#+end_*` delimiter.
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         Idempotent — re-running on already-escaped content is a no-op
+         because the heading regex requires `*` at column 0. The streaming
+         sanitizer also handles the existing `^#\+end_(user|assistant|tool)`
+         delimiter-collision rule; the two rules are mutually exclusive at
+         the line level (a line cannot start with both `#+end_` and `*`).
+
+     - n: 2
+       name: parse-strip
+       input: |
+         Escaped chat-block body content as it appears in the buffer
+         (or file on disk) — `^[ \t]+\*+ ` lines plus any other lines.
+       output: |
+         Clean message content with leading whitespace stripped from
+         `^[ \t]+\*+ ` lines (any amount of leading whitespace, robust
+         against `gptel-chat-content-indentation` changes and legacy
+         content with different widths). Delivered to the LLM as
+         `user` / `assistant` / `tool` message bodies via
+         `gptel-chat--segment-to-messages`.
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         Symmetric to stage 1 by intent, NOT by exact-character count.
+         Stage 1 inserts exactly N spaces; stage 2 strips any amount of
+         leading whitespace before `*+ `. Asymmetry is deliberate — see
+         design.md Decision 8.
+
+   cross_stage_invariants:
+     - register/invariant/chat-block-body-no-column-zero-stars
+     - register/invariant/chat-heading-escape-roundtrip-transparent
+     - register/invariant/chat-block-delimiter-lines-stay-at-column-0
+     - register/invariant/all-write-paths-apply-heading-escape
+
+   producers:
+     - file: config/gptel/chat/stream.org
+       function: gptel-chat--sanitize-chunk
+       enters_at_stage: 1
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat--escape-typed-heading
+       enters_at_stage: 1
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat--escape-inserted-headings
+       enters_at_stage: 1
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat--migrate-headings
+       enters_at_stage: 1
+
+   consumers:
+     - file: config/gptel/chat/parser.org
+       function: gptel-chat--unescape-headings
+       reads_output_of_stage: 1
+     - file: config/gptel/chat/parser.org
+       function: gptel-chat--segment-to-messages
+       reads_output_of_stage: 2
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -1546,6 +1644,254 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-scope-in-org-properties
    discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
+   #+end_src
+
+** chat-block-body-no-column-zero-stars
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-block-body-no-column-zero-stars
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-block-body-no-column-zero-stars
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: no `*+ ` line at column 0 inside a chat-block body
+
+   statement: |
+     For any buffer in `gptel-chat-mode`, no line whose position is
+     strictly between an outer `#+begin_user` / `#+begin_assistant` /
+     `#+begin_tool` opener and its matching `#+end_*` closer SHALL match
+     the regex `^\*+ ` (one or more `*` at column 0 followed by a space).
+     The invariant is enforced at every write path (streaming insert,
+     user-typed insert, paste / yank / programmatic insert, file-read
+     migration) by the chat-heading-collision-escape boundary's stage 1.
+
+   why_it_matters: |
+     Empirically (research.md Finding 2), an `^\*+ ` line at column 0
+     inside a chat block causes `org-element-parse-buffer` to lose the
+     special-block entirely — the AST collapses to
+     `paragraph | headline | paragraph`, the block's `#+begin_*` /
+     `#+end_*` lines demote to paragraph content of the heading's
+     section, and the heading visually absorbs every line below it
+     (including subsequent turn delimiters) into its outline subtree.
+     The chat-mode regex parser is structurally indifferent — message
+     construction still works — but the host buffer becomes unusable
+     as an editing surface. Past incident:
+     `~/.gptel/sessions/heading-test-20260430145834/branches/main/session.org`.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-block-body-no-column-zero-stars.test.el — failing-stub assertion
+       over the four write-path entry points listed in the boundary entry.
+       Architect's invariant-gap audit re-checks at integrate.
+
+   related_entries:
+     - register/boundary/chat-heading-collision-escape
+     - register/invariant/chat-heading-escape-roundtrip-transparent
+     - register/invariant/all-write-paths-apply-heading-escape
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** chat-heading-escape-roundtrip-transparent
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-heading-escape-roundtrip-transparent
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-heading-escape-roundtrip-transparent
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: heading-escape round-trip is content-preserving
+
+   statement: |
+     For any line content `*+ <text>` (one or more `*` at column 0
+     followed by a space and arbitrary text) destined for a chat-block
+     body: applying the write-path escape (boundary stage 1) and then
+     the parser strip (boundary stage 2) yields the original content
+     `*+ <text>` verbatim. The strip is robust against any leading-
+     whitespace amount, so the round-trip survives changes to
+     `gptel-chat-content-indentation` and legacy content with different
+     indent widths.
+
+   why_it_matters: |
+     The whole point of the escape is that the LLM never sees it; what
+     the user types as a heading and what the LLM receives as message
+     content must be byte-identical except for the on-disk escape.
+     Asymmetry between escape and strip would either leak the escape
+     character into outbound messages (LLM confusion) or leave headings
+     unstripped (block destruction on a re-read of the persisted file).
+     The symmetric `,#+end_*` delimiter-collision escape established the
+     pattern; this invariant extends it to the heading-collision case.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-heading-escape-roundtrip-transparent.test.el — failing-stub
+       round-trip property test exercised against the streaming sanitizer,
+       parser unescape, and on-disk migration paths.
+
+   related_entries:
+     - register/boundary/chat-heading-collision-escape
+     - register/invariant/chat-block-body-no-column-zero-stars
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** chat-block-delimiter-lines-stay-at-column-0
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-block-delimiter-lines-stay-at-column-0
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-block-delimiter-lines-stay-at-column-0
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: `#+begin_*` / `#+end_*` chat-block delimiter lines remain unindented
+
+   statement: |
+     The escape applied by the chat-heading-collision-escape boundary
+     SHALL only modify lines inside a chat-block body. Delimiter lines
+     themselves — `#+begin_user`, `#+begin_assistant`, `#+begin_tool`,
+     `#+end_user`, `#+end_assistant`, `#+end_tool` — SHALL remain at
+     column 0. The user-typed escape predicate excludes delimiter
+     lines explicitly; the migration-on-read scan walks block bodies
+     only and never touches delimiter lines.
+
+   why_it_matters: |
+     Indenting a delimiter line breaks chat-mode's regex parser:
+     `gptel-chat-parse-buffer` matches `^#\+begin_(user|assistant|tool)`
+     at column 0, so an indented opener disappears from message
+     construction entirely (the buffer parses as if the block does not
+     exist; the next outer block's opener becomes the first turn).
+     Chat-mode is regex-based by design (research.md Finding 1); this
+     invariant is the structural reason the block-body predicate
+     (`gptel-chat--point-in-block-body-p`) excludes delimiter lines.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-block-delimiter-lines-stay-at-column-0.test.el — failing-stub
+       assertion that walks every chat-block opener/closer in a fixture
+       buffer after a write-path operation and confirms column 0.
+
+   related_entries:
+     - register/boundary/chat-heading-collision-escape
+     - register/invariant/chat-block-body-no-column-zero-stars
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** chat-migration-on-read-clean-buffer-stays-clean
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-migration-on-read-clean-buffer-stays-clean
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-migration-on-read-clean-buffer-stays-clean
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: read-time migration MUST NOT mark a clean-on-read buffer as modified
+
+   statement: |
+     When `gptel-chat-mode` activates on a buffer whose chat-block
+     bodies contain no column-0 `*` lines, the migration pass SHALL NOT
+     mark the buffer as modified. The boolean
+     "did-any-rewrite-happen" must be the sole determiner of whether
+     `set-buffer-modified-p t` runs. Buffers that DID need migration
+     ARE marked modified, so the next `save-buffer` persists the
+     normalised form (this is intentional, see design.md Decision 5).
+
+   why_it_matters: |
+     Read-time migration is the design's reversibility promise: if the
+     user opens a session and the migration was unnecessary, they
+     SHOULD see no buffer-modified indicator and `M-x revert-buffer`
+     SHOULD have nothing to undo. Spurious modification flags train
+     users to ignore the modified marker, defeating the explicit
+     reversibility guarantee. Sister invariant to "migration is
+     scoped to chat-block bodies only" — both are about NOT touching
+     content the user didn't ask us to touch.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-migration-on-read-clean-buffer-stays-clean.test.el —
+       failing-stub assertion: open a fixture session whose chat blocks
+       contain no `^\*+ ` lines, activate gptel-chat-mode, assert
+       `(buffer-modified-p)` returns nil.
+
+   related_entries:
+     - register/boundary/chat-heading-collision-escape
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** all-write-paths-apply-heading-escape
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-all-write-paths-apply-heading-escape
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/all-write-paths-apply-heading-escape
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: every write path into a chat-block body applies the heading escape
+
+   statement: |
+     The chat-heading-collision-escape boundary's stage 1 SHALL be
+     wired at exactly four entry points, each covering a distinct
+     content-introduction path into a chat-block body:
+       - `gptel-chat--sanitize-chunk` (streaming assistant insertion)
+       - `post-self-insert-hook` (user typing) via
+         `gptel-chat--escape-typed-heading`
+       - `after-change-functions` (paste / yank / programmatic insert) via
+         `gptel-chat--escape-inserted-headings`
+       - `gptel-chat-mode` activation (file-read migration) via
+         `gptel-chat--migrate-headings`
+     Adding a fifth content-introduction path (e.g. drag-and-drop, a
+     new yank-handler) WITHOUT also wiring it to the escape SHALL be
+     treated as a violation, even if no current test fails.
+
+   why_it_matters: |
+     The boundary entry's correctness is conjunctive: missing one write
+     path silently corrupts the host buffer's outline whenever that
+     path is exercised, while the other paths remain demonstrably
+     correct in tests. The invariant exists so a future change adding
+     a new content-introduction route trips the structural audit even
+     if the change's tests pass on existing paths. Sister invariant to
+     `chat-block-body-no-column-zero-stars` — that one names the
+     property; this one names the enforcement enumeration.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       all-write-paths-apply-heading-escape.test.el — failing-stub
+       assertion that greps the four named functions and confirms each
+       contains the expected escape call. Architect's
+       module-purpose audit at end-of-cycle re-checks for new
+       hook-registration sites.
+
+   related_entries:
+     - register/boundary/chat-heading-collision-escape
+     - register/invariant/chat-block-body-no-column-zero-stars
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
    #+end_src
 
 * Status legend

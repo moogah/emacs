@@ -2,7 +2,8 @@
 name: add-migration-on-read
 description: Apply heading escape to existing chat blocks on mode activation
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 991f0bb983a592b9fd7ded7808c947152e00db43
 relations:
   - blocked-by:add-content-indentation-defcustom
   - blocked-by:add-point-in-block-body-predicate

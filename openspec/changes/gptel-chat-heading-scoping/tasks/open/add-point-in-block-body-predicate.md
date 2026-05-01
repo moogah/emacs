@@ -2,7 +2,8 @@
 name: add-point-in-block-body-predicate
 description: Fast predicate for whether point is inside a chat-block body
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 456b9fab42631d82e77823f57f123a2b64e0ac20
 relations:
   - enables:add-user-typed-heading-escape
   - enables:add-paste-heading-escape
