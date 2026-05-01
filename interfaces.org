@@ -164,30 +164,31 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/drawer-text-block
    tier: shape
-   status: divergent
+   status: reconciled
    status_note: |
      cycle-2 integrate (2026-04-29): both consumers (sessions/commands.org
      and tools/persistent-agent.org) consume the renderer's drawer-text
      string via (concat drawer-text body) and write in a single
      with-temp-file. Structural anchors hold. See .orchestrator/cycles/
      cycle-1777470320/reconciliations/shape-drawer-text-block.md.
-     cycle-5 plan (2026-05-01) — divergent (speculation): the
-     gptel-drawer-as-source-of-truth change extends the renderer to emit
-     six additional upstream-compatible chat-mode keys alongside the
-     existing scope keys: :GPTEL_MODEL:, :GPTEL_BACKEND:, :GPTEL_TOOLS:,
-     :GPTEL_TEMPERATURE:, :GPTEL_MAX_TOKENS:, :GPTEL_NUM_MESSAGES_TO_SEND:.
-     :GPTEL_SYSTEM: is *not* in the write set (see invariant
-     register/invariant/drawer-system-key-write-exclusion). Anchors below
-     gain a corresponding "must appear at most once between :PROPERTIES:
-     and :END:" rule for each new key. Producer is still
-     jf/gptel-scope-profile--render-drawer-text (signature gains a preset
-     spec / preset name argument). The chat-mode save path
-     (gptel-chat--save-state) becomes a *second producer* of an
-     equivalent drawer key set when invoked on an existing session.org;
-     round-trip idempotency (rendered-on-creation == saved-after-no-edit)
-     is the new cross-stage invariant added to scope-profile-applicator
-     stage 2a. Reconciles to confirmed at integrate when the cycle's
-     extend-render-drawer-text + replace-chat-save tasks land.
+     cycle-5 integrate (2026-05-01): the shape extension landed.
+     jf/gptel-scope-profile--render-drawer-text now accepts an optional
+     PRESET-SPEC and emits :GPTEL_MODEL:, :GPTEL_BACKEND:, :GPTEL_TOOLS:,
+     :GPTEL_TEMPERATURE:, :GPTEL_MAX_TOKENS:, :GPTEL_NUM_MESSAGES_TO_SEND:
+     between :GPTEL_PRESET:/:GPTEL_PARENT_SESSION_ID: and the scope keys
+     when PRESET-SPEC is non-nil. :GPTEL_SYSTEM: is never emitted by any
+     producer (verified by spec absence assertions). The chat-mode save
+     path (gptel-chat--save-state, via the new
+     gptel-chat--write-config-drawer helper) is a peer producer that
+     writes the same key set from buffer-local state on every save
+     (full snapshot, no delta-from-preset deletion). Round-trip
+     idempotency between the renderer's output and the save-path's
+     output is exercised by snapshot-rendering-spec.el and the new
+     end-to-end scenarios in preset-application-spec.el. Cited by
+     tasks: extend-render-drawer-text-with-preset-snapshot (43d045f),
+     replace-chat-save-with-full-snapshot-writer (5f9d762),
+     wire-snapshot-into-session-creation (9f4b5fd),
+     update-preset-application-spec-for-snapshot (3a8abaf).
    load_bearing: true
    title: Drawer-text string returned by render-drawer-text
    purpose: |
@@ -774,7 +775,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/scope-profile-applicator
    tier: boundary
-   status: divergent
+   status: reconciled
    status_note: |
      cycle-2 integrate (2026-04-29): Mode 2a (--render-drawer-text) is the
      sole route from a profile-resolved scope-plist to drawer state in both
@@ -782,18 +783,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Branching uses byte-copy from parent (structurally equivalent to Mode
      2a re-render given cross-mode idempotency). See .orchestrator/cycles/
      cycle-1777470320/reconciliations/boundary-scope-profile-applicator.md.
-     cycle-5 plan (2026-05-01) — divergent (speculation): stage 2a's input
-     gains a *resolved preset spec* alongside the existing
-     preset-name + parent-session-id + scope-plist trio; its output drawer
-     text now carries the snapshot keys (see register/shape/drawer-text-
-     block divergent note). Stage 2b is unchanged. The cross-stage
-     invariant gains a third clause: the chat-mode save path
-     (gptel-chat--save-state, *not* a stage of this boundary but a peer
-     producer of the same shape) must produce a drawer text equivalent to
-     stage 2a's output for the same buffer-local state — no delta-from-
-     preset deletion. Reconciles to confirmed at integrate when extend-
-     render-drawer-text + wire-snapshot-into-session-creation +
-     replace-chat-save land and the round-trip integration spec passes.
+     cycle-5 integrate (2026-05-01): stage 2a's signature gained an
+     optional PRESET-SPEC arg; stage 2b (--apply-to-drawer) gained the
+     symmetric arg. Both stages emit the chat-mode snapshot keys when
+     PRESET-SPEC is non-nil. The chat-mode save path
+     (gptel-chat--save-state → gptel-chat--write-config-drawer) is a
+     *peer producer* of an equivalent drawer key set from buffer-local
+     state — no delta-from-preset deletion. The new cross-stage
+     invariant (rendered-at-creation == saved-after-no-edit) is
+     exercised by the round-trip idempotency scenario in
+     snapshot-rendering-spec.el and the end-to-end scenarios in
+     preset-application-spec.el. The two consumer call sites were
+     updated to thread the resolved preset spec via gptel-get-preset:
+     - jf/gptel--create-session-core (sessions/commands.org)
+     - persistent-agent.org's --task flow (direct
+       --render-drawer-text call)
+     Cited by tasks: extend-render-drawer-text-with-preset-snapshot
+     (43d045f), wire-snapshot-into-session-creation (9f4b5fd),
+     replace-chat-save-with-full-snapshot-writer (5f9d762).
    load_bearing: true
    title: Profile resolution → drawer text or buffer-applied properties
    purpose: |
@@ -1232,13 +1239,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/chat-menu-scope-default
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
      cycle-5 plan (2026-05-01) — speculation: introduced for the
-     gptel-drawer-as-source-of-truth change Decision 5. Reconciles to
-     confirmed at integrate when default-chat-menu-scope-to-buffer-local
-     lands and the regression test (transient abort restores the prior
-     value of gptel--set-buffer-locally) passes.
+     gptel-drawer-as-source-of-truth change Decision 5.
+     cycle-5 integrate (2026-05-01): reconciled. The chat-menu prefix
+     body sets gptel--set-buffer-locally to t before transient-setup,
+     after saving the prior value into gptel-chat--scope-prior. A
+     one-shot transient-exit-hook (gptel-chat--restore-scope-on-exit)
+     restores the prior value on the outermost transient exit; the
+     hook checks transient-current-prefix so sub-transients (e.g.
+     gptel-tools) do not trigger an early restore. Upstream
+     gptel-menu invoked directly is unaffected. Verified by 9 specs
+     in config/gptel/chat/test/menu/menu-buffer-local-spec.el
+     covering: variable set on entry, scope-prior saved, hook
+     registered, hook restores when current-prefix is nil, hook does
+     NOT restore when current-prefix is set, restorer handles non-
+     nil priors, upstream gptel-menu does not set the variable,
+     upstream does not register the chat restorer, and gptel--set-
+     with-scope mutates buffer-locally with the binding active.
+     Cited by task default-chat-menu-scope-to-buffer-local (9485f3b).
    load_bearing: true
    title: gptel-chat-menu enters with gptel--set-buffer-locally bound to t
 
@@ -1657,13 +1677,38 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/drawer-system-key-write-exclusion
    tier: invariant
-   status: speculated
+   status: reconciled
    status_note: |
      cycle-5 plan (2026-05-01) — speculation: introduced for the
-     gptel-drawer-as-source-of-truth change Decision 2. Reconciles to
-     confirmed at integrate when replace-chat-save and extend-render-
-     drawer-text both land and the spec scenarios assert
-     :GPTEL_SYSTEM: absent in saved drawers / rendered drawers.
+     gptel-drawer-as-source-of-truth change Decision 2.
+     cycle-5 integrate (2026-05-01): reconciled. Three producers of
+     register/shape/drawer-text-block — the renderer
+     (jf/gptel-scope-profile--render-drawer-text), the buffer-mode
+     applicator (jf/gptel-scope-profile--apply-to-drawer), and the
+     chat-mode save path (gptel-chat--save-state via
+     gptel-chat--write-config-drawer) — all skip the :GPTEL_SYSTEM:
+     key unconditionally. Verified by spec absence assertions in:
+     - config/gptel/test/snapshot-rendering-spec.el (renderer +
+       applicator: 4 scenarios that supply non-nil :system in
+       PRESET-SPEC and assert :GPTEL_SYSTEM: absent in output)
+     - config/gptel/chat/test/menu/save-state-spec.el (writer:
+       NEVER writes GPTEL_SYSTEM with gptel--system-message set;
+       preserves manually authored entries on save)
+     - config/gptel/test/session-creation-spec.el and
+       config/gptel/sessions/test/commands/session-org-creation-
+       spec.el and activity-session-chat-spec.el (creation
+       integration: assert (string-match-p ":GPTEL_SYSTEM:") nil
+       in the saved file)
+     - config/gptel/sessions/test/commands/preset-application-
+       spec.el (end-to-end save round-trip preserves
+       :GPTEL_SYSTEM: absence)
+     The asymmetric read-side contract (chat-mode overlay still
+     respects manually authored :GPTEL_SYSTEM: entries) is locked
+     in by the "drawer-authored :GPTEL_SYSTEM: still wins on read
+     (back-compat)" scenario in preset-wiring-spec.el. Cited by
+     tasks: extend-render-drawer-text (43d045f), replace-chat-save
+     (5f9d762), verify-and-spec-drawer-overlay-wins (b1f06d1),
+     update-preset-application-spec (3a8abaf).
    load_bearing: true
    title: Neither the chat-mode save path nor the renderer ever emits :GPTEL_SYSTEM:
 
@@ -1716,15 +1761,32 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/drawer-overlay-wins-over-preset
    tier: invariant
-   status: speculated
+   status: reconciled
    status_note: |
      cycle-5 plan (2026-05-01) — speculation: introduced for the
-     gptel-drawer-as-source-of-truth change Decision 3. Reconciles to
-     confirmed at integrate when verify-and-spec-drawer-overlay-wins
-     lands; the cycle ALSO verifies that the existing
-     gptel-chat--apply-drawer-overrides already implements the
-     contract (the task is in part a verification, not just net-new
-     spec coverage).
+     gptel-drawer-as-source-of-truth change Decision 3.
+     cycle-5 integrate (2026-05-01): reconciled. Verification
+     confirmed that gptel-chat--apply-drawer-overrides already
+     implements the contract — for each non-nil upstream-tuple
+     field, it does (set (make-local-variable sym) val) with no
+     "if drawer matches preset, skip" branch. No code change was
+     required; the task delivered docstring / commentary refresh
+     plus three new spec scenarios that lock the contract in:
+     - "drawer GPTEL_MODEL wins over preset model" (preset-
+       wiring-spec.el)
+     - "preset :system survives when drawer omits :GPTEL_SYSTEM:"
+       (preset-wiring-spec.el — asymmetric exception verified)
+     - "drawer-authored :GPTEL_SYSTEM: still wins on read (back-
+       compat)" (preset-wiring-spec.el)
+     Plus end-to-end coverage in
+     config/gptel/sessions/test/commands/preset-application-spec.el:
+     - "drawer GPTEL_MODEL wins over preset model on chat-mode
+       activation" (real preset registration + real find-file +
+       real chat-mode hook)
+     - "save after drawer-wins reopen re-emits the drawer model,
+       not the preset model" (round-trip integrity)
+     Cited by task verify-and-spec-drawer-overlay-wins (b1f06d1)
+     and update-preset-application-spec-for-snapshot (3a8abaf).
    load_bearing: true
    title: On mode activation, every drawer-present key wins over the active preset (except :system, which falls back to the preset)
 
