@@ -164,13 +164,30 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/drawer-text-block
    tier: shape
-   status: confirmed
+   status: divergent
    status_note: |
      cycle-2 integrate (2026-04-29): both consumers (sessions/commands.org
      and tools/persistent-agent.org) consume the renderer's drawer-text
      string via (concat drawer-text body) and write in a single
      with-temp-file. Structural anchors hold. See .orchestrator/cycles/
      cycle-1777470320/reconciliations/shape-drawer-text-block.md.
+     cycle-5 plan (2026-05-01) — divergent (speculation): the
+     gptel-drawer-as-source-of-truth change extends the renderer to emit
+     six additional upstream-compatible chat-mode keys alongside the
+     existing scope keys: :GPTEL_MODEL:, :GPTEL_BACKEND:, :GPTEL_TOOLS:,
+     :GPTEL_TEMPERATURE:, :GPTEL_MAX_TOKENS:, :GPTEL_NUM_MESSAGES_TO_SEND:.
+     :GPTEL_SYSTEM: is *not* in the write set (see invariant
+     register/invariant/drawer-system-key-write-exclusion). Anchors below
+     gain a corresponding "must appear at most once between :PROPERTIES:
+     and :END:" rule for each new key. Producer is still
+     jf/gptel-scope-profile--render-drawer-text (signature gains a preset
+     spec / preset name argument). The chat-mode save path
+     (gptel-chat--save-state) becomes a *second producer* of an
+     equivalent drawer key set when invoked on an existing session.org;
+     round-trip idempotency (rendered-on-creation == saved-after-no-edit)
+     is the new cross-stage invariant added to scope-profile-applicator
+     stage 2a. Reconciles to confirmed at integrate when the cycle's
+     extend-render-drawer-text + replace-chat-save tasks land.
    load_bearing: true
    title: Drawer-text string returned by render-drawer-text
    purpose: |
@@ -757,7 +774,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/scope-profile-applicator
    tier: boundary
-   status: confirmed
+   status: divergent
    status_note: |
      cycle-2 integrate (2026-04-29): Mode 2a (--render-drawer-text) is the
      sole route from a profile-resolved scope-plist to drawer state in both
@@ -765,6 +782,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Branching uses byte-copy from parent (structurally equivalent to Mode
      2a re-render given cross-mode idempotency). See .orchestrator/cycles/
      cycle-1777470320/reconciliations/boundary-scope-profile-applicator.md.
+     cycle-5 plan (2026-05-01) — divergent (speculation): stage 2a's input
+     gains a *resolved preset spec* alongside the existing
+     preset-name + parent-session-id + scope-plist trio; its output drawer
+     text now carries the snapshot keys (see register/shape/drawer-text-
+     block divergent note). Stage 2b is unchanged. The cross-stage
+     invariant gains a third clause: the chat-mode save path
+     (gptel-chat--save-state, *not* a stage of this boundary but a peer
+     producer of the same shape) must produce a drawer text equivalent to
+     stage 2a's output for the same buffer-local state — no delta-from-
+     preset deletion. Reconciles to confirmed at integrate when extend-
+     render-drawer-text + wire-snapshot-into-session-creation +
+     replace-chat-save land and the round-trip integration spec passes.
    load_bearing: true
    title: Profile resolution → drawer text or buffer-applied properties
    purpose: |
@@ -1195,6 +1224,78 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
    #+end_src
 
+** chat-menu-scope-default
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-chat-menu-scope-default
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/chat-menu-scope-default
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-5 plan (2026-05-01) — speculation: introduced for the
+     gptel-drawer-as-source-of-truth change Decision 5. Reconciles to
+     confirmed at integrate when default-chat-menu-scope-to-buffer-local
+     lands and the regression test (transient abort restores the prior
+     value of gptel--set-buffer-locally) passes.
+   load_bearing: true
+   title: gptel-chat-menu enters with gptel--set-buffer-locally bound to t
+
+   purpose: |
+     The configuration scope of gptel-chat-menu (chat-mode's transient
+     wrapper around upstream gptel-menu) defaults to *buffer-local*, not
+     *global*. Tool / model / temperature / etc. selections from the chat
+     menu apply to the current chat-mode buffer, then serialise to the
+     drawer on save. Upstream gptel-menu (invoked outside chat-mode) is
+     unaffected.
+
+   scope:
+     in_scope:
+       - file: config/gptel/chat/menu.org
+         transient: gptel-chat-menu
+         entry_point: setup hook (or :setup) on the transient
+     out_of_scope:
+       - upstream gptel-menu (defaults preserved at gptel--set-buffer-locally = nil)
+       - any non-chat-mode buffer
+
+   contract:
+     entry_invariant: |
+       From the moment the user invokes gptel-chat-menu until the
+       transient finishes (commit, abort, or quit), gptel--set-buffer-
+       locally is bound to t. Bindings are restored on transient teardown
+       via unwind-protect or transient's :teardown hook.
+     exit_invariant: |
+       After the transient ends (regardless of how), gptel--set-buffer-
+       locally returns to whatever value it had at entry — typically nil
+       (upstream default) but possibly a user customisation.
+
+   why_it_matters: |
+     Without this default, "Select tools" from the chat-mode menu mutates
+     the global gptel-tools and kills the buffer-local binding installed
+     by the preset. The drawer save then sees the global value (or no
+     value, depending on order). Invisible failure mode — user thinks
+     they're editing the buffer, they're editing globally. Direct cause
+     of the WYSIWYG-defeating behaviour the parent change addresses.
+
+   producers:
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat-menu (transient definition)
+
+   consumers:
+     - upstream gptel infixes that read gptel--set-buffer-locally:
+       gptel-tools, gptel-system-prompt, gptel--infix-provider,
+       gptel--infix-temperature, gptel--infix-max-tokens, gptel--infix-
+       num-messages-to-send
+
+   related_entries:
+     - register/invariant/drawer-overlay-wins-over-preset
+     - register/shape/drawer-text-block
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -1546,6 +1647,123 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-scope-in-org-properties
    discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
+   #+end_src
+
+** drawer-system-key-write-exclusion
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-drawer-system-key-write-exclusion
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/drawer-system-key-write-exclusion
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-5 plan (2026-05-01) — speculation: introduced for the
+     gptel-drawer-as-source-of-truth change Decision 2. Reconciles to
+     confirmed at integrate when replace-chat-save and extend-render-
+     drawer-text both land and the spec scenarios assert
+     :GPTEL_SYSTEM: absent in saved drawers / rendered drawers.
+   load_bearing: true
+   title: Neither the chat-mode save path nor the renderer ever emits :GPTEL_SYSTEM:
+
+   statement: |
+     Two producers of register/shape/drawer-text-block — the renderer
+     (jf/gptel-scope-profile--render-drawer-text, stage 2a of register/
+     boundary/scope-profile-applicator) and the chat-mode save path
+     (gptel-chat--save-state and any helper it delegates to in
+     config/gptel/chat/menu.org) — never emit a :GPTEL_SYSTEM: line. The
+     drawer overlay (register/invariant/drawer-overlay-wins-over-preset)
+     DOES read :GPTEL_SYSTEM: when present (back-compat for hand-authored
+     entries) but no code path under our control writes it.
+
+   why_it_matters: |
+     The user's stated constraint is that long, multi-line, special-
+     character system-prompt strings are unwieldy as a single org
+     property value (backticks, asterisks, embedded newlines mangle the
+     drawer). Decision 2 of design.md picks "writer never emits, reader
+     still respects manual entries". Without this invariant the drawer
+     could grow a multi-line :GPTEL_SYSTEM: across saves and silently
+     corrupt the drawer's structural anchors (register/shape/drawer-
+     text-block's :PROPERTIES:/:END: discipline). The asymmetric
+     write/read contract is exactly the bug surface this entry exists
+     to keep visible.
+
+   enforcement_mechanism:
+     kind: structural-audit + spec assertion
+     location: |
+       Spec scenarios in
+       config/gptel/chat/test/menu/save-state-spec.el (writer side: assert
+       (search-forward ":GPTEL_SYSTEM:") returns nil after save) and
+       config/gptel/sessions/test/commands/preset-application-spec.el
+       (renderer side: assert :GPTEL_SYSTEM: absent in fresh session.org).
+       Architect's invariant-gap audit re-checks at integrate.
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/boundary/scope-profile-applicator
+     - register/invariant/drawer-overlay-wins-over-preset
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
+** drawer-overlay-wins-over-preset
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-drawer-overlay-wins-over-preset
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/drawer-overlay-wins-over-preset
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-5 plan (2026-05-01) — speculation: introduced for the
+     gptel-drawer-as-source-of-truth change Decision 3. Reconciles to
+     confirmed at integrate when verify-and-spec-drawer-overlay-wins
+     lands; the cycle ALSO verifies that the existing
+     gptel-chat--apply-drawer-overrides already implements the
+     contract (the task is in part a verification, not just net-new
+     spec coverage).
+   load_bearing: true
+   title: On mode activation, every drawer-present key wins over the active preset (except :system, which falls back to the preset)
+
+   statement: |
+     The chat-mode activation overlay (gptel-chat--apply-drawer-overrides
+     in config/gptel/chat/menu.org) installs every drawer-present key
+     buffer-locally, regardless of whether the value matches the active
+     preset's value for that key. The asymmetric exception is
+     :GPTEL_SYSTEM: — when absent from the drawer, the preset's :system
+     is applied; when present in the drawer (back-compat for manual
+     entries), the drawer entry wins. There is no "if drawer matches
+     preset, skip" check anywhere in the overlay.
+
+   why_it_matters: |
+     This invariant is the *read-side* counterpart to register/invariant/
+     drawer-system-key-write-exclusion and the structural reason the
+     drawer is a credible WYSIWYG source of truth. If the overlay had
+     "delta" semantics (skip when drawer == preset), then editing a
+     preset value to match what the drawer carries would silently flip
+     authority back to the preset on next reopen — a hidden state
+     bifurcation. Decision 3 of design.md picks "drawer always wins" for
+     simplicity and testability.
+
+   enforcement_mechanism:
+     kind: spec assertion + Architect dead-branch audit
+     location: |
+       Spec scenarios in
+       config/gptel/chat/test/menu/preset-wiring-spec.el (drawer-model-
+       wins-over-preset; preset-system-prompt-survives-when-drawer-omits-
+       it). Architect's dead-branch audit checks no "match preset, skip"
+       branch is added to gptel-chat--apply-drawer-overrides.
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/invariant/drawer-system-key-write-exclusion
+     - register/boundary/chat-menu-scope-default
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
    #+end_src
 
 * Status legend
