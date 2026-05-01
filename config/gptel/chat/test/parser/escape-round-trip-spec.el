@@ -1,4 +1,4 @@
-;;; escape-round-trip-spec.el --- Delimiter escape inverse-pair tests -*- lexical-binding: t; -*-
+;;; escape-round-trip-spec.el --- Delimiter / heading escape inverse-pair tests -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -9,14 +9,26 @@
 
 ;; Buttercup specs pinning the round-trip relationship between the
 ;; stream sanitizer (`gptel-chat--sanitize-chunk' in stream.el) and
-;; the send-path un-escaper (`gptel-chat--unescape-end-delimiters' in
-;; parser.el).
+;; the send-path un-escapers in parser.el.
 ;;
-;; The two functions are inverses /at the line level/ for the three
-;; chat-mode closing delimiters (`#+end_user', `#+end_assistant',
-;; `#+end_tool').  The sanitizer prepends `,' to such a line so the
-;; insertion does not prematurely close the containing block; the
-;; un-escaper strips that `,' before the body reaches the model.
+;; Two collision rules with separate inverse pairs:
+;;
+;; 1. Delimiter collision (existing).  The sanitizer prepends `,' to a
+;;    line matching `^#\\+end_\\(user\\|assistant\\|tool\\)\\b' so the
+;;    insertion does not prematurely close the containing block; the
+;;    parser's `gptel-chat--unescape-end-delimiters' strips that `,'
+;;    before the body reaches the model.
+;;
+;; 2. Heading collision (new — change `gptel-chat-heading-scoping',
+;;    design.md §Decision 4).  The sanitizer prepends
+;;    `gptel-chat-content-indentation' leading spaces to a line
+;;    matching `^\\*+ ' so org's heading scanner does not absorb the
+;;    line into an outline subtree.  The send-path inverse — strip
+;;    leading whitespace before such a line — is added by sibling
+;;    task `add-parser-heading-unescape'.  Until that task lands, the
+;;    specs in this file pin the SANITIZE-SIDE of the heading-escape
+;;    inverse pair only; the full parse → message round-trip for
+;;    heading lines is added when the parser un-escape lands.
 ;;
 ;; Mechanical inverse proof (the spec scenario "Delimiter escape
 ;; round-trip" from openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md):
@@ -26,13 +38,17 @@
 ;;     ─ write to buffer as assistant body
 ;;     ─ parse + unescape ▶  line (original)
 ;;
-;; We verify both directions:
+;; We verify both directions for delimiters:
 ;;   - Stream side: every bare `#+end_*' line sanitizes to `,#+end_*';
 ;;     non-matching lines are unchanged.
 ;;   - Send side: every `,#+end_*' line un-escapes back to `#+end_*';
 ;;     non-chat `,#+end_src' and similar are preserved.
 ;;   - Composition: full parse → message → text → sanitize → parse
 ;;     preserves the message content across the cycle.
+;;
+;; For heading lines we currently verify the stream side only (the
+;; sanitizer's escape shape and idempotence on already-escaped input);
+;; the parse-side and full pipeline arrive with `add-parser-heading-unescape'.
 
 ;;; Code:
 
@@ -46,6 +62,11 @@
   (load helpers nil t))
 
 ;; Modules under test.
+;; `gptel-chat-mode' owns the `gptel-chat-content-indentation' defcustom
+;; consulted by `gptel-chat--sanitize-chunk' for the heading-collision
+;; escape; load it here so heading-escape specs see the configured
+;; default rather than the sanitizer's standalone fallback.
+(require 'gptel-chat-mode)
 (require 'gptel-chat-parser)
 (require 'gptel-chat-stream)
 
@@ -125,6 +146,126 @@ bodies are expected to be newline-terminated."
       ;; leading-comma-and-hash sequence is content and stays verbatim.
       (expect (gptel-chat--unescape-end-delimiters ",,#+end_assistant")
               :to-equal ",,#+end_assistant"))))
+
+
+;;; ---------------------------------------------------------------
+;;; Heading-collision escape: sanitize-side line-level shape
+;;; ---------------------------------------------------------------
+;;
+;; Owned by task `extend-stream-sanitizer-heading-rule' (change
+;; `gptel-chat-heading-scoping').  The parser un-escape that strips
+;; leading whitespace before `*' lines is added by the sibling task
+;; `add-parser-heading-unescape'; until then, this section pins only
+;; the SANITIZE-SIDE shape and idempotence of the heading-escape rule
+;; alongside the delimiter rule above.  When the parser un-escape
+;; lands, a future commit can extend the full pipeline section below
+;; with heading-line round-trips.
+
+(describe "sanitize-chunk heading-collision escape (write side)"
+
+  (describe "bare heading lines sanitize with leading whitespace"
+    (dolist (heading '("* Heading"
+                       "** Sub-heading"
+                       "*** Deep"
+                       "**** 4-deep"
+                       "***** 5-deep"
+                       "****** 6-deep"))
+      (it (format "escapes %S with the configured prefix" heading)
+        ;; The escape is independent of star count; one prefix breaks
+        ;; the heading regex regardless of depth.  Use the default
+        ;; defcustom value (1 leading space) for the assertion shape.
+        (let ((gptel-chat-content-indentation 1))
+          (let ((sanitized (gptel-chat--sanitize-chunk heading)))
+            (expect sanitized :to-equal (concat " " heading))
+            (expect sanitized :to-match "\\` \\*+ "))))))
+
+  (describe "non-heading `*' shapes are not escaped"
+    ;; Negative cases that must NOT pick up an indent: anything not
+    ;; matching `^\\*+ ' at column 0 is content the sanitizer must
+    ;; preserve verbatim.
+    (dolist (line '(""
+                    "*"                ; bare star, no trailing space
+                    "*no-space"        ; no trailing space
+                    "*emphasis*"       ; org emphasis markup
+                    "  * indented"     ; indented past column 0
+                    "not* a heading"   ; star not at column 0
+                    " * Heading"       ; already escaped (idempotence)
+                    "  ** also-indented"))
+      (it (format "passes %S through unchanged" line)
+        (let ((gptel-chat-content-indentation 1))
+          (expect (gptel-chat--sanitize-chunk line) :to-equal line)))))
+
+  (describe "heading escape is idempotent at the line level"
+    ;; Sanitize twice on the same input must not stack two escapes.
+    ;; The first pass produces ` * Heading'; the second pass sees a
+    ;; line that no longer matches `^\\*+ ' (leading space) and is a
+    ;; no-op.  This mirrors the `,#+end_*' idempotence guarantee.
+    (it "sanitize(sanitize(`* Heading')) equals sanitize(`* Heading')"
+      (let* ((gptel-chat-content-indentation 1)
+             (once (gptel-chat--sanitize-chunk "* Heading"))
+             (twice (gptel-chat--sanitize-chunk once)))
+        (expect once :to-equal " * Heading")
+        (expect twice :to-equal once)))
+
+    (it "sanitize(sanitize(`*** Deep')) equals sanitize(`*** Deep')"
+      (let* ((gptel-chat-content-indentation 1)
+             (once (gptel-chat--sanitize-chunk "*** Deep"))
+             (twice (gptel-chat--sanitize-chunk once)))
+        (expect once :to-equal " *** Deep")
+        (expect twice :to-equal once))))
+
+  (describe "heading escape honours `gptel-chat-content-indentation'"
+    (it "uses 2 leading spaces when set to 2 (org-edit-src parity)"
+      (let ((gptel-chat-content-indentation 2))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal "  * Heading")))
+
+    (it "is idempotent at width 2 as well as width 1"
+      (let* ((gptel-chat-content-indentation 2)
+             (once (gptel-chat--sanitize-chunk "* Heading"))
+             (twice (gptel-chat--sanitize-chunk once)))
+        (expect once :to-equal "  * Heading")
+        ;; Already-indented `*' lines (any whitespace) no longer match
+        ;; `^\\*+ ', so a second pass is a no-op regardless of width.
+        (expect twice :to-equal once)))))
+
+
+(describe "sanitize-body line-by-line: heading + delimiter rules together"
+  ;; Mirrors the streaming inserter's per-line scan: a multi-line
+  ;; payload gets each rule applied independently, the rules don't
+  ;; collide (a line can't start with both `#+end_' and `*'), and
+  ;; non-matching lines pass through.
+
+  (it "applies both rules across a mixed body"
+    (let* ((gptel-chat-content-indentation 1)
+           (body (concat "intro\n"
+                         "* Heading\n"
+                         "more prose\n"
+                         "#+end_assistant\n"
+                         "tail\n"))
+           (sanitized (gptel-chat-test--sanitize-body body)))
+      (expect sanitized
+              :to-equal
+              (concat "intro\n"
+                      " * Heading\n"
+                      "more prose\n"
+                      ",#+end_assistant\n"
+                      "tail\n"))))
+
+  (it "is idempotent at the body level"
+    ;; Re-sanitizing an already-sanitized body must not stack escapes.
+    (let* ((gptel-chat-content-indentation 1)
+           (body (concat "* Heading\n"
+                         "#+end_user\n"
+                         "* Another\n"))
+           (once (gptel-chat-test--sanitize-body body))
+           (twice (gptel-chat-test--sanitize-body once)))
+      (expect once
+              :to-equal
+              (concat " * Heading\n"
+                      ",#+end_user\n"
+                      " * Another\n"))
+      (expect twice :to-equal once))))
 
 ;;; ---------------------------------------------------------------
 ;;; Full pipeline: parse → message → text → sanitize → parse

@@ -54,24 +54,55 @@ for correctness. See repo memory note on lexical-binding regressions.
 ;;; Code:
 
 (require 'cl-lib)
+
+;; Forward declaration for the heading-collision escape width.  The
+;; defcustom is owned by `gptel-chat-mode' (config/gptel/chat/mode.el)
+;; — see chat.org for load order.  Production loads `mode.el' before
+;; `stream.el' so the variable is bound by the time
+;; `gptel-chat--sanitize-chunk' runs.  This `defvar' (no value) only
+;; silences the byte-compiler "free variable" warning; it does NOT
+;; bind a value.  The sanitizer reads the value via
+;; `bound-and-true-p' with a fallback of 1 so the function is safe
+;; to call from a test context that loads `stream.el' standalone
+;; (the fallback matches the defcustom default).
+(defvar gptel-chat-content-indentation)
 #+end_src
 
 * Line-level sanitizer
 
 =gptel-chat--sanitize-chunk= is intentionally a *line-level* helper —
 it takes a complete line (no embedded =\n=) and returns either the
-input unchanged or a version with a single leading =,= prepended.
+input unchanged or a version with a single escape prefix prepended.
+Two mutually-exclusive collision rules apply, in this order:
 
-Match rule (case-insensitive, to mirror org's own delimiter matching):
+1. *Delimiter collision* (existing). The line matches
+   =gptel-chat--end-delimiter-regexp= (case-insensitive
+   =^#\+end_\(user\|assistant\|tool\)\b=). The escape is a single
+   leading =,= so org's delimiter scanner no longer sees the line as
+   a closer. The parser's send-path =unescape= strips the leading =,=
+   before the message reaches the model.
+2. *Heading collision* (new — design.md §Decision 4 of
+   =openspec/changes/gptel-chat-heading-scoping=). The line matches
+   =^\*+ = (one or more =*= at column 0 followed by a space). Such a
+   line, inside a chat-block body, is parsed by =org-element= as a
+   heading and destroys the special-block AST. The escape is
+   =(make-string gptel-chat-content-indentation ?\s)= leading spaces
+   so the heading regex (anchored at column 0) no longer matches.
+   The parser's send-path strips any leading whitespace before such
+   a line, so round-trip is robust against config changes.
 
-: ^#\+end_\(user\|assistant\|tool\)\b
+The two rules are mutually exclusive at the line level: a line that
+starts with =#+end_= cannot also start with =*=. Order is therefore
+not load-bearing for correctness — it is chosen for code clarity and
+for stable behaviour if the regexes are ever loosened.
 
-Only those three forms are escaped. Lines like =#+end_src=,
-=#+begin_assistant=, or prose beginning with a colon pass through
-untouched. Design.md §Decision 4 covers the reasoning: we deliberately
-do **not** use =org-escape-code-in-string= because its broader escape
-(headings, all block delimiters) clutters assistant content with
-spurious commas on benign lines.
+Lines that match neither rule pass through unchanged. In particular
+=#+end_src=, =#+begin_assistant=, prose beginning with a colon, and
+indented =*= or =#+end_*= lines (anything not at column 0) are
+explicitly preserved. Design.md §Decision 4 (chat-mode parent
+change) covers why we do **not** use =org-escape-code-in-string=:
+its broader escape clutters assistant content with spurious commas
+on benign lines.
 
 Callers that receive multi-line chunks must split first — the
 streaming closure below does that via a holdback.
@@ -84,13 +115,53 @@ Case-insensitive via `case-fold-search'.  Used by
 `gptel-chat--sanitize-chunk' to identify lines that would prematurely
 close a containing block if inserted verbatim.")
 
+(defconst gptel-chat--heading-collision-regexp
+  "^\\*+ "
+  "Regexp matching a line that org would parse as a heading.
+One or more `*' at column 0 followed by a space.  Inside a chat-block
+body, such a line corrupts `org-element-parse-buffer''s view of the
+special block (the heading absorbs the block contents into an outline
+subtree).  Used by `gptel-chat--sanitize-chunk' to apply the
+heading-collision escape.  Case-insensitive matching is irrelevant
+here — the pattern has no letter alternatives — but the regexp is
+applied under the same `case-fold-search' binding as the delimiter
+regexp for consistency.")
+
 (defun gptel-chat--sanitize-chunk (line)
-  "Return LINE with `,' prepended if it would close a chat-mode block.
-LINE must be a complete single line with no embedded newline.  A line
-matches when it begins with `#+end_user', `#+end_assistant', or
-`#+end_tool' (case-insensitive).  All other lines — including
-`#+end_src', `#+begin_assistant', and ordinary prose — pass through
-unchanged.
+  "Return LINE with a collision escape prepended when applicable.
+LINE must be a complete single line with no embedded newline.  Two
+mutually-exclusive collision rules apply, checked in this order:
+
+1. Delimiter collision: LINE matches
+   `gptel-chat--end-delimiter-regexp' (case-insensitive
+   `^#\\+end_\\(user\\|assistant\\|tool\\)\\b').  Returns LINE with
+   a single leading `,' prepended so org's special-block scanner no
+   longer recognises the closer.  The parser's send-path
+   `gptel-chat--unescape-end-delimiters' strips that `,' before the
+   message reaches the model.
+
+2. Heading collision: LINE matches `gptel-chat--heading-collision-regexp'
+   (`^\\*+ ' — one or more `*' at column 0 followed by a space).
+   Returns LINE with `gptel-chat-content-indentation' leading spaces
+   prepended so the column-0 heading anchor no longer matches.  The
+   parser's send path strips any leading whitespace before such a
+   line, so round-trip is robust against config changes (a buffer
+   written under one indentation value re-normalizes when re-opened
+   under another).  See
+   `openspec/changes/gptel-chat-heading-scoping/design.md' §Decision 4.
+
+The two rules are mutually exclusive at the line level: a line
+beginning with `#+end_' cannot also begin with `*'.  Lines matching
+neither rule — including `#+end_src', `#+begin_assistant',
+already-escaped `,#+end_*' or ` * Heading' lines, indented `*'
+content, and ordinary prose — pass through unchanged.
+
+`gptel-chat-content-indentation' is normally bound by `gptel-chat-mode'
+\(`config/gptel/chat/mode.el') which loads before this module per
+`config/gptel/chat/chat.org'.  When that module has not been loaded
+\(notably in standalone test contexts that `require' only
+`gptel-chat-stream'), the function falls back to 1 — the
+defcustom default — so the function is safe to call regardless.
 
 Signals an error with message \"LINE must not contain newlines\" when
 LINE contains an embedded `\\n'.  Callers with multi-line input must
@@ -106,9 +177,15 @@ negative specs accordingly."
   (when (string-match-p "\n" line)
     (error "LINE must not contain newlines"))
   (let ((case-fold-search t))
-    (if (string-match-p gptel-chat--end-delimiter-regexp line)
-        (concat "," line)
-      line)))
+    (cond
+     ((string-match-p gptel-chat--end-delimiter-regexp line)
+      (concat "," line))
+     ((string-match-p gptel-chat--heading-collision-regexp line)
+      (concat (make-string
+               (or (bound-and-true-p gptel-chat-content-indentation) 1)
+               ?\s)
+              line))
+     (t line))))
 #+end_src
 
 * Streaming inserter factory
