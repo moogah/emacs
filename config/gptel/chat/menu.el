@@ -488,6 +488,59 @@ reads everything it needs from the current buffer (design.md
   (call-interactively #'gptel-chat-send))
 ;; Send suffix:1 ends here
 
+;; Scope default: buffer-local for chat-menu lifetime
+
+;; The transient body below binds upstream's =gptel--set-buffer-locally=
+;; (defined in =gptel-transient.el=) to =t= for the lifetime of
+;; =gptel-chat-menu=. Without this, "Select tools" and the other
+;; configuration infixes default to =gptel--set-buffer-locally = nil=
+;; (global scope), which means a tool toggle from the menu in a chat-mode
+;; buffer mutates the global =gptel-tools= and kills any buffer-local
+;; binding installed by the preset — invisible to the user, and the
+;; drawer save then captures the wrong value. Decision 5 of the
+;; gptel-drawer-as-source-of-truth design picks "default chat-menu to
+;; buffer-local scope" so menu edits round-trip through the drawer.
+
+;; Upstream =gptel-menu= invoked directly (=M-x gptel-menu=) is
+;; unaffected — only this chat-mode wrapper changes the default. The
+;; user retains the =gptel--infix-variable-scope= toggle inside the
+;; menu to switch to global / oneshot per-invocation.
+
+;; Implementation: the prefix body =setq='s the variable on entry and
+;; registers a one-shot =transient-exit-hook= to restore the prior
+;; value on exit. The hook checks =transient-current-prefix= so it
+;; only restores on the *outermost* transient exit — sub-transients
+;; (e.g. =gptel-tools=) also fire =transient-exit-hook= but with a
+;; non-nil current prefix.
+
+
+;; [[file:menu.org::*Scope default: buffer-local for chat-menu lifetime][Scope default: buffer-local for chat-menu lifetime:1]]
+(declare-function transient-setup "transient" (&optional name layout edit &rest params))
+(defvar transient-exit-hook)
+(defvar transient-current-prefix)
+(defvar gptel--set-buffer-locally)
+
+(defvar gptel-chat--scope-prior nil
+  "Saved value of `gptel--set-buffer-locally' to restore on chat-menu exit.
+Set by `gptel-chat-menu's body when it switches to buffer-local
+scope; restored by `gptel-chat--restore-scope-on-exit', a one-shot
+`transient-exit-hook'.  Nil between invocations.")
+
+(defun gptel-chat--restore-scope-on-exit ()
+  "Restore `gptel--set-buffer-locally' to its pre-menu value and self-remove.
+Registered on `transient-exit-hook' by `gptel-chat-menu's body
+when it sets the variable to t.  Fires on every transient exit,
+but only restores when `transient-current-prefix' is nil — i.e.
+when the outermost transient (gptel-chat-menu itself) is closing.
+Sub-transients invoked from chat-menu (e.g. gptel-tools) also
+fire this hook but with the outer prefix still current."
+  (unless transient-current-prefix
+    (setq gptel--set-buffer-locally gptel-chat--scope-prior
+          gptel-chat--scope-prior nil)
+    (remove-hook 'transient-exit-hook
+                 #'gptel-chat--restore-scope-on-exit)))
+;; Scope default: buffer-local for chat-menu lifetime:1 ends here
+
 ;; Prefix definition
 
 ;; =gptel-chat-menu= mirrors the *configuration* portion of upstream
@@ -661,6 +714,9 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
              (let ((first (or (car-safe entry) entry)))
                (and (bufferp first) (not (buffer-live-p first)))))
            gptel-context)))
+  (setq gptel-chat--scope-prior gptel--set-buffer-locally
+        gptel--set-buffer-locally t)
+  (add-hook 'transient-exit-hook #'gptel-chat--restore-scope-on-exit)
   (transient-setup 'gptel-chat-menu))
 ;; Prefix definition:1 ends here
 
