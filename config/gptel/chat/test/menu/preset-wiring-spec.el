@@ -613,12 +613,12 @@
         (spy-on 'gptel--apply-preset :and-return-value nil)
         (spy-on 'gptel-mode :and-return-value nil))
 
-      (it "overlays GPTEL_TOOLS on top of the applied preset"
-        ;; Real drawer → overlay reads tools from upstream tuple; we
-        ;; spy on `gptel-org--entry-properties' to return a controlled
-        ;; tools list (mirroring what upstream would return for a
-        ;; drawer with both `GPTEL_PRESET: coding' and `GPTEL_TOOLS:
-        ;; tool-a tool-b tool-c').
+      (it "overlays GPTEL_TOOLS so the drawer wins over the applied preset"
+        ;; Drawer wins over preset for every key it carries (Decision 3
+        ;; / register/invariant/drawer-overlay-wins-over-preset).  The
+        ;; upstream tuple's `tools' field is non-nil → buffer-local
+        ;; `gptel-tools' takes the drawer's value, regardless of what
+        ;; the preset's `:tools' resolved to.
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list 'coding nil nil nil nil nil nil
                       '(tool-a tool-b tool-c)))
@@ -629,6 +629,66 @@
           (expect 'gptel--apply-preset :to-have-been-called)
           (expect (local-variable-p 'gptel-tools) :to-be t)
           (expect gptel-tools :to-equal '(tool-a tool-b tool-c))))
+
+      ;; Decision 3 / register/invariant/drawer-overlay-wins-over-preset:
+      ;; every drawer-present key wins over the preset on apply, with
+      ;; :GPTEL_SYSTEM: as the asymmetric exception (writer never emits;
+      ;; preset's :system survives when drawer omits the key).
+
+      (it "drawer GPTEL_MODEL wins over preset model"
+        ;; Upstream tuple's `model' field is non-nil — overlay sets
+        ;; buffer-local `gptel-model' to that value, regardless of
+        ;; what the preset's `:model' resolved to.  The preset's
+        ;; model is whatever `gptel--apply-preset' would install
+        ;; (we spy on it as a no-op so the only setter that runs is
+        ;; the overlay).
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding nil nil 'drawer-model-symbol nil nil nil nil))
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          (expect (local-variable-p 'gptel-model) :to-be t)
+          (expect gptel-model :to-equal 'drawer-model-symbol)))
+
+      (it "preset :system survives when drawer omits :GPTEL_SYSTEM:"
+        ;; The chat-mode save path never writes :GPTEL_SYSTEM:
+        ;; (Decision 2 / register/invariant/drawer-system-key-write-
+        ;; exclusion), so a typical drawer omits the key and the
+        ;; upstream tuple's `system' field is nil.  In that branch
+        ;; the overlay does not touch `gptel--system-message' — the
+        ;; preset's :system (already installed by the caller) wins.
+        ;;
+        ;; We can't observe the preset-installed value here because
+        ;; our `gptel--apply-preset' spy is a no-op.  Instead, we
+        ;; assert that the overlay did NOT make `gptel--system-message'
+        ;; buffer-local (its absence is the preset-survives signal:
+        ;; the caller already installed any preset-provided value
+        ;; outside of this overlay's reach).
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding nil nil nil nil nil nil nil))
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          (expect (local-variable-p 'gptel--system-message) :to-be nil)))
+
+      (it "drawer-authored :GPTEL_SYSTEM: still wins on read (back-compat)"
+        ;; Asymmetric contract: writer never emits :GPTEL_SYSTEM:, but
+        ;; the read-side overlay still respects a manually authored
+        ;; entry.  This protects users who customised a per-session
+        ;; system prompt directly in the drawer.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding "drawer-system" nil nil nil nil nil nil))
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          (expect (local-variable-p 'gptel--system-message) :to-be t)
+          (expect gptel--system-message :to-equal "drawer-system")))
 
       (it "overlays GPTEL_PARENT_SESSION_ID even when no preset is declared"
         ;; Upstream tuple is all-nil (no `GPTEL_PRESET' → resolver

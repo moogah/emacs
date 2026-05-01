@@ -175,18 +175,32 @@ coerced via `intern'."
 
 * Drawer overrides overlay
 
-=gptel-chat--apply-drawer-overrides= overlays any non-preset
-configuration properties present in the buffer's =:PROPERTIES:=
-drawer at =point-min=. It is the restore-path counterpart to the
-save hook's call to =gptel-org-set-properties=, and is called from
-=gptel-chat--apply-declared-preset= after preset application.
+=gptel-chat--apply-drawer-overrides= overlays *every* drawer-present
+configuration property buffer-locally. The drawer wins over the
+preset for every key it carries (Decision 3 of
+=openspec/changes/gptel-drawer-as-source-of-truth/design.md=,
+=register/invariant/drawer-overlay-wins-over-preset=). When the
+drawer omits a key, the preset's value (already installed by the
+caller =gptel-chat--apply-declared-preset=) survives intact.
+
+The asymmetric exception is =:GPTEL_SYSTEM:=. The chat-mode save
+path never *writes* it (Decision 2 / =register/invariant/drawer-
+system-key-write-exclusion=), but the overlay still *reads* it for
+back-compat: a manually authored =:GPTEL_SYSTEM:= line in a fresh
+or restored session continues to install =gptel--system-message=
+buffer-locally.
+
+It is the restore-path counterpart to the save hook
+(=gptel-chat--save-state= → =gptel-chat--write-config-drawer=) and
+is called from =gptel-chat--apply-declared-preset= after preset
+application.
 
 Upstream =gptel-org--entry-properties= already returns a structured
 tuple of the configuration keys
 (=preset=, =system=, =backend=, =model=, =temperature=, =tokens=,
 =num=, =tools=). Reusing it keeps the drawer shape bit-for-bit
 compatible with what upstream's own =gptel-org--restore-state= reads
-(design.md §Decision 2, 5).
+(design.md §Decision 5).
 
 We deliberately *discard* the preset field from the tuple at this
 layer — the caller (=gptel-chat--apply-declared-preset=) has already
@@ -201,27 +215,44 @@ buffer-local value (design.md §Decision 3).
 Every overlaid value is set via =make-local-variable= so global
 defaults in other buffers are never touched.
 
+The implementation has no "if drawer matches preset, skip" check.
+Every drawer-present (non-nil) key triggers a buffer-local set.
+This is the structural reason the drawer is a credible WYSIWYG
+source of truth — adding a comparison would silently flip authority
+back to the preset under conditions the user can't see.
+
 #+begin_src emacs-lisp
 (defun gptel-chat--apply-drawer-overrides ()
-  "Overlay non-preset drawer properties buffer-locally.
+  "Overlay every drawer-present configuration property buffer-locally.
 
 Reads the `:PROPERTIES:' drawer at `point-min' via upstream
 `gptel-org--entry-properties' and, for each non-nil upstream-
 compatible key (`:system', `:backend', `:model', `:temperature',
 `:max-tokens', `:num-messages-to-send', `:tools'), installs the
-value as a buffer-local binding.
+value as a buffer-local binding.  The drawer wins over the preset
+for every key it carries (Decision 3 of gptel-drawer-as-source-of-
+truth, register/invariant/drawer-overlay-wins-over-preset).  No
+\"if drawer matches preset, skip\" check — every non-nil key
+triggers a buffer-local set.
 
 Additionally reads the chat-mode extension key `GPTEL_PARENT_SESSION_ID'
 via `org-entry-get' and, when non-nil and non-empty, sets
 `jf/gptel--parent-session-id' buffer-locally.
 
 Absent fields are no-ops — the buffer-local setter is never called
-with a nil value, so the global (default) binding remains intact.
+with a nil value, so the preset's value (already installed by the
+caller) remains in effect.  This is the asymmetric contract for
+`:GPTEL_SYSTEM:': the chat-mode save path never writes the key
+(Decision 2 / register/invariant/drawer-system-key-write-exclusion),
+so the drawer typically omits it and the preset's `:system' wins.
+A manually authored `:GPTEL_SYSTEM:' line is still respected here
+for back-compat — when the upstream tuple's `system' field is non-
+nil, the drawer entry wins over the preset.
 
 The preset field from `gptel-org--entry-properties' is intentionally
 discarded here; it was already applied by the caller
 (`gptel-chat--apply-declared-preset').  Re-applying would undo the
-preset's composite-key logic (design.md §Decision 2, 5)."
+preset's composite-key logic (design.md §Decision 5)."
   (when (fboundp 'gptel-org--entry-properties)
     (pcase-let
         ((`(,_preset ,system ,backend ,model ,temperature ,tokens ,num ,tools)

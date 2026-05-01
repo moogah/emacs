@@ -2,7 +2,7 @@
 name: verify-and-spec-drawer-overlay-wins
 description: Verify `gptel-chat--apply-drawer-overrides` already implements drawer-wins-over-preset, then add new spec scenarios in `preset-wiring-spec.el` covering the new contract — drawer model wins over preset model, and preset `:system` survives when drawer omits `:GPTEL_SYSTEM:`.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations: []
 ---
 
