@@ -2,7 +2,7 @@
 name: update-preset-application-spec-for-snapshot
 description: Refresh `preset-application-spec.el` so the drawer-driven auto-init scenarios assert the full preset snapshot in fresh sessions and the drawer-wins overlay contract on reopen.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations:
   - blocked-by:wire-snapshot-into-session-creation
   - blocked-by:replace-chat-save-with-full-snapshot-writer

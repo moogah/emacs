@@ -59,6 +59,13 @@ PARENT-ID, when non-nil, is written as `:GPTEL_PARENT_SESSION_ID:'.
 EXTRA-PROPERTIES is an optional alist of (KEY . VALUE) additional
 drawer entries (e.g. ((\"GPTEL_TOOLS\" . \"(foo bar)\"))).
 
+Used by both legacy preset-only scenarios and the new chat-mode
+snapshot scenarios from gptel-drawer-as-source-of-truth.  For
+snapshot scenarios, callers pass entries like
+`((\"GPTEL_MODEL\" . \"drawer-model\") (\"GPTEL_TOOLS\" . \"toolA toolB\"))'
+in EXTRA-PROPERTIES — the helper does not interpret them; they
+become literal drawer lines.
+
 Returns the absolute path of the created `session.org'."
   (make-directory branch-dir t)
   (let ((session-file (expand-file-name "session.org" branch-dir)))
@@ -300,6 +307,164 @@ Returns the absolute path of the created `session.org'."
                  "sess-no-gptelmode" "main")
                 (expect gptel-mode-called :to-be nil)))
           (kill-buffer buf))))))
+
+;;; --------------------------------------------------------------------------
+;;; gptel-drawer-as-source-of-truth scenarios
+;;;
+;;; The describes below exercise Decision 1, 3, and 4 end-to-end:
+;;;   - Fresh session.org carries the full preset snapshot drawer
+;;;     (Decision 4 — renderer extension; cycle-5
+;;;     wire-snapshot-into-session-creation).
+;;;   - Drawer wins over preset for every key it carries on reopen
+;;;     (Decision 3 — register/invariant/drawer-overlay-wins-over-
+;;;     preset).
+;;;   - Save round-trips drawer values, not preset values, so the
+;;;     drawer remains the WYSIWYG source of truth across save cycles
+;;;     (Decision 1 — full-snapshot writer; cycle-5
+;;;     replace-chat-save-with-full-snapshot-writer).
+;;; --------------------------------------------------------------------------
+
+(describe "gptel-drawer-as-source-of-truth: full snapshot end-to-end"
+
+  (describe "fresh session.org carries the preset snapshot drawer"
+
+    (let ((temp-root nil)
+          (session-id "sess-snapshot-20260501120000")
+          (session-dir nil)
+          (snapshot-preset 'snapshot-test-preset))
+
+      (before-each
+        (setq temp-root (make-temp-file "gptel-snapshot-fresh-" t))
+        (setq session-dir (expand-file-name session-id temp-root))
+        (gptel-make-preset snapshot-preset
+          :model 'snapshot-model
+          :temperature 0.42))
+
+      (after-each
+        (setq gptel--known-presets
+              (assq-delete-all snapshot-preset gptel--known-presets))
+        (when (and temp-root (file-directory-p temp-root))
+          (delete-directory temp-root t)))
+
+      (it "writes :GPTEL_MODEL: and :GPTEL_TEMPERATURE: from the preset"
+        (jf/gptel--create-session-core session-id session-dir snapshot-preset)
+        (jf-gptel-preset-app-test--register-cleanup session-id "main")
+        (let* ((session-file
+                (expand-file-name "branches/main/session.org" session-dir))
+               (content (with-temp-buffer
+                          (insert-file-contents session-file)
+                          (buffer-string))))
+          (expect content :to-match ":GPTEL_PRESET: snapshot-test-preset\n")
+          (expect content :to-match ":GPTEL_MODEL: snapshot-model\n")
+          (expect content :to-match ":GPTEL_TEMPERATURE: 0.42\n")
+          (expect (string-match-p ":GPTEL_SYSTEM:" content) :to-be nil)
+          (expect (string-match-p ":GPTEL_BOUNDS:" content) :to-be nil)))))
+
+  (describe "drawer wins over preset on reopen (Decision 3)"
+
+    ;; Asymmetric scenario: preset declares one model; drawer declares
+    ;; a different model on disk.  When the file is opened, chat-mode
+    ;; activation runs gptel-chat--apply-declared-preset which (a)
+    ;; calls gptel--apply-preset (installs the preset's :model) and
+    ;; then (b) overlays the drawer (gptel-chat--apply-drawer-
+    ;; overrides) which OVERRIDES the preset's :model with the
+    ;; drawer's value.
+
+    (let ((temp-root nil)
+          (branch-dir nil)
+          (session-file nil)
+          (buf nil)
+          (overlay-preset 'snapshot-overlay-preset))
+
+      (before-each
+        (setq temp-root (make-temp-file "gptel-snapshot-overlay-" t))
+        (setq branch-dir
+              (expand-file-name "sess-overlay-snap/branches/main" temp-root))
+        (gptel-make-preset overlay-preset :model 'preset-model-symbol)
+        (setq session-file
+              (jf-gptel-test--write-session-with-drawer
+               branch-dir overlay-preset
+               nil
+               '(("GPTEL_MODEL" . "drawer-model-symbol")))))
+
+      (after-each
+        (when (buffer-live-p buf)
+          (with-current-buffer buf (set-buffer-modified-p nil))
+          (kill-buffer buf))
+        (setq buf nil)
+        (setq gptel--known-presets
+              (assq-delete-all overlay-preset gptel--known-presets))
+        (when (and temp-root (file-directory-p temp-root))
+          (delete-directory temp-root t)))
+
+      (it "drawer GPTEL_MODEL wins over preset model on chat-mode activation"
+        (setq buf (find-file-noselect session-file))
+        (with-current-buffer buf
+          (jf-gptel-preset-app-test--register-cleanup
+           "sess-overlay-snap" "main")
+          (expect (derived-mode-p 'gptel-chat-mode) :to-be-truthy)
+          (expect gptel--preset :to-equal overlay-preset)
+          ;; The drawer's model overrode the preset's; buffer-local
+          ;; gptel-model holds the drawer's value (read by upstream's
+          ;; gptel-org--entry-properties as a symbol).
+          (expect (local-variable-p 'gptel-model) :to-be t)
+          (expect gptel-model :to-equal 'drawer-model-symbol)))))
+
+  (describe "save round-trips drawer values (Decision 1)"
+
+    ;; Once the drawer has won (per the previous describe), saving the
+    ;; buffer must re-emit the drawer's values — not the preset's.
+    ;; This is the WYSIWYG contract: open the file again and it still
+    ;; shows what the buffer was doing.
+
+    (let ((temp-root nil)
+          (branch-dir nil)
+          (session-file nil)
+          (buf nil)
+          (rt-preset 'snapshot-roundtrip-preset))
+
+      (before-each
+        (setq temp-root (make-temp-file "gptel-snapshot-roundtrip-" t))
+        (setq branch-dir
+              (expand-file-name "sess-rt-snap/branches/main" temp-root))
+        (gptel-make-preset rt-preset :model 'preset-rt-model)
+        (setq session-file
+              (jf-gptel-test--write-session-with-drawer
+               branch-dir rt-preset
+               nil
+               '(("GPTEL_MODEL" . "drawer-rt-model")))))
+
+      (after-each
+        (when (buffer-live-p buf)
+          (with-current-buffer buf (set-buffer-modified-p nil))
+          (kill-buffer buf))
+        (setq buf nil)
+        (setq gptel--known-presets
+              (assq-delete-all rt-preset gptel--known-presets))
+        (when (and temp-root (file-directory-p temp-root))
+          (delete-directory temp-root t)))
+
+      (it "save after drawer-wins reopen re-emits the drawer model, not the preset model"
+        (setq buf (find-file-noselect session-file))
+        (with-current-buffer buf
+          (jf-gptel-preset-app-test--register-cleanup
+           "sess-rt-snap" "main")
+          (expect (derived-mode-p 'gptel-chat-mode) :to-be-truthy)
+          (expect gptel-model :to-equal 'drawer-rt-model)
+          ;; Save and re-read.
+          (save-buffer)
+          (let ((after (with-temp-buffer
+                         (insert-file-contents session-file)
+                         (buffer-string))))
+            ;; Drawer model survived the round-trip.
+            (expect after :to-match ":GPTEL_MODEL: drawer-rt-model\n")
+            ;; Preset model did not leak in.
+            (expect (string-match-p ":GPTEL_MODEL: preset-rt-model"
+                                    after)
+                    :to-be nil)
+            ;; :GPTEL_SYSTEM: still absent (writer never emits it).
+            (expect (string-match-p ":GPTEL_SYSTEM:" after)
+                    :to-be nil)))))))
 
 (provide 'preset-application-spec)
 ;;; preset-application-spec.el ends here
