@@ -20,11 +20,14 @@
 ;; `stream.el' so the variable is bound by the time
 ;; `gptel-chat--sanitize-chunk' runs.  This `defvar' (no value) only
 ;; silences the byte-compiler "free variable" warning; it does NOT
-;; bind a value.  The sanitizer reads the value via
-;; `bound-and-true-p' with a fallback of 1 so the function is safe
-;; to call from a test context that loads `stream.el' standalone
-;; (the fallback matches the defcustom default).
+;; bind a value.  The sanitizer routes its prefix construction
+;; through `gptel-chat--heading-escape-prefix' (defined in mode.el)
+;; which uses `bound-and-true-p' with a fallback of 1 so the
+;; function is safe to call from a test context that loads
+;; `stream.el' standalone (the fallback matches the defcustom
+;; default).
 (defvar gptel-chat-content-indentation)
+(declare-function gptel-chat--heading-escape-prefix nil ())
 
 ;; Line-level sanitizer
 
@@ -140,10 +143,7 @@ negative specs accordingly."
      ((string-match-p gptel-chat--end-delimiter-regexp line)
       (concat "," line))
      ((string-match-p gptel-chat--heading-collision-regexp line)
-      (concat (make-string
-               (or (bound-and-true-p gptel-chat-content-indentation) 1)
-               ?\s)
-              line))
+      (concat (gptel-chat--heading-escape-prefix) line))
      (t line))))
 ;; Line-level sanitizer:1 ends here
 

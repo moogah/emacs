@@ -246,8 +246,13 @@ Returns the position where the marker was."
     (gptel-chat-paste-test--with-chat-buffer
         (concat "#+begin_user\n"
                 ;; Pre-existing column-0 heading inserted via the
-                ;; pre-mode-activation fixture path so the after-change
-                ;; hook never saw it.
+                ;; pre-mode-activation fixture path.  The on-activation
+                ;; migration normalizes it to ` * preexisting' (one-space
+                ;; escape), so by the time the after-change hook is
+                ;; tested below the heading is already escaped.  The
+                ;; test still validates the LENGTH > 0 (deletion) path:
+                ;; the after-change hook sees a deletion and must not
+                ;; touch the buffer further.
                 "* preexisting\n"
                 "trailing\n"
                 "#+end_user\n")
@@ -260,7 +265,7 @@ Returns the position where the marker was."
                                               (point-max))
               :to-equal
               (concat "#+begin_user\n"
-                      "* preexisting\n"
+                      " * preexisting\n"
                       "\n"
                       "#+end_user\n")))))
 
