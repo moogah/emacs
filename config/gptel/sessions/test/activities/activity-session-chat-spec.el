@@ -122,18 +122,24 @@
             (jf-gptel-activities-test--register-cleanup
              (plist-get info :session-id) "main")
             (expect content :to-be-truthy)
-            ;; First write contains the pre-populated drawer followed
-            ;; by the chat-mode empty-user-block template (no worktree
-            ;; paths in this scenario, so no follow-up
+            ;; First write contains the pre-populated drawer (preset +
+            ;; chat-mode snapshot keys per Decision 4 of gptel-drawer-
+            ;; as-source-of-truth) followed by the chat-mode empty-
+            ;; user-block template (no worktree paths in this
+            ;; scenario, so no follow-up
             ;; `<!-- gptel-activity-worktrees: ... -->' line is
-            ;; appended).
-            (expect content :to-equal
-                    (concat ":PROPERTIES:\n"
-                            ":GPTEL_PRESET: executor\n"
-                            ":END:\n"
-                            "#+begin_user\n"
-                            "\n"
-                            "#+end_user\n"))
+            ;; appended).  Structural assertions so the test stays
+            ;; stable as the `executor' preset's tool list / model
+            ;; evolve.
+            (expect content :to-match "\\`:PROPERTIES:\n")
+            (expect content :to-match ":GPTEL_PRESET: executor\n")
+            (expect content :to-match "\n:END:\n")
+            (expect content :to-match "\n#\\+begin_user\n\n#\\+end_user\n\\'")
+            ;; :GPTEL_SYSTEM: must NEVER be in the rendered drawer
+            ;; (Decision 2; register/invariant/drawer-system-key-
+            ;; write-exclusion).
+            (expect (string-match-p ":GPTEL_SYSTEM:" content)
+                    :to-be nil)
             (expect content :not :to-match "^###")
             (expect content :not :to-match "^# "))))))
 

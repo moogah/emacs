@@ -447,16 +447,23 @@ for parent overlay feedback and final-text return."
            (session-dir (jf/gptel--create-agent-directory
                          jf/gptel--branch-dir preset description))
            ;; Build the scope plist from allowed-paths + standard
-           ;; denies, render the drawer-text-block (Mode 2a) carrying
-           ;; preset + parent + :GPTEL_SCOPE_*: keys, and compose the
-           ;; full session.org content as drawer + body. No scope.yml
-           ;; is written — drawer-resident scope (cycle-2 task
+           ;; denies, resolve the agent's preset spec for the chat-
+           ;; mode snapshot keys (Decision 4 / Layer 2 of gptel-
+           ;; drawer-as-source-of-truth), render the drawer-text-block
+           ;; (Mode 2a) carrying preset + parent + the chat-mode
+           ;; snapshot + :GPTEL_SCOPE_*: keys, and compose the full
+           ;; session.org content as drawer + body. :GPTEL_SYSTEM: is
+           ;; never emitted (Decision 2). No scope.yml is written —
+           ;; drawer-resident scope (cycle-2 task
            ;; rewire-persistent-agent).
            (scope-plist
             (jf/gptel-persistent-agent--build-scope-plist allowed-paths-list))
+           (preset-spec (and preset-sym
+                             (fboundp 'gptel-get-preset)
+                             (gptel-get-preset preset-sym)))
            (drawer-text
             (jf/gptel-scope-profile--render-drawer-text
-             preset-sym parent-id scope-plist))
+             preset-sym parent-id scope-plist preset-spec))
            (body (jf/gptel-persistent-agent--initial-body prompt))
            (initial-content (concat drawer-text body)))
       (let* ((session-file (jf/gptel--context-file-path session-dir))

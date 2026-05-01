@@ -106,9 +106,16 @@ value or nil when KEY is absent."
                   :to-be nil))))
 
     (it "writes session.org with pre-populated PROPERTIES drawer by default"
-      ;; Per design Decision 4, a fresh `session.org' begins with a
-      ;; `:PROPERTIES:' drawer containing `GPTEL_PRESET' so the
-      ;; chat-mode restore path applies the preset on first open.
+      ;; Per design Decision 4 / Decision 6 (gptel-drawer-as-source-of-
+      ;; truth), a fresh `session.org' begins with a `:PROPERTIES:'
+      ;; drawer carrying the resolved preset's chat-mode snapshot
+      ;; alongside `:GPTEL_PRESET:'.  The chat-mode restore path
+      ;; applies the preset on first open and the drawer overlay then
+      ;; pins the snapshot keys buffer-locally (drawer wins).
+      ;;
+      ;; Structural assertions (rather than exact-content equality) so
+      ;; the test is stable as the `executor' preset definition
+      ;; evolves — only the WYSIWYG contract is pinned here.
       (with-captured-io
         (jf/gptel--create-session-core
          "test-session-123" "/sessions/test-session-123" 'executor)
@@ -116,13 +123,18 @@ value or nil when KEY is absent."
                         captured-files
                         "/sessions/test-session-123/branches/main/session.org")))
           (expect content :to-be-truthy)
-          (expect content :to-equal
-                  (concat ":PROPERTIES:\n"
-                          ":GPTEL_PRESET: executor\n"
-                          ":END:\n"
-                          "#+begin_user\n"
-                          "\n"
-                          "#+end_user\n")))))
+          ;; Drawer envelope and preset reference at point-min.
+          (expect content :to-match "\\`:PROPERTIES:\n")
+          (expect content :to-match ":GPTEL_PRESET: executor\n")
+          (expect content :to-match "\n:END:\n")
+          ;; Body template prepended.
+          (expect content :to-match "\n#\\+begin_user\n\n#\\+end_user\n\\'")
+          ;; :GPTEL_SYSTEM: is *never* in the rendered drawer
+          ;; (Decision 2; register/invariant/drawer-system-key-write-
+          ;; exclusion).  Long, multi-line system prompts are unwieldy
+          ;; as a single org property value.
+          (expect (string-match-p ":GPTEL_SYSTEM:" content)
+                  :to-be nil))))
 
     (it "writes session.org with custom initial content when provided"
       (with-captured-io

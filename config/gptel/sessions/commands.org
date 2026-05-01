@@ -539,17 +539,32 @@ Returns plist with:
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
+         ;; Resolve the preset spec for the chat-mode snapshot keys
+         ;; (Decision 4 / Layer 2 of gptel-drawer-as-source-of-truth).
+         ;; A registered preset returns the plist (:model :backend
+         ;; :tools :temperature :max-tokens :num-messages-to-send
+         ;; :system) — non-nil snapshot fields are emitted as drawer
+         ;; lines by `--render-drawer-text'.  An unregistered preset
+         ;; resolves to nil, and the renderer falls back to the
+         ;; legacy preset+scope-only shape (design.md §Decision 6:
+         ;; existing-session graceful degradation).
+         (preset-spec (and preset-name
+                           (fboundp 'gptel-get-preset)
+                           (gptel-get-preset preset-name)))
          ;; Resolve the preset's scope profile and render the
          ;; drawer-text block (Mode 2a). The renderer carries
-         ;; `GPTEL_PRESET', optional `GPTEL_PARENT_SESSION_ID', and
-         ;; the resolved `GPTEL_SCOPE_*' keys. No `scope.yml' is
-         ;; written as a side effect (cycle-1 removed that path).
+         ;; `GPTEL_PRESET', optional `GPTEL_PARENT_SESSION_ID', the
+         ;; resolved `GPTEL_SCOPE_*' keys, and (when PRESET-SPEC is
+         ;; non-nil) the chat-mode snapshot keys.  `:GPTEL_SYSTEM:' is
+         ;; never emitted (Decision 2).  No `scope.yml' is written as
+         ;; a side effect (cycle-1 removed that path).
          (drawer-text (jf/gptel-scope-profile--create-for-session
                        preset-name
                        main-branch-dir   ; target-dir (currently unused)
                        project-root
                        worktree-paths
-                       parent-session-id))
+                       parent-session-id
+                       preset-spec))
          (final-content (or initial-content
                             (concat drawer-text
                                     (jf/gptel--initial-session-body)))))

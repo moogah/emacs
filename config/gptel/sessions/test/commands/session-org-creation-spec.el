@@ -57,7 +57,12 @@
 
   (describe "session.org initial content (Decision 4)"
 
-    (it "contains the PROPERTIES drawer with GPTEL_PRESET followed by empty user block"
+    (it "contains the PROPERTIES drawer with GPTEL_PRESET and the chat-mode snapshot followed by empty user block"
+      ;; Decision 4 / Decision 6 (gptel-drawer-as-source-of-truth):
+      ;; the drawer carries the resolved preset's chat-mode snapshot
+      ;; alongside :GPTEL_PRESET:.  Structural assertions (rather than
+      ;; literal-text equality) so the test is stable as the
+      ;; `executor' preset's tool list / model / temperature evolve.
       (with-captured-io
         (jf/gptel--create-session-core
          "sess-decision4-20260421120000"
@@ -68,13 +73,16 @@
                         (concat "/sessions/sess-decision4-20260421120000"
                                 "/branches/main/session.org"))))
           (expect content :to-be-truthy)
-          (expect content :to-equal
-                  (concat ":PROPERTIES:\n"
-                          ":GPTEL_PRESET: executor\n"
-                          ":END:\n"
-                          "#+begin_user\n"
-                          "\n"
-                          "#+end_user\n")))))
+          ;; Drawer envelope at point-min and body template at end.
+          (expect content :to-match "\\`:PROPERTIES:\n")
+          (expect content :to-match ":GPTEL_PRESET: executor\n")
+          (expect content :to-match "\n:END:\n")
+          (expect content :to-match "\n#\\+begin_user\n\n#\\+end_user\n\\'")
+          ;; :GPTEL_SYSTEM: must NEVER appear in the rendered drawer
+          ;; (Decision 2 / register/invariant/drawer-system-key-write-
+          ;; exclusion).
+          (expect (string-match-p ":GPTEL_SYSTEM:" content)
+                  :to-be nil))))
 
     (it "encodes the preset name symbol as its symbol-name in the drawer"
       ;; A differently-named preset lands in the drawer verbatim as a
@@ -213,12 +221,20 @@
           (expect content :to-match ":GPTEL_PRESET: executor")
           (expect content :to-match
                   ":GPTEL_PARENT_SESSION_ID: parent-session-20260101000000")
-          ;; Both drawer lines land before the :END: marker.
-          (expect content :to-match
-                  (concat ":PROPERTIES:\n"
-                          ":GPTEL_PRESET: executor\n"
-                          ":GPTEL_PARENT_SESSION_ID: parent-session-20260101000000\n"
-                          ":END:\n")))))))
+          ;; Both load-bearing keys land between :PROPERTIES: and :END:
+          ;; (the snapshot keys may appear between them now — assert
+          ;; ordering only, not adjacency).
+          (expect content :to-match "\\`:PROPERTIES:\n")
+          (expect content :to-match "\n:END:\n")
+          (let ((preset-pos (string-match ":GPTEL_PRESET:" content))
+                (parent-pos (string-match ":GPTEL_PARENT_SESSION_ID:" content))
+                (end-pos (string-match "\n:END:\n" content)))
+            (expect preset-pos :to-be-truthy)
+            (expect parent-pos :to-be-truthy)
+            (expect end-pos :to-be-truthy)
+            ;; Both keys precede :END:.
+            (expect (< preset-pos end-pos) :to-be t)
+            (expect (< parent-pos end-pos) :to-be t)))))))
 
 (describe "jf/gptel--initial-session-content builds the drawer-prefixed template"
 
