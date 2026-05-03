@@ -40,3 +40,59 @@ Expect: drain calls present in every after-each that touches the helper; tools a
 Full reviewer findings: `.orchestrator/cycles/cycle-1777625426/reviews/update-preset-application-spec-for-snapshot.md` (Findings 1, 2).
 
 Cited register entries: `interfaces.org#register-shape-drawer-text-block`, `interfaces.org#register-invariant-drawer-system-key-write-exclusion`.
+
+## Observations
+
+- Chose the **outer-drain** option from the task brief: a single
+  `after-each` on the outer `describe "gptel-drawer-as-source-of-truth:
+  full snapshot end-to-end"` covers all three inner describes with one
+  copy of the drain logic. Less code churn (3 lines added vs. 9 if
+  duplicated per-describe) and DRY w.r.t. the identical drain that
+  already lives on the legacy outer `describe "Drawer-driven auto-init
+  …"` block.
+- Added `:tools '(toolA toolB)` to the fresh-session `gptel-make-preset`
+  call and `(expect content :to-match ":GPTEL_TOOLS: ")` to the
+  assertion block — presence-match only, per the task brief
+  ("exact list formatting is implementation detail and the
+  scope-profile-applicator dedupe task — separate — will cover it more
+  rigorously"). Confirms the `:GPTEL_TOOLS:` snapshot key flows from
+  preset registration through `jf/gptel--render-drawer-text` /
+  `jf/gptel--initial-session-content` and lands in the rendered
+  `session.org` drawer.
+- New buttercup spec count for the file remains 3 (no new `it`
+  added — the existing fresh-session `it` got an extra
+  `expect`). `Ran 82 specs, 0 failed` from the buttercup phase of the
+  sessions suite.
+
+## Discoveries
+
+- **Pre-existing ERT failure surfaced by run-tests:** `./bin/run-tests.sh
+  -d config/gptel/sessions` reports `exit code 1` because of one ERT
+  failure in `config/gptel/sessions/filesystem-test.el` —
+  `test-directory-creation-org-session-structure`. The mock
+  `cl-letf`'d for `jf/gptel-scope-profile--create-for-session` declares
+  5 args (`_preset _dir &optional _root _paths _parent`) but the real
+  call site now passes 6, yielding `wrong-number-of-arguments
+  ... 6`. **This is on HEAD and is unrelated to the present task** —
+  verified by stashing this task's diff and re-running ERT: same
+  failure, same backtrace. The failure is owned by whichever change
+  added the 6th argument to `jf/gptel-scope-profile--create-for-session`
+  (likely `wire-snapshot-into-session-creation` or
+  `update-preset-application-spec-for-snapshot` in cycle-5). It needs a
+  separate `.tasks/` follow-up: update the ERT mock's lambda arity to
+  match the production signature, OR (preferably) port the test to
+  buttercup with a spy that does not pin arity. Filing as an
+  **interface-drift** discovery: the mock's contract no longer matches
+  the implementation it stands in for.
+- **Outer-describe drain placement is non-trivially correct here:** the
+  drain works at the outer level only because the helper
+  `jf-gptel-preset-app-test--register-cleanup` pushes onto a
+  module-global `defvar` (not a `let`-bound local), so a single
+  `after-each` at any enclosing describe sees every push made by
+  inner-`it` bodies regardless of nesting depth. If a future task
+  refactors `jf-gptel-preset-app-test--registry-keys` to be
+  describe-local (e.g. via `before-each`/`let`-binding), the outer
+  drain pattern silently breaks — would need to revisit. Worth a
+  comment in-place; left a brief one ("Shared registry drain ...") in
+  the source.
+

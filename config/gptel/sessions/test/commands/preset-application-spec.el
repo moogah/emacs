@@ -326,6 +326,18 @@ Returns the absolute path of the created `session.org'."
 
 (describe "gptel-drawer-as-source-of-truth: full snapshot end-to-end"
 
+  ;; Shared registry drain.  Each inner describe registers cleanup keys
+  ;; via `jf-gptel-preset-app-test--register-cleanup' inside its `it'
+  ;; bodies; without an `after-each' draining
+  ;; `jf-gptel-preset-app-test--registry-keys' those entries leak into
+  ;; `jf/gptel--session-registry' for the test process lifetime, which
+  ;; can cause false hits in registry-lookup assertions in single-
+  ;; process runs of the sessions suite.
+  (after-each
+    (dolist (key jf-gptel-preset-app-test--registry-keys)
+      (remhash key jf/gptel--session-registry))
+    (setq jf-gptel-preset-app-test--registry-keys nil))
+
   (describe "fresh session.org carries the preset snapshot drawer"
 
     (let ((temp-root nil)
@@ -338,7 +350,8 @@ Returns the absolute path of the created `session.org'."
         (setq session-dir (expand-file-name session-id temp-root))
         (gptel-make-preset snapshot-preset
           :model 'snapshot-model
-          :temperature 0.42))
+          :temperature 0.42
+          :tools '(toolA toolB)))
 
       (after-each
         (setq gptel--known-presets
@@ -357,6 +370,11 @@ Returns the absolute path of the created `session.org'."
           (expect content :to-match ":GPTEL_PRESET: snapshot-test-preset\n")
           (expect content :to-match ":GPTEL_MODEL: snapshot-model\n")
           (expect content :to-match ":GPTEL_TEMPERATURE: 0.42\n")
+          ;; Tools registers as a list; presence-match suffices here —
+          ;; exact list formatting is implementation detail and the
+          ;; scope-profile-applicator dedupe task covers it more
+          ;; rigorously.
+          (expect content :to-match ":GPTEL_TOOLS: ")
           (expect (string-match-p ":GPTEL_SYSTEM:" content) :to-be nil)
           (expect (string-match-p ":GPTEL_BOUNDS:" content) :to-be nil)))))
 
