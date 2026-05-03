@@ -598,22 +598,34 @@ lives in the helper; this command only adds the
 
 ;; [[file:mode.org::*Effect on downstream =after-change-functions=][Effect on downstream =after-change-functions=:1]]
 (defun gptel-chat--escape-inserted-headings (beg end length)
-  "Escape column-0 `*' lines in [BEG, END) when LENGTH is 0.
+  "Escape column-0 `*' lines in [BEG, END) for non-empty change regions.
 
-Intended for `after-change-functions'.  When LENGTH is 0 (pure
-insertion, not a deletion or replacement), walk the inserted range
-line by line.  For each line whose beginning-of-line position is
->= BEG, starts with `^\\*+ ', and whose BOL lies strictly inside a
-chat-block body (per `gptel-chat--point-in-block-body-p'), insert
+Intended for `after-change-functions'.  When the change region is
+non-empty (END > BEG), walk it line by line and escape column-0
+`*' lines that fall inside a chat-block body.  For each line whose
+beginning-of-line position is >= BEG, starts with `^\\*+ ', and
+whose BOL lies strictly inside a chat-block body (per
+`gptel-chat--point-in-block-body-p'), insert
 `gptel-chat-content-indentation' leading spaces at that BOL.
 
-The function is idempotent: it acts only on lines that currently
-start with `*' at column 0.  An already-escaped line begins with
-whitespace, so re-running on previously-escaped content is a no-op.
+Pure deletions (END = BEG) gate out unchanged; they introduce no
+new content.  Insertions, including replacements (LENGTH > 0 AND
+END > BEG via `replace-match' / `replace-region-contents' /
+`query-replace'), flow through — a replacement can introduce a
+brand-new column-0 `*' line that was not in the buffer before
+(e.g., `query-replace foo -> * H1' inside a chat-block body), and
+the gate must catch it.
 
-Re-entry guard: `inhibit-modification-hooks' is bound non-nil while
-the rewrite runs so this hook does not re-trigger on its own
-inserts.
+Idempotence: the function acts only on lines that currently start
+with `*' at column 0.  An already-escaped line begins with
+whitespace, so the per-line `\\*+ ' regex fails and re-running on
+previously-escaped content is a no-op.
+
+Re-entry guard: `inhibit-modification-hooks' is bound non-nil
+before the rewrite runs (in the let head, before any region walk)
+so this hook does not re-trigger on its own inserts.  Widening
+the input gate from `(zerop length)' to `(> end beg)' does not
+widen re-entry.
 
 Boundary clipping: the per-line predicate returns nil for delimiter
 lines and for positions outside any chat block, so an inserted
@@ -634,8 +646,7 @@ mutating `after-change-functions' entry, not just this one.
 
 See `openspec/changes/gptel-chat-heading-scoping/design.md'
 §Decision 3."
-  (when (and (zerop length)
-             (> end beg))
+  (when (> end beg)
     (let ((inhibit-modification-hooks t))
       ;; Predicate-checked region walk via the canonical helper —
       ;; CHECK-BODY-P t means each candidate line consults
