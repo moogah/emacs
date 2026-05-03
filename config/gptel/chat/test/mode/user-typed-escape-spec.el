@@ -105,29 +105,22 @@ mode activation, ready for caller-driven positioning."
                 :to-equal
                 "*prelude line\n")))
 
-    (it "does not escape on a `#+begin_user' delimiter line itself"
+    (it "does not escape on a `#+begin_user' delimiter line itself (column-1 guard short-circuits)"
+      ;; This spec exercises the *column-1 guard's* short-circuit arm.
       ;; Typing `*' on a `#+begin_user' line is contrived (the line
-      ;; starts with `#'), but the predicate must still exclude it.
-      ;; We simulate by deleting the leading `#' first to expose the
-      ;; line, then typing `*' there — the predicate sees the line
-      ;; start as the (now broken) opener line, but practically the
-      ;; predicate's delimiter check guards us against this whole
-      ;; class.  Easier: position on a real opener line at a column
-      ;; where typing `*' could plausibly land it at column 1, and
-      ;; verify no escape applies.
+      ;; starts with `#'); we position point at column 1 of the opener
+      ;; line and type `*'.  After insertion point is at column 2, so
+      ;; the function's `(= (current-column) 1)' guard rejects
+      ;; immediately and the predicate is never consulted.
+      ;;
+      ;; The *predicate's* delimiter-line rejection arm is exercised
+      ;; by the sibling spec below (which calls
+      ;; `gptel-chat--escape-typed-heading' directly to bypass the
+      ;; column-1 guard).  Together they cover both arms of the
+      ;; delimiter-line invariant
+      ;; (`register/invariant/chat-block-delimiter-lines-stay-at-column-0').
       (gptel-chat-test--in-chat-buffer
           "#+begin_user\nbody\n#+end_user\n"
-        ;; Place point at column 0 of the opener line.  We can't
-        ;; insert `*' there at column 0 *and* still have it be the
-        ;; opener line afterward (the buffer becomes
-        ;; "*#+begin_user..."), but the test is: when the function
-        ;; runs after a column-0 `*' insertion on what is now a
-        ;; non-delimiter line, does the predicate guard hold?
-        ;;
-        ;; The realistic delimiter-line check happens when `*' is
-        ;; typed at column 1 on an opener line: that's column 1, not
-        ;; column 0, so the function's column-1 guard rejects
-        ;; immediately and the predicate is never consulted.
         (gptel-chat-test--goto-line-col 1 1)
         (gptel-chat-test--type-char ?*)
         ;; Result: `*' is inserted at column 1 of "#+begin_user".
@@ -136,6 +129,26 @@ mode activation, ready for caller-driven positioning."
         (expect (buffer-substring-no-properties (point-min) (point-max))
                 :to-equal
                 "#*+begin_user\nbody\n#+end_user\n")))
+
+    (it "does not escape when called with point on a delimiter line (predicate enforcement)"
+      ;; Direct-call spec: bypass `self-insert-command' and invoke
+      ;; `gptel-chat--escape-typed-heading' with point at column 1 of a
+      ;; `#+begin_user' line.  The column-1 guard now succeeds (point
+      ;; is at column 1) and `last-command-event' is bound to `?*', so
+      ;; the predicate's delimiter-line rejection is the load-bearing
+      ;; check.  Without the predicate's delimiter-line arm, this test
+      ;; would incorrectly insert an escape prefix on the opener line
+      ;; itself, violating
+      ;; `register/invariant/chat-block-delimiter-lines-stay-at-column-0'.
+      (gptel-chat-test--in-chat-buffer
+          "#+begin_user\nhi\n#+end_user\n"
+        (gptel-chat-test--goto-line-col 1 1) ; column 1 of "#+begin_user"
+        (let ((last-command-event ?*)
+              (before (buffer-substring-no-properties
+                       (point-min) (point-max))))
+          (gptel-chat--escape-typed-heading)
+          (expect (buffer-substring-no-properties (point-min) (point-max))
+                  :to-equal before))))
 
     (it "escapes a column-0 `*' typed inside a nested `#+begin_tool' body"
       (gptel-chat-test--in-chat-buffer
