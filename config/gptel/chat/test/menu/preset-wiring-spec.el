@@ -657,15 +657,24 @@
         ;; (Decision 2 / register/invariant/drawer-system-key-write-
         ;; exclusion), so a typical drawer omits the key and the
         ;; upstream tuple's `system' field is nil.  In that branch
-        ;; the overlay does not touch `gptel--system-message' — the
-        ;; preset's :system (already installed by the caller) wins.
+        ;; the overlay must NOT touch `gptel--system-message' — the
+        ;; preset's :system (already installed by the caller via the
+        ;; buffer-local setter) must survive intact.
         ;;
-        ;; We can't observe the preset-installed value here because
-        ;; our `gptel--apply-preset' spy is a no-op.  Instead, we
-        ;; assert that the overlay did NOT make `gptel--system-message'
-        ;; buffer-local (its absence is the preset-survives signal:
-        ;; the caller already installed any preset-provided value
-        ;; outside of this overlay's reach).
+        ;; Discriminator: the default no-op spy on `gptel--apply-preset'
+        ;; never installs anything, which makes "binding absent after
+        ;; overlay" indistinguishable from "overlay killed the
+        ;; binding."  Override it here with a stub that *simulates*
+        ;; what the real preset setter does: install
+        ;; `gptel--system-message' buffer-locally to a sentinel value.
+        ;; If a future refactor adds
+        ;; `(kill-local-variable 'gptel--system-message)' to the
+        ;; overlay path, this assertion will fail — that is the
+        ;; contract guarded by
+        ;; register/invariant/drawer-overlay-wins-over-preset.
+        (spy-on 'gptel--apply-preset :and-call-fake
+                (lambda (_preset setter)
+                  (funcall setter 'gptel--system-message "preset-system")))
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list 'coding nil nil nil nil nil nil nil))
         (with-temp-buffer
@@ -673,7 +682,11 @@
           (org-mode)
           (gptel-chat--apply-declared-preset)
           (expect 'gptel--apply-preset :to-have-been-called)
-          (expect (local-variable-p 'gptel--system-message) :to-be nil)))
+          ;; The preset setter installed it buffer-locally; the
+          ;; overlay must leave it alone (no kill-local-variable, no
+          ;; reset to default).
+          (expect (local-variable-p 'gptel--system-message) :to-be t)
+          (expect gptel--system-message :to-equal "preset-system")))
 
       (it "drawer-authored :GPTEL_SYSTEM: still wins on read (back-compat)"
         ;; Asymmetric contract: writer never emits :GPTEL_SYSTEM:, but
