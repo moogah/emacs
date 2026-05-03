@@ -88,3 +88,105 @@ Why delete rather than rewrite the migration-spec test:
 - Original task: `openspec/changes/gptel-chat-heading-scoping/tasks/open/add-migration-on-read.md` (status: done).
 - Merged code: `config/gptel/chat/mode.el:185-208` (heading-escape-prefix), `config/gptel/chat/mode.el:423-486` (migration), `config/gptel/chat/test/mode/migration-spec.el:260-267` (test to delete).
 - Boundary contract: `interfaces.org` — `register/invariant/chat-block-body-no-column-zero-stars` (load-bearing).
+
+## Observations
+
+- Clamp tightening landed in `mode.org` (helper block at the
+  "Heading-escape primitives" section) and re-tangled to
+  `mode.el:212`. The body is now `(make-string (max 1 (or
+  (bound-and-true-p gptel-chat-content-indentation) 1)) ?\s)` —
+  the inner `(or ... 1)` becomes redundant once `max 1` runs but
+  is preserved verbatim because the task's step-1 diff specified
+  it that way and the redundancy is harmless (both expressions
+  evaluate to 1 under the same conditions). A future cleanup
+  could drop the inner fallback, but that would be cosmetic and
+  out of scope here.
+- The helper docstring now documents two distinct paths into the
+  fallback: (1) unbound variable → `(or ... 1)` returns 1 → `max
+  1` is a no-op; (2) explicit 0 (or any value < 1) → `(or ... 1)`
+  returns 0 → `max 1` clamps to 1. The unified user-facing
+  contract is "always returns at least one space."
+- The migration docstring (`mode.el:447`) now cross-references
+  the helper's clamp behaviour explicitly, closing the Finding-2
+  docstring drift: the migration is no-op iff the buffer has no
+  `^\*+ ` lines inside chat-block bodies, never solely on indent
+  grounds.
+- The org commentary above the helper block (mode.org "Two
+  helpers live here…" section) was rewritten to drop the
+  outdated "clamps negative values to 0 so a misset variable
+  surfaces as a no-op" framing — that framing predated the
+  invariant work and would re-introduce confusion. Replaced with
+  "clamps any value below 1 up to 1 so an explicit 0 (or a
+  misset negative value) cannot silently violate
+  `register/invariant/chat-block-body-no-column-zero-stars`."
+- The migration "Behavioural contract" bullet at mode.org line
+  ~439 was extended from "no in-block `*` lines is a no-op" to
+  "no in-block `*` lines is the **only** no-op condition" with an
+  explicit pointer to the helper's clamp behaviour. This matches
+  step 4 of the task body and dovetails with the migration
+  docstring update.
+- Misleading "indentation 0 is a no-op" test in
+  `migration-spec.el:256-267` removed; replaced with a 5-line
+  explanatory comment pointing at the default `= 1` scenarios as
+  the live coverage for the clamped behaviour. The outer
+  describe-block parens balance was preserved (verified via
+  `check-parens`).
+- Verified centralisation invariant: no chat-mode source file
+  reads `gptel-chat-content-indentation` directly through
+  `(make-string ... ?\s)` — only the helper does. The two
+  remaining `make-string … gptel-chat-content-indentation` hits
+  outside the helper are inside `;;` commentary in
+  `stream.org/stream.el` (legacy prose describing the
+  pre-`0ffcdb5` construction), not call sites. Centralisation per
+  architect-fix `0ffcdb5` is preserved.
+- Smoke-checked the clamp at runtime in batch mode: the helper
+  returns `" "` (one space) for `gptel-chat-content-indentation`
+  bound to 0, bound to -3, and unbound. Matches the task's
+  Behavioral smoke verification clause.
+
+## Discoveries
+
+- discovery_id: disc-clamp-heading-escape-prefix-1
+  class: dead-branch
+  description: |
+    The clamped expression `(make-string (max 1 (or (bound-and-true-p
+    gptel-chat-content-indentation) 1)) ?\s)` carries a redundant
+    inner `(or ... 1)` fallback after the clamp tightening: under
+    `max 1`, the inner-fallback's choice of 1-vs-anything-else only
+    matters when the variable is bound to a value `>= 1`, where the
+    `or` short-circuits on the bound value anyway. The unbound case
+    now reaches the same 1 via either the inner `(or ... 1)` or the
+    outer `(max 1 ...)`. This is a tiny dead branch — the inner
+    fallback is doing the same job the outer clamp does, just
+    earlier. Both are correct; the redundancy is harmless.
+  affected_register_entry: register/invariant/chat-block-body-no-column-zero-stars
+  recommendation: |
+    Optional cleanup in a future task: simplify to `(make-string
+    (max 1 (or (bound-and-true-p gptel-chat-content-indentation) 0))
+    ?\s)` — the `(or ... 0)` reduces to "value-or-zero" and the
+    `max 1` does all real work. Or even just `(make-string (max 1
+    (or (bound-and-true-p gptel-chat-content-indentation) 1)) ?\s)`
+    is fine as-is for clarity. Not in scope here; flagging only so
+    the integrate phase has the option to land it as a one-line
+    polish if desired. Strict scope says: leave alone, the task
+    specified the exact text.
+- discovery_id: disc-clamp-heading-escape-prefix-2
+  class: spec-signal
+  description: |
+    Step 4 of the task body refers to "Behavioural contract bullets
+    above the migration function" at `mode.org:160-198`. The actual
+    line range hosting those bullets is closer to mode.org:430-454
+    (the "Migration on read" section's commentary). The cited range
+    `160-198` is in the "Buffer content indentation" defcustom
+    section, which has prose but not a "no-op on indent grounds"
+    bullet. I applied the spirit of the step (drop any
+    no-op-on-indent framing in the migration commentary) at the
+    correct location. No behavioural impact, but the line range in
+    the task body is stale.
+  affected_register_entry:
+  recommendation: |
+    Integrate-phase: noted but no action needed — the task
+    description accurately describes the intent ("Behavioural
+    contract bullets above the migration function"); only the
+    citation line range is off, and the work landed in the right
+    place by following the description rather than the line numbers.
