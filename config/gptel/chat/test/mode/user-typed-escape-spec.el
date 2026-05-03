@@ -135,11 +135,19 @@ mode activation, ready for caller-driven positioning."
       ;; `gptel-chat--escape-typed-heading' with point at column 1 of a
       ;; `#+begin_user' line.  The column-1 guard now succeeds (point
       ;; is at column 1) and `last-command-event' is bound to `?*', so
-      ;; the predicate's delimiter-line rejection is the load-bearing
-      ;; check.  Without the predicate's delimiter-line arm, this test
-      ;; would incorrectly insert an escape prefix on the opener line
-      ;; itself, violating
+      ;; the third condition — the predicate call inside the `(when
+      ;; ...)' — is the load-bearing check.  Without that
+      ;; predicate-call condition, typed-escape would proceed past the
+      ;; col=1 guard and insert a prefix at BOL of `#+begin_user',
+      ;; mutating the delimiter line and violating
       ;; `register/invariant/chat-block-delimiter-lines-stay-at-column-0'.
+      ;; Note: the predicate's internal delimiter-line short-circuit
+      ;; arm (`parser.el' point-in-block-body-p) is covered separately
+      ;; by `point-in-block-spec.el' (the nested-tool scenario where
+      ;; removing the short-circuit would let the predicate return t).
+      ;; This spec catches a maintainer dropping the predicate call
+      ;; from `gptel-chat--escape-typed-heading', not the predicate's
+      ;; internal arm.
       (gptel-chat-test--in-chat-buffer
           "#+begin_user\nhi\n#+end_user\n"
         (gptel-chat-test--goto-line-col 1 1) ; column 1 of "#+begin_user"

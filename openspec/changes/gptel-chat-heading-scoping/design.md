@@ -52,12 +52,12 @@ The typed-escape function fires once per `self-insert-command` invocation, with 
 | Insertion path | Caught by |
 |---|---|
 | Single `*` keystroke at column 0 | typed-escape (this hook) |
-| `C-u N *` (prefix-arg multi-insert) | paste-escape on `after-change-functions` |
-| `M-x repeat` of a `*` keystroke | paste-escape on `after-change-functions` |
+| `C-u N *` (prefix-arg multi-insert) | paste-escape on `after-change-functions`, once the line acquires `*+ ` shape via further input (e.g., a trailing space) |
+| `M-x repeat` of a `*` keystroke | paste-escape on `after-change-functions`, once `*+ ` shape materializes |
 | Yank / paste of `* H1` | paste-escape on `after-change-functions` |
 | `query-replace foo → * H1` | paste-escape on `after-change-functions` |
 
-Hook firing order: `self-insert-command` calls `insert`, which fires `after-change-functions` first; `post-self-insert-hook` runs after. Paste-escape (on `after-change-functions`) therefore catches column-0 `*` lines from any insertion path before typed-escape ever runs. By the time `post-self-insert-hook` fires, point has already shifted past the inserted prefix (e.g., from column 1 to column 2 after a one-space prefix), so typed-escape's column-1 guard naturally rejects on the same call. No double-escape.
+Hook firing order (informational): `self-insert-command` → `after-change-functions` → `post-self-insert-hook`. In practice the two producers fire on disjoint events: typed-escape fires only for self-insert of `*` at column 0, where paste-escape's per-line `\\*+ ` regex (`gptel-chat--escape-headings-in-region`, `mode.el`) does not yet match because no trailing space exists. Paste-escape fires for any other insertion that lands a heading-shape `\\*+ ` line at column 0 inside a body — paste, yank, `query-replace`, or a `C-u N *` insertion once the user appends a trailing space. The `(current-column) = 1` guard in typed-escape additionally precludes any double-escape if both hooks ever did fire on the same chain, but in practice the disjoint-trigger structure is what makes the two producers compose without duplication.
 
 **Rationale for keeping typed-escape narrow:** the function runs every keystroke in chat-mode buffers. Widening its scan (to inspect the triggering region rather than `(current-column)`) would add work to the hot path and duplicate paste-escape's logic. The producer-decomposition (cheap hook for the dominant path; general hook for everything else) keeps each producer's correctness localizable.
 
