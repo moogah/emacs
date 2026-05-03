@@ -2,7 +2,7 @@
 name: add-delete-on-nil-tests-for-model-and-backend
 description: The chat-save snapshot writer's task brief required write-on-non-nil and delete-on-nil for each scalar key. The unit suite covers delete-on-nil for `:GPTEL_TEMPERATURE:` and `:GPTEL_MAX_TOKENS:` but not for `:GPTEL_MODEL:` or `:GPTEL_BACKEND:`. Add the missing scenarios so a future regression that leaves a stale `:GPTEL_MODEL:` after `gptel-model` is cleared cannot silently break the WYSIWYG contract.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations:
   - discovered-from:replace-chat-save-with-full-snapshot-writer
 ---
@@ -37,3 +37,14 @@ Expect: both new it-blocks present; suite green.
 Full reviewer findings: `.orchestrator/cycles/cycle-1777625426/reviews/replace-chat-save-with-full-snapshot-writer.md` (Finding 1).
 
 Cited register entries: `interfaces.org#register-shape-drawer-text-block`, `interfaces.org#register-invariant-drawer-system-key-write-exclusion`.
+
+## Observations
+
+- Both new specs were placed immediately after the existing "deletes scalar keys when their source variables are nil" `it` block in the `gptel-chat--write-config-drawer (unit)` describe, mirroring its pattern (pre-populated drawer, `setq-local` to nil, run writer, assert `org-entry-get` returns nil).
+- Suite size went from 377 to 379 specs; both new specs pass; full chat suite green (`Ran 379 specs, 0 failed, in 2.38s`).
+- Verification grep confirms both `it`-block titles are present in `save-state-spec.el`.
+
+## Discoveries
+
+- The writer routes both keys through the shared `gptel-chat--put-or-delete` helper (`config/gptel/chat/menu.el` lines 446-457), so the new specs cover the same delete codepath as the existing temperature/max-tokens spec — they protect against a regression that would bypass `put-or-delete` for these specific keys (e.g., a future inline `org-entry-put` call), not against a regression in `put-or-delete` itself.
+- No `.org` source for the spec file — `save-state-spec.el` is hand-written. Edited the `.el` directly per project literate-programming policy (only `.org` sources tangle to `.el`).
