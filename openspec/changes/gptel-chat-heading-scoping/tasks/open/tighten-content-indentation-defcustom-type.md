@@ -44,3 +44,90 @@ Choice of spelling: prefer `natnum` (Emacs 28+) over `(integer 0)`. Both work; `
 - Reviewer finding: `.orchestrator/cycles/cycle-1777624502/reviews/add-content-indentation-defcustom.md` Finding 1.
 - Register entry: `interfaces.org` — `register/boundary/chat-heading-collision-escape` stage 1.
 - Original task: `openspec/changes/gptel-chat-heading-scoping/tasks/open/add-content-indentation-defcustom.md` (status: done).
+
+## Observations
+
+- Step 6 decision (defensive `(max 0 ...)` clamp at `mode.el:205`,
+  source `mode.org` in the `gptel-chat--heading-escape-prefix`
+  defun): kept as-is per task recommendation. With `:type 'natnum`,
+  `customize-variable` will reject negatives at set-time, but the
+  helper is also reachable when the variable is unbound (the
+  `(or (bound-and-true-p ...) 1)` branch is the relevant one in
+  that case) and from any caller that bypasses `customize-set-value`
+  by direct `setq` — the clamp documents the wholenum consumer
+  contract locally and costs essentially nothing. The fallback chain
+  is independently load-bearing (callers in `stream.el` may run before
+  `mode.el` defines the defcustom, depending on require order), so
+  this code stays. Removal would be cosmetic only.
+- The docstring update I added to the defcustom mentions the `natnum`
+  contract and the `wholenump` consumer signal so a reader of
+  `M-x describe-variable` sees the rationale without having to chase
+  down design.md or interfaces.org. This is an addition beyond the
+  prescribed steps but stays purely within scope (same defcustom,
+  same docstring section).
+- The defcustom block in `mode.org` (line ~175) sits in a new
+  "Buffer content indentation" top-level section that the previous
+  task `add-content-indentation-defcustom` introduced specifically
+  to host this single defcustom. The section therefore carries no
+  other knobs; future indentation/width customizations for chat-mode
+  bodies would naturally land here. Out of scope for this task.
+- Did not modify `interfaces.org`'s `status:` field for the
+  `chat-heading-collision-escape` register entry. The orchestrator
+  state has it as `reconciled` (cycle-1 carry-forward) but the file
+  text still says `speculated`. The task body explicitly directs
+  content-only edits and leaves the status field to the integrate
+  phase — followed that guidance.
+
+## Discoveries
+
+- discovery_id: disc-tighten-defcustom-type-1
+  class: vocabulary-mismatch
+  description: |
+    The closed task brief `add-content-indentation-defcustom` (line 21)
+    specified `Custom type: integer`, but the consumer
+    `(make-string gptel-chat-content-indentation ?\s)` requires
+    `wholenump`. The mismatch was caught by the cycle-1 reviewer
+    (ask-cycle-1777624502-1). The canonical `:type` for a
+    count-shaped variable consumed by `make-string` is `natnum`
+    (Emacs 28+), aliased predicate `wholenump`. Both `:type 'natnum`
+    and `:type '(integer 0)` work; `natnum` is idiomatic and
+    aligns with the predicate name. Resolved here by flipping the
+    defcustom and back-annotating the original brief, design.md
+    Decision 8, and the boundary register entry's stage-1 output.
+  affected_register_entry: register/boundary/chat-heading-collision-escape
+  recommendation: |
+    Integrate phase: leave the change in place. The stage-1 output
+    description now carries an explicit `wholenum`/`natnum`
+    contract note, which is content-only and does not alter the
+    pipeline's shape. No status flip needed beyond the existing
+    reconciled mark.
+
+- discovery_id: disc-tighten-defcustom-type-2
+  class: spec-signal
+  description: |
+    The boundary register entry for `chat-heading-collision-escape`
+    currently has `status: speculated` in the file text but the
+    orchestrator state carries `reconciled` from cycle-1 (per the
+    task-body callout). This is a known drift between two sources
+    of truth for register status. Flagging only — task body
+    forbids editing the status field directly here.
+  affected_register_entry: register/boundary/chat-heading-collision-escape
+  recommendation: |
+    Integrate phase: reconcile the file text's `status:` field with
+    the orchestrator's reconciled mark when next touching the
+    entry, or accept the orchestrator state as authoritative and
+    document the file-vs-state convention somewhere durable.
+
+- discovery_id: disc-tighten-defcustom-type-3
+  class: deviation
+  description: |
+    Added a paragraph to the defcustom docstring documenting the
+    `natnum` rationale and the `wholenump` consumer signal. This
+    exceeds the literal "change `:type 'integer` to `:type 'natnum`"
+    instruction in step 1 but stays within the same defcustom block
+    and aligns with the task's intent (push validation to
+    customize-time and document the contract).
+  affected_register_entry: register/boundary/chat-heading-collision-escape
+  recommendation: |
+    Integrate phase: leave alone. The docstring change is local,
+    on-topic, and improves discoverability of the contract.
