@@ -741,37 +741,49 @@ user retains the =gptel--infix-variable-scope= toggle inside the
 menu to switch to global / oneshot per-invocation.
 
 Implementation: the prefix body =setq='s the variable on entry and
-registers a one-shot =transient-exit-hook= to restore the prior
-value on exit. The hook checks =transient-current-prefix= so it
-only restores on the *outermost* transient exit — sub-transients
-(e.g. =gptel-tools=) also fire =transient-exit-hook= but with a
-non-nil current prefix.
+registers a one-shot =transient-post-exit-hook= to restore the prior
+value on exit. =transient-post-exit-hook= (as opposed to
+=transient-exit-hook=) fires *only* when no transient is resuming —
+i.e. only when the outermost prefix is fully done (see =transient.el=
+=transient--post-exit=, around line 3081). That gives us the
+"outermost menu fully done" semantics directly, without the
+=transient-current-prefix= discriminator that the previous
+implementation used. The discriminator was load-bearingly broken: by
+the time =transient-exit-hook= fires on a normal commit-style exit,
+=transient--export= has already set =transient-current-prefix= to the
+prefix object, so the guard short-circuited and the restore never
+ran.
 
 #+begin_src emacs-lisp
 (declare-function transient-setup "transient" (&optional name layout edit &rest params))
-(defvar transient-exit-hook)
-(defvar transient-current-prefix)
+(defvar transient-post-exit-hook)
 (defvar gptel--set-buffer-locally)
 
+;; A single global defvar is safe under the hook-mechanism fix below:
+;; `transient-post-exit-hook' only fires on the outermost prefix's
+;; full exit, so single-frame re-entry cannot leak a stale prior
+;; through this slot.  The remaining edge case is multi-frame
+;; re-entry across recursive minibuffers, which the upstream
+;; transient call path does not produce in chat-menu's current shape.
 (defvar gptel-chat--scope-prior nil
   "Saved value of `gptel--set-buffer-locally' to restore on chat-menu exit.
 Set by `gptel-chat-menu's body when it switches to buffer-local
 scope; restored by `gptel-chat--restore-scope-on-exit', a one-shot
-`transient-exit-hook'.  Nil between invocations.")
+`transient-post-exit-hook'.  Nil between invocations.")
 
 (defun gptel-chat--restore-scope-on-exit ()
   "Restore `gptel--set-buffer-locally' to its pre-menu value and self-remove.
-Registered on `transient-exit-hook' by `gptel-chat-menu's body
-when it sets the variable to t.  Fires on every transient exit,
-but only restores when `transient-current-prefix' is nil — i.e.
-when the outermost transient (gptel-chat-menu itself) is closing.
-Sub-transients invoked from chat-menu (e.g. gptel-tools) also
-fire this hook but with the outer prefix still current."
-  (unless transient-current-prefix
-    (setq gptel--set-buffer-locally gptel-chat--scope-prior
-          gptel-chat--scope-prior nil)
-    (remove-hook 'transient-exit-hook
-                 #'gptel-chat--restore-scope-on-exit)))
+Registered on `transient-post-exit-hook' by `gptel-chat-menu's body
+when it sets the variable to t.  `transient-post-exit-hook' fires
+only when the outermost transient is fully done (no sub-transient
+resuming), so this hook is unconditional — no
+`transient-current-prefix' discriminator is needed.  Sub-transients
+(e.g. `gptel-tools' invoked from inside the chat menu) do not fire
+this hook at all."
+  (setq gptel--set-buffer-locally gptel-chat--scope-prior
+        gptel-chat--scope-prior nil)
+  (remove-hook 'transient-post-exit-hook
+               #'gptel-chat--restore-scope-on-exit))
 #+end_src
 
 ** Prefix definition
@@ -948,7 +960,7 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
            gptel-context)))
   (setq gptel-chat--scope-prior gptel--set-buffer-locally
         gptel--set-buffer-locally t)
-  (add-hook 'transient-exit-hook #'gptel-chat--restore-scope-on-exit)
+  (add-hook 'transient-post-exit-hook #'gptel-chat--restore-scope-on-exit)
   (transient-setup 'gptel-chat-menu))
 #+end_src
 

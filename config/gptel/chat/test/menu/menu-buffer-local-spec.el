@@ -8,23 +8,33 @@
 ;;; Commentary:
 
 ;; Buttercup specs for the chat-menu scope default delivered by task
-;; `default-chat-menu-scope-to-buffer-local' (see openspec/changes/
-;; gptel-drawer-as-source-of-truth/tasks/open/default-chat-menu-scope-
-;; to-buffer-local.md, design.md §Decision 5, register/boundary/chat-
-;; menu-scope-default).
+;; `default-chat-menu-scope-to-buffer-local' and corrected by task
+;; `fix-chat-menu-scope-restore-on-real-exit' (see openspec/changes/
+;; gptel-drawer-as-source-of-truth/tasks/, design.md §Decision 5,
+;; register/boundary/chat-menu-scope-default).
+;;
+;; Coverage strategy: end-to-end against the real transient call path.
+;; Each scenario for the *exit* contract drives `gptel-chat-menu's
+;; prefix body (which sets `gptel--set-buffer-locally', registers the
+;; restorer on `transient-post-exit-hook', and hands off to
+;; `transient-setup') and then invokes `transient--post-exit' with a
+;; sentinel command, mirroring what upstream does at the end of every
+;; commit-style suffix.  This catches the production-bug shape that
+;; the previous direct-call tests missed: by the time
+;; `transient-exit-hook' fires on a real exit, `transient--export'
+;; has already set `transient-current-prefix', so a guard of
+;; `(unless transient-current-prefix ...)' would silently no-op.
 ;;
 ;; Coverage:
 ;;   - The prefix body sets `gptel--set-buffer-locally' to t before
-;;     handing off to `transient-setup' — proven by spying on the
-;;     handoff and recording the variable's value at call time.
+;;     handing off to `transient-setup'.
 ;;   - The body registers `gptel-chat--restore-scope-on-exit' on
-;;     `transient-exit-hook' so the variable is restored on exit.
-;;   - The restorer only restores when `transient-current-prefix' is
-;;     nil (outermost-exit), to coexist with sub-transients fired
-;;     from inside the chat menu.
-;;   - The restorer is a one-shot (self-removes after restoring).
-;;   - Upstream `gptel-menu' invoked directly is unaffected — its
-;;     prefix body does not set the variable.
+;;     `transient-post-exit-hook' (NOT `transient-exit-hook').
+;;   - End-to-end: a full transient post-exit sequence restores the
+;;     prior value of `gptel--set-buffer-locally' and self-removes
+;;     the hook.
+;;   - Restoration covers a non-nil prior (e.g. 'oneshot).
+;;   - Upstream `gptel-menu' invoked directly is unaffected.
 ;;   - `gptel--set-with-scope' with the variable bound to t produces
 ;;     a buffer-local mutation in a chat-mode buffer (smoke test for
 ;;     the upstream contract this design relies on).
@@ -44,6 +54,19 @@
 (require 'gptel-chat-mode)
 (require 'gptel-chat-menu)
 
+(defun gptel-chat--spec-drive-post-exit ()
+  "Drive the real `transient--post-exit' path with a sentinel command.
+
+Mirrors what upstream does at the end of every commit-style
+transient suffix: stage `transient--exitp' to a non-replace value,
+clear the resume stack, and invoke `transient--post-exit' with a
+non-nil command argument so the prefix is cleared and
+`transient-post-exit-hook' is run.  Used by the end-to-end
+restoration specs below."
+  (let ((transient--exitp 'exit)
+        (transient--stack nil))
+    (transient--post-exit 'gptel-chat--spec-sentinel-suffix)))
+
 (describe "gptel-chat-menu scope default (Decision 5)"
 
   (describe "prefix body — sets gptel--set-buffer-locally on entry"
@@ -51,7 +74,7 @@
       (let ((captured 'unset)
             (gptel--set-buffer-locally nil)
             (gptel-chat--scope-prior nil)
-            (transient-exit-hook nil)
+            (transient-post-exit-hook nil)
             (gptel-context nil))
         (cl-letf (((symbol-function 'transient-setup)
                    (lambda (&rest _)
@@ -63,7 +86,7 @@
       (let ((gptel--set-buffer-locally 'oneshot)
             (gptel-chat--scope-prior nil)
             (captured-prior 'unset)
-            (transient-exit-hook nil)
+            (transient-post-exit-hook nil)
             (gptel-context nil))
         (cl-letf (((symbol-function 'transient-setup)
                    (lambda (&rest _)
@@ -71,68 +94,112 @@
           (call-interactively #'gptel-chat-menu))
         (expect captured-prior :to-equal 'oneshot)))
 
-    (it "registers gptel-chat--restore-scope-on-exit on transient-exit-hook"
+    (it "registers gptel-chat--restore-scope-on-exit on transient-post-exit-hook"
       (let ((gptel--set-buffer-locally nil)
             (gptel-chat--scope-prior nil)
-            (transient-exit-hook nil)
+            (transient-post-exit-hook nil)
             (gptel-context nil))
         (cl-letf (((symbol-function 'transient-setup) #'ignore))
           (call-interactively #'gptel-chat-menu))
-        (expect (memq #'gptel-chat--restore-scope-on-exit transient-exit-hook)
-                :to-be-truthy))))
-
-  (describe "gptel-chat--restore-scope-on-exit"
-    (it "restores gptel--set-buffer-locally and clears scope-prior when no outer prefix"
-      (let ((gptel--set-buffer-locally t)
-            (gptel-chat--scope-prior nil)
-            (transient-exit-hook (list #'gptel-chat--restore-scope-on-exit))
-            (transient-current-prefix nil))
-        (gptel-chat--restore-scope-on-exit)
-        (expect gptel--set-buffer-locally :to-equal nil)
-        (expect gptel-chat--scope-prior :to-equal nil)
-        (expect (memq #'gptel-chat--restore-scope-on-exit transient-exit-hook)
-                :to-be nil)))
-
-    (it "does NOT restore when transient-current-prefix is non-nil (sub-transient exit)"
-      (let ((gptel--set-buffer-locally t)
-            (gptel-chat--scope-prior nil)
-            (transient-exit-hook (list #'gptel-chat--restore-scope-on-exit))
-            (transient-current-prefix 'gptel-chat-menu))
-        (gptel-chat--restore-scope-on-exit)
-        (expect gptel--set-buffer-locally :to-equal t)
-        (expect (memq #'gptel-chat--restore-scope-on-exit transient-exit-hook)
+        (expect (memq #'gptel-chat--restore-scope-on-exit
+                      transient-post-exit-hook)
                 :to-be-truthy)))
 
-    (it "restores a non-nil prior (e.g. oneshot)"
-      (let ((gptel--set-buffer-locally t)
-            (gptel-chat--scope-prior 'oneshot)
-            (transient-exit-hook (list #'gptel-chat--restore-scope-on-exit))
-            (transient-current-prefix nil))
-        (gptel-chat--restore-scope-on-exit)
+    (it "does NOT register the restorer on the legacy transient-exit-hook"
+      (let ((gptel--set-buffer-locally nil)
+            (gptel-chat--scope-prior nil)
+            (transient-exit-hook nil)
+            (transient-post-exit-hook nil)
+            (gptel-context nil))
+        (cl-letf (((symbol-function 'transient-setup) #'ignore))
+          (call-interactively #'gptel-chat-menu))
+        (expect (memq #'gptel-chat--restore-scope-on-exit
+                      transient-exit-hook)
+                :to-be nil))))
+
+  (describe "end-to-end restoration via the real transient post-exit path"
+    (it "restores gptel--set-buffer-locally and clears scope-prior on commit-style exit"
+      (let ((gptel--set-buffer-locally nil)
+            (gptel-chat--scope-prior nil)
+            (transient-post-exit-hook nil)
+            (transient-current-prefix nil)
+            (gptel-context nil))
+        (cl-letf (((symbol-function 'transient-setup) #'ignore))
+          (call-interactively #'gptel-chat-menu))
+        ;; Sanity: the prefix body should have flipped the variable
+        ;; and registered the hook.
+        (expect gptel--set-buffer-locally :to-equal t)
+        (expect (memq #'gptel-chat--restore-scope-on-exit
+                      transient-post-exit-hook)
+                :to-be-truthy)
+        ;; Simulate the real call path: by the time
+        ;; `transient--post-exit' starts running its hooks,
+        ;; `transient--export' has already set
+        ;; `transient-current-prefix' to a prefix object.  The fix
+        ;; under test is that the restorer no longer guards on
+        ;; `transient-current-prefix' (the previous implementation
+        ;; would silently no-op here).
+        (let ((transient-current-prefix 'gptel-chat-menu))
+          (gptel-chat--spec-drive-post-exit))
+        (expect gptel--set-buffer-locally :to-equal nil)
+        (expect gptel-chat--scope-prior :to-equal nil)
+        (expect (memq #'gptel-chat--restore-scope-on-exit
+                      transient-post-exit-hook)
+                :to-be nil)))
+
+    (it "restores a non-nil prior (e.g. 'oneshot) through the real exit path"
+      (let ((gptel--set-buffer-locally 'oneshot)
+            (gptel-chat--scope-prior nil)
+            (transient-post-exit-hook nil)
+            (transient-current-prefix nil)
+            (gptel-context nil))
+        (cl-letf (((symbol-function 'transient-setup) #'ignore))
+          (call-interactively #'gptel-chat-menu))
+        (expect gptel--set-buffer-locally :to-equal t)
+        (expect gptel-chat--scope-prior :to-equal 'oneshot)
+        (let ((transient-current-prefix 'gptel-chat-menu))
+          (gptel-chat--spec-drive-post-exit))
         (expect gptel--set-buffer-locally :to-equal 'oneshot)
-        (expect gptel-chat--scope-prior :to-equal nil))))
+        (expect gptel-chat--scope-prior :to-equal nil)))
+
+    (it "is one-shot — a second post-exit pass does not double-restore"
+      (let ((gptel--set-buffer-locally nil)
+            (gptel-chat--scope-prior nil)
+            (transient-post-exit-hook nil)
+            (transient-current-prefix nil)
+            (gptel-context nil))
+        (cl-letf (((symbol-function 'transient-setup) #'ignore))
+          (call-interactively #'gptel-chat-menu))
+        (let ((transient-current-prefix 'gptel-chat-menu))
+          (gptel-chat--spec-drive-post-exit))
+        ;; After the first post-exit, the hook is gone; a second
+        ;; post-exit must not re-run it (or perturb already-restored
+        ;; state).  Mutate the variable to a sentinel and confirm
+        ;; nothing changes.
+        (setq gptel--set-buffer-locally 'sentinel)
+        (gptel-chat--spec-drive-post-exit)
+        (expect gptel--set-buffer-locally :to-equal 'sentinel))))
 
   (describe "upstream gptel-menu (M-x gptel-menu) is unaffected"
     (it "does not set gptel--set-buffer-locally to t"
       (let ((captured 'unset)
             (gptel--set-buffer-locally nil)
-            (transient-exit-hook nil)
+            (transient-post-exit-hook nil)
             (gptel-context nil))
         (cl-letf (((symbol-function 'transient-setup)
                    (lambda (&rest _)
                      (setq captured gptel--set-buffer-locally))))
           (call-interactively #'gptel-menu))
-        ;; Upstream's body does not touch the variable, so it stays at
-        ;; whatever the caller's binding was — nil here.
         (expect captured :to-equal nil)))
 
-    (it "does not register the chat restorer on transient-exit-hook"
+    (it "does not register the chat restorer on transient-post-exit-hook"
       (let ((gptel--set-buffer-locally nil)
-            (transient-exit-hook nil)
+            (transient-post-exit-hook nil)
             (gptel-context nil))
         (cl-letf (((symbol-function 'transient-setup) #'ignore))
           (call-interactively #'gptel-menu))
-        (expect (memq #'gptel-chat--restore-scope-on-exit transient-exit-hook)
+        (expect (memq #'gptel-chat--restore-scope-on-exit
+                      transient-post-exit-hook)
                 :to-be nil))))
 
   (describe "buffer-local mutation contract (smoke test for the upstream call path)"
