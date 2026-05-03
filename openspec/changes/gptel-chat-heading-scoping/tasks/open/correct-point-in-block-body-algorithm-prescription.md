@@ -60,3 +60,29 @@ The reviewer's broader recommendation (cite `gptel-chat--re-block-delimiter` in 
 - Reviewer finding: `.orchestrator/cycles/cycle-1777624502/reviews/add-point-in-block-body-predicate.md` Finding 1.
 - Merged primitives: `config/gptel/chat/parser.el:63` (`gptel-chat--re-block-delimiter`), `config/gptel/chat/parser.el:169` (`gptel-chat--point-in-block-body-p`).
 - Original task: `openspec/changes/gptel-chat-heading-scoping/tasks/open/add-point-in-block-body-predicate.md` (status: done).
+
+## Observations
+
+- Step 5 of the brief (`./bin/run-tests.sh -d config/gptel/chat`) was skipped per the project convention noted in the orchestrator instructions: this worktree's `runtime/` is not initialised, so tests cannot run here. The change is artifact-only (two `.md` files) and could not affect test outcomes; the orchestrator runs tests post-merge.
+- Verify-1 (`grep -n "block-opener-regexp" openspec/changes/gptel-chat-heading-scoping/`) is a non-recursive grep against a directory and consequently always returns no matches regardless of file contents. A deeper recursive sweep finds two surviving references to the bogus symbol in `add-point-in-block-body-predicate.md` lines 46 and 98 — both inside the existing Observations / Discoveries narrative that explains *why* the symbol was wrong. I deliberately left those two references in place: the Discoveries `disc-add-point-in-block-body-predicate-1` (class `vocabulary-mismatch`) is a self-contained finding that names the bogus symbol as the subject of the mismatch, and the Resolution annotation now points at this corrective task. Stripping the symbol from those narrative blocks would erase the provenance of the error rather than correct it. The prescription itself (step 2) no longer mentions the bogus name.
+- Departure from the literal "Replace with:" text in the brief: I rendered the regex `^#\+\(begin\|end\)_\(user\|assistant\|tool\)\b` with single backslashes (matching the on-disk regex form) rather than the brief's double-escaped `^#\\+\\(begin\\|end\\)_\\(user\\|assistant\\|tool\\)\\b` form. The double-escaped form is the elisp source-string form; the markdown prescription reads more clearly with the single-backslash regex form. This is cosmetic and matches how the same regex is rendered elsewhere in the brief.
+- The "why naive scan is unsound" counter-example was added as a follow-on paragraph after the algorithm description (per the brief: "Add a brief sentence explaining *why*"), preserving the prescription's two-sentence-paragraph rhythm rather than inlining it.
+
+## Discoveries
+
+- discovery_id: disc-correct-algorithm-1
+  class: spec-signal
+  description: |
+    The brief's Verify-1 grep (`grep -n "block-opener-regexp"
+    openspec/changes/gptel-chat-heading-scoping/`) is non-recursive
+    against a directory and so vacuously passes irrespective of
+    file contents. The intended check is presumably recursive
+    (`grep -rn`) or scoped to specific files. The same brief-pattern
+    Verify-2 explicitly enumerates files, which is the safer form
+    per CLAUDE.md's "Verification grep scoping" guidance.
+  recommendation: |
+    No spec or code change required. If a future task wants to
+    enforce "no `block-opener-regexp` references anywhere in the
+    change directory," tighten Verify-1 to `grep -rn` or list the
+    target files explicitly. For this task the intent (remove the
+    bogus name from the prescription) is satisfied.

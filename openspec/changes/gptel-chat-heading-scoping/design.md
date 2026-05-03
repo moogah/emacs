@@ -42,7 +42,7 @@
 
 **Implications:**
 
-- The "am I inside a chat-block body?" predicate runs once per typed character. Must be cheap. We provide a fast `gptel-chat--point-in-block-body-p` helper that scans backward for the nearest `#+begin_*` / `#+end_*` line (line-by-line `re-search-backward`), bounded by a small look-back window or by `point-min`. Typical chat blocks are short enough that backward-scan is sub-millisecond.
+- The "am I inside a chat-block body?" predicate runs once per typed character. Must be cheap. We provide a fast `gptel-chat--point-in-block-body-p` helper that walks backward through `#+begin_*` / `#+end_*` delimiter lines maintaining a closer-stack (each `#+end_*` pushes; each `#+begin_*` pops if non-empty, otherwise it is the enclosing opener), then forward-scans for the matching closer using a same-kind depth counter. The naive 'nearest opener backward / nearest closer forward' algorithm is unsound for buffers with closed inner blocks (a closed `#+begin_tool ... #+end_tool` upstream of POS would be misread as the enclosing opener). The stack-walk is sub-millisecond on typical chat buffers — bounded by the number of delimiter lines, not buffer size.
 - Delimiter-line exclusion: the predicate returns nil if point is on a `#+begin_*` or `#+end_*` line itself (column-0 `*` on a `#+begin_*` line is impossible anyway, since the line starts with `#`).
 
 ## Decision 3: Paste / yank handling via `after-change-functions`
