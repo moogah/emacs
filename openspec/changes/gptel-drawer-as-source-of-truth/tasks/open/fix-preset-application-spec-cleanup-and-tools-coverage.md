@@ -2,7 +2,7 @@
 name: fix-preset-application-spec-cleanup-and-tools-coverage
 description: The three new describe blocks in `preset-application-spec.el` push onto a global registry-keys list inside their `it` bodies but their `after-each` hooks never drain it, leaking entries into `jf/gptel--session-registry` for the test process lifetime. Separately, the fresh-session scenario omits the `:GPTEL_TOOLS:` registration and assertion that the brief explicitly required — the most error-prone snapshot key (list, not scalar) goes uncovered.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations:
   - discovered-from:update-preset-application-spec-for-snapshot
 ---

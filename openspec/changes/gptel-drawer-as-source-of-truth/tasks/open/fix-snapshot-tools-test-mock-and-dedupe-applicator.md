@@ -2,7 +2,7 @@
 name: fix-snapshot-tools-test-mock-and-dedupe-applicator
 description: The two modify-list tool tests in `snapshot-rendering-spec.el` `let`-bind `gptel-tools` but the implementation reads `(default-value 'gptel-tools)`, so the tests pass for the wrong reason in batch (where the global default is nil). Fix the mock scoping. Then extract the snapshot-key emission shared by `--snapshot-lines` and `--apply-to-drawer` so they can no longer drift silently when a new key is added.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations:
   - discovered-from:extend-render-drawer-text-with-preset-snapshot
 ---
