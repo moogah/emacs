@@ -2,7 +2,7 @@
 name: wire-snapshot-into-session-creation
 description: Thread the resolved preset spec from session-creation entrypoints into the (now snapshot-aware) `jf/gptel-scope-profile--create-for-session` so fresh `session.org` files carry the full snapshot drawer.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations:
   - blocked-by:extend-render-drawer-text-with-preset-snapshot
 ---

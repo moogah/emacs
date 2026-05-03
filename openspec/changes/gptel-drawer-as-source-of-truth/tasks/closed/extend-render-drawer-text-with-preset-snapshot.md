@@ -2,7 +2,7 @@
 name: extend-render-drawer-text-with-preset-snapshot
 description: Extend `jf/gptel-scope-profile--render-drawer-text` and `--create-for-session` to emit upstream-compatible chat-mode snapshot keys from the resolved preset spec, alongside the existing scope keys.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations: []
 ---
 

@@ -2,7 +2,7 @@
 name: default-chat-menu-scope-to-buffer-local
 description: Bind `gptel--set-buffer-locally` to `t` for the lifetime of `gptel-chat-menu` so tool / model / temperature toggles from the chat menu apply to the current buffer (and serialize to the drawer on save) instead of mutating the global default.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations: []
 ---
 
