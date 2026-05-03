@@ -2,7 +2,7 @@
 name: add-snapshot-coverage-to-persistent-agent-creation-spec
 description: The persistent-agent creation spec was not updated when the wiring task added snapshot keys to its session.org drawer. The PA path's snapshot emission is currently structurally untested — a regression where `preset-spec` is accidentally nil would not be caught. Add the `:GPTEL_MODEL:`/`:GPTEL_SYSTEM:`-absence assertions, mirroring the pattern applied to the three commands-path tests, and refresh the stale scenario comment.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations:
   - discovered-from:wire-snapshot-into-session-creation
 ---
@@ -41,3 +41,14 @@ Expect: `creation-spec.el` now matches the snapshot-key contract; tests pass.
 Full reviewer findings: `.orchestrator/cycles/cycle-1777625426/reviews/wire-snapshot-into-session-creation.md` (Findings 1, 2).
 
 Cited register entries: `interfaces.org#register-shape-drawer-text-block`, `interfaces.org#register-boundary-scope-profile-applicator`, `interfaces.org#register-invariant-drawer-system-key-write-exclusion`.
+
+## Observations
+
+- The `with-mock-preset` fixture passes `:backend gptel-backend :model gptel-model`, so `gptel-get-preset 'test-preset` returns a non-nil spec containing both. The render path therefore emits both `:GPTEL_MODEL:` and `:GPTEL_BACKEND:` lines — using `:not :to-be nil` (presence-only, structural) keeps the assertion stable across environments where the resolved `gptel-backend` / `gptel-model` values differ.
+- I added presence assertions for both `GPTEL_MODEL` and `GPTEL_BACKEND` (the task allowed "optionally one or two more snapshot keys"). I did not add `GPTEL_TEMPERATURE` because the fixture preset does not declare a temperature, so the snapshot helper may legitimately omit it; pinning its presence would falsely couple the test to preset-fixture details.
+- Sanity-check confirmed: with `(preset-spec nil)` forced into the production path, the new `GPTEL_MODEL` assertion fails as expected ("Expected `(org-entry-get (point-min) \"GPTEL_MODEL\")' not to be `eq' to `nil', but it was."). Reverted before commit; production code is unchanged.
+- All 53 specs in `config/gptel/tools` pass.
+
+## Discoveries
+
+None. The task was a straightforward test extension mirroring an established cycle-5 pattern; no register drift, no responsibility-leakage, no shape-fragmentation surfaced.

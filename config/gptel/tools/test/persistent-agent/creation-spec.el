@@ -84,8 +84,14 @@
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Agent session
     ;; creation" -> "session.org carries a self-describing :PROPERTIES:
     ;; drawer".  The drawer carries `:GPTEL_PRESET:',
-    ;; `:GPTEL_PARENT_SESSION_ID:', and the agent's `:GPTEL_SCOPE_*:'
-    ;; keys (Mode 2a — `register/boundary/scope-profile-applicator').
+    ;; `:GPTEL_PARENT_SESSION_ID:', the agent's `:GPTEL_SCOPE_*:' keys
+    ;; (Mode 2a — `register/boundary/scope-profile-applicator'), and
+    ;; the resolved preset's chat-mode snapshot keys
+    ;; (`:GPTEL_MODEL:', `:GPTEL_BACKEND:', etc. —
+    ;; `register/shape/drawer-text-block', Decision 4 of
+    ;; gptel-drawer-as-source-of-truth).  `:GPTEL_SYSTEM:' is NEVER
+    ;; emitted (Decision 2 / `register/invariant/drawer-system-key-
+    ;; write-exclusion').
     ;; With `allowed-paths' omitted, the drawer has the standard deny
     ;; set + `:GPTEL_SCOPE_WRITE: /tmp/**' but no `:GPTEL_SCOPE_READ:'.
     (jf/persistent-agent-test--with-mock-parent-session
@@ -106,6 +112,22 @@
                      :to-equal "test-preset")
              (expect (org-entry-get (point-min) "GPTEL_PARENT_SESSION_ID")
                      :to-equal mock-session-id)
+             ;; Chat-mode snapshot keys (Decision 4 / Layer 2 of
+             ;; gptel-drawer-as-source-of-truth).  Structural
+             ;; assertions (presence-only) so the test stays stable as
+             ;; the resolved `gptel-backend' / `gptel-model' values
+             ;; change between environments — the wire-snapshot
+             ;; production path emits these from the resolved
+             ;; `preset-spec' and forcing it nil drops the lines.
+             (expect (org-entry-get (point-min) "GPTEL_MODEL")
+                     :not :to-be nil)
+             (expect (org-entry-get (point-min) "GPTEL_BACKEND")
+                     :not :to-be nil)
+             ;; :GPTEL_SYSTEM: must NEVER appear in the rendered
+             ;; drawer (Decision 2 /
+             ;; register/invariant/drawer-system-key-write-exclusion).
+             (expect (org-entry-get (point-min) "GPTEL_SYSTEM")
+                     :to-be nil)
              ;; No allowed-paths supplied ⇒ no `:GPTEL_SCOPE_READ:'.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_READ")
