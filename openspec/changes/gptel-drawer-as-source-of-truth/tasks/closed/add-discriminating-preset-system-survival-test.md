@@ -2,7 +2,7 @@
 name: add-discriminating-preset-system-survival-test
 description: The "preset :system survives when drawer omits :GPTEL_SYSTEM:" scenario in `preset-wiring-spec.el` only asserts that `gptel--system-message` did not become buffer-local — but the spy on `gptel--apply-preset` is a no-op, so no value was ever installed. The test passes even if production code accidentally erased the binding. Add a real installation step so the contract is actually exercised.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations:
   - discovered-from:verify-and-spec-drawer-overlay-wins
 ---

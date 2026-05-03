@@ -2,7 +2,7 @@
 name: add-delete-on-nil-tests-for-model-and-backend
 description: The chat-save snapshot writer's task brief required write-on-non-nil and delete-on-nil for each scalar key. The unit suite covers delete-on-nil for `:GPTEL_TEMPERATURE:` and `:GPTEL_MAX_TOKENS:` but not for `:GPTEL_MODEL:` or `:GPTEL_BACKEND:`. Add the missing scenarios so a future regression that leaves a stale `:GPTEL_MODEL:` after `gptel-model` is cleared cannot silently break the WYSIWYG contract.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations:
   - discovered-from:replace-chat-save-with-full-snapshot-writer
 ---

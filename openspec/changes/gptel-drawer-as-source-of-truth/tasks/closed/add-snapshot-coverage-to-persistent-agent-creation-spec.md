@@ -2,7 +2,7 @@
 name: add-snapshot-coverage-to-persistent-agent-creation-spec
 description: The persistent-agent creation spec was not updated when the wiring task added snapshot keys to its session.org drawer. The PA path's snapshot emission is currently structurally untested — a regression where `preset-spec` is accidentally nil would not be caught. Add the `:GPTEL_MODEL:`/`:GPTEL_SYSTEM:`-absence assertions, mirroring the pattern applied to the three commands-path tests, and refresh the stale scenario comment.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations:
   - discovered-from:wire-snapshot-into-session-creation
 ---

@@ -2,7 +2,7 @@
 name: fix-chat-menu-scope-restore-on-real-exit
 description: Fix `gptel-chat--restore-scope-on-exit` so the buffer-local scope toggle is actually restored after `gptel-chat-menu` closes. The current `(unless transient-current-prefix ...)` discriminator never fires on normal commit-style exit, leaving `gptel--set-buffer-locally` stuck `t` globally after every menu session. Replace the hook + guard, replace the discriminator-only tests with end-to-end coverage, and reconsider the global `gptel-chat--scope-prior` defvar.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations:
   - discovered-from:default-chat-menu-scope-to-buffer-local
 ---
