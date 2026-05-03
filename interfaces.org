@@ -1203,7 +1203,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/chat-heading-collision-escape
    tier: boundary
-   status: speculated
+   status: reconciled
    load_bearing: true
    title: chat-mode heading-collision write/read escape pipeline
    purpose: |
@@ -1661,7 +1661,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/chat-block-body-no-column-zero-stars
    tier: invariant
-   status: speculated
+   status: confirmed
    load_bearing: true
    title: no `*+ ` line at column 0 inside a chat-block body
 
@@ -1760,7 +1760,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/chat-block-delimiter-lines-stay-at-column-0
    tier: invariant
-   status: speculated
+   status: confirmed
    load_bearing: true
    title: `#+begin_*` / `#+end_*` chat-block delimiter lines remain unindented
 
@@ -1854,7 +1854,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/all-write-paths-apply-heading-escape
    tier: invariant
-   status: speculated
+   status: confirmed
    load_bearing: true
    title: every write path into a chat-block body applies the heading escape
 
