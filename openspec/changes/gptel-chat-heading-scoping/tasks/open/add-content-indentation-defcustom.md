@@ -46,4 +46,9 @@ A single space is the minimum escape that breaks org's heading regex (`^\*+ `). 
 
 ## Discoveries
 
-(none)
+- The brief's "Custom type: `integer`" specification was wrong. The
+  consumer `(make-string gptel-chat-content-indentation ?\s)` requires
+  `wholenump`, so the canonical `:type` is `natnum` (non-negative
+  integer), not `integer`. Resolved by ask-cycle-1777624502-1 and
+  implemented under task `tighten-content-indentation-defcustom-type`
+  (which flips `mode.org` from `:type 'integer` to `:type 'natnum`).

@@ -151,8 +151,14 @@ line so the LLM only ever sees clean message content.
 Default 1 is the minimum that breaks the heading regex.  Set to 2 for
 parity with `org-edit-src-content-indentation'.  See
 `openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md'
-\(\"Heading-collision escape\") and design.md §Decision 8."
-  :type 'integer
+\(\"Heading-collision escape\") and design.md §Decision 8.
+
+The `:type' is `natnum' (non-negative integer) rather than `integer'
+because the consumer is `(make-string gptel-chat-content-indentation
+?\\s)', which signals `wrong-type-argument wholenump' on negatives.
+Tightening the type pushes validation to `customize-variable' time
+instead of first-write time."
+  :type 'natnum
   :group 'gptel-chat)
 ;; Buffer content indentation:1 ends here
 

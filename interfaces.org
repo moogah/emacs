@@ -1232,6 +1232,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          `(make-string gptel-chat-content-indentation ?\s)` (default 1 space)
          when the line falls inside an outer chat-block body and is not
          itself a `#+begin_*` / `#+end_*` delimiter.
+
+         `gptel-chat-content-indentation` is a `wholenum` (a.k.a.
+         `natnum`, non-negative integer) — the consumer
+         `(make-string gptel-chat-content-indentation ?\s)` signals
+         `wrong-type-argument wholenump` on negatives. The defcustom's
+         `:type 'natnum` is the contract that pushes that validation to
+         `customize-variable` time rather than first-write time.
        can_fail_with: []
        short_circuit_policy: none
        notes: |

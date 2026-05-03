@@ -142,7 +142,7 @@
 
 ## Decision 8: Escape character is configurable via defcustom
 
-**Choice:** `gptel-chat-content-indentation` (defcustom, integer, default `1`) controls how many spaces of escape are applied. Default `1` is the minimum that breaks the heading regex; `2` matches `org-edit-src-content-indentation` exactly.
+**Choice:** `gptel-chat-content-indentation` (defcustom, `:type 'natnum`, default `1`) controls how many spaces of escape are applied. Default `1` is the minimum that breaks the heading regex; `2` matches `org-edit-src-content-indentation` exactly. The type is `natnum` (non-negative integer) rather than `integer` because the consumer `(make-string gptel-chat-content-indentation ?\s)` signals `wrong-type-argument wholenump` on negatives — pushing the type check to `customize-variable` time keeps the failure local to the misconfiguration rather than crashing at the first column-0 `*` write.
 
 **Rationale:**
 
