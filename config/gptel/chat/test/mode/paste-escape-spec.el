@@ -238,11 +238,13 @@ Returns the position where the marker was."
                       "#+end_user\n"))))
 
   ;; ---------------------------------------------------------------------
-  ;; Defensive coverage: a deletion (LENGTH > 0) must NOT trigger any
-  ;; rewrite even if the resulting buffer state contains a column-0
-  ;; `*' line.  The hook is gated on `(zerop length)'.
+  ;; Defensive coverage: a pure deletion (END = BEG) must NOT trigger any
+  ;; rewrite even if the resulting buffer state contains a column-0 `*'
+  ;; line.  The hook gate is `(> end beg)' — pure deletions have END = BEG
+  ;; and short-circuit out; replacements (LENGTH > 0 AND END > BEG) flow
+  ;; through (covered by the replacement scenarios below).
   ;; ---------------------------------------------------------------------
-  (it "does nothing on deletion (LENGTH > 0)"
+  (it "does nothing on pure deletion (END = BEG)"
     (gptel-chat-paste-test--with-chat-buffer
         (concat "#+begin_user\n"
                 ;; Pre-existing column-0 heading inserted via the
@@ -250,16 +252,16 @@ Returns the position where the marker was."
                 ;; migration normalizes it to ` * preexisting' (one-space
                 ;; escape), so by the time the after-change hook is
                 ;; tested below the heading is already escaped.  The
-                ;; test still validates the LENGTH > 0 (deletion) path:
-                ;; the after-change hook sees a deletion and must not
-                ;; touch the buffer further.
+                ;; test still validates the pure-deletion (END = BEG)
+                ;; path: the after-change hook sees a deletion and must
+                ;; not touch the buffer further.
                 "* preexisting\n"
                 "trailing\n"
                 "#+end_user\n")
       (goto-char (point-min))
       (search-forward "trailing")
-      ;; Delete the word `trailing' — a pure deletion (LENGTH > 0,
-      ;; END = BEG).  The hook must skip.
+      ;; Delete the word `trailing' — a pure deletion (END = BEG).
+      ;; The hook must skip.
       (delete-region (match-beginning 0) (match-end 0))
       (expect (buffer-substring-no-properties (point-min)
                                               (point-max))
@@ -267,6 +269,100 @@ Returns the position where the marker was."
               (concat "#+begin_user\n"
                       " * preexisting\n"
                       "\n"
+                      "#+end_user\n"))))
+
+  ;; ---------------------------------------------------------------------
+  ;; Replacement scenario A: `replace-match' is the canonical
+  ;; `query-replace' shape — a single mid-line replacement that fires
+  ;; `after-change-functions' with LENGTH > 0 (length of the matched
+  ;; text) AND END > BEG (length of the replacement).  Mid-line
+  ;; replacement: the resulting `* H1' is concatenated onto the existing
+  ;; line text (`some ' precedes), so its BOL is < BEG and the hook's
+  ;; per-line scan correctly leaves it alone (mid-line semantics).
+  ;; ---------------------------------------------------------------------
+  (it "leaves mid-line replacement alone (replace-match in body, no col-0 *)"
+    (gptel-chat-paste-test--with-chat-buffer
+        (concat "#+begin_user\n"
+                "some foo here\n"
+                "#+end_user\n")
+      (goto-char (point-min))
+      (search-forward "foo")
+      (replace-match "* H1" t t)
+      (expect (buffer-substring-no-properties (point-min)
+                                              (point-max))
+              :to-equal
+              (concat "#+begin_user\n"
+                      "some * H1 here\n"
+                      "#+end_user\n"))))
+
+  ;; ---------------------------------------------------------------------
+  ;; Replacement scenario B (load-bearing): a single replacement event
+  ;; (LENGTH > 0 AND END > BEG) that lands a column-0 `*' at BOL inside
+  ;; a chat-block body.  This is the case the gate widening from
+  ;; `(zerop length)' to `(> end beg)' was prescribed for —
+  ;; `query-replace' / `replace-match' that introduces a brand-new
+  ;; column-0 `*' line where none existed before.
+  ;;
+  ;; We use `search-forward' + `replace-match' to fire a single
+  ;; `after-change-functions' event with both LENGTH > 0 (length of
+  ;; matched `foo') AND END > BEG (length of replacement `* H1').
+  ;; The match starts at column 0 so the replacement also starts at
+  ;; column 0 — its BOL = BEG, which clears the BOL >= BEG guard, the
+  ;; `\\*+ ' regex matches, and the predicate confirms body
+  ;; membership.  Without the widening (`(zerop length)' gate),
+  ;; LENGTH = 3 short-circuits and the column-0 `*' survives,
+  ;; corrupting the block.
+  ;; ---------------------------------------------------------------------
+  (it "escapes column-0 `*' introduced via single-event replacement (replace-match) at BOL"
+    (gptel-chat-paste-test--with-chat-buffer
+        (concat "#+begin_user\n"
+                "foo bar\n"
+                "#+end_user\n")
+      ;; Position so the search match `foo' starts at the BOL of the
+      ;; body line (column 0).
+      (goto-char (point-min))
+      (forward-line 1)                  ; on `foo bar' line, column 0
+      (search-forward "foo")
+      (replace-match "* H1" t t)
+      (expect (buffer-substring-no-properties (point-min)
+                                              (point-max))
+              :to-equal
+              (concat "#+begin_user\n"
+                      " * H1 bar\n"
+                      "#+end_user\n"))))
+
+  ;; ---------------------------------------------------------------------
+  ;; Replacement scenario C: multi-line replacement via
+  ;; `replace-region-contents'-shaped flow.  Delete + insert is two
+  ;; events (the insert event would be caught by even the original
+  ;; `(zerop length)' gate); to exercise the load-bearing single-event
+  ;; replacement shape we use `replace-match' on a multi-line match,
+  ;; substituting a multi-line replacement whose second line starts
+  ;; with `*' at column 0.  This validates that the widened gate
+  ;; correctly covers replacements whose second-and-later inserted
+  ;; lines start at column 0 BOL, mirroring the multi-line yank
+  ;; behaviour from scenario 1.
+  ;; ---------------------------------------------------------------------
+  (it "escapes column-0 `*' on later lines of a multi-line replacement"
+    (gptel-chat-paste-test--with-chat-buffer
+        (concat "#+begin_user\n"
+                "marker\n"
+                "#+end_user\n")
+      (goto-char (point-min))
+      (search-forward "marker")
+      ;; Single-event replacement: matched `marker' (LENGTH = 6) is
+      ;; replaced with `prose\n* H2' (END - BEG = 8, spans two lines,
+      ;; second line starts with column-0 `*').  The widened gate
+      ;; admits the event; the per-line scan walks past the first
+      ;; (mid-line) segment and escapes the column-0 `*' on the
+      ;; second line.
+      (replace-match "prose\n* H2" t t)
+      (expect (buffer-substring-no-properties (point-min)
+                                              (point-max))
+              :to-equal
+              (concat "#+begin_user\n"
+                      "prose\n"
+                      " * H2\n"
                       "#+end_user\n")))))
 
 (provide 'gptel-chat-paste-escape-spec)

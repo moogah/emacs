@@ -127,3 +127,23 @@ Why option (b) over option (a) (document the exclusion): option (a) leaves a rea
 - Original task: `openspec/changes/gptel-chat-heading-scoping/tasks/open/add-paste-heading-escape.md` (status: done).
 - Boundary contract: `interfaces.org` — `register/invariant/all-write-paths-apply-heading-escape`.
 - Merged code: `config/gptel/chat/mode.el:574-624`.
+
+## Observations
+
+- Step 6 (the coupled task `document-typed-escape-single-char-scope.md` update) was already complete on arrival: the frontmatter `relations:` list already contained `blocked-by:widen-paste-escape-gate-to-cover-replacements`, and the body's Coupling note already used "satisfied by" wording (lines 39, 82). No edit was required to the coupled task; the implementation note here records that fact for the reviewer.
+- The gate change itself is one-line: `(when (and (zerop length) (> end beg)) ...)` → `(when (> end beg) ...)`. The bulk of the diff is in surrounding documentation (function docstring, org commentary "Why after-change-functions" subsection, design.md Decision 3 prose) and three new buttercup scenarios.
+- Three new buttercup scenarios were added (the task body sketched two; I expanded to three for clearer coverage):
+  - **Scenario A** ("leaves mid-line replacement alone"): exercises a single `replace-match` event in a body with no column-0 `*` — confirms the widened gate fires but the BOL >= BEG mid-line guard correctly leaves the result unmolested. This is the canonical `query-replace foo → * H1` shape from the task body.
+  - **Scenario B** ("escapes column-0 `*` introduced via single-event replacement (replace-match) at BOL"): the load-bearing case — a single replacement event whose match starts at column 0 of a body line, lands a column-0 `*` that must be escaped. Without the widening, the original `(zerop length)` gate would short-circuit on `LENGTH = 3` and leave the column-0 `*` in place. This is the test that would FAIL on the un-widened code.
+  - **Scenario C** ("escapes column-0 `*` on later lines of a multi-line replacement"): a single replacement event whose replacement spans two lines, the second of which starts with `*` at column 0. Mirrors scenario 1's multi-line yank shape but via `replace-match` rather than `insert`. Validates that the per-line scan inside the helper handles multi-line replacements correctly when fed through the widened gate.
+- The deletion-defensive scenario's docstring/comment was updated from "deletion (LENGTH > 0)" to "pure deletion (END = BEG)" to match the new gate's gate predicate. The test mechanism is unchanged (still `delete-region` of `trailing`).
+- The mode.org "Why after-change-functions" subsection was rewritten to (a) describe the new `(> end beg)` gate, (b) explicitly call out the replacement case as load-bearing (with `query-replace foo → * H1` as the worked example), and (c) cross-reference `register/invariant/chat-block-body-no-column-zero-stars` so a reader knows which invariant the widening is upholding.
+- The function docstring was rewritten to match: leads with "non-empty change regions", describes the deletion / insertion / replacement trichotomy, calls out idempotence via the per-line `\\*+ ` regex on already-escaped lines, and explicitly notes that `inhibit-modification-hooks` is bound BEFORE any rewrite so widening the input gate does not widen re-entry.
+- design.md Decision 3 was rewritten with a tabular trichotomy (deletions / insertions / replacements), an explicit "Alternatives considered" entry for the original `(zerop length)` gate (recording why it was rejected), and a cross-reference to the boundary register entry. The "Implications" subsection was updated to note the predicate runs once per matched line (not once per change), which is the actual cost.
+- Tangle output: `Tangled 13 code blocks from mode.org` then `Validation passed`. No paren errors.
+- Tests not run from this worktree per the task brief (`runtime/` is not initialised here); orchestrator runs the full suite at merge time.
+
+## Discoveries
+
+- (none)
+

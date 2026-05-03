@@ -47,24 +47,33 @@
 
 ## Decision 3: Paste / yank handling via `after-change-functions`
 
-**Choice:** an `after-change-functions` filter detects when an insertion into a chat-block body contains `*` at column 0 of any line within the inserted range, and rewrites those lines to apply the escape.
+**Choice:** an `after-change-functions` filter detects when a non-empty change region inside a chat-block body contains `*` at column 0 of any line within `[BEG, END)`, and rewrites those lines to apply the escape. The gate is `(> end beg)` — every content-introducing event flows through; only pure deletions short-circuit out.
 
 **Rationale:**
 
-- `after-change-functions` runs after the change is in the buffer, with `(beg end length)`. For an insertion, `length` is 0 and `[beg, end)` is the inserted text range. The filter inspects that range for column-0 `*` lines and applies the escape in a second pass.
-- Catches paste, yank, programmatic `insert` calls from non-streaming code paths, kill-region paste, drag-and-drop, mouse paste, etc. — every insertion path.
+- `after-change-functions` runs after the change is in the buffer, with `(beg end length)`. The hook fires for any event whose `[BEG, END)` is non-empty.
+  - **Pure deletions** (`END = BEG`) introduce no new content; gate out.
+  - **Insertions** (`LENGTH = 0` AND `END > BEG`) introduce content into `[BEG, END)`; gate in.
+  - **Replacements** (`LENGTH > 0` AND `END > BEG`, via `replace-match` / `replace-region-contents` / `query-replace`) introduce content into `[BEG, END)` that may not have been in the buffer before; gate in.
+- The replacement case is load-bearing. `query-replace foo → * H1` inside a chat-block body produces a brand-new column-0 `*` line where none existed before. Gating on `(zerop length)` (the original brief's choice) would silently let that column-0 `*` corrupt the surrounding `#+begin_user` / `#+begin_assistant` / `#+begin_tool` block, violating `register/invariant/chat-block-body-no-column-zero-stars`. The boundary register's "every write path" contract should be enforceable at the function level, not deferred to migration on the next file open.
+- Per-line check `(looking-at "\\*+ ")` short-circuits cheaply for content without column-0 `*` — the cost on replacements that introduce no heading-shaped lines is one regex match per line in `[BEG, END)`.
+- Predicate consultation per matched line ensures only chat-block-body lines are escaped — delimiter lines, between-blocks prose, and outside-any-block all return nil from `gptel-chat--point-in-block-body-p`.
+- `inhibit-modification-hooks` is bound in the let head before any rewrite, so widening the input gate from `(zerop length)` to `(> end beg)` does not widen re-entry.
+- Catches paste, yank, programmatic `insert` calls from non-streaming code paths, kill-region paste, drag-and-drop, mouse paste, replacement primitives, and `query-replace` — every content-introducing path.
 - The streaming sanitizer is functionally redundant under this hook (the streamer also calls `insert`), but is kept as a separate path because the streamer can apply the escape per-line as chunks arrive without inspecting the whole inserted range — slightly faster for the high-frequency streaming path and more explicit about intent.
+- Cross-reference: this resolves the gap noted in `register/invariant/all-write-paths-apply-heading-escape` for replacement-shaped events; closes ask-cycle-1777624502-4.
 
 **Alternatives considered:**
 
+- **Gate on `(zerop length)`** (original choice; rejected post-hoc). Pros: marginally cheaper on replacements without heading lines (one less branch). Cons: leaves a real within-session corruption window for replacements that introduce column-0 `*` lines (e.g., `query-replace foo → * H1`). Migration runs only at mode activation, so a corrupting replacement persists until the next file open. The user-visible symptom is scrambled LLM output.
 - **Advise `insert` and friends.** Heavier-handed; couples to a general Emacs primitive.
-- **Per-yank-handler.** Would only catch yank, not paste from external sources.
+- **Per-yank-handler.** Would only catch yank, not paste from external sources or replacement primitives.
 
 **Implications:**
 
 - The hook runs on every buffer change, including changes made by the hook itself. The implementation must be idempotent (re-running on already-escaped content is a no-op) AND must guard against infinite recursion. Standard pattern: bind `inhibit-modification-hooks` while the filter applies its rewrites.
-- The predicate "is this insertion inside a chat-block body?" runs once per change. Same fast helper as Decision 2.
-- For `(beg end)` ranges that span a chat-block boundary (e.g., a paste that crosses `#+end_user`), only the portion inside the body is escaped. The portion on or past the delimiter is left alone. Implementation: clip the range to the body extent before applying the escape.
+- The predicate "is this insertion inside a chat-block body?" runs once per matched line. Same fast helper as Decision 2.
+- For `(beg end)` ranges that span a chat-block boundary (e.g., a paste that crosses `#+end_user`), only the portion inside the body is escaped. The portion on or past the delimiter is left alone. Implementation: the per-line predicate clips naturally without separate range arithmetic.
 
 ## Decision 4: Streaming sanitizer rule order
 
