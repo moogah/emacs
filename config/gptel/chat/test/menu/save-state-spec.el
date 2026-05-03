@@ -150,6 +150,28 @@ Searches from `point-min'; non-destructive on point."
         (expect (org-entry-get (point-min) "GPTEL_MAX_TOKENS")
                 :to-be nil)))
 
+    (it "deletes GPTEL_MODEL when gptel-model is nil"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert (concat ":PROPERTIES:\n"
+                        ":GPTEL_MODEL: claude-sonnet-4-6\n"
+                        ":END:\n"))
+        (setq-local gptel-model nil)
+        (gptel-chat--write-config-drawer)
+        (expect (org-entry-get (point-min) "GPTEL_MODEL")
+                :to-be nil)))
+
+    (it "deletes GPTEL_BACKEND when gptel-backend is nil"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert (concat ":PROPERTIES:\n"
+                        ":GPTEL_BACKEND: stale\n"
+                        ":END:\n"))
+        (setq-local gptel-backend nil)
+        (gptel-chat--write-config-drawer)
+        (expect (org-entry-get (point-min) "GPTEL_BACKEND")
+                :to-be nil)))
+
     (it "writes GPTEL_TOOLS as a multi-valued property of names from gptel-tools"
       (with-temp-buffer
         (gptel-chat-mode)
