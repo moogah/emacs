@@ -17,7 +17,9 @@ relations:
 ## Implementation steps
 
 1. Add a function `gptel-chat--point-in-block-body-p` to `parser.org`. Signature: `(&optional pos buffer)`. Returns non-nil when POS (default `(point)`) is strictly inside the body of an outer `#+begin_user` / `#+begin_assistant` / `#+begin_tool` block — i.e., between the opening delimiter line and the matching closing delimiter line, exclusive of both delimiter lines.
-2. Implementation: scan backward from POS using `re-search-backward` against the existing `gptel-chat--block-opener-regexp` (or define a small helper if it doesn't already exist) to find the nearest `#+begin_*` opener. Then scan forward from POS for the nearest `#+end_*` closer. Return non-nil iff opener exists, closer exists, and POS lies strictly between the two delimiter lines (column 0 of the line after the opener through column 0 of the closing delimiter line, exclusive).
+2. Implementation: define a delimiter-union regex `gptel-chat--re-block-delimiter` matching `^#\+\(begin\|end\)_\(user\|assistant\|tool\)\b` (group 1 = side, group 2 = kind). Walk backward from POS through delimiter lines maintaining a closer-stack: each `#+end_*` pushes (stack += 1); each `#+begin_*` pops if stack non-empty (matched closed pair) or stops as the enclosing opener if stack is empty. Then forward-scan for the matching closer of the same kind, using a same-kind depth counter so a nested same-kind block does not fool the closer match. Return non-nil iff POS lies strictly past the opener's end-of-line and before the closer's beginning-of-line.
+
+   Why the naive scan is unsound: a buffer with a closed `#+begin_assistant ... #+begin_tool ... #+end_tool ... #+end_assistant` followed by between-blocks prose: naive backward scan finds `#+begin_tool` (already closed); naive forward scan finds the next block's `#+end_user`; predicate falsely returns non-nil for between-blocks POS.
 3. Edge cases:
    - POS on a delimiter line itself (opener or closer) → return nil.
    - POS at `point-min` or `point-max` outside any block → return nil.
@@ -86,6 +88,8 @@ The user-typed and paste hooks (Decisions 2 and 3) call this predicate on every 
   completes in 0.03ms in batch mode (warm Emacs), well within budget.
 
 ## Discoveries
+
+**Resolution:** Algorithm prescription corrected by ask-cycle-1777624502-2. The merged stack-walk algorithm is the canonical implementation; the original step 2 prescription was unsound.
 
 - discovery_id: disc-add-point-in-block-body-predicate-1
   class: vocabulary-mismatch
