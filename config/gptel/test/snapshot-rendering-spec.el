@@ -121,17 +121,32 @@
               :to-equal '(":GPTEL_TOOLS: a b c")))
 
     (it "resolves a (:append ...) modify-list spec against the current gptel-tools default"
-      (let ((gptel-tools '(base-A base-B)))
-        (expect (jf/gptel-scope-profile--snapshot-lines
-                 '(:tools (:append (extra-C))))
-                :to-equal
-                '(":GPTEL_TOOLS: base-A base-B extra-C"))))
+      ;; `--resolve-tool-names' reads `(default-value 'gptel-tools)', which
+      ;; ignores `let'-style dynamic shadowing on a `defcustom'.  We must
+      ;; mutate the global default and restore it via `unwind-protect' so
+      ;; the merge is exercised against the documented base list rather
+      ;; than the batch-process default of nil (which would let the test
+      ;; pass for the wrong reason — `(append nil '(extra-C))' equals
+      ;; `(extra-C)').
+      (let ((original (default-value 'gptel-tools)))
+        (unwind-protect
+            (progn
+              (setq-default gptel-tools '(base-A base-B))
+              (expect (jf/gptel-scope-profile--snapshot-lines
+                       '(:tools (:append (extra-C))))
+                      :to-equal
+                      '(":GPTEL_TOOLS: base-A base-B extra-C")))
+          (setq-default gptel-tools original))))
 
     (it "omits :GPTEL_TOOLS: when modifier resolution yields the empty list"
-      (let ((gptel-tools nil))
-        (expect (jf/gptel-scope-profile--snapshot-lines
-                 '(:tools (:append nil)))
-                :to-be nil)))))
+      (let ((original (default-value 'gptel-tools)))
+        (unwind-protect
+            (progn
+              (setq-default gptel-tools nil)
+              (expect (jf/gptel-scope-profile--snapshot-lines
+                       '(:tools (:append nil)))
+                      :to-be nil))
+          (setq-default gptel-tools original))))))
 
 (describe "jf/gptel-scope-profile--render-drawer-text with PRESET-SPEC"
 
