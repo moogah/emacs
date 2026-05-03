@@ -82,3 +82,15 @@ Why fold both into one task: same file, same review cycle, same context. Two-tas
 - Coupled with ask `ask-cycle-1777624502-4`: the documented exclusion is correct iff paste-escape's gate is widened from `(zerop length)` to `(> end beg)`. Resolution: ask-4 accepted Option B (gate widening); follow-up `widen-paste-escape-gate-to-cover-replacements.md` must land before this task to make the documented exclusion truthful. Encoded as `blocked-by:` in frontmatter.
 - Original task: `openspec/changes/gptel-chat-heading-scoping/tasks/open/add-user-typed-heading-escape.md` (status: done).
 - Merged code: `config/gptel/chat/mode.el:304-335` (typed-escape function); `config/gptel/chat/parser.el:169-264` (predicate).
+
+## Observations
+
+- Decision 2 prose extended with a "Scope: single-char keystroke path only" subsection (between the existing Implications bullets and Decision 3). Subsection includes: (a) the producer-decomposition table mapping each insertion path to its catching producer; (b) hook firing-order explanation showing why no double-escape occurs (after-change-functions runs before post-self-insert-hook; paste-escape's prefix shifts point past column 1); (c) rationale for keeping typed-escape narrow (hot-path cost, avoid duplicating paste-escape's logic); (d) Coupling note tying this scope decision to the now-closed `widen-paste-escape-gate-to-cover-replacements` task (path corrected from `tasks/open/` to `tasks/closed/` to reflect post-merge state of the orchestrator cycle).
+- Direct-call delimiter-line spec added as a sibling to the existing column-1-guard spec (lines ~108-152 of the test file). The new spec calls `gptel-chat--escape-typed-heading` directly with point at column 1 of `#+begin_user`, `last-command-event` bound to `?*`, and asserts buffer-string is unchanged. This makes the predicate's delimiter-line arm load-bearing; without that arm the test would fail (the column-1 guard alone would not catch it).
+- The existing column-1-guard spec's embedded comment was rewritten to clearly call out which arm it exercises (the `(= (current-column) 1)` short-circuit) and to cross-reference the new sibling spec as the one exercising the predicate arm. Both specs now explicitly cite `register/invariant/chat-block-delimiter-lines-stay-at-column-0`.
+- No mode.el / mode.org / interfaces.org / parser.el changes — strictly within the documented scope (design.md + test file only).
+- Tests not run in this worktree (runtime/ is not initialised here per orchestrator convention); orchestrator runs the suite after merge.
+
+## Discoveries
+
+- (none)

@@ -45,6 +45,24 @@
 - The "am I inside a chat-block body?" predicate runs once per typed character. Must be cheap. We provide a fast `gptel-chat--point-in-block-body-p` helper that walks backward through `#+begin_*` / `#+end_*` delimiter lines maintaining a closer-stack (each `#+end_*` pushes; each `#+begin_*` pops if non-empty, otherwise it is the enclosing opener), then forward-scans for the matching closer using a same-kind depth counter. The naive 'nearest opener backward / nearest closer forward' algorithm is unsound for buffers with closed inner blocks (a closed `#+begin_tool ... #+end_tool` upstream of POS would be misread as the enclosing opener). The stack-walk is sub-millisecond on typical chat buffers — bounded by the number of delimiter lines, not buffer size.
 - Delimiter-line exclusion: the predicate returns nil if point is on a `#+begin_*` or `#+end_*` line itself (column-0 `*` on a `#+begin_*` line is impossible anyway, since the line starts with `#`).
 
+### Scope: single-char keystroke path only
+
+The typed-escape function fires once per `self-insert-command` invocation, with `last-command-event` set to the triggering character. Its column-1 guard (`(= (current-column) 1)`) catches the dominant single-char path: the user types `*` at column 0, point lands at column 1, the guard fires. The function deliberately does NOT cover multi-char insertion paths — those are caught by paste-escape on `after-change-functions` (Decision 3). Producer decomposition:
+
+| Insertion path | Caught by |
+|---|---|
+| Single `*` keystroke at column 0 | typed-escape (this hook) |
+| `C-u N *` (prefix-arg multi-insert) | paste-escape on `after-change-functions` |
+| `M-x repeat` of a `*` keystroke | paste-escape on `after-change-functions` |
+| Yank / paste of `* H1` | paste-escape on `after-change-functions` |
+| `query-replace foo → * H1` | paste-escape on `after-change-functions` |
+
+Hook firing order: `self-insert-command` calls `insert`, which fires `after-change-functions` first; `post-self-insert-hook` runs after. Paste-escape (on `after-change-functions`) therefore catches column-0 `*` lines from any insertion path before typed-escape ever runs. By the time `post-self-insert-hook` fires, point has already shifted past the inserted prefix (e.g., from column 1 to column 2 after a one-space prefix), so typed-escape's column-1 guard naturally rejects on the same call. No double-escape.
+
+**Rationale for keeping typed-escape narrow:** the function runs every keystroke in chat-mode buffers. Widening its scan (to inspect the triggering region rather than `(current-column)`) would add work to the hot path and duplicate paste-escape's logic. The producer-decomposition (cheap hook for the dominant path; general hook for everything else) keeps each producer's correctness localizable.
+
+**Coupling:** this scope decision is satisfied by the paste-escape gate widening from ask-cycle-1777624502-4 (see `tasks/closed/widen-paste-escape-gate-to-cover-replacements.md`). After the gate widened from `(zerop length)` to `(> end beg)`, paste-escape covers ALL non-keystroke insertion paths into a chat-block body — including `query-replace`-shaped replacement events. The producer-decomposition is then locally inspectable: the boundary contract (`register/boundary/chat-heading-collision-escape`) is upheld by the union of typed-escape + paste-escape, not silently dependent on either being "wide enough" to cover the other's residuals.
+
 ## Decision 3: Paste / yank handling via `after-change-functions`
 
 **Choice:** an `after-change-functions` filter detects when a non-empty change region inside a chat-block body contains `*` at column 0 of any line within `[BEG, END)`, and rewrites those lines to apply the escape. The gate is `(> end beg)` — every content-introducing event flows through; only pure deletions short-circuit out.
