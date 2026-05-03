@@ -2,7 +2,8 @@
 name: widen-paste-escape-gate-to-cover-replacements
 description: Widen gptel-chat--escape-inserted-headings gate from (zerop length) to (> end beg) so replacement-shaped after-change-functions events (query-replace, replace-match, replace-region-contents) that introduce a column-0 * inside a chat-block body are escaped. Correct false rationale in docstring, org commentary, and design.md Decision 3. Add buttercup scenario covering the replacement path.
 change: gptel-chat-heading-scoping
-status: ready
+status: needs-review
+merge_commit: 537f34f
 relations:
   - discovered-from:add-paste-heading-escape
   - enables:document-typed-escape-single-char-scope

@@ -2,7 +2,8 @@
 name: tighten-content-indentation-defcustom-type
 description: Tighten gptel-chat-content-indentation defcustom :type from integer to natnum so customize-time validation matches the boundary's wholenum consumer domain
 change: gptel-chat-heading-scoping
-status: ready
+status: needs-review
+merge_commit: ab73d8e905fd7afad575e0c7f270e27473e99d2b
 relations:
   - discovered-from:add-content-indentation-defcustom
 ---
