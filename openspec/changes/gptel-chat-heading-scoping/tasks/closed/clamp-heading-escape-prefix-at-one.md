@@ -2,7 +2,7 @@
 name: clamp-heading-escape-prefix-at-one
 description: Clamp gptel-chat--heading-escape-prefix at minimum 1 (not 0) so explicit gptel-chat-content-indentation = 0 is silently coerced for invariant-preservation parity with the unbound case. Update helper docstring; cross-reference fallback contract from migration docstring (Finding 2 docstring drift); delete the misleading migration-spec.el test that locked in the invariant violation as a regression check.
 change: gptel-chat-heading-scoping
-status: needs-review
+status: done
 merge_commit: 711ec97
 relations:
   - discovered-from:add-migration-on-read

@@ -2,7 +2,7 @@
 name: correct-point-in-block-body-algorithm-prescription
 description: Replace unsound naive-scan algorithm prescription in the predicate task brief and design.md with the merged stack-walk algorithm; remove bogus gptel-chat--block-opener-regexp reference
 change: gptel-chat-heading-scoping
-status: needs-review
+status: done
 merge_commit: 3b604e4
 relations:
   - discovered-from:add-point-in-block-body-predicate
