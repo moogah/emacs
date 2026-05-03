@@ -801,6 +801,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Cited by tasks: extend-render-drawer-text-with-preset-snapshot
      (43d045f), wire-snapshot-into-session-creation (9f4b5fd),
      replace-chat-save-with-full-snapshot-writer (5f9d762).
+     cycle-6 integrate (2026-05-03): dedupe extracted a shared
+     internal enumeration jf/gptel-scope-profile--snapshot-entries
+     (used by both --snapshot-lines and --apply-to-drawer) so the
+     two PRESET-SPEC-fed producers can no longer drift on key set
+     or ordering. The chat-mode save path's gptel-chat--write-config-
+     drawer remains a third (peer) producer of the same six-key set
+     from buffer-local state — open follow-up task harden-snapshot-
+     emission-cross-stage-parity is queued to either route the chat
+     writer through the same enumeration or, at minimum, narrow the
+     internal helper's docstring claim. Multivalued-formatter parity
+     between mode 2a (string) and mode 2b (buffer) is also covered
+     by that follow-up — currently 2a uses bare mapconcat while 2b
+     escapes via org-entry-protect-space; the asymmetry is documented
+     but not enforced. Cited by task fix-snapshot-tools-test-mock-
+     and-dedupe-applicator (c7a1f1c).
    load_bearing: true
    title: Profile resolution → drawer text or buffer-applied properties
    purpose: |
@@ -1243,22 +1258,30 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    status_note: |
      cycle-5 plan (2026-05-01) — speculation: introduced for the
      gptel-drawer-as-source-of-truth change Decision 5.
-     cycle-5 integrate (2026-05-01): reconciled. The chat-menu prefix
-     body sets gptel--set-buffer-locally to t before transient-setup,
-     after saving the prior value into gptel-chat--scope-prior. A
-     one-shot transient-exit-hook (gptel-chat--restore-scope-on-exit)
-     restores the prior value on the outermost transient exit; the
-     hook checks transient-current-prefix so sub-transients (e.g.
-     gptel-tools) do not trigger an early restore. Upstream
-     gptel-menu invoked directly is unaffected. Verified by 9 specs
-     in config/gptel/chat/test/menu/menu-buffer-local-spec.el
-     covering: variable set on entry, scope-prior saved, hook
-     registered, hook restores when current-prefix is nil, hook does
-     NOT restore when current-prefix is set, restorer handles non-
-     nil priors, upstream gptel-menu does not set the variable,
-     upstream does not register the chat restorer, and gptel--set-
-     with-scope mutates buffer-locally with the binding active.
-     Cited by task default-chat-menu-scope-to-buffer-local (9485f3b).
+     cycle-5 integrate (2026-05-01): reconciled (initial wiring). The
+     chat-menu prefix body sets gptel--set-buffer-locally to t before
+     transient-setup, after saving the prior value into gptel-chat--
+     scope-prior. cycle-5 verification was nine specs that called the
+     restore hook directly, bypassing the real transient call path.
+     cycle-6 reviewer (2026-05-03) found the exit_invariant violated
+     in production: the original mechanism — a transient-exit-hook
+     guarded by (unless transient-current-prefix ...) — never fired
+     on commit-style exit. transient-exit-hook runs *before*
+     transient-current-prefix is cleared (transient.el:3072), and
+     transient--export sets that variable for every committing suffix,
+     so the guard always failed and gptel--set-buffer-locally was left
+     stuck t globally. cycle-6 reconciliation (582b70e): switched to
+     transient-post-exit-hook (which fires only after the transient is
+     fully done and transient-current-prefix has been cleared);
+     dropped the now-unnecessary discriminator. Verification rebuilt
+     against the real call path: end-to-end specs that invoke
+     transient--post-exit with command set to a known committing
+     suffix and assert gptel--set-buffer-locally restores correctly,
+     and parallel coverage for the abort path. The exit_invariant now
+     holds "regardless of how the transient ends" without bespoke
+     sub-transient discrimination. Cited by tasks default-chat-menu-
+     scope-to-buffer-local (9485f3b) and fix-chat-menu-scope-restore-
+     on-real-exit (582b70e).
    load_bearing: true
    title: gptel-chat-menu enters with gptel--set-buffer-locally bound to t
 
