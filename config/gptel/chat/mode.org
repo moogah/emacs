@@ -221,8 +221,9 @@ Two helpers live here so the four producers cannot drift again:
 - =gptel-chat--heading-escape-prefix= constructs the canonical prefix
   string. Falls back to =1= when =gptel-chat-content-indentation= is
   unbound (matching the defcustom default and preserving the
-  invariant), clamps negative values to =0= so a misset variable
-  surfaces as a no-op rather than a =wrong-type-argument= signal.
+  invariant), and clamps any value below =1= up to =1= so an
+  explicit =0= (or a misset negative value) cannot silently violate
+  =register/invariant/chat-block-body-no-column-zero-stars=.
 - =gptel-chat--escape-headings-in-region= walks =[BEG, END)= line by
   line, escaping every =^\*+ = line. The optional =CHECK-BODY-P= flag
   toggles a per-line =gptel-chat--point-in-block-body-p= call —
@@ -234,17 +235,23 @@ Two helpers live here so the four producers cannot drift again:
   "Return the canonical heading-collision escape prefix string.
 
 Reads `gptel-chat-content-indentation' (defaulting to 1 when the
-variable is unbound), clamps negative values to 0, and returns a
-string of that many spaces.  All four stage-1 producers of
-`register/boundary/chat-heading-collision-escape' route their
+variable is unbound), clamps any value below 1 up to 1, and
+returns a string of that many spaces.  All four stage-1 producers
+of `register/boundary/chat-heading-collision-escape' route their
 prefix construction through this helper so they cannot drift on
 fallback or clamp behaviour.
 
 The 1 fallback (not 0) preserves
 `register/invariant/chat-block-body-no-column-zero-stars' under
 unbound-variable conditions: a 0-space prefix is the empty string,
-which would leave the column-0 `*' line in place inside the body."
-  (make-string (max 0 (or (bound-and-true-p gptel-chat-content-indentation)
+which would leave the column-0 `*' line in place inside the body.
+
+An explicitly-set 0 is also clamped to 1: a 0-width prefix would
+not break the `^\\*+ ' heading regex and would silently violate
+`register/invariant/chat-block-body-no-column-zero-stars'.  The
+clamp ensures the helper always returns a prefix with column-0
+separation, matching the unbound-fallback rationale."
+  (make-string (max 1 (or (bound-and-true-p gptel-chat-content-indentation)
                           1))
                ?\s))
 
@@ -442,10 +449,14 @@ Behavioural contract (registered in
   covered by the enclosing assistant scan because tool delimiters
   themselves are =#+...=, not =\*=, so they pass through the body
   scan untouched while their inner =\*= lines still get indented.
-- A buffer with no in-block =\*= lines is a no-op: the buffer's
-  modified state is restored, so a clean session opens clean (the
+- A buffer with no in-block =\*= lines is the only no-op condition:
+  the buffer's modified state is restored, so a clean session opens
+  clean (the
   =register/invariant/chat-migration-on-read-clean-buffer-stays-clean=
-  invariant).
+  invariant).  Indent width comes from
+  =gptel-chat--heading-escape-prefix=, which clamps an unbound or
+  zero =gptel-chat-content-indentation= up to =1=, so the migration
+  is never a no-op solely on indent grounds.
 - Content outside chat-block bodies — free-form headings between
   blocks, =#+keyword:= lines, drawers, prose — is never modified.
 - Re-running on already-escaped content is a no-op (idempotence
@@ -469,6 +480,14 @@ with `gptel-chat-content-indentation' spaces.  Lines inside a nested
 `#+begin_tool' body are covered transparently because the assistant
 scan ranges over the entire body, and tool delimiter lines start
 with `#+', not `*'.
+
+Indentation width comes from `gptel-chat--heading-escape-prefix'
+which falls back to 1 when `gptel-chat-content-indentation' is
+unbound and clamps an explicitly-set 0 to 1 — a 0-width prefix
+would silently violate the column-0-stars invariant.  Migration is
+therefore never a no-op solely on indent grounds; it is a no-op
+only when the buffer has no `^\\*+ ' lines inside chat-block
+bodies.
 
 If the migration changes the buffer, the buffer is left marked
 modified so the next `save-buffer' persists the normalized form;

@@ -253,18 +253,12 @@ migration code path: the migration runs as the last step of
                   (buffer-string))
                 :to-equal content)))
 
-    (it "treats `gptel-chat-content-indentation' = 0 as a no-op"
-      ;; Pathological config: indentation 0 cannot break the heading
-      ;; regex, so the migration simply does nothing.  The buffer is
-      ;; left untouched; modified state restored.
-      (let ((gptel-chat-content-indentation 0)
-            (content (concat "#+begin_assistant\n"
-                             "* heading\n"
-                             "#+end_assistant\n")))
-        (gptel-chat-test--with-mode-buffer content
-          (expect (buffer-modified-p) :to-be nil)
-          (expect (string-match-p "^\\* heading$" (buffer-string))
-                  :to-be-truthy))))))
+    ;; Note: explicit `gptel-chat-content-indentation' = 0 is clamped at
+    ;; the helper (`gptel-chat--heading-escape-prefix') to 1; the
+    ;; resulting behaviour is covered by the default `= 1' scenarios
+    ;; above.  The previous "0 is a no-op" test was removed when the
+    ;; clamp landed because it locked in an invariant violation.
+    ))
 
 (provide 'migration-spec)
 
