@@ -2,7 +2,8 @@
 name: document-typed-escape-single-char-scope
 description: Document in design.md Decision 2 that typed-escape covers only single-char keystroke path; multi-char paths (C-u N *, repeat, paste, query-replace) fall through to paste-escape on after-change-functions. Add direct-call test exercising the predicate's delimiter-line rejection at the typed-escape's surface.
 change: gptel-chat-heading-scoping
-status: ready
+status: needs-review
+merge_commit: 412dc88
 relations:
   - discovered-from:add-user-typed-heading-escape
   - blocked-by:widen-paste-escape-gate-to-cover-replacements
