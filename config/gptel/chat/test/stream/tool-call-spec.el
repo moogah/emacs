@@ -13,6 +13,14 @@
 ;; response shapes via `pcase' and renders tool calls as nested
 ;; `#+begin_tool' blocks inside the active assistant block.
 ;;
+;; Body indentation (change `gptel-chat-heading-scoping', design.md
+;; §Decision 5): the `#+begin_tool' / `#+end_tool' delimiter lines
+;; stay at *real* column 0 in the buffer — they are structure, and
+;; the parser finds them with column-0-anchored regexes.  The tool
+;; *result* content between the delimiters is real-indented like all
+;; other chat-block body content.  Streamed assistant prose around
+;; the tool block is likewise indented.
+;;
 ;; The upstream contract for tool events (see `gptel-request.el:1812-1827'
 ;; and `gptel.el:1801, 1855') is:
 ;;
@@ -23,28 +31,18 @@
 ;; `gptel-make-tool'), ARGS is a plist of model-supplied arguments,
 ;; CB is the callback upstream invokes with the tool result (we
 ;; ignore it; we only render), and RESULT is whatever the tool
-;; function returned.  These tests feed exactly that triple-list
-;; shape into the callback — an earlier iteration built the cdr out
-;; of synthetic plists, which masked a runtime drift bug where every
-;; tool header rendered as `#+begin_tool ( :args nil)' and every
-;; result rendered as an empty string.  See task
-;; `stream-callback-tool-element-shape-and-tests' for the corrective
-;; context.
+;; function returned.
 ;;
-;; Scenarios covered (spec §"Tool-call rendering inside assistant
-;; blocks" and §"Response streaming and sanitization"):
-;; - Single tool call: one `#+begin_tool'/`#+end_tool' block with
-;;   correct args and result.
-;; - Multiple tool calls interleaved with prose: three sibling blocks
-;;   with prose in correct positions.
-;; - Tool-result containing a `#+end_tool' collision is sanitized.
+;; Scenarios covered (spec §"Response streaming and sanitization" and
+;; §"Chat-block body indentation"):
+;; - Single tool call: one `#+begin_tool'/`#+end_tool' block (column-0
+;;   delimiters) with correct args and an indented result body.
+;; - Multiple tool calls interleaved with indented prose.
+;; - A `#+end_tool'-shaped line inside a tool result is indented
+;;   (body content, not a real closer).
 ;; - Reasoning events are ignored.
 ;; - Unknown response shape signals (defensive guard).
-;; - Auto-approved tool (no preceding tool-call event): upstream only
-;;   emits `(tool-call . ...)' for tools that go through the
-;;   `:confirm' path; auto-approved tools surface ONLY via the
-;;   terminal `(tool-result . ...)' event.  The callback must render
-;;   the block on the fly from the 3-list's (TOOL ARGS RESULT).
+;; - Auto-approved tool (no preceding tool-call event).
 ;;
 ;; Sibling specs (`streaming-spec.el') cover the completion / abort /
 ;; error terminal paths and the bypass assertion on
@@ -61,10 +59,13 @@
 (require 'gptel)
 
 ;; Load the module under test from the co-located source directory.
+;; `gptel-chat-mode' owns the `gptel-chat--body-indent' accessor
+;; consulted by the body indenter for the tool result content.
 (let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
        (chat-dir (expand-file-name "../../" spec-dir)))
   (add-to-list 'load-path chat-dir))
 
+(require 'gptel-chat-mode)
 (require 'gptel-chat-stream)
 
 
@@ -92,6 +93,10 @@ body (i.e., where `#+end_assistant' will eventually be inserted)."
   "Return the current contents of the scratch test buffer."
   (with-current-buffer gptel-chat-tool-call-test--buffer
     (buffer-substring-no-properties (point-min) (point-max))))
+
+(defun gptel-chat-tool-call-test--body-pad ()
+  "Return the body-width pad inserted on the appended user block's body line."
+  (make-string (gptel-chat--body-indent) ?\s))
 
 (defun gptel-chat-tool-call-test--cleanup ()
   (when (buffer-live-p gptel-chat-tool-call-test--buffer)
@@ -155,12 +160,11 @@ ignorable function works here."
 
   (describe "single tool call"
 
-    (it "renders one #+begin_tool block with name, args, and result"
+    (it "renders one #+begin_tool block: column-0 delimiters, indented result"
       ;; Scenario: assistant block contains one `#+begin_tool' /
-      ;; `#+end_tool' block with the call arguments and result.
-      ;;
-      ;; Upstream shape per `gptel.el:1855':
-      ;;   (tool-result . ((TOOL ARGS RESULT) ...))
+      ;; `#+end_tool' block.  The delimiter lines sit at column 0
+      ;; (design.md §Decision 5); the result body is indented by the
+      ;; body width like all other chat-block content.
       (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "read_file"))
@@ -174,10 +178,10 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "#+begin_tool (read_file :path \"/tmp/x\")\n"
-                      "file contents\n"
+                      "  file contents\n"
                       "#+end_tool\n")))
 
-    (it "renders an empty result when result is nil"
+    (it "renders an empty result body when result is nil"
       (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "noop")))
@@ -196,10 +200,11 @@ ignorable function works here."
 
   (describe "prose surrounding a tool call"
 
-    (it "prose before and after a single tool call lands in the right places"
+    (it "indented prose before and after a single tool call lands in the right places"
       ;; Scenario: prose streams before and after the tool event.
       ;; After tool-result, `tool-marker' is cleared, so subsequent
       ;; streamed prose routes back to the assistant-level marker.
+      ;; Each prose line is indented by the body width.
       (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "read_file"))
@@ -211,18 +216,19 @@ ignorable function works here."
                  nil)
         (funcall cb "Done.\n" nil)
         (funcall cb t nil))
-      (let ((s (gptel-chat-tool-call-test--buffer-string)))
-        (expect s
-                :to-equal
-                (concat "#+begin_user\nhello\n#+end_user\n"
-                        "#+begin_assistant\n"
-                        "Let me check.\n"
-                        "#+begin_tool (read_file :path \"/a\")\n"
-                        "ok\n"
-                        "#+end_tool\n"
-                        "Done.\n"
-                        "#+end_assistant\n"
-                        "\n#+begin_user\n\n#+end_user\n")))))
+      (expect (gptel-chat-tool-call-test--buffer-string)
+              :to-equal
+              (concat "#+begin_user\nhello\n#+end_user\n"
+                      "#+begin_assistant\n"
+                      "  Let me check.\n"
+                      "#+begin_tool (read_file :path \"/a\")\n"
+                      "  ok\n"
+                      "#+end_tool\n"
+                      "  Done.\n"
+                      "#+end_assistant\n"
+                      "\n#+begin_user\n"
+                      (gptel-chat-tool-call-test--body-pad)
+                      "\n#+end_user\n"))))
 
 
   (describe "multiple tool calls interleaved with prose"
@@ -230,8 +236,9 @@ ignorable function works here."
     (it "renders three sibling #+begin_tool blocks in order"
       ;; Scenario (spec §"Multiple tool calls in a response"): three
       ;; sequential tool calls interleaved with prose produce three
-      ;; sibling blocks in document order, with prose in its correct
-      ;; positions.
+      ;; sibling blocks in document order, with indented prose in its
+      ;; correct positions.  The `#+begin_tool' / `#+end_tool' lines
+      ;; stay at column 0; the result bodies are indented.
       (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (t1 (gptel-chat-tool-call-test--tool "t1"))
@@ -258,15 +265,17 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "A\n"
-                      "#+begin_tool (t1 :x 1)\nr1\n#+end_tool\n"
-                      "B\n"
-                      "#+begin_tool (t2 :x 2)\nr2\n#+end_tool\n"
-                      "C\n"
-                      "#+begin_tool (t3 :x 3)\nr3\n#+end_tool\n"
-                      "D\n"
+                      "  A\n"
+                      "#+begin_tool (t1 :x 1)\n  r1\n#+end_tool\n"
+                      "  B\n"
+                      "#+begin_tool (t2 :x 2)\n  r2\n#+end_tool\n"
+                      "  C\n"
+                      "#+begin_tool (t3 :x 3)\n  r3\n#+end_tool\n"
+                      "  D\n"
                       "#+end_assistant\n"
-                      "\n#+begin_user\n\n#+end_user\n")))
+                      "\n#+begin_user\n"
+                      (gptel-chat-tool-call-test--body-pad)
+                      "\n#+end_user\n")))
 
     (it "handles a single tool-call event carrying multiple parallel calls"
       ;; Two calls arrive in one tool-call event (parallel), then two
@@ -286,17 +295,17 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "#+begin_tool (p1 :k 1)\nfirst\n#+end_tool\n"
-                      "#+begin_tool (p2 :k 2)\nsecond\n#+end_tool\n"))))
+                      "#+begin_tool (p1 :k 1)\n  first\n#+end_tool\n"
+                      "#+begin_tool (p2 :k 2)\n  second\n#+end_tool\n"))))
 
 
-  (describe "tool-result sanitization"
+  (describe "tool-result body indentation"
 
-    (it "escapes a #+end_tool line inside a tool result"
+    (it "indents a #+end_tool-shaped line inside a tool result"
       ;; If the tool's result happens to contain a `#+end_tool' line
-      ;; (e.g. the tool read a file that contains one), that line must
-      ;; be rewritten to `,#+end_tool' before insertion — otherwise it
-      ;; would prematurely close the containing block.
+      ;; (e.g. the tool read a file that contains one), that line is
+      ;; indented off column 0 like every other result line —
+      ;; otherwise it would prematurely close the containing block.
       (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "cat"))
@@ -313,12 +322,12 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "#+begin_tool (cat :f \"p\")\n"
-                      "line1\n"
-                      ",#+end_tool\n"
-                      "line3\n"
+                      "  line1\n"
+                      "  #+end_tool\n"
+                      "  line3\n"
                       "#+end_tool\n")))
 
-    (it "escapes a #+end_assistant line inside a tool result"
+    (it "indents a #+end_assistant-shaped line inside a tool result"
       ;; Same protection for an outer-block collision.
       (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
@@ -333,7 +342,7 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "#+begin_tool (cat :f \"p\")\n"
-                      ",#+end_assistant\n"
+                      "  #+end_assistant\n"
                       "#+end_tool\n"))))
 
 
@@ -389,10 +398,10 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "#+begin_tool (run_bash_command :command \"which brew\")\n"
-                      "/opt/homebrew/bin/brew\n"
+                      "  /opt/homebrew/bin/brew\n"
                       "#+end_tool\n")))
 
-    (it "renders the block inline with surrounding prose and subsequent prose routes back to assistant"
+    (it "renders the block inline with indented prose; subsequent prose routes back to assistant"
       ;; After an auto-approved tool-result renders its block, the
       ;; tool-marker override MUST be cleared so further streamed
       ;; prose lands at the assistant-level marker (not inside the
@@ -410,13 +419,15 @@ ignorable function works here."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "Checking path.\n"
+                      "  Checking path.\n"
                       "#+begin_tool (run_bash_command :command \"which brew\")\n"
-                      "/opt/homebrew/bin/brew\n"
+                      "  /opt/homebrew/bin/brew\n"
                       "#+end_tool\n"
-                      "Found it.\n"
+                      "  Found it.\n"
                       "#+end_assistant\n"
-                      "\n#+begin_user\n\n#+end_user\n")))
+                      "\n#+begin_user\n"
+                      (gptel-chat-tool-call-test--body-pad)
+                      "\n#+end_user\n")))
 
     (it "renders multiple auto-approved parallel calls as sibling blocks in result order"
       ;; `gptel--handle-tool-use' batches auto-approved results into a
@@ -434,17 +445,17 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "#+begin_tool (list_files :dir \"/a\")\n"
-                      "file1\nfile2\n"
+                      "  file1\n  file2\n"
                       "#+end_tool\n"
                       "#+begin_tool (read_file :path \"/b\")\n"
-                      "body\n"
+                      "  body\n"
                       "#+end_tool\n")))
 
-    (it "sanitizes a #+end_tool collision inside an auto-approved tool-result"
-      ;; Collision-escape invariant must hold on the synthesized
-      ;; block path too — a tool reading a file whose content
-      ;; happens to contain `#+end_tool' must still produce a
-      ;; well-formed containing block.
+    (it "indents a #+end_tool collision inside an auto-approved tool-result"
+      ;; The body-indentation invariant must hold on the synthesized
+      ;; block path too — a tool reading a file whose content happens
+      ;; to contain `#+end_tool' must still produce a well-formed
+      ;; containing block.
       (let* ((cb (gptel-chat-stream-callback
                   gptel-chat-tool-call-test--marker))
              (tool (gptel-chat-tool-call-test--tool "cat"))
@@ -459,9 +470,9 @@ ignorable function works here."
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
                       "#+begin_tool (cat :f \"p\")\n"
-                      "line1\n"
-                      ",#+end_tool\n"
-                      "line3\n"
+                      "  line1\n"
+                      "  #+end_tool\n"
+                      "  line3\n"
                       "#+end_tool\n")))))
 
 

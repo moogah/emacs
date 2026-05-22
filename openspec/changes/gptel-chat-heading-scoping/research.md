@@ -1,5 +1,13 @@
 # Chat-mode heading scoping — research handoff
 
+> **Addendum (2026-05-22).** This change first shipped a per-`*` heading
+> escape; real-world use found it visually ragged. The design was
+> reframed to **full chat-block body indentation** — every body line is
+> indented, which neutralises *all* column-0 org structure at once, not
+> just `*`. The findings below still hold and still motivate the fix:
+> Finding 2 ("a leading space breaks `^\*+ `") is exactly *why*
+> indentation works. See the current `proposal.md` and `design.md`.
+
 **Status:** Research / brainstorming. Not yet an OpenSpec change.
 **Date:** 2026-04-30
 **Originating bug:** `~/.gptel/sessions/heading-test-20260430145834/branches/main/session.org` — `* Test Heading` inside a `#+begin_user` block visually absorbs the rest of the buffer; the user block disappears from the org AST.

@@ -2,7 +2,8 @@
 name: add-migration-on-read
 description: Apply heading escape to existing chat blocks on mode activation
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 991f0bb983a592b9fd7ded7808c947152e00db43
 relations:
   - blocked-by:add-content-indentation-defcustom
   - blocked-by:add-point-in-block-body-predicate
@@ -45,3 +46,60 @@ Read-time migration ensures `org-element-parse-buffer` sees a correct AST from t
 - `openspec/changes/gptel-chat-heading-scoping/design.md` Decision 5.
 - Original repro: `~/.gptel/sessions/heading-test-20260430145834/branches/main/session.org`.
 - Predicate: `gptel-chat--point-in-block-body-p` (added by task `add-point-in-block-body-predicate`).
+
+## Observations
+
+- Implementation places the migration helper in its own top-level
+  section (`* Migration on read`) and the mode-body call on a
+  separate line directly after `setq-local org-adapt-indentation
+  nil`, per the task body's coordination note for parallel wave-2
+  work on `mode.org`.
+- A lighter pass via `gptel-chat-parse-buffer` was sufficient: the
+  parser already returns `:start` (opener line beginning) and
+  `:end` (closer line beginning) markers for each turn.  The
+  migration walks each turn body once with `re-search-forward
+  "^\\*+ "` between body-start and body-end.  No new walker was
+  required.
+- Nested tool-block bodies are covered transparently: the inner
+  `^\\*+ ` lines fall inside the enclosing assistant body range,
+  and `#+begin_tool` / `#+end_tool` delimiter lines start with
+  `#+`, not `*`, so the regex passes them through untouched.
+- Modified-state contract is implemented via `(buffer-modified-p)`
+  capture before the walk plus `(restore-buffer-modified-p
+  was-modified)` when zero rewrites occur.  This honours the
+  `register/invariant/chat-migration-on-read-clean-buffer-stays-clean`
+  invariant precisely: a clean buffer that requires no rewrites
+  remains clean.
+- A `(condition-case nil ... (user-error nil))` wrapper around the
+  parser call lets mode activation succeed on malformed buffers
+  (mid-stream / partially-typed structure) — the user can fix the
+  buffer interactively rather than being unable to enter the mode.
+- A pathological `gptel-chat-content-indentation` of `0` short-
+  circuits before the walk (no rewrites can be made), preserving
+  the no-op contract for clean buffers and avoiding an infinite
+  loop on `re-search-forward` with a zero-byte insertion.
+- 13 buttercup specs cover the five task-mandated scenarios plus
+  four additional shape cases (user-block escape, nested tool body
+  escape, indentation = 2 honoured, malformed-buffer no-signal,
+  indentation = 0 no-op).  The full chat suite (393 specs) still
+  passes.
+
+## Discoveries
+
+- `gptel-chat-parse-buffer` signals `user-error` on unclosed
+  blocks rather than returning a partial walk; callers that want
+  best-effort behaviour (like the migration) must trap it.  This
+  is documented in the parser docstring but not previously
+  exercised by an in-mode caller.  Worth keeping in mind for
+  future read-time consumers.
+- Inserting indent bytes inside a `re-search-forward` loop shifts
+  any integer bound forward by the inserted byte count.  The
+  pattern of refreshing `body-end` after each rewrite (rather than
+  using a marker that auto-tracks) is explicit and easy to reason
+  about; using `(set-marker body-end-marker ...)` would also work
+  but adds a marker allocation per turn.
+- The fixture file mirrors the original repro shape closely
+  enough that loading it into a freshly-activated chat-mode buffer
+  exercises the exact corruption / repair cycle reported in
+  `~/.gptel/sessions/heading-test-20260430145834/branches/main/session.org`.
+  No further fixture variant is needed for this task.

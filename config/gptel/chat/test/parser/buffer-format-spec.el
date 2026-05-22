@@ -186,25 +186,36 @@
   ;; without exercising any additional buffer-preparation logic.
   (describe "gptel-chat--prepare-new-buffer"
     (it "creates a buffer in `gptel-chat-mode' with an empty user block"
+      ;; design.md §Decision 6: the body line of a fresh user block is
+      ;; indented to the body width so the next human turn starts off
+      ;; column 0, consistent with the indented-region invariant.  The
+      ;; delimiter lines themselves stay at column 0.
       (let ((buf (gptel-chat--prepare-new-buffer)))
         (unwind-protect
             (with-current-buffer buf
               (expect major-mode :to-equal 'gptel-chat-mode)
-              (expect (buffer-string)
-                      :to-equal "#+begin_user\n\n#+end_user\n"))
+              (expect (buffer-substring-no-properties
+                       (point-min) (point-max))
+                      :to-equal
+                      (concat "#+begin_user\n"
+                              (make-string (gptel-chat--body-indent) ?\s)
+                              "\n"
+                              "#+end_user\n")))
           (kill-buffer buf))))
 
-    (it "positions point on the empty line inside the user block"
+    (it "positions point on the body line inside the user block"
       (let ((buf (gptel-chat--prepare-new-buffer)))
         (unwind-protect
             (with-current-buffer buf
-              ;; Point is on line 2 (the empty line between delimiters).
+              ;; Point is on line 2 (the body line between delimiters).
               (expect (line-number-at-pos) :to-equal 2)
-              ;; Typing here extends the user block, not the delimiters.
+              ;; The body line carries the body indentation; typing
+              ;; here extends the user block off column 0.
               (expect (buffer-substring-no-properties
                        (line-beginning-position)
                        (line-end-position))
-                      :to-equal ""))
+                      :to-equal
+                      (make-string (gptel-chat--body-indent) ?\s)))
           (kill-buffer buf))))
 
     (it "does not mutate window configuration"
@@ -662,13 +673,17 @@
         (expect (length segs) :to-equal 7)
         (expect (mapcar (lambda (s) (plist-get s :type)) segs)
                 :to-equal '(text tool-call text tool-call text tool-call text))
+        ;; The parser captures the tool result VERBATIM (design.md
+        ;; §Decision 3) — no `string-trim' at capture — so the body's
+        ;; trailing newline survives into `:result'.  The send-path
+        ;; `gptel-chat--segment-to-messages' dedents and trims it.
         (expect (plist-get (nth 1 segs) :name) :to-equal "tool_a")
-        (expect (plist-get (nth 1 segs) :result) :to-equal "result_a")
+        (expect (plist-get (nth 1 segs) :result) :to-equal "result_a\n")
         (expect (plist-get (nth 3 segs) :name) :to-equal "tool_b")
-        (expect (plist-get (nth 3 segs) :result) :to-equal "result_b")
+        (expect (plist-get (nth 3 segs) :result) :to-equal "result_b\n")
         (expect (plist-get (nth 5 segs) :name) :to-equal "tool_c")
         (expect (plist-get (nth 5 segs) :args) :to-equal '(:z 3))
-        (expect (plist-get (nth 5 segs) :result) :to-equal "result_c")
+        (expect (plist-get (nth 5 segs) :result) :to-equal "result_c\n")
         (expect (plist-get (nth 0 segs) :content) :to-match "prose1")
         (expect (plist-get (nth 2 segs) :content) :to-match "prose2")
         (expect (plist-get (nth 4 segs) :content) :to-match "prose3")

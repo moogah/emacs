@@ -89,15 +89,16 @@
                                  :position (marker-position insertion)
                                  :tracking-marker insertion)))
                 ;; A complete-line chunk: the line-buffered inserter
-                ;; commits it to the buffer at the insertion marker.
+                ;; commits it to the buffer at the insertion marker,
+                ;; indented by the body width (design.md §Decision 1).
                 (funcall cb "hello\n" info)
-                ;; Assert "hello" lands in the assistant body —
-                ;; between the `#+begin_assistant' header line and
-                ;; the next line.
+                ;; Assert the indented "hello" lands in the assistant
+                ;; body — between the column-0 `#+begin_assistant'
+                ;; header line and the next line.
                 (let ((content (buffer-substring-no-properties
                                 (point-min) (point-max))))
                   (expect (string-match-p
-                           "#\\+begin_assistant\nhello\n"
+                           "#\\+begin_assistant\n  hello\n"
                            content)
                           :to-be-truthy))
                 ;; The `t' completion sentinel: flush, close the
@@ -107,13 +108,14 @@
                 (let ((content (buffer-substring-no-properties
                                 (point-min) (point-max))))
                   ;; `#+end_assistant' now appears after the inserted
-                  ;; `"hello"' text, AND a fresh empty user block is
-                  ;; appended after it (the post-completion append
-                  ;; flow documented in the spec scenario).
+                  ;; indented `"hello"' text, AND a fresh empty user
+                  ;; block is appended after it.  The delimiter lines
+                  ;; stay at column 0; the new user block's body line
+                  ;; carries the body indent (design.md §Decision 6).
                   (expect (string-match-p
-                           (concat "#\\+begin_assistant\nhello\n"
+                           (concat "#\\+begin_assistant\n  hello\n"
                                    "#\\+end_assistant\n\n"
-                                   "#\\+begin_user\n\n#\\+end_user\n")
+                                   "#\\+begin_user\n +\n#\\+end_user\n")
                            content)
                           :to-be-truthy))))
           (when (buffer-live-p buf) (kill-buffer buf)))))

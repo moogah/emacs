@@ -12,10 +12,11 @@
 ;; advanced-format message list.
 ;;
 ;; Covers every scenario in §"Message construction from buffer" of
-;; openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md:
+;; openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md:
 ;;   - Single user-assistant turn
 ;;   - Assistant turn with one tool call
-;;   - Delimiter escape round-trip (covered here + in escape-round-trip-spec.el)
+;;   - Body indentation round-trip (covered here + in
+;;     body-indent-round-trip-spec.el)
 ;;   - Empty blocks are skipped
 ;;   - Turns distributed across org headings
 ;;   - User prompt composed with org structural features
@@ -48,7 +49,10 @@
                 (file-name-directory (or load-file-name buffer-file-name)))))
   (load helpers nil t))
 
-;; Load the module under test.
+;; Load the module under test.  `gptel-chat-mode' owns the
+;; `gptel-chat-content-indentation' defcustom that the dedent-width
+;; robustness spec rebinds.
+(require 'gptel-chat-mode)
 (require 'gptel-chat-parser)
 
 ;;; ---------------------------------------------------------------
@@ -144,16 +148,22 @@
             (expect (mapcar (lambda (m) (plist-get (cdr m) :result)) tool-msgs)
                     :to-equal '("r1" "r2" "r3")))))))
 
-  (describe "Delimiter escape round-trip"
-    (it "strips leading `,' from `,#+end_assistant' lines in assistant text"
-      ;; A user editing (or a previous stream) would have written
-      ;; `,#+end_assistant' as a sanitized body line; on the send path
-      ;; the escape must be undone before the model sees it.
+  (describe "Body indentation round-trip"
+    ;; design.md §Decision 3: a chat-block body is stored indented;
+    ;; `gptel-chat-turns-to-messages' strips the common minimum leading
+    ;; indentation per segment before the content reaches the model.
+    ;; A delimiter-shaped or heading-shaped body line, stored indented,
+    ;; is recovered at column 0 in the emitted message.
+
+    (it "strips body indentation from an indented `#+end_assistant' line in assistant text"
+      ;; The body line `  #+end_assistant' is content (indented, off
+      ;; column 0); on the send path the indentation is removed so the
+      ;; model sees a column-0 `#+end_assistant'.
       (gptel-chat-test--with-buffer
           (concat "#+begin_assistant\n"
-                  "Here is a literal delimiter:\n"
-                  ",#+end_assistant\n"
-                  "and more prose.\n"
+                  "  Here is a literal delimiter:\n"
+                  "  #+end_assistant\n"
+                  "  and more prose.\n"
                   "#+end_assistant\n")
         (let* ((msgs (gptel-chat-turns-to-messages
                       (gptel-chat-parse-buffer)))
@@ -161,58 +171,73 @@
           (expect (length msgs) :to-equal 1)
           (expect (car (car msgs)) :to-equal 'response)
           (expect text :to-match "^#\\+end_assistant$")
-          (expect text :not :to-match "^,#\\+end_assistant$"))))
+          (expect text :not :to-match "^  #\\+end_assistant$"))))
 
-    (it "strips leading `,' from `,#+end_user' lines in user body"
+    (it "strips body indentation from an indented `#+end_user' line in user body"
       (gptel-chat-test--with-buffer
           (concat "#+begin_user\n"
-                  "Quoting this delimiter literally:\n"
-                  ",#+end_user\n"
-                  "to show it to the model.\n"
+                  "  Quoting this delimiter literally:\n"
+                  "  #+end_user\n"
+                  "  to show it to the model.\n"
                   "#+end_user\n")
         (let* ((msgs (gptel-chat-turns-to-messages
                       (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
           (expect (car (car msgs)) :to-equal 'prompt)
           (expect text :to-match "^#\\+end_user$")
-          (expect text :not :to-match "^,#\\+end_user$"))))
+          (expect text :not :to-match "^  #\\+end_user$"))))
 
-    (it "leaves `,#+end_src' and other non-chat `,#+end_*' alone"
+    (it "strips body indentation from an indented `* heading' body line"
+      ;; design.md spec scenario "Body indentation round-trip": an
+      ;; indented `  * My Heading' body line becomes `* My Heading' at
+      ;; column 0 in the constructed message.
       (gptel-chat-test--with-buffer
           (concat "#+begin_user\n"
-                  "Inside a src block example:\n"
-                  ",#+end_src\n"
+                  "  Here is an outline:\n"
+                  "  * My Heading\n"
+                  "  done.\n"
                   "#+end_user\n")
         (let* ((msgs (gptel-chat-turns-to-messages
                       (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
-          (expect text :to-match "^,#\\+end_src$"))))
+          (expect (car (car msgs)) :to-equal 'prompt)
+          (expect text :to-match "^\\* My Heading$")
+          (expect text :not :to-match "^  \\* My Heading$"))))
 
-    (it "un-escapes mixed-case `,#+End_Assistant' (case-insensitive)"
+    (it "preserves intentional inner indentation relative to the body"
+      ;; design.md spec scenario "Round-trip preserves intentional
+      ;; inner indentation": only the common body indentation is
+      ;; stripped; a nested list keeps its relative depth.
       (gptel-chat-test--with-buffer
-          (concat "#+begin_assistant\n"
-                  ",#+End_Assistant\n"
-                  "#+end_assistant\n")
+          (concat "#+begin_user\n"
+                  "  - item one\n"
+                  "    - nested item\n"
+                  "  - item two\n"
+                  "#+end_user\n")
         (let* ((msgs (gptel-chat-turns-to-messages
                       (gptel-chat-parse-buffer)))
                (text (cdr (car msgs))))
-          (expect text :to-match "^#\\+End_Assistant$")
-          (expect text :not :to-match "^,#"))))
+          (expect text :to-equal
+                  (concat "- item one\n"
+                          "  - nested item\n"
+                          "- item two\n")))))
 
-    (it "leaves `,,#+end_assistant' alone (sanitizer never produces double-commas)"
-      ;; The stream sanitizer only escapes bare `#+end_*' lines; a line
-      ;; already beginning with `,' passes through unchanged.  So a
-      ;; `,,#+end_assistant' body line is not a shape the pipeline
-      ;; creates — the un-escaper correctly leaves it untouched rather
-      ;; than inventing a second comma-stripping rule.
-      (gptel-chat-test--with-buffer
-          (concat "#+begin_assistant\n"
-                  ",,#+end_assistant\n"
-                  "#+end_assistant\n")
-        (let* ((msgs (gptel-chat-turns-to-messages
-                      (gptel-chat-parse-buffer)))
-               (text (cdr (car msgs))))
-          (expect text :to-match "^,,#\\+end_assistant$")))))
+    (it "is robust to a body written at a wider indentation"
+      ;; design.md spec scenario "Round-trip is robust to a changed
+      ;; indentation width": the dedent measures the actual indentation
+      ;; (4 here) rather than assuming the current defcustom value.
+      (let ((gptel-chat-content-indentation 2))
+        (gptel-chat-test--with-buffer
+            (concat "#+begin_user\n"
+                    "    written at width four\n"
+                    "    * Heading\n"
+                    "#+end_user\n")
+          (let* ((msgs (gptel-chat-turns-to-messages
+                        (gptel-chat-parse-buffer)))
+                 (text (cdr (car msgs))))
+            (expect text :to-equal
+                    (concat "written at width four\n"
+                            "* Heading\n")))))))
 
   (describe "Empty blocks are skipped"
     (it "emits no message for an empty user block"
@@ -414,41 +439,71 @@
              (call (cdr (car msgs))))
         (expect (plist-get call :result) :to-equal ""))))
 
-  (describe "tool :result delimiter un-escape (symmetry with prose)"
+  (describe "tool :result dedent + trim (symmetry with prose)"
 
-    ;; The stream sanitizer prepends `,' to any body line matching
-    ;; `^#\+end_\(user\|assistant\|tool\)\b'.  User and assistant text
-    ;; route their content through `gptel-chat--unescape-end-delimiters'
-    ;; at emit time.  Tool-result content must be un-escaped the same
-    ;; way so the model never sees the sanitizer's `,'-prefix artifact.
+    ;; design.md §Decision 3: tool-result content is captured verbatim
+    ;; (indented) by the parser; `gptel-chat--segment-to-messages'
+    ;; routes it through `gptel-chat--dedent' (strip the common body
+    ;; indentation) and then `string-trim' (drop surrounding blank
+    ;; lines) before the model sees it.
 
-    (it "strips leading `,' from `,#+end_tool' lines in tool :result"
+    (it "strips body indentation from a `#+end_tool' line in tool :result"
       ;; Build the segment plist directly so the spec pins the
-      ;; converter's contract without depending on parser round-tripping
-      ;; an escaped delimiter through a tool block body.
+      ;; converter's contract.  An indented `  #+end_tool' result line
+      ;; is recovered at column 0.
       (let* ((segment (list :type   'tool-call
                             :name   "dump_prose"
                             :args   '(:arg 1)
-                            :result (concat "prose\n"
-                                            ",#+end_tool\n"
-                                            "more prose\n")))
+                            :result (concat "  prose\n"
+                                            "  #+end_tool\n"
+                                            "  more prose")))
              (msgs (gptel-chat--segment-to-messages segment))
              (call (cdr (car msgs))))
         (expect (car (car msgs)) :to-equal 'tool)
         (expect (plist-get call :result)
                 :to-equal (concat "prose\n"
                                   "#+end_tool\n"
-                                  "more prose\n"))))
+                                  "more prose"))))
 
-    (it "is a no-op when :result contains no escaped delimiters"
-      (let* ((raw "no delimiters here\njust prose\n")
-             (segment (list :type   'tool-call
-                            :name   "plain"
+    (it "trims surrounding blank lines from the dedented :result"
+      ;; The parser captures the body verbatim, including the leading /
+      ;; trailing blank lines around the result.  After dedent the
+      ;; `string-trim' drops them so the message carries clean content.
+      (let* ((segment (list :type   'tool-call
+                            :name   "noisy"
                             :args   nil
-                            :result raw))
+                            :result (concat "\n"
+                                            "  result line one\n"
+                                            "  result line two\n"
+                                            "\n")))
              (msgs (gptel-chat--segment-to-messages segment))
              (call (cdr (car msgs))))
-        (expect (plist-get call :result) :to-equal raw)))))
+        (expect (plist-get call :result)
+                :to-equal "result line one\nresult line two")))
+
+    (it "is a no-op (modulo trim) when :result has no common indent"
+      (let* ((segment (list :type   'tool-call
+                            :name   "plain"
+                            :args   nil
+                            :result "no indent here\njust prose"))
+             (msgs (gptel-chat--segment-to-messages segment))
+             (call (cdr (car msgs))))
+        (expect (plist-get call :result)
+                :to-equal "no indent here\njust prose")))
+
+    (it "preserves nested indentation inside the dedented :result"
+      (let* ((segment (list :type   'tool-call
+                            :name   "nested"
+                            :args   nil
+                            :result (concat "  outer\n"
+                                            "    inner\n"
+                                            "  outer again")))
+             (msgs (gptel-chat--segment-to-messages segment))
+             (call (cdr (car msgs))))
+        (expect (plist-get call :result)
+                :to-equal (concat "outer\n"
+                                  "  inner\n"
+                                  "outer again"))))))
 
 (provide 'message-construction-spec)
 
