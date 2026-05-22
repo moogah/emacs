@@ -327,6 +327,151 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** session-document-layout
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-session-document-layout
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/session-document-layout
+   tier: shape
+   status: speculated
+   status_note: |
+     cycle-7 plan (2026-05-22) — speculated by forward-mode against
+     design.md §Addendum (Finding B, Finding C, Decisions B and C).
+     Captures the structural shape of a freshly-created session.org
+     after the Addendum relocates the system prompt from a drawer
+     property into a visible `* System Prompt` heading body and folds
+     the config drawer / system-prompt subtree on open. Reconciliation
+     flips to `confirmed` once emit-system-prompt-and-chat-headings-at-
+     creation lands and the creation specs assert the layout. The
+     shape tier is opt-in for scaffolding and this project does not
+     opt in, so this entry carries its own `validator` field rather
+     than a scaffolding file.
+   load_bearing: true
+   title: Structural layout of a freshly-created session.org document
+   purpose: |
+     The whole-document shape of a session.org file as emitted by the
+     session-creation renderer (and as materialised on first save for
+     pre-Addendum sessions). Where register/shape/drawer-text-block is
+     the shape of the :PROPERTIES: block in isolation, this entry is
+     the shape of the *document that contains it*: the drawer plus the
+     two headings the Addendum introduces. Mis-shaping the document
+     (drawer not at point-min, two `* System Prompt` headings, turn
+     blocks above `* Chat`) breaks the restore path and the chat
+     parser. Drawer/document-shape corruption has cost real time on
+     this change — hence load_bearing.
+
+   document_regions:
+     - region: file-level config drawer
+       location: point-min
+       shape: |
+         A file-level org :PROPERTIES: ... :END: block at point-min,
+         exactly the string produced by register/shape/drawer-text-block.
+         Location is unchanged from pre-Addendum sessions — chosen over
+         making it the `* System Prompt` heading's own drawer because
+         org-entry-put / gptel-org--entry-properties at point-min are
+         unchanged (lowest code risk, Decision B).
+       emitted: first, before any heading
+     - region: System Prompt heading
+       location: first heading after the config drawer
+       shape: |
+         A `* System Prompt` heading carrying its own
+         :PROPERTIES:/:VISIBILITY: folded/:END: drawer, followed by a
+         body. The body is seeded at creation from the active preset's
+         :system text; when the preset has no :system the body is empty
+         (heading present, no body text). The heading body — not a
+         drawer property — is the authoritative system prompt (see
+         register/invariant/system-prompt-heading-authoritative).
+       emitted: after the config drawer
+     - region: Chat heading
+       location: last heading
+       shape: |
+         A `* Chat` heading under which #+begin_user / #+begin_assistant
+         turn blocks live. Turn blocks never appear above `* Chat`.
+       emitted: after the System Prompt heading
+
+   structural_invariants:
+     - the file-level config drawer is still at point-min (no heading,
+       no blank line, no content precedes ":PROPERTIES:")
+     - exactly one "* System Prompt" heading exists in the document
+     - exactly one "* Chat" heading exists in the document
+     - every #+begin_user / #+begin_assistant turn block appears under
+       the "* Chat" heading, never under "* System Prompt" and never
+       before any heading
+     - the chat parser stays heading-indifferent: it locates turn
+       blocks by #+begin_user / #+begin_assistant markers, not by
+       headings, so gptel-chat-new scratch buffers (bare #+begin_user
+       blocks, no headings, no drawer) remain valid input
+
+   known_limitation: |
+     Because the chat parser is heading-indifferent (Decision 12 /
+     design.md §Finding B), a `* System Prompt` body containing a
+     literal column-0 "#+begin_user" line would be mis-parsed as a
+     turn block. Preset system prompts in this repo do not contain
+     such a line; flagged for the implementor to accept or guard.
+
+   producers:
+     - file: config/gptel/sessions/commands.org
+       function: session-creation renderer / initial-body helper
+       usage: |
+         emits the full document layout (config drawer + `* System
+         Prompt` heading seeded from the preset :system + `* Chat`
+         heading) for a fresh session.org
+     - file: config/gptel/chat/menu.org
+       function: chat-mode save path (gptel-chat--save-state and
+         helpers)
+       usage: |
+         materialises the `* System Prompt` heading for pre-Addendum
+         sessions on first save under the new code (graceful-degrade
+         path, cf. Decision 6 / Decision B)
+
+   consumers:
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat-mode restore path
+       usage: reads the `* System Prompt` heading body to install
+         gptel--system-message; folds the config drawer on activation
+     - file: config/gptel/chat/parser.org
+       function: chat turn parser
+       usage: locates turn blocks under `* Chat` (heading-indifferent)
+
+   validator: |
+     (defun shape/validate-session-document-layout (buf)
+       "Return nil when BUF matches the speculated session-document
+     layout, or a symbol naming the first violated invariant."
+       (with-current-buffer buf
+         (save-excursion
+           (goto-char (point-min))
+           (cond
+            ((not (looking-at-p "[ \t\n]*:PROPERTIES:"))
+             'config-drawer-not-at-point-min)
+            ((/= 1 (count-matches "^\\* System Prompt[ \t]*$"
+                                  (point-min) (point-max)))
+             'system-prompt-heading-not-singleton)
+            ((/= 1 (count-matches "^\\* Chat[ \t]*$"
+                                  (point-min) (point-max)))
+             'chat-heading-not-singleton)
+            (t
+             (let ((chat-pos (progn (goto-char (point-min))
+                                    (re-search-forward
+                                     "^\\* Chat[ \t]*$" nil t)))
+                   (turn-pos (progn (goto-char (point-min))
+                                    (re-search-forward
+                                     "^#\\+begin_\\(user\\|assistant\\)"
+                                     nil t))))
+               (if (and turn-pos chat-pos (< turn-pos chat-pos))
+                   'turn-block-before-chat-heading
+                 nil)))))))
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/invariant/system-prompt-heading-authoritative
+     - register/boundary/chat-mode-session-display
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -1339,6 +1484,109 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** chat-mode-session-display
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-chat-mode-session-display
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/chat-mode-session-display
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-7 plan (2026-05-22) — speculated by forward-mode against
+     design.md §Addendum (Finding A / Decision A, Finding C /
+     Decision C). Captures the seam where gptel-chat-mode overrides
+     org-mode's generic presentation for session buffers. Reconciliation
+     flips to `confirmed` once fix-scope-drawer-value-emphasis and
+     fold-config-drawer-on-open land and the scaffolded contract test
+     passes. Scaffolded as a failing buttercup contract test; see
+     scaffolding_path.
+   load_bearing: false
+   title: gptel-chat-mode overrides org-mode presentation for session buffers
+
+   purpose: |
+     gptel-chat-mode is a (define-derived-mode ... org-mode), so it
+     inherits org-mode's generic fontification and visibility
+     behaviour. For session.org buffers two pieces of that inherited
+     presentation are wrong, and gptel-chat-mode overrides them. This
+     boundary is the seam between org-mode's generic presentation and
+     chat-mode's session-specific presentation. It is display polish —
+     no real-time-cost incident history — hence load_bearing: false.
+
+   scope:
+     in_scope:
+       - file: config/gptel/chat/mode.org
+         function: gptel-chat-mode (define-derived-mode body / mode hook)
+     out_of_scope:
+       - upstream org-mode fontification and visibility machinery
+       - any non-chat-mode org buffer
+       - chat-turn prose (its /emphasis/ is intentionally preserved)
+
+   contract:
+     override_A_drawer_value_emphasis:
+       finding: Finding A
+       rule: |
+         A property-drawer *value* in a chat-mode buffer renders as
+         plain data — face org-property-value — and never inherits org
+         /emphasis/ font-lock. A directory value such as
+         ":GPTEL_SCOPE_READ: /Users/jeff/emacs/" is a syntactically
+         valid org emphasis span (leading / opens, trailing / closes);
+         org would otherwise render it italic and dim the boundary
+         slashes.
+       mechanism: |
+         gptel-chat-mode installs a buffer-local font-lock keyword that
+         re-stamps org-property-value over property-drawer value spans
+         with the OVERRIDE flag, so it wins over org's emphasis keyword.
+       counter_assertion: |
+         /emphasis/ in chat-turn prose is unaffected — the override is
+         scoped to property-drawer value spans only, not the whole
+         buffer.
+     override_C_config_drawer_folded_on_open:
+       finding: Finding C
+       rule: |
+         On gptel-chat-mode activation the file-level config
+         :PROPERTIES: drawer (the point-min drawer of register/shape/
+         session-document-layout) is folded.
+       counter_assertion: |
+         A drawerless buffer — e.g. a gptel-chat-new scratch buffer with
+         no :PROPERTIES: drawer — is a no-op: the fold step finds no
+         drawer and does nothing, raising no error.
+
+   why_it_matters: |
+     Without override A, scope path values render italicised and the
+     boundary "/" characters are dimmed or hidden — the user cannot
+     read the path they scoped, defeating the WYSIWYG goal for the one
+     drawer that most needs to be legible. Without override C, opening
+     a session.org shows a wall of configuration instead of two
+     headings plus a folded drawer. Both are presentation defects that
+     erode the "session.org is a clean, readable source of truth"
+     contract, but neither has caused a runtime fault — display polish,
+     not load-bearing correctness.
+
+   producers:
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat-mode
+       usage: |
+         installs the buffer-local font-lock OVERRIDE keyword (A) and
+         folds the config drawer on activation (C)
+
+   consumers:
+     - the chat-mode session buffer's font-lock and visibility state
+       (no downstream module re-reads this; the contract is observable
+       only via buffer face properties and fold state)
+
+   scaffolding_path: openspec/changes/gptel-drawer-as-source-of-truth/scaffolding/boundaries/chat-mode-session-display.el
+
+   related_entries:
+     - register/shape/session-document-layout
+     - register/shape/drawer-text-block
+     - register/boundary/chat-menu-scope-default
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -1846,6 +2094,90 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/shape/drawer-text-block
      - register/invariant/drawer-system-key-write-exclusion
      - register/boundary/chat-menu-scope-default
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
+** system-prompt-heading-authoritative
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-system-prompt-heading-authoritative
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/system-prompt-heading-authoritative
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-7 plan (2026-05-22) — speculated by forward-mode against
+     design.md §Addendum (Finding B, Decision B). Reverses Decision 2's
+     "system prompt rides the preset only" model: the system prompt is
+     relocated into a visible `* System Prompt` heading body and that
+     body becomes authoritative. Reconciliation flips to `confirmed`
+     once make-system-prompt-heading-authoritative lands and the
+     scaffolded test passes. Scaffolded as a failing buttercup test;
+     see scaffolding_path.
+   load_bearing: true
+   title: The `* System Prompt` heading body is the authoritative source of gptel--system-message
+
+   statement: |
+     For a session.org document (register/shape/session-document-
+     layout), the body of the `* System Prompt` heading is the
+     authoritative source of the buffer-local gptel--system-message.
+
+     Restore precedence on chat-mode activation is, highest first:
+       1. `* System Prompt` heading body, when non-blank
+       2. legacy :GPTEL_SYSTEM: drawer entry, when present
+       3. preset :system
+     A blank (whitespace-only or absent) heading body is treated as
+     "not authored" and falls through to the next source — an empty
+     heading never silently wipes the prompt.
+
+     On before-save-hook the current buffer-local gptel--system-message
+     is serialised back into the `* System Prompt` heading body. The
+     writer still never emits a :GPTEL_SYSTEM: drawer line — this
+     composes with, and does not contradict, register/invariant/drawer-
+     system-key-write-exclusion: that invariant governs the *drawer*,
+     this one governs the *heading body*. The preset's :system only
+     *seeds* a fresh session's heading body at creation.
+
+     The round trip create -> restore -> save -> re-restore is stable:
+     a save that changes nothing produces no diff to the heading body
+     (idempotent save), and re-restoring yields the same
+     gptel--system-message.
+
+   why_it_matters: |
+     design.md Decision 2 excluded the system prompt from session.org
+     because long, multi-line, special-character strings are unwieldy
+     as a single org property *value*. Finding B observes that the
+     objection is specific to property values; an org heading *body*
+     carries multi-line special-character text with no escaping. If the
+     precedence order were wrong — preset winning over an authored
+     heading body, or a blank body wiping the prompt — the document
+     would stop being a credible WYSIWYG source of truth: a user would
+     edit the visible `* System Prompt` body and see no effect, or open
+     a fresh session and find the prompt gone. The fallback-on-blank
+     rule is the specific guard against an empty heading silently
+     erasing the prompt.
+
+   enforcement_mechanism:
+     kind: failing scaffolded test (buttercup) + Architect invariant audit
+     location: |
+       Scaffolded failing buttercup test at scaffolding_path asserts
+       (a) the three-level precedence order, (b) blank-body fallback to
+       preset, and (c) the create -> restore -> save -> re-restore
+       round-trip stability. Implementor makes it pass by wiring the
+       restore path (config/gptel/chat/mode.org) and the before-save
+       serialisation (config/gptel/chat/menu.org). Architect's invariant
+       audit re-checks that no drawer :GPTEL_SYSTEM: write was added and
+       that the precedence branch order matches this statement.
+
+   related_entries:
+     - register/invariant/drawer-system-key-write-exclusion
+     - register/shape/session-document-layout
+     - register/invariant/drawer-overlay-wins-over-preset
+
+   scaffolding_path: openspec/changes/gptel-drawer-as-source-of-truth/scaffolding/invariants/system-prompt-heading-authoritative.test.el
 
    discovered_from: gptel-drawer-as-source-of-truth
    discovered_by: architect

@@ -144,4 +144,47 @@ No data migration is required.
 
 1. **Should the `gptel-chat-menu` scope default cover *all* infixes or only Tools?** Decision 5 picks "all" for consistency. If user testing reveals friction with model/temperature changes also defaulting to buffer-local (e.g., user wanted to change global default and forgot to toggle scope), we may need to scope-narrow to Tools. Park as a follow-up.
 2. **Should the renderer also accept and emit user-supplied delta values at creation time** (e.g., `--create-for-session` taking a `model` override that takes precedence over the preset's `:model`)? Today no caller passes such overrides. If `PersistentAgent` ever needs to override the parent's preset model on a per-agent basis, we'll add an optional plist arg. Park.
-3. **Is there a meaningful gain from emitting `:GPTEL_SYSTEM:` *only* when it differs from the preset (delta-only for system, full-snapshot for everything else)?** Hybrid approach. Probably not worth the special case; consistency wins. If users complain about losing manual system-prompt edits across saves, revisit.
+3. **Is there a meaningful gain from emitting `:GPTEL_SYSTEM:` *only* when it differs from the preset (delta-only for system, full-snapshot for everything else)?** Hybrid approach. Probably not worth the special case; consistency wins. If users complain about losing manual system-prompt edits across saves, revisit. *(Resolved by Addendum Finding B — the system prompt becomes a visible heading body, not a property at all.)*
+
+## Addendum — user-testing findings (2026-05-22)
+
+After the change was developed and smoke-tested, three findings from real-session use were folded back in. They are tracked as additional tasks on this change (`fix-scope-drawer-value-emphasis`, `emit-system-prompt-and-chat-headings-at-creation`, `make-system-prompt-heading-authoritative`, `fold-config-drawer-on-open`) rather than a separate change. This section records the decisions they introduce.
+
+### Finding A — `:GPTEL_SCOPE_*:` path values render italicized, hiding `/`
+
+A drawer value such as `:GPTEL_SCOPE_READ: /Users/jeff/emacs/` is a syntactically valid org `/emphasis/` span — the leading `/` opens it, the trailing `/` closes it. Org applies emphasis font-lock buffer-wide, including inside property drawers, so the path renders italic and the boundary slashes are dimmed/hidden. Confirmed by a fontification probe: trailing-slash directory values get `(italic org-property-value)`; values with no trailing slash get plain `org-property-value`.
+
+**Decision A.** `gptel-chat-mode` installs a buffer-local font-lock keyword that re-stamps `org-property-value` (with the OVERRIDE flag) over property-drawer value spans. This removes emphasis from drawer values — they are data, not prose — while leaving emphasis intact in chat-turn prose. *Rejected:* disabling `org-fontify-emphasized-text` buffer-wide (would kill emphasis in chat content too); stripping trailing slashes at render time (only fixes our-rendered values, not hand-edited ones, and risks scope-matching semantics).
+
+### Finding B — system prompt should be a visible `* System Prompt` heading (reverses Decision 2's "system rides the preset only" model)
+
+Decision 2 excluded the system prompt from `session.org` because it is "unwieldy as a property *value*." That objection is specific to property *values*; an org *heading body* carries multi-line, special-character text with no escaping. The system prompt is therefore relocated into the document as visible content. A `session.org` file is structured as:
+
+```
+:PROPERTIES:        <- file-level config drawer (unchanged location: point-min)
+...config + scope keys...
+:END:
+
+* System Prompt
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+<system prompt body — authoritative>
+
+* Chat
+#+begin_user
+...
+```
+
+**Decision B.**
+- The config `:PROPERTIES:` drawer stays a **file-level drawer at `point-min`** (chosen over making it the heading's own drawer: `org-entry-put` / `gptel-org--entry-properties` at `point-min` are unchanged — lowest code risk).
+- The **`* System Prompt` heading body is the authoritative system prompt.** On mode activation the restore path reads it and installs it buffer-locally as `gptel--system-message`, winning over the preset's `:system`. On `before-save-hook` the current `gptel--system-message` is written back into the heading body. The preset's `:system` only *seeds* a new session's heading body at creation.
+- Turn blocks (`#+begin_user` / `#+begin_assistant`) live under a `* Chat` heading. The chat parser stays heading-indifferent (Decision 12) — the `* System Prompt` body and the `* Chat` heading are commentary to it — so `gptel-chat-new` scratch buffers (no headings) are unaffected. Only the session-creation renderer emits the new layout.
+- `:GPTEL_SYSTEM:` restore precedence becomes: `* System Prompt` heading body > legacy `:GPTEL_SYSTEM:` drawer entry > preset `:system`. The writer still never emits `:GPTEL_SYSTEM:` (Decision 2's write-exclusion stands; the property is now legacy-read-only).
+- Existing sessions degrade gracefully (cf. Decision 6): a file with no `* System Prompt` heading falls back to the preset; the heading is materialized on first save under the new code.
+
+**Known limitation.** Because the parser is heading-indifferent, a system-prompt body containing a literal `#+begin_user` at column 0 would be mis-parsed as a turn. Preset system prompts in this repo do not; flagged for the implementor to accept or add a narrow guard.
+
+### Finding C — config drawer and `* System Prompt` heading should be folded by default
+
+**Decision C.** On open, the `* System Prompt` subtree is folded via a `:VISIBILITY: folded` property emitted by the session-creation renderer (org's `org-set-visibility-according-to-property` honors it at startup; `* Chat` stays open). The file-level config drawer is folded by `gptel-chat-mode` on activation. This keeps `session.org` visually clean — open the file and see two headings plus a folded drawer, not a wall of configuration.
