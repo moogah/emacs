@@ -62,3 +62,41 @@ Verified matcher/keyword shape (probe run during scoping): the function matcher 
 Rejected alternatives (do not implement): `setq-local org-fontify-emphasized-text nil` (kills emphasis in chat content too); stripping trailing slashes in the renderer (only fixes our-rendered values, not hand-edited ones, and risks scope-matching semantics).
 
 Cited register entry (cycle-7 plan): `interfaces.org#register-boundary-chat-mode-session-display` (`status: speculated`) — this task satisfies **override A** (drawer values render as plain `org-property-value`, never inherit org `/emphasis/`; chat-turn prose emphasis preserved). The scaffolded failing contract-test at `openspec/changes/gptel-drawer-as-source-of-truth/scaffolding/boundaries/chat-mode-session-display.el` has a `describe` block for override A — make those `it` bodies pass, or revise the scaffold and explain in `## Discoveries`. Leave the override-C block (`fold-config-drawer-on-open`'s) untouched.
+
+## Observations
+
+- The verified matcher/keyword shape in the task body's Context section is correct: a `-Q` probe confirmed drawer values get `org-property-value` (no italic) and `/italic/` prose stays `(italic)`. Implemented the function and keyword verbatim.
+- The scaffold's original "re-stamps ... via a buffer-local font-lock keyword carrying the OVERRIDE flag" `it` body, and my first draft of the equivalent spec, asserted the override by *contrast*: "plain `org-mode` fontifies the trailing-slash value italic; chat-mode does not." That contrast assertion is environment-fragile. Under `emacs -Q`, plain `org-mode` does fontify the value italic; under the test harness's full init (which loads this repo's org configuration) it does **not** — `org-fontify-emphasized-text` / emphasis-regexp settings differ, so `value-italic-in-org` came back nil and the assertion failed. Rewrote both the new spec and the scaffold's override-A "re-stamps" `it` to assert deterministically against the installed keyword structure instead: the matcher is `gptel-chat--drawer-value-matcher`, the facespec is `(1 'org-property-value t)` with the OVERRIDE flag set, and `font-lock-keywords` is buffer-local. The face-level behavior (drawer value not italic; chat prose still italic) is still asserted in the other two `it` bodies, which exercise chat-mode directly and are config-independent.
+- The scaffolding file lives under `openspec/changes/.../scaffolding/` and is **not** discovered by `./bin/run-tests.sh` (the harness only walks `config/`). Per the task's instruction to "make those `it` bodies pass", I made the scaffold's override-A block genuinely passing real assertions (it needs the chat module on `load-path`, added via `locate-dominating-file`). The override-C `describe` block is byte-identical to `HEAD` (verified via `git show HEAD:... | awk` diff) — its two `it` stubs still raise `error`, owned by sibling task `fold-config-drawer-on-open`. The new co-located regression spec `config/gptel/chat/test/display/drawer-fontification-spec.el` is the harness-discovered contract test.
+- Pre-existing failure load in `config/gptel/chat`: 3 buttercup specs under `preset wiring drawer overrides overlay` fail with `Expected 'make-local-variable :not :to-have-been-called`. Confirmed pre-existing by stashing this task's changes and re-running `config/gptel/chat/test/menu` on a clean tree — the same 3 failed. Not introduced by this task; not in scope.
+
+## Discoveries
+
+- discovery_id: disc-fix-scope-drawer-value-emphasis-1
+  class: deviation
+  description: |
+    The register entry register/boundary/chat-mode-session-display
+    (override A, status: speculated) is satisfied as speculated — no
+    push-back on the contract. One implementation-level note for
+    reconciliation: the entry's `mechanism` says the keyword "re-stamps
+    org-property-value over property-drawer value spans with the
+    OVERRIDE flag." This is exactly what shipped; `font-lock-add-keywords`
+    is called with a nil first argument (buffer-local install) inside
+    the `define-derived-mode` body, `'append` ordering, facespec
+    `(1 'org-property-value t)`. The face-contrast assertion style the
+    scaffold originally used (plain org-mode vs chat-mode) is not a
+    reliable contract test because plain-org emphasis fontification of
+    trailing-slash drawer values is config-dependent; the contract is
+    better verified by (a) the chat-mode face outcome and (b) the
+    installed keyword structure. The reconciled entry could note that
+    the override is observable as a buffer-local `font-lock-keywords`
+    entry, not only as a face delta against vanilla org-mode.
+  affected_register_entry: register/boundary/chat-mode-session-display
+  recommendation: |
+    Flip override-A's portion of the entry to `confirmed` on
+    reconciliation — implementation matches the speculated mechanism
+    exactly. No shape or vocabulary change needed. Optionally add to
+    the entry's contract that the override manifests as a buffer-local
+    `font-lock-keywords` entry whose matcher is
+    `gptel-chat--drawer-value-matcher` and whose facespec carries the
+    OVERRIDE flag, since that is the deterministic observable.
