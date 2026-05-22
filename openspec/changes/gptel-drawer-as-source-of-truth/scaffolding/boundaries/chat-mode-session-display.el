@@ -37,19 +37,87 @@
 ;;; Code:
 
 (require 'buttercup)
+(require 'cl-lib)
+
+;; Override A is implemented by `gptel-chat-mode' in
+;; config/gptel/chat/mode.org.  Put the chat module on the load-path so
+;; this scaffold can exercise the real mode rather than a stub.  The
+;; co-located regression spec lives at
+;; config/gptel/chat/test/display/drawer-fontification-spec.el; the
+;; assertions below mirror it as the register-pinned contract test.
+(let ((chat-dir (expand-file-name
+                 "config/gptel/chat/"
+                 (locate-dominating-file
+                  (or load-file-name buffer-file-name default-directory)
+                  "config"))))
+  (when (file-directory-p chat-dir)
+    (add-to-list 'load-path chat-dir)))
+
+(require 'gptel-chat-mode)
+
+(defun chat-mode-session-display--faces-at (pos)
+  "Return the `face' property at POS normalized to a list of faces."
+  (let ((face (get-text-property pos 'face)))
+    (cond ((null face) nil)
+          ((listp face) face)
+          (t (list face)))))
 
 (describe "register/boundary/chat-mode-session-display"
 
   (describe "override A — drawer value emphasis suppression"
 
     (it "renders a trailing-slash drawer value (e.g. :GPTEL_SCOPE_READ: /Users/jeff/emacs/) with face org-property-value, not org italic emphasis"
-      (error "speculated; not implemented — see register/boundary/chat-mode-session-display"))
+      (with-temp-buffer
+        (insert ":PROPERTIES:\n:GPTEL_SCOPE_READ: /Users/jeff/emacs/\n:END:\n")
+        (gptel-chat-mode)
+        (font-lock-ensure)
+        (goto-char (point-min))
+        (search-forward "/Users")
+        (let ((open-slash (- (point) (length "/Users"))))
+          (expect (memq 'org-property-value
+                        (chat-mode-session-display--faces-at open-slash))
+                  :to-be-truthy)
+          (expect (memq 'italic
+                        (chat-mode-session-display--faces-at open-slash))
+                  :not :to-be-truthy))))
 
     (it "re-stamps drawer value spans via a buffer-local font-lock keyword carrying the OVERRIDE flag"
-      (error "speculated; not implemented — see register/boundary/chat-mode-session-display"))
+      ;; The override is installed as a buffer-local font-lock keyword
+      ;; whose matcher is the named function and whose facespec carries
+      ;; the OVERRIDE flag (the trailing `t').  `font-lock-keywords' is
+      ;; buffer-local so the keyword does not leak globally.
+      (with-temp-buffer
+        (insert ":PROPERTIES:\n:GPTEL_SCOPE_READ: /Users/jeff/emacs/\n:END:\n")
+        (gptel-chat-mode)
+        (font-lock-ensure)
+        (expect (local-variable-p 'font-lock-keywords) :to-be-truthy)
+        (let* ((entry (cl-find-if
+                       (lambda (kw)
+                         (and (consp kw)
+                              (eq (car kw)
+                                  'gptel-chat--drawer-value-matcher)))
+                       (cadr font-lock-keywords)))
+               (facespec (and entry (cadr entry))))
+          (expect entry :to-be-truthy)
+          (expect (nth 0 facespec) :to-equal 1)
+          (expect (nth 1 facespec) :to-equal ''org-property-value)
+          (expect (nth 2 facespec) :to-be-truthy))))
 
     (it "leaves chat-turn prose /emphasis/ intact — the override is scoped to property-drawer value spans only"
-      (error "speculated; not implemented — see register/boundary/chat-mode-session-display")))
+      (with-temp-buffer
+        (insert ":PROPERTIES:\n:GPTEL_SCOPE_READ: /Users/jeff/emacs/\n:END:\n"
+                "\n#+begin_user\nThis sentence has /emphasized/ prose.\n#+end_user\n")
+        (gptel-chat-mode)
+        (font-lock-ensure)
+        (goto-char (point-min))
+        (search-forward "/emphasized/")
+        (let ((emphasis-mid (- (point) (length "phasized/"))))
+          (expect (memq 'italic
+                        (chat-mode-session-display--faces-at emphasis-mid))
+                  :to-be-truthy)
+          (expect (memq 'org-property-value
+                        (chat-mode-session-display--faces-at emphasis-mid))
+                  :not :to-be-truthy)))))
 
   (describe "override C — config drawer folded on open"
 
