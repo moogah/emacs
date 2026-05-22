@@ -504,22 +504,30 @@
 
       (it "is a no-op for each absent field"
         ;; Tuple is all-nil (other than preset, which is discarded).
-        ;; Spy on `make-local-variable' and assert it is never called
-        ;; by the overlay — neither for the upstream keys nor for
-        ;; `jf/gptel--parent-session-id' (since the drawer does not
-        ;; supply one).
+        ;; Assert the overlay installs no buffer-local for any key —
+        ;; neither the upstream keys nor `jf/gptel--parent-session-id'
+        ;; (the drawer supplies no `GPTEL_PARENT_SESSION_ID').
+        ;;
+        ;; Asserts on `local-variable-p' of each candidate key rather
+        ;; than spying `make-local-variable': `org-mode' activation and
+        ;; the org-element cache init triggered by the overlay's own
+        ;; `org-entry-get' call make ~83 org-internal
+        ;; `make-local-variable' calls, which a global spy cannot
+        ;; distinguish from the overlay's.  `local-variable-p' tests
+        ;; the actual contract — no overlaid binding leaks in.
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list nil nil nil nil nil nil nil nil))
-        (spy-on 'make-local-variable :and-call-through)
         (with-temp-buffer
           (org-mode)
           ;; Drawer does not contain `GPTEL_PARENT_SESSION_ID'.
           (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n")
           (gptel-chat--apply-drawer-overrides)
-          ;; The overlay must never invoke `make-local-variable' for
-          ;; an absent key.  Everything about the overlay is no-op
-          ;; in this scenario.
-          (expect 'make-local-variable :not :to-have-been-called)))
+          ;; The overlay installs no buffer-local for any absent key.
+          (dolist (key '(gptel--system-message gptel-backend gptel-model
+                         gptel-temperature gptel-max-tokens
+                         gptel--num-messages-to-send gptel-tools
+                         jf/gptel--parent-session-id))
+            (expect (local-variable-p key) :to-be nil))))
 
       (it "discards the preset field from the upstream tuple"
         ;; `gptel--preset' is not overlayed — the caller (apply-
@@ -725,35 +733,46 @@
         ;; No drawer → no `GPTEL_PRESET' → preset branch skipped.
         ;; Upstream tuple is all-nil → overlay is a no-op for every
         ;; upstream key.  `GPTEL_PARENT_SESSION_ID' is absent too.
+        ;;
+        ;; Asserts `local-variable-p' per candidate key rather than
+        ;; spying `make-local-variable' — see the "is a no-op for each
+        ;; absent field" spec above for why the global spy is unsound
+        ;; here (org-mode / org-element-cache init calls it ~83 times).
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list nil nil nil nil nil nil nil nil))
-        (spy-on 'make-local-variable :and-call-through)
         (with-temp-buffer
           (insert gptel-chat-preset-test--no-preset)
           (org-mode)
           (gptel-chat--apply-declared-preset)
           (expect 'gptel--apply-preset :not :to-have-been-called)
-          (expect 'make-local-variable :not :to-have-been-called)))
+          (dolist (key '(gptel--system-message gptel-backend gptel-model
+                         gptel-temperature gptel-max-tokens
+                         gptel--num-messages-to-send gptel-tools
+                         jf/gptel--parent-session-id))
+            (expect (local-variable-p key) :to-be nil))))
 
       (it "does not overlay absent upstream keys even when preset applies"
         ;; Drawer with `GPTEL_PRESET: coding' only — overlay tuple has
         ;; only the preset set; every other field is nil.  The overlay
-        ;; MUST NOT call the buffer-local setter for absent keys.
+        ;; MUST NOT install a buffer-local for absent keys.
+        ;;
+        ;; The `gptel--apply-preset' spy is a no-op (it does not run the
+        ;; setter lambda), so any buffer-local that appears here came
+        ;; from the overlay — and the overlay's tuple is all-nil, so
+        ;; none should.  Asserts `local-variable-p' per key rather than
+        ;; spying `make-local-variable' (see the no-op spec above).
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list 'coding nil nil nil nil nil nil nil))
-        (spy-on 'make-local-variable :and-call-through)
         (with-temp-buffer
           (insert gptel-chat-preset-test--drawer-coding)
           (org-mode)
           (gptel-chat--apply-declared-preset)
           (expect 'gptel--apply-preset :to-have-been-called)
-          ;; The preset-apply path invokes the setter lambda, which
-          ;; calls `make-local-variable' for preset-provided keys.
-          ;; But our apply-preset spy is a no-op setter (no args) —
-          ;; it never calls `make-local-variable'.  So the only
-          ;; potential caller here is the overlay, and every overlay
-          ;; field is nil → no calls expected.
-          (expect 'make-local-variable :not :to-have-been-called))))
+          (dolist (key '(gptel--system-message gptel-backend gptel-model
+                         gptel-temperature gptel-max-tokens
+                         gptel--num-messages-to-send gptel-tools
+                         jf/gptel--parent-session-id))
+            (expect (local-variable-p key) :to-be nil)))))
 
 
     ;; -------------------------------------------------------------------

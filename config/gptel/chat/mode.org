@@ -199,16 +199,83 @@ render as plain `org-property-value' data rather than inheriting org
     found))
 #+end_src
 
+* Config-drawer folding
+
+A persisted =session.org= opens with a file-level =:PROPERTIES:=
+drawer at =point-min= holding the full configuration snapshot —
+preset, model, backend, tools, temperature, and the
+=:GPTEL_SCOPE_*:= keys (design.md §Addendum, Finding C / Decision C;
+register entry =register/boundary/chat-mode-session-display=,
+override C). Shown expanded, that block is the first thing in view
+and buries the =* System Prompt= / =* Chat= headings under a wall of
+configuration.
+
+org-mode's startup visibility (=org-set-visibility-according-to-property=
+et al.) folds drawers *under headings*, but the chat-mode config
+drawer sits *before the first heading* — it is not reliably reached
+by startup visibility in the derived mode. =gptel-chat-mode= folds it
+explicitly on activation.
+
+=org-fold-hide-drawer-all= (org 9.7's =org-fold= API) folds every
+drawer in the buffer, including the pre-first-heading file-level
+one. On a drawerless buffer — e.g. a =gptel-chat-new= scratch buffer
+whose only content is an empty =#+begin_user= block — it finds no
+drawer and is a silent no-op, so no guard is needed.
+
+*Ordering matters.* The fold must run from =gptel-chat-mode-hook=,
+*not* from the =define-derived-mode= body. =define-derived-mode=
+expands so the child body executes *before* =run-mode-hooks=, while
+=org-mode='s own fold subsystem (=org-fold-core=) is still
+finalizing. A fold registered from the body is silently dropped by a
+later step of mode activation — verified empirically: an
+=org-fold-hide-drawer-all= call in the body leaves
+=(org-fold-folded-p ... 'drawer)= = nil, whereas the identical call
+from =gptel-chat-mode-hook= folds the drawer correctly. So the fold
+function is attached to the hook with =add-hook= at load time;
+=define-derived-mode= runs that hook after the body, once the fold
+core is fully set up. This is exactly the "run the fold from the mode
+hook after content load" resolution anticipated in the task's
+implementation steps.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--fold-config-drawer ()
+  "Fold the file-level config `:PROPERTIES:' drawer in the current buffer.
+
+Runs from `gptel-chat-mode-hook' on activation.  Folds every drawer
+via `org-fold-hide-drawer-all', which covers the pre-first-heading
+file-level configuration drawer that org-mode's startup visibility
+does not reliably reach in this derived mode.
+
+Attached to the hook rather than called from the `define-derived-mode'
+body: the body runs before `run-mode-hooks', while org-mode's
+`org-fold-core' subsystem is still finalizing, and a fold registered
+that early is silently dropped by a later activation step.  Running
+from the hook — after the body and after fold-core setup — folds the
+drawer reliably.
+
+A no-op when the buffer has no drawer (a `gptel-chat-new' scratch
+buffer): `org-fold-hide-drawer-all' simply finds nothing to fold and
+raises no error.  See design.md §Addendum (Finding C / Decision C)."
+  (org-fold-hide-drawer-all))
+#+end_src
+
+The =add-hook= that wires this onto =gptel-chat-mode-hook= lives just
+after the =define-derived-mode= form (below), so the hook variable is
+already declared when it runs.
+
 * Major mode definition
 
 =define-derived-mode= from =org-mode= — inherit fontification, folding,
 and inside-block editing behaviours (design.md §Decision 6). Overrides
-are minimal by design: the keymap (above), =org-adapt-indentation=, and
-the drawer-value font-lock override (below).
+are minimal by design: the keymap (above), =org-adapt-indentation= and
+the drawer-value font-lock override (in the body, below); the
+config-drawer fold runs from =gptel-chat-mode-hook=
+(=gptel-chat--fold-config-drawer=, attached after the form below).
 
-The =gptel-chat-mode-hook= runs at activation per Emacs convention;
-later tasks (display layer, preset wiring) register their own
-activation logic by adding to the hook.
+The =gptel-chat-mode-hook= runs at activation per Emacs convention,
+*after* the mode body — which is why the config-drawer fold attaches
+to it rather than living in the body. Later tasks (display layer,
+preset wiring) register their own activation logic the same way.
 
 The =font-lock-add-keywords= call installs
 =gptel-chat--drawer-value-matcher= buffer-locally (=nil= first
@@ -239,12 +306,19 @@ Property-drawer values are re-stamped with `org-property-value' via a
 buffer-local OVERRIDE font-lock keyword so scope path values do not
 inherit org `/emphasis/' (design.md §Addendum Finding A).
 
+The file-level config `:PROPERTIES:' drawer is folded on activation by
+`gptel-chat--fold-config-drawer', attached to `gptel-chat-mode-hook'
+below, so a persisted `session.org' opens clean (design.md §Addendum,
+Decision C).
+
 \\{gptel-chat-mode-map}"
   (setq-local org-adapt-indentation nil)
   (font-lock-add-keywords
    nil
    '((gptel-chat--drawer-value-matcher (1 'org-property-value t)))
    'append))
+
+(add-hook 'gptel-chat-mode-hook #'gptel-chat--fold-config-drawer)
 #+end_src
 
 * New-chat command
