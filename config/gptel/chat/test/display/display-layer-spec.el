@@ -46,13 +46,18 @@
 
 (defconst gptel-chat-display-test--two-turns
   (concat "#+begin_user\n"
-          "Hello there.\n"
+          "  Hello there.\n"
           "#+end_user\n"
           "\n"
           "#+begin_assistant\n"
-          "General Kenobi.\n"
+          "  General Kenobi.\n"
           "#+end_assistant\n")
-  "Minimal buffer content with one user turn and one assistant turn.")
+  "Minimal buffer content with one user turn and one assistant turn.
+
+Body content is stored in the indented form (every body line offset
+by `gptel-chat-content-indentation' spaces) so the read-time
+migration pass is a no-op and the fixture round-trips byte-for-byte
+through `gptel-chat-mode' activation.")
 
 (defun gptel-chat-display-test--display-overlays (&optional buffer)
   "Return the list of `gptel-chat-display'-tagged overlays in BUFFER."
@@ -107,8 +112,9 @@ synchronously."
             (user-text (buffer-substring-no-properties
                         (overlay-start user-ov)
                         (overlay-end user-ov))))
-       ;; The body text is exactly "Hello there.\n" — no delimiters.
-       (expect user-text :to-equal "Hello there.\n")
+       ;; The body text is exactly the indented "  Hello there.\n" —
+       ;; no delimiters.
+       (expect user-text :to-equal "  Hello there.\n")
        (expect user-text :not :to-match "#\\+begin_user")
        (expect user-text :not :to-match "#\\+end_user"))
      (let* ((asst-ov (car (gptel-chat-display-test--overlays-with-face
@@ -116,7 +122,7 @@ synchronously."
             (asst-text (buffer-substring-no-properties
                         (overlay-start asst-ov)
                         (overlay-end asst-ov))))
-       (expect asst-text :to-equal "General Kenobi.\n")
+       (expect asst-text :to-equal "  General Kenobi.\n")
        (expect asst-text :not :to-match "#\\+begin_assistant")
        (expect asst-text :not :to-match "#\\+end_assistant"))))
 

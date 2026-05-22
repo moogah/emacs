@@ -1,7 +1,7 @@
 :PROPERTIES:
 :ID:       heading-test-fixture-001
 :END:
-#+title: Heading collision repro
+#+title: Pre-indentation session
 
 #+begin_user
 Please use a heading in your reply.

@@ -1,4 +1,4 @@
-;;; streaming-spec.el --- Buttercup tests for gptel-chat streaming sanitizer and line-holdback closure -*- lexical-binding: t; -*-
+;;; streaming-spec.el --- Buttercup tests for gptel-chat streaming indenter and line-holdback closure -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,37 +7,43 @@
 
 ;;; Commentary:
 
-;; Exercises the two public entry points of `gptel-chat-stream'
-;; delivered by task `sanitize-chunks':
+;; Exercises the two public entry points of `gptel-chat-stream':
 ;;
-;; 1. `gptel-chat--sanitize-chunk' — single-line delimiter-collision
-;;    escape.  Verifies the case-insensitive three-delimiter match
-;;    rule (#+end_user / #+end_assistant / #+end_tool) and the
-;;    intentional absence of escaping for lines like `#+end_src',
-;;    `#+begin_assistant', or generic prose (design.md §Decision 4).
+;; 1. `gptel-chat--sanitize-chunk' — a per-line body indenter (change
+;;    `gptel-chat-heading-scoping', design.md §Decisions 1 and 6).  A
+;;    non-blank line is returned with `gptel-chat--body-indent' leading
+;;    spaces prepended so streamed assistant content sits inside the
+;;    indented chat-block body, off column 0 where org's structural
+;;    scanners (the heading regex, the special-block closers, drawers,
+;;    keywords) are anchored.  A blank line is returned unchanged.  An
+;;    embedded newline signals an error.  This single mechanism
+;;    supersedes the two per-token escapes of the earlier design (the
+;;    `,#+end_*' delimiter escape and the `*' heading escape).
 ;;
 ;; 2. `gptel-chat--make-stream-inserter' — per-request factory that
 ;;    returns a `gptel-chat-stream' cl-struct handle.  The handle's
 ;;    `insert' slot is the line-buffered chunk processor; its
 ;;    `set-tool-marker' / `clear-tool-marker' slots expose the
-;;    tool-routing override so callers (notably the later
-;;    `stream-callback' task) can flip routing without `cl-letf'
-;;    surgery on captured state (design.md §Decision 3b).  Covers
-;;    multi-chunk in-order insertion, collisions that land on a
-;;    whole line, stream completion via the `t' flush sentinel,
-;;    and the typed struct surface itself (predicate, setter
-;;    validation, setter-routes-inserts, clearer-restores-routing).
+;;    tool-routing override so callers (notably `stream-callback') can
+;;    flip routing without `cl-letf' surgery on captured state
+;;    (design.md §Decision 3b).  Covers multi-chunk in-order
+;;    insertion, the body indenter applied per line, stream completion
+;;    via the `t' flush sentinel, and the typed struct surface itself
+;;    (predicate, setter validation, setter-routes-inserts,
+;;    clearer-restores-routing).
 ;;
 ;; Scenarios covered (spec §"Response streaming and sanitization"):
-;; - Normal stream completion (multi-chunk in-order).
-;; - Response containing #+end_assistant on its own line is escaped.
-;; - Case-insensitive: #+END_ASSISTANT, #+End_Assistant are escaped.
-;; - #+end_src / #+begin_assistant / plain prose pass through.
+;; - Normal stream completion (multi-chunk in-order, each line
+;;   indented by the body width).
+;; - A streamed `#+end_assistant' line is indented (body content, not
+;;   a real closer).
+;; - A streamed `* Heading' line is indented (body content, not a
+;;   document heading).
+;; - Blank lines pass through unchanged.
 ;;
-;; The split-across-chunks scenario (chunk 1 ends with `#+end_ass',
-;; chunk 2 begins with `istant\nmore') lives in `chunk-split-spec.el'.
-;; Abort handling and tool-call rendering belong to task
-;; `stream-callback' and are out of scope here.
+;; The split-across-chunks scenario (chunk 1 ends with `* He', chunk 2
+;; begins with `ading\nmore') lives in `chunk-split-spec.el'.  Abort
+;; handling and tool-call rendering belong to `tool-call-spec.el'.
 
 ;;; Code:
 
@@ -52,10 +58,11 @@
   (add-to-list 'load-path chat-dir))
 
 ;; `gptel-chat-mode' owns the `gptel-chat-content-indentation' defcustom
-;; consulted by `gptel-chat--sanitize-chunk' for the heading-collision
-;; escape.  In production `mode.el' loads before `stream.el'; loading it
-;; here mirrors that order so heading-escape specs see the configured
-;; default rather than the sanitizer's standalone fallback.
+;; and the `gptel-chat--body-indent' accessor consulted by
+;; `gptel-chat--sanitize-chunk' for the body indent.  In production
+;; `mode.el' loads before `stream.el'; loading it here mirrors that
+;; order so the indenter specs see the configured default rather than
+;; the accessor's standalone fallback.
 (require 'gptel-chat-mode)
 (require 'gptel-chat-stream)
 
@@ -91,104 +98,119 @@ Returns the marker."
         gptel-chat-stream-test--marker nil))
 
 
-;;; gptel-chat--sanitize-chunk ----------------------------------------------
+;;; gptel-chat--sanitize-chunk: per-line body indenter ----------------------
+;;
+;; design.md §Decisions 1 and 6: `gptel-chat--sanitize-chunk' is a
+;; line-level helper that indents a complete line (no embedded `\n')
+;; by `gptel-chat--body-indent' leading spaces.  Indenting every
+;; streamed line off column 0 is what keeps org's structural scanners
+;; — the heading regex `^\*+ ', the special-block closers `^#\+end_…',
+;; drawers, keywords — from reading assistant output as document
+;; structure.  A blank line is returned unchanged so no trailing
+;; whitespace is introduced.
 
-(describe "gptel-chat--sanitize-chunk"
+(describe "gptel-chat--sanitize-chunk: per-line body indenter"
 
-  (describe "matches the three chat-mode end-delimiters"
+  (describe "indents a non-blank line by the body width"
 
-    (it "escapes #+end_user"
-      (expect (gptel-chat--sanitize-chunk "#+end_user")
-              :to-equal ",#+end_user"))
-
-    (it "escapes #+end_assistant"
-      (expect (gptel-chat--sanitize-chunk "#+end_assistant")
-              :to-equal ",#+end_assistant"))
-
-    (it "escapes #+end_tool"
-      (expect (gptel-chat--sanitize-chunk "#+end_tool")
-              :to-equal ",#+end_tool")))
-
-  (describe "is case-insensitive (design.md §Decision 4)"
-
-    (it "escapes upper-case #+END_ASSISTANT"
-      (expect (gptel-chat--sanitize-chunk "#+END_ASSISTANT")
-              :to-equal ",#+END_ASSISTANT"))
-
-    (it "escapes mixed-case #+End_Assistant"
-      (expect (gptel-chat--sanitize-chunk "#+End_Assistant")
-              :to-equal ",#+End_Assistant"))
-
-    (it "escapes upper-case #+END_TOOL"
-      (expect (gptel-chat--sanitize-chunk "#+END_TOOL")
-              :to-equal ",#+END_TOOL")))
-
-  (describe "leaves non-matching lines untouched"
-
-    (it "passes #+end_src through (not one of the three)"
-      (expect (gptel-chat--sanitize-chunk "#+end_src")
-              :to-equal "#+end_src"))
-
-    (it "passes #+begin_assistant through (begin, not end)"
-      (expect (gptel-chat--sanitize-chunk "#+begin_assistant")
-              :to-equal "#+begin_assistant"))
-
-    (it "passes #+begin_user through"
-      (expect (gptel-chat--sanitize-chunk "#+begin_user")
-              :to-equal "#+begin_user"))
-
-    (it "passes plain prose through"
+    (it "prepends the body indent to plain prose (default width 2)"
       (expect (gptel-chat--sanitize-chunk "Hello world.")
-              :to-equal "Hello world."))
+              :to-equal "  Hello world."))
 
-    (it "passes the empty string through"
+    (it "indents a heading-shaped line off column 0"
+      ;; A `* Heading' at column 0 inside a chat-block body would be
+      ;; absorbed by org's heading scanner; the indenter moves it off
+      ;; column 0 so it reads as body content.
+      (expect (gptel-chat--sanitize-chunk "* Heading")
+              :to-equal "  * Heading"))
+
+    (it "indents a deep `*** Deep' line the same way (count-independent)"
+      ;; The indent does not scale with star count; any leading
+      ;; whitespace breaks `^\*+ ' regardless of nesting depth.
+      (expect (gptel-chat--sanitize-chunk "*** Deep")
+              :to-equal "  *** Deep"))
+
+    (it "indents a six-star `****** Even deeper' line"
+      (expect (gptel-chat--sanitize-chunk "****** Even deeper")
+              :to-equal "  ****** Even deeper"))
+
+    (it "indents an end-delimiter-shaped line off column 0"
+      ;; A streamed `#+end_assistant' line is body content; indenting
+      ;; it means the parser's column-0-anchored closer regex never
+      ;; matches it.
+      (expect (gptel-chat--sanitize-chunk "#+end_assistant")
+              :to-equal "  #+end_assistant"))
+
+    (it "indents a `#+end_tool'-shaped line off column 0"
+      (expect (gptel-chat--sanitize-chunk "#+end_tool")
+              :to-equal "  #+end_tool"))
+
+    (it "indents a `#+begin_src'-shaped line off column 0"
+      (expect (gptel-chat--sanitize-chunk "#+begin_src emacs-lisp")
+              :to-equal "  #+begin_src emacs-lisp")))
+
+  (describe "leaves blank lines unchanged"
+
+    (it "returns the empty string unchanged (no trailing whitespace)"
       (expect (gptel-chat--sanitize-chunk "")
               :to-equal ""))
 
-    (it "passes #+end_useful through (word-boundary guard)"
-      ;; The \b anchor ensures the delimiter is a whole word; a line
-      ;; like `#+end_useful' must not be mistaken for `#+end_user'.
-      (expect (gptel-chat--sanitize-chunk "#+end_useful")
-              :to-equal "#+end_useful"))
+    (it "returns a whitespace-only line unchanged"
+      ;; A line of only spaces / tabs is blank; the indenter must not
+      ;; prepend more whitespace to it.
+      (expect (gptel-chat--sanitize-chunk "   ")
+              :to-equal "   ")
+      (expect (gptel-chat--sanitize-chunk "\t")
+              :to-equal "\t")))
 
-    (it "only escapes once — #+end_user on input is a plain line, not a re-escape of an already-escaped form"
-      ;; Sanitize is idempotent only on already-escaped input: a line
-      ;; that already begins with `,#+end_...' does not start with
-      ;; `#+end_' and so is returned unchanged.  This is the expected
-      ;; round-trip with the parser's un-escape on read.
-      (expect (gptel-chat--sanitize-chunk ",#+end_assistant")
-              :to-equal ",#+end_assistant")))
+  (describe "honours `gptel-chat-content-indentation'"
 
-  (describe "escapes with leading whitespace only when anchored at column 0"
-    ;; Decision 14 pins delimiters to column 0.  A line with leading
-    ;; whitespace is structurally safe (parser anchors on ^#\+end_...)
-    ;; and must pass through untouched so that indented content looking
-    ;; like a delimiter is not spuriously escaped.
-    (it "passes `  #+end_assistant' (indented) through"
-      (expect (gptel-chat--sanitize-chunk "  #+end_assistant")
-              :to-equal "  #+end_assistant")))
+    (it "uses 1 leading space when the defcustom is 1"
+      (let ((gptel-chat-content-indentation 1))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal " * Heading")))
+
+    (it "uses 2 leading spaces by default (org-edit-src parity)"
+      (let ((gptel-chat-content-indentation 2))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal "  * Heading")))
+
+    (it "uses 4 leading spaces when the defcustom is set to 4"
+      (let ((gptel-chat-content-indentation 4))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal "    * Heading")))
+
+    (it "clamps a 0-width defcustom up to the floor of 1"
+      ;; `gptel-chat--body-indent' clamps any value below 1 up to 1 —
+      ;; a 0-width indent would not move content off column 0.
+      (let ((gptel-chat-content-indentation 0))
+        (expect (gptel-chat--sanitize-chunk "* Heading")
+                :to-equal " * Heading"))))
+
+  (describe "is NOT idempotent — re-indenting stacks indentation"
+    ;; The indenter is unconditional: it prepends the body width to
+    ;; every non-blank line, every call.  Idempotence is a property of
+    ;; the streaming path (each line is processed exactly once, never
+    ;; re-fed), not of the function itself.
+
+    (it "indenting an already-indented line adds another body width"
+      (let* ((once  (gptel-chat--sanitize-chunk "* Heading"))
+             (twice (gptel-chat--sanitize-chunk once)))
+        (expect once  :to-equal "  * Heading")
+        (expect twice :to-equal "    * Heading"))))
 
   (describe "enforces its single-line contract"
-    ;; The sanitizer is a line-level helper; misuse with an embedded
-    ;; newline would silently sanitize only the prefix up to the first
-    ;; `\n', re-introducing the split-chunk bug the holdback exists
-    ;; to prevent.  The guard turns that silent misuse into a loud
-    ;; failure so callers cannot regress.
-    ;;
-    ;; Each negative spec pins the error *message* (Buttercup's
-    ;; `:to-throw' compares signal args with `equal', so the list
-    ;; form below requires the exact args of the raised signal),
-    ;; not just the error *type* — so a future refactor that signals
-    ;; an unrelated error on this input cannot rubber-stamp the
-    ;; contract.  See task `sanitize-chunk-newline-guard' Finding 2.
+    ;; The indenter is a line-level helper; misuse with an embedded
+    ;; newline would only indent the prefix up to the first `\n',
+    ;; re-introducing the split-chunk bug the holdback exists to
+    ;; prevent.  The guard turns that silent misuse into a loud
+    ;; failure.  Each negative spec pins the error *message*
+    ;; (Buttercup's `:to-throw' compares signal args with `equal').
+
     (it "signals when LINE contains an embedded newline"
-      (expect (gptel-chat--sanitize-chunk "#+end_assistant\nmore")
+      (expect (gptel-chat--sanitize-chunk "first\nsecond")
               :to-throw 'error '("LINE must not contain newlines")))
 
-    ;; Edge cases: `string-match-p' is position-agnostic so these
-    ;; all hit the same guard, but pinning each shape makes the
-    ;; contract self-documenting in the suite.  See task
-    ;; `sanitize-chunk-newline-guard' Finding 3.
     (it "signals when LINE begins with a newline"
       (expect (gptel-chat--sanitize-chunk "\nleading")
               :to-throw 'error '("LINE must not contain newlines")))
@@ -204,124 +226,6 @@ Returns the marker."
     (it "signals when LINE is a bare newline"
       (expect (gptel-chat--sanitize-chunk "\n")
               :to-throw 'error '("LINE must not contain newlines")))))
-
-
-;;; gptel-chat--sanitize-chunk: heading-collision escape ---------------------
-;;
-;; Owned by task `extend-stream-sanitizer-heading-rule' (change
-;; `gptel-chat-heading-scoping', design.md §Decision 4).  A line that
-;; matches `^\\*+ ' inside a chat-block body is parsed by `org-element'
-;; as a heading and destroys the special-block AST.  The sanitizer
-;; defends the write path by prepending
-;; `gptel-chat-content-indentation' leading spaces; the parser's
-;; send-path strips any leading whitespace before such a line so
-;; round-trip is robust against config changes (see
-;; `escape-round-trip-spec.el' for the inverse-pair proof).
-;;
-;; The two collision rules (delimiter / heading) are mutually exclusive
-;; — a line cannot start with both `#+end_' and `*'.  The specs in
-;; this section pin the heading-rule positive cases, the exclusivity
-;; with delimiter content (negative on `#+end_*' would already be
-;; covered above, but a positive delimiter-line spec explicitly
-;; bypasses the heading rule), and the negative cases the heading
-;; regex must NOT match (no leading column-0 anchor, no trailing
-;; space).
-
-(describe "gptel-chat--sanitize-chunk heading-collision escape"
-
-  (describe "escapes column-0 `*' lines (positive cases)"
-
-    (it "escapes a single-level `* Heading'"
-      (expect (gptel-chat--sanitize-chunk "* Heading")
-              :to-equal " * Heading"))
-
-    (it "escapes a deep `*** Deep' with a single prefix (count-independent)"
-      ;; The escape width does not scale with star count: any leading
-      ;; whitespace breaks the heading regex, so a single
-      ;; `gptel-chat-content-indentation' prefix is sufficient
-      ;; regardless of nesting depth.
-      (expect (gptel-chat--sanitize-chunk "*** Deep")
-              :to-equal " *** Deep"))
-
-    (it "escapes a six-star `****** Even deeper' the same way"
-      ;; Org caps usable heading depth at 6 by default, but the
-      ;; collision regex `^\\*+ ' has no upper bound; verifying a
-      ;; depth-6 line pins that the rule has no off-by-one.
-      (expect (gptel-chat--sanitize-chunk "****** Even deeper")
-              :to-equal " ****** Even deeper")))
-
-  (describe "rule order: delimiter rule wins on inputs that could match both"
-    ;; The two rules are mutually exclusive (`#+end_' starts with `#',
-    ;; `*' starts with `*'), so this is a hypothetical guard rather
-    ;; than a real-world overlap.  Verifying that an `#+end_*' line
-    ;; still escapes with `,' (not the heading prefix) pins the
-    ;; documented order if the regexes are ever loosened.
-
-    (it "escapes `#+end_assistant' with `,' (delimiter rule), not heading prefix"
-      (expect (gptel-chat--sanitize-chunk "#+end_assistant")
-              :to-equal ",#+end_assistant")))
-
-  (describe "leaves non-matching `*' shapes untouched (negative cases)"
-
-    (it "passes `not* a heading' through (no column-0 anchor)"
-      (expect (gptel-chat--sanitize-chunk "not* a heading")
-              :to-equal "not* a heading"))
-
-    (it "passes `*no-space' through (heading regex requires a trailing space)"
-      ;; `^\\*+ ' anchors a SPACE after the run of `*'s.  A bareword
-      ;; like `*no-space' or `*emphasis*' is org emphasis markup, not
-      ;; a heading, and must not be escaped.
-      (expect (gptel-chat--sanitize-chunk "*no-space")
-              :to-equal "*no-space"))
-
-    (it "passes `*emphasis*' through (org emphasis, not a heading)"
-      (expect (gptel-chat--sanitize-chunk "*emphasis*")
-              :to-equal "*emphasis*"))
-
-    (it "passes `  * already-indented' through (already past column 0)"
-      ;; The heading regex anchors at column 0; pre-indented `*' lines
-      ;; are structurally safe and must not pick up additional
-      ;; whitespace each pass (idempotence).
-      (expect (gptel-chat--sanitize-chunk "  * already-indented")
-              :to-equal "  * already-indented"))
-
-    (it "passes already-escaped ` * Heading' through (idempotence)"
-      ;; The first sanitize prepends a single space; a second pass on
-      ;; the resulting ` * Heading' must not stack another space — the
-      ;; line no longer matches `^\\*+ '.  This mirrors the existing
-      ;; idempotence guarantee for `,#+end_*' inputs.
-      (expect (gptel-chat--sanitize-chunk " * Heading")
-              :to-equal " * Heading"))
-
-    (it "passes `*' with no trailing characters through"
-      ;; A bare `*' (no space) does not match `^\\*+ '.  Some prose
-      ;; uses `*' as a list bullet without text on the same line; the
-      ;; sanitizer must not escape that.
-      (expect (gptel-chat--sanitize-chunk "*")
-              :to-equal "*"))
-
-    (it "passes the empty string through (no column-0 stars to escape)"
-      (expect (gptel-chat--sanitize-chunk "")
-              :to-equal "")))
-
-  (describe "honours `gptel-chat-content-indentation'"
-
-    (it "uses 1 leading space when the defcustom is 1 (default)"
-      (let ((gptel-chat-content-indentation 1))
-        (expect (gptel-chat--sanitize-chunk "* Heading")
-                :to-equal " * Heading")))
-
-    (it "uses 2 leading spaces when the defcustom is set to 2"
-      ;; The user can opt into `org-edit-src-content-indentation'
-      ;; parity (default 2) by setting this defcustom.
-      (let ((gptel-chat-content-indentation 2))
-        (expect (gptel-chat--sanitize-chunk "* Heading")
-                :to-equal "  * Heading")))
-
-    (it "uses 4 leading spaces when the defcustom is set to 4"
-      (let ((gptel-chat-content-indentation 4))
-        (expect (gptel-chat--sanitize-chunk "* Heading")
-                :to-equal "    * Heading")))))
 
 
 ;;; gptel-chat--make-stream-inserter ------------------------------------------
@@ -373,18 +277,20 @@ Returns the marker."
                      gptel-chat-stream-test--marker)))
         (expect (gptel-chat-stream-p handle) :to-be-truthy))))
 
-  (describe "inserting complete lines in order"
+  (describe "inserting complete lines in order, each indented"
 
     (it "inserts two complete lines from a single newline-terminated chunk"
+      ;; Each complete line is indented by the body width before
+      ;; insertion; delimiter framing is the caller's job.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "hello\nworld\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "hello\nworld\n"))
+              :to-equal "  hello\n  world\n"))
 
-    (it "preserves order across multiple chunks with no collisions"
+    (it "preserves order across multiple chunks"
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
@@ -393,7 +299,18 @@ Returns the marker."
         (funcall cb "gamma\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "alpha\nbeta\ngamma\n"))
+              :to-equal "  alpha\n  beta\n  gamma\n"))
+
+    (it "leaves blank lines blank between indented content lines"
+      ;; A blank line passes through the indenter unchanged — no
+      ;; trailing whitespace is introduced.
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-stream-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "first\n\nsecond\n")
+        (funcall cb t))
+      (expect (gptel-chat-stream-test--buffer-string)
+              :to-equal "  first\n\n  second\n"))
 
     (it "flushes a final partial line via the t sentinel without adding a newline"
       (let* ((handle (gptel-chat--make-stream-inserter
@@ -404,8 +321,9 @@ Returns the marker."
         ;; in the holdback.
         (expect (gptel-chat-stream-test--buffer-string) :to-equal "")
         (funcall cb t))
+      ;; The flushed partial is indented like any other content line.
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "trailing partial")))
+              :to-equal "  trailing partial")))
 
   (describe "holdback behaviour (no premature inserts)"
 
@@ -425,135 +343,52 @@ Returns the marker."
         (expect (gptel-chat-stream-test--buffer-string) :to-equal "")
         (funcall cb "line\n")
         (expect (gptel-chat-stream-test--buffer-string)
-                :to-equal "partial line\n"))))
+                :to-equal "  partial line\n"))))
 
-  (describe "sanitizes collisions on whole-line chunks"
+  (describe "indents structural-token lines on whole-line chunks"
 
-    (it "escapes #+end_assistant when it arrives as its own line"
+    (it "indents `#+end_assistant' when it arrives as its own line"
+      ;; A streamed `#+end_assistant' line is body content, not a real
+      ;; closer; indenting it keeps the containing block well-formed.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "prose\n#+end_assistant\nmore\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "prose\n,#+end_assistant\nmore\n"))
+              :to-equal "  prose\n  #+end_assistant\n  more\n"))
 
-    (it "escapes case-variant #+End_Assistant mid-stream"
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-stream-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "a\n#+End_Assistant\nb\n")
-        (funcall cb t))
-      (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "a\n,#+End_Assistant\nb\n"))
-
-    (it "does NOT escape #+end_src on its own line"
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-stream-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "before\n#+end_src\nafter\n")
-        (funcall cb t))
-      (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "before\n#+end_src\nafter\n"))
-
-    (it "does NOT escape #+begin_assistant (begin, not end)"
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-stream-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "a\n#+begin_assistant\nb\n")
-        (funcall cb t))
-      (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "a\n#+begin_assistant\nb\n")))
-
-  (describe "sanitizes heading collisions on whole-line chunks"
-    ;; Owned by task `extend-stream-sanitizer-heading-rule' (change
-    ;; `gptel-chat-heading-scoping').  The inserter's holdback +
-    ;; per-line sanitize loop applies the heading rule on the same
-    ;; path as the delimiter rule; these specs pin streaming-level
-    ;; behaviour for the cases unit-tested directly above.
-
-    (it "escapes a single-line `* Heading' chunk"
+    (it "indents a `* Heading' line that arrives as its own chunk"
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "* Heading\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal " * Heading\n"))
+              :to-equal "  * Heading\n"))
 
-    (it "escapes a deep `*** Deep' chunk with a single prefix"
-      ;; The escape width is independent of star count — any leading
-      ;; whitespace breaks the heading regex.
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-stream-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "*** Deep\n")
-        (funcall cb t))
-      (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal " *** Deep\n"))
-
-    (it "applies both rules in a mixed chunk and leaves plain prose untouched"
-      ;; Mixed payload: a heading line, an end-delimiter line, and
-      ;; ordinary prose.  Each line goes through the per-line
-      ;; sanitizer; the delimiter rule prepends `,', the heading rule
-      ;; prepends a space, prose passes through unchanged.
+    (it "indents a mixed chunk: heading, end-delimiter, and plain prose"
+      ;; Each line goes through the per-line indenter; every non-blank
+      ;; line lands off column 0 regardless of its shape.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "* Heading\n#+end_assistant\nplain text\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal " * Heading\n,#+end_assistant\nplain text\n"))
-
-    (it "escapes a heading split across chunks (holdback completes line first)"
-      ;; The holdback exists precisely so a line split across chunk
-      ;; boundaries reaches the sanitizer as a complete line.  Verify
-      ;; the heading rule benefits from this: the first chunk leaves
-      ;; `* He' in the holdback (no insert), the second chunk
-      ;; supplies `ading\n' which completes the line; the inserter
-      ;; sanitizes the completed `* Heading' before insertion.
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-stream-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "\n* He")
-        ;; First chunk: a leading newline becomes an empty completed
-        ;; line; `* He' is held back (no embedded newline).  Buffer
-        ;; should contain only the empty line so far.
-        (expect (gptel-chat-stream-test--buffer-string)
-                :to-equal "\n")
-        (funcall cb "ading\n")
-        (funcall cb t))
-      (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "\n * Heading\n"))
-
-    (it "does NOT escape `not* a heading' (no column-0 anchor)"
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-stream-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "before\nnot* a heading\nafter\n")
-        (funcall cb t))
-      (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "before\nnot* a heading\nafter\n"))
-
-    (it "does NOT escape `*no-space' (heading regex requires a trailing space)"
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-stream-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "before\n*no-space\nafter\n")
-        (funcall cb t))
-      (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "before\n*no-space\nafter\n"))
+              :to-equal
+              "  * Heading\n  #+end_assistant\n  plain text\n"))
 
     (it "honours `gptel-chat-content-indentation' when streaming"
-      ;; Customising the defcustom changes the streamed escape width.
-      (let ((gptel-chat-content-indentation 2))
+      ;; Customising the defcustom changes the streamed indent width.
+      (let ((gptel-chat-content-indentation 4))
         (let* ((handle (gptel-chat--make-stream-inserter
                         gptel-chat-stream-test--marker))
                (cb (gptel-chat-stream-insert handle)))
           (funcall cb "* Heading\n")
           (funcall cb t)))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "  * Heading\n")))
+              :to-equal "    * Heading\n")))
 
   (describe "rejects chunk values that are neither string nor t sentinel"
     ;; Contract (design.md §Decision 10): the insert slot's dispatch
@@ -561,10 +396,8 @@ Returns the marker."
     ;; `t' flush sentinel.  Any other value (including nil, a
     ;; symbol, or a cons cell like `(tool-call . _)') is a caller
     ;; bug and must signal loudly so drift from upstream's protocol
-    ;; does not silently drop response data.  The callback layer
-    ;; relies on this "loud fail" to ensure misrouted events surface
-    ;; during testing rather than appearing as silently-missing
-    ;; buffer content.  See task `sanitize-chunks' Finding 1.
+    ;; does not silently drop response data.
+
     (it "signals on a non-string symbol chunk (e.g. 'abort)"
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
@@ -592,20 +425,20 @@ Returns the marker."
         (funcall cb "full line\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "full line\n"))
+              :to-equal "  full line\n"))
 
-    (it "flush sanitizes a trailing #+end_assistant partial (no newline)"
+    (it "flush indents a trailing #+end_assistant partial (no newline)"
       ;; Per the task spec: upstream sends `t' after a newline-terminated
       ;; final chunk (holdback empty) OR a final content chunk with no
       ;; newline (holdback is a single line).  In the latter case the
-      ;; single-line flush goes through the same sanitizer.
+      ;; single-line flush goes through the same per-line indenter.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "#+end_assistant")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal ",#+end_assistant")))
+              :to-equal "  #+end_assistant")))
 
   (describe "marker-based insertion is robust to edits above the insertion point"
 
@@ -615,14 +448,10 @@ Returns the marker."
       ;; insertion point do not shift where new content lands.
       (with-current-buffer gptel-chat-stream-test--buffer
         (insert "header\n"))
-      ;; Re-anchor: the marker was at point-min and insertion-before
-      ;; type nil means it stays at point-min (byte 1), which is now
-      ;; above "header\n" — inserts should go at the top of the buffer.
-      ;;
-      ;; Use an advance marker instead to model "the end of the open
-      ;; assistant block" — a marker at point-max with insertion-type
-      ;; t, so user prepends above it don't shift the insertion
-      ;; target away from the end.
+      ;; Use an advance marker at point-max to model "the end of the
+      ;; open assistant block" — a marker with insertion-type t, so
+      ;; user prepends above it don't shift the insertion target away
+      ;; from the end.
       (let* ((advance-marker
               (with-current-buffer gptel-chat-stream-test--buffer
                 (copy-marker (point-max) t)))
@@ -637,9 +466,10 @@ Returns the marker."
         (funcall cb "second\n")
         (funcall cb t)
         ;; Both response lines must appear after the header/user-edit,
-        ;; i.e., at the end of the buffer, in order.
+        ;; i.e., at the end of the buffer, in order, each indented.
         (expect (gptel-chat-stream-test--buffer-string)
-                :to-equal "user-edit\nheader\nresponse line\nsecond\n"))))
+                :to-equal
+                "user-edit\nheader\n  response line\n  second\n"))))
 
   (describe "closure isolation"
 
@@ -658,18 +488,15 @@ Returns the marker."
         (funcall cb2 "fresh\n")
         (funcall cb2 t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "fresh\n"))))
+              :to-equal "  fresh\n"))))
 
 
 ;;; gptel-chat-stream handle API --------------------------------------------
 ;;
-;; These specs exercise the typed `cl-defstruct' surface introduced by
-;; task `expose-tool-marker-setter'.  They cover the minimum public
-;; shape — predicate + three function slots — needed by the downstream
-;; `stream-callback' task to wire tool-call/tool-result events without
-;; `cl-letf' surgery on the captured closure environment.  Exhaustive
-;; routing-correctness tests (what happens to text across many
-;; set/clear toggles) are owned by task `tool-marker-routing-tests'.
+;; These specs exercise the typed `cl-defstruct' surface.  They cover
+;; the minimum public shape — predicate + three function slots —
+;; needed by `stream-callback' to wire tool-call/tool-result events
+;; without `cl-letf' surgery on the captured closure environment.
 
 (describe "gptel-chat-stream handle API"
 
@@ -734,8 +561,10 @@ Returns the marker."
         ;; Second insert now goes to the tool marker (after SENTINEL).
         (funcall cb "tool-text\n")
         (funcall cb t))
+      ;; Both inserted lines are indented by the body width; only the
+      ;; pre-existing SENTINEL line is at column 0.
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "assistant-text\nSENTINEL\ntool-text\n")))
+              :to-equal "  assistant-text\nSENTINEL\n  tool-text\n")))
 
   (describe "clear-tool-marker slot"
 
@@ -760,7 +589,8 @@ Returns the marker."
         (funcall cb "back-to-assistant\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "back-to-assistant\nSENTINEL\nin-tool\n"))
+              :to-equal
+              "  back-to-assistant\nSENTINEL\n  in-tool\n"))
 
     (it "is a no-op when no tool marker has been set"
       (let* ((handle (gptel-chat--make-stream-inserter
@@ -771,19 +601,16 @@ Returns the marker."
         (funcall cb "hello\n")
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "hello\n"))))
+              :to-equal "  hello\n"))))
 
 
 ;;; gptel-chat--stream-active-marker ---------------------------------------
 ;;
 ;; Direct unit tests for the helper that picks the active insertion
-;; target from (INSERTION-MARKER, TOOL-MARKER).  Prior to this task
-;; the helper was reached only transitively through the stream
-;; closure; these specs invoke it directly so all three input
-;; states (nil tool-marker, live tool-marker, dead tool-marker) are
-;; pinned independently of the closure wiring.  Companion to
-;; task `tool-marker-routing-tests' step 1 (review of `sanitize-chunks'
-;; Finding #4).
+;; target from (INSERTION-MARKER, TOOL-MARKER).  These specs invoke it
+;; directly so all three input states (nil tool-marker, live
+;; tool-marker, dead tool-marker) are pinned independently of the
+;; closure wiring.
 
 (describe "gptel-chat--stream-active-marker"
 
@@ -825,8 +652,7 @@ Returns the marker."
 ;; above by covering the case where the *same* setter lambda is
 ;; called more than once on the same closure instance (the "reroute"
 ;; scenario) and by pinning the input-validation contract on a
-;; `nil' argument.  Owned by task `tool-marker-routing-tests' steps
-;; 2-3 (review findings #2 and #5 on `expose-tool-marker-setter').
+;; `nil' argument.
 
 (describe "gptel-chat-stream tool-marker routing through the inserter"
 
@@ -839,12 +665,12 @@ Returns the marker."
   (describe "reroute: set → insert → set-to-a-different-marker → insert"
 
     (it "routes the second insert to the new tool marker, not the first"
-      ;; Finding #2: pins that `setq tool-marker …' in the setter
-      ;; lambda works on the *second* call of the same closure
-      ;; instance, not just the first.  Layout: three distinct
-      ;; anchor points in the buffer, separated by sentinels, each
-      ;; with its own advance marker.  Each insert lands at the
-      ;; marker active at the time of the call.
+      ;; Pins that `setq tool-marker …' in the setter lambda works on
+      ;; the *second* call of the same closure instance, not just the
+      ;; first.  Layout: three distinct anchor points in the buffer,
+      ;; separated by sentinels, each with its own advance marker.
+      ;; Each insert lands at the marker active at the time of the
+      ;; call, indented by the body width.
       (with-current-buffer gptel-chat-stream-test--buffer
         (insert "S1\nS2\n"))
       (let* ((assistant-marker
@@ -871,13 +697,13 @@ Returns the marker."
         (funcall set-tool tool-marker-2)
         (funcall cb "second-tool\n")
         (funcall cb t))
-      ;; Expected layout:
-      ;;   S1\n           ← original sentinel 1
-      ;;   first-tool\n   ← inserted at tool-marker-1 (between S1 and S2)
-      ;;   S2\n           ← original sentinel 2
-      ;;   second-tool\n  ← inserted at tool-marker-2 (end of buffer)
+      ;; Expected layout — inserted lines indented, sentinels not:
+      ;;   S1\n               ← original sentinel 1
+      ;;     first-tool\n     ← inserted at tool-marker-1
+      ;;   S2\n               ← original sentinel 2
+      ;;     second-tool\n    ← inserted at tool-marker-2
       (expect (gptel-chat-stream-test--buffer-string)
-              :to-equal "S1\nfirst-tool\nS2\nsecond-tool\n"))
+              :to-equal "S1\n  first-tool\nS2\n  second-tool\n"))
 
     (it "after rerouting, clear-tool-marker still returns routing to the assistant marker"
       ;; A follow-on check: once the setter has been called more
@@ -910,16 +736,14 @@ Returns the marker."
         (funcall cb t))
       (expect (gptel-chat-stream-test--buffer-string)
               :to-equal
-              "back-to-assistant\nS1\nat-tm1\nat-tm2\n")))
+              "  back-to-assistant\nS1\n  at-tm1\n  at-tm2\n")))
 
-  (describe "set-tool-marker input validation (finding #5)"
+  (describe "set-tool-marker input validation"
 
     (it "signals an error when called with nil"
       ;; Contract: clearing the routing override is
       ;; `clear-tool-marker''s job.  Passing nil to the setter is a
-      ;; caller bug and must raise.  The current implementation
-      ;; already rejects nil; this spec pins that contract so a
-      ;; future refactor cannot silently weaken it.
+      ;; caller bug and must raise.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-stream-test--marker))
              (setter (gptel-chat-stream-set-tool-marker handle)))
@@ -933,13 +757,16 @@ Returns the marker."
 ;; callback closes the active assistant block, optionally records a
 ;; visible marker for abort/error, and appends a fresh empty
 ;; `#+begin_user' / `#+end_user' block with point positioned on the
-;; blank line inside (Decision 8, shell-like append flow).
+;; body line inside.
+;;
+;; Streamed assistant content is indented by the body width; the
+;; `#+end_assistant' closer and the appended `#+begin_user' /
+;; `#+end_user' delimiters stay at column 0.  The body line of the
+;; appended user block is indented to the body width (design.md
+;; §Decision 6).
 ;;
 ;; Also asserts the bypass of `gptel-post-response-functions' and
-;; `gptel-pre-response-hook': those hooks are consumed by gptel-mode's
-;; default callback and assume its prompt/response-prefix conventions
-;; — which chat-mode deliberately does not use (Decision 10, "Upstream
-;; response hooks are intentionally bypassed").
+;; `gptel-pre-response-hook'.
 
 (describe "gptel-chat-stream-callback terminal paths"
 
@@ -956,6 +783,10 @@ Returns the marker."
          (buffer-string-no-props ()
            (with-current-buffer test-buffer
              (buffer-substring-no-properties (point-min) (point-max))))
+         (body-pad ()
+           ;; The body-width pad inserted on the appended user block's
+           ;; blank line by `gptel-chat--stream-close-assistant'.
+           (make-string (gptel-chat--body-indent) ?\s))
          (cleanup ()
            (when (buffer-live-p test-buffer)
              (kill-buffer test-buffer))
@@ -967,6 +798,10 @@ Returns the marker."
       (describe "normal completion (response `t')"
 
         (it "flushes holdback, closes block, appends a fresh user block"
+          ;; Streamed text is indented by the body width; the
+          ;; `#+end_assistant' closer and the appended user-block
+          ;; delimiters stay at column 0; the new user block's body
+          ;; line carries the body indent.
           (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "Hello.\n" nil)
             (funcall cb t nil))
@@ -974,15 +809,15 @@ Returns the marker."
                   :to-equal
                   (concat "#+begin_user\nhi\n#+end_user\n"
                           "#+begin_assistant\n"
-                          "Hello.\n"
+                          "  Hello.\n"
                           "#+end_assistant\n"
-                          "\n#+begin_user\n\n#+end_user\n")))
+                          "\n#+begin_user\n" (body-pad) "\n#+end_user\n")))
 
         (it "flushes a trailing partial line before closing"
           ;; Upstream may send the completion `t' after a final chunk
           ;; that has no trailing newline.  The holdback-aware inserter
-          ;; flushes that partial without adding a newline; the
-          ;; callback then adds one before `#+end_assistant'.
+          ;; flushes that partial (indented) without adding a newline;
+          ;; the callback then adds one before `#+end_assistant'.
           (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "trailing partial" nil)
             (funcall cb t nil))
@@ -990,24 +825,29 @@ Returns the marker."
                   :to-equal
                   (concat "#+begin_user\nhi\n#+end_user\n"
                           "#+begin_assistant\n"
-                          "trailing partial\n"
+                          "  trailing partial\n"
                           "#+end_assistant\n"
-                          "\n#+begin_user\n\n#+end_user\n")))
+                          "\n#+begin_user\n" (body-pad) "\n#+end_user\n")))
 
-        (it "positions point on the blank line inside the new user block"
+        (it "positions point on the body line inside the new user block"
           (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "Done.\n" nil)
             (funcall cb t nil))
-          ;; Point should be on the empty line inside the appended
-          ;; `#+begin_user' block.  The character immediately before
-          ;; point is "\n" (closing the `#+begin_user' line) and the
-          ;; character at point is "\n" (the blank line's own
-          ;; terminator), so (char-after) = ?\n AND (bolp).
+          ;; Point should be on the body line inside the appended
+          ;; `#+begin_user' block.  `gptel-chat--stream-close-assistant'
+          ;; runs `indent-line-to' on that line, which leaves point at
+          ;; the end of the body-width indentation (past the spaces,
+          ;; before the line's `\n' terminator).
           (with-current-buffer test-buffer
-            (expect (bolp) :to-be-truthy)
-            (expect (char-after) :to-equal ?\n)
+            (expect (current-column)
+                    :to-equal (gptel-chat--body-indent))
+            ;; The body line's content is exactly the body-width pad.
+            (expect (buffer-substring-no-properties
+                     (line-beginning-position)
+                     (line-end-position))
+                    :to-equal (body-pad))
             ;; Backward-looking sanity: the line immediately before
-            ;; point is `#+begin_user'.
+            ;; point is `#+begin_user' at column 0.
             (forward-line -1)
             (expect (buffer-substring-no-properties
                      (point) (line-end-position))
@@ -1018,7 +858,9 @@ Returns the marker."
         (it "closes block with interruption marker and appends a user block"
           ;; Spec §"Stream abort": the assistant block is closed with
           ;; `#+end_assistant' and a visible marker records that the
-          ;; response was interrupted.
+          ;; response was interrupted.  The marker line is inserted
+          ;; verbatim by `gptel-chat--stream-close-assistant' (not
+          ;; through the per-line indenter).
           (let ((cb (gptel-chat-stream-callback test-marker)))
             (funcall cb "Partial before abort.\n" nil)
             (funcall cb 'abort nil))
@@ -1026,10 +868,10 @@ Returns the marker."
                   :to-equal
                   (concat "#+begin_user\nhi\n#+end_user\n"
                           "#+begin_assistant\n"
-                          "Partial before abort.\n"
+                          "  Partial before abort.\n"
                           gptel-chat--stream-abort-marker "\n"
                           "#+end_assistant\n"
-                          "\n#+begin_user\n\n#+end_user\n")))
+                          "\n#+begin_user\n" (body-pad) "\n#+end_user\n")))
 
         (it "closes cleanly when no prior content has been streamed"
           (let ((cb (gptel-chat-stream-callback test-marker)))
@@ -1040,7 +882,7 @@ Returns the marker."
                           "#+begin_assistant\n"
                           gptel-chat--stream-abort-marker "\n"
                           "#+end_assistant\n"
-                          "\n#+begin_user\n\n#+end_user\n"))))
+                          "\n#+begin_user\n" (body-pad) "\n#+end_user\n"))))
 
       (describe "network / API error (response `nil')"
 
@@ -1052,10 +894,10 @@ Returns the marker."
                   :to-equal
                   (concat "#+begin_user\nhi\n#+end_user\n"
                           "#+begin_assistant\n"
-                          "Some content.\n"
+                          "  Some content.\n"
                           gptel-chat--stream-error-marker "\n"
                           "#+end_assistant\n"
-                          "\n#+begin_user\n\n#+end_user\n"))))
+                          "\n#+begin_user\n" (body-pad) "\n#+end_user\n"))))
 
       (describe "upstream response hooks are bypassed"
 
