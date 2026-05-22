@@ -17,9 +17,9 @@
 ;;
 ;; A chat-block body is an indented region: every body line is
 ;; indented by `gptel-chat--body-indent' spaces (default 2).
-;; Migration converges pre-indentation (column-0 content),
-;; escape-era (`,#+end_*' commas), and current (already-indented)
-;; on-disk formats onto that form.  Coverage:
+;; Migration converges pre-indentation (column-0 content), escape-era
+;; (`,#+end_*' commas and 1-space `*' heading escapes), and current
+;; (already-indented) on-disk formats onto that form.  Coverage:
 ;;
 ;;   1. A pre-indentation session is normalised on activation and the
 ;;      buffer marked modified.
@@ -30,6 +30,8 @@
 ;;   5. Nested `#+begin_tool' / `#+end_tool' delimiter lines stay at
 ;;      column 0.
 ;;   6. A legacy `,#+end_*' body line has the comma stripped.
+;;   7. A legacy 1-space-escaped `*' heading line is de-escaped and
+;;      indented to the body width.
 
 ;;; Code:
 
@@ -272,6 +274,44 @@ last step of the `define-derived-mode' body."
              (cl-loop while (re-search-forward "^#\\+end_assistant$" nil t)
                       count t)
              :to-equal 1))))))
+
+  (describe "Scenario 7: legacy 1-space `*' heading escape is de-escaped"
+
+    (it "strips the 1-space prefix so the heading lands at the body width"
+      ;; An escape-era session: a column-0 `* heading' inside a body
+      ;; was protected by the per-`*' escape with a single leading
+      ;; space.  Migration must strip that space and indent the line
+      ;; to the body width like ordinary content — not carry the
+      ;; stray space through, which would leave the heading ragged at
+      ;; column 3 while sibling prose sits at column 2.
+      (let ((content (concat "#+begin_assistant\n"
+                             "Intro prose.\n"
+                             " * Escaped heading\n"
+                             "Outro prose.\n"
+                             "#+end_assistant\n")))
+        (gptel-chat-test--with-mode-buffer content
+          (expect (buffer-modified-p) :to-be-truthy)
+          ;; The escaped heading lands at the body indent (2), flush
+          ;; with the surrounding prose — not ragged at column 3.
+          (expect (string-match-p "^  \\* Escaped heading$" (buffer-string))
+                  :to-be-truthy)
+          (expect (string-match-p "^   \\* Escaped heading$" (buffer-string))
+                  :to-be nil)
+          ;; Surrounding prose is indented to the same width.
+          (expect (string-match-p "^  Intro prose\\.$" (buffer-string))
+                  :to-be-truthy)
+          (expect (string-match-p "^  Outro prose\\.$" (buffer-string))
+                  :to-be-truthy))))
+
+    (it "de-escapes a multi-star heading shape too"
+      (let ((content (concat "#+begin_assistant\n"
+                             " *** Deep escaped heading\n"
+                             "#+end_assistant\n")))
+        (gptel-chat-test--with-mode-buffer content
+          (expect (buffer-modified-p) :to-be-truthy)
+          (expect (string-match-p "^  \\*\\*\\* Deep escaped heading$"
+                                  (buffer-string))
+                  :to-be-truthy)))))
 
   (describe "robustness"
 

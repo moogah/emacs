@@ -261,11 +261,6 @@ A list of (BEG-MARKER . END-MARKER) conses recorded by
 `gptel-chat--indent-inserted-region' and drained by
 `gptel-chat--indent-pending-regions'.")
 
-(defvar-local gptel-chat--indent-timer nil
-  "Pending idle timer that will run `gptel-chat--indent-pending-regions',
-or nil.  One timer is shared by all regions recorded since it was
-scheduled.")
-
 (defun gptel-chat--indent-region (beg end)
   "Shift the chat-block body lines in [BEG, END) to the body indent.
 Collects the non-blank lines of the region whose beginning-of-line is
@@ -312,42 +307,40 @@ Intended for `after-change-functions'.  Does NOT modify the buffer:
 inserting from within an after-change dispatch corrupts the
 `before-change' / `after-change' bookkeeping of `org-indent-mode' and
 `org-element''s cache.  Records the non-empty change region [BEG, END)
-on `gptel-chat--pending-indent-regions' and schedules an idle timer
-running `gptel-chat--indent-pending-regions' to perform the shift
-outside the dispatch.
+on `gptel-chat--pending-indent-regions' and installs a one-shot
+buffer-local `post-command-hook' running
+`gptel-chat--indent-pending-regions', which performs the shift once
+the inserting command finishes — outside the dispatch and before the
+post-command redisplay.
 
 Pure deletions (END = BEG) are ignored, as are calls made while
-`gptel-chat--indenting' is bound — that is the migration pass or the
-deferred indenter doing its own inserts, which must not be recorded
-as fresh pasted content."
+`gptel-chat--indenting' is bound — that is the migration pass, the
+deferred indenter, or the streaming write path doing their own
+inserts, which must not be recorded as fresh pasted content."
   (when (and (> end beg) (not gptel-chat--indenting))
     (push (cons (copy-marker beg) (copy-marker end t))
           gptel-chat--pending-indent-regions)
-    (unless (timerp gptel-chat--indent-timer)
-      (setq gptel-chat--indent-timer
-            (run-with-idle-timer
-             0 nil #'gptel-chat--indent-pending-regions
-             (current-buffer))))))
+    (add-hook 'post-command-hook
+              #'gptel-chat--indent-pending-regions nil t)))
 
 (defun gptel-chat--indent-pending-regions (&optional buffer)
   "Apply deferred body indentation to regions recorded by the after-change hook.
-Intended as the idle-timer callback scheduled by
+Installed as a one-shot buffer-local `post-command-hook' by
 `gptel-chat--indent-inserted-region'; also callable directly (tests
-invoke it after an insert rather than waiting for the timer).  BUFFER
-defaults to the current buffer.
+invoke it after an insert rather than waiting for the command loop).
+BUFFER defaults to the current buffer.
 
-Binds `gptel-chat--indenting' so the recorder does not re-record the
+Removes itself from `post-command-hook' first, then binds
+`gptel-chat--indenting' so the recorder does not re-record the
 shift's own inserts; each `gptel-chat--indent-region' call is
-idempotent.  Runs outside any `after-change' dispatch, so the inserts
-reach `org-indent-mode' / `org-element' as ordinary changes."
+idempotent.  Runs after the inserting command returns — outside any
+`after-change' dispatch — so the inserts reach `org-indent-mode' /
+`org-element' as ordinary changes."
   (let ((buf (or buffer (current-buffer))))
     (when (buffer-live-p buf)
       (with-current-buffer buf
-        ;; Cancel the pending timer — harmless if we ARE the timer,
-        ;; and tidy when a caller (a test) drains the queue early.
-        (when (timerp gptel-chat--indent-timer)
-          (cancel-timer gptel-chat--indent-timer))
-        (setq gptel-chat--indent-timer nil)
+        (remove-hook 'post-command-hook
+                     #'gptel-chat--indent-pending-regions t)
         (when gptel-chat--pending-indent-regions
           (let ((regions (nreverse gptel-chat--pending-indent-regions))
                 (gptel-chat--indenting t))
@@ -375,10 +368,11 @@ reach `org-indent-mode' / `org-element' as ordinary changes."
 ;; - *current* sessions — already indented.
 
 ;; Per content-region — a delimiter-free run of body lines — the
-;; migration strips a legacy leading =,= from =,#+end_*= lines, then
-;; shifts the region so its least-indented non-blank line reaches the
-;; body indent. On a current buffer both steps are no-ops, so an
-;; already-indented session opens unmodified
+;; migration strips the legacy escape-era artifacts (a leading =,= from
+;; =,#+end_*= lines and the 1-space prefix from escaped =*= heading
+;; lines), then shifts the region so its least-indented non-blank line
+;; reaches the body indent. On a current buffer both steps are no-ops,
+;; so an already-indented session opens unmodified
 ;; (=register/invariant/chat-migration-on-read-clean-buffer-stays-clean=).
 
 ;; Nested =#+begin_tool= / =#+end_tool= delimiter lines stay at column 0
@@ -402,12 +396,14 @@ reach `org-indent-mode' / `org-element' as ordinary changes."
   "Normalise the chat-block body in [BEG, END) to the indented form.
 
 END is a marker — the body extent shifts rightwards as content is
-indented.  Strips a legacy leading `,' from any `,#+end_*' line, then
-shifts every content line so the body's least-indented non-blank line
-reaches `gptel-chat--body-indent'.  Column-0 `#+begin_tool' /
-`#+end_tool' delimiter lines are left untouched; they are matched
-only after the comma-escape check, so a comma-escaped `,#+end_tool'
-counts as content.  Returns non-nil when the buffer was changed."
+indented.  Strips legacy escape-era artifacts — a leading `,' from
+any `,#+end_*' line and the single-space prefix from any escape-era
+`*' heading line — then shifts every content line so the body's
+least-indented non-blank line reaches `gptel-chat--body-indent'.
+Column-0 `#+begin_tool' / `#+end_tool' delimiter lines are left
+untouched; they are matched only after the escape checks, so a
+comma-escaped `,#+end_tool' counts as content.  Returns non-nil when
+the buffer was changed."
   (let ((indent (gptel-chat--body-indent))
         (changed nil)
         (content-bols nil)
@@ -422,6 +418,15 @@ counts as content.  Returns non-nil when the buffer was changed."
             (cond
              ;; Legacy comma-escape — strip it; the line is content.
              ((looking-at ",#\\+end_\\(?:user\\|assistant\\|tool\\)\\b")
+              (delete-char 1)
+              (setq changed t)
+              (push (point-marker) content-bols)
+              (setq min-indent 0))
+             ;; Legacy 1-space `*' heading escape — the escape-era
+             ;; format prefixed a column-0 heading with a single
+             ;; space.  Strip it; the line is column-0 content and
+             ;; takes the uniform shift like every other body line.
+             ((looking-at " \\*+ ")
               (delete-char 1)
               (setq changed t)
               (push (point-marker) content-bols)
@@ -508,9 +513,9 @@ the buffer was changed."
 ;;   =electric-indent-local-mode= on — so RET inside a body opens the
 ;;   next line at the body indent (design.md Decision 6).
 ;; - =after-change-functions= → =gptel-chat--indent-inserted-region=
-;;   (buffer-local) — records pasted / inserted regions; the deferred
-;;   indenter shifts them from an idle timer (the paste / yank write
-;;   path).
+;;   (buffer-local) — records pasted / inserted regions; a one-shot
+;;   =post-command-hook= shifts them once the inserting command
+;;   finishes (the paste / yank write path).
 ;; - =gptel-chat--migrate-buffer= — normalise an existing session's body
 ;;   indentation on read.
 

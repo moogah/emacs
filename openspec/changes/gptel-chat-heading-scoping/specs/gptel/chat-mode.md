@@ -180,7 +180,7 @@ The system SHALL maintain an invariant that every line of content inside a chat-
 
 - **Streaming insertion** — see Requirement: Response streaming and sanitization.
 - **User typing** — a buffer-local `indent-line-function` (delimiter line → column 0; body line → the body indent) together with electric-indent causes new body lines to start at the body indent. Implementation does NOT use a per-keystroke hook.
-- **Paste / yank / programmatic insertion** — when a region is inserted inside a chat-block body, the system SHALL shift the inserted region so its minimum-indented line lands at the body indent (`shift = max(0, body-indent − region-minimum-indent)`). The shift preserves the region's relative indentation and is idempotent. Implementation via `after-change-functions`.
+- **Paste / yank / programmatic insertion** — when a region is inserted inside a chat-block body, the system SHALL shift the inserted region so its minimum-indented line lands at the body indent (`shift = max(0, body-indent − region-minimum-indent)`). The shift preserves the region's relative indentation and is idempotent. Implementation: an `after-change-functions` recorder captures the inserted region and a one-shot `post-command-hook` performs the shift after the inserting command returns, outside the change dispatch.
 - **File read** — see Requirement: Migration of pre-indentation session files.
 
 The indentation width SHALL be controlled by the `gptel-chat-content-indentation` defcustom (default 2, matching `org-edit-src-content-indentation`; runtime floor clamped to 1). The indentation is symmetric by intent: the parser strips each segment's common leading indentation on send (Requirement: Message construction from buffer).

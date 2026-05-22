@@ -86,12 +86,14 @@ The per-`*` escape worked off a detectable trigger (`*` at column 0). Uniform in
 
 - **Streaming.** `gptel-chat--sanitize-chunk` becomes a per-line indenter — each completed line of model output is prefixed with the body indent before insertion (blank lines untouched). Idempotent by construction: streamed content is fresh, never re-processed. The line-holdback machinery is unchanged.
 - **Typing.** A buffer-local `indent-line-function` (delimiter line → column 0; body line → column N) plus electric-indent. RET in a body starts the next line at column N; once a line starts at column N, a `*` typed there is already off column 0. No per-keystroke hook.
-- **Paste / yank.** The `after-change-functions` handler (repurposed from the heading-escape filter) shifts an inserted region inside a body so its minimum-indented line lands at column N — `shift = max(0, N − region-min-indent)`. Structure-preserving (the region shifts as a unit, relative indentation intact) and idempotent (already-indented paste → shift 0). Gated by `gptel-chat--point-in-block-body-p`.
+- **Paste / yank.** Split in two so the buffer is never mutated mid-dispatch. An `after-change-functions` *recorder* captures the inserted region but does not touch the buffer — mutating from inside an after-change dispatch desyncs `org-indent-mode` and `org-element`'s change bookkeeping (a nested change pair they cannot reconcile), which a later parse hits as `Invalid search bound`. A one-shot buffer-local `post-command-hook` then shifts each recorded region so its minimum-indented line lands at column N — `shift = max(0, N − region-min-indent)` — once the inserting command returns. Structure-preserving (the region shifts as a unit, relative indentation intact) and idempotent (already-indented paste → shift 0). Gated by `gptel-chat--point-in-block-body-p`. The hook runs before the post-command redisplay, so no parse, save, or redisplay observes the un-indented intermediate state, and it self-removes once it fires.
 - **Migration on read.** See Decision 7.
 
 **Rationale:** this matches org-babel — org does not police src-block indentation on every keystroke; the content *is* an indented region maintained by ordinary indent affordances and normalised at well-defined moments. The user explicitly accepted "behaves like org-babel blocks — good enough even if not perfect."
 
 **Alternatives considered:** a `post-self-insert-hook` / `post-command-hook` "ensure ≥ N on the current line" guard — idempotent and single-line (no structure distortion), but it polices every keystroke and fights a user deliberately editing indentation. Held as a fallback only if electric-indent proves unreliable in the org-derived mode (see Risks); not the primary mechanism.
+
+**Alternatives considered (paste deferral):** a *synchronous* shift from inside the `after-change-functions` handler — rejected: it mutates the buffer mid-dispatch and corrupts `org-element` / `org-indent-mode` change bookkeeping. An *idle timer* — rejected: it runs the shift outside the dispatch, but leaves a window between the paste and the next idle period in which the un-indented column-0 content is observable to a parse, save, or redisplay (transiently the very corruption this change eliminates), and the timer must be cancelled on `kill-buffer`. The one-shot `post-command-hook` runs outside the dispatch *and* before the post-command redisplay (closing that window) and self-removes (no timer lifecycle to manage).
 
 **Implications:** `gptel-chat--point-in-block-body-p` survives unchanged (paste still needs it); its docstring is updated. The `post-self-insert-hook` and `gptel-chat--escape-typed-heading` are removed.
 
@@ -127,5 +129,6 @@ Reversible if real-world use turns up surprises:
 
 1. **Decision 2 (default width).** Trivial defcustom change.
 2. **Decision 6 (typing mechanism).** `indent-line-function` + electric-indent vs. the `ensure-≥N` guard fallback — independently swappable; neither locks in an on-disk choice.
+3. **Decision 6 (paste deferral).** The `after-change` recorder is fixed; the deferral channel — a one-shot `post-command-hook` — is swappable for yank-time handling or another out-of-dispatch channel without locking in an on-disk choice.
 
 Decisions 1 (indent the body), 3 (measure-and-strip), 4 (column-0 outer delimiters), 5 (Path C tool blocks), and 7 (migration on read) are the load-bearing architecture; they are mutually consistent and revising any one would be a fresh design pass.

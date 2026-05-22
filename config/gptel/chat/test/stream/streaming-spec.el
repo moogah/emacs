@@ -147,7 +147,17 @@ Returns the marker."
 
     (it "indents a `#+begin_src'-shaped line off column 0"
       (expect (gptel-chat--sanitize-chunk "#+begin_src emacs-lisp")
-              :to-equal "  #+begin_src emacs-lisp")))
+              :to-equal "  #+begin_src emacs-lisp"))
+
+    (it "indents an org-emphasis or list-bullet line like ordinary prose"
+      ;; The indenter is unconditional — it does not discriminate by
+      ;; line shape.  An `*emphasis*' line and a `- list' bullet are
+      ;; body content and take the body indent like any other prose;
+      ;; neither is an org structural token at column 0.
+      (expect (gptel-chat--sanitize-chunk "*emphasis* in a sentence")
+              :to-equal "  *emphasis* in a sentence")
+      (expect (gptel-chat--sanitize-chunk "- a list item")
+              :to-equal "  - a list item")))
 
   (describe "leaves blank lines unchanged"
 

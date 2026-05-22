@@ -16,13 +16,14 @@
 ;;
 ;;   - `gptel-chat--indent-inserted-region' runs from
 ;;     `after-change-functions'.  It does NOT mutate the buffer — it
-;;     only RECORDS the inserted region and schedules an idle timer.
-;;     Inserting from within an after-change dispatch corrupts the
-;;     change bookkeeping of `org-indent-mode' / `org-element', so the
-;;     mutation must happen outside the dispatch.
-;;   - `gptel-chat--indent-pending-regions' runs from that timer (and
-;;     is callable directly — these specs drive it directly rather
-;;     than waiting for idle time).  It shifts each recorded region via
+;;     only RECORDS the inserted region and installs a one-shot
+;;     `post-command-hook'.  Inserting from within an after-change
+;;     dispatch corrupts the change bookkeeping of `org-indent-mode' /
+;;     `org-element', so the mutation must happen outside the dispatch.
+;;   - `gptel-chat--indent-pending-regions' runs from that hook once
+;;     the inserting command finishes (and is callable directly —
+;;     these specs drive it directly rather than waiting for the
+;;     command loop).  It shifts each recorded region via
 ;;     `gptel-chat--indent-region' so its least-indented line reaches
 ;;     the body indent (`gptel-chat--body-indent', default 2).
 ;;
@@ -89,9 +90,10 @@ Returns the position where the marker was."
 (defun gptel-chat-paste-test--paste (text)
   "Insert TEXT at point, then drain the deferred body-indenter.
 `gptel-chat--indent-inserted-region' (the `after-change' hook) only
-RECORDS the inserted region; the shift runs later from an idle timer.
-Tests drive that timer's callback, `gptel-chat--indent-pending-regions',
-directly instead of waiting for idle time."
+RECORDS the inserted region; the shift runs later from a one-shot
+`post-command-hook'.  Tests drive that hook's callback,
+`gptel-chat--indent-pending-regions', directly instead of waiting for
+the command loop."
   (insert text)
   (gptel-chat--indent-pending-regions))
 
