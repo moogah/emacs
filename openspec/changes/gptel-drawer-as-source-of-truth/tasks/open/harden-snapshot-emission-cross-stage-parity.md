@@ -2,7 +2,7 @@
 name: harden-snapshot-emission-cross-stage-parity
 description: Cycle-6 reviewer of fix-snapshot-tools-test-mock-and-dedupe-applicator surfaced two leaks in the cross-stage idempotency story that the dedupe didn't fully retire. (a) `gptel-chat--write-config-drawer` is a third producer of the same six-key snapshot set, so a seventh-key author still has to edit two places. (b) `--snapshot-lines` joins multivalued payloads with bare `mapconcat`, while `--apply-to-drawer` routes through `org-entry-protect-space` — agreement on key set + ordering, but disagreement on value escaping. Address both so the cross-mode invariant is enforced rather than documented.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: needs-review
 relations:
   - discovered-from:fix-snapshot-tools-test-mock-and-dedupe-applicator
 ---

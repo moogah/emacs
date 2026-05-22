@@ -336,20 +336,26 @@ triggers a `display-warning' rather than an error, matching upstream
 ;; the file shows the configuration the chat is using right now
 ;; (Decision 1 of gptel-drawer-as-source-of-truth).
 
-;; Emitted keys (when the corresponding buffer-local variable is
-;; non-nil and well-typed):
+;; The six *snapshot keys* — =GPTEL_MODEL=, =GPTEL_BACKEND=,
+;; =GPTEL_TOOLS=, =GPTEL_TEMPERATURE=, =GPTEL_MAX_TOKENS=, and
+;; =GPTEL_NUM_MESSAGES_TO_SEND= — are emitted through the shared
+;; registry =jf/gptel-scope-profile--snapshot-spec=. The writer reads
+;; the current buffer-local configuration via
+;; =jf/gptel-scope-profile--buffer-snapshot-plist=, turns it into
+;; ordered, type-filtered entries with
+;; =jf/gptel-scope-profile--snapshot-entries=, and for each registry
+;; key either writes the entry or deletes a stale one. This is the
+;; *same* enumeration the preset-spec renderer and the buffer-mode
+;; applicator consume, so the snapshot key set cannot drift between the
+;; save path and session creation, and adding a seventh key is a single
+;; edit to the registry.
 
-;; - =GPTEL_PRESET= — from =gptel--preset=
-;; - =GPTEL_MODEL= — from =gptel-model= via =gptel--model-name=
-;; - =GPTEL_BACKEND= — from =gptel-backend= via =gptel-backend-name=
-;;   (handles both the struct and a bare string)
-;; - =GPTEL_TEMPERATURE= — from =gptel-temperature= via
-;;   =number-to-string=
-;; - =GPTEL_MAX_TOKENS= — from =gptel-max-tokens=
-;; - =GPTEL_NUM_MESSAGES_TO_SEND= — from =gptel--num-messages-to-send=
-;; - =GPTEL_TOOLS= — from =gptel-tools= via =gptel-tool-name= →
-;;   multi-valued property
+;; Two further keys are chat-mode-specific and written directly:
+
+;; - =GPTEL_PRESET= — from =gptel--preset= (the preset *name*, not
+;;   preset-derived configuration, so not part of the snapshot set).
 ;; - =GPTEL_PARENT_SESSION_ID= — from =jf/gptel--parent-session-id=
+;;   (written by =gptel-chat--save-state=, see below).
 
 ;; Deliberate exclusions:
 
@@ -377,6 +383,17 @@ triggers a `display-warning' rather than an error, matching upstream
 ;;   preset semantics defeat the design goal — fresh sessions never
 ;;   display =:GPTEL_TOOLS:= or =:GPTEL_MODEL:= when the buffer-local
 ;;   values match the preset, hiding the active configuration.
+;; - The snapshot keys route through the shared registry
+;;   =jf/gptel-scope-profile--snapshot-spec= rather than being
+;;   enumerated inline. Before this, the writer was a third independent
+;;   producer of the same six-key set, alongside the preset-spec
+;;   renderer and the buffer-mode applicator; a reviewer flagged that
+;;   adding a snapshot key meant editing the writer *and* the scope-
+;;   profile module. Routing every producer through one registry
+;;   retires that drift surface
+;;   (=harden-snapshot-emission-cross-stage-parity=, Finding 1). The
+;;   writer lazily =(require 'gptel-scope-profiles)= for the registry;
+;;   in production that module is already loaded by =gptel.org=.
 ;; - =(require 'gptel-org)= is still needed: the read-side overlay
 ;;   (=gptel-chat--apply-drawer-overrides=) consumes
 ;;   =gptel-org--entry-properties=, so the feature must be loaded.
@@ -392,9 +409,15 @@ triggers a `display-warning' rather than an error, matching upstream
 
 
 ;; [[file:menu.org::*Save state hook][Save state hook:1]]
-(declare-function gptel--model-name "gptel" (model))
-(declare-function gptel-backend-name "gptel" (backend))
-(declare-function gptel-tool-name "gptel" (tool))
+(declare-function org-entry-delete "org" (pom property))
+(declare-function org-entry-put-multivalued-property "org"
+                  (pom property &rest values))
+(declare-function jf/gptel-scope-profile--snapshot-entries
+                  "gptel-scope-profiles" (snapshot-plist))
+(declare-function jf/gptel-scope-profile--snapshot-keys
+                  "gptel-scope-profiles" ())
+(declare-function jf/gptel-scope-profile--buffer-snapshot-plist
+                  "gptel-scope-profiles" ())
 (defvar gptel--preset)
 (defvar gptel-model)
 (defvar gptel-backend)
@@ -424,11 +447,22 @@ section commentary for the full key list and exclusions
 written; Decision 2 of gptel-drawer-as-source-of-truth, register/
 invariant/drawer-system-key-write-exclusion).
 
-Each scalar key is written when its source variable is non-nil
-and well-typed; otherwise the drawer entry is deleted via
-`org-entry-delete' so the saved drawer reflects current buffer
-state precisely.  `:GPTEL_TOOLS:' is a multi-valued property
-written via `org-entry-put-multivalued-property'.
+The six snapshot keys (`:GPTEL_MODEL:', `:GPTEL_BACKEND:',
+`:GPTEL_TOOLS:', `:GPTEL_TEMPERATURE:', `:GPTEL_MAX_TOKENS:',
+`:GPTEL_NUM_MESSAGES_TO_SEND:') are sourced through the shared
+registry `jf/gptel-scope-profile--snapshot-spec': current buffer-
+local state is read by `jf/gptel-scope-profile--buffer-snapshot-plist'
+and ordered by `jf/gptel-scope-profile--snapshot-entries' — the same
+enumeration the preset-spec renderer and the buffer-mode applicator
+consume, so the snapshot key set cannot drift between producers
+(`harden-snapshot-emission-cross-stage-parity', Finding 1).  For each
+registry key the present entry is written, or a stale one deleted via
+`org-entry-delete', so the saved drawer reflects current buffer state
+precisely.  Multi-valued keys (`:GPTEL_TOOLS:') are written via
+`org-entry-put-multivalued-property'.
+
+`:GPTEL_PRESET:' is written directly: it is the preset *name*, not
+preset-derived configuration, and is not part of the snapshot set.
 
 Caller is responsible for the surrounding `save-excursion' /
 `org-with-wide-buffer' framing and for calling this only in
@@ -436,65 +470,32 @@ chat-mode buffers.  The dedicated writer (rather than upstream
 `gptel-org-set-properties') is Decision 1 of
 gptel-drawer-as-source-of-truth: the WYSIWYG contract requires
 full-snapshot writes, not deletes-when-preset-matches."
-  (let ((pt (point-min)))
-    ;; :GPTEL_PRESET:
+  (require 'gptel-scope-profiles)
+  (let* ((pt (point-min))
+         (entries (jf/gptel-scope-profile--snapshot-entries
+                   (jf/gptel-scope-profile--buffer-snapshot-plist))))
+    ;; :GPTEL_PRESET: — the preset name, not a snapshot key.
     (gptel-chat--put-or-delete
      pt "GPTEL_PRESET"
      (and (bound-and-true-p gptel--preset)
           (cond ((symbolp gptel--preset) (symbol-name gptel--preset))
                 ((stringp gptel--preset) gptel--preset))))
-    ;; :GPTEL_MODEL:
-    (gptel-chat--put-or-delete
-     pt "GPTEL_MODEL"
-     (and (bound-and-true-p gptel-model) gptel-model
-          (gptel--model-name gptel-model)))
-    ;; :GPTEL_BACKEND:
-    (gptel-chat--put-or-delete
-     pt "GPTEL_BACKEND"
-     (and (bound-and-true-p gptel-backend) gptel-backend
-          (cond ((stringp gptel-backend) gptel-backend)
-                ((fboundp 'gptel-backend-name)
-                 (gptel-backend-name gptel-backend)))))
-    ;; :GPTEL_TEMPERATURE:
-    (gptel-chat--put-or-delete
-     pt "GPTEL_TEMPERATURE"
-     (and (bound-and-true-p gptel-temperature)
-          (numberp gptel-temperature)
-          (number-to-string gptel-temperature)))
-    ;; :GPTEL_MAX_TOKENS:
-    (gptel-chat--put-or-delete
-     pt "GPTEL_MAX_TOKENS"
-     (and (bound-and-true-p gptel-max-tokens)
-          (numberp gptel-max-tokens)
-          (number-to-string gptel-max-tokens)))
-    ;; :GPTEL_NUM_MESSAGES_TO_SEND:
-    (gptel-chat--put-or-delete
-     pt "GPTEL_NUM_MESSAGES_TO_SEND"
-     (and (bound-and-true-p gptel--num-messages-to-send)
-          (numberp gptel--num-messages-to-send)
-          (number-to-string gptel--num-messages-to-send)))
-    ;; :GPTEL_TOOLS: — multi-valued; non-empty list writes,
-    ;; empty/unbound deletes.
-    (let ((names (and (bound-and-true-p gptel-tools)
-                      gptel-tools
-                      (delq nil
-                            (mapcar (lambda (tool)
-                                      (cond
-                                       ((stringp tool) tool)
-                                       ((symbolp tool) (symbol-name tool))
-                                       ((and (recordp tool)
-                                             (fboundp 'gptel-tool-name)
-                                             (eq (type-of tool) 'gptel-tool))
-                                        (gptel-tool-name tool))
-                                       ((and (vectorp tool)
-                                             (fboundp 'gptel-tool-name))
-                                        (ignore-errors
-                                          (gptel-tool-name tool)))))
-                                    gptel-tools)))))
-      (if names
-          (apply #'org-entry-put-multivalued-property
-                 pt "GPTEL_TOOLS" names)
-        (org-entry-delete pt "GPTEL_TOOLS")))
+    ;; Snapshot keys: single-sourced through
+    ;; `jf/gptel-scope-profile--snapshot-spec'.  For each canonical
+    ;; key write the present entry (dispatching on KIND exactly like
+    ;; `jf/gptel-scope-profile--apply-to-drawer') or delete a stale
+    ;; one.  No inline key enumeration lives here — adding a seventh
+    ;; snapshot key is a single edit to the registry.
+    (dolist (key (jf/gptel-scope-profile--snapshot-keys))
+      (if-let* ((entry (assoc key entries)))
+          (pcase-let ((`(,_key ,value ,kind) entry))
+            (pcase kind
+              (:scalar
+               (org-entry-put pt key value))
+              (:multivalued
+               (apply #'org-entry-put-multivalued-property
+                      pt key value))))
+        (org-entry-delete pt key)))
     ;; :GPTEL_SYSTEM: deliberately not touched.  Writers never emit
     ;; it (Decision 2; long multi-line strings are unwieldy as
     ;; org property values).  Reads still honor manually authored

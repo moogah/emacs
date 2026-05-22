@@ -480,93 +480,171 @@ resolved against the current global default; this matches what
                      (t nil)))
                   resolved))))
 
-(defun jf/gptel-scope-profile--snapshot-entries (preset-spec)
-  "Return ordered snapshot entries derived from PRESET-SPEC.
+(defun jf/gptel-scope-profile--snapshot-format-model (value)
+  "Format a `:model' snapshot VALUE as a drawer scalar string.
+Returns nil when VALUE is nil so the key is omitted."
+  (and value (gptel--model-name value)))
 
-PRESET-SPEC is the resolved preset plist returned by
-`gptel-get-preset' (e.g. (:model claude-sonnet :backend BACKEND :tools
-\(:append (...)) :temperature 0.7 ...)).  May be nil when no preset
-is in effect.
+(defun jf/gptel-scope-profile--snapshot-format-backend (value)
+  "Format a `:backend' snapshot VALUE as a drawer scalar string.
+VALUE is either a backend struct or a bare backend-name string.
+Returns nil when VALUE is nil so the key is omitted."
+  (and value (if (stringp value) value (gptel-backend-name value))))
+
+(defun jf/gptel-scope-profile--snapshot-format-number (value)
+  "Format a numeric snapshot VALUE as a drawer scalar string.
+Returns nil for non-numbers (including nil) so the key is omitted."
+  (and (numberp value) (number-to-string value)))
+
+(defconst jf/gptel-scope-profile--snapshot-spec
+  (list
+   (list "GPTEL_MODEL" :model :scalar
+         #'jf/gptel-scope-profile--snapshot-format-model
+         'gptel-model)
+   (list "GPTEL_BACKEND" :backend :scalar
+         #'jf/gptel-scope-profile--snapshot-format-backend
+         'gptel-backend)
+   (list "GPTEL_TOOLS" :tools :multivalued
+         #'jf/gptel-scope-profile--resolve-tool-names
+         'gptel-tools)
+   (list "GPTEL_TEMPERATURE" :temperature :scalar
+         #'jf/gptel-scope-profile--snapshot-format-number
+         'gptel-temperature)
+   (list "GPTEL_MAX_TOKENS" :max-tokens :scalar
+         #'jf/gptel-scope-profile--snapshot-format-number
+         'gptel-max-tokens)
+   (list "GPTEL_NUM_MESSAGES_TO_SEND" :num-messages-to-send :scalar
+         #'jf/gptel-scope-profile--snapshot-format-number
+         'gptel--num-messages-to-send))
+  "Registry of the chat-mode snapshot drawer keys.
+
+This is the *single* enumeration of the snapshot key set.  Each row
+is a list (DRAWER-KEY PLIST-KEY KIND EXTRACTOR SOURCE-VAR):
+
+- DRAWER-KEY  — the bare org property name (no surrounding colons).
+- PLIST-KEY   — the keyword the value is read under from a snapshot
+                plist (matching the resolved-preset plist shape).
+- KIND        — `:scalar' (rendered value is a string) or
+                `:multivalued' (a list of strings).
+- EXTRACTOR   — a one-argument function mapping the raw plist value
+                to its formatted form (string for `:scalar', list of
+                strings for `:multivalued'), or nil to omit the key.
+- SOURCE-VAR  — the gptel variable whose buffer-local value the
+                chat-mode save path reads (see
+                `jf/gptel-scope-profile--buffer-snapshot-plist').
+
+Every snapshot producer derives from this table:
+`jf/gptel-scope-profile--snapshot-entries' (and through it
+`--snapshot-lines' / the string renderer and `--apply-to-drawer'),
+`jf/gptel-scope-profile--snapshot-keys', and the chat-mode save
+path's `gptel-chat--write-config-drawer'.  Adding a seventh snapshot
+key is therefore a single edit here — no producer needs changing.
+
+`:GPTEL_SYSTEM:' is *deliberately absent*: long, multi-line, special-
+character system prompts are unwieldy as a single org property value,
+so the writer never round-trips them (Decision 2 of gptel-drawer-as-
+source-of-truth, `register/invariant/drawer-system-key-write-
+exclusion'; the read-side overlay still respects manually authored
+entries).")
+
+(defun jf/gptel-scope-profile--snapshot-keys ()
+  "Return the canonical ordered list of snapshot drawer key strings.
+Derived from `jf/gptel-scope-profile--snapshot-spec' — the single
+registry of the snapshot key set."
+  (mapcar #'car jf/gptel-scope-profile--snapshot-spec))
+
+(defun jf/gptel-scope-profile--buffer-snapshot-plist ()
+  "Build a snapshot plist from the current buffer's gptel configuration.
+
+Reads the buffer-local value of each snapshot key's SOURCE-VAR (see
+`jf/gptel-scope-profile--snapshot-spec') and returns a plist keyed by
+the same keywords a resolved preset spec uses (`:model', `:backend',
+`:tools', `:temperature', `:max-tokens', `:num-messages-to-send').
+
+The result is a valid SNAPSHOT-PLIST argument for
+`jf/gptel-scope-profile--snapshot-entries', so the chat-mode save
+path (`gptel-chat--write-config-drawer') and the preset-spec render
+path share one key enumeration and cannot drift.
+
+Unbound source variables are omitted.  Type and emptiness filtering
+is `--snapshot-entries'' responsibility, not this function's."
+  (let (plist)
+    (dolist (row jf/gptel-scope-profile--snapshot-spec)
+      (pcase-let ((`(,_key ,plist-key ,_kind ,_extractor ,var) row))
+        (when (boundp var)
+          (setq plist (plist-put plist plist-key (symbol-value var))))))
+    plist))
+
+(defun jf/gptel-scope-profile--snapshot-entries (snapshot-plist)
+  "Return ordered snapshot entries derived from SNAPSHOT-PLIST.
+
+SNAPSHOT-PLIST is a plist keyed by `:model', `:backend', `:tools',
+`:temperature', `:max-tokens', and `:num-messages-to-send'.  Two
+sources produce it:
+
+- a resolved preset plist from `gptel-get-preset' (the preset-spec
+  pipeline — session creation and the string renderer); or
+- `jf/gptel-scope-profile--buffer-snapshot-plist', built from the
+  current buffer's gptel configuration (the chat-mode save path).
+
+Either may be nil when no configuration is in effect.
 
 Each returned entry is a list (DRAWER-KEY VALUE KIND) where
 DRAWER-KEY is the bare org property name (no surrounding colons),
-KIND is one of `:scalar' (VALUE is a string) or `:multivalued'
-\(VALUE is a list of strings), and the order is canonical: model,
-backend, tools, temperature, max-tokens, num-messages-to-send.
-Entries whose source value is missing, wrong-typed, or (for tools)
-resolves to the empty list are omitted.
+KIND is `:scalar' (VALUE is a string) or `:multivalued' (VALUE is a
+list of strings), and the order is canonical: model, backend, tools,
+temperature, max-tokens, num-messages-to-send.  Entries whose source
+value is missing, wrong-typed, or (for tools) resolves to the empty
+list are omitted.
 
-This single ordered builder is the *only* enumeration of the snapshot
-key set.  Both `jf/gptel-scope-profile--snapshot-lines' (used by the
-string-mode renderer) and `jf/gptel-scope-profile--apply-to-drawer'
-\(buffer-mode applicator) consume it, so adding a seventh snapshot key
-is a single edit and the cross-stage idempotency invariant of
-`register/boundary/scope-profile-applicator' cannot drift between the
-two producers.
+The key set, ordering, per-key extractor, and `:GPTEL_SYSTEM:' write-
+side exclusion all come from `jf/gptel-scope-profile--snapshot-spec'
+\(the single registry).  Every snapshot producer routes through this
+function or `jf/gptel-scope-profile--snapshot-keys', so the cross-
+stage idempotency invariant of
+`register/boundary/scope-profile-applicator' cannot drift between
+producers.
 
-`:GPTEL_SYSTEM:' is *deliberately absent* even when the preset's
-`:system' key is non-nil.  This is the write-side enforcement of
-`register/invariant/drawer-system-key-write-exclusion' (Decision 2
-of gptel-drawer-as-source-of-truth: long, multi-line, special-
-character system prompts are unwieldy as a single org property
-value, so the writer never round-trips them; the read-side overlay
-still respects manually authored entries).
-
-Returns nil when PRESET-SPEC is nil or carries none of the snapshot
-keys."
-  (when preset-spec
-    (let (entries)
-      (when-let* ((model (plist-get preset-spec :model)))
-        (push (list "GPTEL_MODEL" (gptel--model-name model) :scalar)
-              entries))
-      (when-let* ((backend (plist-get preset-spec :backend)))
-        (push (list "GPTEL_BACKEND"
-                    (if (stringp backend) backend
-                      (gptel-backend-name backend))
-                    :scalar)
-              entries))
-      (when (plist-member preset-spec :tools)
-        (let ((names (jf/gptel-scope-profile--resolve-tool-names
-                      (plist-get preset-spec :tools))))
-          (when names
-            (push (list "GPTEL_TOOLS" names :multivalued) entries))))
-      (when-let* ((temperature (plist-get preset-spec :temperature)))
-        (when (numberp temperature)
-          (push (list "GPTEL_TEMPERATURE"
-                      (number-to-string temperature)
-                      :scalar)
-                entries)))
-      (when-let* ((max-tokens (plist-get preset-spec :max-tokens)))
-        (when (numberp max-tokens)
-          (push (list "GPTEL_MAX_TOKENS"
-                      (number-to-string max-tokens)
-                      :scalar)
-                entries)))
-      (when-let* ((num-msgs (plist-get preset-spec :num-messages-to-send)))
-        (when (numberp num-msgs)
-          (push (list "GPTEL_NUM_MESSAGES_TO_SEND"
-                      (number-to-string num-msgs)
-                      :scalar)
-                entries)))
-      ;; Note: :GPTEL_SYSTEM: is intentionally NOT emitted (Decision 2,
-      ;; register/invariant/drawer-system-key-write-exclusion).
-      (nreverse entries))))
+Returns nil when SNAPSHOT-PLIST is nil or carries none of the
+snapshot keys."
+  (when snapshot-plist
+    (delq nil
+          (mapcar
+           (lambda (row)
+             (pcase-let ((`(,key ,plist-key ,kind ,extractor ,_var) row))
+               (let ((value (funcall extractor
+                                     (plist-get snapshot-plist plist-key))))
+                 (pcase kind
+                   (:scalar
+                    (when (and (stringp value)
+                               (not (string-empty-p value)))
+                      (list key value kind)))
+                   (:multivalued
+                    (when (consp value)
+                      (list key value kind)))))))
+           jf/gptel-scope-profile--snapshot-spec))))
 
 (defun jf/gptel-scope-profile--snapshot-lines (preset-spec)
   "Build the chat-mode snapshot drawer lines from PRESET-SPEC.
 
 Thin formatter over `jf/gptel-scope-profile--snapshot-entries' (the
-canonical enumeration of the snapshot key set; see its docstring for
-the included keys, ordering, and the `:GPTEL_SYSTEM:' write-side
-exclusion).  Each entry is rendered as a single `:KEY: VALUE' line:
-scalars verbatim, multivalued lists space-joined.
+canonical enumeration of the snapshot key set; see its docstring and
+`jf/gptel-scope-profile--snapshot-spec' for the included keys,
+ordering, and the `:GPTEL_SYSTEM:' write-side exclusion).  Each entry
+is rendered as a single `:KEY: VALUE' line: scalars verbatim,
+multivalued lists space-joined.
 
-Multivalued lists are joined with `mapconcat' rather than
-`org-entry-protect-space' because tool names (the only multivalued
-snapshot key today) are upstream-validated identifiers without
-whitespace.  If a future snapshot key carries values that may contain
-spaces or newlines, route it through `org-entry-protect-space' here
-to preserve cross-mode parity with `org-entry-put-multivalued-property'.
+Multivalued values are escaped element-wise with
+`org-entry-protect-space' before joining — exactly what
+`org-entry-put-multivalued-property' does in the buffer-mode
+applicator `jf/gptel-scope-profile--apply-to-drawer'.  This keeps the
+two producers in lockstep: a value containing whitespace (or a
+newline) renders as one escaped token in both modes, so it round-
+trips through `org-entry-get-multivalued-property' as a single
+element and the cross-mode idempotency invariant of
+`register/boundary/scope-profile-applicator' holds for *all* inputs,
+not only the whitespace-free tool identifiers that are the common
+case.
 
 Returns nil when PRESET-SPEC is nil or carries none of the snapshot
 keys."
@@ -575,7 +653,7 @@ keys."
               (format ":%s: %s"
                       key
                       (if (eq kind :multivalued)
-                          (mapconcat #'identity value " ")
+                          (mapconcat #'org-entry-protect-space value " ")
                         value))))
           (jf/gptel-scope-profile--snapshot-entries preset-spec)))
 

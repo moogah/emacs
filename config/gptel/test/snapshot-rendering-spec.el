@@ -29,6 +29,13 @@
 ;;     for `:GPTEL_TOOLS:'.
 ;;   - Modify-list tool specs (`(:append (...))') are resolved against
 ;;     the current `gptel-tools' default at render time.
+;;   - `--snapshot-lines' escapes whitespace in multivalued values via
+;;     `org-entry-protect-space', agreeing with `--apply-to-drawer' on
+;;     space-bearing tool names (task `harden-snapshot-emission-cross-
+;;     stage-parity', Finding 2).
+;;   - `--snapshot-keys' / `--snapshot-entries' derive the snapshot key
+;;     set from the single `--snapshot-spec' registry and accept a
+;;     buffer-shaped snapshot plist as well as a preset spec (Finding 1).
 ;;
 ;; Anchors:
 ;;   register/shape/drawer-text-block (divergent → reconciled)
@@ -302,6 +309,83 @@
                      (string-match-p "^:PROPERTIES:[ \t]*$" line))
                    (split-string content "\n"))
                   :to-equal 1))))))
+
+(describe "multivalued snapshot value escaping (cross-mode parity)"
+  ;; Finding 2 of task `harden-snapshot-emission-cross-stage-parity':
+  ;; `--snapshot-lines' (string mode, 2a) must escape whitespace in
+  ;; multivalued values via `org-entry-protect-space', exactly as
+  ;; `--apply-to-drawer' (buffer mode, 2b) does through
+  ;; `org-entry-put-multivalued-property'.  Without escaping, a tool
+  ;; name carrying a space renders as multiple tokens and round-trips
+  ;; back as multiple tools, breaking the cross-mode idempotency
+  ;; invariant of register/boundary/scope-profile-applicator.
+
+  (it "escapes spaces in a tool name so it renders as a single token"
+    (expect (jf/gptel-scope-profile--snapshot-lines
+             '(:tools ("name with space")))
+            :to-equal '(":GPTEL_TOOLS: name%20with%20space")))
+
+  (it "leaves whitespace-free tool names unescaped (the common case)"
+    (expect (jf/gptel-scope-profile--snapshot-lines
+             '(:tools ("PersistentAgent" "run_bash_command")))
+            :to-equal
+            '(":GPTEL_TOOLS: PersistentAgent run_bash_command")))
+
+  (it "round-trips a space-bearing tool name through write + re-read (mode 2a)"
+    (with-temp-buffer
+      (insert ":PROPERTIES:\n")
+      (dolist (line (jf/gptel-scope-profile--snapshot-lines
+                     '(:tools ("name with space" "plain"))))
+        (insert line "\n"))
+      (insert ":END:\n\n")
+      (org-mode)
+      (expect (org-entry-get-multivalued-property (point-min) "GPTEL_TOOLS")
+              :to-equal '("name with space" "plain"))))
+
+  (it "agrees with --apply-to-drawer (mode 2b) on a space-bearing tool name"
+    (let* ((spec '(:tools ("name with space" "plain")))
+           (mode-2a
+            (with-temp-buffer
+              (insert ":PROPERTIES:\n")
+              (dolist (line (jf/gptel-scope-profile--snapshot-lines spec))
+                (insert line "\n"))
+              (insert ":END:\n\n")
+              (org-mode)
+              (org-entry-get-multivalued-property (point-min) "GPTEL_TOOLS")))
+           (mode-2b
+            (with-temp-buffer
+              (insert ":PROPERTIES:\n:END:\n\n")
+              (org-mode)
+              (jf/gptel-scope-profile--apply-to-drawer
+               (current-buffer) '(:paths nil) spec)
+              (org-entry-get-multivalued-property (point-min) "GPTEL_TOOLS"))))
+      (expect mode-2a :to-equal mode-2b)
+      (expect mode-2a :to-equal '("name with space" "plain")))))
+
+(describe "snapshot key registry (single-source enumeration)"
+  ;; Finding 1 of task `harden-snapshot-emission-cross-stage-parity':
+  ;; all snapshot producers derive their key set from one registry,
+  ;; `jf/gptel-scope-profile--snapshot-spec'.
+
+  (it "exposes the canonical six keys in order via --snapshot-keys"
+    (expect (jf/gptel-scope-profile--snapshot-keys)
+            :to-equal
+            '("GPTEL_MODEL" "GPTEL_BACKEND" "GPTEL_TOOLS"
+              "GPTEL_TEMPERATURE" "GPTEL_MAX_TOKENS"
+              "GPTEL_NUM_MESSAGES_TO_SEND")))
+
+  (it "accepts a buffer-shaped snapshot plist, not only a preset spec"
+    ;; --buffer-snapshot-plist produces a plist with the same keys a
+    ;; resolved preset spec carries; --snapshot-entries treats both
+    ;; identically.
+    (expect (jf/gptel-scope-profile--snapshot-entries
+             '(:model claude-sonnet-4-6
+               :temperature 0.7
+               :tools ("a" "b")))
+            :to-equal
+            '(("GPTEL_MODEL" "claude-sonnet-4-6" :scalar)
+              ("GPTEL_TOOLS" ("a" "b") :multivalued)
+              ("GPTEL_TEMPERATURE" "0.7" :scalar)))))
 
 (provide 'snapshot-rendering-spec)
 ;;; snapshot-rendering-spec.el ends here

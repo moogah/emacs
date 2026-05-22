@@ -20,6 +20,11 @@
 ;;   - `gptel-chat--write-config-drawer' writes each upstream-
 ;;     compatible drawer key from buffer-local state, and DELETES
 ;;     each key when the source variable is nil or wrong-typed.
+;;   - The writer emits the same snapshot keys, in the same order
+;;     and with the same value escaping, as the preset-spec producer
+;;     `jf/gptel-scope-profile--snapshot-lines' — both consume the
+;;     single `jf/gptel-scope-profile--snapshot-spec' registry (task
+;;     `harden-snapshot-emission-cross-stage-parity', Findings 1, 2).
 ;;   - `:GPTEL_SYSTEM:' is *never* written, even when
 ;;     `gptel--system-message' (or the preset's `:system') is set
 ;;     (write-side enforcement of register/invariant/drawer-system-
@@ -48,12 +53,20 @@
 ;; two levels up is .../config/gptel/chat/, which holds `menu.el' and
 ;; `mode.el'.
 (let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (chat-dir (expand-file-name "../../" spec-dir)))
-  (add-to-list 'load-path chat-dir))
+       (chat-dir (expand-file-name "../../" spec-dir))
+       (gptel-dir (expand-file-name "../../../" spec-dir)))
+  (add-to-list 'load-path chat-dir)
+  (add-to-list 'load-path gptel-dir))
 
 (require 'gptel)
 (require 'gptel-chat-mode)
 (require 'gptel-chat-menu)
+;; `gptel-chat--write-config-drawer' single-sources its snapshot key
+;; set through the `gptel-scope-profiles' registry (task
+;; `harden-snapshot-emission-cross-stage-parity', Finding 1).  The
+;; writer lazily requires it; load it eagerly here so the unit specs
+;; that call the writer directly have the registry available.
+(require 'gptel-scope-profiles)
 
 ;; The save hook requires `gptel-org' lazily for the read-side overlay.
 ;; Soft-require here so existing tests can pre-load it; the cold-load
@@ -76,6 +89,22 @@ Searches from `point-min'; non-destructive on point."
   (save-excursion
     (goto-char (point-min))
     (search-forward key nil t)))
+
+(defun gptel-chat-save-test--drawer-snapshot-keys ()
+  "Return the snapshot drawer keys present in the current buffer, in order.
+Scans `:GPTEL_*:' property lines from `point-min' and keeps only
+those in `jf/gptel-scope-profile--snapshot-keys' — i.e. the result
+ignores `:GPTEL_PRESET:' / `:GPTEL_PARENT_SESSION_ID:' and any scope
+keys, isolating the snapshot key set for cross-producer comparison."
+  (let ((snapshot (jf/gptel-scope-profile--snapshot-keys))
+        keys)
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward "^:\\(GPTEL_[A-Z_]+\\): " nil t)
+        (let ((key (match-string 1)))
+          (when (member key snapshot)
+            (push key keys)))))
+    (nreverse keys)))
 
 
 ;;; Specs --------------------------------------------------------------------
@@ -225,6 +254,74 @@ Searches from `point-min'; non-destructive on point."
         (gptel-chat--write-config-drawer)
         (expect (org-entry-get (point-min) "GPTEL_SYSTEM")
                 :to-equal "User-authored prompt."))))
+
+
+  ;; -----------------------------------------------------------------------
+  ;; 1b. Cross-producer key-set parity.
+  ;;
+  ;; Task `harden-snapshot-emission-cross-stage-parity', Finding 1: the
+  ;; chat-mode save path must emit the *same* snapshot keys, in the same
+  ;; canonical order, as the preset-spec producer
+  ;; `jf/gptel-scope-profile--snapshot-lines'.  Both now consume the
+  ;; single `jf/gptel-scope-profile--snapshot-spec' registry, so the
+  ;; writer is no longer an independent third enumeration that can
+  ;; drift when a snapshot key is added.
+
+  (describe "cross-producer key-set parity (Finding 1)"
+
+    (it "emits the same snapshot keys, in the same order, as --snapshot-lines"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert ":PROPERTIES:\n:END:\n")
+        (setq-local gptel-model 'claude-sonnet-4-6)
+        (setq-local gptel-backend "Claude")
+        (setq-local gptel-tools '(PersistentAgent run_bash_command))
+        (setq-local gptel-temperature 0.7)
+        (setq-local gptel-max-tokens 4096)
+        (setq-local gptel--num-messages-to-send 8)
+        (gptel-chat--write-config-drawer)
+        (let ((writer-keys (gptel-chat-save-test--drawer-snapshot-keys))
+              (lines-keys
+               (mapcar (lambda (line)
+                         (and (string-match "^:\\(GPTEL_[A-Z_]+\\):" line)
+                              (match-string 1 line)))
+                       (jf/gptel-scope-profile--snapshot-lines
+                        '(:model claude-sonnet-4-6
+                          :backend "Claude"
+                          :tools (PersistentAgent run_bash_command)
+                          :temperature 0.7
+                          :max-tokens 4096
+                          :num-messages-to-send 8)))))
+          ;; Writer drawer order == --snapshot-lines order.
+          (expect writer-keys :to-equal lines-keys)
+          ;; And both equal the canonical registry order.
+          (expect writer-keys
+                  :to-equal
+                  '("GPTEL_MODEL" "GPTEL_BACKEND" "GPTEL_TOOLS"
+                    "GPTEL_TEMPERATURE" "GPTEL_MAX_TOKENS"
+                    "GPTEL_NUM_MESSAGES_TO_SEND")))))
+
+    (it "writes a snapshot value byte-identical to the --snapshot-lines token"
+      ;; Guards Finding 2's escaping parity at the writer: a multivalued
+      ;; value with whitespace must serialise identically through the
+      ;; writer (org-entry-put-multivalued-property) and the string
+      ;; renderer (--snapshot-lines).
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert ":PROPERTIES:\n:END:\n")
+        (setq-local gptel-tools '("name with space"))
+        (gptel-chat--write-config-drawer)
+        (let* ((lines-line (car (jf/gptel-scope-profile--snapshot-lines
+                                 '(:tools ("name with space")))))
+               (lines-raw (and (string-match "^:GPTEL_TOOLS: \\(.*\\)$"
+                                             lines-line)
+                               (match-string 1 lines-line))))
+          ;; `org-entry-get' returns the raw (escaped) drawer text.
+          (expect (org-entry-get (point-min) "GPTEL_TOOLS")
+                  :to-equal lines-raw)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_TOOLS")
+                  :to-equal '("name with space"))))))
 
 
   ;; -----------------------------------------------------------------------
