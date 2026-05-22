@@ -126,10 +126,12 @@ delimiter."
 
 ;; Point-in-block-body predicate
 
-;; The chat-heading-collision-escape boundary (design.md Decisions 2 and
-;; 3) needs a fast yes/no answer to "is point currently inside a
-;; chat-block body?" on every keystroke and every paste.  The predicate
-;; must be sub-millisecond on typical chat buffers — we cannot afford to
+;; The chat-block-body-indentation boundary (design.md Decision 6) needs
+;; a fast yes/no answer to "is point inside a chat-block body?":
+;; =gptel-chat--indent-line= (the =indent-line-function=) consults it on
+;; every indent, and =gptel-chat--indent-inserted-region= (the paste
+;; handler) consults it per inserted line.  The predicate must be
+;; sub-millisecond on typical chat buffers — we cannot afford to
 ;; =org-element-at-point= or even re-run =gptel-chat-parse-buffer=.
 
 ;; The predicate's contract:
@@ -141,8 +143,8 @@ delimiter."
 ;; - POS on a delimiter line itself (opener or closer) → return nil.
 ;;   This is what the
 ;;   =register/invariant/chat-block-delimiter-lines-stay-at-column-0=
-;;   invariant requires: the user-typed escape must never indent a
-;;   delimiter line.
+;;   invariant requires: the body-indentation boundary must never indent
+;;   a delimiter line.
 ;; - POS in pre-block metadata, between blocks, or in a buffer with no
 ;;   blocks → return nil.
 ;; - A =#+begin_tool= block nested inside =#+begin_assistant= counts as
@@ -160,9 +162,9 @@ delimiter."
 
 ;; If the matching closer cannot be found (unclosed block — malformed
 ;; buffer mid-stream) the predicate returns nil.  We pick "nil" rather
-;; than "non-nil" for malformed input so the user-typed escape's failure
-;; mode is "leave the user's text alone" — the safer of the two
-;; behaviours when the structure is in flux.
+;; than "non-nil" for malformed input so the failure mode is "leave the
+;; user's text alone" — the safer of the two behaviours when the
+;; structure is in flux.
 
 
 ;; [[file:parser.org::*Point-in-block-body predicate][Point-in-block-body predicate:1]]
@@ -176,18 +178,17 @@ nearest enclosing `#+begin_user', `#+begin_assistant', or
 `#+begin_tool' delimiter and before the beginning-of-line of the
 matching `#+end_*' closer.  POS on either delimiter line itself
 returns nil — the chat-block-delimiter-lines-stay-at-column-0
-invariant requires that delimiter lines never be modified by the
-heading-collision escape.
+invariant requires that delimiter lines never be indented by the
+body-indentation boundary.
 
 A `#+begin_tool' nested inside a `#+begin_assistant' is treated as
-its own enclosing block — a `*'-prefixed line in a tool body is
-just as load-bearing as one in assistant prose, and both must be
-indented by the escape boundary.
+its own enclosing block — a tool body is chat-block content just as
+much as assistant prose, and both must be indented.
 
 The function uses a stack-walking scan over `#+begin_*' /
 `#+end_*' delimiter lines, not `org-element-at-point' — the
-predicate is on the keystroke hot path (design.md Decisions 2 and
-3) and must stay sub-millisecond.
+predicate is consulted by the indentation affordances (design.md
+Decision 6) and must stay sub-millisecond.
 
 Returns nil for any of:
   - POS at point-min or in pre-block metadata.
@@ -195,8 +196,8 @@ Returns nil for any of:
   - POS on a `#+begin_*' or `#+end_*' delimiter line.
   - The buffer has an unclosed enclosing block past POS (malformed
     structure mid-edit).  Returning nil here is deliberate: when
-    the escape boundary is uncertain whether POS is inside a block,
-    it must err on the side of leaving user input untouched."
+    the indentation boundary is uncertain whether POS is inside a
+    block, it must err on the side of leaving user input untouched."
   (let ((target-pos (or pos (point))))
     (with-current-buffer (or buffer (current-buffer))
       (save-excursion
@@ -278,7 +279,8 @@ Returns nil for any of:
 ;;   parseable sexp / no tail). Downstream consumers feed this directly
 ;;   to JSON encoding via =gptel--parse-list=; no unwrapping needed.
 ;; - =:result= — everything between the header line and =#+end_tool=,
-;;   with leading/trailing whitespace trimmed.
+;;   captured verbatim (indented); the body indent is stripped on the
+;;   send path by =gptel-chat--dedent= in =gptel-chat--segment-to-messages=.
 
 ;; Parsing is defensive: if the header does not contain a readable sexp
 ;; (e.g., early drafts or manually-edited tool blocks), store =:name= as
@@ -397,9 +399,12 @@ Signals `user-error' on unclosed delimiters."
           (unless (re-search-forward gptel-chat--re-end-tool nil t)
             (gptel-chat--parse-error 'unclosed-tool tool-open-line))
           (let* ((tool-end-line-start (match-beginning 0))
-                 (result-text (string-trim
-                               (buffer-substring-no-properties
-                                tool-body-start tool-end-line-start)))
+                 ;; Captured verbatim (indented).  `gptel-chat--dedent'
+                 ;; in `gptel-chat--segment-to-messages' strips the body
+                 ;; indent on the send path; `string-trim' there drops
+                 ;; the surrounding blank lines.
+                 (result-text (buffer-substring-no-properties
+                               tool-body-start tool-end-line-start))
                  (parsed (gptel-chat--parse-tool-header header-text))
                  (tool-call (list :type 'tool-call
                                   :name (car parsed)
@@ -551,123 +556,73 @@ Signals `user-error' when the buffer is structurally invalid:
           (nreverse turns))))))
 ;; Buffer parser — public entry point:1 ends here
 
-;; Comma un-escape (inverse of the stream sanitizer)
+;; Body dedent (inverse of the write-path indent)
 
-;; The streaming sanitizer (=gptel-chat--sanitize-chunk= in =stream.el=)
-;; prepends =,= to any body line matching
+;; The chat-block write paths — the streaming indenter in =stream.el=,
+;; the paste region-shift and the read-time migration in =mode.el= —
+;; indent every body line by =gptel-chat-content-indentation= spaces, so
+;; org's column-0-anchored structural scanners never read body text as
+;; document structure. On the send path the indentation must come back
+;; off before the content reaches the model.
 
-;; : ^#\+end_\(user\|assistant\|tool\)\b
+;; =gptel-chat--dedent= is a pure string → string function that measures
+;; the common minimum leading-space indentation across the non-blank
+;; lines of its argument and removes that many leading spaces from every
+;; line. This is org's =org-do-remove-indentation= model. The asymmetry
+;; with the write path — which indents by exactly N — is deliberate
+;; (design.md Decision 3):
 
-;; so that assistant output cannot prematurely close a containing block.
-;; On the send path, the same transform must be inverted before the text
-;; reaches the model: a line =,#+end_assistant= on disk is presented to
-;; the model as =#+end_assistant=.
+;; - *Robust against width changes.* A buffer authored under
+;;   =gptel-chat-content-indentation = 2= and reopened under =4= still
+;;   produces clean message text: the amount removed is measured, not
+;;   assumed.
+;; - *Structure-preserving.* Only the common minimum is removed, so a
+;;   nested list or indented code block inside the segment keeps its
+;;   relative indentation.
+;; - *Per-segment.* Each message segment is dedented independently, so a
+;;   column-0 =#+begin_tool= / =#+end_tool= delimiter line — which never
+;;   belongs to a segment string — cannot drag a segment's measured
+;;   minimum to 0.
+;; - *Idempotent on un-indented content.* Content with no common leading
+;;   indentation is returned unchanged.
 
-;; =gptel-chat--unescape-end-delimiters= is a pure string → string
-;; function that strips a single leading =,= from lines matching the
-;; escape pattern (case-insensitive, anchored to beginning of line) and
-;; leaves everything else untouched. It is the exact inverse of
-;; =gptel-chat--sanitize-chunk= restricted to the three collision
-;; delimiters — round-trip tests in =test/parser/escape-round-trip-spec.el=
-;; pin that inverse relationship.
+;; Round-trip tests in =test/parser/body-indent-round-trip-spec.el= pin
+;; the indent → dedent relationship.
 
 
-;; [[file:parser.org::*Comma un-escape (inverse of the stream sanitizer)][Comma un-escape (inverse of the stream sanitizer):1]]
-(defconst gptel-chat--escaped-end-delimiter-regexp
-  "^,\\(#\\+end_\\(user\\|assistant\\|tool\\)\\b\\)"
-  "Regexp matching a comma-escaped chat-mode closing delimiter line.
-Group 1 is the un-escaped delimiter text.  Case-folded matches via
-`case-fold-search' so mixed-case delimiters (e.g., `,#+End_User')
-round-trip cleanly.")
+;; [[file:parser.org::*Body dedent (inverse of the write-path indent)][Body dedent (inverse of the write-path indent):1]]
+(defun gptel-chat--dedent (text)
+  "Return TEXT with its common minimum leading indentation removed.
 
-(defun gptel-chat--unescape-end-delimiters (text)
-  "Strip a single leading `,' from any `,#+end_*' line in TEXT.
-Inverse of the `,'-prefix escape applied by
-`gptel-chat--sanitize-chunk'.  Only the three chat-mode closers
-(`#+end_user', `#+end_assistant', `#+end_tool') are un-escaped —
-`,#+end_src' and other org delimiters are preserved verbatim.
+Measures the smallest number of leading spaces across the non-blank
+lines of TEXT and removes that many leading spaces from every line —
+the `org-do-remove-indentation' model.  This inverts the chat-block
+body indent applied by the write path: it is robust to a later change
+of `gptel-chat-content-indentation' (the amount removed is measured,
+not assumed) and preserves the relative indentation of nested content
+within TEXT.
 
-Lines are identified by `\\n' boundaries; the first line is treated
-identically to any other line in TEXT.  Matching is case-insensitive
-to mirror the sanitizer.  Returns TEXT unchanged when no escaped
-delimiter is present."
+Blank lines do not contribute to the measured minimum.  Returns TEXT
+unchanged when it is nil, empty, or has no common leading-space
+indentation."
   (if (or (null text) (string-empty-p text))
       (or text "")
-    (let ((case-fold-search t))
-      (replace-regexp-in-string
-       "\\(\\`\\|\n\\),\\(#\\+end_\\(user\\|assistant\\|tool\\)\\b\\)"
-       "\\1\\2"
-       text))))
-;; Comma un-escape (inverse of the stream sanitizer):1 ends here
-
-;; Heading un-escape (inverse of the stream sanitizer's heading rule)
-
-;; The streaming sanitizer (=gptel-chat--sanitize-chunk= in =stream.el=)
-;; prepends =gptel-chat-content-indentation= leading spaces to any body
-;; line matching
-
-;; : ^\*+
-
-;; so org's outline scanner does not absorb assistant content into a
-;; subtree (design.md Decision 4). The send-path inverse strips that
-;; leading whitespace before the body reaches the model: a line
-;; =  * Heading= on disk is presented to the model as =* Heading=.
-
-;; =gptel-chat--unescape-headings= is a pure string → string function
-;; that strips *all* leading spaces and tabs from any line matching
-;; =^[ \t]+\*+ =. The asymmetry with the sanitizer (which inserts
-;; exactly =gptel-chat-content-indentation= spaces) is intentional and
-;; called out in design.md Decision 8:
-
-;; - Robust against indent-width changes. A buffer authored under
-;;   =gptel-chat-content-indentation = 1= and reopened under =2= still
-;;   produces clean message text on send.
-;; - Robust against legacy content. Older buffers with hand-typed
-;;   indentation (any width, spaces or tabs) round-trip cleanly.
-;; - Idempotent. Already-unescaped =* Heading= is left alone — the
-;;   pattern requires =[ \t]+= leading whitespace, so a column-0 star
-;;   no longer matches.
-;; - Composes cleanly with =gptel-chat--unescape-end-delimiters=.
-;;   The two un-escapers operate on disjoint line shapes
-;;   (=^[ \t]+\*+ = vs. =^,#\+end_\(user\|assistant\|tool\)\b=) so
-;;   applying both to the same content is order-independent.
-
-;; Round-trip tests in =test/parser/escape-round-trip-spec.el= pin
-;; this inverse relationship line-by-line and across the full
-;; parse → message → re-sanitize → parse pipeline.
-
-
-;; [[file:parser.org::*Heading un-escape (inverse of the stream sanitizer's heading rule)][Heading un-escape (inverse of the stream sanitizer's heading rule):1]]
-(defconst gptel-chat--escaped-heading-regexp
-  "^[ \t]+\\(\\*+ \\)"
-  "Regexp matching a whitespace-escaped column-0 org heading line.
-Group 1 is the bare heading prefix (`*+ ').  Used by
-`gptel-chat--unescape-headings' to strip the sanitizer's leading
-whitespace before the body reaches the model.")
-
-(defun gptel-chat--unescape-headings (text)
-  "Strip leading whitespace from every `^[ \\t]+\\*+ ' line in TEXT.
-Inverse of the leading-whitespace escape applied by
-`gptel-chat--sanitize-chunk' for org-heading-collision lines.
-
-Robust against indent width: strips *any* amount of leading spaces
-or tabs before the `*+ ' prefix, not exactly
-`gptel-chat-content-indentation' characters.  This keeps round-trip
-stable across defcustom changes and legacy content with hand-typed
-indentation widths (design.md Decision 8 \"Implications\").
-
-Lines are identified by `\\n' boundaries; the first line is treated
-identically to any other line in TEXT.  A line whose `*+' starts at
-column 0 (already unescaped) does not match `[ \\t]+\\*+ ' and is
-left untouched, so the un-escape is idempotent on already-unescaped
-content.  Returns TEXT unchanged when no escaped heading is present."
-  (if (or (null text) (string-empty-p text))
-      (or text "")
-    (replace-regexp-in-string
-     "\\(\\`\\|\n\\)[ \t]+\\(\\*+ \\)"
-     "\\1\\2"
-     text)))
-;; Heading un-escape (inverse of the stream sanitizer's heading rule):1 ends here
+    (let ((lines (split-string text "\n"))
+          (min nil))
+      (dolist (line lines)
+        (unless (string-match-p "\\`[ \t]*\\'" line)
+          (let ((lead (or (string-match-p "[^ ]" line) 0)))
+            (when (or (null min) (< lead min))
+              (setq min lead)))))
+      (if (or (null min) (zerop min))
+          text
+        (mapconcat
+         (lambda (line)
+           (substring line
+                      (min min (or (string-match-p "[^ ]" line)
+                                   (length line)))))
+         lines "\n")))))
+;; Body dedent (inverse of the write-path indent):1 ends here
 
 ;; Whitespace emptiness test
 
@@ -688,7 +643,7 @@ content.  Returns TEXT unchanged when no escaped heading is present."
 ;; Assistant segment → messages
 
 ;; Assistant turns hold a list of segments in document order. Text
-;; segments become one =(response . STR)= cons each (after un-escape);
+;; segments become one =(response . STR)= cons each (after dedent);
 ;; tool-call segments become one =(tool . PLIST)= cons each. Empty text
 ;; segments are dropped — the parser does not emit empty text segments
 ;; today (see =gptel-chat--flush-text-segment=), but we defend against
@@ -713,25 +668,23 @@ Returns a list (possibly empty) of cons cells in the advanced
 `gptel-request' `:prompt' format.  Text segments yield a single
 `(response . STR)' cons (nil if the content is blank); tool-call
 segments yield a single `(tool . PLIST)' cons with `:name', `:args',
-and `:result' copied from the segment.  Both text content and tool
-`:result' are routed through both `gptel-chat--unescape-end-delimiters'
-and `gptel-chat--unescape-headings' so that every escape applied by
-`gptel-chat--sanitize-chunk' (`,'-prefix on closing delimiters and
-leading whitespace on column-0 heading lines) is inverted symmetrically
-across every content type before the message reaches the model."
+and `:result' copied from the segment.
+
+Body content is routed through `gptel-chat--dedent', which strips the
+chat-block body indentation applied by the write path so the model
+sees clean, column-0 content.  The tool `:result' is additionally
+`string-trim'med of its surrounding blank lines."
   (pcase (plist-get segment :type)
     (`text
-     (let ((content (gptel-chat--unescape-headings
-                     (gptel-chat--unescape-end-delimiters
-                      (plist-get segment :content)))))
+     (let ((content (gptel-chat--dedent (plist-get segment :content))))
        (if (gptel-chat--blank-content-p content)
            nil
          (list (cons 'response content)))))
     (`tool-call
      (let ((call (list :name   (plist-get segment :name)
                        :args   (plist-get segment :args)
-                       :result (gptel-chat--unescape-headings
-                                (gptel-chat--unescape-end-delimiters
+                       :result (string-trim
+                                (gptel-chat--dedent
                                  (or (plist-get segment :result) ""))))))
        (list (cons 'tool call))))
     (_ nil)))
@@ -749,14 +702,12 @@ across every content type before the message reaches the model."
   "Convert TURN (a parser turn plist) into a list of messages.
 See `gptel-chat-turns-to-messages' for the message-shape contract.
 Returns nil for an empty user turn or an assistant turn whose
-segments are all empty.  User content is routed through both
-`gptel-chat--unescape-end-delimiters' and `gptel-chat--unescape-headings'
-to invert the sanitizer's two escape rules symmetrically."
+segments are all empty.  User content is routed through
+`gptel-chat--dedent' to strip the chat-block body indentation before
+the message reaches the model."
   (pcase (plist-get turn :role)
     (`user
-     (let ((content (gptel-chat--unescape-headings
-                     (gptel-chat--unescape-end-delimiters
-                      (plist-get turn :content)))))
+     (let ((content (gptel-chat--dedent (plist-get turn :content))))
        (if (gptel-chat--blank-content-p content)
            nil
          (list (cons 'prompt content)))))
@@ -794,9 +745,9 @@ backend's `gptel--parse-list' method expands each into the wire-
 level tool_use / tool_result pair (see Anthropic, OpenAI, Ollama,
 Gemini implementations in `runtime/straight/repos/gptel/').
 
-Body lines matching `^,#\\+end_\\(user\\|assistant\\|tool\\)\\b' are
-un-escaped (leading `,' stripped) before inclusion — the inverse of
-the streaming sanitizer in `gptel-chat-stream'.
+Each message's chat-block body indentation is stripped (via
+`gptel-chat--dedent') before inclusion — the inverse of the
+write-path indent applied by streaming, paste, and migration.
 
 Note: passing a cons-list to `gptel-request' routes through
 `gptel--parse-list-and-insert' (gptel-request.el:2177), which has a

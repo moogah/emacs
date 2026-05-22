@@ -12,10 +12,16 @@
 ;; `openspec/changes/gptel-chat-mode/design.md' §Decisions 6, 7, 9,
 ;; 10, 14 for the rationale.
 ;;
-;; This module is intentionally minimal.  It defines the mode, the
-;; keymap, and the `gptel-chat-new' command.  Parsing, streaming,
-;; sending, navigation, display, and preset-wiring are separate
-;; modules that bind onto the mode at call-time.
+;; A chat-block body is an indented region: every body line is
+;; indented by `gptel-chat-content-indentation' spaces so org's
+;; column-0-anchored structural scanners never read body text as
+;; document structure.  See
+;; `openspec/changes/gptel-chat-heading-scoping/design.md'.
+;;
+;; This module defines the mode, the keymap, the indentation
+;; affordances, read-time migration, and the `gptel-chat-new' command.
+;; Parsing, streaming, sending, navigation, display, and preset-wiring
+;; are separate modules that bind onto the mode at call-time.
 
 ;;; Code:
 
@@ -35,16 +41,15 @@
 ;; Keymap entries bind to commands defined in later-loading sibling
 ;; modules (=send=, =nav=, =display=). Emacs resolves command symbols at
 ;; call-time, so the bindings work even when the target functions are not
-;; yet defined. The single-arg =declare-function= form below suppresses
-;; byte-compiler "not known to be defined" warnings without making
-;; unverifiable claims about the source library (the sibling files are
-;; named =send.el=, =nav.el=, =display.el=, so any library hint here
-;; would need to match — simpler to omit).
+;; yet defined.
+
+;; =gptel-chat-parse-buffer= and =gptel-chat--point-in-block-body-p= live
+;; in =parser.el=, which loads /after/ =mode.el=. The migration pass and
+;; the indentation affordances reference them by symbol; the references
+;; resolve at call-time (post-mode-activation).
 
 ;; =gptel-abort= lives upstream in =gptel.el= and is always available
-;; once =gptel= itself has loaded (design.md §Decision 10: the upstream
-;; abort command operates on the current buffer, finds its FSM, and
-;; invokes our callback with ='abort= — no chat-mode wrapper needed).
+;; once =gptel= itself has loaded (design.md §Decision 10).
 
 
 ;; [[file:mode.org::*Forward declarations][Forward declarations:1]]
@@ -56,9 +61,9 @@
 (declare-function gptel-chat-menu nil ())
 (declare-function gptel-chat-parse-buffer "gptel-chat-parser"
                   (&optional buffer))
-(declare-function gptel-abort "gptel" (buf))
-(declare-function gptel-chat--point-in-block-body-p nil
+(declare-function gptel-chat--point-in-block-body-p "gptel-chat-parser"
                   (&optional pos buffer))
+(declare-function gptel-abort "gptel" (buf))
 ;; Forward declarations:1 ends here
 
 ;; Keymap
@@ -75,11 +80,7 @@
 
 ;; =C-c C-,= opens =gptel-chat-menu= — the chat-mode transient that
 ;; mirrors =gptel-menu='s configuration layout with the Send suffix
-;; rebound to =gptel-chat-send= (design.md §Decision 15, task
-;; =menu-integration=). We deliberately avoid binding the /same/ key as
-;; upstream =gptel-menu='s suggested binding (users who want upstream
-;; behaviour can still run =M-x gptel-menu= directly, and the upstream
-;; prefix remains unmutated).
+;; rebound to =gptel-chat-send= (design.md §Decision 15).
 
 
 ;; [[file:mode.org::*Keymap][Keymap:1]]
@@ -110,265 +111,330 @@ The single-`C-c' prefix on turn navigation avoids shadowing org's
 
 ;; Buffer content indentation
 
-;; =gptel-chat-content-indentation= controls how many spaces of
-;; heading-collision escape are applied to column-0 =*= lines inside
-;; chat-block bodies. The org heading regex is =^\*+ = anchored at column
-;; 0; any leading whitespace breaks it, so a single space is the minimum
-;; escape that prevents the parser from absorbing the line into an
-;; outline subtree (=openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md=
-;; "Heading-collision escape"; =openspec/changes/gptel-chat-heading-scoping/design.md=
-;; §Decision 8).
+;; =gptel-chat-content-indentation= is the width, in spaces, of the
+;; indented region that every chat-block body becomes. Indenting body
+;; content moves it off column 0, where org's structural scanners — the
+;; heading regex =^\*+ =, the special-block closers =^#\+end_…=, drawers,
+;; keywords — are anchored. So no body line is mistaken for document
+;; structure (=gptel-chat-heading-scoping= design.md Decisions 1, 2).
 
-;; Default =1= minimizes visual noise. Users wanting parity with
-;; =org-edit-src-content-indentation= (default =2=) can set it to =2=.
-;; The parser un-escape strips *any* amount of leading whitespace before
-;; a =*= line, so round-trip is robust against config changes — a buffer
-;; written with =1= and re-opened under =2= is re-normalized at
-;; read-migration time.
+;; Default =2= matches =org-edit-src-content-indentation= (org's
+;; src-block default). The runtime floor is =1= — the structural minimum
+;; that breaks =^\*+ = — clamped by =gptel-chat--body-indent=. The
+;; read-side dedent (=parser.el=) measures actual indentation, so the
+;; round-trip never depends on this value.
 
 ;; The defcustom lives in =mode.el= (rather than =stream.el=, =send.el=,
-;; or =parser.el=) because every write/read pipeline stage that consults
-;; it loads after =mode.el= in =chat.org='s feature-module load order.
-;; The =:group 'gptel-chat= reference resolves at customize-time, not
-;; load-time, so the forward reference to the group defined in
-;; =display.el= is harmless.
+;; or =parser.el=) because every pipeline stage that consults it loads
+;; after =mode.el= in =chat.org='s feature-module load order.
 
 
 ;; [[file:mode.org::*Buffer content indentation][Buffer content indentation:1]]
-(defcustom gptel-chat-content-indentation 1
-  "Number of leading spaces used to escape column-0 `*' lines in chat blocks.
+(defcustom gptel-chat-content-indentation 2
+  "Width, in spaces, of the indented region a chat-block body becomes.
 
-Org's heading regex is `^\\*+ ' anchored at column 0; an unescaped `*'
-line inside a `#+begin_user' / `#+begin_assistant' / `#+begin_tool'
-block destroys the block in `org-element-parse-buffer' (the AST loses
-the special-block entirely; the heading absorbs subsequent content
-into its outline subtree).  The chat-mode write pipeline (streaming
-insertion, user-typed lines, paste/yank, file-read migration) prefixes
-every column-0 `*' line in a chat-block body with this many spaces;
-the parser's send path strips any leading whitespace before such a
-line so the LLM only ever sees clean message content.
+Every line of content inside a `#+begin_user' / `#+begin_assistant' /
+`#+begin_tool' block is indented by this many spaces.  Indentation
+moves body content off column 0, where org's structural scanners are
+anchored, so an `*' heading, a `#+end_*' line, or any other org token
+written in body prose is treated as plain text rather than document
+structure.  The chat-mode write pipeline (streaming insertion,
+paste/yank, file-read migration) and the typing affordance maintain
+the indentation; the parser's send path strips it so the model only
+ever sees clean, column-0 content.
 
-Default 1 is the minimum that breaks the heading regex.  Set to 2 for
-parity with `org-edit-src-content-indentation'.  See
-`openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md'
-\(\"Heading-collision escape\") and design.md §Decision 8.
+Default 2 matches `org-edit-src-content-indentation'.  1 is the
+structural minimum — any leading whitespace breaks the `^\\*+ '
+heading regex; larger values are cosmetic.  See
+`openspec/changes/gptel-chat-heading-scoping/design.md' Decisions 1
+and 2.
 
-The `:type' is `natnum' (non-negative integer) rather than `integer'
-as customize-time defense-in-depth: it stops a user from persisting a
-negative value through `customize-variable'.  It is not the runtime
-floor.  The floor is enforced by `gptel-chat--heading-escape-prefix',
-which clamps any value below 1 — including an explicit 0 or a misset
-negative — up to 1, because a 0-width prefix would not break the
-`^\\*+ ' heading regex and would silently violate
-`register/invariant/chat-block-body-no-column-zero-stars'.  So
-`(setq gptel-chat-content-indentation -3)' followed by an escape pass
-produces a single-space prefix, not a `wrong-type-argument' error:
-the helper owns the floor; the `:type' is the upstream guard."
+The `:type' is `natnum' as customize-time defense-in-depth — it stops
+a negative value being persisted through `customize-variable'.  The
+runtime floor is owned by `gptel-chat--body-indent', which clamps any
+value below 1 up to 1: a 0-width indent would leave content at
+column 0.  So `(setq gptel-chat-content-indentation 0)' followed by a
+write produces a single-space indent, not a column-0 line."
   :type 'natnum
   :group 'gptel-chat)
 ;; Buffer content indentation:1 ends here
 
-;; Heading-escape primitives
+;; Indentation primitives
 
-;; The chat-heading-collision-escape boundary has four stage-1 producers
-;; (=gptel-chat--sanitize-chunk= in =stream.el=,
-;; =gptel-chat--escape-typed-heading=,
-;; =gptel-chat--escape-inserted-headings=, and
-;; =gptel-chat--migrate-headings= in this file). Each prepends the
-;; heading-escape prefix to =^\*+ = lines inside chat-block bodies.
-;; Without canonical helpers each producer reaches for the same
-;; =(make-string ... ?\s)= construction and the same "walk lines in a
-;; range, escape the matches" inner loop, and they drift — three of the
-;; four wave-2 producers used three different fallback values when
-;; =gptel-chat-content-indentation= was unbound (=1=, no fallback, and
-;; =0=), and the =0= fallback silently violates
-;; =register/invariant/chat-block-body-no-column-zero-stars= because
-;; =(make-string 0 ?\s)= is the empty string.
-
-;; Two helpers live here so the four producers cannot drift again:
-
-;; - =gptel-chat--heading-escape-prefix= constructs the canonical prefix
-;;   string. Falls back to =1= when =gptel-chat-content-indentation= is
-;;   unbound (matching the defcustom default and preserving the
-;;   invariant), and clamps any value below =1= up to =1= so an
-;;   explicit =0= (or a misset negative value) cannot silently violate
-;;   =register/invariant/chat-block-body-no-column-zero-stars=.
-;; - =gptel-chat--escape-headings-in-region= walks =[BEG, END)= line by
-;;   line, escaping every =^\*+ = line. The optional =CHECK-BODY-P= flag
-;;   toggles a per-line =gptel-chat--point-in-block-body-p= call —
-;;   callers that already know the range lies inside a body (the
-;;   migration's per-turn scan) skip the predicate for performance.
+;; =gptel-chat--body-indent= is the canonical accessor for the body
+;; indent width. Every write path (the streaming indenter in =stream.el=,
+;; the paste region-shift, the migration pass) and the typing affordance
+;; route through it, so the runtime floor cannot drift: it clamps any
+;; value below =1= up to =1= and falls back to =2= (the defcustom
+;; default) when =gptel-chat-content-indentation= is unbound — both cases
+;; keep body content off column 0.
 
 
-;; [[file:mode.org::*Heading-escape primitives][Heading-escape primitives:1]]
-(defun gptel-chat--heading-escape-prefix ()
-  "Return the canonical heading-collision escape prefix string.
+;; [[file:mode.org::*Indentation primitives][Indentation primitives:1]]
+(defun gptel-chat--body-indent ()
+  "Return the chat-block body indentation width, as a positive integer.
 
-Reads `gptel-chat-content-indentation' (defaulting to 1 when the
-variable is unbound), clamps any value below 1 up to 1, and
-returns a string of that many spaces.  All four stage-1 producers
-of `register/boundary/chat-heading-collision-escape' route their
-prefix construction through this helper so they cannot drift on
-fallback or clamp behaviour.
+Reads `gptel-chat-content-indentation', clamps any value below 1 up
+to 1, and falls back to 2 (the defcustom default) when the variable
+is unbound.  A 0-width indent would leave body content at column 0 —
+the clamp owns that runtime floor; the defcustom's `:type 'natnum' is
+only customize-time defense-in-depth.  All write producers route
+their indent width through this accessor so they cannot drift."
+  (max 1 (or (bound-and-true-p gptel-chat-content-indentation) 2)))
+;; Indentation primitives:1 ends here
 
-The 1 fallback (not 0) preserves
-`register/invariant/chat-block-body-no-column-zero-stars' under
-unbound-variable conditions: a 0-space prefix is the empty string,
-which would leave the column-0 `*' line in place inside the body.
+;; Typing affordance — indent-line-function
 
-An explicitly-set 0 is also clamped to 1: a 0-width prefix would
-not break the `^\\*+ ' heading regex and would silently violate
-`register/invariant/chat-block-body-no-column-zero-stars'.  The
-clamp ensures the helper always returns a prefix with column-0
-separation, matching the unbound-fallback rationale."
-  (make-string (max 1 (or (bound-and-true-p gptel-chat-content-indentation)
-                          1))
-               ?\s))
+;; A chat-block body is an indented region. The buffer-local
+;; =indent-line-function= keeps it that way for ordinary typing: when
+;; =indent-according-to-mode= runs — which =electric-indent-mode= does on
+;; every newline — a body line that is under-indented is brought up to
+;; the body indent. A fresh line opened with =RET= inside a body
+;; therefore starts at the body indent, so a =*= typed there is already
+;; off column 0.
 
-(defun gptel-chat--escape-headings-in-region (beg end &optional check-body-p)
-  "Indent every `^\\*+ ' line in [BEG, END) by the heading-escape prefix.
+;; The function never *reduces* a line's indentation: a body line the
+;; user has intentionally indented deeper (a nested list, indented code)
+;; is left alone. It also never touches delimiter lines or content
+;; outside chat blocks — =gptel-chat--point-in-block-body-p= returns nil
+;; for both, and the function is a no-op then. This is the org-babel
+;; model (design.md Decision 6): the body is an indented region
+;; maintained by an ordinary indent affordance, not policed per
+;; keystroke.
 
-When CHECK-BODY-P is non-nil, consult `gptel-chat--point-in-block-body-p'
-at each candidate line's beginning-of-line and skip lines that fall
-outside a chat-block body.  When nil, the caller guarantees the
-region already lies inside a body (typically a turn-body extent
-returned by `gptel-chat-parse-buffer') and the predicate call is
-skipped.
 
-The first inserted line is processed only when BEG sits exactly at
-its beginning-of-line; mid-line BEG positions skip the partial first
-line (matching the after-change-functions caller's mental model that
-a mid-line insert concatenates onto an existing line).
+;; [[file:mode.org::*Typing affordance — indent-line-function][Typing affordance — indent-line-function:1]]
+(defun gptel-chat--indent-line ()
+  "Indent the current line as the `indent-line-function' of `gptel-chat-mode'.
 
-Tracks positional drift via a marker so repeated inserts inside the
-loop stay correctly bounded.  Idempotent: lines whose first column
-contains whitespace before the `*' do not re-match `^\\*+ ', so a
-second pass is a no-op.
+When point's line lies strictly inside a chat-block body (per
+`gptel-chat--point-in-block-body-p') and is indented by less than the
+body indent, bring it up to `gptel-chat--body-indent' columns.  Never
+reduce indentation — a body line indented deeper than the body width
+(a nested list, indented code) is left untouched.  Delimiter lines
+and content outside chat blocks are left entirely alone: the
+predicate returns nil for both, so the function is a no-op.
 
-Returns the number of rewrites performed."
-  (let ((prefix (gptel-chat--heading-escape-prefix))
-        (rewrites 0))
-    (when (and (> end beg) (> (length prefix) 0))
+`electric-indent-mode' calls `indent-according-to-mode' on each new
+line, so a body line opened with RET starts at the body indent."
+  (let ((indent (gptel-chat--body-indent)))
+    (when (and (gptel-chat--point-in-block-body-p (line-beginning-position))
+               (< (current-indentation) indent))
+      (indent-line-to indent))))
+;; Typing affordance — indent-line-function:1 ends here
+
+;; Gating and boundary clipping
+
+;; The gate is =(> end beg)=: every content-introducing event flows
+;; through; pure deletions short-circuit. Each candidate line is checked
+;; with =gptel-chat--point-in-block-body-p=, which returns nil for
+;; delimiter lines, blank-skipped lines, and positions outside any
+;; block — so a paste straddling a =#+end_*= delimiter shifts only the
+;; portion inside the body, and a mid-line first segment (BOL < BEG) is
+;; excluded. =inhibit-modification-hooks= is bound while the shift runs
+;; so the hook does not re-enter on its own inserts.
+
+
+;; [[file:mode.org::*Gating and boundary clipping][Gating and boundary clipping:1]]
+(defun gptel-chat--indent-inserted-region (beg end _length)
+  "Shift a region inserted into a chat-block body to the body indent.
+
+Intended for `after-change-functions'.  When the change region is
+non-empty (END > BEG), collect the non-blank lines of [BEG, END)
+whose beginning-of-line position is >= BEG and lies strictly inside a
+chat-block body (per `gptel-chat--point-in-block-body-p'), measure
+their minimum indentation, and — if it is below `gptel-chat--body-indent'
+— insert that many spaces of deficit at the start of each, shifting
+the whole region as a unit so relative indentation is preserved.
+
+Idempotent: a region already indented at or past the body indent has
+a non-negative shift of 0.  Pure deletions (END = BEG) gate out.
+`inhibit-modification-hooks' is bound so the hook does not re-enter on
+its own inserts.  See `openspec/changes/gptel-chat-heading-scoping/design.md'
+Decision 6."
+  (when (> end beg)
+    (let ((inhibit-modification-hooks t)
+          (indent (gptel-chat--body-indent)))
       (save-excursion
         (save-match-data
-          (let ((end-marker (copy-marker end t)))
-            (unwind-protect
-                (progn
-                  (goto-char beg)
-                  (unless (= (point) (line-beginning-position))
-                    (forward-line 1))
-                  (while (and (< (point) end-marker)
-                              (not (eobp)))
-                    (let ((bol (point)))
-                      (when (and (looking-at "\\*+ ")
-                                 (or (not check-body-p)
-                                     (gptel-chat--point-in-block-body-p bol)))
-                        (goto-char bol)
-                        (insert prefix)
-                        (setq rewrites (1+ rewrites))))
-                    (forward-line 1)))
-              (set-marker end-marker nil))))))
-    rewrites))
-;; Heading-escape primitives:1 ends here
+          (let ((limit (copy-marker end))
+                (body-bols nil)
+                (min-indent nil))
+            ;; Collect body-line BOLs (as markers) and the minimum
+            ;; indentation across them.  Skip a mid-line first segment
+            ;; whose BOL is < BEG.
+            (goto-char beg)
+            (unless (= (point) (line-beginning-position))
+              (forward-line 1))
+            (while (and (< (point) limit) (not (eobp)))
+              (let ((bol (point)))
+                (when (and (not (looking-at-p "[ \t]*$"))
+                           (gptel-chat--point-in-block-body-p bol))
+                  (push (copy-marker bol) body-bols)
+                  (let ((ind (current-indentation)))
+                    (when (or (null min-indent) (< ind min-indent))
+                      (setq min-indent ind)))))
+              (forward-line 1))
+            (set-marker limit nil)
+            ;; Shift every collected line by one uniform deficit.
+            (when (and min-indent (< min-indent indent))
+              (let ((pad (make-string (- indent min-indent) ?\s)))
+                (dolist (m body-bols)
+                  (goto-char m)
+                  (insert pad))))
+            (dolist (m body-bols) (set-marker m nil))))))))
+;; Gating and boundary clipping:1 ends here
 
-;; User-typed heading escape
+;; Migration on read
 
-;; When the user types a literal =*= at column 0 with point inside a
-;; chat-block body and not on a delimiter line, the org heading regex
-;; (=^\*+ =) would absorb that line and corrupt the surrounding
-;; =#+begin_user= / =#+begin_assistant= / =#+begin_tool= block. To
-;; prevent this, =gptel-chat--escape-typed-heading= runs from
-;; =post-self-insert-hook= and inserts the configured indent prefix
-;; (=gptel-chat-content-indentation= spaces) immediately before the typed
-;; =*=.
+;; When =gptel-chat-mode= activates on a buffer that already contains
+;; chat blocks — typically a saved session loaded from disk —
+;; =gptel-chat--migrate-buffer= normalises every chat-block body to the
+;; indented form before =org-element-parse-buffer= or any consumer that
+;; walks org structure sees the buffer (design.md Decision 7). It runs as
+;; the last step of mode activation.
 
-;; Cursor-after semantics work naturally: the user typed =*= and the
-;; cursor moved past it; the inserted prefix appears /before/ the =*=,
-;; the cursor stays /after/. The user sees =[prefix]*|= where =|= is
-;; point.
+;; Three on-disk generations converge here:
 
-;; Trigger conditions (all must hold):
-;; 1. The character that triggered =post-self-insert-hook= was =*=
-;;    (=last-command-event= equals =?*=).
-;; 2. Point is now at column =1=, meaning the =*= was inserted at column
-;;    =0= of the current line.
-;; 3. =gptel-chat--point-in-block-body-p= returns non-nil at the line's
-;;    start (column 0). The predicate is sub-millisecond on typical
-;;    chat buffers (=parser.org= "Block-body containment predicate";
-;;    design.md §Decision 2).
+;; - *pre-indentation* sessions — body content at column 0;
+;; - *escape-era* sessions — bodies with legacy =,#+end_*= comma escapes
+;;   (and 1-space =*= escapes);
+;; - *current* sessions — already indented.
 
-;; If any condition fails the function returns without modification.
-;; This means typing =*= mid-line, typing =*= outside any chat block,
-;; and typing non-=*= characters at column 0 are all no-ops on the hot
-;; path (a single =eq= comparison plus column check).
+;; Per content-region — a delimiter-free run of body lines — the
+;; migration strips a legacy leading =,= from =,#+end_*= lines, then
+;; shifts the region so its least-indented non-blank line reaches the
+;; body indent. On a current buffer both steps are no-ops, so an
+;; already-indented session opens unmodified
+;; (=register/invariant/chat-migration-on-read-clean-buffer-stays-clean=).
 
-;; The predicate lives in =parser.el=, which loads /after/ =mode.el= per
-;; =chat.org='s feature-module load order. The predicate is referenced
-;; by symbol from inside the hook function, which runs at call-time
-;; (post-mode-activation), so the forward reference resolves naturally.
-;; We add a single-arg =declare-function= to silence byte-compiler
-;; "not known to be defined" warnings.
+;; Nested =#+begin_tool= / =#+end_tool= delimiter lines stay at column 0
+;; (design.md Decision 5 — Path C). They are detected *after* the
+;; comma-strip check, so a comma-escaped =,#+end_tool= the model wrote in
+;; prose is correctly treated as content, not a real delimiter.
 
-;; Documented contracts:
-;; - =register/boundary/chat-heading-collision-escape= (stage-1 producer)
-;; - =register/invariant/chat-block-body-no-column-zero-stars=
-;; - =register/invariant/chat-block-delimiter-lines-stay-at-column-0=
-;; - =register/invariant/all-write-paths-apply-heading-escape=
+;; The migration is read-time and in-buffer: the on-disk file is
+;; unchanged until the user saves. =inhibit-modification-hooks= is bound
+;; so the =after-change= paste hook does not double-process the indent
+;; spaces. Malformed buffers (unclosed blocks) make
+;; =gptel-chat-parse-buffer= signal =user-error=; that is trapped and
+;; migration skipped, so the mode still activates for interactive repair.
 
 
-;; [[file:mode.org::*User-typed heading escape][User-typed heading escape:1]]
-(declare-function gptel-chat--point-in-block-body-p nil
-                  (&optional pos buffer))
+;; [[file:mode.org::*Migration on read][Migration on read:1]]
+(defun gptel-chat--migrate-body (beg end)
+  "Normalise the chat-block body in [BEG, END) to the indented form.
 
-(defun gptel-chat--escape-typed-heading ()
-  "Escape a column-0 `*' just typed inside a chat-block body.
-
-Intended for `post-self-insert-hook'.  When the user typed `*' at
-column 0 and the line lies inside a `#+begin_user' /
-`#+begin_assistant' / `#+begin_tool' body (per
-`gptel-chat--point-in-block-body-p'), insert
-`gptel-chat-content-indentation' spaces at beginning-of-line so the
-line becomes `[prefix]*' instead of a column-0 `*' that would match
-org's `^\\*+ ' heading regex and corrupt the enclosing block.
-
-Point stays past the inserted `*' (cursor-after semantics) — the
-prefix is inserted /before/ the `*', so the user sees their typed
-character at the new column with point one column further right.
-
-No-op when:
-  - The triggering character was not `*'.
-  - Point is not at column 1 (i.e., the `*' was not at column 0).
-  - The line at column 0 is not strictly inside a chat-block body
-    (delimiter line, between blocks, outside any block, malformed
-    structure mid-edit).
-
-See `openspec/changes/gptel-chat-heading-scoping/design.md'
-§Decision 2 and `openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md'
-\(\"Heading-collision escape\")."
-  (when (and (eq last-command-event ?*)
-             (= (current-column) 1)
-             (gptel-chat--point-in-block-body-p
-              (line-beginning-position)))
+END is a marker — the body extent shifts rightwards as content is
+indented.  Strips a legacy leading `,' from any `,#+end_*' line, then
+shifts every content line so the body's least-indented non-blank line
+reaches `gptel-chat--body-indent'.  Column-0 `#+begin_tool' /
+`#+end_tool' delimiter lines are left untouched; they are matched
+only after the comma-escape check, so a comma-escaped `,#+end_tool'
+counts as content.  Returns non-nil when the buffer was changed."
+  (let ((indent (gptel-chat--body-indent))
+        (changed nil)
+        (content-bols nil)
+        (min-indent nil))
     (save-excursion
-      (beginning-of-line)
-      (insert (gptel-chat--heading-escape-prefix)))))
-;; User-typed heading escape:1 ends here
+      (save-match-data
+        (let ((case-fold-search t))
+          ;; Pass 1: classify each line; strip legacy comma-escapes;
+          ;; collect content-line BOLs and the minimum indentation.
+          (goto-char beg)
+          (while (< (point) end)
+            (cond
+             ;; Legacy comma-escape — strip it; the line is content.
+             ((looking-at ",#\\+end_\\(?:user\\|assistant\\|tool\\)\\b")
+              (delete-char 1)
+              (setq changed t)
+              (push (point-marker) content-bols)
+              (setq min-indent 0))
+             ;; Real tool delimiter — leave at column 0, do not shift.
+             ((looking-at "#\\+\\(?:begin\\|end\\)_tool\\b")
+              nil)
+             ;; Blank line — skip.
+             ((looking-at-p "[ \t]*$")
+              nil)
+             ;; Ordinary content line.
+             (t
+              (push (point-marker) content-bols)
+              (let ((ind (current-indentation)))
+                (when (or (null min-indent) (< ind min-indent))
+                  (setq min-indent ind)))))
+            (forward-line 1))
+          ;; Pass 2: shift every content line by the uniform deficit.
+          (when (and min-indent (< min-indent indent))
+            (let ((pad (make-string (- indent min-indent) ?\s)))
+              (dolist (m content-bols)
+                (goto-char m)
+                (insert pad)
+                (setq changed t))))
+          (dolist (m content-bols) (set-marker m nil)))))
+    changed))
+
+(defun gptel-chat--migrate-buffer ()
+  "Normalise every chat-block body in the current buffer to the indented form.
+
+Walks the outer `#+begin_user' / `#+begin_assistant' blocks returned
+by `gptel-chat-parse-buffer' and runs `gptel-chat--migrate-body' over
+each body extent.  Converges pre-indentation, escape-era, and current
+on-disk formats onto the indented form; idempotent, so an
+already-indented session is a no-op.
+
+If migration changes the buffer it is left marked modified, so the
+next `save-buffer' persists the normalised form; the on-disk file is
+unchanged until then.  If nothing changed, the buffer's previous
+modified state is restored — a clean session opens clean
+\(`register/invariant/chat-migration-on-read-clean-buffer-stays-clean').
+
+Binds `inhibit-modification-hooks' so the `after-change' paste hook
+does not double-process the inserted indent.  Malformed buffers make
+`gptel-chat-parse-buffer' signal `user-error'; that is trapped and
+migration skipped so the mode still activates.  Returns non-nil when
+the buffer was changed."
+  (let ((was-modified (buffer-modified-p))
+        (changed nil))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (let* ((inhibit-modification-hooks t)
+               (turns (condition-case nil
+                          (gptel-chat-parse-buffer)
+                        (user-error nil))))
+          (dolist (turn turns)
+            (let ((open  (plist-get turn :start))
+                  (close (plist-get turn :end)))
+              (when (and (markerp open) (markerp close))
+                (let ((body-start (save-excursion
+                                    (goto-char open)
+                                    (min (1+ (line-end-position))
+                                         (point-max)))))
+                  (when (< body-start (marker-position close))
+                    (when (gptel-chat--migrate-body body-start close)
+                      (setq changed t))))))))))
+    (if changed
+        (set-buffer-modified-p t)
+      (restore-buffer-modified-p was-modified))
+    changed))
+;; Migration on read:1 ends here
 
 ;; Major mode definition
 
 ;; =define-derived-mode= from =org-mode= — inherit fontification, folding,
-;; and inside-block editing behaviours (design.md §Decision 6). Overrides
-;; are minimal by design: only the keymap (above) and
-;; =org-adapt-indentation= (below).
+;; and inside-block editing behaviours (design.md §Decision 6).
 
-;; The =gptel-chat-mode-hook= runs at activation per Emacs convention;
-;; later tasks (display layer, preset wiring) register their own
-;; activation logic by adding to the hook.
+;; Buffer-local setup:
 
-;; The =post-self-insert-hook= entry is added buffer-locally (the =LOCAL=
-;; flag of =add-hook=) so the heading-escape only fires inside chat-mode
-;; buffers — global hooks would penalise every keystroke in every
-;; buffer.
+;; - =org-adapt-indentation= nil — turn-block delimiters stay column-0 so
+;;   the parser's =^#\+begin_...= anchors hold (design.md §Decision 14).
+;; - =indent-line-function= → =gptel-chat--indent-line= and
+;;   =electric-indent-local-mode= on — so RET inside a body opens the
+;;   next line at the body indent (design.md Decision 6).
+;; - =after-change-functions= → =gptel-chat--indent-inserted-region=
+;;   (buffer-local) — the paste / yank write path.
+;; - =gptel-chat--migrate-buffer= — normalise an existing session's body
+;;   indentation on read.
 
 
 ;; [[file:mode.org::*Major mode definition][Major mode definition:1]]
@@ -385,136 +451,21 @@ blocks — headings, prose, drawers, `#+keyword:' lines — is treated as
 human organization/commentary and does not participate in message
 construction.
 
-Turn-block delimiter lines are pinned to column 0; `org-adapt-indentation'
-is disabled buffer-locally so the parser's `^#\\+begin_...' anchor stays
-valid regardless of the user's global org settings (design.md §Decision 14).
+Each chat-block body is an indented region: body content is indented
+by `gptel-chat-content-indentation' spaces so org's column-0-anchored
+structural scanners never read body text as document structure.
+Turn-block delimiter lines stay at column 0; `org-adapt-indentation'
+is disabled buffer-locally so the parser's `^#\\+begin_...' anchor
+stays valid (design.md §Decision 14).
 
 \\{gptel-chat-mode-map}"
   (setq-local org-adapt-indentation nil)
-  (add-hook 'post-self-insert-hook
-            #'gptel-chat--escape-typed-heading nil t)
+  (setq-local indent-line-function #'gptel-chat--indent-line)
+  (electric-indent-local-mode 1)
   (add-hook 'after-change-functions
-            #'gptel-chat--escape-inserted-headings nil t)
-  (gptel-chat--migrate-headings))
+            #'gptel-chat--indent-inserted-region nil t)
+  (gptel-chat--migrate-buffer))
 ;; Major mode definition:1 ends here
-
-;; Migration on read
-
-;; When =gptel-chat-mode= activates on a buffer that already contains
-;; chat blocks — typically a saved session loaded from disk — any
-;; column-0 =*= lines inside chat block bodies must be escaped before
-;; =org-element-parse-buffer= or any consumer that walks org structure
-;; sees the buffer.  The "Heading-collision escape" boundary
-;; (design.md §Decision 5) is applied on read, never via a destructive
-;; on-disk rewrite.  The migration runs as the last step of mode
-;; activation (after =org-adapt-indentation= is buffer-locally pinned
-;; to nil), and is the read-side counterpart of the write-time
-;; escapes installed by stream insertion, paste-yank, and user
-;; typing.
-
-;; Behavioural contract (registered in
-;; =openspec/changes/gptel-chat-heading-scoping/specs/gptel/chat-mode.md=):
-
-;; - Walk each outer chat block (user / assistant) and indent every
-;;   =^\*+ = body line by =gptel-chat-content-indentation= spaces.
-;;   Lines inside a nested =#+begin_tool ... #+end_tool= body are
-;;   covered by the enclosing assistant scan because tool delimiters
-;;   themselves are =#+...=, not =\*=, so they pass through the body
-;;   scan untouched while their inner =\*= lines still get indented.
-;; - A buffer with no in-block =\*= lines is the only no-op condition:
-;;   the buffer's modified state is restored, so a clean session opens
-;;   clean (the
-;;   =register/invariant/chat-migration-on-read-clean-buffer-stays-clean=
-;;   invariant).  Indent width comes from
-;;   =gptel-chat--heading-escape-prefix=, which clamps an unbound or
-;;   zero =gptel-chat-content-indentation= up to =1=, so the migration
-;;   is never a no-op solely on indent grounds.
-;; - Content outside chat-block bodies — free-form headings between
-;;   blocks, =#+keyword:= lines, drawers, prose — is never modified.
-;; - Re-running on already-escaped content is a no-op (idempotence
-;;   shared with the paste-escape boundary).
-;; - =inhibit-modification-hooks= is bound non-nil while migrating so
-;;   the =after-change= hook installed by the user-typed escape
-;;   boundary (Decision 3) does not double-process freshly-inserted
-;;   spaces.
-;; - Malformed buffers (unclosed blocks etc.) signal =user-error= from
-;;   the parser; we trap that and skip migration rather than refusing
-;;   to enter the mode.  The mode still activates so the user can
-;;   repair the buffer interactively.
-
-
-;; [[file:mode.org::*Migration on read][Migration on read:1]]
-(defun gptel-chat--migrate-headings ()
-  "Apply heading-collision escape to chat-block bodies in the current buffer.
-
-Walks each outer `#+begin_user' / `#+begin_assistant' block returned
-by `gptel-chat-parse-buffer' and prefixes every `^\\*+ ' body line
-with `gptel-chat-content-indentation' spaces.  Lines inside a nested
-`#+begin_tool' body are covered transparently because the assistant
-scan ranges over the entire body, and tool delimiter lines start
-with `#+', not `*'.
-
-Indentation width comes from `gptel-chat--heading-escape-prefix'
-which falls back to 1 when `gptel-chat-content-indentation' is
-unbound and clamps an explicitly-set 0 to 1 — a 0-width prefix
-would silently violate the column-0-stars invariant.  Migration is
-therefore never a no-op solely on indent grounds; it is a no-op
-only when the buffer has no `^\\*+ ' lines inside chat-block
-bodies.
-
-If the migration changes the buffer, the buffer is left marked
-modified so the next `save-buffer' persists the normalized form;
-the on-disk file is unchanged until the user explicitly saves.  If
-no rewrites are performed, the buffer's previous modified state is
-restored — a clean session opens clean
-\(`register/invariant/chat-migration-on-read-clean-buffer-stays-clean').
-
-Bound to run once at `gptel-chat-mode' activation, after
-`org-adapt-indentation' is pinned buffer-locally to nil so the
-parser's column-0 anchors hold during the walk.  Binds
-`inhibit-modification-hooks' so the user-typed-escape after-change
-hook (`openspec/changes/gptel-chat-heading-scoping/design.md'
-§Decision 3) does not double-process freshly-inserted indent
-spaces.
-
-Malformed buffers — unclosed blocks etc. — cause
-`gptel-chat-parse-buffer' to signal `user-error'.  We catch that
-here and skip the migration: the mode still activates so the user
-can repair the structure interactively.  Returns t when any
-rewrite happened, nil otherwise."
-  (let ((was-modified (buffer-modified-p))
-        (rewrites 0))
-    (save-excursion
-      (save-restriction
-        (widen)
-        (let* ((inhibit-modification-hooks t)
-               (turns (condition-case nil
-                          (gptel-chat-parse-buffer)
-                        (user-error nil))))
-          (when turns
-            (dolist (turn turns)
-              (let* ((open-marker (plist-get turn :start))
-                     (end-marker  (plist-get turn :end))
-                     (body-start  (when open-marker
-                                    (save-excursion
-                                      (goto-char open-marker)
-                                      (min (1+ (line-end-position))
-                                           (point-max)))))
-                     (body-end    (when end-marker
-                                    (marker-position end-marker))))
-                (when (and body-start body-end (< body-start body-end))
-                  ;; Body-bounded by parse-buffer: skip the per-line
-                  ;; predicate (CHECK-BODY-P nil).  The helper handles
-                  ;; positional drift internally.
-                  (setq rewrites
-                        (+ rewrites
-                           (gptel-chat--escape-headings-in-region
-                            body-start body-end nil))))))))))
-    (if (zerop rewrites)
-        (restore-buffer-modified-p was-modified)
-      (set-buffer-modified-p t))
-    (> rewrites 0)))
-;; Migration on read:1 ends here
 
 ;; Pure prepare helper
 
@@ -522,14 +473,7 @@ rewrite happened, nil otherwise."
 ;; half of =gptel-chat-new=: it creates the buffer, activates the mode,
 ;; inserts the initial content, and positions point — but it does *not*
 ;; mutate window configuration. The interactive command is a thin
-;; =switch-to-buffer= wrapper on top of this helper (§Design rationale in
-;; the corresponding task file).
-
-;; This split lets tests exercise the real initialization path without
-;; the window-config side effect =switch-to-buffer= would otherwise leak
-;; into the test environment, and opens the door to future variants such
-;; as =gptel-chat-new-other-window= that differ only in how they display
-;; the prepared buffer.
+;; =switch-to-buffer= wrapper on top of this helper.
 
 
 ;; [[file:mode.org::*Pure prepare helper][Pure prepare helper:1]]
@@ -538,13 +482,12 @@ rewrite happened, nil otherwise."
 
 The returned buffer is in `gptel-chat-mode' with initial content
 containing an empty `#+begin_user' / `#+end_user' block; point is
-positioned on the empty line inside the block so typing extends the
-user block rather than the delimiters.
+positioned on the body line inside the block, indented to the body
+width, so typing extends the user block off column 0.
 
 This is the pure half of `gptel-chat-new': it does NOT mutate window
 configuration.  Callers that want to display the buffer wrap this in
-`switch-to-buffer' (or a variant such as `pop-to-buffer',
-`display-buffer', etc.).
+`switch-to-buffer' (or `pop-to-buffer', `display-buffer', etc.).
 
 No preset, model, system prompt, or metadata is pre-populated — see
 design.md §Decision 9."
@@ -553,8 +496,9 @@ design.md §Decision 9."
       (gptel-chat-mode)
       (insert "#+begin_user\n\n#+end_user\n")
       (goto-char (point-min))
-      ;; Move past "#+begin_user\n" to the empty line inside the block.
-      (forward-line 1))
+      ;; Move onto the empty body line and indent it to the body width.
+      (forward-line 1)
+      (indent-line-to (gptel-chat--body-indent)))
     buffer))
 ;; Pure prepare helper:1 ends here
 
@@ -570,9 +514,8 @@ design.md §Decision 9."
   "Create a new gptel chat buffer and switch to it.
 
 The buffer is in `gptel-chat-mode' with initial content containing
-an empty `#+begin_user' / `#+end_user' block; point is positioned
-on the empty line inside the block so the user can start typing
-immediately.
+an empty `#+begin_user' / `#+end_user' block; point is positioned on
+the indented body line so the user can start typing immediately.
 
 No preset, model, system prompt, or metadata is pre-populated — see
 design.md §Decision 9.  Users who want a preset invoke `gptel-menu',
@@ -581,89 +524,13 @@ save the buffer with a `:GPTEL_PRESET:' property drawer, or set
 
 This command is an interactive wrapper over
 `gptel-chat--prepare-new-buffer' — all buffer-preparation logic
-lives in the helper; this command only adds the
-`switch-to-buffer' window mutation."
+lives in the helper; this command only adds the `switch-to-buffer'
+window mutation."
   (interactive)
   (let ((buffer (gptel-chat--prepare-new-buffer)))
     (switch-to-buffer buffer)
     buffer))
 ;; Interactive switch wrapper:1 ends here
-
-;; Effect on downstream =after-change-functions=
-
-;; When this hook inserts the prefix it grows the buffer by N spaces per
-;; escaped line. Downstream =after-change-functions= entries see the
-;; buffer in its post-rewrite state but receive the *original* =BEG=,
-;; =END= arguments from Emacs. Callers that do positional arithmetic on
-;; =END= must be tolerant of this — the same caveat applies to any
-;; =after-change-functions= entry that mutates the buffer. We do not
-;; attempt to "fix up" =END= for downstream entries because Emacs does
-;; not provide a documented way to do so; we accept the standard
-;; contract.
-
-
-;; [[file:mode.org::*Effect on downstream =after-change-functions=][Effect on downstream =after-change-functions=:1]]
-(defun gptel-chat--escape-inserted-headings (beg end length)
-  "Escape column-0 `*' lines in [BEG, END) for non-empty change regions.
-
-Intended for `after-change-functions'.  When the change region is
-non-empty (END > BEG), walk it line by line and escape column-0
-`*' lines that fall inside a chat-block body.  For each line whose
-beginning-of-line position is >= BEG, starts with `^\\*+ ', and
-whose BOL lies strictly inside a chat-block body (per
-`gptel-chat--point-in-block-body-p'), insert
-`gptel-chat-content-indentation' leading spaces at that BOL.
-
-Pure deletions (END = BEG) gate out unchanged; they introduce no
-new content.  Insertions, including replacements (LENGTH > 0 AND
-END > BEG via `replace-match' / `replace-region-contents' /
-`query-replace'), flow through — a replacement can introduce a
-brand-new column-0 `*' line that was not in the buffer before
-(e.g., `query-replace foo -> * H1' inside a chat-block body), and
-the gate must catch it.
-
-Idempotence: the function acts only on lines that currently start
-with `*' at column 0.  An already-escaped line begins with
-whitespace, so the per-line `\\*+ ' regex fails and re-running on
-previously-escaped content is a no-op.
-
-Re-entry guard: `inhibit-modification-hooks' is bound non-nil
-before the rewrite runs (in the let head, before any region walk)
-so this hook does not re-trigger on its own inserts.  Widening
-the input gate from `(zerop length)' to `(> end beg)' does not
-widen re-entry.
-
-Boundary clipping: the per-line predicate returns nil for delimiter
-lines and for positions outside any chat block, so an inserted
-range that straddles a `#+end_*' line escapes only the portion that
-actually falls inside the body.
-
-Mid-line insertion: when point sits mid-line at insertion (column
-> 0), the first inserted line is concatenated onto the existing
-line and its BOL is < BEG.  Such a line is excluded from the scan
-by the BOL >= BEG guard, matching the user's mental model that the
-first segment is part of the existing line, not new content.
-
-Downstream `after-change-functions' entries see the buffer in its
-post-rewrite state but receive the original BEG/END from Emacs;
-positional arithmetic on END must tolerate the buffer having grown
-by the inserted prefix characters.  This caveat applies to any
-mutating `after-change-functions' entry, not just this one.
-
-See `openspec/changes/gptel-chat-heading-scoping/design.md'
-§Decision 3."
-  (when (> end beg)
-    (let ((inhibit-modification-hooks t))
-      ;; Predicate-checked region walk via the canonical helper —
-      ;; CHECK-BODY-P t means each candidate line consults
-      ;; `gptel-chat--point-in-block-body-p' so an inserted range
-      ;; that straddles a `#+end_*' delimiter escapes only the
-      ;; portion that actually falls inside the body.  Mid-line
-      ;; insertion semantics (BEG inside an existing line) are
-      ;; preserved by the helper's "advance to first BOL >= BEG"
-      ;; guard.
-      (gptel-chat--escape-headings-in-region beg end t))))
-;; Effect on downstream =after-change-functions=:1 ends here
 
 ;; Provide
 
