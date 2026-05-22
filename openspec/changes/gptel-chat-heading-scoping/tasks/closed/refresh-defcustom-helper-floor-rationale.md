@@ -2,7 +2,8 @@
 name: refresh-defcustom-helper-floor-rationale
 description: Refresh the gptel-chat-content-indentation defcustom commentary at mode.el:156-160 (and corresponding mode.org block) to acknowledge the helper-side clamp introduced by clamp-heading-escape-prefix-at-one. Reframe :type 'natnum as customize-time defense-in-depth rather than the sole validation layer. Optionally promote the "helper owns the floor" contract to a register entry that both the defcustom and the helper reference.
 change: gptel-chat-heading-scoping
-status: ready
+status: done
+merge_commit: 72543fb
 relations:
   - discovered-from:clamp-heading-escape-prefix-at-one
 ---

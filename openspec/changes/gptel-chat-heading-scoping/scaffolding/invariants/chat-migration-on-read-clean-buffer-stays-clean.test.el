@@ -1,49 +1,48 @@
 ;;; chat-migration-on-read-clean-buffer-stays-clean.test.el --- Invariant scaffolding -*- lexical-binding: t; -*-
 
 ;; scaffolding-of: register/invariant/chat-migration-on-read-clean-buffer-stays-clean
-;; generated-at: 2026-05-01T10:35:02+02:00
+;; generated-at: 2026-05-22 (reframed for chat-block-body-indentation)
 ;; license: implementor-may-revise
 
 (require 'buttercup)
 
 (describe "Invariant: chat-migration-on-read-clean-buffer-stays-clean"
 
-  (it "leaves a clean session unmodified after `gptel-chat-mode' activation"
+  (it "leaves an already-indented session unmodified after activation"
     (error "speculated; not implemented \
-\nFixture: a session file whose chat blocks contain NO column-0 `*' \
-lines (already escaped, or no headings at all). \
+\nFixture: a session file whose chat-block bodies are already indented \
+by the body width, with no legacy escape artifacts. \
 \nOpen the file; activate `gptel-chat-mode'. \
-\nAssert: `(buffer-modified-p)' returns nil. \
-\nAssert: scanning the buffer's chat-block bodies finds no `^\\\\*+ ' \
-lines (invariant pre-condition was already satisfied)."))
+\nAssert: `(buffer-modified-p)' returns nil."))
 
-  (it "marks the buffer modified ONLY when migration actually rewrites content"
+  (it "marks the buffer modified ONLY when migration rewrites content"
     (error "speculated; not implemented \
-\nFixture: a session file whose `#+begin_assistant' body contains \
-`* Some Heading' at column 0. \
+\nFixture: a session whose `#+begin_assistant' body has column-0 \
+content (pre-indentation) or legacy `,#+end_*' / 1-space `*' escapes. \
 \nActivate `gptel-chat-mode'. \
-\nAssert: that line is now ` * Some Heading'; \
+\nAssert: the body is normalised to the indented form; \
 `(buffer-modified-p)' returns t."))
 
-  (it "preserves the buffer's prior modified state when migration is a no-op"
+  (it "is idempotent — a migrated buffer re-opened is clean"
     (error "speculated; not implemented \
-\nFixture: open a clean session file, manually `(insert \"x\")` to mark \
-the buffer modified, then `(undo)' so the change is gone but the \
-modified flag would still be t per Emacs semantics — this case is \
-about NOT clobbering pre-existing user state. \
-\nActivate `gptel-chat-mode'. \
-\nAssert: migration sees no `^\\\\*+ ' content; does NOT call \
-`set-buffer-modified-p nil' as a side effect. The user's prior \
-modified state is preserved."))
+\nFixture: migrate a buffer, persist it, re-open it. \
+\nAssert: the second activation makes no change; \
+`(buffer-modified-p)' returns nil."))
 
-  (it "scopes its scan to chat-block bodies only"
+  (it "scopes its rewrite to chat-block bodies only"
     (error "speculated; not implemented \
-\nFixture: a session file with `* Section A' as a TOP-LEVEL document \
-heading (outside any chat block) AND chat blocks whose bodies contain \
-no column-0 `*'. \
+\nFixture: a session with `* Section A' as a TOP-LEVEL document \
+heading (outside any chat block) and chat blocks needing migration. \
 \nActivate `gptel-chat-mode'. \
-\nAssert: `(buffer-modified-p)' returns nil; `* Section A' is \
-unchanged at column 0; `org-element-parse-buffer' parses it as a \
-real headline.")))
+\nAssert: `* Section A' is unchanged at column 0 and parses as a real \
+headline; only chat-block body content was indented."))
+
+  (it "leaves tool delimiter lines at column 0 during migration"
+    (error "speculated; not implemented \
+\nFixture: a session whose assistant block has a nested `#+begin_tool' \
+/ `#+end_tool' block, bodies un-indented. \
+\nActivate `gptel-chat-mode'. \
+\nAssert: the `#+begin_tool' / `#+end_tool' lines remain at column 0; \
+the tool result and the surrounding prose segments are indented.")))
 
 ;;; chat-migration-on-read-clean-buffer-stays-clean.test.el ends here
