@@ -1233,12 +1233,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          when the line falls inside an outer chat-block body and is not
          itself a `#+begin_*` / `#+end_*` delimiter.
 
-         `gptel-chat-content-indentation` is a `wholenum` (a.k.a.
-         `natnum`, non-negative integer) — the consumer
-         `(make-string gptel-chat-content-indentation ?\s)` signals
-         `wrong-type-argument wholenump` on negatives. The defcustom's
-         `:type 'natnum` is the contract that pushes that validation to
-         `customize-variable` time rather than first-write time.
+         The prefix is built by `gptel-chat--heading-escape-prefix`,
+         which clamps `gptel-chat-content-indentation` (or 1, when the
+         variable is unbound) to a floor of 1 before calling
+         `(make-string N ?\s)`. The helper owns the floor: an explicit
+         0 or a misset negative is coerced up to a single-space prefix,
+         so `make-string` never sees a value that would signal
+         `wrong-type-argument wholenump` or produce a 0-width prefix.
+         The defcustom's `:type 'natnum` is customize-time
+         defense-in-depth — it stops a negative being persisted through
+         `customize-variable` — not the runtime guard. See
+         `register/invariant/chat-block-body-no-column-zero-stars`.
        can_fail_with: []
        short_circuit_policy: none
        notes: |
@@ -1694,6 +1699,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        chat-block-body-no-column-zero-stars.test.el — failing-stub assertion
        over the four write-path entry points listed in the boundary entry.
        Architect's invariant-gap audit re-checks at integrate.
+     prefix_floor: |
+       The escape prefix width — distinct from the four write paths
+       applying it — is floored at 1 by `gptel-chat--heading-escape-prefix`,
+       not by the `gptel-chat-content-indentation` defcustom's `:type`.
+       The helper owns the floor: it clamps any value below 1 (explicit 0,
+       misset negative, or unbound) up to 1, since a 0-width prefix would
+       leave the column-0 `*` in place and violate this invariant. The
+       defcustom's `:type 'natnum` is customize-time defense-in-depth only.
+       A future "tighten :type" task MUST NOT remove the helper clamp on
+       the assumption that customize already guards the floor.
 
    related_entries:
      - register/boundary/chat-heading-collision-escape

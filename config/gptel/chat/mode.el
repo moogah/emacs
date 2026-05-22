@@ -154,10 +154,16 @@ parity with `org-edit-src-content-indentation'.  See
 \(\"Heading-collision escape\") and design.md §Decision 8.
 
 The `:type' is `natnum' (non-negative integer) rather than `integer'
-because the consumer is `(make-string gptel-chat-content-indentation
-?\\s)', which signals `wrong-type-argument wholenump' on negatives.
-Tightening the type pushes validation to `customize-variable' time
-instead of first-write time."
+as customize-time defense-in-depth: it stops a user from persisting a
+negative value through `customize-variable'.  It is not the runtime
+floor.  The floor is enforced by `gptel-chat--heading-escape-prefix',
+which clamps any value below 1 — including an explicit 0 or a misset
+negative — up to 1, because a 0-width prefix would not break the
+`^\\*+ ' heading regex and would silently violate
+`register/invariant/chat-block-body-no-column-zero-stars'.  So
+`(setq gptel-chat-content-indentation -3)' followed by an escape pass
+produces a single-space prefix, not a `wrong-type-argument' error:
+the helper owns the floor; the `:type' is the upstream guard."
   :type 'natnum
   :group 'gptel-chat)
 ;; Buffer content indentation:1 ends here
