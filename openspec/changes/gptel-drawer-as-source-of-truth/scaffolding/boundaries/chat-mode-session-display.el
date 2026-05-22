@@ -53,10 +53,34 @@
 
   (describe "override C — config drawer folded on open"
 
+    ;; Load the chat-mode module under test.  This scaffold lives at
+    ;; openspec/changes/<change>/scaffolding/boundaries/; the source
+    ;; tree's config/gptel/chat/ holds `mode.el'.
+    (require 'org)
+    (let* ((scaffold-dir (file-name-directory (or load-file-name buffer-file-name)))
+           (repo-root (expand-file-name "../../../../../" scaffold-dir))
+           (chat-dir (expand-file-name "config/gptel/chat/" repo-root)))
+      (add-to-list 'load-path chat-dir))
+    (require 'gptel-chat-mode)
+
     (it "folds the file-level config :PROPERTIES: drawer on gptel-chat-mode activation"
-      (error "speculated; not implemented — see register/boundary/chat-mode-session-display"))
+      (with-temp-buffer
+        (insert ":PROPERTIES:\n:GPTEL_PRESET: default\n"
+                ":GPTEL_SCOPE_READ: /Users/jeff/emacs/\n:END:\n"
+                "\n* System Prompt\nbody\n\n* Chat\n"
+                "#+begin_user\nhi\n#+end_user\n")
+        (gptel-chat-mode)
+        (goto-char (point-min))
+        (forward-line 1)              ; into the drawer body
+        (expect (org-fold-folded-p (point) 'drawer) :to-be-truthy)))
 
     (it "is a no-op for a drawerless scratch buffer (gptel-chat-new buffer with no :PROPERTIES: drawer) and raises no error"
-      (error "speculated; not implemented — see register/boundary/chat-mode-session-display"))))
+      (expect
+       (with-temp-buffer
+         (insert "#+begin_user\n\n#+end_user\n")
+         (gptel-chat-mode)            ; must not raise
+         (goto-char (point-min))
+         (invisible-p (point)))
+       :not :to-be-truthy))))
 
 ;;; chat-mode-session-display.el ends here
