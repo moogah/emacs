@@ -2,7 +2,7 @@
 name: emit-system-prompt-and-chat-headings-at-creation
 description: A freshly created session.org is a flat file-level drawer plus a bare `#+begin_user` block. Restructure the creation output so the file is the file-level config drawer (unchanged location), then a folded `* System Prompt` heading whose body is seeded from the preset's system prompt, then a `* Chat` heading holding the empty user block. Establishes the canonical document shape; making the heading authoritative is a follow-up task.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations: []
 ---
 

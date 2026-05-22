@@ -2,7 +2,7 @@
 name: fold-config-drawer-on-open
 description: The file-level config properties drawer in session.org is shown expanded when a chat session opens, adding visual clutter as it fills with snapshot and scope keys. Make gptel-chat-mode fold that drawer on activation so the file opens clean. The `* System Prompt` heading is folded separately via the VISIBILITY property emitted at creation.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations: []
 ---
 

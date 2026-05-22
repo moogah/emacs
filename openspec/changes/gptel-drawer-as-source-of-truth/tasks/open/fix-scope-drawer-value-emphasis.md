@@ -2,7 +2,7 @@
 name: fix-scope-drawer-value-emphasis
 description: GPTEL_SCOPE_* path values in the session.org drawer render italicized — a value such as `/Users/jeff/emacs/` is a valid org `/emphasis/` span, so the boundary slashes are dimmed/hidden. Install a buffer-local font-lock keyword in gptel-chat-mode that re-stamps `org-property-value` (OVERRIDE) over property-drawer value spans so drawer values render as plain data with visible slashes.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations: []
 ---
 

@@ -2,7 +2,7 @@
 name: make-system-prompt-heading-authoritative
 description: With the `* System Prompt` heading in place, make its body the authoritative system prompt. On mode activation the chat-mode restore path reads the heading body and installs it buffer-locally as gptel--system-message, winning over the preset. On save the current system message is written back into the heading body. Old sessions with no heading fall back to the preset and materialize the heading on first save.
 change: gptel-drawer-as-source-of-truth
-status: blocked
+status: done
 relations:
   - blocked-by:emit-system-prompt-and-chat-headings-at-creation
 ---

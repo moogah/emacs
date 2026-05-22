@@ -239,12 +239,16 @@ implementation steps.
 
 #+begin_src emacs-lisp
 (defun gptel-chat--fold-config-drawer ()
-  "Fold the file-level config `:PROPERTIES:' drawer in the current buffer.
+  "Fold all drawers in the current buffer on `gptel-chat-mode' activation.
 
-Runs from `gptel-chat-mode-hook' on activation.  Folds every drawer
-via `org-fold-hide-drawer-all', which covers the pre-first-heading
-file-level configuration drawer that org-mode's startup visibility
-does not reliably reach in this derived mode.
+Runs from `gptel-chat-mode-hook'.  Folds every drawer via
+`org-fold-hide-drawer-all' — a buffer-wide fold, not a targeted one.
+This covers the pre-first-heading file-level configuration drawer
+(the WYSIWYG-clutter target of design.md §Addendum Decision C) that
+org-mode's startup visibility does not reliably reach in this derived
+mode; it also folds the `* System Prompt' heading's own property
+drawer, which is harmless since that heading is itself folded by its
+`:VISIBILITY: folded' property.
 
 Attached to the hook rather than called from the `define-derived-mode'
 body: the body runs before `run-mode-hooks', while org-mode's
