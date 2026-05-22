@@ -51,12 +51,16 @@
 ;; Load the modules under test from the co-located source directory.
 ;; `file-name-directory' of this spec is .../config/gptel/chat/test/menu/;
 ;; two levels up is .../config/gptel/chat/, which holds `menu.el' and
-;; `mode.el'.
+;; `mode.el'.  `.../config/gptel/sessions/' holds `commands.el', the
+;; module that owns the shared `jf/gptel--session-headings-block'
+;; heading helper used by the save-path materialiser.
 (let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
        (chat-dir (expand-file-name "../../" spec-dir))
-       (gptel-dir (expand-file-name "../../../" spec-dir)))
+       (gptel-dir (expand-file-name "../../../" spec-dir))
+       (sessions-dir (expand-file-name "../../../sessions/" spec-dir)))
   (add-to-list 'load-path chat-dir)
-  (add-to-list 'load-path gptel-dir))
+  (add-to-list 'load-path gptel-dir)
+  (add-to-list 'load-path sessions-dir))
 
 (require 'gptel)
 (require 'gptel-chat-mode)
@@ -67,6 +71,12 @@
 ;; writer lazily requires it; load it eagerly here so the unit specs
 ;; that call the writer directly have the registry available.
 (require 'gptel-scope-profiles)
+;; `gptel-chat--write-system-prompt-heading' materialises the
+;; `* System Prompt' / `* Chat' headings for pre-Addendum sessions via
+;; `jf/gptel--session-headings-block' in `gptel-session-commands'.
+;; The writer lazily requires it; load it eagerly so the
+;; materialisation spec exercises the real heading helper.
+(require 'gptel-session-commands nil t)
 
 ;; The save hook requires `gptel-org' lazily for the read-side overlay.
 ;; Soft-require here so existing tests can pre-load it; the cold-load
@@ -494,6 +504,121 @@ keys, isolating the snapshot key set for cross-producer comparison."
         (expect (memq 'gptel-chat--save-state
                       (default-value 'before-save-hook))
                 :to-be nil))))
+
+
+  ;; -----------------------------------------------------------------------
+  ;; 5. System Prompt heading save
+  ;; (task `make-system-prompt-heading-authoritative', design.md
+  ;; §Addendum Finding B / Decision B;
+  ;; register/invariant/system-prompt-heading-authoritative).
+  ;;
+  ;; On `before-save-hook', after the config drawer is written, the
+  ;; current buffer-local `gptel--system-message' is serialised back
+  ;; into the `* System Prompt' heading body — never as a
+  ;; :GPTEL_SYSTEM: drawer line (composes with
+  ;; register/invariant/drawer-system-key-write-exclusion).  For a
+  ;; pre-Addendum session with no heading, the `* System Prompt' /
+  ;; `* Chat' headings are materialised via the shared
+  ;; `jf/gptel--session-headings-block' helper.
+
+  (describe "system prompt heading save"
+
+    (defconst gptel-chat-save-test--with-headings
+      (concat ":PROPERTIES:\n:END:\n"
+              "\n* System Prompt\n"
+              ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
+              "Old body.\n"
+              "\n* Chat\n#+begin_user\n\nHi.\n#+end_user\n")
+      "Current-layout session: drawer + folded heading + chat heading.")
+
+    (it "rewrites the heading body from buffer-local gptel--system-message"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert gptel-chat-save-test--with-headings)
+        (setq-local gptel--system-message "Updated system prompt.")
+        (gptel-chat--save-state)
+        (expect (gptel-chat--system-prompt-heading-body)
+                :to-equal "Updated system prompt.")))
+
+    (it "never writes a :GPTEL_SYSTEM: drawer line on save"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert gptel-chat-save-test--with-headings)
+        (setq-local gptel--system-message
+                    "Long prompt with `backticks`, *asterisks*, and\nnewlines.")
+        (gptel-chat--save-state)
+        (expect (org-entry-get (point-min) "GPTEL_SYSTEM") :to-be nil)
+        (expect (gptel-chat-save-test--has-line ":GPTEL_SYSTEM:")
+                :to-be nil)
+        ;; The heading body did receive the value.
+        (expect (gptel-chat--system-prompt-heading-body)
+                :to-equal
+                "Long prompt with `backticks`, *asterisks*, and\nnewlines.")))
+
+    (it "keeps the heading a singleton after save"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert gptel-chat-save-test--with-headings)
+        (setq-local gptel--system-message "A")
+        (gptel-chat--save-state)
+        (goto-char (point-min))
+        (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
+        (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1)))
+
+    (it "materialises the heading for a pre-Addendum session with no heading"
+      ;; Old session: config drawer + turn blocks, no `* System
+      ;; Prompt' / `* Chat' headings.  Save materialises them.
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
+                "\n#+begin_user\nHello.\n#+end_user\n")
+        (setq-local gptel--system-message "Materialised prompt.")
+        (gptel-chat--save-state)
+        ;; Headings now exist exactly once.
+        (goto-char (point-min))
+        (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
+        (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1)
+        ;; The body carries the buffer-local system message.
+        (expect (gptel-chat--system-prompt-heading-body)
+                :to-equal "Materialised prompt.")
+        ;; The folded-visibility property is present (shared helper).
+        (expect (gptel-chat-save-test--has-line ":VISIBILITY: folded")
+                :to-be-truthy)
+        ;; The original turn block is preserved, under `* Chat'.
+        (expect (gptel-chat-save-test--has-line "#+begin_user")
+                :to-be-truthy)
+        (let ((chat-pos (save-excursion
+                          (goto-char (point-min))
+                          (re-search-forward "^\\* Chat[ \t]*$" nil t)))
+              (turn-pos (save-excursion
+                          (goto-char (point-min))
+                          (re-search-forward "^#\\+begin_user" nil t))))
+          (expect (and chat-pos turn-pos (< chat-pos turn-pos))
+                  :to-be-truthy))
+        ;; Still no :GPTEL_SYSTEM: drawer line.
+        (expect (gptel-chat-save-test--has-line ":GPTEL_SYSTEM:")
+                :to-be nil)))
+
+    (it "is idempotent — a no-change save produces no buffer diff"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert gptel-chat-save-test--with-headings)
+        (setq-local gptel--system-message "Stable prompt.")
+        (gptel-chat--save-state)
+        (let ((after-first (buffer-string)))
+          (gptel-chat--save-state)
+          (expect (buffer-string) :to-equal after-first))))
+
+    (it "leaves a materialised session stable on a second save"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
+                "\n#+begin_user\nHello.\n#+end_user\n")
+        (setq-local gptel--system-message "Materialised prompt.")
+        (gptel-chat--save-state)
+        (let ((after-materialise (buffer-string)))
+          (gptel-chat--save-state)
+          (expect (buffer-string) :to-equal after-materialise)))))
 
   )
 

@@ -280,6 +280,99 @@ preset's composite-key logic (design.md §Decision 5)."
       (set (make-local-variable 'jf/gptel--parent-session-id) parent-id))))
 #+end_src
 
+* System Prompt heading restore
+
+design.md §Addendum (Finding B / Decision B) relocates the system
+prompt from a drawer property into a visible =* System Prompt=
+heading body, and makes that body *authoritative*
+(=register/invariant/system-prompt-heading-authoritative=).
+
+On mode activation the restore precedence is, highest first:
+
+  1. =* System Prompt= heading body, when non-blank
+  2. legacy =:GPTEL_SYSTEM:= drawer entry, when present
+  3. preset =:system=
+
+=gptel-chat--apply-drawer-overrides= already handles levels 2 and 3:
+when the drawer carries =:GPTEL_SYSTEM:= the overlay installs it,
+otherwise the preset's =:system= (already applied by the caller)
+stands. =gptel-chat--apply-system-prompt-heading= adds level 1 — it
+runs *after* the overlay and supersedes both when the heading body is
+authored. A blank (whitespace-only or absent) heading body is treated
+as "not authored" and is a no-op, so an empty heading never silently
+wipes the prompt.
+
+The body is read with a narrow/regexp scan — =org-narrow-to-subtree=
+to the =* System Prompt= heading, then skip its property drawer — not
+=org-element-parse-buffer= (chat-mode parser Decision 1: the parser
+stays a regexp state machine, no org-element dependency).
+
+#+begin_src emacs-lisp
+(defun gptel-chat--system-prompt-heading-body ()
+  "Return the body text of the `* System Prompt' heading, or nil.
+
+Locates the first top-level `* System Prompt' heading in the current
+buffer, skips its `:PROPERTIES:' ... `:END:' drawer (and any blank
+lines after it), and returns the remaining subtree text up to — but
+not including — the next heading.  Trailing whitespace is trimmed.
+
+Returns nil when there is no `* System Prompt' heading, or when the
+heading body is blank (absent or whitespace-only) — a blank body is
+treated as \"not authored\" so it never overrides the preset
+(register/invariant/system-prompt-heading-authoritative).
+
+Uses a narrow/regexp scan, not `org-element-parse-buffer' (chat-mode
+parser Decision 1)."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (when (re-search-forward "^\\* System Prompt[ \t]*$" nil t)
+        (let* ((heading-end (line-end-position))
+               (subtree-end
+                (save-excursion
+                  (goto-char heading-end)
+                  (if (re-search-forward "^\\* " nil t)
+                      (line-beginning-position)
+                    (point-max))))
+               (body-start
+                (save-excursion
+                  (goto-char heading-end)
+                  (forward-line 1)
+                  ;; Skip the heading's own `:PROPERTIES:' drawer.
+                  (when (and (< (point) subtree-end)
+                             (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$"))
+                    (when (re-search-forward "^[ \t]*:END:[ \t]*$"
+                                             subtree-end t)
+                      (forward-line 1)))
+                  (point)))
+               (body (and (< body-start subtree-end)
+                          (buffer-substring-no-properties
+                           body-start subtree-end))))
+          (when (and body (not (string-blank-p body)))
+            (string-trim-right body)))))))
+
+(defun gptel-chat--apply-system-prompt-heading ()
+  "Install the `* System Prompt' heading body as `gptel--system-message'.
+
+When the current buffer carries a `* System Prompt' heading with a
+non-blank body, set `gptel--system-message' buffer-locally to that
+body — the document is the authoritative source of the system prompt
+(register/invariant/system-prompt-heading-authoritative).
+
+A no-op when the heading is absent or its body is blank: the value
+installed by an earlier step — the preset's `:system' or a legacy
+`:GPTEL_SYSTEM:' drawer entry applied by
+`gptel-chat--apply-drawer-overrides' — is left in effect.  An empty
+heading never silently wipes the prompt.
+
+Intended to run from `gptel-chat--apply-declared-preset' after the
+drawer overlay, so the heading body wins over both the preset and a
+legacy drawer entry (design.md §Addendum, Decision B)."
+  (when-let* ((body (gptel-chat--system-prompt-heading-body)))
+    (set (make-local-variable 'gptel--system-message) body)))
+#+end_src
+
 * Preset application hook
 
 =gptel-chat--apply-declared-preset= is the hook entry point. It
@@ -315,6 +408,14 @@ preset's baseline. The overlay also fires in the no-preset branch —
 that covers buffers whose drawer carries only non-preset keys or
 only =GPTEL_PARENT_SESSION_ID= (design.md §Decisions 2, 3, 5).
 
+Finally =gptel-chat--apply-system-prompt-heading= runs *last*, after
+the overlay, so an authored =* System Prompt= heading body supersedes
+both the preset's =:system= and a legacy =:GPTEL_SYSTEM:= drawer
+entry — the document is authoritative
+(=register/invariant/system-prompt-heading-authoritative=, design.md
+§Addendum Decision B). It is a no-op when the heading is absent or
+blank, so old sessions degrade gracefully to the preset.
+
 #+begin_src emacs-lisp
 (defun gptel-chat--apply-declared-preset ()
   "Apply a buffer-declared gptel preset, if any, then overlay deltas.
@@ -330,6 +431,15 @@ declared), calls `gptel-chat--apply-drawer-overrides' to install any
 non-preset drawer properties and `GPTEL_PARENT_SESSION_ID' as
 buffer-local bindings on top of the preset baseline (design.md
 §Decisions 2, 3, 5).
+
+Finally calls `gptel-chat--apply-system-prompt-heading' so an
+authored `* System Prompt' heading body wins over the preset's
+`:system' and over any legacy `:GPTEL_SYSTEM:' drawer entry — the
+restore precedence is heading body > drawer entry > preset
+(register/invariant/system-prompt-heading-authoritative, design.md
+§Addendum Decision B).  The heading read is a no-op when no `* System
+Prompt' heading exists or its body is blank, so pre-Addendum sessions
+fall back to the preset.
 
 Does NOT enable `gptel-mode' (design.md §Decision 16).  Chat-mode
 owns the major-mode role exclusively.
@@ -352,7 +462,11 @@ triggers a `display-warning' rather than an error, matching upstream
   ;; carries only non-preset keys (e.g. `GPTEL_TOOLS' alone) or only
   ;; `GPTEL_PARENT_SESSION_ID'.  Re-running after the preset-apply
   ;; branch is harmless: the overlay re-installs the same values.
-  (gptel-chat--apply-drawer-overrides))
+  (gptel-chat--apply-drawer-overrides)
+  ;; Heading body is authoritative — runs last so it supersedes both
+  ;; the preset's `:system' and a legacy `:GPTEL_SYSTEM:' drawer entry
+  ;; (register/invariant/system-prompt-heading-authoritative).
+  (gptel-chat--apply-system-prompt-heading))
 #+end_src
 
 * Save state hook
@@ -533,6 +647,136 @@ full-snapshot writes, not deletes-when-preset-matches."
     ;; :GPTEL_BOUNDS: deliberately not touched.  Chat-mode uses
     ;; block-based response storage, not text-property bounds.
     nil))
+#+end_src
+
+* System Prompt heading save
+
+The save-side counterpart to =gptel-chat--apply-system-prompt-heading=:
+on =before-save-hook=, after the config drawer is written, the
+current buffer-local =gptel--system-message= is serialised back into
+the =* System Prompt= heading body. The document is the authoritative
+source of the system prompt
+(=register/invariant/system-prompt-heading-authoritative=).
+
+Two cases:
+
+- *Heading present* (a current-layout session) — the body between the
+  heading's =:PROPERTIES:= drawer and the next heading is replaced
+  with the current =gptel--system-message=.
+- *Heading absent* (a pre-Addendum session — graceful degrade,
+  Decision 6 / Decision B) — the =* System Prompt= and =* Chat=
+  headings are *materialised*. Everything currently after the config
+  drawer (the existing =#+begin_user= / =#+begin_assistant= turn
+  blocks) is moved under a freshly inserted =* Chat= heading; the
+  =* System Prompt= heading carrying =:VISIBILITY: folded= is inserted
+  before it with the system-prompt body. The heading shape is built
+  with =jf/gptel--session-headings-block= — the *same* helper the
+  session-creation renderer uses, so the heading literals and the
+  =:VISIBILITY: folded= property are single-sourced
+  (=register/shape/session-document-layout=).
+
+This *never* writes a =:GPTEL_SYSTEM:= drawer line — the drawer
+write-exclusion (=register/invariant/drawer-system-key-write-
+exclusion=) stands. That invariant governs the *drawer*; this code
+writes the *heading body*. The two compose without conflict.
+
+The materialise path lazily =(require 'gptel-session-commands)= for
+the heading helper; in production that module is loaded by
+=gptel.org=. The require is wrapped in =(... nil t)= so a chat-mode
+buffer saved in a minimal context with the sessions stack absent
+falls back to skipping materialisation rather than erroring — the
+worst case is an old session keeps its pre-Addendum layout for one
+more save, never a broken file.
+
+#+begin_src emacs-lisp
+(declare-function jf/gptel--session-headings-block
+                  "gptel-session-commands" (system-prompt user-block))
+
+(defun gptel-chat--config-drawer-end ()
+  "Return the buffer position just after the config drawer's `:END:'.
+
+Assumes the file-level `:PROPERTIES:' drawer is at `point-min' (the
+canonical session layout — `gptel-chat--write-config-drawer' has
+already run by the time this is called on the save path).  Returns
+the position at the start of the line following `:END:', or nil when
+no drawer is found."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+        (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+          (forward-line 1)
+          (point))))))
+
+(defun gptel-chat--write-system-prompt-heading ()
+  "Serialise `gptel--system-message' into the `* System Prompt' body.
+
+When the buffer already has a `* System Prompt' heading, replace its
+body text (between the heading's own `:PROPERTIES:' drawer and the
+next heading) with the current buffer-local `gptel--system-message'.
+
+When the buffer has no `* System Prompt' heading — a pre-Addendum
+session — materialise the `* System Prompt' and `* Chat' headings
+after the config drawer using `jf/gptel--session-headings-block', the
+shared heading-shape helper (register/shape/session-document-layout).
+Existing turn blocks below the config drawer are moved under the new
+`* Chat' heading.
+
+Never writes a `:GPTEL_SYSTEM:' drawer line — composes with
+register/invariant/drawer-system-key-write-exclusion (that invariant
+governs the drawer; this writes the heading body).
+
+Caller supplies the `save-excursion' / `org-with-wide-buffer' framing
+and calls this only in chat-mode buffers."
+  (let ((system (and (bound-and-true-p gptel--system-message)
+                     (stringp gptel--system-message)
+                     gptel--system-message)))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (if (re-search-forward "^\\* System Prompt[ \t]*$" nil t)
+            ;; Heading present — replace the body in place.
+            (let* ((heading-end (line-end-position))
+                   (subtree-end
+                    (save-excursion
+                      (goto-char heading-end)
+                      (if (re-search-forward "^\\* " nil t)
+                          (line-beginning-position)
+                        (point-max))))
+                   (body-start
+                    (save-excursion
+                      (goto-char heading-end)
+                      (forward-line 1)
+                      (when (and (< (point) subtree-end)
+                                 (looking-at-p
+                                  "^[ \t]*:PROPERTIES:[ \t]*$"))
+                        (when (re-search-forward
+                               "^[ \t]*:END:[ \t]*$" subtree-end t)
+                          (forward-line 1)))
+                      (point))))
+              (delete-region body-start subtree-end)
+              (goto-char body-start)
+              ;; A non-blank body is written verbatim followed by a
+              ;; blank line separating it from `* Chat'; a blank/nil
+              ;; system prompt leaves only the separating blank line.
+              (insert (if (and system (not (string-blank-p system)))
+                          (concat (string-trim-right system) "\n\n")
+                        "\n")))
+          ;; Heading absent — materialise the canonical headings.
+          (when (require 'gptel-session-commands nil t)
+            (when-let* ((drawer-end (gptel-chat--config-drawer-end)))
+              (let ((user-block (buffer-substring-no-properties
+                                 drawer-end (point-max))))
+                (delete-region drawer-end (point-max))
+                (goto-char drawer-end)
+                ;; A blank line separates the config drawer from the
+                ;; `* System Prompt' heading.
+                (unless (eq drawer-end (point-min))
+                  (insert "\n"))
+                (insert (jf/gptel--session-headings-block
+                         system user-block))))))))))
 
 (defun gptel-chat--save-state ()
   "Write the chat-mode configuration drawer before saving the buffer.
@@ -550,11 +794,14 @@ Does NOT write `GPTEL_BOUNDS'.  Chat-mode stores response text
 inside `#+begin_assistant' blocks rather than text-property-bounded
 spans, so bounds persistence is intentionally excluded.
 
-Does NOT write `GPTEL_SYSTEM'.  Decision 2: long, multi-line system
-prompts are unwieldy as a single org property value; the writer
-never round-trips them.  Read-side overlay still respects manually
-authored entries (register/invariant/drawer-system-key-write-
-exclusion).
+Does NOT write a `:GPTEL_SYSTEM:' drawer line.  Decision 2: long,
+multi-line system prompts are unwieldy as a single org property
+value; the writer never round-trips them as a drawer property.  The
+system prompt is instead serialised into the `* System Prompt'
+heading body by `gptel-chat--write-system-prompt-heading' (design.md
+§Addendum Decision B) — the drawer write-exclusion
+(register/invariant/drawer-system-key-write-exclusion) and the
+heading-body write compose without conflict.
 
 Does NOT enable `gptel-mode'.  Chat-mode owns the major-mode role
 exclusively (design.md §Decision 16)."
@@ -575,7 +822,12 @@ exclusively (design.md §Decision 16)."
                   (not (string-empty-p jf/gptel--parent-session-id)))
          (org-entry-put (point-min)
                         "GPTEL_PARENT_SESSION_ID"
-                        jf/gptel--parent-session-id))))))
+                        jf/gptel--parent-session-id))
+       ;; Serialise the system prompt into the `* System Prompt'
+       ;; heading body — runs after the drawer write so it acts on the
+       ;; canonical layout (register/invariant/system-prompt-heading-
+       ;; authoritative).  Never emits a `:GPTEL_SYSTEM:' drawer line.
+       (gptel-chat--write-system-prompt-heading)))))
 #+end_src
 
 * Hook wiring
