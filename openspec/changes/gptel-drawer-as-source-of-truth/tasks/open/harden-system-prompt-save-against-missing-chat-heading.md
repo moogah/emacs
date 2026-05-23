@@ -40,3 +40,59 @@ Expect: saving an orphaned-`* System Prompt` document preserves turn blocks; no 
 Provenance: author-blind Reviewer finding on `make-system-prompt-heading-authoritative` (cycle-7 execute), `discovered_by: reviewer`, `discovered_class: deviation`. Review file: `.orchestrator/cycles/cycle-1779477564/reviews/make-system-prompt-heading-authoritative.md`, Finding 1.
 
 Cited register entries: `interfaces.org#register-shape-session-document-layout` (the layout this guard protects), `interfaces.org#register-invariant-system-prompt-heading-authoritative` (the save path being hardened).
+
+## Observations
+
+- Implemented option (b) of the task body: detect the orphaned-`* System Prompt` layout and re-materialise `* Chat`, moving any captured turn blocks under it. The heading-present branch of `gptel-chat--write-system-prompt-heading` now computes `chat-heading-present` (whole-buffer search for `^\\* Chat[ \t]*$`) and, when false, locates the first `#+begin_user`/`#+begin_assistant` marker in (body-start, subtree-end) and bounds the in-place rewrite at that position rather than at `point-max`. The captured turn-block text is re-inserted after a literal `* Chat\n` heading appended just after the system-prompt body.
+- The literal `"* Chat\n"` is hard-coded in the recovery branch rather than routed through `jf/gptel--session-headings-block`. The helper emits *both* `* System Prompt` and `* Chat` together; in the orphan-recovery case the `* System Prompt` heading already exists (and carries its own preserved `:VISIBILITY: folded` drawer), so reusing the helper would duplicate it. The `* Chat` literal is intentionally bare in the helper as well (no properties drawer), so the two forms agree by inspection. Cross-referenced in the docstring and comment.
+- Introduced `gptel-chat--turn-block-marker-re` as a named constant. The same regexp appears in the validator inside `register/shape/session-document-layout` (line ~488) and the new recovery branch; centralising it inside `menu.org` keeps the chat-mode writer self-contained without reaching into the sessions module, and the docstring cites the parser's heading-indifferent marker contract (Decision 12) so a future reader knows which authority the regexp tracks.
+- Tests added: one new `describe` block ("off-nominal layout: `* System Prompt` without `* Chat`") with 7 specs — turn-block preservation, singleton `* Chat` materialisation, turn-blocks-under-`* Chat` ordering, recovered prompt body, full session-document-layout validator-style assertion, drawer write-exclusion composition, idempotence, and the "no turn blocks at all" edge case. Built on the existing `gptel-chat-save-test--has-line` helper and the `with-temp-buffer` / `gptel-chat-mode` pattern already in use; no new test infrastructure required.
+- Verification: directory-scoped buttercup run goes from 410 → 418 passing (8 new specs, no regressions). The cycle-8 baseline failure load (ERT 10 unexpected + buttercup 79 failed) is for the global suite — within `config/gptel/chat` itself the suite is fully green before and after, so set-based regression detection is trivially satisfied.
+
+## Discoveries
+
+- class: shape-defense-gap
+  finding: |
+    The orphaned-`* System Prompt` layout (heading present, `* Chat`
+    absent, turn blocks below the orphaned subtree) was a documented
+    silent-data-loss path in `gptel-chat--write-system-prompt-heading`:
+    the body-region helper's SUBTREE-END falls through to `point-max`
+    when no next `^\\* ` heading exists, and the writer's
+    `delete-region body-start subtree-end` then deletes every turn
+    block in the orphaned subtree. No test fixture exercised this layout
+    (every fixture pairs `* System Prompt` with `* Chat`), so the suite
+    was green while the contract was violable. The fix bounds the
+    rewrite at the first turn-block marker and re-materialises `* Chat`
+    above the captured turns.
+  affected_entries:
+    - register/shape/session-document-layout
+    - register/invariant/system-prompt-heading-authoritative
+  resolution: |
+    Fixed in this task. `register/shape/session-document-layout`'s
+    validator is now defended on the save path against all four
+    structural invariants in the producer code itself, not only via
+    fixture coverage. No register edit required — both cited entries
+    are `reconciled` and `load_bearing`; the fix strengthens the save
+    path's compliance with them rather than changing their contracts.
+
+- class: implicit-coupling
+  finding: |
+    The turn-block marker regexp `^#\\+begin_\\(user\\|assistant\\)`
+    now appears in three places: the chat parser (the heading-
+    indifferent locator, per design.md §Decision 12), the
+    `register/shape/session-document-layout` validator (lines ~487-488
+    in interfaces.org), and the new recovery branch in
+    `gptel-chat--write-system-prompt-heading`. The new constant
+    `gptel-chat--turn-block-marker-re` names the writer-side
+    occurrence, but the three sites are still text-duplicated rather
+    than single-sourced.
+  affected_entries:
+    - register/shape/session-document-layout
+  resolution: |
+    Not addressed in this task — out of scope (the task body is
+    "guard the save path", not "single-source the parser regexp").
+    Naming the constant and citing the parser contract in the
+    docstring is the minimum that keeps the three sites discoverable
+    via grep. Promoting the regexp to a shared constant in the parser
+    module (chat/parser.org) would be a sensible follow-up if a
+    future change touches all three sites.
