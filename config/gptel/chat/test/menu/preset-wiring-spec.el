@@ -824,152 +824,36 @@
 
 
   ;; -----------------------------------------------------------------------
-  ;; 8. System Prompt heading restore
-  ;; (task `make-system-prompt-heading-authoritative', design.md
-  ;; §Addendum Finding B / Decision B;
-  ;; register/invariant/system-prompt-heading-authoritative).
+  ;; 8. System Prompt heading restore — REMOVED.
   ;;
-  ;; The `* System Prompt' heading body is the authoritative system
-  ;; prompt.  Restore precedence, highest first:
-  ;;   1. `* System Prompt' heading body, when non-blank
-  ;;   2. legacy :GPTEL_SYSTEM: drawer entry, when present
-  ;;   3. preset :system
-  ;; A blank heading body falls through — an empty heading never
-  ;; silently wipes the prompt.
-  ;;
-  ;; `gptel-chat--system-prompt-heading-body' is the pure reader;
-  ;; `gptel-chat--apply-system-prompt-heading' is the restore step
-  ;; (runs last from `gptel-chat--apply-declared-preset', after the
-  ;; drawer overlay, so it supersedes both the preset and a legacy
-  ;; drawer entry).
+  ;; The `* System Prompt' heading reader was deleted in
+  ;; `delete-heading-reader-from-chat-menu' (the
+  ;; `replace-system-prompt-heading-with-sibling-file' change).  The
+  ;; new restore precedence is sibling file > legacy `:GPTEL_SYSTEM:'
+  ;; drawer entry > preset `:system'.  The sibling-file installer is
+  ;; added by `add-sibling-file-restore-to-chat-mode' and pinned by
+  ;; `config/gptel/chat/test/menu/system-prompt-file-spec.el'.  The
+  ;; legacy drawer overlay middle tier remains covered by the
+  ;; `drawer overrides overlay' describe block above.
 
-  (describe "system prompt heading restore"
+  (describe "system prompt restore precedence (legacy drawer middle tier)"
 
-    (describe "gptel-chat--system-prompt-heading-body (pure reader)"
+    (before-each
+      (spy-on 'gptel-get-preset :and-call-fake
+              (lambda (name) (memq name '(coding research))))
+      (spy-on 'gptel--apply-preset :and-call-fake
+              (lambda (_preset setter)
+                (when setter
+                  (funcall setter 'gptel--system-message
+                           "preset-system-text"))))
+      (spy-on 'gptel-mode :and-return-value nil))
 
-      (it "returns the heading body text, trimmed, when non-blank"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "First line.\nSecond line.\n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (org-mode)
-          (expect (gptel-chat--system-prompt-heading-body)
-                  :to-equal "First line.\nSecond line.")))
-
-      (it "returns nil when there is no `* System Prompt' heading"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n"
-                  "\n#+begin_user\n\n#+end_user\n")
-          (org-mode)
-          (expect (gptel-chat--system-prompt-heading-body) :to-be nil)))
-
-      (it "returns nil for a whitespace-only heading body"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "   \n\t\n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (org-mode)
-          (expect (gptel-chat--system-prompt-heading-body) :to-be nil)))
-
-      (it "returns nil for an empty heading body"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (org-mode)
-          (expect (gptel-chat--system-prompt-heading-body) :to-be nil))))
-
-    (describe "gptel-chat--apply-system-prompt-heading (restore step)"
-
-      (it "installs the heading body buffer-locally as gptel--system-message"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "Authored prompt body.\n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (org-mode)
-          (gptel-chat--apply-system-prompt-heading)
-          (expect (local-variable-p 'gptel--system-message) :to-be t)
-          (expect gptel--system-message :to-equal "Authored prompt body.")))
-
-      (it "is a no-op when the heading is absent (preset/drawer value stands)"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n"
-                  "\n#+begin_user\n\n#+end_user\n")
-          (org-mode)
-          ;; Simulate a value installed by an earlier restore step.
-          (setq-local gptel--system-message "preset-installed")
-          (gptel-chat--apply-system-prompt-heading)
-          (expect gptel--system-message :to-equal "preset-installed")))
-
-      (it "is a no-op for a blank heading body (never wipes the prompt)"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "  \n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (org-mode)
-          (setq-local gptel--system-message "preset-installed")
-          (gptel-chat--apply-system-prompt-heading)
-          (expect gptel--system-message :to-equal "preset-installed"))))
-
-    (describe "restore precedence end-to-end via gptel-chat-mode"
-
-      (before-each
-        (spy-on 'gptel-get-preset :and-call-fake
-                (lambda (name) (memq name '(coding research))))
-        ;; Simulate the real preset setter: install :system buffer-
-        ;; locally so the heading read has something to supersede.
-        (spy-on 'gptel--apply-preset :and-call-fake
-                (lambda (_preset setter)
-                  (when setter
-                    (funcall setter 'gptel--system-message
-                             "preset-system-text"))))
-        (spy-on 'gptel-mode :and-return-value nil))
-
-      (it "heading body wins over the preset :system on activation"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "Heading body text.\n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (gptel-chat-mode)
-          (expect gptel--system-message :to-equal "Heading body text.")))
-
-      (it "heading body wins over a legacy :GPTEL_SYSTEM: drawer entry"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n"
-                  ":GPTEL_SYSTEM: Legacy drawer prompt.\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "Heading body text.\n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (gptel-chat-mode)
-          (expect gptel--system-message :to-equal "Heading body text.")))
-
-      (it "falls back to the preset :system when no heading exists (old session)"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n"
-                  "\n#+begin_user\n\n#+end_user\n")
-          (gptel-chat-mode)
-          (expect gptel--system-message :to-equal "preset-system-text")))
-
-      (it "falls back to the preset :system when the heading body is blank"
-        (with-temp-buffer
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "\n* Chat\n#+begin_user\n\n#+end_user\n")
-          (gptel-chat-mode)
-          (expect gptel--system-message :to-equal "preset-system-text")))))
+    (it "falls back to the preset :system when no legacy drawer entry exists"
+      (with-temp-buffer
+        (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n"
+                "\n#+begin_user\n\n#+end_user\n")
+        (gptel-chat-mode)
+        (expect gptel--system-message :to-equal "preset-system-text"))))
 
   )
 

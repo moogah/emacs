@@ -519,58 +519,11 @@ keys, isolating the snapshot key set for cross-producer comparison."
   ;; and is asserted in the integration block above as "never writes
   ;; GPTEL_SYSTEM even when gptel--system-message is set buffer-locally".
 
-  ;; Structural spec for `gptel-chat--system-prompt-heading-body-region',
-  ;; the shared reader scan helper.  After the writer was deleted in
-  ;; `delete-heading-writer-from-chat-menu', this helper is read-only
-  ;; (consumed by `gptel-chat--system-prompt-heading-body').  Pinning
-  ;; the post-drawer region contract here keeps the reader's "body"
-  ;; bounds visible against future drift.  Removed by the subsequent
-  ;; `delete-heading-reader-from-chat-menu' task along with the reader
-  ;; itself.
-  (describe "gptel-chat--system-prompt-heading-body-region (helper, reader-only)"
-
-    (defconst gptel-chat-save-test--with-headings
-      (concat ":PROPERTIES:\n:END:\n"
-              "\n* System Prompt\n"
-              ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-              "Old body.\n"
-              "\n* Chat\n#+begin_user\n\nHi.\n#+end_user\n")
-      "Current-layout session fixture used by the body-region helper specs.")
-
-    (it "returns the post-drawer region the reader trims"
-      (with-temp-buffer
-        (gptel-chat-mode)
-        (insert gptel-chat-save-test--with-headings)
-        (let* ((region (gptel-chat--system-prompt-heading-body-region))
-               (body-start (car region))
-               (subtree-end (cdr region))
-               (verbatim (buffer-substring-no-properties
-                          body-start subtree-end)))
-          ;; A region is returned (heading is present).
-          (expect region :not :to-be nil)
-          (expect body-start :to-be-truthy)
-          (expect subtree-end :to-be-truthy)
-          (expect body-start :to-be-less-than subtree-end)
-          ;; The reader's result is the trimmed verbatim region.
-          (expect (gptel-chat--system-prompt-heading-body)
-                  :to-equal (string-trim-right verbatim))
-          ;; SUBTREE-END is the start of the next `* ' heading.
-          (save-excursion
-            (goto-char subtree-end)
-            (expect (looking-at-p "^\\* ") :to-be-truthy))
-          ;; BODY-START is positioned past the heading's `:PROPERTIES:'
-          ;; drawer — `:END:' lies before BODY-START, and no drawer line
-          ;; appears in the returned region.
-          (expect (string-match-p ":PROPERTIES:" verbatim) :to-be nil)
-          (expect (string-match-p ":END:" verbatim) :to-be nil))))
-
-    (it "returns nil when the `* System Prompt' heading is absent"
-      (with-temp-buffer
-        (gptel-chat-mode)
-        (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
-                "\n#+begin_user\nHello.\n#+end_user\n")
-        (expect (gptel-chat--system-prompt-heading-body-region)
-                :to-be nil))))
+  ;; The body-region helper describe block was removed together with
+  ;; `gptel-chat--system-prompt-heading-body-region' in
+  ;; `delete-heading-reader-from-chat-menu'.  No save-side residual
+  ;; remains here; the only save-state contract that survived is
+  ;; covered by the integration block above.
 
   )
 
