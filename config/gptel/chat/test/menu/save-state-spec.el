@@ -507,21 +507,27 @@ keys, isolating the snapshot key set for cross-producer comparison."
 
 
   ;; -----------------------------------------------------------------------
-  ;; 5. System Prompt heading save
-  ;; (task `make-system-prompt-heading-authoritative', design.md
-  ;; §Addendum Finding B / Decision B;
-  ;; register/invariant/system-prompt-heading-authoritative).
+  ;; 5. System Prompt heading save — REMOVED.
   ;;
-  ;; On `before-save-hook', after the config drawer is written, the
-  ;; current buffer-local `gptel--system-message' is serialised back
-  ;; into the `* System Prompt' heading body — never as a
-  ;; :GPTEL_SYSTEM: drawer line (composes with
-  ;; register/invariant/drawer-system-key-write-exclusion).  For a
-  ;; pre-Addendum session with no heading, the `* System Prompt' /
-  ;; `* Chat' headings are materialised via the shared
-  ;; `jf/gptel--session-headings-block' helper.
+  ;; The save path no longer writes the system prompt to the document
+  ;; in any form.  The `* System Prompt' / `* Chat' headings are gone
+  ;; from the canonical layout (replace-system-prompt-heading-with-
+  ;; sibling-file), and `gptel-chat--save-state' no longer touches the
+  ;; sibling `system-prompt.<ext>' file either (design.md §Decision 3
+  ;; of that change: the sibling file is canonical and only edited by
+  ;; the user).  The `GPTEL_SYSTEM' drawer-key exclusion still holds
+  ;; and is asserted in the integration block above as "never writes
+  ;; GPTEL_SYSTEM even when gptel--system-message is set buffer-locally".
 
-  (describe "system prompt heading save"
+  ;; Structural spec for `gptel-chat--system-prompt-heading-body-region',
+  ;; the shared reader scan helper.  After the writer was deleted in
+  ;; `delete-heading-writer-from-chat-menu', this helper is read-only
+  ;; (consumed by `gptel-chat--system-prompt-heading-body').  Pinning
+  ;; the post-drawer region contract here keeps the reader's "body"
+  ;; bounds visible against future drift.  Removed by the subsequent
+  ;; `delete-heading-reader-from-chat-menu' task along with the reader
+  ;; itself.
+  (describe "gptel-chat--system-prompt-heading-body-region (helper, reader-only)"
 
     (defconst gptel-chat-save-test--with-headings
       (concat ":PROPERTIES:\n:END:\n"
@@ -529,324 +535,42 @@ keys, isolating the snapshot key set for cross-producer comparison."
               ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
               "Old body.\n"
               "\n* Chat\n#+begin_user\n\nHi.\n#+end_user\n")
-      "Current-layout session: drawer + folded heading + chat heading.")
+      "Current-layout session fixture used by the body-region helper specs.")
 
-    (it "rewrites the heading body from buffer-local gptel--system-message"
+    (it "returns the post-drawer region the reader trims"
       (with-temp-buffer
         (gptel-chat-mode)
         (insert gptel-chat-save-test--with-headings)
-        (setq-local gptel--system-message "Updated system prompt.")
-        (gptel-chat--save-state)
-        (expect (gptel-chat--system-prompt-heading-body)
-                :to-equal "Updated system prompt.")))
-
-    (it "never writes a :GPTEL_SYSTEM: drawer line on save"
-      (with-temp-buffer
-        (gptel-chat-mode)
-        (insert gptel-chat-save-test--with-headings)
-        (setq-local gptel--system-message
-                    "Long prompt with `backticks`, *asterisks*, and\nnewlines.")
-        (gptel-chat--save-state)
-        (expect (org-entry-get (point-min) "GPTEL_SYSTEM") :to-be nil)
-        (expect (gptel-chat-save-test--has-line ":GPTEL_SYSTEM:")
-                :to-be nil)
-        ;; The heading body did receive the value.
-        (expect (gptel-chat--system-prompt-heading-body)
-                :to-equal
-                "Long prompt with `backticks`, *asterisks*, and\nnewlines.")))
-
-    (it "keeps the heading a singleton after save"
-      (with-temp-buffer
-        (gptel-chat-mode)
-        (insert gptel-chat-save-test--with-headings)
-        (setq-local gptel--system-message "A")
-        (gptel-chat--save-state)
-        (goto-char (point-min))
-        (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
-        (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1)))
-
-    (it "materialises the heading for a pre-Addendum session with no heading"
-      ;; Old session: config drawer + turn blocks, no `* System
-      ;; Prompt' / `* Chat' headings.  Save materialises them.
-      (with-temp-buffer
-        (gptel-chat-mode)
-        (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
-                "\n#+begin_user\nHello.\n#+end_user\n")
-        (setq-local gptel--system-message "Materialised prompt.")
-        (gptel-chat--save-state)
-        ;; Headings now exist exactly once.
-        (goto-char (point-min))
-        (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
-        (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1)
-        ;; The body carries the buffer-local system message.
-        (expect (gptel-chat--system-prompt-heading-body)
-                :to-equal "Materialised prompt.")
-        ;; The folded-visibility property is present (shared helper).
-        (expect (gptel-chat-save-test--has-line ":VISIBILITY: folded")
-                :to-be-truthy)
-        ;; The original turn block is preserved, under `* Chat'.
-        (expect (gptel-chat-save-test--has-line "#+begin_user")
-                :to-be-truthy)
-        (let ((chat-pos (save-excursion
-                          (goto-char (point-min))
-                          (re-search-forward "^\\* Chat[ \t]*$" nil t)))
-              (turn-pos (save-excursion
-                          (goto-char (point-min))
-                          (re-search-forward "^#\\+begin_user" nil t))))
-          (expect (and chat-pos turn-pos (< chat-pos turn-pos))
-                  :to-be-truthy))
-        ;; Still no :GPTEL_SYSTEM: drawer line.
-        (expect (gptel-chat-save-test--has-line ":GPTEL_SYSTEM:")
-                :to-be nil)))
-
-    (it "is idempotent — a no-change save produces no buffer diff"
-      (with-temp-buffer
-        (gptel-chat-mode)
-        (insert gptel-chat-save-test--with-headings)
-        (setq-local gptel--system-message "Stable prompt.")
-        (gptel-chat--save-state)
-        (let ((after-first (buffer-string)))
-          (gptel-chat--save-state)
-          (expect (buffer-string) :to-equal after-first))))
-
-    (it "leaves a materialised session stable on a second save"
-      (with-temp-buffer
-        (gptel-chat-mode)
-        (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
-                "\n#+begin_user\nHello.\n#+end_user\n")
-        (setq-local gptel--system-message "Materialised prompt.")
-        (gptel-chat--save-state)
-        (let ((after-materialise (buffer-string)))
-          (gptel-chat--save-state)
-          (expect (buffer-string) :to-equal after-materialise))))
-
-    ;; ---------------------------------------------------------------------
-    ;; Off-nominal layout regression: `* System Prompt' heading present,
-    ;; `* Chat' heading absent (task `harden-system-prompt-save-against-
-    ;; missing-chat-heading').  Without a `* Chat' heading the body-region
-    ;; helper's SUBTREE-END falls through to `point-max', so a naive
-    ;; delete-region from BODY-START would silently delete every
-    ;; `#+begin_user' / `#+begin_assistant' turn block sitting in the
-    ;; orphaned subtree.  The writer must (a) preserve those turn blocks
-    ;; and (b) re-materialise `* Chat' so the document satisfies the
-    ;; singleton-`* Chat' / turn-blocks-under-`* Chat' invariants of
-    ;; `register/shape/session-document-layout'.
-    (describe "off-nominal layout: `* System Prompt' without `* Chat'"
-
-      (defconst gptel-chat-save-test--orphan-system-prompt
-        (concat ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
-                "\n* System Prompt\n"
-                ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                "Old body.\n"
-                "\n"
-                "#+begin_user\n"
-                "Hi.\n"
-                "#+end_user\n"
-                "\n"
-                "#+begin_assistant\n"
-                "Hello.\n"
-                "#+end_assistant\n")
-        "Off-nominal layout: drawer + folded `* System Prompt' (with turn
-blocks below it), no `* Chat' heading.")
-
-      (it "preserves turn blocks when `* Chat' is missing"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--orphan-system-prompt)
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
-          ;; The user and assistant turn blocks are still present —
-          ;; the off-nominal save did not silently delete them.
-          (expect (gptel-chat-save-test--has-line "#+begin_user")
-                  :to-be-truthy)
-          (expect (gptel-chat-save-test--has-line "#+begin_assistant")
-                  :to-be-truthy)
-          (expect (gptel-chat-save-test--has-line "Hi.")
-                  :to-be-truthy)
-          (expect (gptel-chat-save-test--has-line "Hello.")
-                  :to-be-truthy)))
-
-      (it "re-materialises `* Chat' as a singleton"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--orphan-system-prompt)
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
-          (goto-char (point-min))
-          ;; The shape invariants from
-          ;; `register/shape/session-document-layout' now hold.
-          (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
-          (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1)))
-
-      (it "places every turn block under `* Chat'"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--orphan-system-prompt)
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
-          (let ((chat-pos (save-excursion
-                            (goto-char (point-min))
-                            (re-search-forward "^\\* Chat[ \t]*$" nil t)))
-                (first-turn (save-excursion
-                              (goto-char (point-min))
-                              (re-search-forward
-                               "^#\\+begin_\\(user\\|assistant\\)"
-                               nil t))))
-            (expect chat-pos :to-be-truthy)
-            (expect first-turn :to-be-truthy)
-            ;; Every turn block now lives after `* Chat' (no
-            ;; turn-block-before-chat-heading violation).
-            (expect chat-pos :to-be-less-than first-turn))))
-
-      (it "writes the recovered system-prompt body into the heading"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--orphan-system-prompt)
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
+        (let* ((region (gptel-chat--system-prompt-heading-body-region))
+               (body-start (car region))
+               (subtree-end (cdr region))
+               (verbatim (buffer-substring-no-properties
+                          body-start subtree-end)))
+          ;; A region is returned (heading is present).
+          (expect region :not :to-be nil)
+          (expect body-start :to-be-truthy)
+          (expect subtree-end :to-be-truthy)
+          (expect body-start :to-be-less-than subtree-end)
+          ;; The reader's result is the trimmed verbatim region.
           (expect (gptel-chat--system-prompt-heading-body)
-                  :to-equal "Recovered prompt.")))
-
-      (it "satisfies all four invariants of session-document-layout"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--orphan-system-prompt)
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
-          ;; Inlined copy of the validator from
-          ;; `register/shape/session-document-layout' so the test
-          ;; reads the invariants from the same predicate prose the
-          ;; register publishes.
+                  :to-equal (string-trim-right verbatim))
+          ;; SUBTREE-END is the start of the next `* ' heading.
           (save-excursion
-            (goto-char (point-min))
-            (expect (looking-at-p "[ \t\n]*:PROPERTIES:")
-                    :to-be-truthy))
-          (expect (how-many "^\\* System Prompt[ \t]*$"
-                            (point-min) (point-max))
-                  :to-equal 1)
-          (expect (how-many "^\\* Chat[ \t]*$"
-                            (point-min) (point-max))
-                  :to-equal 1)
-          (let ((chat-pos (save-excursion
-                            (goto-char (point-min))
-                            (re-search-forward "^\\* Chat[ \t]*$" nil t)))
-                (turn-pos (save-excursion
-                            (goto-char (point-min))
-                            (re-search-forward
-                             "^#\\+begin_\\(user\\|assistant\\)"
-                             nil t))))
-            (expect (or (null turn-pos)
-                        (null chat-pos)
-                        (< chat-pos turn-pos))
-                    :to-be-truthy))))
+            (goto-char subtree-end)
+            (expect (looking-at-p "^\\* ") :to-be-truthy))
+          ;; BODY-START is positioned past the heading's `:PROPERTIES:'
+          ;; drawer — `:END:' lies before BODY-START, and no drawer line
+          ;; appears in the returned region.
+          (expect (string-match-p ":PROPERTIES:" verbatim) :to-be nil)
+          (expect (string-match-p ":END:" verbatim) :to-be nil))))
 
-      (it "still never writes a :GPTEL_SYSTEM: drawer line on recovery"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--orphan-system-prompt)
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
-          ;; The recovery path must compose with
-          ;; `register/invariant/drawer-system-key-write-exclusion'.
-          (expect (gptel-chat-save-test--has-line ":GPTEL_SYSTEM:")
-                  :to-be nil)
-          (expect (org-entry-get (point-min) "GPTEL_SYSTEM") :to-be nil)))
-
-      (it "is idempotent — second save after recovery produces no diff"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--orphan-system-prompt)
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
-          (let ((after-recovery (buffer-string)))
-            (gptel-chat--save-state)
-            (expect (buffer-string) :to-equal after-recovery))))
-
-      (it "still re-materialises `* Chat' when no turn blocks exist"
-        ;; Edge case: orphaned `* System Prompt' with no turn blocks
-        ;; at all (only the system-prompt body).  There is no data to
-        ;; preserve, but the canonical layout still requires `* Chat'.
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
-                  "\n* System Prompt\n"
-                  ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                  "Body only, no chat.\n")
-          (setq-local gptel--system-message "Recovered prompt.")
-          (gptel-chat--save-state)
-          (goto-char (point-min))
-          (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
-          (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1))))
-
-    ;; ---------------------------------------------------------------------
-    ;; Structural spec for `gptel-chat--system-prompt-heading-body-region',
-    ;; the shared reader/writer scan helper introduced by task
-    ;; `extract-system-prompt-heading-region-helper'.  The helper returns
-    ;; the post-drawer body region (BODY-START . SUBTREE-END) verbatim;
-    ;; the reader trims the substring, the writer pads with the layout's
-    ;; required newlines.  Pinning the contract here prevents silent
-    ;; reader/writer divergence on what "body" means (the shape-
-    ;; corruption class register/shape/session-document-layout guards).
-    (describe "gptel-chat--system-prompt-heading-body-region (helper)"
-      (it "returns the post-drawer region that backs both reader and writer"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--with-headings)
-          (let* ((region (gptel-chat--system-prompt-heading-body-region))
-                 (body-start (car region))
-                 (subtree-end (cdr region))
-                 (verbatim (buffer-substring-no-properties
-                            body-start subtree-end)))
-            ;; A region is returned (heading is present).
-            (expect region :not :to-be nil)
-            (expect body-start :to-be-truthy)
-            (expect subtree-end :to-be-truthy)
-            (expect body-start :to-be-less-than subtree-end)
-            ;; The reader's result is the trimmed verbatim region.
-            (expect (gptel-chat--system-prompt-heading-body)
-                    :to-equal (string-trim-right verbatim))
-            ;; SUBTREE-END is the start of the next `* ' heading.
-            (save-excursion
-              (goto-char subtree-end)
-              (expect (looking-at-p "^\\* ") :to-be-truthy))
-            ;; BODY-START is positioned past the heading's `:PROPERTIES:'
-            ;; drawer — `:END:' lies before BODY-START, and no drawer line
-            ;; appears in the returned region.
-            (expect (string-match-p ":PROPERTIES:" verbatim) :to-be nil)
-            (expect (string-match-p ":END:" verbatim) :to-be nil))))
-
-      (it "returns nil when the `* System Prompt' heading is absent"
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
-                  "\n#+begin_user\nHello.\n#+end_user\n")
-          (expect (gptel-chat--system-prompt-heading-body-region)
-                  :to-be nil)))
-
-      (it "delimits the region the writer's delete-region acts on"
-        ;; A round-trip that replaces the body verifies that the writer
-        ;; operates on exactly the bounds the helper returned: every
-        ;; character between BODY-START and SUBTREE-END is replaced, and
-        ;; nothing outside it is touched (the heading line and its
-        ;; `:PROPERTIES:' drawer survive, and the next `* Chat' heading
-        ;; survives intact).
-        (with-temp-buffer
-          (gptel-chat-mode)
-          (insert gptel-chat-save-test--with-headings)
-          (setq-local gptel--system-message "Replacement.")
-          (gptel-chat--write-system-prompt-heading)
-          ;; Heading line preserved exactly once.
-          (goto-char (point-min))
-          (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
-          ;; Heading's own `:VISIBILITY: folded' drawer survives.
-          (expect (gptel-chat-save-test--has-line ":VISIBILITY: folded")
-                  :to-be-truthy)
-          ;; `* Chat' heading survives intact past SUBTREE-END.
-          (goto-char (point-min))
-          (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1)
-          ;; Reader sees the replacement (round-trip stable).
-          (expect (gptel-chat--system-prompt-heading-body)
-                  :to-equal "Replacement.")))))
+    (it "returns nil when the `* System Prompt' heading is absent"
+      (with-temp-buffer
+        (gptel-chat-mode)
+        (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
+                "\n#+begin_user\nHello.\n#+end_user\n")
+        (expect (gptel-chat--system-prompt-heading-body-region)
+                :to-be nil))))
 
   )
 

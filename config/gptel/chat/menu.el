@@ -660,209 +660,30 @@ full-snapshot writes, not deletes-when-preset-matches."
     nil))
 ;; Save state hook:1 ends here
 
-;; System Prompt heading save
+;; Save state hook entry
 
-;; The save-side counterpart to =gptel-chat--apply-system-prompt-heading=:
-;; on =before-save-hook=, after the config drawer is written, the
-;; current buffer-local =gptel--system-message= is serialised back into
-;; the =* System Prompt= heading body. The document is the authoritative
-;; source of the system prompt
-;; (=register/invariant/system-prompt-heading-authoritative=).
+;; =gptel-chat--save-state= is the =before-save-hook= entry that runs in
+;; chat-mode buffers; it delegates to =gptel-chat--write-config-drawer=
+;; (above) for the upstream-compatible key set and writes the chat-mode
+;; extension =GPTEL_PARENT_SESSION_ID= when the parent-session id is
+;; bound.
 
-;; Three cases:
+;; The save path *does not* write the system prompt — neither as a
+;; =:GPTEL_SYSTEM:= drawer line nor into any heading body. The system
+;; prompt lives in the sibling =system-prompt.<ext>= file next to
+;; =session.org= (design.md §Decision 3 of
+;; =replace-system-prompt-heading-with-sibling-file=). That file is
+;; canonical: written once at session creation, edited by the user, read
+;; by the chat-mode restore path on activation and on every pre-send
+;; refresh. The save hook never writes back to it.
 
-;; - *Heading present, canonical layout* (a current-layout session) — the
-;;   body between the heading's =:PROPERTIES:= drawer and the next
-;;   heading is replaced with the current =gptel--system-message=. The
-;;   body region is located via
-;;   =gptel-chat--system-prompt-heading-body-region= — the *same* helper
-;;   the reader uses, so reader and writer agree on what "body" means
-;;   (the four-step anchor/heading-end/subtree-end/drawer-skip scan
-;;   exists once). The writer then pads with the leading/trailing
-;;   newlines the layout requires; the reader trims. Single-sourcing the
-;;   scan removes a documented duplication finding (arch-cycle-
-;;   1779477564-5) and keeps the trim/pad asymmetry visible at one
-;;   decision point.
-;; - *Heading present, =* Chat= heading absent* (off-nominal layout —
-;;   user-hand-deleted =* Chat=, or a partially materialised document
-;;   from an interrupted save) — without a =* Chat= heading the helper's
-;;   =SUBTREE-END= falls all the way through to =point-max=, so a naive
-;;   in-place rewrite would delete every =#+begin_user= /
-;;   =#+begin_assistant= turn block sitting in the orphaned =* System
-;;   Prompt= subtree. We re-materialise =* Chat= instead: scan the body
-;;   region for the first turn-block marker, bound the body rewrite
-;;   there, then re-emit the missing =* Chat= heading and move the
-;;   captured turn blocks under it (task =harden-system-prompt-save-
-;;   against-missing-chat-heading=, defending the singleton-=* Chat= and
-;;   turn-blocks-under-=* Chat= invariants from
-;;   =register/shape/session-document-layout=). When the body holds no
-;;   turn blocks at all, =* Chat= is still appended so the document
-;;   shape is restored to canonical.
-;; - *Heading absent* (a pre-Addendum session — graceful degrade,
-;;   Decision 6 / Decision B) — the =* System Prompt= and =* Chat=
-;;   headings are *materialised*. Everything currently after the config
-;;   drawer (the existing =#+begin_user= / =#+begin_assistant= turn
-;;   blocks) is moved under a freshly inserted =* Chat= heading; the
-;;   =* System Prompt= heading carrying =:VISIBILITY: folded= is inserted
-;;   before it with the system-prompt body. The heading shape is built
-;;   with =jf/gptel--session-headings-block= — the *same* helper the
-;;   session-creation renderer uses, so the heading literals and the
-;;   =:VISIBILITY: folded= property are single-sourced
-;;   (=register/shape/session-document-layout=).
-
-;; This *never* writes a =:GPTEL_SYSTEM:= drawer line — the drawer
-;; write-exclusion (=register/invariant/drawer-system-key-write-
-;; exclusion=) stands. That invariant governs the *drawer*; this code
-;; writes the *heading body*. The two compose without conflict.
-
-;; The materialise path lazily =(require 'gptel-session-commands)= for
-;; the heading helper; in production that module is loaded by
-;; =gptel.org=. The require is wrapped in =(... nil t)= so a chat-mode
-;; buffer saved in a minimal context with the sessions stack absent
-;; falls back to skipping materialisation rather than erroring — the
-;; worst case is an old session keeps its pre-Addendum layout for one
-;; more save, never a broken file.
+;; The drawer write-exclusion for =:GPTEL_SYSTEM:=
+;; (=register/invariant/drawer-system-key-write-exclusion=, load-bearing)
+;; continues to hold and is documented at the call site of
+;; =gptel-chat--write-config-drawer=.
 
 
-;; [[file:menu.org::*System Prompt heading save][System Prompt heading save:1]]
-(declare-function jf/gptel--session-headings-block
-                  "gptel-session-commands" (system-prompt user-block))
-
-(defun gptel-chat--config-drawer-end ()
-  "Return the buffer position just after the config drawer's `:END:'.
-
-Assumes the file-level `:PROPERTIES:' drawer is at `point-min' (the
-canonical session layout — `gptel-chat--write-config-drawer' has
-already run by the time this is called on the save path).  Returns
-the position at the start of the line following `:END:', or nil when
-no drawer is found."
-  (save-excursion
-    (save-restriction
-      (widen)
-      (goto-char (point-min))
-      (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
-        (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
-          (forward-line 1)
-          (point))))))
-
-(defconst gptel-chat--turn-block-marker-re
-  "^#\\+begin_\\(user\\|assistant\\)"
-  "Regexp matching the start of a chat turn block.
-Used by `gptel-chat--write-system-prompt-heading' to bound the
-in-place body rewrite away from turn blocks when the `* Chat'
-heading is missing (defends the turn-blocks-under-`* Chat'
-invariant of `register/shape/session-document-layout').  Mirrors
-the marker the chat parser keys on (heading-indifferent parser,
-design.md §Decision 12).")
-
-(defun gptel-chat--write-system-prompt-heading ()
-  "Serialise `gptel--system-message' into the `* System Prompt' body.
-
-When the buffer already has a `* System Prompt' heading and a
-`* Chat' heading, replace the prompt body (between the heading's own
-`:PROPERTIES:' drawer and the next heading) with the current buffer-
-local `gptel--system-message'.  The body region is located via
-`gptel-chat--system-prompt-heading-body-region', the shared
-reader/writer scan helper — guarantees reader and writer agree on
-where \"body\" starts and ends (register/shape/session-document-
-layout).  The writer pads with the leading/trailing newlines the
-layout requires; the reader trims.
-
-When the buffer has a `* System Prompt' heading but no `* Chat'
-heading (off-nominal layout — user hand-deleted `* Chat', or a
-partially materialised document from an interrupted save), the
-helper's SUBTREE-END falls through to `point-max', so a naive in-
-place rewrite would delete every `#+begin_user' / `#+begin_assistant'
-turn block sitting in the orphaned subtree.  Instead, scan the body
-region for the first turn-block marker, bound the body rewrite there,
-re-emit the missing `* Chat' heading, and move the captured turn
-blocks under it (task `harden-system-prompt-save-against-missing-
-chat-heading', defending the singleton-`* Chat' and turn-blocks-
-under-`* Chat' invariants of register/shape/session-document-layout).
-When the body holds no turn blocks at all, `* Chat' is still appended
-so the document shape is restored to canonical.
-
-When the buffer has no `* System Prompt' heading — a pre-Addendum
-session — materialise the `* System Prompt' and `* Chat' headings
-after the config drawer using `jf/gptel--session-headings-block', the
-shared heading-shape helper (register/shape/session-document-layout).
-Existing turn blocks below the config drawer are moved under the new
-`* Chat' heading.
-
-Never writes a `:GPTEL_SYSTEM:' drawer line — composes with
-register/invariant/drawer-system-key-write-exclusion (that invariant
-governs the drawer; this writes the heading body).
-
-Caller supplies the `save-excursion' / `org-with-wide-buffer' framing
-and calls this only in chat-mode buffers."
-  (let ((system (and (bound-and-true-p gptel--system-message)
-                     (stringp gptel--system-message)
-                     gptel--system-message)))
-    (save-excursion
-      (save-restriction
-        (widen)
-        (if-let* ((region (gptel-chat--system-prompt-heading-body-region)))
-            ;; Heading present — replace the body in place.  The helper
-            ;; returns the post-drawer region verbatim; the writer pads
-            ;; with the leading/trailing newlines required by
-            ;; register/shape/session-document-layout.
-            (let* ((body-start (car region))
-                   (subtree-end (cdr region))
-                   (chat-heading-present
-                    (save-excursion
-                      (goto-char (point-min))
-                      (re-search-forward "^\\* Chat[ \t]*$" nil t)))
-                   ;; When `* Chat' is missing, the helper's subtree-end
-                   ;; is `point-max' and any turn blocks below the
-                   ;; orphaned heading would be swept away by a blind
-                   ;; delete-region.  Find the first turn-block marker
-                   ;; in (body-start, subtree-end) and bound the rewrite
-                   ;; there so the captured turn-block text survives.
-                   (orphan-turn-start
-                    (and (not chat-heading-present)
-                         (save-excursion
-                           (goto-char body-start)
-                           (and (re-search-forward
-                                 gptel-chat--turn-block-marker-re
-                                 subtree-end t)
-                                (line-beginning-position)))))
-                   (rewrite-end (or orphan-turn-start subtree-end))
-                   (captured-turns
-                    (and (not chat-heading-present)
-                         orphan-turn-start
-                         (buffer-substring-no-properties
-                          orphan-turn-start subtree-end))))
-              (delete-region body-start rewrite-end)
-              (goto-char body-start)
-              ;; A non-blank body is written verbatim followed by a
-              ;; blank line separating it from `* Chat'; a blank/nil
-              ;; system prompt leaves only the separating blank line.
-              (insert (if (and system (not (string-blank-p system)))
-                          (concat (string-trim-right system) "\n\n")
-                        "\n"))
-              ;; Off-nominal recovery: materialise the missing `* Chat'
-              ;; heading and re-attach the captured turn blocks under
-              ;; it.  `* Chat' carries no properties drawer (matches
-              ;; `jf/gptel--session-headings-block', the canonical
-              ;; producer of register/shape/session-document-layout).
-              (unless chat-heading-present
-                (insert "* Chat\n")
-                (when captured-turns
-                  (insert captured-turns))))
-          ;; Heading absent — materialise the canonical headings.
-          (when (require 'gptel-session-commands nil t)
-            (when-let* ((drawer-end (gptel-chat--config-drawer-end)))
-              (let ((user-block (buffer-substring-no-properties
-                                 drawer-end (point-max))))
-                (delete-region drawer-end (point-max))
-                (goto-char drawer-end)
-                ;; A blank line separates the config drawer from the
-                ;; `* System Prompt' heading.
-                (unless (eq drawer-end (point-min))
-                  (insert "\n"))
-                (insert (jf/gptel--session-headings-block
-                         system user-block))))))))))
-
+;; [[file:menu.org::*Save state hook entry][Save state hook entry:1]]
 (defun gptel-chat--save-state ()
   "Write the chat-mode configuration drawer before saving the buffer.
 
@@ -879,14 +700,17 @@ Does NOT write `GPTEL_BOUNDS'.  Chat-mode stores response text
 inside `#+begin_assistant' blocks rather than text-property-bounded
 spans, so bounds persistence is intentionally excluded.
 
-Does NOT write a `:GPTEL_SYSTEM:' drawer line.  Decision 2: long,
-multi-line system prompts are unwieldy as a single org property
-value; the writer never round-trips them as a drawer property.  The
-system prompt is instead serialised into the `* System Prompt'
-heading body by `gptel-chat--write-system-prompt-heading' (design.md
-§Addendum Decision B) — the drawer write-exclusion
-(register/invariant/drawer-system-key-write-exclusion) and the
-heading-body write compose without conflict.
+Does NOT write a `:GPTEL_SYSTEM:' drawer line.  Decision 2 of
+gptel-drawer-as-source-of-truth: long, multi-line system prompts are
+unwieldy as a single org property value; the writer never round-trips
+them as a drawer property (register/invariant/drawer-system-key-
+write-exclusion, load-bearing).
+
+Does NOT write the system prompt to disk at all.  The prompt lives
+in the sibling `system-prompt.<ext>' file written by
+`jf/gptel--write-system-prompt-sibling-file' at session creation and
+edited by the user thereafter (design.md §Decision 3 of
+replace-system-prompt-heading-with-sibling-file).
 
 Does NOT enable `gptel-mode'.  Chat-mode owns the major-mode role
 exclusively (design.md §Decision 16)."
@@ -907,13 +731,8 @@ exclusively (design.md §Decision 16)."
                   (not (string-empty-p jf/gptel--parent-session-id)))
          (org-entry-put (point-min)
                         "GPTEL_PARENT_SESSION_ID"
-                        jf/gptel--parent-session-id))
-       ;; Serialise the system prompt into the `* System Prompt'
-       ;; heading body — runs after the drawer write so it acts on the
-       ;; canonical layout (register/invariant/system-prompt-heading-
-       ;; authoritative).  Never emits a `:GPTEL_SYSTEM:' drawer line.
-       (gptel-chat--write-system-prompt-heading)))))
-;; System Prompt heading save:1 ends here
+                        jf/gptel--parent-session-id))))))
+;; Save state hook entry:1 ends here
 
 ;; Hook wiring
 
