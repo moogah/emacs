@@ -50,6 +50,13 @@
 (declare-function gptel-org-set-properties "gptel-org" (pt &optional msg))
 (declare-function org-entry-get "org" (pom property &optional inherit literal-nil))
 (declare-function org-entry-put "org" (pom property value))
+;; `jf/gptel--log' lives in `config/gptel/sessions/logging.el', which
+;; loads after `gptel/chat/chat' in `jf/enabled-modules' (so requiring
+;; the feature here would fail).  Declare it as a forward reference;
+;; the symbol resolves at runtime when the pre-send refresh advice
+;; fires (chat-mode buffers exist only after gptel.el has loaded
+;; sessions/logging.el).
+(declare-function jf/gptel--log "gptel-session-logging" (level fmt &rest args))
 (defvar gptel--preset)
 ;; Declared (not defined) here — session-local defined in
 ;; `config/gptel/sessions/constants.org'.  Declaring lets this module
@@ -333,6 +340,82 @@ entry > preset `:system')."
               ((not (string-blank-p body))))
     (set (make-local-variable 'gptel--system-message) body)))
 ;; System Prompt sibling file:1 ends here
+
+;; Pre-send refresh
+
+;; =gptel-chat--refresh-system-prompt-from-file= is the runtime
+;; counterpart of the activation-time installer above: every
+;; =gptel-request= dispatched from a chat-mode buffer re-reads the
+;; sibling file before the request body's keyword-argument defaulting
+;; picks up =gptel--system-message= (design.md §Decision 4).  A mid-
+;; session edit to =system-prompt.md= is therefore reflected on the
+;; next send without the user having to revert =session.org= or
+;; re-open the buffer.
+
+;; Wiring choice: an upstream =gptel-pre-send-hook= does not exist
+;; (only =gptel-post-request-hook=, =gptel-request.el:180=), so this
+;; module installs a global =:before= advice on =gptel-request= and
+;; filters with =(derived-mode-p 'gptel-chat-mode)= so non-chat-mode
+;; callers pay zero cost.  The advice install runs at module load and
+;; is idempotent under re-tangle / reload.
+
+;; The function mirrors the activation-time installer's defensive
+;; behaviour: nil property → no-op; unreadable file → log + leave
+;; cache; blank body → leave cache.  Only a readable, non-blank file
+;; updates the buffer-local cache.
+
+
+;; [[file:menu.org::*Pre-send refresh][Pre-send refresh:1]]
+(defun gptel-chat--refresh-system-prompt-from-file (&rest _)
+  "Re-read sibling `system-prompt.<ext>' into `gptel--system-message'.
+
+Called via `:before' advice on `gptel-request' (see the wiring
+below) so every chat request submitted from a `gptel-chat-mode'
+buffer picks up the current contents of the sibling file before
+dispatch.  Because `gptel-request' defaults its `:system' keyword
+argument to `gptel--system-message' at call time (cl-defun keyword
+defaulting), updating the buffer-local value in `:before' advice
+is sufficient — the request body picks up the refreshed value
+automatically.
+
+No-op when the current buffer is not a `gptel-chat-mode' buffer
+(non-chat-mode `gptel-request' callers see zero cost) or when the
+drawer carries no `:GPTEL_SYSTEM_PROMPT_FILE:' property.
+
+When the property is set but the file is unreadable, logs a
+'warn-level message via `jf/gptel--log' and leaves the previously
+installed buffer-local value in place — mirrors
+`gptel-chat--apply-system-prompt-file's defensive behaviour and
+ensures a transient filesystem hiccup does not silently drop the
+system prompt.
+
+A blank file body also leaves the cache in place (consistent with
+the activation-time installer's `string-blank-p' check).
+
+The `&rest _' parameter swallows whatever args advice forwards
+from `gptel-request' — the advice does not need to inspect them;
+the function operates on the buffer-local context."
+  (when (derived-mode-p 'gptel-chat-mode)
+    (when-let* ((path (gptel-chat--system-prompt-file-path)))
+      (if (file-readable-p path)
+          (let ((body (with-temp-buffer
+                        (insert-file-contents path)
+                        (buffer-string))))
+            (unless (string-blank-p body)
+              (set (make-local-variable 'gptel--system-message) body)))
+        (jf/gptel--log 'warn
+                       "system-prompt sibling file unreadable: %s"
+                       path)))))
+
+;; Install the :before advice at module load.  `advice-add' is
+;; idempotent for the same (function, where, advice) triple, so
+;; re-tangle / reload does not stack the advice.  The advice is
+;; global but the function's `derived-mode-p' guard scopes the work
+;; to chat-mode buffers — non-chat-mode `gptel-request' callers pay
+;; only the predicate check.
+(advice-add 'gptel-request :before
+            #'gptel-chat--refresh-system-prompt-from-file)
+;; Pre-send refresh:1 ends here
 
 ;; Preset application hook
 
