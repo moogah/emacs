@@ -618,7 +618,77 @@ keys, isolating the snapshot key set for cross-producer comparison."
         (gptel-chat--save-state)
         (let ((after-materialise (buffer-string)))
           (gptel-chat--save-state)
-          (expect (buffer-string) :to-equal after-materialise)))))
+          (expect (buffer-string) :to-equal after-materialise))))
+
+    ;; ---------------------------------------------------------------------
+    ;; Structural spec for `gptel-chat--system-prompt-heading-body-region',
+    ;; the shared reader/writer scan helper introduced by task
+    ;; `extract-system-prompt-heading-region-helper'.  The helper returns
+    ;; the post-drawer body region (BODY-START . SUBTREE-END) verbatim;
+    ;; the reader trims the substring, the writer pads with the layout's
+    ;; required newlines.  Pinning the contract here prevents silent
+    ;; reader/writer divergence on what "body" means (the shape-
+    ;; corruption class register/shape/session-document-layout guards).
+    (describe "gptel-chat--system-prompt-heading-body-region (helper)"
+      (it "returns the post-drawer region that backs both reader and writer"
+        (with-temp-buffer
+          (gptel-chat-mode)
+          (insert gptel-chat-save-test--with-headings)
+          (let* ((region (gptel-chat--system-prompt-heading-body-region))
+                 (body-start (car region))
+                 (subtree-end (cdr region))
+                 (verbatim (buffer-substring-no-properties
+                            body-start subtree-end)))
+            ;; A region is returned (heading is present).
+            (expect region :not :to-be nil)
+            (expect body-start :to-be-truthy)
+            (expect subtree-end :to-be-truthy)
+            (expect body-start :to-be-less-than subtree-end)
+            ;; The reader's result is the trimmed verbatim region.
+            (expect (gptel-chat--system-prompt-heading-body)
+                    :to-equal (string-trim-right verbatim))
+            ;; SUBTREE-END is the start of the next `* ' heading.
+            (save-excursion
+              (goto-char subtree-end)
+              (expect (looking-at-p "^\\* ") :to-be-truthy))
+            ;; BODY-START is positioned past the heading's `:PROPERTIES:'
+            ;; drawer — `:END:' lies before BODY-START, and no drawer line
+            ;; appears in the returned region.
+            (expect (string-match-p ":PROPERTIES:" verbatim) :to-be nil)
+            (expect (string-match-p ":END:" verbatim) :to-be nil))))
+
+      (it "returns nil when the `* System Prompt' heading is absent"
+        (with-temp-buffer
+          (gptel-chat-mode)
+          (insert ":PROPERTIES:\n:GPTEL_PRESET: foo\n:END:\n"
+                  "\n#+begin_user\nHello.\n#+end_user\n")
+          (expect (gptel-chat--system-prompt-heading-body-region)
+                  :to-be nil)))
+
+      (it "delimits the region the writer's delete-region acts on"
+        ;; A round-trip that replaces the body verifies that the writer
+        ;; operates on exactly the bounds the helper returned: every
+        ;; character between BODY-START and SUBTREE-END is replaced, and
+        ;; nothing outside it is touched (the heading line and its
+        ;; `:PROPERTIES:' drawer survive, and the next `* Chat' heading
+        ;; survives intact).
+        (with-temp-buffer
+          (gptel-chat-mode)
+          (insert gptel-chat-save-test--with-headings)
+          (setq-local gptel--system-message "Replacement.")
+          (gptel-chat--write-system-prompt-heading)
+          ;; Heading line preserved exactly once.
+          (goto-char (point-min))
+          (expect (how-many "^\\* System Prompt[ \t]*$") :to-equal 1)
+          ;; Heading's own `:VISIBILITY: folded' drawer survives.
+          (expect (gptel-chat-save-test--has-line ":VISIBILITY: folded")
+                  :to-be-truthy)
+          ;; `* Chat' heading survives intact past SUBTREE-END.
+          (goto-char (point-min))
+          (expect (how-many "^\\* Chat[ \t]*$") :to-equal 1)
+          ;; Reader sees the replacement (round-trip stable).
+          (expect (gptel-chat--system-prompt-heading-body)
+                  :to-equal "Replacement.")))))
 
   )
 
