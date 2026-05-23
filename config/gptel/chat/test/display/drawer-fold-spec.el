@@ -58,10 +58,14 @@
           "#+begin_user\n"
           "Hello there.\n"
           "#+end_user\n")
-  "Persisted-session content: the canonical post-cycle-7 session.org layout —
-file-level config drawer at point-min, then `* System Prompt' with its own
-`:PROPERTIES:/:VISIBILITY: folded/:END:' drawer, then `* Chat' with a turn
-block (mirrors register/shape/session-document-layout).")
+  "Persisted-session content used by the surviving file-level drawer-fold
+specs.  Contains a file-level `:PROPERTIES:' drawer at point-min plus
+incidental `* System Prompt' / `* Chat' heading content carried over
+from the pre-`replace-system-prompt-heading-with-sibling-file' layout.
+The new canonical layout has no heading subtrees
+\(register/shape/session-sibling-system-prompt-file), but this fixture
+remains useful as a real-world test of the drawer-fold path against a
+session that still carries legacy headings on disk.")
 
 (defconst gptel-chat-drawer-fold-test--drawerless
   (concat "#+begin_user\n"
@@ -137,51 +141,17 @@ block (mirrors register/shape/session-document-layout).")
                   (set-buffer-modified-p nil)
                   (kill-buffer))))
           (when (file-exists-p file)
-            (delete-file file))))))
+            (delete-file file)))))))
 
-  (describe "override C extension — `:VISIBILITY: folded' on `* System Prompt' honored"
-
-    (it "folds the `* System Prompt' heading body on gptel-chat-mode activation"
-      ;; Regression for user-testing finding 2026-05-23: `:VISIBILITY: folded'
-      ;; on the canonical layout's `* System Prompt' heading was not being
-      ;; processed by `gptel-chat-mode' because org-mode only auto-processes
-      ;; the property when `org-startup-folded' is non-default.
-      ;; `gptel-chat--apply-startup-visibility' now calls
-      ;; `org-cycle-set-visibility-according-to-property' explicitly.
-      (let ((org-startup-folded 'showall))   ; force the failure mode
-        (with-temp-buffer
-          (insert gptel-chat-drawer-fold-test--session)
-          (gptel-chat-mode)
-          (goto-char (point-min))
-          ;; The prompt body ("You are a helpful assistant.") sits inside
-          ;; the `* System Prompt' subtree; with `:VISIBILITY: folded'
-          ;; honored, that text should be invisible after activation.
-          (expect (search-forward "You are a helpful assistant." nil t)
-                  :to-be-truthy)
-          (expect (invisible-p (match-beginning 0)) :to-be-truthy))))
-
-    (it "leaves the `* Chat' subtree visible — :VISIBILITY: folded is heading-scoped"
-      (let ((org-startup-folded 'showall))
-        (with-temp-buffer
-          (insert gptel-chat-drawer-fold-test--session)
-          (gptel-chat-mode)
-          (goto-char (point-min))
-          ;; Turn-block content under `* Chat' has no `:VISIBILITY:'
-          ;; property and must remain visible.
-          (expect (search-forward "Hello there." nil t) :to-be-truthy)
-          (expect (invisible-p (match-beginning 0)) :not :to-be-truthy))))
-
-    (it "is a no-op for a scratch buffer with no `:VISIBILITY:' properties"
-      (let ((org-startup-folded 'showall))
-        (expect
-         (with-temp-buffer
-           (insert gptel-chat-drawer-fold-test--drawerless)
-           (gptel-chat-mode)
-           ;; No headings, no :VISIBILITY: — activation completes without
-           ;; folding anything.
-           (goto-char (point-min))
-           (search-forward "#+begin_user" nil t)
-           (invisible-p (match-beginning 0)))
-         :not :to-be-truthy)))))
+;; The override C extension specs ("`:VISIBILITY: folded' on `* System
+;; Prompt' honored") were removed by
+;; `replace-system-prompt-heading-with-sibling-file' / cycle-3 T4: the
+;; canonical session layout no longer carries a `* System Prompt'
+;; heading (the system prompt now lives in a sibling file referenced
+;; from the configuration drawer via `:GPTEL_SYSTEM_PROMPT_FILE:').
+;; `gptel-chat--apply-startup-visibility' no longer honors heading-
+;; level `:VISIBILITY:' properties, so there is no behavior left to
+;; assert.  Coverage for the file-level drawer fold above is
+;; unchanged and remains the surviving Decision C contract.
 
 ;;; drawer-fold-spec.el ends here
