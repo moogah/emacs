@@ -289,6 +289,73 @@ critical."
           (message "Session initialized: %s (branch: %s)"
                    session-id branch-name))))))
 
+(defun jf/gptel--preset-source-file-extension (preset-name)
+  "Return the file extension (\"md\" or \"org\") of preset PRESET-NAME.
+
+PRESET-NAME may be a symbol or a string identifying a registered
+preset.  Looks for a file named \"<preset-name>.<ext>\" under
+`jf/gptel-presets-directory' and returns its extension via
+`file-name-extension'.  Returns \"md\" as the defensive default
+when the lookup fails (preset registered but file absent, or
+preset name unknown), logging a warning via `jf/gptel--log'.
+
+This is the single point that needs widening to support new
+preset source formats; the sibling-file writer
+\(`jf/gptel--write-system-prompt-sibling-file') is
+extension-agnostic and threads the result of this lookup into the
+on-disk filename."
+  (let* ((name (cond ((symbolp preset-name) (symbol-name preset-name))
+                     ((stringp preset-name) preset-name)
+                     (t nil))))
+    (or (and name
+             (file-directory-p jf/gptel-presets-directory)
+             (let* ((pattern (concat "\\`"
+                                     (regexp-quote name)
+                                     "\\.\\(md\\|org\\)\\'"))
+                    (matches (directory-files
+                              jf/gptel-presets-directory
+                              nil pattern t)))
+               (and matches
+                    (file-name-extension (car matches)))))
+        (progn
+          (jf/gptel--log 'warn
+                         "Preset source file not found for %s in %s; defaulting extension to \"md\""
+                         preset-name jf/gptel-presets-directory)
+          "md"))))
+
+(defun jf/gptel--write-system-prompt-sibling-file (session-dir preset-name preset-spec)
+  "Write =system-prompt.<ext>= into SESSION-DIR from PRESET-SPEC.
+
+SESSION-DIR is the absolute path of the branch directory that
+contains (or will contain) =session.org=.  PRESET-NAME is the
+preset's registered symbol (or string), used to resolve the
+sibling file's extension via
+`jf/gptel--preset-source-file-extension'.  PRESET-SPEC is the
+resolved preset plist returned by `gptel-get-preset' — the same
+shape `gptel--apply-preset' consumes.
+
+Writes the preset's `:system' body verbatim — no trimming, no
+transformation, no escaping — when that body is a non-empty,
+non-whitespace-only string.  Returns the basename
+\(=system-prompt.<ext>=) on a successful write so the caller can
+thread it into the `:GPTEL_SYSTEM_PROMPT_FILE:' drawer key.
+Returns nil and writes nothing when `:system' is nil, missing,
+empty, or whitespace-only.
+
+The on-disk file is byte-identical to `(plist-get preset-spec
+:system)'; the preset registrar already trims the body when
+extracting it from the source file, so this writer does not
+re-trim.  Uses `write-region' to avoid mutating buffer-local
+state (design.md §Decision 3)."
+  (let ((body (plist-get preset-spec :system)))
+    (when (and (stringp body)
+               (not (string-blank-p body)))
+      (let* ((ext (jf/gptel--preset-source-file-extension preset-name))
+             (basename (concat "system-prompt." ext))
+             (path (expand-file-name basename session-dir)))
+        (write-region body nil path nil 'silent)
+        basename))))
+
 (defun jf/gptel--session-headings-block (system-prompt user-block)
   "Return the heading portion of a `session.org' as a string.
 

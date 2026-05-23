@@ -2,7 +2,7 @@
 name: add-sibling-file-writer-helper
 description: Add `jf/gptel--preset-source-file-extension` and `jf/gptel--write-system-prompt-sibling-file` in `config/gptel/sessions/commands.org` — the standalone helpers that derive a preset's source file extension and write `system-prompt.<ext>` with the preset's `:system` body verbatim. Pure helpers, unit-tested in isolation. Wiring into the session-creation path is the next task.
 change: replace-system-prompt-heading-with-sibling-file
-status: ready
+status: needs-review
 relations: []
 ---
 
@@ -62,3 +62,30 @@ architecture.md §Interfaces (new internal symbols, `sessions/commands.org`) —
 design.md §Decision 2 — extension lookup defaults defensively to `"md"`; rationale recorded there.
 
 The `preset-spec` plist's `:system` is the body string with frontmatter already stripped, per `jf/gptel-preset--parse-file` at `config/gptel/preset-registration.el:60-61`.
+
+## Observations
+
+- Task body left the third argument optional ("if the resolved spec doesn't carry the name, pass it in as a third argument"). `gptel-make-preset` stores the name as the registry key, not on the plist, so `gptel-get-preset` returns a plist with no `:name`. I made `preset-name` a required positional argument rather than optional — the writer cannot derive the extension without it, and the wiring task already has `preset-name` in scope at the call site. If we ever want an arity that elides `preset-name`, we'd need to plumb it in some other way; for now, requiring it is the honest contract.
+- New helpers live under a new top-level section `* Sibling System Prompt File` before `* Core Session Creation`, so they're upstream of the consumer (load order) and survive the deletion of the `* Session Headings Block Helper` subsection in the sibling revert task.
+- The buttercup spec `does not mutate buffer-local state of the current buffer` is light defensive coverage for the Decision 3 rationale (`write-region` over `write-file`). It would fail if a future maintainer reverted to `with-temp-file`+`write-file` since the latter changes the current buffer's filename.
+
+## Discoveries
+
+- discovery_id: disc-add-sibling-file-writer-helper-1
+  class: vocabulary-mismatch
+  description: |
+    The brief described the signature as `(session-dir preset-spec)`
+    with the preset name optionally threaded as a third argument.
+    In practice the helper cannot resolve the source-file extension
+    without the preset name (it's the registry key, not a plist
+    value), so the signature is `(session-dir preset-name preset-spec)`
+    with all three required. This is a vocabulary divergence between
+    the brief and the implementable contract.
+  affected_register_entry: register/shape/session-document-layout
+  recommendation: |
+    When `register/shape/session-document-layout` is updated to
+    enumerate the new `:GPTEL_SYSTEM_PROMPT_FILE:` drawer key and the
+    sibling file, note the (session-dir, preset-name, preset-spec)
+    triple as the canonical writer signature so downstream consumers
+    (agent-creation path, future "reset to preset" affordance) pass
+    them consistently.
