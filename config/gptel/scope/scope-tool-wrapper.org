@@ -36,6 +36,79 @@
 (require 'jf-gptel-scope-validation)
 #+end_src
 
+* JSON-Serialization Sanitizer
+
+=json-serialize= signals =wrong-type-argument json-value-p= when a
+string leaf contains raw bytes that are not valid UTF-8 — e.g.,
+subprocess output captured by =run_bash_command= when the underlying
+command emits non-UTF-8 bytes (binary file content, broken locale,
+encoding mismatch).  Without intervention the wrapper's outer
+=condition-case= would catch that error and return a
+=tool_exception= payload to the model, killing the assistant turn
+with an opaque diagnostic.
+
+Sanitization decodes any offending bytes as Latin-1 — a coding system
+that maps every byte 0..255 to a valid Unicode code point, so the
+re-encoded result is always JSON-serializable.  Multibyte UTF-8
+content is preserved (the sanitizer only descends into a string when
+=json-serialize= rejected it).
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope--sanitize-for-json (value)
+  "Return VALUE with embedded strings made safe for `json-serialize'.
+Recursively descends into plists, lists, and vectors.  String leaves
+that `json-serialize' rejects (typically because they contain raw
+bytes that are not valid UTF-8) are decoded as Latin-1 so every byte
+maps to a valid Unicode code point.  Other leaves pass through."
+  (cond
+   ((stringp value)
+    (condition-case nil
+        (progn (json-serialize value) value)
+      (wrong-type-argument
+       (decode-coding-string
+        (if (multibyte-string-p value)
+            (encode-coding-string value 'utf-8 t)
+          value)
+        'latin-1))))
+   ((vectorp value)
+    (vconcat (mapcar #'jf/gptel-scope--sanitize-for-json
+                     (append value nil))))
+   ((and (consp value) (keywordp (car value)))
+    ;; plist — walk key/value pairs, preserve keys verbatim
+    (cl-loop for (k v) on value by #'cddr
+             append (list k (jf/gptel-scope--sanitize-for-json v))))
+   ((consp value)
+    (mapcar #'jf/gptel-scope--sanitize-for-json value))
+   (t value)))
+
+(defun jf/gptel-scope--serialize-tool-result (result)
+  "Serialize RESULT for the model, returning a multibyte JSON string.
+Calls `json-serialize'; on `wrong-type-argument' (typically a string
+leaf with raw bytes) sanitizes RESULT via
+`jf/gptel-scope--sanitize-for-json' and retries.
+
+Critically, the value `json-serialize' returns is a UNIBYTE string
+of UTF-8 bytes — and Emacs's `json-serialize' REJECTS unibyte
+strings whose bytes are >= #x80 when they appear as values in a
+later serialization pass.  Upstream gptel feeds our tool result
+back through `json-serialize' as the `:content' of an Anthropic
+`tool_result' message on the next request round; if we hand back
+the raw unibyte output, that re-encoding fails with
+`wrong-type-argument json-value-p \"<the JSON we returned>\"' and
+the conversation halts.  Decoding back to a multibyte string with
+proper Unicode codepoints sidesteps that check."
+  (let ((unibyte
+         (condition-case _err
+             (json-serialize result)
+           (wrong-type-argument
+            (json-serialize
+             (jf/gptel-scope--sanitize-for-json result))))))
+    ;; Convert the unibyte UTF-8 bytes back to a multibyte string so
+    ;; the next `json-serialize' pass (upstream's request builder)
+    ;; doesn't reject the value via the unibyte-with-high-bytes check.
+    (decode-coding-string unibyte 'utf-8)))
+#+end_src
+
 * Scoped Tool Macro
 
 The single keyword option =:operation SYM= declares the filesystem
@@ -85,15 +158,19 @@ later turn."
               (jf/gptel-scope-authorize-tool-call
                ,name ',operation (list ,@arg-names)
                (lambda ()
-                 (funcall callback (json-serialize (progn ,@body))))
+                 (funcall callback
+                          (jf/gptel-scope--serialize-tool-result
+                           (progn ,@body))))
                (lambda (deny-response)
-                 (funcall callback (json-serialize deny-response))))
+                 (funcall callback
+                          (jf/gptel-scope--serialize-tool-result deny-response))))
             (error
              (funcall callback
-                      (json-serialize
+                      (jf/gptel-scope--serialize-tool-result
                        (list :success nil
                              :error "tool_exception"
-                             :message (format "Tool error: %s" (error-message-string err))))))))))))
+                             :message (format "Tool error: %s"
+                                              (error-message-string err))))))))))))
 #+end_src
 
 * Provide Feature

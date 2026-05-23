@@ -53,11 +53,76 @@ Returns warning string if found, nil otherwise."
     "Warning: Command contains absolute path arguments. Directory scope may not protect these paths."))
 #+end_src
 
+* Output Sanitization
+
+Subprocess output reaches us as bytes.  Depending on the buffer's
+coding system and the locale, those bytes can land in the buffer as
+either proper Unicode characters (when decoded as UTF-8) or as raw
+byte chars in Emacs's internal #x3FFF80..#x3FFFFF range (when the
+decoder gives up on an invalid UTF-8 sequence or when a no-conversion
+read is in effect).
+
+Raw byte chars are NOT valid JSON values: =json-serialize= rejects
+them with =wrong-type-argument json-value-p=.  We can't always
+prevent them at capture time (the locale may say something we don't
+expect, or the subprocess may emit genuinely invalid UTF-8), so this
+helper post-processes captured output to guarantee a JSON-serializable
+string regardless of what the subprocess emitted.
+
+The coercion is lossless byte-wise: any raw byte char is re-emitted
+as its Latin-1 codepoint (every byte 0..255 maps to a valid Unicode
+code point in Latin-1, so the round-trip cannot fail).  Proper UTF-8
+characters pass through unchanged.
+
+#+begin_src elisp
+(defun jf/gptel-bash--coerce-to-json-safe (str)
+  "Return STR as a JSON-serializable multibyte string.
+`json-serialize' rejects two shapes of string with
+`wrong-type-argument json-value-p':
+
+- Multibyte strings containing chars in the raw-byte range
+  #x3FFF80..#x3FFFFF (bytes that failed UTF-8 decoding).
+- Unibyte strings containing any byte >= #x80.
+
+Both cases are coerced to a valid multibyte string by re-emitting
+each problem byte as its Latin-1 codepoint (every byte 0..255 maps
+to a valid Unicode code point in U+0000..U+00FF, so the round-trip
+cannot fail).  ASCII-only strings and clean multibyte UTF-8 pass
+through unchanged with no copy."
+  (cond
+   ((not (stringp str)) str)
+   ;; Unibyte string with any high byte: decode as Latin-1 so every
+   ;; byte becomes a valid Unicode code point.  ASCII-only unibyte
+   ;; passes through unchanged (json-serialize accepts pure ASCII
+   ;; unibyte strings).
+   ((not (multibyte-string-p str))
+    (if (cl-loop for c across str thereis (>= c #x80))
+        (decode-coding-string str 'latin-1)
+      str))
+   ;; Multibyte string with raw-byte chars: encode back to bytes (raw
+   ;; byte chars produce their own byte values), then decode as
+   ;; Latin-1.  Proper multibyte UTF-8 chars pass through unchanged.
+   ((cl-loop for c across str thereis (>= c #x3FFF80))
+    (decode-coding-string
+     (encode-coding-string str 'utf-8 t)
+     'latin-1))
+   (t str)))
+#+end_src
+
 * Execute Command
 
 #+begin_src elisp
 (defun jf/gptel-bash--execute-command (command directory)
-  "Execute COMMAND in DIRECTORY with timeout and output truncation."
+  "Execute COMMAND in DIRECTORY with timeout and output truncation.
+
+Captured subprocess output is forced through `utf-8-unix' decoding
+to keep behaviour stable regardless of the user's locale, and then
+run through `jf/gptel-bash--coerce-to-json-safe' so any remaining
+raw byte chars (from a subprocess that emits genuinely invalid
+UTF-8, e.g. =cat= on a binary fragment) become Latin-1 code points
+that `json-serialize' accepts.  Without this, downstream JSON
+serialization would fail with =wrong-type-argument json-value-p=
+and the wrapper would surface a `tool_exception' to the model."
   (cl-block jf/gptel-bash--execute-command
     (let* ((default-directory (file-truename (expand-file-name directory)))
            (output nil)
@@ -77,10 +142,12 @@ Returns warning string if found, nil otherwise."
                            (setq warnings (list "Command timed out"))))
             (setq output
                   (with-temp-buffer
-                    (setq exit-code
-                          (call-process shell-file-name nil t nil
-                                        shell-command-switch command))
-                    (buffer-string))))
+                    (let ((coding-system-for-read 'utf-8-unix))
+                      (setq exit-code
+                            (call-process shell-file-name nil t nil
+                                          shell-command-switch command)))
+                    (jf/gptel-bash--coerce-to-json-safe
+                     (buffer-string)))))
         (error
          (cl-return-from jf/gptel-bash--execute-command
            (list :output (format "Command execution failed: %s" (error-message-string err))

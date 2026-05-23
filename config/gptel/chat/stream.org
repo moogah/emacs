@@ -562,13 +562,23 @@ already in place.
 Marker construction is ordered so the result-marker is not
 co-located with INSERTION-MARKER at any moment when a shared-position
 insert happens — see the §\"Helper: open a tool block\" discussion
-above."
+above.
+
+When INSERTION-MARKER is mid-line — which happens on a multi-round
+tool-use turn because the round-1 `t' event flushes the streaming
+holdback at INSERTION-MARKER without a trailing newline (the
+close-assistant path normally appends one, but we don't close
+between rounds) — the header would otherwise land glued onto the
+end of the assistant text, breaking org's column-0-anchored
+parsing of the block.  The opener prepends a `\\n' in that case so
+the header always starts at column 0 of a fresh line."
   (let* ((name (or (and tool-spec (gptel-tool-name tool-spec)) ""))
          (header (gptel-chat--stream-format-tool-header name args))
          (buf (marker-buffer insertion-marker)))
     (with-current-buffer buf
       (save-excursion
         (goto-char insertion-marker)
+        (unless (bolp) (insert "\n"))
         (insert header "\n")
         ;; Record the integer position of the result-body line,
         ;; then insert the closer.  Because `body-pos' is a plain

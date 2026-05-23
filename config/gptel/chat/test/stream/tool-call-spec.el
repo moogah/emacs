@@ -473,7 +473,157 @@ ignorable function works here."
                       "  line1\n"
                       "  #+end_tool\n"
                       "  line3\n"
-                      "#+end_tool\n")))))
+                      "#+end_tool\n")))
+
+
+    (describe "text without trailing newline followed by tool events"
+      ;; Real-world regression (captured from a live session): Anthropic
+      ;; streams the text portion of a tool-use response as one or more
+      ;; `text_delta' chunks with NO trailing newline before the
+      ;; `tool_use' blocks begin.  Upstream fires the callback sequence:
+      ;;
+      ;;   1. (callback TEXT-CHUNK info)         ; no trailing newline
+      ;;   2. (callback t info-with-:tool-use)   ; HTTP round-trip done
+      ;;   3. (callback (tool-result . [...]) info)  ; auto-approved tools
+      ;;   4. (callback t info-without-:tool-use)    ; final
+      ;;
+      ;; At step 2, the stream-handle flushes its line holdback WITHOUT a
+      ;; trailing newline (by design — the close-assistant path inserts
+      ;; one).  But on a :tool-use round we DON'T close, so the next
+      ;; tool-block insert at step 3 lands at `insertion-marker' which is
+      ;; now mid-line, immediately after the flushed text.  The result is
+      ;; a `#+begin_tool' header glued onto the end of the assistant text
+      ;; with no separating newline — and the org parser then fails to
+      ;; recognize the block at all.
+
+      (it "puts a newline between assistant text and the first tool block header"
+        ;; Single auto-approved tool, mirroring the simplest case: the
+        ;; `#+begin_tool' header MUST start at column 0 of a new line,
+        ;; not on the same line as the assistant text.
+        (let* ((cb (gptel-chat-stream-callback
+                    gptel-chat-tool-call-test--marker))
+               (tool (gptel-chat-tool-call-test--tool "run_bash_command"))
+               (args '(:command "ls")))
+          ;; Step 1: text chunk WITHOUT trailing newline (the bug shape)
+          (funcall cb "Let me check." nil)
+          ;; Step 2: HTTP round-trip 1 completes, :tool-use still set
+          (funcall cb t '(:tool-use t))
+          ;; Step 3: auto-approved tool runs, results batched
+          (funcall cb `(tool-result . ((,tool ,args "file1\n"))) nil)
+          ;; Step 4: HTTP round-trip 2 completes, no more tool-use
+          (funcall cb t nil))
+        (expect (gptel-chat-tool-call-test--buffer-string)
+                :to-equal
+                (concat "#+begin_user\nhello\n#+end_user\n"
+                        "#+begin_assistant\n"
+                        "  Let me check.\n"
+                        "#+begin_tool (run_bash_command :command \"ls\")\n"
+                        "  file1\n"
+                        "#+end_tool\n"
+                        "#+end_assistant\n"
+                        "\n#+begin_user\n"
+                        (gptel-chat-tool-call-test--body-pad)
+                        "\n#+end_user\n")))
+
+      (it "puts a newline between assistant text and a tool-call event opening"
+        ;; Same scenario but via the confirmation path (`tool-call'
+        ;; event before `tool-result').  The first `#+begin_tool' header
+        ;; still must land at column 0 of a fresh line, not glued onto
+        ;; the assistant text.
+        (let* ((cb (gptel-chat-stream-callback
+                    gptel-chat-tool-call-test--marker))
+               (tool (gptel-chat-tool-call-test--tool "read_file"))
+               (args '(:path "/a")))
+          (funcall cb "Let me check." nil)
+          (funcall cb t '(:tool-use t))
+          (funcall cb `(tool-call . ((,tool ,args
+                                            ,#'gptel-chat-tool-call-test--ignore-cb)))
+                   nil)
+          (funcall cb `(tool-result . ((,tool ,args "ok"))) nil)
+          (funcall cb t nil))
+        (expect (gptel-chat-tool-call-test--buffer-string)
+                :to-equal
+                (concat "#+begin_user\nhello\n#+end_user\n"
+                        "#+begin_assistant\n"
+                        "  Let me check.\n"
+                        "#+begin_tool (read_file :path \"/a\")\n"
+                        "  ok\n"
+                        "#+end_tool\n"
+                        "#+end_assistant\n"
+                        "\n#+begin_user\n"
+                        (gptel-chat-tool-call-test--body-pad)
+                        "\n#+end_user\n")))
+
+      (it "puts a newline before each of three sibling tool blocks after holdback flush"
+        ;; The captured real-world case: text streams with no trailing
+        ;; newline, then three sibling tool results are emitted in one
+        ;; batched event.  ALL three `#+begin_tool' headers must sit on
+        ;; their own lines — the bug at the time only corrupted the
+        ;; first header (blocks 2 and 3 land on fresh lines because
+        ;; block 1's closer terminates the line).
+        (let* ((cb (gptel-chat-stream-callback
+                    gptel-chat-tool-call-test--marker))
+               (t1 (gptel-chat-tool-call-test--tool "run_bash_command"))
+               (t2 (gptel-chat-tool-call-test--tool "run_bash_command"))
+               (t3 (gptel-chat-tool-call-test--tool "run_bash_command"))
+               (a1 '(:command "cat x"))
+               (a2 '(:command "file x"))
+               (a3 '(:command "xxd x")))
+          (funcall cb "Let me examine that file." nil)
+          (funcall cb t '(:tool-use t))
+          (funcall cb `(tool-result . ((,t1 ,a1 "r1\n")
+                                       (,t2 ,a2 "r2\n")
+                                       (,t3 ,a3 "r3\n")))
+                   nil)
+          (funcall cb t nil))
+        (let ((buf (gptel-chat-tool-call-test--buffer-string)))
+          ;; The structural assertion that the bug violates: the first
+          ;; `#+begin_tool' must be preceded by a newline (i.e., must
+          ;; appear at the start of a line, not glued onto the
+          ;; assistant text).  Using a substring assertion rather than
+          ;; full-buffer equality so the failure message points clearly
+          ;; at the mis-formed boundary.
+          (expect (string-match-p
+                   (regexp-quote
+                    (concat "  Let me examine that file.\n"
+                            "#+begin_tool (run_bash_command "))
+                   buf)
+                  :to-be-truthy)
+          ;; And the full layout for completeness.
+          (expect buf :to-equal
+                  (concat "#+begin_user\nhello\n#+end_user\n"
+                          "#+begin_assistant\n"
+                          "  Let me examine that file.\n"
+                          "#+begin_tool (run_bash_command :command \"cat x\")\n"
+                          "  r1\n"
+                          "#+end_tool\n"
+                          "#+begin_tool (run_bash_command :command \"file x\")\n"
+                          "  r2\n"
+                          "#+end_tool\n"
+                          "#+begin_tool (run_bash_command :command \"xxd x\")\n"
+                          "  r3\n"
+                          "#+end_tool\n"
+                          "#+end_assistant\n"
+                          "\n#+begin_user\n"
+                          (gptel-chat-tool-call-test--body-pad)
+                          "\n#+end_user\n"))))
+
+      (it "still closes the assistant block on final t after a tool-use round"
+        ;; The completion path (final `t' without :tool-use) must still
+        ;; emit `#+end_assistant' on its own line even when the prior
+        ;; holdback flush left point mid-line.  Today the close path
+        ;; defends with `(unless (bolp) (insert "\n"))', but pin it as
+        ;; an explicit guarantee so future refactors don't regress it.
+        (let* ((cb (gptel-chat-stream-callback
+                    gptel-chat-tool-call-test--marker))
+               (tool (gptel-chat-tool-call-test--tool "noop")))
+          (funcall cb "trailing text no newline" nil)
+          (funcall cb t '(:tool-use t))
+          (funcall cb `(tool-result . ((,tool nil "x"))) nil)
+          (funcall cb t nil))
+        (expect (gptel-chat-tool-call-test--buffer-string)
+                :to-match
+                "\n#\\+end_assistant\n")))))
 
 
 (provide 'tool-call-spec)
