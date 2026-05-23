@@ -2,7 +2,7 @@
 name: revert-initial-session-body-and-delete-headings-block
 description: Delete `jf/gptel--session-headings-block` and revert `jf/gptel--initial-session-body` to its pre-Addendum signature (no `system-prompt` parameter). Strip the heading composition from `jf/gptel--create-session-core` so a freshly created `session.org` is the file-level config drawer followed by a bare `#+begin_user` block — no `* System Prompt` heading, no `* Chat` heading. Update `jf/gptel-persistent-agent--initial-body` to stop delegating to the deleted helper.
 change: replace-system-prompt-heading-with-sibling-file
-status: ready
+status: needs-review
 relations: []
 ---
 
@@ -57,3 +57,51 @@ architecture.md §Components — `sessions/commands.org` and `tools/persistent-a
 design.md §Decision 7 — wholesale deletion of the heading shape, no intermediate state.
 
 The pre-Addendum signature of `jf/gptel--initial-session-body` was a zero-argument function returning the bare user-block string. The git history before the prior change's `emit-system-prompt-and-chat-headings-at-creation` task is the reference for the simplest restored shape.
+
+## Observations
+
+- The task brief named two test files (`session-org-creation-spec.el`, `preset-application-spec.el`, `activity-session-chat-spec.el`). Implementation surfaced a fourth: `config/gptel/tools/test/persistent-agent/creation-spec.el` had four heading-shape `it` blocks under `describe "PersistentAgent session.org matches the canonical document layout"`. Updated that file too — collapsed the four heading-shape scenarios down to two no-heading scenarios (config drawer + populated user block; drawer-first ordering with exactly one user turn). Drift surfaced because the persistent-agent path produces session.org files that were validated against `register/shape/session-document-layout`.
+- The agent path no longer threads `system-prompt` through `jf/gptel-persistent-agent--initial-body` at all (signature `(prompt)` instead of `(system-prompt prompt)`). The system-prompt body will be picked up by the sibling-file writer call wired in by `wire-sibling-file-emission-into-session-creation`. Until that task lands, fresh agent sessions have no system prompt in either the document or the sibling file — graceful-degrade to preset-only is the documented behavior.
+- The drawer + body concatenation is verbatim (no `"\n"` separator between drawer-text and the body string). Tests asserting a blank line between `:END:` and `#+begin_user` were wrong — the original behavior was also no-blank-line (the old heading block started with `* System Prompt\n`, not `\n* System Prompt\n`). Restored the no-blank-line assertion.
+- `(require 'gptel-session-commands)` stays in `persistent-agent.org` (changed only the trailing comment). The agent body composer no longer calls `jf/gptel--session-headings-block`, but the require is the conventional shape — and a later task will wire `jf/gptel--write-system-prompt-sibling-file` from the same module into the agent path.
+
+## Discoveries
+
+- discovery_id: disc-revert-initial-session-body-1
+  class: shape-fragmentation
+  description: |
+    `register/shape/session-document-layout` enumerates four
+    structural invariants (config drawer at point-min, singleton
+    `* System Prompt`, singleton `* Chat`, turn blocks under `* Chat`).
+    After this task, three of those four invariants no longer hold:
+    there is no `* System Prompt` heading and no `* Chat` heading,
+    so "turn blocks under `* Chat`" is vacuously true. Only "config
+    drawer at point-min" survives. The shape needs to be re-stated
+    in terms of the new layout.
+  affected_register_entry: register/shape/session-document-layout
+  recommendation: |
+    Reconcile at integrate. The new shape contract is:
+    "config drawer at point-min; followed directly by zero or more
+    turn blocks (`#+begin_user`/`#+begin_assistant`); no headings."
+    Mark the heading-related invariants as superseded by
+    replace-system-prompt-heading-with-sibling-file. Add a pointer
+    to the new `:GPTEL_SYSTEM_PROMPT_FILE:` drawer key and the
+    sibling `system-prompt.<ext>` shape.
+
+- discovery_id: disc-revert-initial-session-body-2
+  class: dead-branch
+  description: |
+    `jf/gptel-persistent-agent--task` previously threaded
+    `system-prompt` (derived from preset-spec :system) into the
+    body composer. After this task the local let-binding is gone
+    and the composer takes only `prompt`. The preset-spec
+    extraction at the call site is unaffected (preset-spec is
+    still needed for `jf/gptel-scope-profile--render-drawer-text`
+    and for the future sibling-file writer call). The branch is
+    not dead — it's been narrowed to its remaining consumers.
+  affected_register_entry: register/shape/session-document-layout
+  recommendation: |
+    No standalone action. The narrowed plumbing will be re-widened
+    in `wire-sibling-file-emission-into-session-creation` (which
+    will pass preset-name + preset-spec to the sibling-file writer
+    for both the interactive and agent paths).

@@ -99,11 +99,10 @@
 
   (describe "session.org initial content (Decision 4)"
 
-    (it "contains the config drawer, a folded * System Prompt heading, and a * Chat heading with the empty user block"
-      ;; Run the full helper with write-side I/O captured.  The helper
-      ;; goes through `jf/gptel--create-session-core' which owns the
-      ;; initial-content default; the activities path no longer
-      ;; overrides it.
+    (it "contains the config drawer followed directly by the empty user block, with no heading shape"
+      ;; replace-system-prompt-heading-with-sibling-file: the
+      ;; activities path delegates to `jf/gptel--create-session-core'
+      ;; which now produces drawer + bare user block (no headings).
       (cl-letf (((symbol-function 'gptel-backend-name)
                  (lambda (_backend) "test-backend"))
                 ((symbol-function 'jf/gptel-activities--parse-worktree-paths)
@@ -122,49 +121,28 @@
             (jf-gptel-activities-test--register-cleanup
              (plist-get info :session-id) "main")
             (expect content :to-be-truthy)
-            ;; First write contains the file-level config drawer
-            ;; (preset + chat-mode snapshot keys per Decision 4 of
-            ;; gptel-drawer-as-source-of-truth), then a folded
-            ;; `* System Prompt' heading and a `* Chat' heading with
-            ;; the empty user block (§Addendum Decision B; no worktree
-            ;; paths here, so no `<!-- gptel-activity-worktrees: ...
-            ;; -->' line is appended).  Structural assertions so the
-            ;; test stays stable as the `executor' preset evolves.
+            ;; File-level config drawer at point-min.
             (expect content :to-match "\\`:PROPERTIES:\n")
             (expect content :to-match ":GPTEL_PRESET: executor\n")
             (expect content :to-match "\n:END:\n")
-            ;; The `* System Prompt' / `* Chat' headings frame the
-            ;; document body; the empty user block sits under `* Chat'.
+            ;; No `* System Prompt' / `* Chat' headings; no
+            ;; :VISIBILITY: folded.
+            (expect (string-match-p "^\\* System Prompt" content) :to-be nil)
+            (expect (string-match-p "^\\* Chat" content) :to-be nil)
+            (expect (string-match-p ":VISIBILITY: folded" content) :to-be nil)
+            ;; Drawer is followed directly by the empty user block
+            ;; (drawer + body concatenation is verbatim — no
+            ;; intervening blank line).
             (expect content :to-match
-                    "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n")
-            (expect content :to-match
-                    "^\\* Chat\n#\\+begin_user\n\n#\\+end_user\n\\'")
-            ;; :GPTEL_SYSTEM: must NEVER be in the rendered drawer
-            ;; (Decision 2; register/invariant/drawer-system-key-
-            ;; write-exclusion).
+                    ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'")
+            ;; :GPTEL_SYSTEM: must NEVER be in the rendered drawer.
             (expect (string-match-p ":GPTEL_SYSTEM:" content)
                     :to-be nil)
-            ;; The renderer never seeds markdown markup.  The
-            ;; `* System Prompt' body is excluded — it is verbatim
-            ;; preset `:system' text and may legitimately contain
-            ;; markdown lines (`executor.md' does).  Assert the
-            ;; renderer-owned regions only: the header (up to and
-            ;; including the heading drawer) and the `* Chat' block.
-            (let* ((header-region
-                    (substring content 0
-                               (progn
-                                 (string-match
-                                  (concat "^\\* System Prompt\n:PROPERTIES:\n"
-                                          ":VISIBILITY: folded\n:END:\n")
-                                  content)
-                                 (match-end 0))))
-                   (chat-region
-                    (substring content
-                               (string-match "^\\* Chat" content))))
-              (expect header-region :not :to-match "^###")
-              (expect header-region :not :to-match "^# ")
-              (expect chat-region :not :to-match "^###")
-              (expect chat-region :not :to-match "^# ")))))))
+            ;; The whole file is renderer-owned now (no preset
+            ;; `:system' body lives in the document); assert no
+            ;; markdown markup anywhere.
+            (expect content :not :to-match "^###")
+            (expect content :not :to-match "^# "))))))
 
   (describe "no Local Variables block in session.org"
 

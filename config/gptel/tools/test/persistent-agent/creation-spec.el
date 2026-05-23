@@ -293,20 +293,13 @@
       (expect arg-names :not :to-contain "denied_paths"))))
 
 (describe "PersistentAgent session.org matches the canonical document layout"
-  ;; Cycle-8 task `route-agent-session-creation-through-canonical-layout'.
-  ;; The agent-creation path SHALL produce a session.org that conforms to
-  ;; `register/shape/session-document-layout' (see interfaces.org and
-  ;; `openspec/changes/gptel-drawer-as-source-of-truth/specs/gptel/
-  ;; sessions-persistence.md' Scenario "Fresh agent session.org carries
-  ;; parent session id and full snapshot" / "Agent session.org matches the
-  ;; canonical document layout"). The structural invariants pinned here
-  ;; mirror `shape/validate-session-document-layout' in interfaces.org.
+  ;; After replace-system-prompt-heading-with-sibling-file, the
+  ;; canonical agent layout is drawer at point-min followed directly
+  ;; by the populated `#+begin_user' block — no `* System Prompt' or
+  ;; `* Chat' heading.  The preset's `:system' is materialised in a
+  ;; sibling `system-prompt.<ext>' file (wired in a subsequent task).
 
-  (it "emits the config drawer at point-min, then * System Prompt, then * Chat"
-    ;; Structural invariants 1, 2, 3, 4 of register/shape/
-    ;; session-document-layout (config drawer at point-min, singleton
-    ;; `* System Prompt' heading, singleton `* Chat' heading, turn
-    ;; blocks under `* Chat').
+  (it "emits the config drawer at point-min followed by the user-block prompt, with no headings"
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil))
@@ -322,120 +315,18 @@
                 (content (with-temp-buffer
                            (insert-file-contents session-org)
                            (buffer-string))))
-           ;; Invariant 1: file-level config drawer at point-min — no
-           ;; heading, no blank line, no content precedes ":PROPERTIES:".
+           ;; File-level config drawer at point-min.
            (expect content :to-match "\\`:PROPERTIES:\n")
            (expect content :to-match "\n:END:\n")
-           ;; Invariant 2: exactly one `* System Prompt' heading.
-           (expect (with-temp-buffer
-                     (insert content)
-                     (count-matches "^\\* System Prompt[ \t]*$"
-                                    (point-min) (point-max)))
-                   :to-equal 1)
-           ;; Invariant 3: exactly one `* Chat' heading.
-           (expect (with-temp-buffer
-                     (insert content)
-                     (count-matches "^\\* Chat[ \t]*$"
-                                    (point-min) (point-max)))
-                   :to-equal 1)
-           ;; `* System Prompt' carries its folded :VISIBILITY: drawer.
+           ;; No `* System Prompt' or `* Chat' headings.
+           (expect (string-match-p "^\\* System Prompt" content) :to-be nil)
+           (expect (string-match-p "^\\* Chat" content) :to-be nil)
+           (expect (string-match-p ":VISIBILITY: folded" content) :to-be nil)
+           ;; Drawer is followed directly by the populated user block.
            (expect content :to-match
-                   "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n")
-           ;; Invariant 4: turn block(s) appear under `* Chat', never
-           ;; before it.
-           (let ((chat-pos (string-match "^\\* Chat[ \t]*$" content))
-                 (turn-pos (string-match "^#\\+begin_user" content)))
-             (expect chat-pos :to-be-truthy)
-             (expect turn-pos :to-be-truthy)
-             (expect (< chat-pos turn-pos) :to-be t))
-           ;; Document ordering: config drawer :END: precedes
-           ;; `* System Prompt'; `* System Prompt' precedes `* Chat'.
-           (let ((end-pos    (string-match "^:END:$" content))
-                 (sysp-pos   (string-match "^\\* System Prompt" content))
-                 (chat-pos   (string-match "^\\* Chat" content)))
-             (expect (and end-pos sysp-pos chat-pos) :to-be-truthy)
-             (expect (< end-pos sysp-pos) :to-be t)
-             (expect (< sysp-pos chat-pos) :to-be t))
-           ;; The user-block prompt body lives under `* Chat'.
-           (expect content :to-match
-                   "^\\* Chat\n#\\+begin_user\nDO THE THING\n#\\+end_user\n\\'"))))))
+                   ":END:\n#\\+begin_user\nDO THE THING\n#\\+end_user\n\\'"))))))
 
-  (it "seeds the * System Prompt heading body from the preset's :system text"
-    ;; The preset's `:system' text seeds the heading body verbatim
-    ;; (§Addendum Decision B / register/invariant/system-prompt-heading-
-    ;; authoritative). With-mock-preset does not declare `:system', so
-    ;; we register an explicit preset with a system prompt here.
-    (jf/persistent-agent-test--with-mock-parent-session
-     (let ((preset-name 'test-preset-with-system)
-           (system-text "You are a careful executor.\nObey the drawer."))
-       (unwind-protect
-           (progn
-             (gptel-make-preset preset-name
-               :description "test preset with system"
-               :backend gptel-backend
-               :model gptel-model
-               :system system-text)
-             (let ((captured nil))
-               (jf/persistent-agent-test--with-mock-gptel-request captured
-                 (jf/gptel-persistent-agent--task
-                  #'ignore (symbol-name preset-name)
-                  "analyze code" "DO THE THING"))
-               (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
-                      (agent-name (car (cl-remove-if
-                                        (lambda (n) (member n '("." "..")))
-                                        (directory-files agents-dir))))
-                      (agent-dir  (expand-file-name agent-name agents-dir))
-                      (session-org (expand-file-name "session.org" agent-dir))
-                      (content (with-temp-buffer
-                                 (insert-file-contents session-org)
-                                 (buffer-string))))
-                 ;; The system text appears verbatim between the
-                 ;; heading's :END: drawer line and the `* Chat'
-                 ;; heading.
-                 (expect content :to-match (regexp-quote system-text))
-                 (expect content :to-match
-                         (concat ":END:\n"
-                                 (regexp-quote system-text)
-                                 "\n\n\\* Chat\n"))
-                 ;; :GPTEL_SYSTEM: still never appears in the drawer
-                 ;; (Decision 2).
-                 (expect (string-match-p ":GPTEL_SYSTEM:" content)
-                         :to-be nil))))
-         (setq gptel--known-presets
-               (assq-delete-all preset-name gptel--known-presets))))))
-
-  (it "emits the * System Prompt heading even when the preset has no :system"
-    ;; Structural invariant: exactly one `* System Prompt' heading
-    ;; regardless of whether the preset declares `:system'. The body
-    ;; is empty when there is no `:system' text.
-    (jf/persistent-agent-test--with-mock-parent-session
-     ;; `with-mock-preset' registers a preset without `:system'.
-     (jf/persistent-agent-test--with-mock-preset 'test-preset
-       (let ((captured nil))
-         (jf/persistent-agent-test--with-mock-gptel-request captured
-           (jf/gptel-persistent-agent--task
-            #'ignore "test-preset" "analyze code" "DO THE THING"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
-                (agent-name (car (cl-remove-if
-                                  (lambda (n) (member n '("." "..")))
-                                  (directory-files agents-dir))))
-                (agent-dir  (expand-file-name agent-name agents-dir))
-                (session-org (expand-file-name "session.org" agent-dir))
-                (content (with-temp-buffer
-                           (insert-file-contents session-org)
-                           (buffer-string))))
-           ;; Heading present with its folded :VISIBILITY: drawer …
-           (expect content :to-match
-                   "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n")
-           ;; … followed immediately by a blank line and `* Chat' (no
-           ;; body text between the heading's :END: and `* Chat').
-           (expect content :to-match
-                   "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n\n\\* Chat\n"))))))
-
-  (it "the produced session.org passes the canonical layout validator"
-    ;; Mirrors `shape/validate-session-document-layout' from
-    ;; interfaces.org so this spec catches drift in the agent path the
-    ;; same way the validator would.
+  (it "the produced session.org has drawer-first ordering and exactly one user turn"
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil))
@@ -450,31 +341,27 @@
                 (session-org (expand-file-name "session.org" agent-dir)))
            (with-temp-buffer
              (insert-file-contents session-org)
-             ;; Inline the validator body (avoid coupling the test to
-             ;; an as-yet-unimplemented helper function — the
-             ;; structural assertions match interfaces.org's
-             ;; `shape/validate-session-document-layout' verbatim).
              (save-excursion
                (goto-char (point-min))
                (expect (looking-at-p "[ \t\n]*:PROPERTIES:") :to-be t))
-             (expect (count-matches "^\\* System Prompt[ \t]*$"
+             ;; Exactly one user block; no assistant block yet.
+             (expect (count-matches "^#\\+begin_user[ \t]*$"
                                     (point-min) (point-max))
                      :to-equal 1)
-             (expect (count-matches "^\\* Chat[ \t]*$"
+             (expect (count-matches "^#\\+begin_assistant[ \t]*$"
                                     (point-min) (point-max))
-                     :to-equal 1)
-             (let* ((chat-pos (save-excursion
-                                (goto-char (point-min))
-                                (re-search-forward
-                                 "^\\* Chat[ \t]*$" nil t)))
-                    (turn-pos (save-excursion
-                                (goto-char (point-min))
-                                (re-search-forward
-                                 "^#\\+begin_\\(user\\|assistant\\)"
-                                 nil t))))
-               (expect chat-pos :to-be-truthy)
+                     :to-equal 0)
+             ;; Drawer's `:END:` precedes the user block.
+             (let ((end-pos (save-excursion
+                              (goto-char (point-min))
+                              (re-search-forward "^:END:[ \t]*$" nil t)))
+                   (turn-pos (save-excursion
+                               (goto-char (point-min))
+                               (re-search-forward
+                                "^#\\+begin_user" nil t))))
+               (expect end-pos :to-be-truthy)
                (expect turn-pos :to-be-truthy)
-               (expect (< chat-pos turn-pos) :to-be t)))))))))
+               (expect (< end-pos turn-pos) :to-be t)))))))))
 
 (provide 'creation-spec)
 ;;; creation-spec.el ends here

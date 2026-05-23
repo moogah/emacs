@@ -356,76 +356,20 @@ state (design.md §Decision 3)."
         (write-region body nil path nil 'silent)
         basename))))
 
-(defun jf/gptel--session-headings-block (system-prompt user-block)
-  "Return the heading portion of a `session.org' as a string.
-
-SYSTEM-PROMPT is the system-prompt body text (a string) or nil.
-When nil or an all-whitespace string, the `* System Prompt'
-heading is emitted with an empty body.
-
-USER-BLOCK is the chat-turn block string that lives under the
-`* Chat' heading (typically the empty `#+begin_user' /
-`#+end_user' template).
-
-Emits, in order:
-  * System Prompt
-  :PROPERTIES:
-  :VISIBILITY: folded
-  :END:
-  <system-prompt body, when non-blank>
-
-  * Chat
-  <user-block>
-
-This is the single source of truth for the heading shape
-described by `register/shape/session-document-layout'; the
-`* System Prompt' heading body is made authoritative by the
-sibling task `make-system-prompt-heading-authoritative'.
-
-The caller prepends the file-level `:PROPERTIES:' config drawer
-\(rendered by `jf/gptel-scope-profile--render-drawer-text', Mode
-2a) so the composed document is `(concat drawer-text headings)'."
-  (let* ((body (and (stringp system-prompt)
-                    (not (string-blank-p system-prompt))
-                    system-prompt))
-         ;; A non-blank body is emitted verbatim followed by a
-         ;; newline; a blank/nil body emits the heading and its
-         ;; drawer only.  Either way a blank line separates the
-         ;; `* System Prompt' subtree from `* Chat'.
-         (body-text (if body (concat body "\n") "")))
-    (concat "* System Prompt\n"
-            ":PROPERTIES:\n"
-            ":VISIBILITY: folded\n"
-            ":END:\n"
-            body-text
-            "\n"
-            "* Chat\n"
-            user-block)))
-
-(defun jf/gptel--initial-session-body (&optional system-prompt)
+(defun jf/gptel--initial-session-body ()
   "Return the chat-mode body portion of a fresh `session.org'.
 
-SYSTEM-PROMPT, when a non-blank string, seeds the body of the
-`* System Prompt' heading.  When nil or all-whitespace, the
-heading is emitted with an empty body — the document shape stays
-canonical (`register/shape/session-document-layout').
-
-The body is the `* System Prompt' heading (folded via
-`:VISIBILITY: folded') followed by a `* Chat' heading holding the
-empty `#+begin_user' / `#+end_user' block template (design.md
-§Addendum Decision B; Decision 9 / Decision 18).  Callers are
+The body is the empty `#+begin_user' / `#+end_user' block
+template — no headings, no system-prompt content.  Callers are
 expected to prepend a file-level `:PROPERTIES:' config drawer
 rendered by `jf/gptel-scope-profile--render-drawer-text' before
 writing the file.
 
-The chat parser is heading-indifferent (design.md §Decision 12):
-it locates turn blocks by `#+begin_user' / `#+begin_assistant'
-markers, so the headings and the system-prompt body are
-commentary to it and `gptel-chat-new' scratch buffers (bare
-`#+begin_user' blocks, no headings) remain valid input."
-  (jf/gptel--session-headings-block
-   system-prompt
-   "#+begin_user\n\n#+end_user\n"))
+The chat parser locates turn blocks by `#+begin_user' /
+`#+begin_assistant' markers (design.md §Decision 12), so this
+template parses to exactly one empty user turn —
+`gptel-chat-new' scratch buffers remain valid input."
+  "#+begin_user\n\n#+end_user\n")
 
 (defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root parent-session-id)
   "Create session directory structure with branching support.
@@ -444,11 +388,11 @@ INITIAL-CONTENT - optional initial content for session.org. When
       and the resolved `GPTEL_SCOPE_*' keys for the preset's scope
       profile (with `WORKTREE-PATHS' deep-merged in when present
       and `${project_root}' expanded against PROJECT-ROOT).
-    - body is the heading block returned by
-      `jf/gptel--initial-session-body': a `* System Prompt'
-      heading seeded from the preset's `:system' text, then a
-      `* Chat' heading holding the empty `#+begin_user' /
-      `#+end_user' template (design.md §Addendum Decision B).
+    - body is the empty `#+begin_user' / `#+end_user' template
+      returned by `jf/gptel--initial-session-body'.  No headings
+      are emitted; the preset's `:system' lives in the sibling
+      `system-prompt.<ext>' file (design.md §Decision 1 of
+      replace-system-prompt-heading-with-sibling-file).
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
 PARENT-SESSION-ID - optional string, parent session id for agent
@@ -460,9 +404,9 @@ PARENT-SESSION-ID - optional string, parent session id for agent
 Creates:
 - SESSION-DIR/branches/main/ directory structure
 - session.org pre-populated with the drawer-resident scope (preset
-  + scope keys), then a `* System Prompt' heading (folded, seeded
-  from the preset's `:system' text) and a `* Chat' heading holding
-  the empty user block
+  + scope keys) followed by an empty `#+begin_user' /
+  `#+end_user' block (the sibling-file emission for the system
+  prompt is wired in a subsequent task)
 - current symlink pointing to main branch
 
 NOTE: No `metadata.yml' is written. No `scope.yml' is written.
@@ -483,14 +427,14 @@ Returns plist with:
          ;; (Decision 4 / Layer 2 of gptel-drawer-as-source-of-truth).
          ;; A registered preset returns the plist (:model :backend
          ;; :tools :temperature :max-tokens :num-messages-to-send
-         ;; :system) — non-nil snapshot fields are emitted as drawer
-         ;; lines by `--render-drawer-text'.  An unregistered preset
-         ;; resolves to nil, and the renderer falls back to the
-         ;; legacy preset+scope-only shape (design.md §Decision 6:
-         ;; existing-session graceful degradation).  The `:system'
-         ;; field is NOT a drawer line — it seeds the `* System
-         ;; Prompt' heading body instead (design.md §Addendum
-         ;; Decision B).
+         ;; :system) — non-nil snapshot fields (other than `:system')
+         ;; are emitted as drawer lines by `--render-drawer-text'.
+         ;; An unregistered preset resolves to nil, and the renderer
+         ;; falls back to the legacy preset+scope-only shape
+         ;; (design.md §Decision 6: existing-session graceful
+         ;; degradation).  The `:system' field is NOT a drawer line —
+         ;; the sibling-file writer (a later task) writes it to
+         ;; `system-prompt.<ext>' in the branch directory.
          (preset-spec (and preset-name
                            (fboundp 'gptel-get-preset)
                            (gptel-get-preset preset-name)))
@@ -510,19 +454,16 @@ Returns plist with:
                        preset-spec))
          (final-content (or initial-content
                             (concat drawer-text
-                                    (jf/gptel--initial-session-body
-                                     (and preset-spec
-                                          (plist-get preset-spec :system)))))))
+                                    (jf/gptel--initial-session-body)))))
 
     ;; Create current symlink pointing to main
     (jf/gptel--update-current-symlink session-dir "main")
 
     ;; Create session file with initial content (file-level config
-    ;; drawer + `* System Prompt' heading + `* Chat' heading with
-    ;; the empty user block).  The drawer is authoritative — no
-    ;; metadata.yml sidecar and no scope.yml file are written
-    ;; (design Decision 6; gptel-scope-in-org-properties drawer-
-    ;; resident scope).
+    ;; drawer followed by an empty `#+begin_user' / `#+end_user'
+    ;; block).  The drawer is authoritative — no metadata.yml
+    ;; sidecar and no scope.yml file are written (design Decision 6;
+    ;; gptel-scope-in-org-properties drawer-resident scope).
     (with-temp-file session-file
       (insert final-content))
     (jf/gptel--log 'info "Created session file: %s" session-file)

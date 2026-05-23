@@ -378,85 +378,15 @@ Returns the absolute path of the created `session.org'."
           (expect (string-match-p ":GPTEL_SYSTEM:" content) :to-be nil)
           (expect (string-match-p ":GPTEL_BOUNDS:" content) :to-be nil))))
 
-    ;; §Addendum Decision B: the preset's `:system' is NOT a drawer
-    ;; line — it seeds the `* System Prompt' heading body at creation.
-    (describe "preset :system seeds the * System Prompt heading body"
-
-      (let ((temp-root nil)
-            (system-id "sess-sysprompt-20260522120000")
-            (system-dir nil)
-            (system-preset 'sysprompt-test-preset)
-            (system-text "You are the executor.\nObey the scope drawer."))
-
-        (before-each
-          (setq temp-root (make-temp-file "gptel-sysprompt-" t))
-          (setq system-dir (expand-file-name system-id temp-root))
-          (gptel-make-preset system-preset
-            :model 'sysprompt-model
-            :system system-text))
-
-        (after-each
-          (setq gptel--known-presets
-                (assq-delete-all system-preset gptel--known-presets))
-          (when (and temp-root (file-directory-p temp-root))
-            (delete-directory temp-root t)))
-
-        (it "seeds the heading body from the preset :system, not the drawer"
-          (jf/gptel--create-session-core system-id system-dir system-preset)
-          (jf-gptel-preset-app-test--register-cleanup system-id "main")
-          (let* ((session-file
-                  (expand-file-name "branches/main/session.org" system-dir))
-                 (content (with-temp-buffer
-                            (insert-file-contents session-file)
-                            (buffer-string))))
-            ;; The preset's :system text is the `* System Prompt' body.
-            (expect content :to-match
-                    (concat "^\\* System Prompt\n"
-                            ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                            (regexp-quote system-text) "\n"))
-            ;; The system prompt is NOT a drawer property line — the
-            ;; write-exclusion invariant still holds.
-            (expect (string-match-p ":GPTEL_SYSTEM:" content) :to-be nil)
-            ;; The `* Chat' heading and the empty user block follow.
-            (expect content :to-match
-                    "^\\* Chat\n#\\+begin_user\n\n#\\+end_user\n\\'")))))
-
-    ;; A preset with no `:system' still produces the canonical layout:
-    ;; the heading exists with an empty body.
-    (describe "preset without :system emits an empty * System Prompt body"
-
-      (let ((temp-root nil)
-            (nosys-id "sess-nosys-20260522120000")
-            (nosys-dir nil)
-            (nosys-preset 'nosys-test-preset))
-
-        (before-each
-          (setq temp-root (make-temp-file "gptel-nosys-" t))
-          (setq nosys-dir (expand-file-name nosys-id temp-root))
-          (gptel-make-preset nosys-preset :model 'nosys-model))
-
-        (after-each
-          (setq gptel--known-presets
-                (assq-delete-all nosys-preset gptel--known-presets))
-          (when (and temp-root (file-directory-p temp-root))
-            (delete-directory temp-root t)))
-
-        (it "emits the * System Prompt heading with an empty body"
-          (jf/gptel--create-session-core nosys-id nosys-dir nosys-preset)
-          (jf-gptel-preset-app-test--register-cleanup nosys-id "main")
-          (let* ((session-file
-                  (expand-file-name "branches/main/session.org" nosys-dir))
-                 (content (with-temp-buffer
-                            (insert-file-contents session-file)
-                            (buffer-string))))
-            ;; Heading present with no body text between :END: and the
-            ;; blank line that separates it from `* Chat'.
-            (expect content :to-match
-                    (concat "^\\* System Prompt\n"
-                            ":PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                            "\n\\* Chat\n"))
-            (expect (string-match-p ":GPTEL_SYSTEM:" content)
-                    :to-be nil))))))
+    ;; The "preset :system seeds the document body" describes were
+    ;; deleted in `revert-initial-session-body-and-delete-headings-block'
+    ;; (replace-system-prompt-heading-with-sibling-file).  The
+    ;; preset's `:system' is no longer woven into session.org — it is
+    ;; materialised in a sibling `system-prompt.<ext>' file by a
+    ;; subsequent task in the same change.  Focused tests for that
+    ;; writer live in
+    ;; `config/gptel/sessions/test/commands/sibling-system-prompt-file-spec.el'.
+    )
 
   (describe "drawer wins over preset on reopen (Decision 3)"
 

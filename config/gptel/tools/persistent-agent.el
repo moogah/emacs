@@ -28,7 +28,7 @@
                                     ;   jf/gptel--context-file-path
 (require 'gptel-session-logging)
 (require 'gptel-scope-profiles)     ; jf/gptel-scope-profile--render-drawer-text
-(require 'gptel-session-commands)   ; jf/gptel--session-headings-block
+(require 'gptel-session-commands)   ; jf/gptel--initial-session-body, sibling-file writer
 
 (defconst jf/gptel-persistent-agent--hrule
   (propertize "\n" 'face '(:inherit shadow :underline t :extend t))
@@ -134,27 +134,12 @@ Caller renders this via
               :write '("/tmp/**")
               :deny  jf/gptel-persistent-agent--standard-deny-paths)))
 
-(defun jf/gptel-persistent-agent--initial-body (system-prompt prompt)
-  "Build the heading + user-block body of a fresh agent session.org.
+(defun jf/gptel-persistent-agent--initial-body (prompt)
+  "Build the user-block body of a fresh agent session.org.
 
-SYSTEM-PROMPT is the active preset's `:system' text (a string) or
-nil. When nil or all-whitespace, the `* System Prompt' heading is
-still emitted (carrying its folded :VISIBILITY: drawer) with an
-empty body — the document shape stays canonical
-\(register/shape/session-document-layout structural invariant:
-exactly one `* System Prompt' heading).
-
-PROMPT becomes the body of the first `#+begin_user' block, which
-lives under the `* Chat' heading.
-
+PROMPT becomes the body of the first `#+begin_user' block.
 Returns a string of the form
-  * System Prompt
-  :PROPERTIES:
-  :VISIBILITY: folded
-  :END:
-  <system-prompt body, when non-blank>
 
-  * Chat
   #+begin_user
   <prompt>
   #+end_user
@@ -165,10 +150,8 @@ writing the file, so that the composed
 `(concat drawer-text body)' carries exactly one file-level
 `:PROPERTIES:' / `:END:' pair at point-min
 \(`register/invariant/scope-drawer-no-duplication') followed by
-the canonical heading shape."
-  (jf/gptel--session-headings-block
-   system-prompt
-   (format "#+begin_user\n%s\n#+end_user\n" prompt)))
+the user turn block."
+  (format "#+begin_user\n%s\n#+end_user\n" prompt))
 
 (defun jf/gptel-persistent-agent--extract-final-text (agent-buffer)
   "Return trailing text of the last assistant turn in AGENT-BUFFER.
@@ -293,17 +276,12 @@ for parent overlay feedback and final-text return."
            (drawer-text
             (jf/gptel-scope-profile--render-drawer-text
              preset-sym parent-id scope-plist preset-spec))
-           ;; Seed the `* System Prompt' heading body from the
-           ;; preset's `:system' text so the agent session.org
-           ;; matches register/shape/session-document-layout
-           ;; (cycle-8 task route-agent-session-creation-through-
-           ;; canonical-layout). When the preset declares no
-           ;; `:system', the heading is still emitted with an empty
-           ;; body — the document shape stays canonical.
-           (system-prompt (and preset-spec
-                               (plist-get preset-spec :system)))
-           (body (jf/gptel-persistent-agent--initial-body
-                  system-prompt prompt))
+           ;; Compose the agent session.org body: drawer + populated
+           ;; user block.  The preset's `:system' is intentionally
+           ;; not woven into the document; the sibling-file writer
+           ;; (a later task in the same change) writes it to
+           ;; `system-prompt.<ext>' alongside session.org.
+           (body (jf/gptel-persistent-agent--initial-body prompt))
            (initial-content (concat drawer-text body)))
       (let* ((session-file (jf/gptel--context-file-path session-dir))
              (_ (with-temp-file session-file

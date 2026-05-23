@@ -16,12 +16,13 @@
 ;; 1. `session.org' is pre-populated with a file-level `:PROPERTIES:'
 ;;    config drawer at point-min containing `GPTEL_PRESET' (and
 ;;    `GPTEL_PARENT_SESSION_ID' when an agent session declares a
-;;    parent), followed by a `* System Prompt' heading (folded via
-;;    `:VISIBILITY: folded', body seeded from the preset's `:system')
-;;    and a `* Chat' heading holding the chat-mode empty-user-block
-;;    template.  The drawer shape matches what the save hook writes on
-;;    first save, so creation → open → save is a no-op on disk
-;;    (`register/shape/session-document-layout').
+;;    parent), followed directly by an empty `#+begin_user' /
+;;    `#+end_user' turn block.  No `* System Prompt' / `* Chat'
+;;    headings are emitted — the preset's `:system' lives in the
+;;    sibling `system-prompt.<ext>' file (design.md §Decision 1 of
+;;    replace-system-prompt-heading-with-sibling-file).  The drawer
+;;    shape matches what the save hook writes on first save, so
+;;    creation → open → save is a no-op on disk.
 ;;
 ;; 2. The created session file has NO Local Variables block written
 ;;    during creation.  Chat-mode's block format is self-describing;
@@ -64,15 +65,12 @@
 
   (describe "session.org initial content (Decision 4)"
 
-    (it "contains the config drawer, a folded * System Prompt heading, and a * Chat heading with the empty user block"
-      ;; Decision 4 / Decision 6 / §Addendum Decision B
-      ;; (gptel-drawer-as-source-of-truth): the file-level config
-      ;; drawer carries the resolved preset's chat-mode snapshot
-      ;; alongside :GPTEL_PRESET:, then a `* System Prompt' heading
-      ;; (folded) and a `* Chat' heading hold the document body.
-      ;; Structural assertions (rather than literal-text equality) so
-      ;; the test is stable as the `executor' preset's tool list /
-      ;; model / temperature evolve.
+    (it "contains the config drawer followed directly by an empty user block, with no heading shape"
+      ;; replace-system-prompt-heading-with-sibling-file: the
+      ;; canonical layout is drawer + bare user block.  No
+      ;; `* System Prompt' / `* Chat' headings are emitted.  The
+      ;; preset's `:system' is materialised in a sibling file by a
+      ;; subsequent task; this spec only verifies the no-heading shape.
       (with-captured-io
         (jf/gptel--create-session-core
          "sess-decision4-20260421120000"
@@ -83,32 +81,20 @@
                         (concat "/sessions/sess-decision4-20260421120000"
                                 "/branches/main/session.org"))))
           (expect content :to-be-truthy)
-          ;; File-level config drawer still at point-min — no heading,
-          ;; no blank line precedes ":PROPERTIES:"
-          ;; (register/shape/session-document-layout).
+          ;; File-level config drawer at point-min.
           (expect content :to-match "\\`:PROPERTIES:\n")
           (expect content :to-match ":GPTEL_PRESET: executor\n")
           (expect content :to-match "\n:END:\n")
-          ;; Exactly one `* System Prompt' heading, carrying a folded
-          ;; :VISIBILITY: drawer.
-          (expect content :to-match "^\\* System Prompt[ \t]*$")
-          (expect content :to-match
-                  "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n")
-          ;; Exactly one `* Chat' heading.
-          (expect content :to-match "^\\* Chat[ \t]*$")
-          ;; The empty user block lives under `* Chat'.
-          (expect content :to-match "^\\* Chat\n#\\+begin_user\n\n#\\+end_user\n\\'")
-          ;; The config drawer precedes both headings; `* System
-          ;; Prompt' precedes `* Chat'.
-          (let ((end-pos    (string-match "^:END:$" content))
-                (sysp-pos   (string-match "^\\* System Prompt" content))
-                (chat-pos   (string-match "^\\* Chat" content)))
-            (expect (and end-pos sysp-pos chat-pos) :to-be-truthy)
-            (expect (< end-pos sysp-pos) :to-be t)
-            (expect (< sysp-pos chat-pos) :to-be t))
+          ;; No `* System Prompt' / `* Chat' headings anywhere.
+          (expect (string-match-p "^\\* System Prompt" content) :to-be nil)
+          (expect (string-match-p "^\\* Chat" content) :to-be nil)
+          (expect (string-match-p ":VISIBILITY: folded" content) :to-be nil)
+          ;; The empty user block follows the drawer directly (no
+          ;; intervening blank line — drawer + body concatenation is
+          ;; verbatim) and is the last thing in the file.
+          (expect content :to-match ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'")
           ;; :GPTEL_SYSTEM: must NEVER appear in the rendered drawer
-          ;; (Decision 2 / register/invariant/drawer-system-key-write-
-          ;; exclusion).
+          ;; (register/invariant/drawer-system-key-write-exclusion).
           (expect (string-match-p ":GPTEL_SYSTEM:" content)
                   :to-be nil))))
 
@@ -126,44 +112,23 @@
                                 "/branches/main/session.org"))))
           (expect content :to-match "^:GPTEL_PRESET: researcher$"))))
 
-    (it "the renderer-owned regions contain no markdown heading or ### placeholder"
-      ;; The pre-chat-mode creation path seeded session.md with a
-      ;; markdown `###' placeholder (or `# <session-name>').  Per
-      ;; Decision 18, the creation renderer never seeds markdown
-      ;; markup.  The `* System Prompt' body is excluded from this
-      ;; check: it is verbatim preset `:system' text and may
-      ;; legitimately contain markdown lines (`executor.md' does) —
-      ;; that is preset content, not renderer markup (§Addendum
-      ;; Decision B).  This test asserts the renderer-owned regions:
-      ;; the file-level config drawer, the heading shape, and the
-      ;; `* Chat' user block.
+    (it "the renderer never seeds markdown markup into session.org"
+      ;; Per Decision 18, the creation renderer never seeds markdown
+      ;; markup.  With the heading shape removed, the whole document
+      ;; is renderer-owned (no preset `:system' body lives inside the
+      ;; file anymore — it goes to the sibling file).  Assert the
+      ;; whole file is markdown-free.
       (with-captured-io
         (jf/gptel--create-session-core
          "sess-no-markdown-20260421120000"
          "/sessions/sess-no-markdown-20260421120000"
          'executor)
-        (let* ((content (captured-file-content
-                         captured-files
-                         (concat "/sessions/sess-no-markdown-20260421120000"
-                                 "/branches/main/session.org")))
-               ;; Region 1: everything up to and including the
-               ;; `* System Prompt' heading's :END: drawer line.
-               (sysp-drawer-end
-                (string-match
-                 "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n"
-                 content))
-               (header-region
-                (substring content 0 (match-end 0)))
-               ;; Region 2: the `* Chat' heading and everything under
-               ;; it (the empty user block).
-               (chat-region
-                (substring content (string-match "^\\* Chat" content))))
-          (expect sysp-drawer-end :to-be-truthy)
-          ;; The renderer uses org headings (`*'), never markdown.
-          (expect header-region :not :to-match "^###")
-          (expect header-region :not :to-match "^# ")
-          (expect chat-region :not :to-match "^###")
-          (expect chat-region :not :to-match "^# "))))
+        (let ((content (captured-file-content
+                        captured-files
+                        (concat "/sessions/sess-no-markdown-20260421120000"
+                                "/branches/main/session.org"))))
+          (expect content :not :to-match "^###")
+          (expect content :not :to-match "^# "))))
 
     (it "honours a caller-provided initial-content override verbatim"
       ;; The helper still accepts a caller-supplied initial-content
@@ -287,106 +252,32 @@
             (expect (< preset-pos end-pos) :to-be t)
             (expect (< parent-pos end-pos) :to-be t)))))))
 
-(describe "jf/gptel--session-headings-block emits the document body shape"
+(describe "jf/gptel--initial-session-body returns the bare user-block template"
 
-  ;; The single source of truth for the `* System Prompt' / `* Chat'
-  ;; heading shape (register/shape/session-document-layout).  These
-  ;; tests pin the literal layout the creation renderer and the
-  ;; save-path materialiser both depend on.
+  ;; After replace-system-prompt-heading-with-sibling-file, the helper
+  ;; takes no arguments and returns only the empty `#+begin_user' /
+  ;; `#+end_user' block.  No headings, no preset content.  The
+  ;; document parser (heading-indifferent, design.md §Decision 12)
+  ;; reads the template as a single empty user turn.
 
-  (it "emits a folded * System Prompt heading then * Chat with the user block"
-    (expect (jf/gptel--session-headings-block
-             "You are a helpful assistant."
-             "#+begin_user\n\n#+end_user\n")
-            :to-equal
-            (concat "* System Prompt\n"
-                    ":PROPERTIES:\n"
-                    ":VISIBILITY: folded\n"
-                    ":END:\n"
-                    "You are a helpful assistant.\n"
-                    "\n"
-                    "* Chat\n"
-                    "#+begin_user\n"
-                    "\n"
-                    "#+end_user\n")))
-
-  (it "emits an empty * System Prompt body when the system prompt is nil"
-    (expect (jf/gptel--session-headings-block
-             nil "#+begin_user\n\n#+end_user\n")
-            :to-equal
-            (concat "* System Prompt\n"
-                    ":PROPERTIES:\n"
-                    ":VISIBILITY: folded\n"
-                    ":END:\n"
-                    "\n"
-                    "* Chat\n"
-                    "#+begin_user\n"
-                    "\n"
-                    "#+end_user\n")))
-
-  (it "treats an all-whitespace system prompt as empty"
-    (expect (jf/gptel--session-headings-block
-             "   \n\t " "#+begin_user\n\n#+end_user\n")
-            :to-equal
-            (jf/gptel--session-headings-block
-             nil "#+begin_user\n\n#+end_user\n")))
-
-  (it "preserves multi-line, special-character system-prompt bodies verbatim"
-    ;; The motivating case for §Addendum Finding B: a heading body
-    ;; carries multi-line / special-character text with no escaping.
-    (let* ((prompt "Line one.\n\nLine two with *bold* and a / slash.\n- bullet")
-           (block (jf/gptel--session-headings-block
-                   prompt "#+begin_user\n\n#+end_user\n")))
-      (expect block :to-match (regexp-quote prompt))
-      ;; The body sits between the heading drawer and the `* Chat'
-      ;; heading.
-      (expect block :to-match
-              (concat ":END:\n" (regexp-quote prompt) "\n\n\\* Chat\n")))))
-
-(describe "jf/gptel--initial-session-body wraps the heading block"
-
-  (it "defaults to an empty * System Prompt body when called with no argument"
+  (it "returns the empty user-block template"
     (expect (jf/gptel--initial-session-body)
-            :to-equal
-            (jf/gptel--session-headings-block
-             nil "#+begin_user\n\n#+end_user\n")))
-
-  (it "seeds the * System Prompt body from the supplied system-prompt string"
-    (expect (jf/gptel--initial-session-body "seeded prompt text")
-            :to-equal
-            (jf/gptel--session-headings-block
-             "seeded prompt text" "#+begin_user\n\n#+end_user\n")))
+            :to-equal "#+begin_user\n\n#+end_user\n"))
 
   (it "produces a buffer the chat parser reads as a single empty user turn"
-    ;; The chat parser is heading-indifferent (design.md §Decision
-    ;; 12): the `* System Prompt' body and the headings are
-    ;; commentary, not turns.  A created session.org therefore parses
-    ;; to exactly one user turn — the empty `#+begin_user' block,
-    ;; whose verbatim content is the single blank line between the
-    ;; delimiters ("\n", per `gptel-chat--scan-user-body').
     (with-temp-buffer
-      (insert (jf/gptel--initial-session-body
-               "You are a helpful assistant.\nBe concise."))
+      (insert (jf/gptel--initial-session-body))
       (let ((turns (gptel-chat-parse-buffer)))
         (expect (length turns) :to-equal 1)
         (expect (plist-get (car turns) :role) :to-equal 'user)
         (expect (plist-get (car turns) :content) :to-equal "\n"))))
 
-  (it "parses to a single user turn even when the preset has a markdown system prompt"
-    ;; The `executor' preset's `:system' body contains markdown
-    ;; headings (`# ...').  Seeding it into the `* System Prompt'
-    ;; body must not create spurious turns — the parser keys on
-    ;; `#+begin_*' markers only.  This pins the §Addendum known
-    ;; limitation as accepted: preset system prompts in this repo do
-    ;; not contain a column-0 `#+begin_user', so the body never
-    ;; mis-parses as a turn.
-    (with-temp-buffer
-      (insert (jf/gptel--initial-session-body
-               (concat "# Role\n\nYou are the executor.\n\n"
-                       "## Constraints\n\n- obey the drawer\n")))
-      (let ((turns (gptel-chat-parse-buffer)))
-        (expect (length turns) :to-equal 1)
-        (expect (plist-get (car turns) :role) :to-equal 'user)))))
+  ;; The "parser is heading-indifferent when a markdown system prompt
+  ;; is present" contract is no longer exercisable from this helper —
+  ;; the system prompt does not live in the document at all.  The
+  ;; chat-parser test suite (config/gptel/chat/test/parser/) pins
+  ;; heading-indifference independently.
+  )
 
 (provide 'session-org-creation-spec)
 ;;; session-org-creation-spec.el ends here
