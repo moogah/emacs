@@ -335,7 +335,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/session-document-layout
    tier: shape
-   status: reconciled
+   status: superseded
+   superseded_by: register/shape/session-sibling-system-prompt-file
+   superseded_in_cycle: cycle-1779568860
+   supersession_note: |
+     replace-system-prompt-heading-with-sibling-file (cycles
+     1779565028 + 1779568860) wholesale removed the `* System Prompt`
+     and `* Chat` headings this shape pinned. The canonical session.org
+     layout collapses to: configuration :PROPERTIES: drawer at
+     point-min (now carrying an OPTIONAL :GPTEL_SYSTEM_PROMPT_FILE:
+     key pointing at a sibling system-prompt.<ext> file), followed
+     directly by zero or more #+begin_user / #+begin_assistant turn
+     blocks. The four structural_invariants below — singleton
+     `* System Prompt' heading, singleton `* Chat' heading, turn
+     blocks under `* Chat', and the embedded validator's two
+     "*-not-singleton" symbols — no longer hold for any session
+     emitted by the post-cycle producers. The entry is retained for
+     historical record; the replacement contract is at
+     register/shape/session-sibling-system-prompt-file.
    status_note: |
      cycle-7 plan (2026-05-22) — speculated by forward-mode against
      design.md §Addendum (Finding B, Finding C, Decisions B and C).
@@ -521,8 +538,196 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/shape/drawer-text-block
      - register/invariant/system-prompt-heading-authoritative
      - register/boundary/chat-mode-session-display
+     - register/shape/session-sibling-system-prompt-file        # replacement
 
    discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
+** session-sibling-system-prompt-file
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-session-sibling-system-prompt-file
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/session-sibling-system-prompt-file
+   tier: shape
+   status: confirmed
+   status_note: |
+     cycle-1779568860 (2026-05-23) — created by task
+     mark-superseded-interfaces-register-entries as part of
+     `replace-system-prompt-heading-with-sibling-file`. Pinned by
+     producers (jf/gptel--create-session-core,
+     jf/gptel-persistent-agent--task) writing the sibling file at
+     creation, by chat-mode consumers
+     (gptel-chat--apply-system-prompt-file at activation,
+     gptel-chat--refresh-system-prompt-from-file before every
+     gptel-request), and by buttercup specs covering both producer
+     and consumer paths (session-org-creation-spec.el,
+     persistent-agent/creation-spec.el, system-prompt-file-spec.el,
+     pre-send-refresh-spec.el). Supersedes
+     register/shape/session-document-layout.
+   load_bearing: true
+   title: |
+     Shape of the on-disk sibling system-prompt file and its
+     drawer-property reference
+   purpose: |
+     The system prompt for a session.org buffer is materialised on
+     disk as a sibling file (system-prompt.<ext>) next to session.org,
+     and the session's configuration drawer carries a
+     :GPTEL_SYSTEM_PROMPT_FILE: property pointing at its basename (or
+     an absolute path). This is the load-bearing shape for the
+     restore precedence pinned by
+     register/invariant/system-prompt-file-authoritative — without
+     a well-defined shape for the on-disk file and its drawer
+     reference, the invariant cannot enforce.
+
+     Supersedes register/shape/session-document-layout (now status:
+     superseded), which carried the system prompt as a `* System
+     Prompt` heading body inside session.org. The heading traded one
+     set of org-mode interactions for another (markdown content
+     inside an org heading body broke fontification, folding, and
+     the chat parser); the sibling-file shape lets the prompt render
+     as the format the preset authored it in.
+
+   document_regions:
+     - region: file-level config drawer entry
+       location: |
+         Inside session.org's file-level :PROPERTIES: ... :END: block
+         at point-min, alongside :GPTEL_PRESET: and the other
+         drawer-resident keys.
+       shape: |
+         A single line of the form
+         ":GPTEL_SYSTEM_PROMPT_FILE: <value>", where <value> is
+         either an absolute path or a basename. Basenames resolve
+         relative to (file-name-directory buffer-file-name) at
+         consumer time. The key is OPTIONAL: a session whose preset
+         declares no :system carries no sibling file and no
+         property.
+       emitted: |
+         Spliced into the rendered drawer text by
+         jf/gptel--append-drawer-property at session creation,
+         before the drawer's :END: line — preserving the drawer +
+         body adjacency invariant (no separator between :END: and
+         the first turn block).
+     - region: sibling file on disk
+       location: |
+         (file-name-as-directory <session-dir>) + "system-prompt." +
+         <ext>, where <ext> is the preset's source-file extension
+         (today: "md"; jf/gptel--preset-source-file-extension
+         defensively defaults to "md" when the preset's source file
+         cannot be resolved).
+       shape: |
+         A text file whose contents are the preset's :system body
+         VERBATIM — no frontmatter, no escaping, no transformation.
+         The on-disk file is the canonical source; the buffer-local
+         gptel--system-message is a per-request cache, refreshed
+         before every gptel-request from a chat-mode buffer.
+       emitted: |
+         Written by jf/gptel--write-system-prompt-sibling-file via
+         write-region (no buffer mutation). Skipped when the
+         preset's :system is nil, empty, or whitespace-only.
+
+   structural_invariants:
+     - the :GPTEL_SYSTEM_PROMPT_FILE: drawer key (when present) is
+       inside the drawer's :PROPERTIES: / :END: block — never
+       between :END: and the first turn block
+     - the sibling file (when present) lives in the same directory
+       as session.org, resolved via expand-file-name against the
+       buffer's file-name directory
+     - the drawer property and the sibling file are emitted
+       atomically by the same writer call: either both or neither
+       (no orphan property pointing at a missing file at creation
+       time; a user-driven delete-after-creation is handled
+       gracefully by the consumer's file-readable-p guard)
+     - the document shape is otherwise unchanged from the
+       pre-Addendum layout: configuration :PROPERTIES: drawer at
+       point-min, followed directly by zero or more turn blocks; no
+       headings emitted
+
+   producers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel--create-session-core
+       usage: |
+         Calls jf/gptel--write-system-prompt-sibling-file with the
+         resolved (main-branch-dir, preset-name, preset-spec), then
+         splices :GPTEL_SYSTEM_PROMPT_FILE: into the rendered drawer
+         text via jf/gptel--append-drawer-property. Skipped when the
+         caller supplies INITIAL-CONTENT (the override contract owns
+         the whole shape).
+     - file: config/gptel/tools/persistent-agent.org
+       function: jf/gptel-persistent-agent--task
+       usage: |
+         Mirrors the interactive producer's pattern against the
+         agent's flat session-dir (no branches/ subdirectory). The
+         basename is threaded into the agent's drawer text via the
+         same helper.
+
+   consumers:
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--system-prompt-file-path
+       usage: |
+         Resolves :GPTEL_SYSTEM_PROMPT_FILE: from the drawer at
+         point-min via org-entry-get. Returns nil when unset;
+         resolves a basename against
+         (file-name-directory buffer-file-name); returns an absolute
+         path verbatim. Callers' file-readable-p check is the gate.
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--apply-system-prompt-file
+       usage: |
+         Activation-time installer (runs LAST in
+         gptel-chat--apply-declared-preset). Reads the file via
+         insert-file-contents in a with-temp-buffer; installs the
+         contents as buffer-local gptel--system-message when
+         non-blank. No-op on nil path, unreadable file, or blank
+         body.
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--refresh-system-prompt-from-file
+       usage: |
+         Pre-send refresh installed as :before advice on
+         gptel-request. Re-reads the sibling file and updates the
+         buffer-local cache before every chat request from a
+         gptel-chat-mode buffer. Same defensive guards as the
+         activation-time installer.
+
+   validator: |
+     (defun shape/validate-session-sibling-system-prompt-file (buf)
+       "Return nil when BUF + its sibling file satisfy the shape
+     contract, or a symbol naming the first violated invariant."
+       (with-current-buffer buf
+         (save-excursion
+           (goto-char (point-min))
+           (cond
+            ((not (looking-at-p "[ \t\n]*:PROPERTIES:"))
+             'config-drawer-not-at-point-min)
+            ((let ((raw (and (fboundp 'org-entry-get)
+                             (org-entry-get
+                              (point-min)
+                              "GPTEL_SYSTEM_PROMPT_FILE"
+                              'selective))))
+               (and raw (not (stringp raw))))
+             'drawer-property-not-a-string)
+            ;; Adjacency check: when the property is set, the key
+            ;; line precedes :END:.
+            ((let* ((content (buffer-string))
+                    (file-pos (string-match
+                               ":GPTEL_SYSTEM_PROMPT_FILE:"
+                               content))
+                    (end-pos (string-match "\n:END:\n" content)))
+               (and file-pos end-pos (>= file-pos end-pos)))
+             'drawer-property-after-end-marker)
+            (t nil)))))
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/invariant/system-prompt-file-authoritative
+     - register/invariant/drawer-system-key-write-exclusion
+     - register/shape/session-document-layout                  # superseded predecessor
+
+   supersedes:
+     - register/shape/session-document-layout
+
+   discovered_from: replace-system-prompt-heading-with-sibling-file
    discovered_by: architect
    #+end_src
 
@@ -1792,9 +1997,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    scaffolding_path: null  # cycle-8 cleanup: the boundaries/chat-mode-session-display.el scaffold was deleted by inline-fix commit 73a1b73; the regression spec at config/gptel/chat/test/display/drawer-fontification-spec.el is the live enforcement (status_note "Scaffold archived in favour of the co-located regression specs")
 
    related_entries:
-     - register/shape/session-document-layout
+     - register/shape/session-sibling-system-prompt-file
      - register/shape/drawer-text-block
      - register/boundary/chat-menu-scope-default
+     - register/shape/session-document-layout                  # superseded predecessor
 
    discovered_from: gptel-drawer-as-source-of-truth
 ** chat-block-body-indentation
@@ -2152,9 +2358,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    related_entries:
      - register/shape/drawer-text-block
-     - register/shape/session-document-layout
+     - register/shape/session-sibling-system-prompt-file
      - register/boundary/scope-pattern-writer
      - register/boundary/scope-profile-applicator
+     - register/shape/session-document-layout                  # superseded predecessor
 
    discovered_from: gptel-scope-in-org-properties
    discovered_by: architect
@@ -2460,16 +2667,22 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
      :GPTEL_SYSTEM: is the asymmetric exception and resolves through a
      three-tier precedence on chat-mode activation, highest first:
-       1. `* System Prompt` heading body when non-blank (post-Addendum;
-          owned by register/invariant/system-prompt-heading-authoritative)
+       1. sibling system-prompt.<ext> file referenced by
+          :GPTEL_SYSTEM_PROMPT_FILE: when present and non-blank
+          (replace-system-prompt-heading-with-sibling-file; owned by
+          register/invariant/system-prompt-file-authoritative)
        2. legacy :GPTEL_SYSTEM: drawer entry when present (back-compat
           for hand-authored entries; never written by code under our
           control — see register/invariant/drawer-system-key-write-
           exclusion)
        3. preset :system as the fallthrough seed
-     A blank heading body and an absent drawer entry together fall
-     through to the preset; an authored drawer entry still beats the
-     preset on read even when the heading body is blank.
+     A missing/unreadable sibling file and an absent drawer entry
+     together fall through to the preset; an authored drawer entry
+     still beats the preset on read even when the sibling file is
+     missing. The historical heading-body tier (owned by
+     register/invariant/system-prompt-heading-authoritative, now
+     superseded) is no longer in the precedence chain — no
+     producer emits the heading.
 
    why_it_matters: |
      This invariant is the *read-side* counterpart to register/invariant/
@@ -2507,7 +2720,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/system-prompt-heading-authoritative
    tier: invariant
-   status: reconciled
+   status: superseded
+   superseded_by: register/invariant/system-prompt-file-authoritative
+   superseded_in_cycle: cycle-1779568860
+   supersession_note: |
+     replace-system-prompt-heading-with-sibling-file (cycles
+     1779565028 + 1779568860) deleted the `* System Prompt` heading
+     this invariant defended, replacing it with a sibling
+     system-prompt.<ext> file referenced by a new
+     :GPTEL_SYSTEM_PROMPT_FILE: drawer key. The three-tier restore
+     precedence collapses to: sibling file > legacy :GPTEL_SYSTEM:
+     drawer entry (back-compat) > preset :system — the heading tier
+     no longer exists. The pre-send refresh
+     (gptel-chat--refresh-system-prompt-from-file, :before advice on
+     gptel-request) added in cycle-1779568860 completes the
+     "file is canonical, buffer is per-request cache" mental model.
+     Replacement contract at
+     register/invariant/system-prompt-file-authoritative.
    status_note: |
      cycle-7 plan (2026-05-22) — speculated by forward-mode against
      design.md §Addendum (Finding B, Decision B). Reverses Decision 2's
@@ -2613,10 +2842,118 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/invariant/drawer-system-key-write-exclusion
      - register/shape/session-document-layout
      - register/invariant/drawer-overlay-wins-over-preset
+     - register/invariant/system-prompt-file-authoritative     # replacement
 
    scaffolding_path: openspec/changes/gptel-drawer-as-source-of-truth/scaffolding/invariants/system-prompt-heading-authoritative.test.el
 
    discovered_from: gptel-drawer-as-source-of-truth
+** system-prompt-file-authoritative
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-system-prompt-file-authoritative
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/system-prompt-file-authoritative
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-1779568860 (2026-05-23) — created by task
+     mark-superseded-interfaces-register-entries as part of
+     `replace-system-prompt-heading-with-sibling-file`. Pinned by
+     consumers (gptel-chat--apply-system-prompt-file at activation,
+     gptel-chat--refresh-system-prompt-from-file before every
+     gptel-request from a chat-mode buffer) and by buttercup specs
+     covering activation precedence
+     (config/gptel/chat/test/menu/system-prompt-file-spec.el and the
+     "system prompt restore precedence" describe in
+     preset-wiring-spec.el) and per-request refresh
+     (config/gptel/chat/test/menu/pre-send-refresh-spec.el).
+     Supersedes register/invariant/system-prompt-heading-authoritative.
+   load_bearing: true
+   title: |
+     The sibling system-prompt.<ext> file is the authoritative
+     source of gptel--system-message
+
+   statement: |
+     For a session.org document (register/shape/session-sibling-
+     system-prompt-file), the body of the sibling file referenced by
+     the :GPTEL_SYSTEM_PROMPT_FILE: drawer key is the authoritative
+     source of the buffer-local gptel--system-message.
+
+     Restore precedence on chat-mode activation is, highest first:
+       1. sibling system-prompt.<ext> file (resolved via
+          :GPTEL_SYSTEM_PROMPT_FILE:), when present and non-blank
+       2. legacy :GPTEL_SYSTEM: drawer entry, when present (back-
+          compat for hand-authored sessions; never written by code
+          under our control — register/invariant/drawer-system-key-
+          write-exclusion)
+       3. preset :system
+     A nil property, a missing/unreadable file, or a blank body all
+     fall through to the next source — an empty file never silently
+     wipes the prompt.
+
+     Before every gptel-request submitted from a gptel-chat-mode
+     buffer, the sibling file is re-read into buffer-local
+     gptel--system-message
+     (gptel-chat--refresh-system-prompt-from-file, installed as
+     :before advice on gptel-request). The buffer-local value is a
+     per-request cache, not durable state; the file is the source
+     of truth. A mid-session edit to the sibling file is therefore
+     reflected on the next send without reverting session.org.
+
+     The save path never writes the sibling file; the file is
+     mutated only by direct user edits. The drawer write also never
+     emits :GPTEL_SYSTEM: (composes with — does not contradict —
+     register/invariant/drawer-system-key-write-exclusion).
+
+   why_it_matters: |
+     The prior cycle (gptel-drawer-as-source-of-truth §Addendum)
+     relocated the system prompt into a `* System Prompt` heading
+     body inside session.org because long markdown system prompts
+     were unwieldy as drawer property values. The heading body
+     carried multi-line text fine but interacted badly with org-mode
+     fontification, folding, and the chat parser (especially when
+     the prompt contained literal #+begin_user lines or markdown
+     constructs). The sibling-file shape lets the system prompt
+     render, edit, and reason about as the format the preset
+     authored it in (markdown today, .org tomorrow) with no org-mode
+     interaction. The "file is canonical, buffer is cache" mental
+     model is sustained by the pre-send refresh: a user-edit on disk
+     becomes the active prompt on the next send without explicit
+     reverts.
+
+   enforcement_mechanism:
+     kind: behavioural buttercup specs + reviewer's three-direction
+       audit on chat-mode menu changes
+     location: |
+       Activation precedence:
+       - config/gptel/chat/test/menu/system-prompt-file-spec.el
+         (9 focused specs covering the resolver + activation-time
+         installer + all defensive paths)
+       - config/gptel/chat/test/menu/preset-wiring-spec.el
+         (the "system prompt restore precedence" describe — 6 specs
+         covering sibling-file-wins-over-preset, sibling-wins-over-
+         legacy-drawer, legacy-applies-without-sibling, and the
+         three fallback-to-preset cases)
+       Per-request refresh:
+       - config/gptel/chat/test/menu/pre-send-refresh-spec.el
+         (6 specs covering the refresh body + :before advice on
+         gptel-request + the unreadable / blank-body / no-op edge
+         cases + the non-chat-mode buffer no-op)
+
+   related_entries:
+     - register/shape/session-sibling-system-prompt-file
+     - register/invariant/drawer-system-key-write-exclusion
+     - register/invariant/drawer-overlay-wins-over-preset
+     - register/invariant/system-prompt-heading-authoritative  # superseded predecessor
+
+   supersedes:
+     - register/invariant/system-prompt-heading-authoritative
+
+   discovered_from: replace-system-prompt-heading-with-sibling-file
+   discovered_by: architect
+   #+end_src
+
 ** chat-block-body-is-indented
    :PROPERTIES:
    :CUSTOM_ID: register-invariant-chat-block-body-is-indented
