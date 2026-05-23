@@ -52,23 +52,58 @@
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
   (require 'jf-gptel-scope-expansion (expand-file-name "scope-expansion.el" scope-dir)))
 
-(defun no-duplicate-drawer-spec--count-properties-headers (buffer)
-  "Count `:PROPERTIES:' header lines in BUFFER.
+(defun no-duplicate-drawer-spec--file-level-drawer-region (buffer)
+  "Return (BEG . END) of the file-level drawer span in BUFFER.
 
-Splits the buffer on newlines and counts lines that match a
-`:PROPERTIES:'-only line (allowing leading whitespace).  The
-matching form is intentionally explicit about what it asserts —
-\"exactly one drawer header line\" — rather than relying on a
-regex search count that could collide with the closing `:END:'
-or with property-key lines."
-  (let ((content (with-current-buffer buffer
-                   (buffer-substring-no-properties (point-min) (point-max)))))
+The span starts at `(point-min)' and ends at the buffer position
+immediately AFTER the first line whose content is `^[ \\t]*:END:[ \\t]*$'
+\(the file-level drawer's terminator).  If no terminator is found,
+returns nil.
+
+Scoping the `:PROPERTIES:'/`:END:' counters to this span makes the
+test match the prose of `register/invariant/scope-drawer-no-duplication',
+which restricts the singleton claim to the file-level drawer at
+point-min.  Buffer-wide counting was correct as long as no fixture
+emitted a second drawer; the post-cycle-7 canonical layout
+\(`register/shape/session-document-layout') introduces a heading-level
+drawer on `* System Prompt' that would inflate a buffer-wide count to
+2/2 even when the file-level drawer remains singular."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+        (cons (point-min) (line-end-position))))))
+
+(defun no-duplicate-drawer-spec--count-properties-headers (buffer)
+  "Count `:PROPERTIES:' header lines in the file-level drawer of BUFFER.
+
+Splits the file-level drawer span (see
+`no-duplicate-drawer-spec--file-level-drawer-region') on newlines and
+counts lines matching a `:PROPERTIES:'-only line (allowing leading
+whitespace).  The matching form is intentionally explicit about what
+it asserts — \"exactly one drawer header line at point-min\" — rather
+than relying on a regex search count that could collide with the
+closing `:END:' or with property-key lines.
+
+Scoped to the file-level drawer span per
+`register/invariant/scope-drawer-no-duplication' prose; heading-level
+drawers introduced by the post-cycle-7 canonical layout
+\(`register/shape/session-document-layout') are excluded by construction."
+  (let* ((region (no-duplicate-drawer-spec--file-level-drawer-region buffer))
+         (content (if region
+                      (with-current-buffer buffer
+                        (buffer-substring-no-properties (car region) (cdr region)))
+                    "")))
     (cl-count-if
      (lambda (line) (string-match-p "^[ \t]*:PROPERTIES:[ \t]*$" line))
      (split-string content "\n"))))
 
 (defun no-duplicate-drawer-spec--count-end-lines (buffer)
-  "Count `:END:' lines in BUFFER, parallel to the `:PROPERTIES:' counter.
+  "Count `:END:' lines in the file-level drawer of BUFFER.
+
+Parallel to `no-duplicate-drawer-spec--count-properties-headers';
+scoped to the file-level drawer span (see
+`no-duplicate-drawer-spec--file-level-drawer-region').
 
 The cited invariant `register/invariant/scope-drawer-no-duplication'
 names both lines (\"exactly one `:PROPERTIES:' line and exactly one
@@ -76,8 +111,11 @@ names both lines (\"exactly one `:PROPERTIES:' line and exactly one
 both halves discharges the contract fully and bites a hypothetical
 narrower regression that emits a stray `:END:' without a paired
 `:PROPERTIES:'."
-  (let ((content (with-current-buffer buffer
-                   (buffer-substring-no-properties (point-min) (point-max)))))
+  (let* ((region (no-duplicate-drawer-spec--file-level-drawer-region buffer))
+         (content (if region
+                      (with-current-buffer buffer
+                        (buffer-substring-no-properties (car region) (cdr region)))
+                    "")))
     (cl-count-if
      (lambda (line) (string-match-p "^[ \t]*:END:[ \t]*$" line))
      (split-string content "\n"))))
@@ -159,7 +197,51 @@ narrower regression that emits a stray `:END:' without a paired
         (expect (org-entry-get (point-min) "GPTEL_PRESET")
                 :to-equal "default")
         (expect (org-entry-get (point-min) "GPTEL_PARENT_SESSION_ID")
-                :to-equal "abc-123")))))
+                :to-equal "abc-123"))))
+
+  ;; Post-cycle-7 fixture coverage.  `register/shape/session-
+  ;; document-layout' introduced a second drawer (the `* System Prompt'
+  ;; heading's own :PROPERTIES:/:VISIBILITY: folded/:END: block).  The
+  ;; pre-Addendum fixture `jf/gptel-test--with-scope-drawer' emits the
+  ;; old shape (one drawer, bare #+begin_user block, no headings), so a
+  ;; buffer-wide :PROPERTIES:/:END: count passed trivially.  This `it'
+  ;; body runs the same multi-write add-to-scope sequence against the
+  ;; canonical post-Addendum shape via
+  ;; `jf/gptel-test--with-session-document', and asserts the tightened
+  ;; file-level-scoped counters still report exactly one
+  ;; :PROPERTIES:/:END: pair at point-min — even though buffer-wide
+  ;; counts in this fixture are 2/2.  Together with the buffer-wide
+  ;; counts asserted by the fixture's own self-tests in helpers-spec.el,
+  ;; this discharges the invariant's prose ("file-level drawer at
+  ;; point-min") against both fixture shapes.
+  (it "file-level :PROPERTIES: drawer stays singular against the canonical session-document layout"
+    (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+      (jf/gptel-test--with-session-document
+          '((:GPTEL_PRESET . "executor")
+            (:GPTEL_SCOPE_READ . ("/initial/**")))
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :read "/added/one/**")
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :read "/added/two/**")
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :write "/output/**")
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :execute "/usr/local/bin/**")
+        ;; File-level drawer remains singular (counters scoped to the
+        ;; point-min..first :END: span).
+        (expect (no-duplicate-drawer-spec--count-properties-headers
+                 (current-buffer))
+                :to-equal 1)
+        (expect (no-duplicate-drawer-spec--count-end-lines
+                 (current-buffer))
+                :to-equal 1)
+        ;; Non-scope key still readable at point-min.
+        (expect (org-entry-get (point-min) "GPTEL_PRESET")
+                :to-equal "executor")
+        ;; Canonical layout is intact: the two heading-level singletons
+        ;; the document-layout invariant guards still hold.
+        (expect (count-matches "^\\* System Prompt[ \t]*$"
+                               (point-min) (point-max))
+                :to-equal 1)
+        (expect (count-matches "^\\* Chat[ \t]*$"
+                               (point-min) (point-max))
+                :to-equal 1)))))
 
 (provide 'no-duplicate-drawer-spec)
 ;;; no-duplicate-drawer-spec.el ends here

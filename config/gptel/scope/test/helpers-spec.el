@@ -600,6 +600,41 @@ shape of a real session.org.  ALIST has the same shape as
      (goto-char (point-min))
      ,@body))
 
+(defmacro jf/gptel-test--with-session-document (alist &rest body)
+  "Run BODY in a temp buffer shaped like a post-cycle-7 `session.org'.
+
+ALIST has the same shape as `jf/gptel-test--render-drawer'.  After the
+file-level config drawer, the canonical heading block emitted by
+`jf/gptel--session-headings-block' is inserted: a `* System Prompt'
+heading with its own `:PROPERTIES:/:VISIBILITY: folded/:END:' drawer
+and an empty body, followed by a `* Chat' heading containing the
+empty `#+begin_user' / `#+end_user' template.
+
+The buffer is in `org-mode' with point at `point-min' before BODY runs.
+
+Use this macro (instead of `jf/gptel-test--with-scope-drawer') when the
+test must verify behaviour against the *full document shape* described
+by `register/shape/session-document-layout' — most importantly, the
+presence of a second `:PROPERTIES:' drawer attached to `* System
+Prompt'.  Buffer-wide `:PROPERTIES:'/`:END:' counts will therefore be
+2/2 here, not 1/1; assertions about the file-level drawer must be
+scoped to the span before the first heading (see e.g.
+`no-duplicate-drawer-spec--count-properties-headers' in
+`config/gptel/scope/test/drawer/no-duplicate-drawer-spec.el')."
+  (declare (indent 1))
+  `(with-temp-buffer
+     (insert (jf/gptel-test--render-drawer ,alist))
+     (insert "* System Prompt\n"
+             ":PROPERTIES:\n"
+             ":VISIBILITY: folded\n"
+             ":END:\n"
+             "\n"
+             "* Chat\n"
+             "#+begin_user\n\n#+end_user\n")
+     (org-mode)
+     (goto-char (point-min))
+     ,@body))
+
 ;;; Self-tests for the drawer fixture helpers
 ;;
 ;; Exercising the helper from inside helpers-spec.el itself documents
@@ -654,6 +689,49 @@ shape of a real session.org.  ALIST has the same shape as
 
   (it "puts the buffer in org-mode"
     (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect major-mode :to-equal 'org-mode))))
+
+(describe "jf/gptel-test--with-session-document"
+  (it "round-trips a multi-value list through org-entry-get-multivalued-property at point-min"
+    ;; The file-level config drawer remains at point-min and is read by
+    ;; the scope loader exactly the same way as in the pre-Addendum
+    ;; fixture; the added headings must not displace it.
+    (jf/gptel-test--with-session-document
+        '((:GPTEL_SCOPE_READ . ("/a" "/b")))
+      (expect (org-entry-get-multivalued-property (point-min) "GPTEL_SCOPE_READ")
+              :to-equal '("/a" "/b"))))
+
+  (it "emits exactly one '* System Prompt' heading"
+    (jf/gptel-test--with-session-document '()
+      (goto-char (point-min))
+      (expect (count-matches "^\\* System Prompt[ \t]*$" (point-min) (point-max))
+              :to-equal 1)))
+
+  (it "emits exactly one '* Chat' heading"
+    (jf/gptel-test--with-session-document '()
+      (goto-char (point-min))
+      (expect (count-matches "^\\* Chat[ \t]*$" (point-min) (point-max))
+              :to-equal 1)))
+
+  (it "carries two :PROPERTIES: drawers buffer-wide (file-level + heading-level)"
+    ;; This is the meta-fact that motivates the sibling counter
+    ;; (`no-duplicate-drawer-spec--count-properties-headers') being scoped
+    ;; to the file-level drawer span rather than the whole buffer.  If
+    ;; this expectation ever changes, the counter scoping must be revisited.
+    (jf/gptel-test--with-session-document '()
+      (expect (count-matches "^[ \t]*:PROPERTIES:[ \t]*$" (point-min) (point-max))
+              :to-equal 2)
+      (expect (count-matches "^[ \t]*:END:[ \t]*$" (point-min) (point-max))
+              :to-equal 2)))
+
+  (it "leaves point at point-min before BODY runs"
+    (jf/gptel-test--with-session-document
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect (point) :to-equal (point-min))))
+
+  (it "puts the buffer in org-mode"
+    (jf/gptel-test--with-session-document
         '((:GPTEL_SCOPE_READ . ("/a")))
       (expect major-mode :to-equal 'org-mode))))
 
